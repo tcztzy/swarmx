@@ -2,7 +2,6 @@
 import copy
 import json
 from collections import defaultdict
-from typing import List, Callable, Union
 
 # Package/library imports
 from openai import OpenAI
@@ -13,7 +12,7 @@ from .util import function_to_json, debug_print, merge_chunk
 from .types import (
     Agent,
     AgentFunction,
-    ChatCompletionMessage,
+    ChatCompletion,
     ChatCompletionMessageToolCall,
     Function,
     Response,
@@ -32,12 +31,12 @@ class Swarm:
     def get_chat_completion(
         self,
         agent: Agent,
-        history: List,
+        history: list,
         context_variables: dict,
         model_override: str,
         stream: bool,
         debug: bool,
-    ) -> ChatCompletionMessage:
+    ) -> ChatCompletion:
         context_variables = defaultdict(str, context_variables)
         instructions = (
             agent.instructions(context_variables)
@@ -88,8 +87,8 @@ class Swarm:
 
     def handle_tool_calls(
         self,
-        tool_calls: List[ChatCompletionMessageToolCall],
-        functions: List[AgentFunction],
+        tool_calls: list[ChatCompletionMessageToolCall],
+        functions: list[AgentFunction],
         context_variables: dict,
         debug: bool,
     ) -> Response:
@@ -139,7 +138,7 @@ class Swarm:
     def run_and_stream(
         self,
         agent: Agent,
-        messages: List,
+        messages: list,
         context_variables: dict = {},
         model_override: str = None,
         debug: bool = False,
@@ -231,7 +230,7 @@ class Swarm:
     def run(
         self,
         agent: Agent,
-        messages: List,
+        messages: list,
         context_variables: dict = {},
         model_override: str = None,
         stream: bool = False,

@@ -1,7 +1,7 @@
-from openai.types.chat import ChatCompletionMessage
+from openai.types.chat import ChatCompletion as ChatCompletion
 from openai.types.chat.chat_completion_message_tool_call import (
-    ChatCompletionMessageToolCall,
-    Function,
+    ChatCompletionMessageToolCall as ChatCompletionMessageToolCall,
+    Function as Function,
 )
 from typing import List, Callable, Union, Optional
 
