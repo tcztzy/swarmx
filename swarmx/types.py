@@ -12,6 +12,9 @@ from openai.types.chat.chat_completion_chunk import (
 from openai.types.chat.chat_completion_message import (
     ChatCompletionMessage as _ChatCompletionMessage,
 )
+from openai.types.chat.chat_completion_message_param import (
+    ChatCompletionMessageParam as ChatCompletionMessageParam,
+)
 from openai.types.chat.chat_completion_message_tool_call import (
     ChatCompletionMessageToolCall as ChatCompletionMessageToolCall,
 )
@@ -43,7 +46,7 @@ class Agent(BaseModel):
 
 
 class Response(BaseModel):
-    messages: list = []
+    messages: list[ChatCompletionMessageParam] = []
     agent: Agent | None = None
     context_variables: dict = {}
 

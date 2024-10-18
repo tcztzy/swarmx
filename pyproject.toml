@@ -23,6 +23,7 @@ managed = true
 dev-dependencies = [
     "pre-commit>=2.15.0",
     "pytest>=5.0.0",
+    "pytest-cov>=5.0.0",
 ]
 
 [tool.hatch.build.targets.wheel]

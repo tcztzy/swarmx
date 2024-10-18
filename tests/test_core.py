@@ -109,7 +109,9 @@ def test_execute_tools_false(mock_openai_client: MockOpenAIClient):
 
     # assert tool call is present in last response
     tool_calls = response.messages[-1].get("tool_calls")
-    assert tool_calls is not None and len(tool_calls) == 1
+    assert tool_calls is not None
+    tool_calls = list(tool_calls)
+    assert len(tool_calls) == 1
     tool_call = tool_calls[0]
     assert tool_call["function"]["name"] == "get_weather"
     assert json.loads(tool_call["function"]["arguments"]) == {
