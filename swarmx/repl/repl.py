@@ -75,7 +75,6 @@ def run_demo_loop(
             messages=messages,
             context_variables=context_variables or {},
             stream=stream,
-            debug=debug,
         )
 
         if stream:

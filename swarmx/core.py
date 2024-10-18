@@ -10,6 +10,7 @@ from openai.resources.chat.completions import NOT_GIVEN, Stream
 from .types import (
     Agent,
     AgentFunction,
+    AgentFunctionReturnType,
     ChatCompletion,
     ChatCompletionChunk,
     ChatCompletionMessage,
@@ -37,7 +38,6 @@ class Swarm:
         context_variables: dict,
         model_override: str | None,
         stream: Literal[True],
-        debug: bool,
     ) -> Stream[ChatCompletionChunk]: ...
 
     @overload
@@ -48,7 +48,6 @@ class Swarm:
         context_variables: dict[str, Any],
         model_override: str | None,
         stream: Literal[False],
-        debug: bool,
     ) -> ChatCompletion: ...
 
     def get_chat_completion(
@@ -58,7 +57,6 @@ class Swarm:
         context_variables: dict[str, Any],
         model_override: str | None,
         stream: bool,
-        debug: bool,
     ) -> ChatCompletion | Stream[ChatCompletionChunk]:
         context_variables = defaultdict(str, context_variables)
         instructions = (
@@ -85,7 +83,7 @@ class Swarm:
             parallel_tool_calls=len(tools) > 0 and agent.parallel_tool_calls,
         )
 
-    def handle_function_result(self, result, debug: bool) -> Result:
+    def handle_function_result(self, result: AgentFunctionReturnType) -> Result:
         match result:
             case Result() as result:
                 return result
@@ -108,7 +106,6 @@ class Swarm:
         tool_calls: list[ChatCompletionMessageToolCall],
         functions: list[AgentFunction],
         context_variables: dict[str, Any],
-        debug: bool,
     ) -> Response:
         function_map = {f.__name__: f for f in functions}
         partial_response = Response(messages=[], agent=None, context_variables={})
@@ -136,7 +133,7 @@ class Swarm:
                 args[__CTX_VARS_NAME__] = context_variables
             raw_result = function_map[name](**args)
 
-            result: Result = self.handle_function_result(raw_result, debug)
+            result: Result = self.handle_function_result(raw_result)
             partial_response.messages.append(
                 {
                     "role": "tool",
@@ -157,7 +154,6 @@ class Swarm:
         messages: list,
         context_variables: dict[str, Any] = {},
         model_override: str | None = None,
-        debug: bool = False,
         max_turns: int | float = float("inf"),
         execute_tools: bool = True,
     ):
@@ -174,7 +170,6 @@ class Swarm:
                 context_variables=context_variables,
                 model_override=model_override,
                 stream=True,
-                debug=debug,
             )
 
             yield {"delim": "start"}
@@ -213,7 +208,7 @@ class Swarm:
 
             # handle function calls, updating context_variables, and switching agents
             partial_response = self.handle_tool_calls(
-                tool_calls, active_agent.functions, context_variables, debug
+                tool_calls, active_agent.functions, context_variables
             )
             history.extend(partial_response.messages)
             context_variables.update(partial_response.context_variables)
@@ -235,7 +230,6 @@ class Swarm:
         context_variables: dict = {},
         model_override: str | None = None,
         stream: bool = False,
-        debug: bool = False,
         max_turns: int | float = float("inf"),
         execute_tools: bool = True,
     ) -> Response:
@@ -245,7 +239,6 @@ class Swarm:
                 messages=messages,
                 context_variables=context_variables,
                 model_override=model_override,
-                debug=debug,
                 max_turns=max_turns,
                 execute_tools=execute_tools,
             )
@@ -262,7 +255,6 @@ class Swarm:
                 context_variables=context_variables,
                 model_override=model_override,
                 stream=stream,
-                debug=debug,
             )
             message = completion.choices[0].message
             logger.debug("Received completion:", message)
@@ -276,7 +268,7 @@ class Swarm:
 
             # handle function calls, updating context_variables, and switching agents
             partial_response = self.handle_tool_calls(
-                message.tool_calls, active_agent.functions, context_variables, debug
+                message.tool_calls, active_agent.functions, context_variables
             )
             history.extend(partial_response.messages)
             context_variables.update(partial_response.context_variables)

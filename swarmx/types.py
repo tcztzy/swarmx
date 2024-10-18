@@ -1,4 +1,4 @@
-from typing import Any, Callable, MutableMapping, TypedDict
+from typing import Any, Callable, MutableMapping, TypeAlias, TypedDict
 
 from openai.types.chat.chat_completion import ChatCompletion as ChatCompletion
 from openai.types.chat.chat_completion_chunk import (
@@ -28,7 +28,9 @@ from openai.types.chat.chat_completion_tool_param import (
 # Third-party imports
 from pydantic import BaseModel
 
-AgentFunction = Callable[..., "str | dict | Agent | Result"]
+AgentFunctionReturnType: TypeAlias = "str | dict | Agent | Result"
+
+AgentFunction = Callable[..., AgentFunctionReturnType]
 
 
 class Agent(BaseModel):
