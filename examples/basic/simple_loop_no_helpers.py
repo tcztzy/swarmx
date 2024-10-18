@@ -1,4 +1,4 @@
-from swarm import Swarm, Agent
+from swarmx import Agent, Swarm
 
 client = Swarm()
 
@@ -23,5 +23,6 @@ while True:
 
     response = client.run(agent=agent, messages=messages)
     messages = response.messages
+    assert response.agent is not None
     agent = response.agent
     pretty_print_messages(messages)

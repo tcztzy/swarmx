@@ -1,4 +1,4 @@
-from swarm import Swarm, Agent
+from swarmx import Agent, Swarm
 
 client = Swarm()
 
