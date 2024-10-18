@@ -1,8 +1,11 @@
 import inspect
 from datetime import datetime
+from typing import Any
+
+from typing_extensions import Unpack
 
 
-def debug_print(debug: bool, *args: str) -> None:
+def debug_print(debug: bool, *args: Unpack[tuple[Any]]) -> None:
     if not debug:
         return
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")

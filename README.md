@@ -1,6 +1,4 @@
-![Swarm Logo](assets/logo.png)
-
-# Swarm (experimental, educational)
+# SwarmX (forked from OpenAI's Swarm)
 
 An educational framework exploring ergonomic, lightweight multi-agent orchestration.
 
@@ -14,19 +12,24 @@ An educational framework exploring ergonomic, lightweight multi-agent orchestrat
 Requires Python 3.10+
 
 ```shell
-pip install git+ssh://git@github.com/openai/swarm.git
+pip install swarmx
+```
+or
+
+```shell
+pip install git+ssh://git@github.com/tcztzy/swarmx.git
 ```
 
 or
 
 ```shell
-pip install git+https://github.com/openai/swarm.git
+pip install git+https://github.com/tcztzy/swarmx.git
 ```
 
 ## Usage
 
 ```python
-from swarm import Swarm, Agent
+from swarmx import Swarm, Agent
 
 client = Swarm()
 
@@ -108,7 +111,7 @@ Check out `/examples` for inspiration! Learn more about each one in its README.
 Start by instantiating a Swarm client (which internally just instantiates an `OpenAI` client).
 
 ```python
-from swarm import Swarm
+from swarmx import Swarm
 
 client = Swarm()
 ```
@@ -344,7 +347,7 @@ Evaluations are crucial to any project, and we encourage developers to bring the
 Use the `run_demo_loop` to test out your swarm! This will run a REPL on your command line. Supports streaming.
 
 ```python
-from swarm.repl import run_demo_loop
+from swarmx.repl import run_demo_loop
 ...
 run_demo_loop(agent, stream=True)
 ```

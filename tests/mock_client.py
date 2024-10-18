@@ -1,8 +1,13 @@
-from unittest.mock import MagicMock
-from swarm.types import ChatCompletionMessage, ChatCompletionMessageToolCall, Function
-from openai import OpenAI
-from openai.types.chat.chat_completion import ChatCompletion, Choice
 import json
+from unittest.mock import MagicMock
+
+from openai.types.chat.chat_completion import (
+    ChatCompletion,
+    ChatCompletionMessage,
+    Choice,
+)
+
+from swarmx.types import ChatCompletionMessageToolCall, Function
 
 
 def create_mock_response(message, function_calls=[], model="gpt-4o"):

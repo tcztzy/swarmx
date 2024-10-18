@@ -1,28 +1,34 @@
+from typing import Callable
+
 from openai.types.chat import ChatCompletion as ChatCompletion
+from openai.types.chat import (
+    ChatCompletionAssistantMessageParam as _ChatCompletionAssistantMessageParam,
+)
 from openai.types.chat.chat_completion_message_tool_call import (
     ChatCompletionMessageToolCall as ChatCompletionMessageToolCall,
+)
+from openai.types.chat.chat_completion_message_tool_call import (
     Function as Function,
 )
-from typing import List, Callable, Union, Optional
 
 # Third-party imports
 from pydantic import BaseModel
 
-AgentFunction = Callable[[], Union[str, "Agent", dict]]
+AgentFunction = Callable[[], "str | Agent | dict"]
 
 
 class Agent(BaseModel):
     name: str = "Agent"
     model: str = "gpt-4o"
-    instructions: Union[str, Callable[[], str]] = "You are a helpful agent."
-    functions: List[AgentFunction] = []
-    tool_choice: str = None
+    instructions: str | Callable[..., str] = "You are a helpful agent."
+    functions: list[AgentFunction] = []
+    tool_choice: str | None = None
     parallel_tool_calls: bool = True
 
 
 class Response(BaseModel):
-    messages: List = []
-    agent: Optional[Agent] = None
+    messages: list = []
+    agent: Agent | None = None
     context_variables: dict = {}
 
 
@@ -37,5 +43,9 @@ class Result(BaseModel):
     """
 
     value: str = ""
-    agent: Optional[Agent] = None
+    agent: Agent | None = None
     context_variables: dict = {}
+
+
+class ChatCompletionAssistantMessageParam(_ChatCompletionAssistantMessageParam):
+    sender: str

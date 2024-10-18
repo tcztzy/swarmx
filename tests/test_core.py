@@ -1,8 +1,10 @@
-import pytest
-from swarm import Swarm, Agent
-from tests.mock_client import MockOpenAIClient, create_mock_response
-from unittest.mock import Mock
 import json
+from unittest.mock import Mock
+
+import pytest
+
+from swarmx import Agent, Swarm
+from tests.mock_client import MockOpenAIClient, create_mock_response
 
 DEFAULT_RESPONSE_CONTENT = "sample response content"
 

@@ -6,18 +6,19 @@ from collections import defaultdict
 # Package/library imports
 from openai import OpenAI
 
-
-# Local imports
-from .util import function_to_json, debug_print, merge_chunk
 from .types import (
     Agent,
     AgentFunction,
     ChatCompletion,
+    ChatCompletionAssistantMessageParam,
     ChatCompletionMessageToolCall,
     Function,
     Response,
     Result,
 )
+
+# Local imports
+from .util import debug_print, function_to_json, merge_chunk
 
 __CTX_VARS_NAME__ = "context_variables"
 
@@ -33,7 +34,7 @@ class Swarm:
         agent: Agent,
         history: list,
         context_variables: dict,
-        model_override: str,
+        model_override: str | None,
         stream: bool,
         debug: bool,
     ) -> ChatCompletion:
@@ -44,7 +45,7 @@ class Swarm:
             else agent.instructions
         )
         messages = [{"role": "system", "content": instructions}] + history
-        debug_print(debug, "Getting chat completion for...:", messages)
+        debug_print(debug, "Getting chat completion for...:", messages)  # type: ignore[call-arg]
 
         tools = [function_to_json(f) for f in agent.functions]
         # hide context_variables from model
@@ -93,8 +94,7 @@ class Swarm:
         debug: bool,
     ) -> Response:
         function_map = {f.__name__: f for f in functions}
-        partial_response = Response(
-            messages=[], agent=None, context_variables={})
+        partial_response = Response(messages=[], agent=None, context_variables={})
 
         for tool_call in tool_calls:
             name = tool_call.function.name
@@ -111,8 +111,7 @@ class Swarm:
                 )
                 continue
             args = json.loads(tool_call.function.arguments)
-            debug_print(
-                debug, f"Processing tool call: {name} with arguments {args}")
+            debug_print(debug, f"Processing tool call: {name} with arguments {args}")
 
             func = function_map[name]
             # pass context_variables to agent functions
@@ -140,9 +139,9 @@ class Swarm:
         agent: Agent,
         messages: list,
         context_variables: dict = {},
-        model_override: str = None,
+        model_override: str | None = None,
         debug: bool = False,
-        max_turns: int = float("inf"),
+        max_turns: int | float = float("inf"),
         execute_tools: bool = True,
     ):
         active_agent = agent
@@ -151,21 +150,21 @@ class Swarm:
         init_len = len(messages)
 
         while len(history) - init_len < max_turns:
-
-            message = {
-                "content": "",
-                "sender": agent.name,
-                "role": "assistant",
-                "function_call": None,
-                "tool_calls": defaultdict(
-                    lambda: {
-                        "function": {"arguments": "", "name": ""},
-                        "id": "",
-                        "type": "",
-                    }
-                ),
-            }
-
+            message: ChatCompletionAssistantMessageParam = (
+                ChatCompletionAssistantMessageParam(
+                    content="",
+                    sender=agent.name,
+                    role="assistant",
+                    function_call=None,
+                    tool_calls=defaultdict(
+                        lambda: {
+                            "function": {"arguments": "", "name": ""},
+                            "id": "",
+                            "type": "",
+                        }
+                    ),
+                )
+            )
             # get completion with current history, agent
             completion = self.get_chat_completion(
                 agent=active_agent,
@@ -187,11 +186,10 @@ class Swarm:
                 merge_chunk(message, delta)
             yield {"delim": "end"}
 
-            message["tool_calls"] = list(
-                message.get("tool_calls", {}).values())
+            message["tool_calls"] = list(message.get("tool_calls", {}).values())
             if not message["tool_calls"]:
                 message["tool_calls"] = None
-            debug_print(debug, "Received completion:", message)
+            debug_print(debug, "Received completion:", message)  # type: ignore[call-arg]
             history.append(message)
 
             if not message["tool_calls"] or not execute_tools:
@@ -232,10 +230,10 @@ class Swarm:
         agent: Agent,
         messages: list,
         context_variables: dict = {},
-        model_override: str = None,
+        model_override: str | None = None,
         stream: bool = False,
         debug: bool = False,
-        max_turns: int = float("inf"),
+        max_turns: int | float = float("inf"),
         execute_tools: bool = True,
     ) -> Response:
         if stream:
@@ -254,7 +252,6 @@ class Swarm:
         init_len = len(messages)
 
         while len(history) - init_len < max_turns and active_agent:
-
             # get completion with current history, agent
             completion = self.get_chat_completion(
                 agent=active_agent,
@@ -265,7 +262,7 @@ class Swarm:
                 debug=debug,
             )
             message = completion.choices[0].message
-            debug_print(debug, "Received completion:", message)
+            debug_print(debug, "Received completion:", message)  # type: ignore[call-arg]
             message.sender = active_agent.name
             history.append(
                 json.loads(message.model_dump_json())
