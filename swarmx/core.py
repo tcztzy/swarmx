@@ -1,43 +1,65 @@
-# Standard library imports
 import copy
 import json
 from collections import defaultdict
+from typing import Any, Literal, cast, overload
 
-# Package/library imports
+from loguru import logger
 from openai import OpenAI
+from openai.resources.chat.completions import NOT_GIVEN, Stream
 
 from .types import (
     Agent,
     AgentFunction,
     ChatCompletion,
-    ChatCompletionAssistantMessageParam,
+    ChatCompletionChunk,
+    ChatCompletionMessage,
     ChatCompletionMessageToolCall,
-    Function,
+    FunctionParameters,
     Response,
     Result,
 )
-
-# Local imports
-from .util import debug_print, function_to_json, merge_chunk
+from .util import function_to_json
 
 __CTX_VARS_NAME__ = "context_variables"
 
 
 class Swarm:
-    def __init__(self, client=None):
+    def __init__(self, client: OpenAI | None = None):
         if not client:
             client = OpenAI()
         self.client = client
 
+    @overload
     def get_chat_completion(
         self,
         agent: Agent,
         history: list,
         context_variables: dict,
         model_override: str | None,
+        stream: Literal[True],
+        debug: bool,
+    ) -> Stream[ChatCompletionChunk]: ...
+
+    @overload
+    def get_chat_completion(
+        self,
+        agent: Agent,
+        history: list,
+        context_variables: dict[str, Any],
+        model_override: str | None,
+        stream: Literal[False],
+        debug: bool,
+    ) -> ChatCompletion: ...
+
+    def get_chat_completion(
+        self,
+        agent: Agent,
+        history: list,
+        context_variables: dict[str, Any],
+        model_override: str | None,
         stream: bool,
         debug: bool,
-    ) -> ChatCompletion:
+    ) -> ChatCompletion | Stream[ChatCompletionChunk]:
         context_variables = defaultdict(str, context_variables)
         instructions = (
             agent.instructions(context_variables)
@@ -45,30 +67,25 @@ class Swarm:
             else agent.instructions
         )
         messages = [{"role": "system", "content": instructions}] + history
-        debug_print(debug, "Getting chat completion for...:", messages)  # type: ignore[call-arg]
+        logger.debug("Getting chat completion for...:", messages)
 
         tools = [function_to_json(f) for f in agent.functions]
         # hide context_variables from model
         for tool in tools:
-            params = tool["function"]["parameters"]
+            params = cast(FunctionParameters, tool["function"]["parameters"])
             params["properties"].pop(__CTX_VARS_NAME__, None)
             if __CTX_VARS_NAME__ in params["required"]:
                 params["required"].remove(__CTX_VARS_NAME__)
+        return self.client.chat.completions.create(
+            model=model_override or agent.model,
+            messages=messages,
+            tools=tools or NOT_GIVEN,
+            tool_choice=agent.tool_choice or NOT_GIVEN,
+            stream=stream,
+            parallel_tool_calls=len(tools) > 0 and agent.parallel_tool_calls,
+        )
 
-        create_params = {
-            "model": model_override or agent.model,
-            "messages": messages,
-            "tools": tools or None,
-            "tool_choice": agent.tool_choice,
-            "stream": stream,
-        }
-
-        if tools:
-            create_params["parallel_tool_calls"] = agent.parallel_tool_calls
-
-        return self.client.chat.completions.create(**create_params)
-
-    def handle_function_result(self, result, debug) -> Result:
+    def handle_function_result(self, result, debug: bool) -> Result:
         match result:
             case Result() as result:
                 return result
@@ -83,14 +100,14 @@ class Swarm:
                     return Result(value=str(result))
                 except Exception as e:
                     error_message = f"Failed to cast response to string: {result}. Make sure agent functions return a string or Result object. Error: {str(e)}"
-                    debug_print(debug, error_message)
+                    logger.debug(error_message)
                     raise TypeError(error_message)
 
     def handle_tool_calls(
         self,
         tool_calls: list[ChatCompletionMessageToolCall],
         functions: list[AgentFunction],
-        context_variables: dict,
+        context_variables: dict[str, Any],
         debug: bool,
     ) -> Response:
         function_map = {f.__name__: f for f in functions}
@@ -100,7 +117,7 @@ class Swarm:
             name = tool_call.function.name
             # handle missing tool case, skip to next tool
             if name not in function_map:
-                debug_print(debug, f"Tool {name} not found in function map.")
+                logger.debug(f"Tool {name} not found in function map.")
                 partial_response.messages.append(
                     {
                         "role": "tool",
@@ -111,7 +128,7 @@ class Swarm:
                 )
                 continue
             args = json.loads(tool_call.function.arguments)
-            debug_print(debug, f"Processing tool call: {name} with arguments {args}")
+            logger.debug(f"Processing tool call: {name} with arguments {args}")
 
             func = function_map[name]
             # pass context_variables to agent functions
@@ -138,7 +155,7 @@ class Swarm:
         self,
         agent: Agent,
         messages: list,
-        context_variables: dict = {},
+        context_variables: dict[str, Any] = {},
         model_override: str | None = None,
         debug: bool = False,
         max_turns: int | float = float("inf"),
@@ -150,21 +167,6 @@ class Swarm:
         init_len = len(messages)
 
         while len(history) - init_len < max_turns:
-            message: ChatCompletionAssistantMessageParam = (
-                ChatCompletionAssistantMessageParam(
-                    content="",
-                    sender=agent.name,
-                    role="assistant",
-                    function_call=None,
-                    tool_calls=defaultdict(
-                        lambda: {
-                            "function": {"arguments": "", "name": ""},
-                            "id": "",
-                            "type": "",
-                        }
-                    ),
-                )
-            )
             # get completion with current history, agent
             completion = self.get_chat_completion(
                 agent=active_agent,
@@ -176,37 +178,38 @@ class Swarm:
             )
 
             yield {"delim": "start"}
+            first = True
+            message: ChatCompletionMessage | None = None
             for chunk in completion:
-                delta = json.loads(chunk.choices[0].delta.json())
-                if delta["role"] == "assistant":
-                    delta["sender"] = active_agent.name
-                yield delta
-                delta.pop("role", None)
-                delta.pop("sender", None)
-                merge_chunk(message, delta)
+                delta = chunk.choices[0].delta
+                delta_json = delta.model_dump(mode="json")
+                if delta.role == "assistant":
+                    delta_json["sender"] = active_agent.name
+                yield json.dumps(delta_json)
+                if first:
+                    first = False
+                    message = ChatCompletionMessage.from_delta(delta)
+                else:
+                    message = cast(ChatCompletionMessage, message)
+                    message += delta
+            if message is None:
+                break
             yield {"delim": "end"}
 
-            message["tool_calls"] = list(message.get("tool_calls", {}).values())
-            if not message["tool_calls"]:
-                message["tool_calls"] = None
-            debug_print(debug, "Received completion:", message)  # type: ignore[call-arg]
-            history.append(message)
+            logger.debug("Received completion:", message.model_dump_json())
+            history.append(message.model_dump(mode="json"))
 
-            if not message["tool_calls"] or not execute_tools:
-                debug_print(debug, "Ending turn.")
+            if not message._tool_calls or not execute_tools:
+                logger.debug("Ending turn.")
                 break
 
-            # convert tool_calls to objects
+            # convert tool_calls to list
             tool_calls = []
-            for tool_call in message["tool_calls"]:
-                function = Function(
-                    arguments=tool_call["function"]["arguments"],
-                    name=tool_call["function"]["name"],
-                )
-                tool_call_object = ChatCompletionMessageToolCall(
-                    id=tool_call["id"], function=function, type=tool_call["type"]
-                )
-                tool_calls.append(tool_call_object)
+            for i, index in enumerate(sorted(message._tool_calls)):
+                if i != index:
+                    logger.warning(f"Tool call index mismatch: {i} != {index}")
+                    continue
+                tool_calls.append(message._tool_calls[index])
 
             # handle function calls, updating context_variables, and switching agents
             partial_response = self.handle_tool_calls(
@@ -262,14 +265,13 @@ class Swarm:
                 debug=debug,
             )
             message = completion.choices[0].message
-            debug_print(debug, "Received completion:", message)  # type: ignore[call-arg]
-            message.sender = active_agent.name
-            history.append(
-                json.loads(message.model_dump_json())
-            )  # to avoid OpenAI types (?)
+            logger.debug("Received completion:", message)
+            message_data = message.model_dump(mode="json")
+            message_data["sender"] = active_agent.name
+            history.append(message_data)
 
             if not message.tool_calls or not execute_tools:
-                debug_print(debug, "Ending turn.")
+                logger.debug("Ending turn.")
                 break
 
             # handle function calls, updating context_variables, and switching agents
