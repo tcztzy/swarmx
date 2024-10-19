@@ -1,5 +1,6 @@
 import copy
 from collections import defaultdict
+from dataclasses import dataclass, field
 from typing import Any, Literal, cast, overload
 
 from loguru import logger
@@ -9,6 +10,7 @@ from openai.resources.chat.completions import NOT_GIVEN, Stream
 from .types import (
     Agent,
     ChatCompletion,
+    ChatCompletionAssistantMessageParam,
     ChatCompletionChunk,
     ChatCompletionMessage,
     ChatCompletionMessageParam,
@@ -20,11 +22,9 @@ from .util import (
 )
 
 
+@dataclass
 class Swarm:
-    def __init__(self, client: OpenAI | None = None):
-        if not client:
-            client = OpenAI()
-        self.client = client
+    client: OpenAI = field(default_factory=OpenAI)
 
     @overload
     def get_chat_completion(
@@ -60,7 +60,10 @@ class Swarm:
             if callable(agent.instructions)
             else agent.instructions
         )
-        messages = [{"role": "system", "content": instructions}, *history]
+        messages: list[ChatCompletionMessageParam] = [
+            {"role": "system", "content": instructions},
+            *history,
+        ]
         logger.debug("Getting chat completion for...:", messages)
 
         tools = [function_to_json(f) for f in agent.functions]
@@ -116,7 +119,9 @@ class Swarm:
                 break
 
             logger.debug("Received completion:", message.model_dump_json())
-            history.append(message.model_dump(mode="json"))
+            history.append(
+                cast(ChatCompletionMessageParam, message.model_dump(mode="json"))
+            )
 
             if not message._tool_calls or not execute_tools:
                 logger.debug("Ending turn.")
@@ -182,7 +187,10 @@ class Swarm:
             )
             message = completion.choices[0].message
             logger.debug("Received completion:", message)
-            message_data = message.model_dump(mode="json", exclude_none=True)
+            message_data = cast(
+                ChatCompletionAssistantMessageParam,
+                message.model_dump(mode="json", exclude_none=True),
+            )
             message_data["name"] = active_agent.name
             history.append(message_data)
 

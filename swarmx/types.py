@@ -1,6 +1,9 @@
-from typing import Any, Callable, MutableMapping, TypeAlias, TypedDict
+from typing import Callable, MutableMapping, TypeAlias
 
 from openai.types.chat.chat_completion import ChatCompletion as ChatCompletion
+from openai.types.chat.chat_completion_assistant_message_param import (
+    ChatCompletionAssistantMessageParam as ChatCompletionAssistantMessageParam,
+)
 from openai.types.chat.chat_completion_chunk import (
     ChatCompletionChunk as ChatCompletionChunk,
 )
@@ -22,7 +25,7 @@ from openai.types.chat.chat_completion_message_tool_call import (
     Function as Function,
 )
 from openai.types.chat.chat_completion_tool_choice_option_param import (
-    ChatCompletionToolChoiceOptionParam,
+    ChatCompletionToolChoiceOptionParam as ChatCompletionToolChoiceOptionParam,
 )
 from openai.types.chat.chat_completion_tool_param import (
     ChatCompletionToolParam as ChatCompletionToolParam,
@@ -64,11 +67,6 @@ class Result(BaseModel):
     value: str = ""
     agent: Agent | None = None
     context_variables: dict = {}
-
-
-class FunctionParameters(TypedDict, total=False):
-    properties: dict[str, Any]
-    required: list[str]
 
 
 ToolCalls = MutableMapping[int, ChatCompletionMessageToolCall]

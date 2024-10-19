@@ -25,12 +25,12 @@ class SwarmXGenerateJsonSchema(GenerateJsonSchema):
     def generate(self, schema, mode="validation"):
         json_schema = super().generate(schema, mode=mode)
         properties = {
-            k: {prop_k: prop_v for prop_k, prop_v in prop.items() if prop_k != "title"}
-            for k, prop in json_schema.pop("properties", {}).items()
-            if k != __CTX_VARS_NAME__
+            name: {k: v for k, v in property.items() if k != "title"}
+            for name, property in json_schema.pop("properties", {}).items()
+            if name != __CTX_VARS_NAME__
         }
         required = [
-            r for r in json_schema.get("required", []) if r != __CTX_VARS_NAME__
+            r for r in json_schema.pop("required", []) if r != __CTX_VARS_NAME__
         ]
         return {
             **({k: v for k, v in json_schema.items() if k != "title"}),
@@ -64,7 +64,7 @@ def function_to_model(func: AgentFunction) -> BaseModel:
             param.annotation if param.annotation is not param.empty else str,
             param.default if param.default is not param.empty else ...,
         )
-    return create_model(func.__name__, **parameters)
+    return create_model(func.__name__, **parameters)  # type: ignore[call-overload]
 
 
 def function_to_json(func: AgentFunction) -> ChatCompletionToolParam:
