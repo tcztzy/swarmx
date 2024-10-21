@@ -3,6 +3,7 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Any, Literal, cast, overload
 
+from jinja2 import Template
 from loguru import logger
 from openai import OpenAI
 from openai.resources.chat.completions import NOT_GIVEN, Stream
@@ -56,10 +57,10 @@ class Swarm:
     ) -> ChatCompletion | Stream[ChatCompletionChunk]:
         context_variables = defaultdict(str, context_variables)
         instructions = (
-            agent.instructions(context_variables)
+            agent.instructions
             if callable(agent.instructions)
-            else agent.instructions
-        )
+            else Template(agent.instructions).render
+        )(context_variables)
         messages: list[ChatCompletionMessageParam] = [
             {"role": "system", "content": instructions},
             *history,

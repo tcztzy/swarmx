@@ -1,6 +1,6 @@
 [project]
 name = "swarmx"
-version = "0.1.0"
+version = "0.2.0"
 authors = [
     { name = "Tang Ziya", email = "tcztzy@gmail.Com" }
 ]
@@ -11,6 +11,7 @@ dependencies = [
     "openai>=1.52.0",
     "typing-extensions>=4.12.2; python_version <= '3.11'",
     "loguru>=0.7.2",
+    "jinja2>=3.1.4",
 ]
 requires-python = ">=3.10"
 
@@ -24,6 +25,7 @@ dev-dependencies = [
     "pre-commit>=2.15.0",
     "pytest>=5.0.0",
     "pytest-cov>=5.0.0",
+    "mypy>=1.12.0",
 ]
 
 [tool.hatch.build.targets.wheel]
