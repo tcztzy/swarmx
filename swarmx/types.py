@@ -1,5 +1,9 @@
-from typing import Callable, MutableMapping, TypeAlias
+import inspect
+import json
+from dataclasses import dataclass, field
+from typing import Any, Callable, MutableMapping
 
+from loguru import logger
 from openai.types.chat.chat_completion import ChatCompletion as ChatCompletion
 from openai.types.chat.chat_completion_assistant_message_param import (
     ChatCompletionAssistantMessageParam as ChatCompletionAssistantMessageParam,
@@ -30,22 +34,85 @@ from openai.types.chat.chat_completion_tool_choice_option_param import (
 from openai.types.chat.chat_completion_tool_param import (
     ChatCompletionToolParam as ChatCompletionToolParam,
 )
+from openai.types.chat_model import ChatModel as ChatModel
+from pydantic import BaseModel, create_model
 
-# Third-party imports
-from pydantic import BaseModel
-
-AgentFunctionReturnType: TypeAlias = "str | dict | Agent | Result"
-
-AgentFunction = Callable[..., AgentFunctionReturnType]
+from .config import settings
+from .util import SwarmXGenerateJsonSchema
 
 
-class Agent(BaseModel):
+@dataclass
+class Tool:
+    function: Callable[..., Any]
+    arguments_model: BaseModel = field(init=False)
+
+    def __post_init__(self):
+        self.__name__ = self.function.__name__
+        try:
+            signature = inspect.signature(self.function)
+        except ValueError as e:
+            raise ValueError(
+                f"Failed to get signature for function {self.function.__name__}: {str(e)}"
+            )
+
+        parameters = {}
+        for param in signature.parameters.values():
+            parameters[param.name] = (
+                param.annotation if param.annotation is not param.empty else str,
+                param.default if param.default is not param.empty else ...,
+            )
+        self.arguments_model = create_model(self.function.__name__, **parameters)  # type: ignore[call-overload]
+
+    def __call__(self, *args, **kwargs) -> "Result":
+        result = self.function(*args, **kwargs)
+        match result:
+            case Result() as result:
+                return result
+
+            case Agent() as agent:
+                return Result(
+                    value=json.dumps({"assistant": agent.name}),
+                    agent=agent,
+                )
+
+            case BaseModel() as model:
+                return Result(
+                    value=model.model_dump_json(),
+                )
+
+            case _:
+                try:
+                    return Result(value=str(result))
+                except Exception as e:
+                    error_message = f"Failed to cast response to string: {result}. Make sure agent functions return a string or Result object. Error: {str(e)}"
+                    logger.debug(error_message)
+                    raise TypeError(error_message)
+
+    def json(self) -> ChatCompletionToolParam:
+        return {
+            "type": "function",
+            "function": {
+                "name": self.function.__name__,
+                "description": self.function.__doc__ or "",
+                "parameters": self.arguments_model.model_json_schema(
+                    schema_generator=SwarmXGenerateJsonSchema
+                ),
+            },
+        }
+
+
+@dataclass
+class Agent:
     name: str = "Agent"
-    model: str = "gpt-4o"
+    model: ChatModel | str = settings.default_model
     instructions: str | Callable[..., str] = "You are a helpful agent."
-    functions: list[AgentFunction] = []
-    tool_choice: ChatCompletionToolChoiceOptionParam | None = None
+    functions: list[Callable[..., Any]] = field(default_factory=list)
+    tool_choice: ChatCompletionToolChoiceOptionParam = "auto"
     parallel_tool_calls: bool = True
+
+    @property
+    def tools(self) -> list[Tool]:
+        return [Tool(function) for function in self.functions]
 
 
 class Response(BaseModel):

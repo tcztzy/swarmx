@@ -1,6 +1,6 @@
 import copy
 from collections import defaultdict
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Literal, cast, overload
 
 from jinja2 import Template
@@ -8,6 +8,7 @@ from loguru import logger
 from openai import OpenAI
 from openai.resources.chat.completions import NOT_GIVEN, Stream
 
+from .config import settings
 from .types import (
     Agent,
     ChatCompletion,
@@ -18,14 +19,13 @@ from .types import (
     Response,
 )
 from .util import (
-    function_to_json,
     handle_tool_calls,
 )
 
 
 @dataclass
 class Swarm:
-    client: OpenAI = field(default_factory=OpenAI)
+    client: OpenAI = settings.openai
 
     @overload
     def get_chat_completion(
@@ -67,14 +67,13 @@ class Swarm:
         ]
         logger.debug("Getting chat completion for...:", messages)
 
-        tools = [function_to_json(f) for f in agent.functions]
         return self.client.chat.completions.create(
             model=model_override or agent.model,
             messages=messages,
-            tools=tools or NOT_GIVEN,
-            tool_choice=agent.tool_choice or NOT_GIVEN,
+            tools=[tool.json() for tool in agent.tools] or NOT_GIVEN,
+            tool_choice=agent.tool_choice,
             stream=stream,
-            parallel_tool_calls=len(tools) > 0 and agent.parallel_tool_calls,
+            parallel_tool_calls=len(agent.tools) > 0 and agent.parallel_tool_calls,
         )
 
     def run_and_stream(
@@ -138,7 +137,7 @@ class Swarm:
 
             # handle function calls, updating context_variables, and switching agents
             partial_response = handle_tool_calls(
-                tool_calls, active_agent.functions, context_variables
+                tool_calls, active_agent.tools, context_variables
             )
             history.extend(partial_response.messages)
             context_variables.update(partial_response.context_variables)
@@ -201,7 +200,7 @@ class Swarm:
 
             # handle function calls, updating context_variables, and switching agents
             partial_response = handle_tool_calls(
-                message.tool_calls, active_agent.functions, context_variables
+                message.tool_calls, active_agent.tools, context_variables
             )
             history.extend(partial_response.messages)
             context_variables.update(partial_response.context_variables)
