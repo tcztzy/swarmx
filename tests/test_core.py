@@ -1,24 +1,14 @@
 import json
 from unittest.mock import Mock
 
-import pytest
-
 from swarmx import Agent, Swarm
-from tests.mock_client import MockOpenAIClient, create_mock_response
 
-DEFAULT_RESPONSE_CONTENT = "sample response content"
-
-
-@pytest.fixture
-def mock_openai_client():
-    m = MockOpenAIClient()
-    m.set_response(
-        create_mock_response({"role": "assistant", "content": DEFAULT_RESPONSE_CONTENT})
-    )
-    return m
+from .conftest import MockOpenAIClient, create_mock_response
 
 
-def test_run_with_simple_message(mock_openai_client: MockOpenAIClient):
+def test_run_with_simple_message(
+    mock_openai_client: MockOpenAIClient, DEFAULT_RESPONSE_CONTENT: str
+):
     agent = Agent()
     # set up client and run
     client = Swarm(client=mock_openai_client)
@@ -30,7 +20,7 @@ def test_run_with_simple_message(mock_openai_client: MockOpenAIClient):
     assert response.messages[-1]["content"] == DEFAULT_RESPONSE_CONTENT
 
 
-def test_tool_call(mock_openai_client: MockOpenAIClient):
+def test_tool_call(mock_openai_client: MockOpenAIClient, DEFAULT_RESPONSE_CONTENT: str):
     expected_location = "San Francisco"
 
     # set up mock to record function calls
@@ -69,7 +59,9 @@ def test_tool_call(mock_openai_client: MockOpenAIClient):
     assert response.messages[-1]["content"] == DEFAULT_RESPONSE_CONTENT
 
 
-def test_execute_tools_false(mock_openai_client: MockOpenAIClient):
+def test_execute_tools_false(
+    mock_openai_client: MockOpenAIClient, DEFAULT_RESPONSE_CONTENT: str
+):
     expected_location = "San Francisco"
 
     # set up mock to record function calls
@@ -119,7 +111,7 @@ def test_execute_tools_false(mock_openai_client: MockOpenAIClient):
     }
 
 
-def test_handoff(mock_openai_client: MockOpenAIClient):
+def test_handoff(mock_openai_client: MockOpenAIClient, DEFAULT_RESPONSE_CONTENT: str):
     def transfer_to_agent2():
         return agent2
 

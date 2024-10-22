@@ -33,3 +33,6 @@ packages = ["swarmx"]
 
 [tool.ruff.lint]
 extend-select = ["I"]
+
+[tool.pytest.ini_options]
+addopts = ["--cov=swarmx"]

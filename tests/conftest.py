@@ -1,6 +1,7 @@
 import json
 from unittest.mock import MagicMock
 
+import pytest
 from openai.types.chat.chat_completion import (
     ChatCompletion,
     ChatCompletionMessage,
@@ -69,33 +70,15 @@ class MockOpenAIClient:
         self.chat.completions.create.assert_called_with(**kwargs)
 
 
-# Initialize the mock client
-client = MockOpenAIClient()
+@pytest.fixture
+def mock_openai_client(DEFAULT_RESPONSE_CONTENT):
+    m = MockOpenAIClient()
+    m.set_response(
+        create_mock_response({"role": "assistant", "content": DEFAULT_RESPONSE_CONTENT})
+    )
+    return m
 
-# Set a sequence of mock responses
-client.set_sequential_responses(
-    [
-        create_mock_response(
-            {"role": "assistant", "content": "First response"},
-            [
-                {
-                    "name": "process_refund",
-                    "args": {"item_id": "item_123", "reason": "too expensive"},
-                }
-            ],
-        ),
-        create_mock_response({"role": "assistant", "content": "Second"}),
-    ]
-)
 
-# This should return the first mock response
-first_response = client.chat.completions.create()
-print(
-    first_response.choices[0].message
-)  # Outputs: role='agent' content='First response'
-
-# This should return the second mock response
-second_response = client.chat.completions.create()
-print(
-    second_response.choices[0].message
-)  # Outputs: role='agent' content='Second response'
+@pytest.fixture
+def DEFAULT_RESPONSE_CONTENT():
+    return "sample response content"
