@@ -9,13 +9,11 @@ from .config import settings
 from .types import (
     Agent,
     ChatCompletionAssistantMessageParam,
-    ChatCompletionMessage,
     ChatCompletionMessageParam,
+    PartialChatCompletionMessage,
     Response,
 )
-from .util import (
-    handle_tool_calls,
-)
+from .util import handle_tool_calls
 
 
 @dataclass
@@ -44,7 +42,7 @@ class Swarm:
 
             yield {"delim": "start"}
             first = True
-            message: ChatCompletionMessage | None = None
+            partial_message: PartialChatCompletionMessage | None = None
             for chunk in completion:
                 delta = chunk.choices[0].delta
                 delta_json = delta.model_dump(mode="json")
@@ -53,33 +51,31 @@ class Swarm:
                 yield delta_json
                 if first:
                     first = False
-                    message = ChatCompletionMessage.from_delta(delta)
+                    partial_message = PartialChatCompletionMessage.from_delta(delta)
                 else:
-                    message = cast(ChatCompletionMessage, message) + delta
+                    partial_message = (
+                        cast(PartialChatCompletionMessage, partial_message) + delta
+                    )
             yield {"delim": "end"}
-            if message is None:
+            if partial_message is None:
+                logger.debug("No completion chunk received.")
                 break
-
+            message = partial_message.oai_message()
             logger.debug(f"Received completion: {message.model_dump_json()}")
-            history.append(
-                cast(ChatCompletionMessageParam, message.model_dump(mode="json"))
+            agent_message = cast(
+                ChatCompletionAssistantMessageParam,
+                message.model_dump(mode="json", exclude_none=True),
             )
+            agent_message["name"] = active_agent.name
+            history.append(agent_message)
 
-            if not message._tool_calls or not execute_tools:
+            if not message.tool_calls or not execute_tools:
                 logger.debug("Ending turn.")
                 break
 
-            # convert tool_calls to list
-            tool_calls = []
-            for i, index in enumerate(sorted(message._tool_calls)):
-                if i != index:
-                    logger.warning(f"Tool call index mismatch: {i} != {index}")
-                    continue
-                tool_calls.append(message._tool_calls[index])
-
             # handle function calls, updating context_variables, and switching agents
             partial_response = handle_tool_calls(
-                tool_calls, active_agent.tools, context_variables
+                message.tool_calls, active_agent.tools, context_variables
             )
             history.extend(partial_response.messages)
             context_variables.update(partial_response.context_variables)
@@ -125,12 +121,14 @@ class Swarm:
             )
             message = completion.choices[0].message
             logger.debug(f"Received completion: {message}")
-            message_data = cast(
+            if message.tool_calls is not None and len(message.tool_calls) == 0:
+                message.tool_calls = None
+            assistant_message = cast(
                 ChatCompletionAssistantMessageParam,
                 message.model_dump(mode="json", exclude_none=True),
             )
-            message_data["name"] = active_agent.name
-            history.append(message_data)
+            assistant_message["name"] = active_agent.name
+            history.append(assistant_message)
 
             if not message.tool_calls or not execute_tools:
                 logger.debug("Ending turn.")

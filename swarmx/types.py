@@ -21,7 +21,7 @@ from openai.types.chat.chat_completion_chunk import (
     ChoiceDeltaToolCallFunction,
 )
 from openai.types.chat.chat_completion_message import (
-    ChatCompletionMessage as _ChatCompletionMessage,
+    ChatCompletionMessage as ChatCompletionMessage,
 )
 from openai.types.chat.chat_completion_message_param import (
     ChatCompletionMessageParam as ChatCompletionMessageParam,
@@ -205,12 +205,12 @@ def _function(f: ChoiceDeltaToolCallFunction | None) -> Function:
     )
 
 
-class ChatCompletionMessage(_ChatCompletionMessage):
+class PartialChatCompletionMessage(ChatCompletionMessage):
     _tool_calls: ToolCalls | None = None
 
     @staticmethod
-    def from_delta(delta: ChoiceDelta) -> "ChatCompletionMessage":
-        return ChatCompletionMessage(
+    def from_delta(delta: ChoiceDelta) -> "PartialChatCompletionMessage":
+        return PartialChatCompletionMessage(
             content=delta.content,
             refusal=delta.refusal,
             role="assistant",
@@ -226,7 +226,7 @@ class ChatCompletionMessage(_ChatCompletionMessage):
             else None,
         )
 
-    def __add__(self, other: ChoiceDelta) -> "ChatCompletionMessage":
+    def __add__(self, other: ChoiceDelta) -> "PartialChatCompletionMessage":
         def _tool_calls_merge(
             a: ToolCalls | None, b: list[ChoiceDeltaToolCall] | None
         ) -> ToolCalls | None:
@@ -259,9 +259,26 @@ class ChatCompletionMessage(_ChatCompletionMessage):
             return a
 
         tool_calls = _tool_calls_merge(self._tool_calls, other.tool_calls)
-        return ChatCompletionMessage(
+        return PartialChatCompletionMessage(
             content=((self.content or "") + (other.content or "")) or None,
             refusal=((self.refusal or "") + (other.refusal or "")) or None,
             role="assistant",
             _tool_calls=tool_calls,
+        )
+
+    def oai_message(self) -> ChatCompletionMessage:
+        if self._tool_calls is not None:
+            tool_calls = []
+            for i, index in enumerate(sorted(self._tool_calls)):
+                if i != index:
+                    logger.warning(f"Tool call index mismatch: {i} != {index}")
+                    continue
+                tool_calls.append(self._tool_calls[index])
+        else:
+            tool_calls = None
+        return ChatCompletionMessage(
+            content=self.content,
+            refusal=self.refusal,
+            role=self.role,
+            tool_calls=tool_calls,
         )
