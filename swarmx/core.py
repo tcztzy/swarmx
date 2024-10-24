@@ -1,19 +1,14 @@
 import copy
-from collections import defaultdict
 from dataclasses import dataclass
-from typing import Any, Literal, cast, overload
+from typing import Any, cast
 
-from jinja2 import Template
 from loguru import logger
 from openai import OpenAI
-from openai.resources.chat.completions import NOT_GIVEN, Stream
 
 from .config import settings
 from .types import (
     Agent,
-    ChatCompletion,
     ChatCompletionAssistantMessageParam,
-    ChatCompletionChunk,
     ChatCompletionMessage,
     ChatCompletionMessageParam,
     Response,
@@ -26,55 +21,6 @@ from .util import (
 @dataclass
 class Swarm:
     client: OpenAI = settings.openai
-
-    @overload
-    def get_chat_completion(
-        self,
-        agent: Agent,
-        history: list[ChatCompletionMessageParam],
-        context_variables: dict,
-        model_override: str | None,
-        stream: Literal[True],
-    ) -> Stream[ChatCompletionChunk]: ...
-
-    @overload
-    def get_chat_completion(
-        self,
-        agent: Agent,
-        history: list[ChatCompletionMessageParam],
-        context_variables: dict[str, Any],
-        model_override: str | None,
-        stream: Literal[False],
-    ) -> ChatCompletion: ...
-
-    def get_chat_completion(
-        self,
-        agent: Agent,
-        history: list[ChatCompletionMessageParam],
-        context_variables: dict[str, Any],
-        model_override: str | None,
-        stream: bool,
-    ) -> ChatCompletion | Stream[ChatCompletionChunk]:
-        context_variables = defaultdict(str, context_variables)
-        instructions = (
-            agent.instructions
-            if callable(agent.instructions)
-            else Template(agent.instructions).render
-        )(context_variables)
-        messages: list[ChatCompletionMessageParam] = [
-            {"role": "system", "content": instructions},
-            *history,
-        ]
-        logger.debug("Getting chat completion for...:", messages)
-
-        return self.client.chat.completions.create(
-            model=model_override or agent.model,
-            messages=messages,
-            tools=[tool.json() for tool in agent.tools] or NOT_GIVEN,
-            tool_choice=agent.tool_choice,
-            stream=stream,
-            parallel_tool_calls=len(agent.tools) > 0 and agent.parallel_tool_calls,
-        )
 
     def run_and_stream(
         self,
@@ -92,12 +38,8 @@ class Swarm:
 
         while len(history) - init_len < max_turns:
             # get completion with current history, agent
-            completion = self.get_chat_completion(
-                agent=active_agent,
-                history=history,
-                context_variables=context_variables,
-                model_override=model_override,
-                stream=True,
+            completion = active_agent.run(
+                self.client, history, model_override, True, context_variables
             )
 
             yield {"delim": "start"}
@@ -118,7 +60,7 @@ class Swarm:
             if message is None:
                 break
 
-            logger.debug("Received completion:", message.model_dump_json())
+            logger.debug(f"Received completion: {message.model_dump_json()}")
             history.append(
                 cast(ChatCompletionMessageParam, message.model_dump(mode="json"))
             )
@@ -178,15 +120,11 @@ class Swarm:
 
         while len(history) - init_len < max_turns and active_agent:
             # get completion with current history, agent
-            completion = self.get_chat_completion(
-                agent=active_agent,
-                history=history,
-                context_variables=context_variables,
-                model_override=model_override,
-                stream=stream,
+            completion = active_agent.run(
+                self.client, history, model_override, False, context_variables
             )
             message = completion.choices[0].message
-            logger.debug("Received completion:", message)
+            logger.debug(f"Received completion: {message}")
             message_data = cast(
                 ChatCompletionAssistantMessageParam,
                 message.model_dump(mode="json", exclude_none=True),

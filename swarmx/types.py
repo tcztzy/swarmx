@@ -1,9 +1,13 @@
 import inspect
 import json
+from collections import defaultdict
 from dataclasses import dataclass, field
-from typing import Any, Callable, MutableMapping
+from typing import Any, Callable, Literal, MutableMapping, overload
 
+from jinja2 import Template
 from loguru import logger
+from openai import OpenAI
+from openai.resources.chat.completions import NOT_GIVEN, NotGiven, Stream
 from openai.types.chat.chat_completion import ChatCompletion as ChatCompletion
 from openai.types.chat.chat_completion_assistant_message_param import (
     ChatCompletionAssistantMessageParam as ChatCompletionAssistantMessageParam,
@@ -107,21 +111,76 @@ class Agent:
     model: ChatModel | str = settings.default_model
     instructions: str | Callable[..., str] = "You are a helpful agent."
     functions: list[Callable[..., Any]] = field(default_factory=list)
-    tool_choice: ChatCompletionToolChoiceOptionParam = "auto"
+    tool_choice: ChatCompletionToolChoiceOptionParam | NotGiven = NOT_GIVEN
     parallel_tool_calls: bool = True
+    client: OpenAI | None = None
 
     @property
     def tools(self) -> list[Tool]:
         return [Tool(function) for function in self.functions]
 
+    def _get_instructions(self, context_variables: dict[str, Any]) -> str:
+        return (
+            self.instructions
+            if callable(self.instructions)
+            else Template(self.instructions).render
+        )(context_variables)
 
-class Response(BaseModel):
-    messages: list[ChatCompletionMessageParam] = []
+    @overload
+    def run(
+        self,
+        client: OpenAI,
+        messages: list[ChatCompletionMessageParam],
+        model: ChatModel | str | None = None,
+        stream: Literal[False] = False,
+        context_variables: dict[str, Any] | None = None,
+    ) -> ChatCompletion: ...
+
+    @overload
+    def run(
+        self,
+        client: OpenAI,
+        messages: list[ChatCompletionMessageParam],
+        model: ChatModel | str | None = None,
+        stream: Literal[True] = True,
+        context_variables: dict[str, Any] | None = None,
+    ) -> Stream[ChatCompletionChunk]: ...
+
+    def run(
+        self,
+        client: OpenAI,
+        messages: list[ChatCompletionMessageParam],
+        model: ChatModel | str | None = None,
+        stream: bool = False,
+        context_variables: dict[str, Any] | None = None,
+    ) -> ChatCompletion | Stream[ChatCompletionChunk]:
+        context_variables = defaultdict(str, context_variables or {})
+        instructions = self._get_instructions(context_variables)
+        messages = [
+            {"role": "system", "content": instructions},
+            *messages,
+        ]
+        logger.debug(f"Getting chat completion for...: {messages}")
+        tools = [tool.json() for tool in self.tools] or NOT_GIVEN
+        return (self.client or client).chat.completions.create(
+            model=model or self.model,
+            messages=messages,
+            tools=tools,
+            tool_choice=self.tool_choice,
+            stream=stream,
+            parallel_tool_calls=bool(tools) and self.parallel_tool_calls,
+        )
+
+
+@dataclass
+class Response:
+    messages: list[ChatCompletionMessageParam] = field(default_factory=list)
     agent: Agent | None = None
-    context_variables: dict = {}
+    context_variables: dict = field(default_factory=dict)
 
 
-class Result(BaseModel):
+@dataclass
+class Result:
     """
     Encapsulates the possible return values for an agent function.
 
@@ -133,7 +192,7 @@ class Result(BaseModel):
 
     value: str = ""
     agent: Agent | None = None
-    context_variables: dict = {}
+    context_variables: dict = field(default_factory=dict)
 
 
 ToolCalls = MutableMapping[int, ChatCompletionMessageToolCall]
