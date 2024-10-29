@@ -44,6 +44,13 @@ from pydantic import BaseModel, create_model
 from .config import settings
 from .util import SwarmXGenerateJsonSchema
 
+try:
+    from langchain.tools import Tool as LangChainTool
+    from langchain_core.utils.function_calling import convert_to_openai_tool
+except ImportError:
+    LangChainTool = None
+    convert_to_openai_tool = None
+
 
 @dataclass
 class Tool:
@@ -51,24 +58,34 @@ class Tool:
     arguments_model: BaseModel = field(init=False)
 
     def __post_init__(self):
-        self.__name__ = self.function.__name__
-        try:
-            signature = inspect.signature(self.function)
-        except ValueError as e:
-            raise ValueError(
-                f"Failed to get signature for function {self.function.__name__}: {str(e)}"
-            )
+        if LangChainTool is not None and isinstance(self.function, LangChainTool):
+            if not isinstance(self.function.args_schema, BaseModel):
+                raise ValueError(
+                    f"args_schema must be a Pydantic BaseModel for LangChainTool: {self.function.__name__}"
+                )
+            self.arguments_model = self.function.args_schema
+        else:
+            self.__name__ = self.function.__name__
+            try:
+                signature = inspect.signature(self.function)
+            except ValueError as e:
+                raise ValueError(
+                    f"Failed to get signature for function {self.function.__name__}: {str(e)}"
+                )
 
-        parameters = {}
-        for param in signature.parameters.values():
-            parameters[param.name] = (
-                param.annotation if param.annotation is not param.empty else str,
-                param.default if param.default is not param.empty else ...,
-            )
-        self.arguments_model = create_model(self.function.__name__, **parameters)  # type: ignore[call-overload]
+            parameters = {}
+            for param in signature.parameters.values():
+                parameters[param.name] = (
+                    param.annotation if param.annotation is not param.empty else str,
+                    param.default if param.default is not param.empty else ...,
+                )
+            self.arguments_model = create_model(self.function.__name__, **parameters)  # type: ignore[call-overload]
 
     def __call__(self, *args, **kwargs) -> "Result":
-        result = self.function(*args, **kwargs)
+        if LangChainTool is not None and isinstance(self.function, LangChainTool):
+            result = self.function.run(kwargs)
+        else:
+            result = self.function(*args, **kwargs)
         match result:
             case Result() as result:
                 return result
@@ -93,6 +110,8 @@ class Tool:
                     raise TypeError(error_message)
 
     def json(self) -> ChatCompletionToolParam:
+        if LangChainTool is not None and isinstance(self.function, LangChainTool):
+            return convert_to_openai_tool(self.function)
         return {
             "type": "function",
             "function": {
