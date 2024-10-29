@@ -59,13 +59,14 @@ class Tool:
 
     def __post_init__(self):
         if LangChainTool is not None and isinstance(self.function, LangChainTool):
+            self.name = self.function.name
             if not isinstance(self.function.args_schema, BaseModel):
                 raise ValueError(
                     f"args_schema must be a Pydantic BaseModel for LangChainTool: {self.function.__name__}"
                 )
             self.arguments_model = self.function.args_schema
         else:
-            self.__name__ = self.function.__name__
+            self.name = self.function.__name__
             try:
                 signature = inspect.signature(self.function)
             except ValueError as e:

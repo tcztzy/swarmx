@@ -38,7 +38,7 @@ def handle_tool_calls(
 ):
     from .types import Response
 
-    tool_map = {f.__name__: f for f in tools}
+    tool_map = {f.name: f for f in tools}
     partial_response = Response(messages=[], agent=None, context_variables={})
 
     for tool_call in tool_calls:
