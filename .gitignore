@@ -127,3 +127,6 @@ dmypy.json
 # rye
 requirements.lock
 requirements-dev.lock
+
+# deepeval
+.deepeval*
