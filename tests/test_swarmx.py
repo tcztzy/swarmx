@@ -1,9 +1,20 @@
+import pytest
 from deepeval import assert_test
 from deepeval.metrics import GEval
 from deepeval.test_case import LLMTestCase, LLMTestCaseParams
 from pytest import fixture
 
 from swarmx import Agent, Swarm
+
+
+def no_openai_available():
+    from swarmx.config import settings
+
+    try:
+        settings.openai.models.list()
+        return False
+    except Exception:
+        return True
 
 
 @fixture
@@ -32,6 +43,7 @@ def english_agent(spanish_agent):
     )
 
 
+@pytest.mark.skipif(no_openai_available(), reason="OpenAI API not available.")
 def test_handoff(client: Swarm, english_agent: Agent):
     message_input = "Hola. ¿Como estás?"
     reponse = client.run(

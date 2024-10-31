@@ -42,3 +42,20 @@ def test_basic_tool_call():
             [Tool(test_tool)],
             {},
         )
+
+
+def test_function_to_openai_tool():
+    def print_account_details(context_variables: dict):
+        user_id = context_variables.get("user_id", None)
+        name = context_variables.get("name", None)
+        return f"Account Details: {name} {user_id}"
+
+    t = Tool(print_account_details)
+    assert t.json() == {
+        "function": {
+            "description": "",
+            "name": "print_account_details",
+            "parameters": {"properties": {}, "type": "object"},
+        },
+        "type": "function",
+    }
