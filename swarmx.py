@@ -3,14 +3,13 @@ from __future__ import annotations
 import copy
 import inspect
 import json
+import logging
+import os
 from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Any, Callable, Literal, MutableMapping, cast, overload
 
-from jinja2 import Template
-from loguru import logger
-from openai import AsyncOpenAI, OpenAI
-from openai.resources.chat.completions import NOT_GIVEN, NotGiven, Stream
+from openai import NOT_GIVEN, NotGiven, OpenAI, Stream
 from openai.types.chat.chat_completion import ChatCompletion
 from openai.types.chat.chat_completion_assistant_message_param import (
     ChatCompletionAssistantMessageParam,
@@ -32,31 +31,14 @@ from openai.types.chat.chat_completion_tool_choice_option_param import (
 )
 from openai.types.chat.chat_completion_tool_param import ChatCompletionToolParam
 from openai.types.chat_model import ChatModel
-from pydantic import BaseModel, Field, create_model
+from pydantic import BaseModel, create_model
 from pydantic.json_schema import GenerateJsonSchema
-from pydantic_settings import BaseSettings
 
-
-class Settings(BaseSettings, env_prefix="SWARMX_"):  # type: ignore[call-arg]
-    openai_api_key: str = Field(alias="OPENAI_API_KEY")
-    openai_base_url: str = Field(
-        default="https://api.openai.com/v1", alias="OPENAI_BASE_URL"
-    )
-    default_model: ChatModel | str = "gpt-4o"
-
-    @property
-    def openai(self) -> OpenAI:
-        return OpenAI(api_key=self.openai_api_key, base_url=self.openai_base_url)
-
-    @property
-    def async_openai(self) -> AsyncOpenAI:
-        return AsyncOpenAI(api_key=self.openai_api_key, base_url=self.openai_base_url)
-
-
-settings = Settings()  # type: ignore[call-arg]
-
+logger = logging.getLogger(__name__)
 
 __CTX_VARS_NAME__ = "context_variables"
+
+DEFAULT_MODEL = os.getenv("SWARMX_DEFAULT_MODEL", "gpt-4o")
 
 
 class SwarmXGenerateJsonSchema(GenerateJsonSchema):
@@ -81,7 +63,7 @@ class SwarmXGenerateJsonSchema(GenerateJsonSchema):
 
 def handle_tool_calls(
     tool_calls: list[ChatCompletionMessageToolCall],
-    tools: "list[Tool]",
+    tools: list[Tool],
     context_variables: dict[str, Any],
 ):
     tool_map = {f.name: f for f in tools}
@@ -205,10 +187,22 @@ class Tool:
         }
 
 
+try:
+    from jinja2 import Template
+except ImportError:
+
+    @dataclass
+    class Template:  # type: ignore[no-redef]
+        template: str
+
+        def render(self, context_variables: dict[str, Any]):
+            return self.template.format(**context_variables)
+
+
 @dataclass
 class Agent:
     name: str = "Agent"
-    model: ChatModel | str = settings.default_model
+    model: ChatModel | str = DEFAULT_MODEL
     instructions: str | Callable[..., str] = "You are a helpful agent."
     functions: list[Callable[..., Any]] = field(default_factory=list)
     tool_choice: ChatCompletionToolChoiceOptionParam | NotGiven = NOT_GIVEN
@@ -386,7 +380,7 @@ class PartialChatCompletionMessage(ChatCompletionMessage):
 
 @dataclass
 class Swarm:
-    client: OpenAI = settings.openai
+    client: OpenAI = field(default_factory=OpenAI)
 
     def run_and_stream(
         self,

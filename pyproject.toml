@@ -7,19 +7,12 @@ authors = [
 description = "A lightweight, stateless multi-agent orchestration framework."
 readme = "README.md"
 license = "MIT"
-dependencies = [
-    "openai>=1.52.2",
-    "typing-extensions>=4.12.2; python_version <= '3.11'",
-    "loguru>=0.7.2",
-    "jinja2>=3.1.4",
-    "pydantic-settings>=2.6.0",
-]
+dependencies = ["openai>=1.52.2"]
 requires-python = ">=3.10"
 
 [project.optional-dependencies]
-langchain = [
-    "langchain>=0.3.4",
-]
+langchain = ["langchain>=0.3.4"]
+jinja2 = ["jinja2>=3.1.4"]
 
 [build-system]
 requires = ["hatchling"]
@@ -34,9 +27,6 @@ dev-dependencies = [
     "mypy>=1.12.0",
     "deepeval>=1.4.6",
 ]
-
-[tool.hatch.build.targets.wheel]
-packages = ["swarmx"]
 
 [tool.ruff.lint]
 extend-select = ["I"]

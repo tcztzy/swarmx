@@ -1,11 +1,11 @@
 # SwarmX (forked from OpenAI's Swarm)
 
-An educational framework exploring ergonomic, lightweight multi-agent orchestration.
+An extreme simple framework exploring ergonomic, lightweight multi-agent orchestration.
 
-> [!WARNING]
-> Swarm is currently an experimental sample framework intended to explore ergonomic interfaces for multi-agent systems. It is not intended to be used in production, and therefore has no official support. (This also means we will not be reviewing PRs or issues!)
->
-> The primary goal of Swarm is to showcase the handoff & routines patterns explored in the [Orchestrating Agents: Handoffs & Routines](https://cookbook.openai.com/examples/orchestrating_agents) cookbook. It is not meant as a standalone library, and is primarily for educational purposes.
+## Highlights
+1. Single file and about 500 lines
+2. Only one third-party dependency (`openai`)
+3. Compatible with langchain tools
 
 ## Install
 
@@ -13,17 +13,6 @@ Requires Python 3.10+
 
 ```shell
 pip install swarmx
-```
-or
-
-```shell
-pip install git+ssh://git@github.com/tcztzy/swarmx.git
-```
-
-or
-
-```shell
-pip install git+https://github.com/tcztzy/swarmx.git
 ```
 
 ## Usage
@@ -76,20 +65,20 @@ What can I assist?
 
 # Overview
 
-Swarm focuses on making agent **coordination** and **execution** lightweight, highly controllable, and easily testable.
+SwarmX focuses on making agent **coordination** and **execution** lightweight, highly controllable, and easily testable.
 
 It accomplishes this through two primitive abstractions: `Agent`s and **handoffs**. An `Agent` encompasses `instructions` and `tools`, and can at any point choose to hand off a conversation to another `Agent`.
 
 These primitives are powerful enough to express rich dynamics between tools and networks of agents, allowing you to build scalable, real-world solutions while avoiding a steep learning curve.
 
 > [!NOTE]
-> Swarm Agents are not related to Assistants in the Assistants API. They are named similarly for convenience, but are otherwise completely unrelated. Swarm is entirely powered by the Chat Completions API and is hence stateless between calls.
+> SwarmX Agents are not related to Assistants in the Assistants API. They are named similarly for convenience, but are otherwise completely unrelated. SwarmX is entirely powered by the Chat Completions API and is hence stateless between calls.
 
-## Why Swarm
+## Why SwarmX
 
-Swarm explores patterns that are lightweight, scalable, and highly customizable by design. Approaches similar to Swarm are best suited for situations dealing with a large number of independent capabilities and instructions that are difficult to encode into a single prompt.
+SwarmX explores patterns that are lightweight, scalable, and highly customizable by design. Approaches similar to SwarmX are best suited for situations dealing with numerous independent capabilities and instructions that are difficult to encode into a single prompt.
 
-The Assistants API is a great option for developers looking for fully-hosted threads and built in memory management and retrieval. However, Swarm is an educational resource for developers curious to learn about multi-agent orchestration. Swarm runs (almost) entirely on the client and, much like the Chat Completions API, does not store state between calls.
+The Assistants API is a great option for developers looking for fully-hosted threads and built in memory management and retrieval. However, SwarmX is an educational resource for developers curious to learn about multi-agent orchestration. Swarm runs (almost) entirely on the client and, much like the Chat Completions API, does not store state between calls.
 
 # Examples
 
@@ -104,7 +93,22 @@ Check out `/examples` for inspiration! Learn more about each one in its README.
 
 # Documentation
 
-![Swarm Diagram](assets/swarm_diagram.png)
+```mermaid
+graph TD
+   classDef QA fill:#ffffff;
+   classDef agent fill:#ffd8ac;
+   classDef tool fill:#d3ecee;
+   classDef result fill:#b4f2be;
+   func1("transfer_to_weather_assistant()"):::tool
+   Weather["Weather Assistant"]:::agent
+   func2("get_weather('New York')"):::tool
+   temp(64):::result
+   A["It's 64 degrees in New York."]:::QA
+   Q["What's the weather in ny?"]:::QA --> 
+   Triage["Triage Agent"]:::agent --> Weather --> A
+   Triage --> func1 --> Weather
+   Weather --> func2 --> temp --> A
+```
 
 ## Running Swarm
 
@@ -201,7 +205,8 @@ Hi John, how can I assist you today?
 
 ## Functions
 
-- Swarm `Agent`s can call python functions directly.
+- SwarmX `Agent`s can call python functions directly.
+- If langchain installed, langchain's `tools` can pass to the `Agent`.
 - Function should usually return a `str` (values will be attempted to be cast as a `str`).
 - If a function returns an `Agent`, execution will be transferred to that `Agent`.
 - If a function defines a `context_variables` parameter, it will be populated by the `context_variables` passed into `client.run()`.
@@ -354,9 +359,12 @@ run_demo_loop(agent, stream=True)
 
 # Core Contributors
 
-- Ilan Bigio - [ibigio](https://github.com/ibigio)
-- James Hills - [jhills20](https://github.com/jhills20)
-- Shyamal Anadkat - [shyamal-anadkat](https://github.com/shyamal-anadkat)
-- Charu Jaiswal - [charuj](https://github.com/charuj)
-- Colin Jarvis - [colin-openai](https://github.com/colin-openai)
-- Katia Gil Guzman - [katia-openai](https://github.com/katia-openai)
+- previous Swarm
+   - Ilan Bigio - [ibigio](https://github.com/ibigio)
+   - James Hills - [jhills20](https://github.com/jhills20)
+   - Shyamal Anadkat - [shyamal-anadkat](https://github.com/shyamal-anadkat)
+   - Charu Jaiswal - [charuj](https://github.com/charuj)
+   - Colin Jarvis - [colin-openai](https://github.com/colin-openai)
+   - Katia Gil Guzman - [katia-openai](https://github.com/katia-openai)
+- SwarmX
+   - Ziya Tang - [tcztzy](https://github.com/tcztzy)

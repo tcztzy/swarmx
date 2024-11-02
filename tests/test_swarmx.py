@@ -8,10 +8,8 @@ from swarmx import Agent, Swarm
 
 
 def no_openai_available():
-    from swarmx import settings
-
     try:
-        settings.openai.models.list()
+        Swarm().client.models.list()
         return False
     except Exception:
         return True
