@@ -3,12 +3,10 @@ from unittest.mock import Mock
 
 from swarmx import Agent, Swarm
 
-from .conftest import MockOpenAIClient, create_mock_response
+from .conftest import create_mock_response, create_mock_streaming_response
 
 
-def test_run_with_simple_message(
-    mock_openai_client: MockOpenAIClient, DEFAULT_RESPONSE_CONTENT: str
-):
+def test_run_with_simple_message(mock_openai_client, DEFAULT_RESPONSE_CONTENT: str):
     agent = Agent()
     # set up client and run
     client = Swarm(client=mock_openai_client)
@@ -20,7 +18,7 @@ def test_run_with_simple_message(
     assert response.messages[-1]["content"] == DEFAULT_RESPONSE_CONTENT
 
 
-def test_tool_call(mock_openai_client: MockOpenAIClient, DEFAULT_RESPONSE_CONTENT: str):
+def test_tool_call(mock_openai_client, DEFAULT_RESPONSE_CONTENT: str):
     expected_location = "San Francisco"
 
     # set up mock to record function calls
@@ -59,9 +57,7 @@ def test_tool_call(mock_openai_client: MockOpenAIClient, DEFAULT_RESPONSE_CONTEN
     assert response.messages[-1]["content"] == DEFAULT_RESPONSE_CONTENT
 
 
-def test_execute_tools_false(
-    mock_openai_client: MockOpenAIClient, DEFAULT_RESPONSE_CONTENT: str
-):
+def test_execute_tools_false(mock_openai_client, DEFAULT_RESPONSE_CONTENT: str):
     expected_location = "San Francisco"
 
     # set up mock to record function calls
@@ -111,7 +107,7 @@ def test_execute_tools_false(
     }
 
 
-def test_handoff(mock_openai_client: MockOpenAIClient, DEFAULT_RESPONSE_CONTENT: str):
+def test_handoff(mock_openai_client, DEFAULT_RESPONSE_CONTENT: str):
     def transfer_to_agent2():
         return agent2
 
@@ -139,3 +135,27 @@ def test_handoff(mock_openai_client: MockOpenAIClient, DEFAULT_RESPONSE_CONTENT:
     assert response.agent == agent2
     assert response.messages[-1]["role"] == "assistant"
     assert response.messages[-1]["content"] == DEFAULT_RESPONSE_CONTENT
+
+
+def test_streaming(mock_openai_client, DEFAULT_RESPONSE_CONTENT: str):
+    mock_openai_client.set_sequential_responses(
+        [
+            create_mock_streaming_response(
+                {"role": "assistant", "content": DEFAULT_RESPONSE_CONTENT}
+            )
+        ]
+    )
+    client = Swarm(client=mock_openai_client)
+    agent = Agent()
+    messages = [{"role": "user", "content": "Hello, how are you?"}]
+    response = client.run(agent=agent, messages=messages, stream=True)
+    for i, chunk in enumerate(response):
+        match chunk:
+            case {"delim": "start"}:
+                assert i == 0
+            case {"delim": "end"}:
+                assert i == len(DEFAULT_RESPONSE_CONTENT.split()) + 1
+            case {"response": response}:
+                ...
+            case _:
+                assert chunk["content"] in DEFAULT_RESPONSE_CONTENT

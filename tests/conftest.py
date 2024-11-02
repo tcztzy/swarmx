@@ -1,4 +1,5 @@
 import json
+from datetime import datetime
 from unittest.mock import MagicMock
 
 import pytest
@@ -7,8 +8,51 @@ from openai.types.chat.chat_completion import (
     ChatCompletionMessage,
     Choice,
 )
+from openai.types.chat.chat_completion_chunk import ChatCompletionChunk, ChoiceDelta
+from openai.types.chat.chat_completion_chunk import Choice as ChunkChoice
 
 from swarmx import ChatCompletionMessageToolCall, Function
+
+
+def create_mock_streaming_response(
+    message,
+    function_calls=[],
+    model="gpt-4o",
+):
+    def _generator():
+        tokens = message.get("content", "").split()
+        for i, token in enumerate(tokens):
+            yield ChatCompletionChunk(
+                id="mock_cc_id",
+                created=int(datetime.now().timestamp()),
+                model=model,
+                object="chat.completion.chunk",
+                choices=[
+                    ChunkChoice(
+                        delta=ChoiceDelta(
+                            content=token,
+                            tool_calls=[
+                                ChatCompletionMessageToolCall(
+                                    id="mock_tc_id",
+                                    type="function",
+                                    function=Function(
+                                        name=call.get("name", ""),
+                                        arguments=json.dumps(call.get("args", {})),
+                                    ),
+                                )
+                                for call in function_calls
+                            ]
+                            if len(function_calls) > 0
+                            else None,
+                            role=message.get("role", "assistant") if i == 0 else None,
+                        ),
+                        finish_reason="stop" if i == len(tokens) - 1 else None,
+                        index=0,
+                    )
+                ],
+            )
+
+    return _generator()
 
 
 def create_mock_response(message, function_calls=[], model="gpt-4o"):
@@ -32,7 +76,7 @@ def create_mock_response(message, function_calls=[], model="gpt-4o"):
 
     return ChatCompletion(
         id="mock_cc_id",
-        created=1234567890,
+        created=int(datetime.now().timestamp()),
         model=model,
         object="chat.completion",
         choices=[
