@@ -35,9 +35,7 @@ from pydantic import BaseModel, create_model
 from pydantic.json_schema import GenerateJsonSchema
 
 logger = logging.getLogger(__name__)
-
 __CTX_VARS_NAME__ = "context_variables"
-
 DEFAULT_MODEL = os.getenv("SWARMX_DEFAULT_MODEL", "gpt-4o")
 
 
@@ -106,9 +104,12 @@ def handle_tool_calls(
     return partial_response
 
 
+AgentFunction = Callable[..., Any]
 try:
     from langchain.tools import Tool as LangChainTool
     from langchain_core.utils.function_calling import convert_to_openai_tool
+
+    AgentFunction |= LangChainTool
 except ImportError:
     LangChainTool = None
     convert_to_openai_tool = None
@@ -116,7 +117,7 @@ except ImportError:
 
 @dataclass
 class Tool:
-    function: Callable[..., Any]
+    function: AgentFunction
     arguments_model: BaseModel = field(init=False)
 
     def __post_init__(self):
@@ -124,7 +125,7 @@ class Tool:
             self.name = self.function.name
             if not isinstance(self.function.args_schema, BaseModel):
                 raise ValueError(
-                    f"args_schema must be a Pydantic BaseModel for LangChainTool: {self.function.__name__}"
+                    f"args_schema must be a Pydantic BaseModel for LangChainTool: {self.name}"
                 )
             self.arguments_model = self.function.args_schema
         else:
@@ -204,14 +205,17 @@ class Agent:
     name: str = "Agent"
     model: ChatModel | str = DEFAULT_MODEL
     instructions: str | Callable[..., str] = "You are a helpful agent."
-    functions: list[Callable[..., Any]] = field(default_factory=list)
+    functions: list[AgentFunction | Tool] = field(default_factory=list)
     tool_choice: ChatCompletionToolChoiceOptionParam | NotGiven = NOT_GIVEN
     parallel_tool_calls: bool = True
     client: OpenAI | None = None
 
     @property
     def tools(self) -> list[Tool]:
-        return [Tool(function) for function in self.functions]
+        return [
+            function if isinstance(function, Tool) else Tool(function)
+            for function in self.functions
+        ]
 
     def _get_instructions(self, context_variables: dict[str, Any]) -> str:
         return (
@@ -403,21 +407,14 @@ class Swarm:
             )
 
             yield {"delim": "start"}
-            first = True
             partial_message: PartialChatCompletionMessage | None = None
-            for chunk in completion:
+            for i, chunk in enumerate(completion):
                 delta = chunk.choices[0].delta
-                delta_json = delta.model_dump(mode="json")
-                if delta.role == "assistant":
-                    delta_json["sender"] = active_agent.name
-                yield delta_json
-                if first:
-                    first = False
+                yield delta.model_dump(mode="json")
+                if i == 0:
                     partial_message = PartialChatCompletionMessage.from_delta(delta)
                 else:
-                    partial_message = (
-                        cast(PartialChatCompletionMessage, partial_message) + delta
-                    )
+                    partial_message += delta
             yield {"delim": "end"}
             if partial_message is None:
                 logger.debug("No completion chunk received.")
