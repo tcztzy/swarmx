@@ -8,7 +8,7 @@ from openai.types.chat.chat_completion import (
     Choice,
 )
 
-from swarmx.types import ChatCompletionMessageToolCall, Function
+from swarmx import ChatCompletionMessageToolCall, Function
 
 
 def create_mock_response(message, function_calls=[], model="gpt-4o"):

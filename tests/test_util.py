@@ -1,8 +1,7 @@
 import pytest
 from pydantic import ValidationError
 
-from swarmx.types import ChatCompletionMessageToolCall, Function, Tool
-from swarmx.util import handle_tool_calls
+from swarmx import ChatCompletionMessageToolCall, Function, Tool, handle_tool_calls
 
 
 def test_basic_tool_call():

@@ -1,48 +1,128 @@
+from __future__ import annotations
+
+import copy
 import inspect
 import json
 from collections import defaultdict
 from dataclasses import dataclass, field
-from typing import Any, Callable, Literal, MutableMapping, overload
+from typing import Any, Callable, Literal, MutableMapping, cast, overload
 
 from jinja2 import Template
 from loguru import logger
-from openai import OpenAI
+from openai import AsyncOpenAI, OpenAI
 from openai.resources.chat.completions import NOT_GIVEN, NotGiven, Stream
-from openai.types.chat.chat_completion import ChatCompletion as ChatCompletion
+from openai.types.chat.chat_completion import ChatCompletion
 from openai.types.chat.chat_completion_assistant_message_param import (
-    ChatCompletionAssistantMessageParam as ChatCompletionAssistantMessageParam,
+    ChatCompletionAssistantMessageParam,
 )
 from openai.types.chat.chat_completion_chunk import (
-    ChatCompletionChunk as ChatCompletionChunk,
-)
-from openai.types.chat.chat_completion_chunk import (
+    ChatCompletionChunk,
     ChoiceDelta,
     ChoiceDeltaToolCall,
     ChoiceDeltaToolCallFunction,
 )
-from openai.types.chat.chat_completion_message import (
-    ChatCompletionMessage as ChatCompletionMessage,
-)
-from openai.types.chat.chat_completion_message_param import (
-    ChatCompletionMessageParam as ChatCompletionMessageParam,
-)
+from openai.types.chat.chat_completion_message import ChatCompletionMessage
+from openai.types.chat.chat_completion_message_param import ChatCompletionMessageParam
 from openai.types.chat.chat_completion_message_tool_call import (
-    ChatCompletionMessageToolCall as ChatCompletionMessageToolCall,
-)
-from openai.types.chat.chat_completion_message_tool_call import (
-    Function as Function,
+    ChatCompletionMessageToolCall,
+    Function,
 )
 from openai.types.chat.chat_completion_tool_choice_option_param import (
-    ChatCompletionToolChoiceOptionParam as ChatCompletionToolChoiceOptionParam,
+    ChatCompletionToolChoiceOptionParam,
 )
-from openai.types.chat.chat_completion_tool_param import (
-    ChatCompletionToolParam as ChatCompletionToolParam,
-)
-from openai.types.chat_model import ChatModel as ChatModel
-from pydantic import BaseModel, create_model
+from openai.types.chat.chat_completion_tool_param import ChatCompletionToolParam
+from openai.types.chat_model import ChatModel
+from pydantic import BaseModel, Field, create_model
+from pydantic.json_schema import GenerateJsonSchema
+from pydantic_settings import BaseSettings
 
-from .config import settings
-from .util import SwarmXGenerateJsonSchema
+
+class Settings(BaseSettings, env_prefix="SWARMX_"):  # type: ignore[call-arg]
+    openai_api_key: str = Field(alias="OPENAI_API_KEY")
+    openai_base_url: str = Field(
+        default="https://api.openai.com/v1", alias="OPENAI_BASE_URL"
+    )
+    default_model: ChatModel | str = "gpt-4o"
+
+    @property
+    def openai(self) -> OpenAI:
+        return OpenAI(api_key=self.openai_api_key, base_url=self.openai_base_url)
+
+    @property
+    def async_openai(self) -> AsyncOpenAI:
+        return AsyncOpenAI(api_key=self.openai_api_key, base_url=self.openai_base_url)
+
+
+settings = Settings()  # type: ignore[call-arg]
+
+
+__CTX_VARS_NAME__ = "context_variables"
+
+
+class SwarmXGenerateJsonSchema(GenerateJsonSchema):
+    """hide context_variables from model"""
+
+    def generate(self, schema, mode="validation"):
+        json_schema = super().generate(schema, mode=mode)
+        properties = {
+            name: {k: v for k, v in property.items() if k != "title"}
+            for name, property in json_schema.pop("properties", {}).items()
+            if name != __CTX_VARS_NAME__
+        }
+        required = [
+            r for r in json_schema.pop("required", []) if r != __CTX_VARS_NAME__
+        ]
+        return {
+            **({k: v for k, v in json_schema.items() if k != "title"}),
+            "properties": properties,
+            **({"required": required} if required else {}),
+        }
+
+
+def handle_tool_calls(
+    tool_calls: list[ChatCompletionMessageToolCall],
+    tools: "list[Tool]",
+    context_variables: dict[str, Any],
+):
+    tool_map = {f.name: f for f in tools}
+    partial_response = Response(messages=[], agent=None, context_variables={})
+
+    for tool_call in tool_calls:
+        name = tool_call.function.name
+        # handle missing tool case, skip to next tool
+        if name not in tool_map:
+            logger.debug(f"Tool {name} not found in function map.")
+            partial_response.messages.append(
+                {
+                    "role": "tool",
+                    "tool_call_id": tool_call.id,
+                    "content": f"Error: Tool {name} not found.",
+                }
+            )
+            continue
+
+        tool = tool_map[name]
+        args = tool.arguments_model.model_validate_json(
+            tool_call.function.arguments
+        ).model_dump(mode="json")
+        logger.debug(f"Processing tool call: {name} with arguments {args}")
+        # pass context_variables to agent functions
+        if __CTX_VARS_NAME__ in tool.function.__code__.co_varnames:
+            args[__CTX_VARS_NAME__] = context_variables
+        result = tool(**args)
+        partial_response.messages.append(
+            {
+                "role": "tool",
+                "tool_call_id": tool_call.id,
+                "content": result.value,
+            }
+        )
+        partial_response.context_variables.update(result.context_variables)
+        if result.agent:
+            partial_response.agent = result.agent
+
+    return partial_response
+
 
 try:
     from langchain.tools import Tool as LangChainTool
@@ -82,7 +162,7 @@ class Tool:
                 )
             self.arguments_model = create_model(self.function.__name__, **parameters)  # type: ignore[call-overload]
 
-    def __call__(self, *args, **kwargs) -> "Result":
+    def __call__(self, *args, **kwargs) -> Result:
         if LangChainTool is not None and isinstance(self.function, LangChainTool):
             result = self.function.run(kwargs)
         else:
@@ -301,4 +381,138 @@ class PartialChatCompletionMessage(ChatCompletionMessage):
             refusal=self.refusal,
             role=self.role,
             tool_calls=tool_calls,
+        )
+
+
+@dataclass
+class Swarm:
+    client: OpenAI = settings.openai
+
+    def run_and_stream(
+        self,
+        agent: Agent,
+        messages: list[ChatCompletionMessageParam],
+        context_variables: dict[str, Any] = {},
+        model_override: str | None = None,
+        max_turns: int | float = float("inf"),
+        execute_tools: bool = True,
+    ):
+        active_agent = agent
+        context_variables = copy.deepcopy(context_variables)
+        history = copy.deepcopy(messages)
+        init_len = len(messages)
+
+        while len(history) - init_len < max_turns:
+            # get completion with current history, agent
+            completion = active_agent.run(
+                self.client, history, model_override, True, context_variables
+            )
+
+            yield {"delim": "start"}
+            first = True
+            partial_message: PartialChatCompletionMessage | None = None
+            for chunk in completion:
+                delta = chunk.choices[0].delta
+                delta_json = delta.model_dump(mode="json")
+                if delta.role == "assistant":
+                    delta_json["sender"] = active_agent.name
+                yield delta_json
+                if first:
+                    first = False
+                    partial_message = PartialChatCompletionMessage.from_delta(delta)
+                else:
+                    partial_message = (
+                        cast(PartialChatCompletionMessage, partial_message) + delta
+                    )
+            yield {"delim": "end"}
+            if partial_message is None:
+                logger.debug("No completion chunk received.")
+                break
+            message = partial_message.oai_message()
+            logger.debug(f"Received completion: {message.model_dump_json()}")
+            agent_message = cast(
+                ChatCompletionAssistantMessageParam,
+                message.model_dump(mode="json", exclude_none=True),
+            )
+            agent_message["name"] = active_agent.name
+            history.append(agent_message)
+
+            if not message.tool_calls or not execute_tools:
+                logger.debug("Ending turn.")
+                break
+
+            # handle function calls, updating context_variables, and switching agents
+            partial_response = handle_tool_calls(
+                message.tool_calls, active_agent.tools, context_variables
+            )
+            history.extend(partial_response.messages)
+            context_variables.update(partial_response.context_variables)
+            if partial_response.agent:
+                active_agent = partial_response.agent
+
+        yield {
+            "response": Response(
+                messages=history[init_len:],
+                agent=active_agent,
+                context_variables=context_variables,
+            )
+        }
+
+    def run(
+        self,
+        agent: Agent,
+        messages: list[ChatCompletionMessageParam],
+        context_variables: dict = {},
+        model_override: str | None = None,
+        stream: bool = False,
+        max_turns: int | float = float("inf"),
+        execute_tools: bool = True,
+    ) -> Response:
+        if stream:
+            return self.run_and_stream(
+                agent=agent,
+                messages=messages,
+                context_variables=context_variables,
+                model_override=model_override,
+                max_turns=max_turns,
+                execute_tools=execute_tools,
+            )
+        active_agent = agent
+        context_variables = copy.deepcopy(context_variables)
+        history = copy.deepcopy(messages)
+        init_len = len(messages)
+
+        while len(history) - init_len < max_turns and active_agent:
+            # get completion with current history, agent
+            completion = active_agent.run(
+                self.client, history, model_override, False, context_variables
+            )
+            message = completion.choices[0].message
+            logger.debug(f"Received completion: {message}")
+            if message.tool_calls is not None and len(message.tool_calls) == 0:
+                message.tool_calls = None
+            assistant_message = cast(
+                ChatCompletionAssistantMessageParam,
+                message.model_dump(mode="json", exclude_none=True),
+            )
+            assistant_message["name"] = active_agent.name
+            history.append(assistant_message)
+
+            if not message.tool_calls or not execute_tools:
+                logger.debug("Ending turn.")
+                break
+
+            # handle function calls, updating context_variables, and switching agents
+            partial_response = handle_tool_calls(
+                message.tool_calls, active_agent.tools, context_variables
+            )
+            history.extend(partial_response.messages)
+            context_variables.update(partial_response.context_variables)
+            if partial_response.agent:
+                active_agent = partial_response.agent
+
+        return Response(
+            messages=history[init_len:],
+            agent=active_agent,
+            context_variables=context_variables,
         )
