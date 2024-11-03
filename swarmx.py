@@ -5,6 +5,7 @@ import inspect
 import json
 import logging
 import os
+import warnings
 from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Any, Callable, Literal, MutableMapping, cast, overload
@@ -34,6 +35,27 @@ from openai.types.chat_model import ChatModel
 from pydantic import BaseModel, create_model
 from pydantic.json_schema import GenerateJsonSchema
 
+try:
+    from jinja2 import Template
+except ImportError:
+
+    @dataclass
+    class Template:  # type: ignore[no-redef]
+        template: str
+
+        def render(self, context_variables: dict[str, Any]):
+            return self.template.format(**context_variables)
+
+
+AgentFunction = Callable[..., Any]
+try:
+    from langchain.tools import Tool as LangChainTool
+    from langchain_core.utils.function_calling import convert_to_openai_tool
+
+    AgentFunction |= LangChainTool
+except ImportError:
+    LangChainTool = None
+    convert_to_openai_tool = None
 logger = logging.getLogger(__name__)
 __CTX_VARS_NAME__ = "context_variables"
 DEFAULT_MODEL = os.getenv("SWARMX_DEFAULT_MODEL", "gpt-4o")
@@ -47,15 +69,10 @@ class SwarmXGenerateJsonSchema(GenerateJsonSchema):
         properties = {
             name: {k: v for k, v in property.items() if k != "title"}
             for name, property in json_schema.pop("properties", {}).items()
-            if name != __CTX_VARS_NAME__
         }
-        required = [
-            r for r in json_schema.pop("required", []) if r != __CTX_VARS_NAME__
-        ]
         return {
             **({k: v for k, v in json_schema.items() if k != "title"}),
             "properties": properties,
-            **({"required": required} if required else {}),
         }
 
 
@@ -87,7 +104,7 @@ def handle_tool_calls(
         ).model_dump(mode="json")
         logger.debug(f"Processing tool call: {name} with arguments {args}")
         # pass context_variables to agent functions
-        if __CTX_VARS_NAME__ in tool.function.__code__.co_varnames:
+        if hasattr(tool.arguments_model, "_" + __CTX_VARS_NAME__):
             args[__CTX_VARS_NAME__] = context_variables
         result = tool(**args)
         partial_response.messages.append(
@@ -104,17 +121,6 @@ def handle_tool_calls(
     return partial_response
 
 
-AgentFunction = Callable[..., Any]
-try:
-    from langchain.tools import Tool as LangChainTool
-    from langchain_core.utils.function_calling import convert_to_openai_tool
-
-    AgentFunction |= LangChainTool
-except ImportError:
-    LangChainTool = None
-    convert_to_openai_tool = None
-
-
 @dataclass
 class Tool:
     function: AgentFunction
@@ -125,7 +131,7 @@ class Tool:
             self.name = self.function.name
             if not isinstance(self.function.args_schema, BaseModel):
                 raise ValueError(
-                    f"args_schema must be a Pydantic BaseModel for LangChainTool: {self.name}"
+                    f"args_schema must be a Pydantic BaseModel for LangChain Tool: {self.name}"
                 )
             self.arguments_model = self.function.args_schema
         else:
@@ -134,16 +140,19 @@ class Tool:
                 signature = inspect.signature(self.function)
             except ValueError as e:
                 raise ValueError(
-                    f"Failed to get signature for function {self.function.__name__}: {str(e)}"
+                    f"Failed to get signature for function {self.name}: {str(e)}"
                 )
 
             parameters = {}
             for param in signature.parameters.values():
-                parameters[param.name] = (
+                name = ("_" if param.name == __CTX_VARS_NAME__ else "") + param.name
+                parameters[name] = (
                     param.annotation if param.annotation is not param.empty else str,
                     param.default if param.default is not param.empty else ...,
                 )
-            self.arguments_model = create_model(self.function.__name__, **parameters)  # type: ignore[call-overload]
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                self.arguments_model = create_model(self.name, **parameters)  # type: ignore[call-overload]
 
     def __call__(self, *args, **kwargs) -> Result:
         if LangChainTool is not None and isinstance(self.function, LangChainTool):
@@ -153,25 +162,12 @@ class Tool:
         match result:
             case Result() as result:
                 return result
-
             case Agent() as agent:
-                return Result(
-                    value=json.dumps({"assistant": agent.name}),
-                    agent=agent,
-                )
-
+                return Result(value=json.dumps({"assistant": agent.name}), agent=agent)
             case BaseModel() as model:
-                return Result(
-                    value=model.model_dump_json(),
-                )
-
+                return Result(value=model.model_dump_json())
             case _:
-                try:
-                    return Result(value=str(result))
-                except Exception as e:
-                    error_message = f"Failed to cast response to string: {result}. Make sure agent functions return a string or Result object. Error: {str(e)}"
-                    logger.debug(error_message)
-                    raise TypeError(error_message)
+                return Result(value=str(result))
 
     def json(self) -> ChatCompletionToolParam:
         if LangChainTool is not None and isinstance(self.function, LangChainTool):
@@ -179,25 +175,13 @@ class Tool:
         return {
             "type": "function",
             "function": {
-                "name": self.function.__name__,
+                "name": self.name,
                 "description": self.function.__doc__ or "",
                 "parameters": self.arguments_model.model_json_schema(
                     schema_generator=SwarmXGenerateJsonSchema
                 ),
             },
         }
-
-
-try:
-    from jinja2 import Template
-except ImportError:
-
-    @dataclass
-    class Template:  # type: ignore[no-redef]
-        template: str
-
-        def render(self, context_variables: dict[str, Any]):
-            return self.template.format(**context_variables)
 
 
 @dataclass
