@@ -45,7 +45,9 @@ def english_agent(spanish_agent):
 def test_handoff(client: Swarm, english_agent: Agent):
     message_input = "Hola. ¿Como estás?"
     reponse = client.run(
-        english_agent, messages=[{"role": "user", "content": message_input}]
+        english_agent,
+        messages=[{"role": "user", "content": message_input}],
+        model="gpt-4o",
     )
     test_case = LLMTestCase(
         message_input,
