@@ -1,5 +1,4 @@
 # mypy: disable-error-code="misc"
-import asyncio
 import copy
 import inspect
 import json
@@ -538,88 +537,97 @@ class Swarm:
         )
 
 
+class MCPClient:
+    def __init__(
+        self,
+        server_name: str,
+        server_params: StdioServerParameters | str,
+    ):
+        self.server_name = server_name
+        self.server_params = server_params
+        self.exit_stack = AsyncExitStack()
+
+    async def __aenter__(self):
+        read_stream, write_stream = await self.exit_stack.enter_async_context(
+            sse_client(self.server_params)
+            if isinstance(self.server_params, str)
+            else stdio_client(self.server_params)
+        )
+        self.session = cast(
+            ClientSession,
+            await self.exit_stack.enter_async_context(
+                ClientSession(read_stream, write_stream)
+            ),
+        )
+        await self.session.initialize()
+        return self
+
+    async def __aexit__(self, *exc_info):
+        await self.exit_stack.aclose()
+
+    async def list_tools(self) -> list[ChatCompletionToolParam]:
+        """List tools available on the server.
+
+        Returns:
+            list[ChatCompletionToolParam]: The list of tools available on the server
+        """
+        return [
+            ChatCompletionToolParam(
+                {
+                    "type": "function",
+                    "function": {
+                        "name": tool.name,
+                        "description": tool.description or "",
+                        "parameters": tool.inputSchema,
+                    },
+                }
+            )
+            for tool in (await self.session.list_tools()).tools
+        ]
+
+    async def call_tool(
+        self, name: str, arguments: dict | None = None
+    ) -> mcp.types.CallToolResult:
+        """Call a tool on the server.
+
+        Parameters:
+            name (str): The name of the tool to call
+            arguments (dict): The arguments to pass to the tool
+
+        Returns:
+            mcp.types.CallToolResult: The result of the tool call
+        """
+        return await self.session.call_tool(name, arguments)
+
+
 class AsyncSwarm:
     def __init__(
         self,
         mcp_servers: dict[str, StdioServerParameters | str] = {},
         client: AsyncOpenAI | None = None,
     ):
-        self.sessions: dict[str, ClientSession] = {}
         self.mcp_servers = mcp_servers
+        self.mcp_clients: dict[str, MCPClient] = {}
         self.exit_stack = AsyncExitStack()
         self.client = AsyncOpenAI() if client is None else client
         self.tool_registry: dict[str, tuple[str, ChatCompletionToolParam]] = {}
 
-    async def initialize(self):
-        await asyncio.gather(
-            *[
-                self.initialize_server(name, server)
-                for name, server in self.mcp_servers.items()
-            ]
-        )
-        return self
-
-    async def close(self, *exc_info):
-        await self.exit_stack.aclose()
-
-    async def initialize_server(self, name: str, server: StdioServerParameters | str):
-        """Initialize an MCP server
-
-        Parameters
-        ----------
-        name : str
-            The name of the server
-        server : StdioServerParameters
-            The server parameters
-        """
-        self.sessions[name] = await self.connect_to_server(server)
-        await self.register_tools(name)
-
-    async def connect_to_server(
-        self, server: StdioServerParameters | str
-    ) -> ClientSession:
-        """Connect to an MCP server
-
-        Parameters
-        ----------
-        server : StdioServerParameters | str
-            The server to connect to
-        """
-        read_stream, write_stream = await self.exit_stack.enter_async_context(
-            sse_client(server) if isinstance(server, str) else stdio_client(server)
-        )
-        session = cast(
-            ClientSession,
-            await self.exit_stack.enter_async_context(
-                ClientSession(read_stream, write_stream)
-            ),
-        )
-        await session.initialize()
-        return session
-
-    async def register_tools(self, name: str):
-        """Register tools to be used in the conversation
-
-        Parameters
-        ----------
-        name : str
-            The name of the server to register tools from
-        """
-        response = await self.sessions[name].list_tools()
-
-        for tool in response.tools:
-            tool_param = ChatCompletionToolParam(
+    async def __aenter__(self):
+        for server_name, server_params in self.mcp_servers.items():
+            client = await self.exit_stack.enter_async_context(
+                MCPClient(server_name, server_params)
+            )
+            self.mcp_clients[server_name] = client
+            self.tool_registry.update(
                 {
-                    "type": "function",
-                    "function": {
-                        "name": tool.name,
-                        "parameters": tool.inputSchema,
-                    },
+                    tool["function"]["name"]: (server_name, tool)
+                    for tool in await client.list_tools()
                 }
             )
-            if tool.description is not None:
-                tool_param["function"]["description"] = tool.description
-            self.tool_registry[tool.name] = name, tool_param
+        return self
+
+    async def __aexit__(self, *exc_info):
+        await self.exit_stack.aclose()
 
     @overload
     async def get_chat_completion(
@@ -722,7 +730,7 @@ class AsyncSwarm:
             logger.debug(f"Processing tool call: {name} with arguments {args}")
             if tools.get(name) is None and name in self.tool_registry:
                 server, _ = self.tool_registry[name]
-                raw_result = await self.sessions[server].call_tool(name, args)
+                raw_result = await self.mcp_clients[server].call_tool(name, args)
             else:
                 func = cast(AgentFunction, tools[name])
                 # pass context_variables to agent functions
