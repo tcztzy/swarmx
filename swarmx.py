@@ -6,6 +6,7 @@ import logging
 import warnings
 from collections import defaultdict
 from contextlib import AsyncExitStack
+from itertools import chain
 from typing import (
     Any,
     AsyncIterable,
@@ -34,6 +35,7 @@ from openai.types.chat import (
     ChatCompletionMessageToolCall,
     ChatCompletionMessageToolCallParam,
     ChatCompletionToolChoiceOptionParam,
+    ChatCompletionToolMessageParam,
     ChatCompletionToolParam,
 )
 from openai.types.chat.chat_completion_message_tool_call import Function
@@ -203,7 +205,7 @@ class Agent(BaseModel, arbitrary_types_allowed=True):
 
 
 class Response(BaseModel):
-    messages: list = []
+    messages: list[ChatCompletionMessageParam] = []
     agent: Agent | None = None
     context_variables: dict[str, Any] = {}
 
@@ -320,12 +322,13 @@ class Swarm:
             if tools.get(name) is None:
                 logger.debug(f"Tool {name} not found in function map.")
                 partial_response.messages.append(
-                    {
-                        "role": "tool",
-                        "tool_call_id": tool_call.id,
-                        "tool_name": name,
-                        "content": f"Error: Tool {name} not found.",
-                    }
+                    ChatCompletionToolMessageParam(
+                        {
+                            "role": "tool",
+                            "tool_call_id": tool_call.id,
+                            "content": f"Error: Tool {name} not found.",
+                        }
+                    )
                 )
                 continue
             args = json.loads(tool_call.function.arguments)
@@ -339,12 +342,13 @@ class Swarm:
 
             result: Result = self.handle_function_result(raw_result)
             partial_response.messages.append(
-                {
-                    "role": "tool",
-                    "tool_call_id": tool_call.id,
-                    "tool_name": name,
-                    "content": result.value,
-                }
+                ChatCompletionToolMessageParam(
+                    {
+                        "role": "tool",
+                        "tool_call_id": tool_call.id,
+                        "content": result.value,
+                    }
+                )
             )
             partial_response.context_variables.update(result.context_variables)
             if result.agent:
@@ -513,7 +517,10 @@ class Swarm:
             )
             message = completion.choices[0].message
             logger.debug("Received completion:", message)
-            m = json.loads(message.model_dump_json())
+            m = cast(
+                ChatCompletionAssistantMessageParam,
+                message.model_dump(mode="json", exclude_none=True),
+            )
             m["name"] = active_agent.name
             messages.append(m)
 
@@ -667,15 +674,17 @@ class AsyncSwarm:
             if __CTX_VARS_NAME__ in params.get("required", []):
                 params["required"].remove(__CTX_VARS_NAME__)
 
-        if agent.tools:
-            if agent.tool_choice:
-                create_params["tool_choice"] = agent.tool_choice
-            create_params["parallel_tool_calls"] = agent.parallel_tool_calls
-            create_params["tools"] = cast(list[ChatCompletionToolParam], agent.tools)
+        if agent.tool_choice:
+            create_params["tool_choice"] = agent.tool_choice
+        create_params["parallel_tool_calls"] = agent.parallel_tool_calls
+        create_params["tools"] = cast(
+            list[ChatCompletionToolParam],
+            chain(agent.tools, [tool for _, tool in self.tool_registry.values()]),
+        )
 
         return await self.client.chat.completions.create(stream=stream, **create_params)
 
-    def handle_function_result(self, result) -> Result:
+    def handle_function_result(self, result: Any) -> Result:
         match result:
             case Result() as result:
                 return result
@@ -718,12 +727,13 @@ class AsyncSwarm:
             if tools.get(name) is None and name not in self.tool_registry:
                 logger.debug(f"Tool {name} not found in function map.")
                 partial_response.messages.append(
-                    {
-                        "role": "tool",
-                        "tool_call_id": tool_call.id,
-                        "tool_name": name,
-                        "content": f"Error: Tool {name} not found.",
-                    }
+                    ChatCompletionToolMessageParam(
+                        {
+                            "role": "tool",
+                            "tool_call_id": tool_call.id,
+                            "content": f"Error: Tool {name} not found.",
+                        }
+                    )
                 )
                 continue
             args = json.loads(tool_call.function.arguments)
@@ -742,12 +752,13 @@ class AsyncSwarm:
 
             result: Result = self.handle_function_result(raw_result)
             partial_response.messages.append(
-                {
-                    "role": "tool",
-                    "tool_call_id": tool_call.id,
-                    "tool_name": name,
-                    "content": result.value,
-                }
+                ChatCompletionToolMessageParam(
+                    {
+                        "role": "tool",
+                        "tool_call_id": tool_call.id,
+                        "content": result.value,
+                    }
+                )
             )
             partial_response.context_variables.update(result.context_variables)
             if result.agent:
@@ -916,7 +927,10 @@ class AsyncSwarm:
             )
             message = completion.choices[0].message
             logger.debug("Received completion:", message)
-            m = json.loads(message.model_dump_json())
+            m = cast(
+                ChatCompletionAssistantMessageParam,
+                message.model_dump(mode="json", exclude_none=True),
+            )  # exclude none to avoid validation error
             m["name"] = active_agent.name
             messages.append(m)
 
@@ -932,6 +946,7 @@ class AsyncSwarm:
             context_variables |= partial_response.context_variables
             if partial_response.agent:
                 active_agent = partial_response.agent
+            kwargs["messages"] = messages
 
         return Response(
             messages=messages[init_len:],

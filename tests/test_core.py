@@ -1,6 +1,8 @@
 import json
 from unittest.mock import Mock
 
+from openai.types.chat.chat_completion_message_param import ChatCompletionMessageParam
+
 from swarmx import Agent, Swarm
 
 from .conftest import create_mock_response, create_mock_streaming_response
@@ -10,8 +12,10 @@ def test_run_with_simple_message(mock_openai_client, DEFAULT_RESPONSE_CONTENT: s
     agent = Agent()
     # set up client and run
     client = Swarm(client=mock_openai_client)
-    messages = [{"role": "user", "content": "Hello, how are you?"}]
-    response = client.run(agent=agent, messages=messages)
+    messages: list[ChatCompletionMessageParam] = [
+        {"role": "user", "content": "Hello, how are you?"}
+    ]
+    response = client.run(agent=agent, model="test", messages=messages)
 
     # assert response content
     assert response.messages[-1]["role"] == "assistant"
@@ -29,7 +33,7 @@ def test_tool_call(mock_openai_client, DEFAULT_RESPONSE_CONTENT: str):
         return "It's sunny today."
 
     agent = Agent(name="Test Agent", functions=[get_weather])
-    messages = [
+    messages: list[ChatCompletionMessageParam] = [
         {"role": "user", "content": "What's the weather like in San Francisco?"}
     ]
 
@@ -50,7 +54,7 @@ def test_tool_call(mock_openai_client, DEFAULT_RESPONSE_CONTENT: str):
 
     # set up client and run
     client = Swarm(client=mock_openai_client)
-    response = client.run(agent=agent, messages=messages)
+    response = client.run(agent=agent, model="test", messages=messages)
 
     get_weather_mock.assert_called_once_with(location=expected_location)
     assert response.messages[-1]["role"] == "assistant"
@@ -68,7 +72,7 @@ def test_execute_tools_false(mock_openai_client, DEFAULT_RESPONSE_CONTENT: str):
         return "It's sunny today."
 
     agent = Agent(name="Test Agent", functions=[get_weather])
-    messages = [
+    messages: list[ChatCompletionMessageParam] = [
         {"role": "user", "content": "What's the weather like in San Francisco?"}
     ]
 
@@ -89,8 +93,9 @@ def test_execute_tools_false(mock_openai_client, DEFAULT_RESPONSE_CONTENT: str):
 
     # set up client and run
     client = Swarm(client=mock_openai_client)
-    response = client.run(agent=agent, messages=messages, execute_tools=False)
-    print(response)
+    response = client.run(
+        agent=agent, model="test", messages=messages, execute_tools=False
+    )
 
     # assert function not called
     get_weather_mock.assert_not_called()
@@ -129,8 +134,10 @@ def test_handoff(mock_openai_client, DEFAULT_RESPONSE_CONTENT: str):
 
     # set up client and run
     client = Swarm(client=mock_openai_client)
-    messages = [{"role": "user", "content": "I want to talk to agent 2"}]
-    response = client.run(agent=agent1, messages=messages)
+    messages: list[ChatCompletionMessageParam] = [
+        {"role": "user", "content": "I want to talk to agent 2"}
+    ]
+    response = client.run(agent=agent1, model="test", messages=messages)
 
     assert response.agent == agent2
     assert response.messages[-1]["role"] == "assistant"
@@ -147,8 +154,10 @@ def test_streaming(mock_openai_client, DEFAULT_RESPONSE_CONTENT: str):
     )
     client = Swarm(client=mock_openai_client)
     agent = Agent()
-    messages = [{"role": "user", "content": "Hello, how are you?"}]
-    response = client.run(agent=agent, messages=messages, stream=True)
+    messages: list[ChatCompletionMessageParam] = [
+        {"role": "user", "content": "Hello, how are you?"}
+    ]
+    response = client.run(agent=agent, model="test", messages=messages, stream=True)
     for i, chunk in enumerate(response):
         match chunk:
             case {"delim": "start"}:
@@ -158,4 +167,4 @@ def test_streaming(mock_openai_client, DEFAULT_RESPONSE_CONTENT: str):
             case {"response": response}:
                 ...
             case _:
-                assert chunk["content"] in DEFAULT_RESPONSE_CONTENT
+                assert chunk["content"] in DEFAULT_RESPONSE_CONTENT  # type: ignore

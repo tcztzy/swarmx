@@ -3,13 +3,15 @@ from datetime import datetime
 from unittest.mock import MagicMock
 
 import pytest
-from openai.types.chat.chat_completion import (
-    ChatCompletion,
-    ChatCompletionMessage,
-    Choice,
+from openai.types.chat.chat_completion import ChatCompletion, Choice
+from openai.types.chat.chat_completion_chunk import (
+    ChatCompletionChunk,
+    ChoiceDelta,
+    ChoiceDeltaToolCall,
+    ChoiceDeltaToolCallFunction,
 )
-from openai.types.chat.chat_completion_chunk import ChatCompletionChunk, ChoiceDelta
 from openai.types.chat.chat_completion_chunk import Choice as ChunkChoice
+from openai.types.chat.chat_completion_message import ChatCompletionMessage
 
 from swarmx import ChatCompletionMessageToolCall, Function
 
@@ -32,10 +34,11 @@ def create_mock_streaming_response(
                         delta=ChoiceDelta(
                             content=token,
                             tool_calls=[
-                                ChatCompletionMessageToolCall(
+                                ChoiceDeltaToolCall(
+                                    index=0,
                                     id="mock_tc_id",
                                     type="function",
-                                    function=Function(
+                                    function=ChoiceDeltaToolCallFunction(
                                         name=call.get("name", ""),
                                         arguments=json.dumps(call.get("args", {})),
                                     ),

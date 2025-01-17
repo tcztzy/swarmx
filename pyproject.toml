@@ -1,6 +1,6 @@
 [project]
 name = "swarmx"
-version = "0.4.1"
+version = "0.4.2"
 authors = [
     { name = "Tang Ziya", email = "tcztzy@gmail.Com" }
 ]
@@ -9,7 +9,7 @@ readme = "README.md"
 license = "MIT"
 dependencies = [
     "jinja2>=3.1.5",
-    "mcp>=1.1.2",
+    "mcp>=1.2.0",
     "openai",
     "pydantic>=2.9",
     "typing-extensions>=4.12.2 ; python_full_version < '3.11'",
@@ -25,8 +25,8 @@ dev = [
     "pre-commit>=4.0.1",
     "pytest>=8.3.4",
     "pytest-cov>=6.0.0",
-    "mypy>=1.14.0",
-    "deepeval>=2.0.9",
+    "mypy>=1.14.1",
+    "deepeval>=2.1.8",
 ]
 
 [tool.ruff.lint]

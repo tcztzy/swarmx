@@ -2,9 +2,10 @@ import pytest
 from deepeval import assert_test
 from deepeval.metrics import GEval
 from deepeval.test_case import LLMTestCase, LLMTestCaseParams
+from mcp.client.stdio import StdioServerParameters
 from pytest import fixture
 
-from swarmx import Agent, Swarm
+from swarmx import Agent, AsyncSwarm, Swarm
 
 
 def no_openai_available():
@@ -47,7 +48,7 @@ def test_handoff(client: Swarm, english_agent: Agent):
     reponse = client.run(
         english_agent,
         messages=[{"role": "user", "content": message_input}],
-        model="gpt-4o",
+        model="llama3.2",
     )
     test_case = LLMTestCase(
         message_input,
@@ -61,3 +62,25 @@ def test_handoff(client: Swarm, english_agent: Agent):
     )
     assert_test(test_case, [spanish_detection])
     assert reponse.agent != english_agent
+
+
+@pytest.mark.parametrize("anyio_backend", ["asyncio"])
+async def test_mcp_tool_call(anyio_backend):
+    async with AsyncSwarm(
+        mcp_servers={
+            "time": StdioServerParameters(
+                command="uvx",
+                args=["mcp-server-time", "--local-timezone", "UTC"],
+            )
+        }
+    ) as client:
+        agent = Agent()
+        response = await client.run(
+            agent=agent,
+            model="llama3.2",
+            messages=[
+                {"role": "user", "content": "What time is it now? UTC time is okay."}
+            ],
+        )
+        message = response.messages[-1]
+        assert message.get("name") == "Agent"
