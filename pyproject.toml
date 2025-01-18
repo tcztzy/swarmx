@@ -12,7 +12,7 @@ dependencies = [
     "mcp>=1.2.0",
     "openai",
     "pydantic>=2.9",
-    "typing-extensions>=4.12.2 ; python_full_version < '3.11'",
+    "typing-extensions>=4.12.2",
 ]
 requires-python = ">=3.10"
 
@@ -27,6 +27,7 @@ dev = [
     "pytest-cov>=6.0.0",
     "mypy>=1.14.1",
     "deepeval>=2.1.8",
+    "tox>=4.23.2",
 ]
 
 [tool.ruff.lint]

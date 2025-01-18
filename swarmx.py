@@ -17,6 +17,7 @@ from typing import (
     MutableSequence,
     TypeAlias,
     cast,
+    get_type_hints,
     overload,
 )
 
@@ -43,9 +44,8 @@ from openai.types.chat.completion_create_params import CompletionCreateParamsBas
 from pydantic import (
     BaseModel,
     Field,
+    ImportString,
     PrivateAttr,
-    TypeAdapter,
-    ValidationError,
     computed_field,
     create_model,
 )
@@ -128,12 +128,33 @@ def function_to_json(func: AgentFunction) -> ChatCompletionToolParam:
     }
 
 
+def check_function(func: object) -> AgentFunction:
+    if not callable(func):
+        raise TypeError(f"Expected a callable object, got {type(func)}")
+    annotation = get_type_hints(func)
+    if annotation.get("return") not in [
+        str,
+        Agent,
+        dict[str, Any],
+        Result,
+        Coroutine[Any, Any, str],
+        Coroutine[Any, Any, Agent],
+        Coroutine[Any, Any, dict[str, Any]],
+        Coroutine[Any, Any, Result],
+        None,
+    ]:
+        raise TypeError(
+            "Agent function return type must be str, Agent, dict[str, Any], or Result"
+        )
+    return cast(AgentFunction, func)
+
+
 class SwarmXGenerateJsonSchema(GenerateJsonSchema):
     def field_title_should_be_set(self, schema) -> bool:
         return False
 
 
-class Agent(BaseModel, arbitrary_types_allowed=True):
+class Agent(BaseModel):
     name: str = "Agent"
     """The agent's name"""
 
@@ -143,7 +164,7 @@ class Agent(BaseModel, arbitrary_types_allowed=True):
     instructions: str = "You are a helpful agent."
     """Agent's instructions, could be a Jinja2 template"""
 
-    functions: list[AgentFunction] = Field(default_factory=list)
+    functions: list[ImportString] = Field(default_factory=list)
     """The tools available to the agent"""
 
     tool_choice: ChatCompletionToolChoiceOptionParam | None = None
@@ -193,13 +214,7 @@ class Agent(BaseModel, arbitrary_types_allowed=True):
     def tools(self) -> Iterable[ChatCompletionToolParam]:
         tools = []
         for function in self.functions:
-            try:
-                function = TypeAdapter(AgentFunction).validate_python(function)
-                tools.append(function_to_json(function))
-            except Exception:
-                raise ValidationError(
-                    "tools must be Iterable[ChatCompletionToolParam | AgentFunction]"
-                )
+            tools.append(function_to_json(check_function(function)))
             self._tool_registry[tools[-1]["function"]["name"]] = function
         return tools
 
@@ -210,19 +225,44 @@ class Response(BaseModel):
     context_variables: dict[str, Any] = {}
 
 
-class Result(BaseModel):
+class Result(mcp.types.CallToolResult):
     """
     Encapsulates the possible return values for an agent function.
 
     Attributes:
-        value (str): The result value as a string.
         agent (Agent): The agent instance, if applicable.
-        context_variables (dict): A dictionary of context variables.
     """
 
-    value: str = ""
     agent: Agent | None = None
-    context_variables: dict = {}
+
+    @property
+    def value(self) -> str:
+        return "".join([c.text for c in self.content if c.type == "text"])
+
+
+def handle_function_result(result) -> Result:
+    match result:
+        case Result() as result:
+            return result
+
+        case Agent() as agent:
+            return Result(content=[], agent=agent)
+
+        case dict():
+            return Result(_meta=result, content=[])
+
+        case mcp.types.CallToolResult():
+            return Result.model_validate(result.model_dump())
+
+        case _:
+            try:
+                return Result(
+                    content=[mcp.types.TextContent(type="text", text=str(result))]
+                )
+            except Exception as e:
+                error_message = f"Failed to cast response to string: {result}. Make sure agent functions return a string or Result object. Error: {str(e)}"
+                logger.debug(error_message)
+                raise TypeError(error_message)
 
 
 class Swarm:
@@ -279,35 +319,6 @@ class Swarm:
 
         return self.client.chat.completions.create(stream=stream, **create_params)
 
-    def handle_function_result(self, result) -> Result:
-        match result:
-            case Result() as result:
-                return result
-
-            case Agent() as agent:
-                return Result(
-                    value=json.dumps({"assistant": agent.name}),
-                    agent=agent,
-                )
-
-            case dict():
-                return Result(context_variables=result)
-
-            case mcp.types.CallToolResult():
-                return Result(
-                    value=json.dumps(
-                        [c.model_dump(mode="json") for c in result.content]
-                    )
-                )
-
-            case _:
-                try:
-                    return Result(value=str(result))
-                except Exception as e:
-                    error_message = f"Failed to cast response to string: {result}. Make sure agent functions return a string or Result object. Error: {str(e)}"
-                    logger.debug(error_message)
-                    raise TypeError(error_message)
-
     def handle_tool_calls(
         self,
         tool_calls: list[ChatCompletionMessageToolCall],
@@ -340,7 +351,7 @@ class Swarm:
                 args[__CTX_VARS_NAME__] = context_variables
             raw_result = func(**args)
 
-            result: Result = self.handle_function_result(raw_result)
+            result: Result = handle_function_result(raw_result)
             partial_response.messages.append(
                 ChatCompletionToolMessageParam(
                     {
@@ -350,7 +361,7 @@ class Swarm:
                     }
                 )
             )
-            partial_response.context_variables.update(result.context_variables)
+            partial_response.context_variables.update(result.meta or {})
             if result.agent:
                 partial_response.agent = result.agent
 
@@ -684,35 +695,6 @@ class AsyncSwarm:
 
         return await self.client.chat.completions.create(stream=stream, **create_params)
 
-    def handle_function_result(self, result: Any) -> Result:
-        match result:
-            case Result() as result:
-                return result
-
-            case Agent() as agent:
-                return Result(
-                    value=json.dumps({"assistant": agent.name}),
-                    agent=agent,
-                )
-
-            case dict():
-                return Result(context_variables=result)
-
-            case mcp.types.CallToolResult():
-                return Result(
-                    value=json.dumps(
-                        [c.model_dump(mode="json") for c in result.content]
-                    )
-                )
-
-            case _:
-                try:
-                    return Result(value=str(result))
-                except Exception as e:
-                    error_message = f"Failed to cast response to string: {result}. Make sure agent functions return a string or Result object. Error: {str(e)}"
-                    logger.debug(error_message)
-                    raise TypeError(error_message)
-
     async def handle_tool_calls(
         self,
         tool_calls: list[ChatCompletionMessageToolCall],
@@ -750,7 +732,7 @@ class AsyncSwarm:
                 if inspect.isawaitable(raw_result):
                     raw_result = await raw_result
 
-            result: Result = self.handle_function_result(raw_result)
+            result: Result = handle_function_result(raw_result)
             partial_response.messages.append(
                 ChatCompletionToolMessageParam(
                     {
@@ -760,7 +742,7 @@ class AsyncSwarm:
                     }
                 )
             )
-            partial_response.context_variables.update(result.context_variables)
+            partial_response.context_variables.update(result.meta or {})
             if result.agent:
                 partial_response.agent = result.agent
 

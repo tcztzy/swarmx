@@ -1,3 +1,5 @@
+import datetime
+
 import pytest
 from deepeval import assert_test
 from deepeval.metrics import GEval
@@ -84,3 +86,7 @@ async def test_mcp_tool_call(anyio_backend):
         )
         message = response.messages[-1]
         assert message.get("name") == "Agent"
+        now = datetime.datetime.now(datetime.timezone.utc)
+        content = message.get("content")
+        assert isinstance(content, str)
+        assert now.strftime("%H:%M") in content
