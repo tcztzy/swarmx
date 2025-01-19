@@ -10,12 +10,12 @@ from pytest import fixture
 from swarmx import Agent, AsyncSwarm, Swarm
 
 
-def no_openai_available():
+def openai_available():
     try:
         Swarm().client.models.list()
-        return False
-    except Exception:
         return True
+    except Exception:
+        return False
 
 
 @fixture
@@ -44,7 +44,7 @@ def english_agent(spanish_agent):
     )
 
 
-@pytest.mark.skipif(no_openai_available(), reason="OpenAI API not available.")
+@pytest.mark.skipif(not openai_available(), reason="OpenAI API not available.")
 def test_handoff(client: Swarm, english_agent: Agent):
     message_input = "Hola. ¿Como estás?"
     reponse = client.run(
@@ -52,10 +52,17 @@ def test_handoff(client: Swarm, english_agent: Agent):
         messages=[{"role": "user", "content": message_input}],
         model="llama3.2",
     )
-    test_case = LLMTestCase(
-        message_input,
-        reponse.messages[-1]["content"],
-    )
+    last_message = reponse.messages[-1]
+    content = last_message.get("content")
+    if isinstance(content, str):
+        actual_output = content
+    elif content is None:
+        actual_output = ""
+    else:
+        # Handle case where content is an iterable of content parts
+        actual_output = " ".join(part["text"] for part in content if "text" in part)
+
+    test_case = LLMTestCase(message_input, actual_output)
     spanish_detection = GEval(
         name="Spanish Detection",
         criteria="Spanish Detection - the likelihood of the agent responding in Spanish.",
@@ -81,7 +88,12 @@ async def test_mcp_tool_call(anyio_backend):
             agent=agent,
             model="llama3.2",
             messages=[
-                {"role": "user", "content": "What time is it now? UTC time is okay."}
+                {
+                    "role": "user",
+                    "content": "What time is it now? UTC time is okay. "
+                    "You should only answer time in %H:%M:%S format without "
+                    "any other characters, e.g. 12:34:56",
+                }
             ],
         )
         message = response.messages[-1]
@@ -89,4 +101,7 @@ async def test_mcp_tool_call(anyio_backend):
         now = datetime.datetime.now(datetime.timezone.utc)
         content = message.get("content")
         assert isinstance(content, str)
-        assert now.strftime("%H:%M") in content
+        answer_time = datetime.datetime.strptime(content, "%H:%M:%S").replace(
+            tzinfo=datetime.timezone.utc
+        )
+        assert answer_time - now < datetime.timedelta(seconds=1)

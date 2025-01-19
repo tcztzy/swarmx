@@ -21,7 +21,7 @@ async def test_mcp_server(anyio_backend):
             command="uvx",
             args=["mcp-server-time", "--local-timezone", "UTC"],
         )
-        server, tool = client.tool_registry["get_current_time"]
+        server, tool = client._tool_registry["get_current_time"]
         assert tool == {
             "function": {
                 "description": "Get current time in a specific timezones",
@@ -39,7 +39,7 @@ async def test_mcp_server(anyio_backend):
             },
             "type": "function",
         }
-        result = await client.mcp_clients[server].call_tool(
+        result = await client._mcp_clients[server].call_tool(
             "get_current_time", {"timezone": "UTC"}
         )
         assert result.content[0].type == "text"

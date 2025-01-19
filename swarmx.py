@@ -14,7 +14,6 @@ from typing import (
     Coroutine,
     Iterable,
     Literal,
-    MutableSequence,
     TypeAlias,
     cast,
     get_type_hints,
@@ -39,9 +38,11 @@ from openai.types.chat import (
     ChatCompletionToolMessageParam,
     ChatCompletionToolParam,
 )
+from openai.types.chat.chat_completion_chunk import ChoiceDelta
 from openai.types.chat.chat_completion_message_tool_call import Function
 from openai.types.chat.completion_create_params import CompletionCreateParamsBase
 from pydantic import (
+    AliasChoices,
     BaseModel,
     Field,
     ImportString,
@@ -60,43 +61,45 @@ ReturnType: TypeAlias = "str | Agent | dict[str, Any] | Result"
 AgentFunction: TypeAlias = Callable[..., ReturnType | Coroutine[Any, Any, ReturnType]]
 
 
-def merge_fields(
-    target: ChatCompletionAssistantMessageParam | ChatCompletionMessageToolCallParam,
-    source: dict,
-):
-    for key, value in source.items():
-        if isinstance(value, str):
-            target[key] += value
-        elif value is not None and isinstance(value, dict):
-            merge_fields(target[key], value)
-
-
 def merge_chunk(
-    final_response: ChatCompletionAssistantMessageParam, delta: dict
+    message: ChatCompletionAssistantMessageParam, delta: ChoiceDelta
 ) -> None:
-    assert "tool_calls" in final_response
-    delta.pop("role", None)
-    merge_fields(final_response, delta)
+    content = message.get("content") or ""
+    if isinstance(content, str):
+        message["content"] = content + (delta.content or "")
+    else:
+        message["content"] = list(content) + [
+            {"type": "text", "text": delta.content or ""}
+        ]
 
-    tool_calls = delta.get("tool_calls")
-    if tool_calls and len(tool_calls) > 0:
-        index = tool_calls[0].pop("index")
-        merge_fields(
-            cast(
-                MutableSequence[ChatCompletionMessageToolCallParam],
-                final_response["tool_calls"],
-            )[index],
-            tool_calls[0],
-        )
+    if delta.refusal is not None:
+        message["refusal"] = (message.get("refusal") or "") + delta.refusal
+
+    if delta.tool_calls:
+        tool_calls = {i: call for i, call in enumerate(message.get("tool_calls") or [])}
+        for call in delta.tool_calls:
+            function = call.function
+            tool_call = tool_calls.get(
+                call.index
+            ) or ChatCompletionMessageToolCallParam(
+                {
+                    "id": call.id or "",
+                    "function": {"arguments": "", "name": ""},
+                    "type": "function",
+                }
+            )
+            tool_call["id"] = call.id or tool_call["id"]
+            tool_call["function"]["arguments"] += (
+                function.arguments or "" if function else ""
+            )
+            tool_call["function"]["name"] = function.name or "" if function else ""
 
 
 def does_function_need_context(
     func: AgentFunction | Callable[..., mcp.types.CallToolResult],
 ) -> bool:
-    try:
-        return __CTX_VARS_NAME__ in func.__code__.co_varnames
-    except AttributeError:
-        return False
+    signature = inspect.signature(func)
+    return __CTX_VARS_NAME__ in signature.parameters
 
 
 def function_to_json(func: AgentFunction) -> ChatCompletionToolParam:
@@ -387,8 +390,8 @@ class Swarm:
         init_len = len(history)
 
         while max_turns is None or len(history) - init_len < max_turns:
-            message: ChatCompletionMessageParam = {
-                "content": "",
+            message: ChatCompletionAssistantMessageParam = {
+                "content": [],
                 "name": agent.name,
                 "role": "assistant",
                 "tool_calls": defaultdict(
@@ -410,12 +413,10 @@ class Swarm:
 
             yield {"delim": "start"}
             for chunk in completion:
-                delta = chunk.choices[0].delta.model_dump(mode="json")
-                if delta["role"] == "assistant":
-                    delta["name"] = active_agent.name
-                yield delta
-                delta.pop("role", None)
-                delta.pop("name", None)
+                delta = chunk.choices[0].delta
+                if delta.role == "assistant":
+                    delta.name = active_agent.name  # type: ignore
+                yield delta.model_dump(mode="json")
                 merge_chunk(message, delta)
             yield {"delim": "end"}
 
@@ -618,25 +619,30 @@ class MCPClient:
         return await self.session.call_tool(name, arguments)
 
 
-class AsyncSwarm:
-    def __init__(
-        self,
-        mcp_servers: dict[str, StdioServerParameters | str] = {},
-        client: AsyncOpenAI | None = None,
-    ):
-        self.mcp_servers = mcp_servers
-        self.mcp_clients: dict[str, MCPClient] = {}
-        self.exit_stack = AsyncExitStack()
-        self.client = AsyncOpenAI() if client is None else client
-        self.tool_registry: dict[str, tuple[str, ChatCompletionToolParam]] = {}
+class AsyncSwarm(BaseModel):
+    mcp_servers: dict[str, StdioServerParameters | str] = Field(
+        default_factory=dict,
+        validation_alias=AliasChoices("mcp_servers", "mcpServers"),
+        serialization_alias="mcpServers",
+    )
+    _client: AsyncOpenAI = PrivateAttr()
+    _mcp_clients: dict[str, MCPClient] = PrivateAttr()
+    _exit_stack: AsyncExitStack = PrivateAttr()
+    _tool_registry: dict[str, tuple[str, ChatCompletionToolParam]] = PrivateAttr()
+
+    def model_post_init(self, __context: Any) -> None:
+        self._mcp_clients: dict[str, MCPClient] = {}
+        self._exit_stack = AsyncExitStack()
+        self._client = AsyncOpenAI()
+        self._tool_registry: dict[str, tuple[str, ChatCompletionToolParam]] = {}
 
     async def __aenter__(self):
         for server_name, server_params in self.mcp_servers.items():
-            client = await self.exit_stack.enter_async_context(
+            client = await self._exit_stack.enter_async_context(
                 MCPClient(server_name, server_params)
             )
-            self.mcp_clients[server_name] = client
-            self.tool_registry.update(
+            self._mcp_clients[server_name] = client
+            self._tool_registry.update(
                 {
                     tool["function"]["name"]: (server_name, tool)
                     for tool in await client.list_tools()
@@ -645,7 +651,7 @@ class AsyncSwarm:
         return self
 
     async def __aexit__(self, *exc_info):
-        await self.exit_stack.aclose()
+        await self._exit_stack.aclose()
 
     @overload
     async def get_chat_completion(
@@ -690,10 +696,12 @@ class AsyncSwarm:
         create_params["parallel_tool_calls"] = agent.parallel_tool_calls
         create_params["tools"] = cast(
             list[ChatCompletionToolParam],
-            chain(agent.tools, [tool for _, tool in self.tool_registry.values()]),
+            chain(agent.tools, [tool for _, tool in self._tool_registry.values()]),
         )
 
-        return await self.client.chat.completions.create(stream=stream, **create_params)
+        return await self._client.chat.completions.create(
+            stream=stream, **create_params
+        )
 
     async def handle_tool_calls(
         self,
@@ -706,7 +714,7 @@ class AsyncSwarm:
         for tool_call in tool_calls:
             name = tool_call.function.name
             # handle missing tool case, skip to next tool
-            if tools.get(name) is None and name not in self.tool_registry:
+            if tools.get(name) is None and name not in self._tool_registry:
                 logger.debug(f"Tool {name} not found in function map.")
                 partial_response.messages.append(
                     ChatCompletionToolMessageParam(
@@ -720,9 +728,9 @@ class AsyncSwarm:
                 continue
             args = json.loads(tool_call.function.arguments)
             logger.debug(f"Processing tool call: {name} with arguments {args}")
-            if tools.get(name) is None and name in self.tool_registry:
-                server, _ = self.tool_registry[name]
-                raw_result = await self.mcp_clients[server].call_tool(name, args)
+            if tools.get(name) is None and name in self._tool_registry:
+                server, _ = self._tool_registry[name]
+                raw_result = await self._mcp_clients[server].call_tool(name, args)
             else:
                 func = cast(AgentFunction, tools[name])
                 # pass context_variables to agent functions
@@ -791,12 +799,10 @@ class AsyncSwarm:
 
             yield {"delim": "start"}
             async for chunk in completion:
-                delta = chunk.choices[0].delta.model_dump(mode="json")
-                if delta["role"] == "assistant":
-                    delta["name"] = active_agent.name
-                yield delta
-                delta.pop("role", None)
-                delta.pop("name", None)
+                delta = chunk.choices[0].delta
+                if delta.role == "assistant":
+                    delta.name = active_agent.name  # type: ignore
+                yield delta.model_dump(mode="json")
                 merge_chunk(message, delta)
             yield {"delim": "end"}
 
