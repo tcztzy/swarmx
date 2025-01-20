@@ -6,9 +6,10 @@ from mcp.client.stdio import StdioServerParameters
 
 from swarmx import AsyncSwarm
 
+pytestmark = pytest.mark.anyio
 
-@pytest.mark.parametrize("anyio_backend", ["asyncio"])
-async def test_mcp_server(anyio_backend):
+
+async def test_mcp_server():
     async with AsyncSwarm(
         mcp_servers={
             "time": StdioServerParameters(

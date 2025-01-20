@@ -9,6 +9,8 @@ from pytest import fixture
 
 from swarmx import Agent, AsyncSwarm, Swarm
 
+pytestmark = pytest.mark.anyio
+
 
 def openai_available():
     try:
@@ -47,12 +49,12 @@ def english_agent(spanish_agent):
 @pytest.mark.skipif(not openai_available(), reason="OpenAI API not available.")
 def test_handoff(client: Swarm, english_agent: Agent):
     message_input = "Hola. ¿Como estás?"
-    reponse = client.run(
+    response = client.run(
         english_agent,
         messages=[{"role": "user", "content": message_input}],
         model="llama3.2",
     )
-    last_message = reponse.messages[-1]
+    last_message = response.messages[-1]
     content = last_message.get("content")
     if isinstance(content, str):
         actual_output = content
@@ -70,11 +72,10 @@ def test_handoff(client: Swarm, english_agent: Agent):
         threshold=0.85,  # interesting, Llama rarely generate likelihoods above 0.9
     )
     assert_test(test_case, [spanish_detection])
-    assert reponse.agent != english_agent
+    assert response.agent != english_agent
 
 
-@pytest.mark.parametrize("anyio_backend", ["asyncio"])
-async def test_mcp_tool_call(anyio_backend):
+async def test_mcp_tool_call():
     async with AsyncSwarm(
         mcp_servers={
             "time": StdioServerParameters(

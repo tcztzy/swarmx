@@ -16,6 +16,11 @@ from openai.types.chat.chat_completion_message import ChatCompletionMessage
 from swarmx import ChatCompletionMessageToolCall, Function
 
 
+@pytest.fixture
+def anyio_backend():
+    return "asyncio"
+
+
 def create_mock_streaming_response(
     message,
     function_calls=[],
