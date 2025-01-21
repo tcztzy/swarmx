@@ -715,36 +715,8 @@ class Swarm(BaseSwarm):
         )
 
 
-async def main(conversation_file: Path | None = None):
-    messages: list[ChatCompletionMessageParam] = []
-    while True:
-        try:
-            user_prompt = input(">>> ")
-            messages.append(
-                {
-                    "role": "user",
-                    "content": user_prompt,
-                }
-            )
-            message = ""
-            async for chunk in await client.run(
-                agent, model=args.model, messages=messages, stream=True
-            ):
-                if (c := chunk.get("content")) is not None:  # type: ignore
-                    message += c  # type: ignore
-                    print(c, end="", flush=True)  # noqa: T201
-                elif (response := chunk.get("response")) is not None:  # type: ignore
-                    messages.extend(response.messages)  # type: ignore
-            print()  # noqa: T201
-        except KeyboardInterrupt:
-            break
-    if conversation_file is not None:
-        conversation_file.write_text(json.dumps(messages, indent=2))
-
-
-if __name__ == "__main__":
+async def main():
     import argparse
-    from pathlib import Path
 
     parser = argparse.ArgumentParser(description="SwarmX Command Line Interface")
 
@@ -773,4 +745,35 @@ if __name__ == "__main__":
         data = json.loads(args.file.read_text())
     agent = Agent.model_validate(data.pop("agent", {}))
     client = AsyncSwarm.model_validate(data)
-    asyncio.run(main(args.output))
+    messages: list[ChatCompletionMessageParam] = []
+    while True:
+        try:
+            user_prompt = input(">>> ")
+            messages.append(
+                {
+                    "role": "user",
+                    "content": user_prompt,
+                }
+            )
+            message = ""
+            async for chunk in await client.run(
+                agent, model=args.model, messages=messages, stream=True
+            ):
+                if (c := chunk.get("content")) is not None:  # type: ignore
+                    message += c  # type: ignore
+                    print(c, end="", flush=True)  # noqa: T201
+                elif (response := chunk.get("response")) is not None:  # type: ignore
+                    messages.extend(response.messages)  # type: ignore
+            print()  # noqa: T201
+        except KeyboardInterrupt:
+            break
+    if args.output is not None:
+        args.output.write_text(json.dumps(messages, indent=2))
+
+
+def repl():
+    asyncio.run(main())
+
+
+if __name__ == "__main__":
+    repl()

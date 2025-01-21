@@ -1,6 +1,6 @@
 [project]
 name = "swarmx"
-version = "0.4.3"
+version = "0.4.4"
 authors = [
     { name = "Tang Ziya", email = "tcztzy@gmail.Com" }
 ]
@@ -15,6 +15,9 @@ dependencies = [
     "typing-extensions>=4.12.2",
 ]
 requires-python = ">=3.10"
+
+[project.scripts]
+swarmx = "swarmx:repl"
 
 [build-system]
 requires = ["hatchling"]
