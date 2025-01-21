@@ -8,6 +8,7 @@ import warnings
 from collections import defaultdict
 from contextlib import AsyncExitStack
 from itertools import chain
+from pathlib import Path
 from typing import (
     Annotated,
     Any,
@@ -712,3 +713,64 @@ class Swarm(BaseSwarm):
                 **kwargs,
             )
         )
+
+
+async def main(conversation_file: Path | None = None):
+    messages: list[ChatCompletionMessageParam] = []
+    while True:
+        try:
+            user_prompt = input(">>> ")
+            messages.append(
+                {
+                    "role": "user",
+                    "content": user_prompt,
+                }
+            )
+            message = ""
+            async for chunk in await client.run(
+                agent, model=args.model, messages=messages, stream=True
+            ):
+                if (c := chunk.get("content")) is not None:  # type: ignore
+                    message += c  # type: ignore
+                    print(c, end="", flush=True)  # noqa: T201
+                elif (response := chunk.get("response")) is not None:  # type: ignore
+                    messages.extend(response.messages)  # type: ignore
+            print()  # noqa: T201
+        except KeyboardInterrupt:
+            break
+    if conversation_file is not None:
+        conversation_file.write_text(json.dumps(messages, indent=2))
+
+
+if __name__ == "__main__":
+    import argparse
+    from pathlib import Path
+
+    parser = argparse.ArgumentParser(description="SwarmX Command Line Interface")
+
+    parser.add_argument(
+        "--model",
+        type=str,
+        default="gpt-4o",
+        help="The model to use for the agent",
+    )
+    parser.add_argument(
+        "--file",
+        type=Path,
+        default=None,
+        help="The path to the swarmx file (JSON file containing `mcpServers` and `agent`)",
+    )
+    parser.add_argument(
+        "--output",
+        type=Path,
+        default=None,
+        help="The path to the output file to save the conversation",
+    )
+    args = parser.parse_args()
+    if args.file is None:
+        data = {}
+    else:
+        data = json.loads(args.file.read_text())
+    agent = Agent.model_validate(data.pop("agent", {}))
+    client = AsyncSwarm.model_validate(data)
+    asyncio.run(main(args.output))
