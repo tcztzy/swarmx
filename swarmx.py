@@ -1,4 +1,5 @@
 # mypy: disable-error-code="misc"
+import asyncio
 import copy
 import inspect
 import json
@@ -10,7 +11,7 @@ from itertools import chain
 from typing import (
     Annotated,
     Any,
-    AsyncIterable,
+    AsyncIterator,
     Callable,
     Coroutine,
     Iterable,
@@ -26,7 +27,7 @@ from jinja2 import Template
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.sse import sse_client
 from mcp.client.stdio import stdio_client
-from openai import AsyncOpenAI, AsyncStream, OpenAI, Stream
+from openai import AsyncOpenAI, AsyncStream
 from openai.types import ChatModel
 from openai.types.chat import (
     ChatCompletion,
@@ -187,7 +188,7 @@ class Agent(BaseModel):
     parallel_tool_calls: bool = False
     """Whether to make tool calls in parallel"""
 
-    _tool_registry: dict[str, AgentFunction | None] = PrivateAttr(default_factory=dict)
+    _tool_registry: dict[str, AgentFunction] = PrivateAttr(default_factory=dict)
 
     def _with_instructions(
         self,
@@ -254,7 +255,62 @@ class Result(mcp.types.CallToolResult):
         return "".join([c.text for c in self.content if c.type == "text"])
 
 
-def handle_function_result(result) -> Result:
+async def handle_tool_calls(
+    tool_calls: list[ChatCompletionMessageToolCall],
+    functions: dict[str, AgentFunction],
+    context_variables: dict[str, Any],
+    mcp_tool_registry: dict[str, tuple[str, ChatCompletionToolParam]],
+    mcp_clients: dict[str, ClientSession],
+) -> Response:
+    partial_response = Response(messages=[], agent=None, context_variables={})
+
+    for tool_call in tool_calls:
+        name = tool_call.function.name
+        # handle missing tool case, skip to next tool
+        if functions.get(name) is None and name not in mcp_tool_registry:
+            logger.debug(f"Tool {name} not found in function map.")
+            partial_response.messages.append(
+                ChatCompletionToolMessageParam(
+                    {
+                        "role": "tool",
+                        "tool_call_id": tool_call.id,
+                        "content": f"Error: Tool {name} not found.",
+                    }
+                )
+            )
+            continue
+        args = json.loads(tool_call.function.arguments)
+        logger.debug(f"Processing tool call: {name} with arguments {args}")
+        if functions.get(name) is None and name in mcp_tool_registry:
+            server, _ = mcp_tool_registry[name]
+            raw_result = await mcp_clients[server].call_tool(name, args)
+        else:
+            func = cast(AgentFunction, functions[name])
+            # pass context_variables to agent functions
+            if does_function_need_context(func):
+                args[__CTX_VARS_NAME__] = context_variables
+            raw_result = func(**args)
+            if inspect.isawaitable(raw_result):
+                raw_result = await raw_result
+
+        result: Result = handle_function_result(raw_result)
+        partial_response.messages.append(
+            ChatCompletionToolMessageParam(
+                {
+                    "role": "tool",
+                    "tool_call_id": tool_call.id,
+                    "content": result.value,
+                }
+            )
+        )
+        partial_response.context_variables.update(result.meta or {})
+        if result.agent:
+            partial_response.agent = result.agent
+
+    return partial_response
+
+
+def handle_function_result(result: Any) -> Result:
     match result:
         case Result() as result:
             return result
@@ -279,384 +335,57 @@ def handle_function_result(result) -> Result:
                 raise TypeError(error_message)
 
 
-class Swarm:
-    def __init__(
-        self,
-        client: OpenAI | None = None,
-    ):
-        self.client = OpenAI() if client is None else client
-        self.tool_registry: dict[tuple[str, str], ChatCompletionToolParam] = {}
-
-    @overload
-    def get_chat_completion(
-        self,
-        agent: Agent,
-        context_variables: dict,
-        stream: Literal[True],
-        **kwargs: Unpack[CompletionCreateParamsBase],
-    ) -> Stream[ChatCompletionChunk]: ...
-
-    @overload
-    def get_chat_completion(
-        self,
-        agent: Agent,
-        context_variables: dict,
-        stream: Literal[False] = False,
-        **kwargs: Unpack[CompletionCreateParamsBase],
-    ) -> ChatCompletion: ...
-
-    def get_chat_completion(
-        self,
-        agent: Agent,
-        context_variables: dict,
-        stream: bool = False,
-        **kwargs: Unpack[CompletionCreateParamsBase],
-    ) -> ChatCompletion | Stream[ChatCompletionChunk]:
-        create_params = agent.preprocess(context_variables=context_variables, **kwargs)
-        messages = create_params["messages"]
-        logger.debug("Getting chat completion for...:", messages)
-
-        # hide context_variables from model
-        for tool in cast(list[ChatCompletionToolParam], agent.tools):
-            params: dict[str, Any] = tool["function"].get(
-                "parameters", {"properties": {}}
-            )
-            params["properties"].pop(__CTX_VARS_NAME__, None)
-            if __CTX_VARS_NAME__ in params.get("required", []):
-                params["required"].remove(__CTX_VARS_NAME__)
-
-        if agent.tools:
-            if agent.tool_choice:
-                create_params["tool_choice"] = agent.tool_choice
-            create_params["parallel_tool_calls"] = agent.parallel_tool_calls
-            create_params["tools"] = cast(list[ChatCompletionToolParam], agent.tools)
-
-        return self.client.chat.completions.create(stream=stream, **create_params)
-
-    def handle_tool_calls(
-        self,
-        tool_calls: list[ChatCompletionMessageToolCall],
-        tools: dict[str, AgentFunction | None],
-        context_variables: dict,
-    ) -> Response:
-        partial_response = Response(messages=[], agent=None, context_variables={})
-
-        for tool_call in tool_calls:
-            name = tool_call.function.name
-            # handle missing tool case, skip to next tool
-            if tools.get(name) is None:
-                logger.debug(f"Tool {name} not found in function map.")
-                partial_response.messages.append(
-                    ChatCompletionToolMessageParam(
-                        {
-                            "role": "tool",
-                            "tool_call_id": tool_call.id,
-                            "content": f"Error: Tool {name} not found.",
-                        }
-                    )
-                )
-                continue
-            args = json.loads(tool_call.function.arguments)
-            logger.debug(f"Processing tool call: {name} with arguments {args}")
-
-            func = cast(AgentFunction, tools[name])
-            # pass context_variables to agent functions
-            if does_function_need_context(func):
-                args[__CTX_VARS_NAME__] = context_variables
-            raw_result = func(**args)
-
-            result: Result = handle_function_result(raw_result)
-            partial_response.messages.append(
-                ChatCompletionToolMessageParam(
-                    {
-                        "role": "tool",
-                        "tool_call_id": tool_call.id,
-                        "content": result.value,
-                    }
-                )
-            )
-            partial_response.context_variables.update(result.meta or {})
-            if result.agent:
-                partial_response.agent = result.agent
-
-        return partial_response
-
-    def run_and_stream(
-        self,
-        agent: Agent,
-        context_variables: dict[str, Any] | None = None,
-        max_turns: int | None = None,
-        execute_tools: bool = True,
-        **kwargs: Unpack[CompletionCreateParamsBase],
-    ) -> Iterable[
-        dict[Literal["delim"], Literal["start", "end"]]
-        | dict[Literal["response"], Response]
-        | dict[str, Any]
-    ]:
-        active_agent = agent
-        context_variables = (
-            copy.deepcopy(context_variables) if context_variables else {}
-        )
-        history = [m for m in copy.deepcopy(kwargs["messages"])]
-        init_len = len(history)
-
-        while max_turns is None or len(history) - init_len < max_turns:
-            message: ChatCompletionAssistantMessageParam = {
-                "content": [],
-                "name": agent.name,
-                "role": "assistant",
-                "tool_calls": defaultdict(
-                    lambda: {
-                        "function": {"arguments": "", "name": ""},
-                        "id": "",
-                        "type": "",
-                    }
-                ),
-            }
-
-            # get completion with current history, agent
-            completion = self.get_chat_completion(
-                agent=active_agent,
-                context_variables=context_variables,
-                stream=True,
-                **kwargs,
-            )
-
-            yield {"delim": "start"}
-            for chunk in completion:
-                delta = chunk.choices[0].delta
-                if delta.role == "assistant":
-                    delta.name = active_agent.name  # type: ignore
-                yield delta.model_dump(mode="json")
-                merge_chunk(message, delta)
-            yield {"delim": "end"}
-
-            message["tool_calls"] = list(message.get("tool_calls", {}).values())  # type: ignore
-            if not message["tool_calls"]:
-                message.pop("tool_calls", None)
-            logger.debug("Received completion:", message)
-            history.append(message)
-
-            if not message.get("tool_calls") or not execute_tools:
-                logger.debug("Ending turn.")
-                break
-
-            # convert tool_calls to objects
-            tool_calls = []
-            for tool_call in message["tool_calls"]:
-                function = Function(
-                    arguments=tool_call["function"]["arguments"],
-                    name=tool_call["function"]["name"],
-                )
-                tool_call_object = ChatCompletionMessageToolCall(
-                    id=tool_call["id"], function=function, type=tool_call["type"]
-                )
-                tool_calls.append(tool_call_object)
-
-            # handle function calls, updating context_variables, and switching agents
-            partial_response = self.handle_tool_calls(
-                tool_calls, active_agent._tool_registry, context_variables
-            )
-            history.extend(partial_response.messages)
-            context_variables.update(partial_response.context_variables)
-            if partial_response.agent:
-                active_agent = partial_response.agent
-
-        yield {
-            "response": Response(
-                messages=history[init_len:],
-                agent=active_agent,
-                context_variables=context_variables,
-            )
-        }
-
-    @overload
-    def run(
-        self,
-        agent: Agent,
-        *,
-        stream: Literal[True],
-        context_variables: dict[str, Any] | None = None,
-        max_turns: int | None = None,
-        execute_tools: bool = True,
-        **kwargs: Unpack[CompletionCreateParamsBase],
-    ) -> Iterable[
-        dict[Literal["delim"], Literal["start", "end"]]
-        | dict[Literal["response"], Response]
-        | dict[str, Any]
-    ]: ...
-
-    @overload
-    def run(
-        self,
-        agent: Agent,
-        *,
-        stream: Literal[False] = False,
-        context_variables: dict[str, Any] | None = None,
-        max_turns: int | None = None,
-        execute_tools: bool = True,
-        **kwargs: Unpack[CompletionCreateParamsBase],
-    ) -> Response: ...
-
-    def run(
-        self,
-        agent: Agent,
-        *,
-        stream: bool = False,
-        context_variables: dict[str, Any] | None = None,
-        max_turns: int | None = None,
-        execute_tools: bool = True,
-        **kwargs: Unpack[CompletionCreateParamsBase],
-    ) -> (
-        Response
-        | Iterable[
-            dict[Literal["delim"], Literal["start", "end"]]
-            | dict[Literal["response"], Response]
-            | dict[str, Any]
-        ]
-    ):
-        if stream:
-            return self.run_and_stream(
-                agent=agent,
-                context_variables=context_variables,
-                max_turns=max_turns,
-                execute_tools=execute_tools,
-                **kwargs,
-            )
-        active_agent = agent
-        context_variables = (
-            copy.deepcopy(context_variables) if context_variables else {}
-        )
-        messages = list(copy.deepcopy(kwargs["messages"]))
-        init_len = len(messages)
-
-        while max_turns is None or len(messages) - init_len < max_turns:
-            # get completion with current history, agent
-            completion = self.get_chat_completion(
-                agent=active_agent,
-                context_variables=context_variables,
-                stream=stream,
-                **kwargs,
-            )
-            message = completion.choices[0].message
-            logger.debug("Received completion:", message)
-            m = cast(
-                ChatCompletionAssistantMessageParam,
-                message.model_dump(mode="json", exclude_none=True),
-            )
-            m["name"] = active_agent.name
-            messages.append(m)
-
-            if not message.tool_calls or not execute_tools:
-                logger.debug("Ending turn.")
-                break
-
-            # handle function calls, updating context_variables, and switching agents
-            partial_response = self.handle_tool_calls(
-                message.tool_calls, active_agent._tool_registry, context_variables
-            )
-            messages.extend(partial_response.messages)
-            context_variables |= partial_response.context_variables
-            if partial_response.agent:
-                active_agent = partial_response.agent
-
-        return Response(
-            messages=messages[init_len:],
-            agent=active_agent,
-            context_variables=context_variables,
-        )
-
-
-class MCPClient:
-    def __init__(
-        self,
-        server_name: str,
-        server_params: StdioServerParameters | str,
-    ):
-        self.server_name = server_name
-        self.server_params = server_params
-        self.exit_stack = AsyncExitStack()
-
-    async def __aenter__(self):
-        read_stream, write_stream = await self.exit_stack.enter_async_context(
-            sse_client(self.server_params)
-            if isinstance(self.server_params, str)
-            else stdio_client(self.server_params)
-        )
-        self.session = cast(
-            ClientSession,
-            await self.exit_stack.enter_async_context(
-                ClientSession(read_stream, write_stream)
-            ),
-        )
-        await self.session.initialize()
-        return self
-
-    async def __aexit__(self, *exc_info):
-        await self.exit_stack.aclose()
-
-    async def list_tools(self) -> list[ChatCompletionToolParam]:
-        """List tools available on the server.
-
-        Returns:
-            list[ChatCompletionToolParam]: The list of tools available on the server
-        """
-        return [
-            ChatCompletionToolParam(
-                {
-                    "type": "function",
-                    "function": {
-                        "name": tool.name,
-                        "description": tool.description or "",
-                        "parameters": tool.inputSchema,
-                    },
-                }
-            )
-            for tool in (await self.session.list_tools()).tools
-        ]
-
-    async def call_tool(
-        self, name: str, arguments: dict | None = None
-    ) -> mcp.types.CallToolResult:
-        """Call a tool on the server.
-
-        Parameters:
-            name (str): The name of the tool to call
-            arguments (dict): The arguments to pass to the tool
-
-        Returns:
-            mcp.types.CallToolResult: The result of the tool call
-        """
-        return await self.session.call_tool(name, arguments)
-
-
-class AsyncSwarm(BaseModel):
+class BaseSwarm(BaseModel):
     mcp_servers: dict[str, StdioServerParameters | str] = Field(
         default_factory=dict,
         validation_alias=AliasChoices("mcp_servers", "mcpServers"),
         serialization_alias="mcpServers",
     )
+
+
+class AsyncSwarm(BaseSwarm):
     _client: AsyncOpenAI = PrivateAttr()
-    _mcp_clients: dict[str, MCPClient] = PrivateAttr()
+    _mcp_clients: dict[str, ClientSession] = PrivateAttr()
     _exit_stack: AsyncExitStack = PrivateAttr()
     _tool_registry: dict[str, tuple[str, ChatCompletionToolParam]] = PrivateAttr()
 
     def model_post_init(self, __context: Any) -> None:
-        self._mcp_clients: dict[str, MCPClient] = {}
+        self._mcp_clients = {}
         self._exit_stack = AsyncExitStack()
         self._client = AsyncOpenAI()
         self._tool_registry: dict[str, tuple[str, ChatCompletionToolParam]] = {}
 
     async def __aenter__(self):
         for server_name, server_params in self.mcp_servers.items():
-            client = await self._exit_stack.enter_async_context(
-                MCPClient(server_name, server_params)
+            read_stream, write_stream = await self._exit_stack.enter_async_context(
+                sse_client(server_params)
+                if isinstance(server_params, str)
+                else stdio_client(server_params)
             )
+            client = cast(
+                ClientSession,
+                await self._exit_stack.enter_async_context(
+                    ClientSession(read_stream, write_stream)
+                ),
+            )
+            await client.initialize()
             self._mcp_clients[server_name] = client
             self._tool_registry.update(
                 {
-                    tool["function"]["name"]: (server_name, tool)
-                    for tool in await client.list_tools()
+                    tool.name: (
+                        server_name,
+                        ChatCompletionToolParam(
+                            {
+                                "type": "function",
+                                "function": {
+                                    "name": tool.name,
+                                    "description": tool.description or "",
+                                    "parameters": tool.inputSchema,
+                                },
+                            }
+                        ),
+                    )
+                    for tool in (await client.list_tools()).tools
                 }
             )
         return self
@@ -714,59 +443,6 @@ class AsyncSwarm(BaseModel):
             stream=stream, **create_params
         )
 
-    async def handle_tool_calls(
-        self,
-        tool_calls: list[ChatCompletionMessageToolCall],
-        tools: dict[str, AgentFunction | None],
-        context_variables: dict,
-    ) -> Response:
-        partial_response = Response(messages=[], agent=None, context_variables={})
-
-        for tool_call in tool_calls:
-            name = tool_call.function.name
-            # handle missing tool case, skip to next tool
-            if tools.get(name) is None and name not in self._tool_registry:
-                logger.debug(f"Tool {name} not found in function map.")
-                partial_response.messages.append(
-                    ChatCompletionToolMessageParam(
-                        {
-                            "role": "tool",
-                            "tool_call_id": tool_call.id,
-                            "content": f"Error: Tool {name} not found.",
-                        }
-                    )
-                )
-                continue
-            args = json.loads(tool_call.function.arguments)
-            logger.debug(f"Processing tool call: {name} with arguments {args}")
-            if tools.get(name) is None and name in self._tool_registry:
-                server, _ = self._tool_registry[name]
-                raw_result = await self._mcp_clients[server].call_tool(name, args)
-            else:
-                func = cast(AgentFunction, tools[name])
-                # pass context_variables to agent functions
-                if does_function_need_context(func):
-                    args[__CTX_VARS_NAME__] = context_variables
-                raw_result = func(**args)
-                if inspect.isawaitable(raw_result):
-                    raw_result = await raw_result
-
-            result: Result = handle_function_result(raw_result)
-            partial_response.messages.append(
-                ChatCompletionToolMessageParam(
-                    {
-                        "role": "tool",
-                        "tool_call_id": tool_call.id,
-                        "content": result.value,
-                    }
-                )
-            )
-            partial_response.context_variables.update(result.meta or {})
-            if result.agent:
-                partial_response.agent = result.agent
-
-        return partial_response
-
     async def run_and_stream(
         self,
         agent: Agent,
@@ -774,11 +450,7 @@ class AsyncSwarm(BaseModel):
         max_turns: int | None = None,
         execute_tools: bool = True,
         **kwargs: Unpack[CompletionCreateParamsBase],
-    ) -> AsyncIterable[
-        dict[Literal["delim"], Literal["start", "end"]]
-        | dict[Literal["response"], Response]
-        | dict[str, Any]
-    ]:
+    ):
         active_agent = agent
         context_variables = (
             copy.deepcopy(context_variables) if context_variables else {}
@@ -840,8 +512,12 @@ class AsyncSwarm(BaseModel):
                 tool_calls.append(tool_call_object)
 
             # handle function calls, updating context_variables, and switching agents
-            partial_response = await self.handle_tool_calls(
-                tool_calls, active_agent._tool_registry, context_variables
+            partial_response = await handle_tool_calls(
+                tool_calls,
+                active_agent._tool_registry,
+                context_variables,
+                self._tool_registry,
+                self._mcp_clients,
             )
             history.extend(partial_response.messages)
             context_variables.update(partial_response.context_variables)
@@ -866,7 +542,7 @@ class AsyncSwarm(BaseModel):
         max_turns: int | None = None,
         execute_tools: bool = True,
         **kwargs: Unpack[CompletionCreateParamsBase],
-    ) -> AsyncIterable[
+    ) -> AsyncIterator[
         dict[Literal["delim"], Literal["start", "end"]]
         | dict[Literal["response"], Response]
         | dict[str, Any]
@@ -895,7 +571,7 @@ class AsyncSwarm(BaseModel):
         **kwargs: Unpack[CompletionCreateParamsBase],
     ) -> (
         Response
-        | AsyncIterable[
+        | AsyncIterator[
             dict[Literal["delim"], Literal["start", "end"]]
             | dict[Literal["response"], Response]
             | dict[str, Any]
@@ -938,8 +614,12 @@ class AsyncSwarm(BaseModel):
                 break
 
             # handle function calls, updating context_variables, and switching agents
-            partial_response = await self.handle_tool_calls(
-                message.tool_calls, active_agent._tool_registry, context_variables
+            partial_response = await handle_tool_calls(
+                message.tool_calls,
+                active_agent._tool_registry,
+                context_variables,
+                self._tool_registry,
+                self._mcp_clients,
             )
             messages.extend(partial_response.messages)
             context_variables |= partial_response.context_variables
@@ -951,4 +631,84 @@ class AsyncSwarm(BaseModel):
             messages=messages[init_len:],
             agent=active_agent,
             context_variables=context_variables,
+        )
+
+
+class Swarm(BaseSwarm):
+    _swarm: AsyncSwarm = PrivateAttr()
+
+    def model_post_init(self, __context: Any) -> None:
+        self._swarm = AsyncSwarm(mcp_servers=self.mcp_servers)
+
+    @overload
+    def run(
+        self,
+        agent: Agent,
+        *,
+        stream: Literal[True],
+        context_variables: dict[str, Any] | None = None,
+        max_turns: int | None = None,
+        execute_tools: bool = True,
+        **kwargs: Unpack[CompletionCreateParamsBase],
+    ) -> Iterable[
+        dict[Literal["delim"], Literal["start", "end"]]
+        | dict[Literal["response"], Response]
+        | dict[str, Any]
+    ]: ...
+
+    @overload
+    def run(
+        self,
+        agent: Agent,
+        *,
+        stream: Literal[False] = False,
+        context_variables: dict[str, Any] | None = None,
+        max_turns: int | None = None,
+        execute_tools: bool = True,
+        **kwargs: Unpack[CompletionCreateParamsBase],
+    ) -> Response: ...
+
+    def run(
+        self,
+        agent: Agent,
+        *,
+        stream: bool = False,
+        context_variables: dict[str, Any] | None = None,
+        max_turns: int | None = None,
+        execute_tools: bool = True,
+        **kwargs: Unpack[CompletionCreateParamsBase],
+    ) -> (
+        Response
+        | Iterable[
+            dict[Literal["delim"], Literal["start", "end"]]
+            | dict[Literal["response"], Response]
+            | dict[str, Any]
+        ]
+    ):
+        if stream:
+            agenerator = self._swarm.run_and_stream(
+                agent=agent,
+                context_variables=context_variables,
+                max_turns=max_turns,
+                execute_tools=execute_tools,
+                **kwargs,
+            )
+
+            def generator():
+                while True:
+                    try:
+                        yield asyncio.run(anext(agenerator))
+                    except StopAsyncIteration:
+                        break
+
+            return generator()
+        return asyncio.run(
+            self._swarm.run(
+                agent=agent,
+                stream=False,
+                context_variables=context_variables,
+                max_turns=max_turns,
+                execute_tools=execute_tools,
+                **kwargs,
+            )
         )

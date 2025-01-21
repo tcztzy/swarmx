@@ -1,7 +1,6 @@
 [
     {
         "role": "assistant",
-        "content": "",
         "name": "Agent",
         "tool_calls": [
             {

@@ -1,11 +1,10 @@
+import inspect
 import json
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import cast
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from openai import AsyncOpenAI, OpenAI
 from openai.types.chat.chat_completion import ChatCompletion, Choice
 from openai.types.chat.chat_completion_chunk import (
     ChatCompletionChunk,
@@ -16,7 +15,7 @@ from openai.types.chat.chat_completion_chunk import (
 from openai.types.chat.chat_completion_chunk import Choice as ChunkChoice
 from openai.types.chat.chat_completion_message import ChatCompletionMessage
 
-from swarmx import AsyncSwarm, Swarm
+from swarmx import Swarm
 
 
 def pytest_addoption(parser: pytest.Parser) -> None:
@@ -109,31 +108,6 @@ def create_mock_response(message, model="gpt-4o"):
     )
 
 
-class MockOpenAI:
-    def __init__(self):
-        self.chat = MagicMock()
-        self.chat.completions = MagicMock()
-
-    def set_response(self, response: ChatCompletion):
-        """
-        Set the mock to return a specific response.
-        :param response: A ChatCompletion response to return.
-        """
-        self.chat.completions.create.return_value = response
-
-    def set_sequential_responses(self, responses: list[ChatCompletion]):
-        """
-        Set the mock to return different responses sequentially.
-        :param responses: A list of ChatCompletion responses to return in order.
-        """
-        self.chat.completions.create.side_effect = responses
-
-
-@pytest.fixture
-def mock_openai():
-    return MockOpenAI()
-
-
 class MockAsyncOpenAI:
     def __init__(self):
         self.chat = MagicMock()
@@ -156,55 +130,51 @@ class MockAsyncOpenAI:
 
 
 @pytest.fixture
-def mock_async_openai():
+def mock_openai():
     return MockAsyncOpenAI()
 
 
 @pytest.fixture
-def client(mock_openai: OpenAI, is_mocking: bool):
+def client(
+    mock_openai: MockAsyncOpenAI, is_mocking: bool, request: pytest.FixtureRequest
+):
+    c = Swarm()
     if is_mocking:
-        return Swarm(client=mock_openai)
-    return Swarm()
-
-
-@pytest.fixture
-def async_client(mock_async_openai: AsyncOpenAI, is_mocking: bool):
-    client = AsyncSwarm()
-    if is_mocking:
-        client._client = mock_async_openai
-    return client
-
-
-@pytest.fixture
-def handoff_client(client: Swarm, is_mocking: bool):
-    if is_mocking:
-        messages = json.loads(
-            (Path(__file__).parent / "threads" / "handoff.json").read_text()
-        )
-        cast(MockOpenAI, client.client).set_sequential_responses(
-            [create_mock_response(message) for message in messages]
-        )
-    return client
-
-
-@pytest.fixture
-def mcp_tool_call_async_client(async_client: AsyncSwarm, is_mocking: bool):
-    if is_mocking:
-        messages = json.loads(
-            (Path(__file__).parent / "threads" / "mcp_tool_call.json").read_text()
-        )
-        cast(MockAsyncOpenAI, async_client._client).set_sequential_responses(
-            [create_mock_response(message) for message in messages]
-            + [
-                create_mock_response(
-                    {
-                        "content": datetime.now(timezone.utc).strftime("%H:%M:%S"),
-                        "role": "assistant",
-                    }
+        match request.node.name:
+            case "test_mcp_tool_call":
+                messages = json.loads(
+                    (
+                        Path(__file__).parent / "threads" / "mcp_tool_call.json"
+                    ).read_text()
                 )
-            ]
-        )
-    return async_client
+                mock_openai.set_sequential_responses(
+                    [create_mock_response(message) for message in messages]
+                    + [
+                        create_mock_response(
+                            {
+                                "content": datetime.now(timezone.utc).strftime(
+                                    "%H:%M:%S"
+                                ),
+                                "role": "assistant",
+                            }
+                        )
+                    ]
+                )
+            case name if name.startswith("test_"):
+                messages = json.loads(
+                    (
+                        Path(__file__).parent
+                        / "threads"
+                        / f"{name.replace('test_', '')}.json"
+                    ).read_text()
+                )
+                mock_openai.set_sequential_responses(
+                    [create_mock_response(message) for message in messages]
+                )
+        c._swarm._client = mock_openai  # type: ignore
+    if inspect.iscoroutinefunction(request.function):
+        return c._swarm
+    return c
 
 
 @pytest.fixture

@@ -1,21 +1,18 @@
-import pytest
 from deepeval import assert_test
 from deepeval.metrics import GEval
 from deepeval.test_case import LLMTestCase, LLMTestCaseParams
 
 from swarmx import Agent, Swarm
 
-pytestmark = pytest.mark.anyio
 
-
-def test_handoff(handoff_client: Swarm, skip_deepeval: bool, model: str):
+def test_handoff(client: Swarm, skip_deepeval: bool, model: str):
     english_agent = Agent(
         name="English Agent",
         instructions="You only speak English.",
         functions=["tests.functions.transfer_to_spanish_agent"],
     )
     message_input = "Hola. ¿Como estás?"
-    response = handoff_client.run(
+    response = client.run(
         english_agent,
         messages=[{"role": "user", "content": message_input}],
         model=model,
