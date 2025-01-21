@@ -1,8 +1,11 @@
 import json
-from datetime import datetime
-from unittest.mock import MagicMock
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import cast
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from openai import AsyncOpenAI, OpenAI
 from openai.types.chat.chat_completion import ChatCompletion, Choice
 from openai.types.chat.chat_completion_chunk import (
     ChatCompletionChunk,
@@ -13,7 +16,32 @@ from openai.types.chat.chat_completion_chunk import (
 from openai.types.chat.chat_completion_chunk import Choice as ChunkChoice
 from openai.types.chat.chat_completion_message import ChatCompletionMessage
 
-from swarmx import ChatCompletionMessageToolCall, Function
+from swarmx import AsyncSwarm, Swarm
+
+
+def pytest_addoption(parser: pytest.Parser) -> None:
+    parser.addoption(
+        "--deepeval", action="store_true", default=False, help="Run deepeval tests"
+    )
+    parser.addoption(
+        "--openai",
+        action="store_true",
+        default=False,
+        help="Run tests with actual OpenAI API calls instead of mocks",
+    )
+    parser.addoption(
+        "--model", action="store", default="gpt-4o", help="Model to use for tests"
+    )
+
+
+@pytest.fixture
+def skip_deepeval(pytestconfig: pytest.Config):
+    return not pytestconfig.getoption("deepeval")
+
+
+@pytest.fixture
+def is_mocking(pytestconfig: pytest.Config):
+    return not pytestconfig.getoption("openai")
 
 
 @pytest.fixture
@@ -63,24 +91,8 @@ def create_mock_streaming_response(
     return _generator()
 
 
-def create_mock_response(message, function_calls=[], model="gpt-4o"):
-    role = message.get("role", "assistant")
-    content = message.get("content", "")
-    tool_calls = (
-        [
-            ChatCompletionMessageToolCall(
-                id="mock_tc_id",
-                type="function",
-                function=Function(
-                    name=call.get("name", ""),
-                    arguments=json.dumps(call.get("args", {})),
-                ),
-            )
-            for call in function_calls
-        ]
-        if function_calls
-        else None
-    )
+def create_mock_response(message, model="gpt-4o"):
+    message = ChatCompletionMessage.model_validate(message)
 
     return ChatCompletion(
         id="mock_cc_id",
@@ -89,17 +101,15 @@ def create_mock_response(message, function_calls=[], model="gpt-4o"):
         object="chat.completion",
         choices=[
             Choice(
-                message=ChatCompletionMessage(
-                    role=role, content=content, tool_calls=tool_calls
-                ),
-                finish_reason="stop",
+                message=message,
+                finish_reason="tool_calls" if message.tool_calls else "stop",
                 index=0,
             )
         ],
     )
 
 
-class MockOpenAIClient:
+class MockOpenAI:
     def __init__(self):
         self.chat = MagicMock()
         self.chat.completions = MagicMock()
@@ -118,19 +128,85 @@ class MockOpenAIClient:
         """
         self.chat.completions.create.side_effect = responses
 
-    def assert_create_called_with(self, **kwargs):
-        self.chat.completions.create.assert_called_with(**kwargs)
+
+@pytest.fixture
+def mock_openai():
+    return MockOpenAI()
+
+
+class MockAsyncOpenAI:
+    def __init__(self):
+        self.chat = MagicMock()
+        self.chat.completions = MagicMock()
+        self.chat.completions.create = AsyncMock()
+
+    def set_response(self, response: ChatCompletion):
+        """
+        Set the mock to return a specific response.
+        :param response: A ChatCompletion response to return.
+        """
+        self.chat.completions.create.return_value = response
+
+    def set_sequential_responses(self, responses: list[ChatCompletion]):
+        """
+        Set the mock to return different responses sequentially.
+        :param responses: A list of ChatCompletion responses to return in order.
+        """
+        self.chat.completions.create.side_effect = responses
 
 
 @pytest.fixture
-def mock_openai_client(DEFAULT_RESPONSE_CONTENT):
-    m = MockOpenAIClient()
-    m.set_response(
-        create_mock_response({"role": "assistant", "content": DEFAULT_RESPONSE_CONTENT})
-    )
-    return m
+def mock_async_openai():
+    return MockAsyncOpenAI()
 
 
 @pytest.fixture
-def DEFAULT_RESPONSE_CONTENT():
-    return "sample response content"
+def client(mock_openai: OpenAI, is_mocking: bool):
+    if is_mocking:
+        return Swarm(client=mock_openai)
+    return Swarm()
+
+
+@pytest.fixture
+def async_client(mock_async_openai: AsyncOpenAI, is_mocking: bool):
+    client = AsyncSwarm()
+    if is_mocking:
+        client._client = mock_async_openai
+    return client
+
+
+@pytest.fixture
+def handoff_client(client: Swarm, is_mocking: bool):
+    if is_mocking:
+        messages = json.loads(
+            (Path(__file__).parent / "threads" / "handoff.json").read_text()
+        )
+        cast(MockOpenAI, client.client).set_sequential_responses(
+            [create_mock_response(message) for message in messages]
+        )
+    return client
+
+
+@pytest.fixture
+def mcp_tool_call_async_client(async_client: AsyncSwarm, is_mocking: bool):
+    if is_mocking:
+        messages = json.loads(
+            (Path(__file__).parent / "threads" / "mcp_tool_call.json").read_text()
+        )
+        cast(MockAsyncOpenAI, async_client._client).set_sequential_responses(
+            [create_mock_response(message) for message in messages]
+            + [
+                create_mock_response(
+                    {
+                        "content": datetime.now(timezone.utc).strftime("%H:%M:%S"),
+                        "role": "assistant",
+                    }
+                )
+            ]
+        )
+    return async_client
+
+
+@pytest.fixture
+def model(pytestconfig: pytest.Config):
+    return pytestconfig.getoption("model")

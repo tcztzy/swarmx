@@ -10,8 +10,8 @@ license = "MIT"
 dependencies = [
     "jinja2>=3.1.5",
     "mcp>=1.2.0",
-    "openai",
-    "pydantic>=2.9",
+    "openai>=1.59.9",
+    "pydantic>=2.10.5",
     "typing-extensions>=4.12.2",
 ]
 requires-python = ">=3.10"
@@ -22,12 +22,13 @@ build-backend = "hatchling.build"
 
 [dependency-groups]
 dev = [
-    "pre-commit>=4.0.1",
+    "pre-commit>=4.1.0",
     "pytest>=8.3.4",
     "pytest-cov>=6.0.0",
     "mypy>=1.14.1",
-    "deepeval>=2.1.8",
+    "deepeval>=2.1.9",
     "tox>=4.23.2",
+    "mcp-server-time>=0.6.2",
 ]
 
 [tool.ruff.lint]

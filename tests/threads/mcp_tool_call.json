@@ -1,0 +1,17 @@
+[
+    {
+        "role": "assistant",
+        "content": "",
+        "name": "Agent",
+        "tool_calls": [
+            {
+                "id": "call_avhnmuri",
+                "function": {
+                    "arguments": "{\"timezone\":\"UTC\"}",
+                    "name": "get_current_time"
+                },
+                "type": "function"
+            }
+        ]
+    }
+]

@@ -8,6 +8,7 @@ from collections import defaultdict
 from contextlib import AsyncExitStack
 from itertools import chain
 from typing import (
+    Annotated,
     Any,
     AsyncIterable,
     Callable,
@@ -42,11 +43,13 @@ from openai.types.chat.chat_completion_chunk import ChoiceDelta
 from openai.types.chat.chat_completion_message_tool_call import Function
 from openai.types.chat.completion_create_params import CompletionCreateParamsBase
 from pydantic import (
+    AfterValidator,
     AliasChoices,
     BaseModel,
     Field,
     ImportString,
     PrivateAttr,
+    TypeAdapter,
     computed_field,
     create_model,
 )
@@ -95,9 +98,7 @@ def merge_chunk(
             tool_call["function"]["name"] = function.name or "" if function else ""
 
 
-def does_function_need_context(
-    func: AgentFunction | Callable[..., mcp.types.CallToolResult],
-) -> bool:
+def does_function_need_context(func: AgentFunction) -> bool:
     signature = inspect.signature(func)
     return __CTX_VARS_NAME__ in signature.parameters
 
@@ -115,10 +116,15 @@ def function_to_json(func: AgentFunction) -> ChatCompletionToolParam:
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         arguments_model = create_model(func.__name__, **field_definitions)  # type: ignore[call-overload]
+    name = TypeAdapter(ImportString).dump_json(func).decode()
+    if name.startswith('"') and name.endswith('"'):
+        name = name[1:-1]
+    else:
+        name = func.__name__
     return {
         "type": "function",
         "function": {
-            "name": func.__name__,
+            "name": name,
             "description": func.__doc__ or "",
             "parameters": {
                 k: v
@@ -132,24 +138,27 @@ def function_to_json(func: AgentFunction) -> ChatCompletionToolParam:
 
 
 def check_function(func: object) -> AgentFunction:
-    if not callable(func):
-        raise TypeError(f"Expected a callable object, got {type(func)}")
-    annotation = get_type_hints(func)
-    if annotation.get("return") not in [
-        str,
-        Agent,
-        dict[str, Any],
-        Result,
-        Coroutine[Any, Any, str],
-        Coroutine[Any, Any, Agent],
-        Coroutine[Any, Any, dict[str, Any]],
-        Coroutine[Any, Any, Result],
-        None,
-    ]:
-        raise TypeError(
-            "Agent function return type must be str, Agent, dict[str, Any], or Result"
-        )
-    return cast(AgentFunction, func)
+    e = TypeError(
+        "Agent function return type must be str, Agent, dict[str, Any], or Result"
+    )
+    match func:
+        case func if callable(func):
+            annotation = get_type_hints(func)
+            if (return_anno := annotation.get("return")) is None:
+                warnings.warn(
+                    "Agent function return type is not annotated, assuming str. "
+                    "This will be an error in a future version.",
+                    FutureWarning,
+                )
+            if return_anno not in [str, Agent, dict[str, Any], Result, None]:
+                raise e
+            return cast(AgentFunction, func)
+        case _:
+            raise e
+
+
+def check_functions(functions: list[object]) -> list[AgentFunction]:
+    return [check_function(func) for func in functions]
 
 
 class SwarmXGenerateJsonSchema(GenerateJsonSchema):
@@ -167,7 +176,9 @@ class Agent(BaseModel):
     instructions: str = "You are a helpful agent."
     """Agent's instructions, could be a Jinja2 template"""
 
-    functions: list[ImportString] = Field(default_factory=list)
+    functions: Annotated[list[ImportString], AfterValidator(check_functions)] = Field(
+        default_factory=list
+    )
     """The tools available to the agent"""
 
     tool_choice: ChatCompletionToolChoiceOptionParam | None = None
@@ -212,13 +223,13 @@ class Agent(BaseModel):
         )
         return kwargs | {"messages": messages, "model": model}
 
-    @computed_field  # type: ignore[prop-decorator]
+    @computed_field
     @property
     def tools(self) -> Iterable[ChatCompletionToolParam]:
         tools = []
-        for function in self.functions:
-            tools.append(function_to_json(check_function(function)))
-            self._tool_registry[tools[-1]["function"]["name"]] = function
+        for func in self.functions:
+            tools.append(function_to_json(func))
+            self._tool_registry[tools[-1]["function"]["name"]] = func
         return tools
 
 

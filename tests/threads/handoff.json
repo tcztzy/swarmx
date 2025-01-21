@@ -1,0 +1,21 @@
+[
+    {
+        "role": "assistant",
+        "name": "English Agent",
+        "tool_calls": [
+            {
+                "id": "call_dhqowyas",
+                "function": {
+                    "arguments": "{}",
+                    "name": "tests.functions.transfer_to_spanish_agent"
+                },
+                "type": "function"
+            }
+        ]
+    },
+    {
+        "role": "assistant",
+        "content": "Estoy bien, gracias. ¿Y tú?",
+        "name": "Spanish Agent"
+    }
+]
