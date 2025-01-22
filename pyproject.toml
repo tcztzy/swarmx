@@ -12,6 +12,7 @@ dependencies = [
     "mcp>=1.2.0",
     "openai>=1.59.9",
     "pydantic>=2.10.5",
+    "typer>=0.15.1",
     "typing-extensions>=4.12.2",
 ]
 requires-python = ">=3.10"

@@ -7,6 +7,16 @@ An extreme simple framework exploring ergonomic, lightweight multi-agent orchest
 2. Only one third-party dependency (`openai`)
 3. Compatible with langchain tools
 
+## Quickstart
+
+After setting `OPENAI_API_KEY` environment variable, you can start a simple REPL by running the following command:
+
+```shell
+export OPENAI_API_KEY="your-api-key"
+# export OPENAI_BASE_URL="http://localhost:11434/v1"  # optional
+uvx swarmx
+```
+
 ## Install
 
 Requires Python 3.10+
@@ -134,26 +144,27 @@ At its core, Swarm's `client.run()` implements the following loop:
 
 #### Arguments
 
-| Argument              | Type    | Description                                                                                                                                            | Default        |
-| --------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------- |
-| **agent**             | `Agent` | The (initial) agent to be called.                                                                                                                      | (required)     |
-| **messages**          | `List`  | A list of message objects, identical to [Chat Completions `messages`](https://platform.openai.com/docs/api-reference/chat/create#chat-create-messages) | (required)     |
-| **context_variables** | `dict`  | A dictionary of additional context variables, available to functions and Agent instructions                                                            | `{}`           |
-| **max_turns**         | `int`   | The maximum number of conversational turns allowed                                                                                                     | `float("inf")` |
-| **model_override**    | `str`   | An optional string to override the model being used by an Agent                                                                                        | `None`         |
-| **execute_tools**     | `bool`  | If `False`, interrupt execution and immediately returns `tool_calls` message when an Agent tries to call a function                                    | `True`         |
-| **stream**            | `bool`  | If `True`, enables streaming responses                                                                                                                 | `False`        |
-| **debug**             | `bool`  | If `True`, enables debug logging                                                                                                                       | `False`        |
+| Argument              | Type    | Description                                                                                                         | Default    |
+| --------------------- | ------- | ------------------------------------------------------------------------------------------------------------------- | ---------- |
+| **agent**             | `Agent` | The (initial) agent to be called.                                                                                   | (required) |
+| **messages**          | `list`  | A list of message objects, identical to [Chat Completions `messages`][1]                                            | (required) |
+| **context_variables** | `dict`  | A dictionary of additional context variables, available to functions and Agent instructions                         | `{}`       |
+| **max_turns**         | `int`   | The maximum number of conversational turns allowed, `None` represents infinite turns                                | `None`     |
+| **model**             | `str`   | An optional string to override the model being used by an Agent                                                     | (required) |
+| **execute_tools**     | `bool`  | If `False`, interrupt execution and immediately returns `tool_calls` message when an Agent tries to call a function | `True`     |
+| **stream**            | `bool`  | If `True`, enables streaming responses                                                                              | `False`    |
+| Other parameters      | `Any`   | Any other parameters passed to [`openai.chat.completions.create`][1]                                                | Default    |
+
 
 Once `client.run()` is finished (after potentially multiple calls to agents and tools) it will return a `Response` containing all the relevant updated state. Specifically, the new `messages`, the last `Agent` to be called, and the most up-to-date `context_variables`. You can pass these values (plus new user messages) in to your next execution of `client.run()` to continue the interaction where it left off – much like `chat.completions.create()`. (The `run_demo_loop` function implements an example of a full execution loop in `/swarm/repl/repl.py`.)
 
 #### `Response` Fields
 
-| Field                 | Type    | Description                                                                                                                                                                                                                                                                  |
-| --------------------- | ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **messages**          | `List`  | A list of message objects generated during the conversation. Very similar to [Chat Completions `messages`](https://platform.openai.com/docs/api-reference/chat/create#chat-create-messages), but with a `sender` field indicating which `Agent` the message originated from. |
-| **agent**             | `Agent` | The last agent to handle a message.                                                                                                                                                                                                                                          |
-| **context_variables** | `dict`  | The same as the input variables, plus any changes.                                                                                                                                                                                                                           |
+| Field                 | Type    | Description                                                                                                                            |
+| --------------------- | ------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| **messages**          | `list`  | A list of message objects generated during the conversation. With a `name` field indicating which `Agent` the message originated from. |
+| **agent**             | `Agent` | The last agent to handle a message.                                                                                                    |
+| **context_variables** | `dict`  | The same as the input variables, plus any changes.                                                                                     |
 
 ## Agents
 
@@ -163,13 +174,13 @@ While it's tempting to personify an `Agent` as "someone who does X", it can also
 
 ## `Agent` Fields
 
-| Field            | Type                     | Description                                                                   | Default                      |
-| ---------------- | ------------------------ | ----------------------------------------------------------------------------- | ---------------------------- |
-| **name**         | `str`                    | The name of the agent.                                                        | `"Agent"`                    |
-| **model**        | `str`                    | The model to be used by the agent.                                            | `"gpt-4o"`                   |
-| **instructions** | `str` or `func() -> str` | Instructions for the agent, can be a string or a callable returning a string. | `"You are a helpful agent."` |
-| **functions**    | `List`                   | A list of functions that the agent can call.                                  | `[]`                         |
-| **tool_choice**  | `str`                    | The tool choice for the agent, if any.                                        | `None`                       |
+| Field            | Type   | Description                                                      | Default                            |
+| ---------------- | ------ | ---------------------------------------------------------------- | ---------------------------------- |
+| **name**         | `str`  | The name of the agent.                                           | `"Agent"`                          |
+| **model**        | `str`  | The model to be used by the agent.                               | `"gpt-4o"`                         |
+| **instructions** | `str`  | Instructions for the agent, can be a string or a jinja Template. | `"You are a {{ helpful }} agent."` |
+| **functions**    | `list` | A list of functions that the agent can call.                     | `[]`                               |
+| **tool_choice**  | `str`  | The tool choice for the agent, if any.                           | `None`                             |
 
 ### Instructions
 
@@ -368,3 +379,5 @@ run_demo_loop(agent, stream=True)
    - Katia Gil Guzman - [katia-openai](https://github.com/katia-openai)
 - SwarmX
    - Ziya Tang - [tcztzy](https://github.com/tcztzy)
+
+[1]: https://platform.openai.com/docs/api-reference/chat/create

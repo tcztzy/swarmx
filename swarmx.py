@@ -7,6 +7,7 @@ import logging
 import warnings
 from collections import defaultdict
 from contextlib import AsyncExitStack
+from functools import wraps
 from itertools import chain
 from pathlib import Path
 from typing import (
@@ -24,6 +25,7 @@ from typing import (
 )
 
 import mcp.types
+import typer
 from jinja2 import Template
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.sse import sse_client
@@ -344,6 +346,11 @@ class BaseSwarm(BaseModel):
     )
 
 
+class ContextVariables(BaseModel):
+    type: Literal["context_variables"] = "context_variables"
+    context_variables: dict[str, Any]
+
+
 class AsyncSwarm(BaseSwarm):
     _client: AsyncOpenAI = PrivateAttr()
     _mcp_clients: dict[str, ClientSession] = PrivateAttr()
@@ -437,8 +444,10 @@ class AsyncSwarm(BaseSwarm):
         create_params["parallel_tool_calls"] = agent.parallel_tool_calls
         create_params["tools"] = cast(
             list[ChatCompletionToolParam],
-            chain(agent.tools, [tool for _, tool in self._tool_registry.values()]),
+            list(chain(agent.tools, [t for _, t in self._tool_registry.values()])),
         )
+        if len(create_params["tools"]) == 0:
+            create_params.pop("tools")
 
         return await self._client.chat.completions.create(
             stream=stream, **create_params
@@ -456,10 +465,10 @@ class AsyncSwarm(BaseSwarm):
         context_variables = (
             copy.deepcopy(context_variables) if context_variables else {}
         )
-        history = [m for m in copy.deepcopy(kwargs["messages"])]
-        init_len = len(history)
+        messages = [m for m in copy.deepcopy(kwargs["messages"])]
+        init_len = len(messages)
 
-        while max_turns is None or len(history) - init_len < max_turns:
+        while max_turns is None or len(messages) - init_len < max_turns:
             message: ChatCompletionMessageParam = {
                 "content": "",
                 "name": agent.name,
@@ -481,20 +490,28 @@ class AsyncSwarm(BaseSwarm):
                 **kwargs,
             )
 
-            yield {"delim": "start"}
+            reasoning = False
             async for chunk in completion:
                 delta = chunk.choices[0].delta
-                if delta.role == "assistant":
-                    delta.name = active_agent.name  # type: ignore
-                yield delta.model_dump(mode="json")
+                # deepseek-reasoner would have extra "reasoning_content" field, we would
+                # wrap it in <reasoning></reasoning> for further handling.
+                if isinstance(
+                    content := getattr(delta, "reasoning_content", None), str
+                ):
+                    delta.content = ("<reasoning>\n" if not reasoning else "") + content
+                    reasoning = True
+                if reasoning and content is None:
+                    delta.content = "<reasoning>\n" + (delta.content or "")
+                    reasoning = False
+                yield chunk
                 merge_chunk(message, delta)
-            yield {"delim": "end"}
 
             message["tool_calls"] = list(message.get("tool_calls", {}).values())  # type: ignore
             if not message["tool_calls"]:
                 message.pop("tool_calls", None)
             logger.debug("Received completion:", message)
-            history.append(message)
+            messages.append(message)
+            yield message
 
             if not message.get("tool_calls") or not execute_tools:
                 logger.debug("Ending turn.")
@@ -520,18 +537,15 @@ class AsyncSwarm(BaseSwarm):
                 self._tool_registry,
                 self._mcp_clients,
             )
-            history.extend(partial_response.messages)
-            context_variables.update(partial_response.context_variables)
+            messages.extend(partial_response.messages)
+            for message in partial_response.messages:
+                yield message
+            if partial_response.context_variables:
+                context_variables |= partial_response.context_variables
+                yield ContextVariables(context_variables=context_variables)
             if partial_response.agent:
                 active_agent = partial_response.agent
-
-        yield {
-            "response": Response(
-                messages=history[init_len:],
-                agent=active_agent,
-                context_variables=context_variables,
-            )
-        }
+                yield active_agent
 
     @overload
     async def run(
@@ -544,9 +558,7 @@ class AsyncSwarm(BaseSwarm):
         execute_tools: bool = True,
         **kwargs: Unpack[CompletionCreateParamsBase],
     ) -> AsyncIterator[
-        dict[Literal["delim"], Literal["start", "end"]]
-        | dict[Literal["response"], Response]
-        | dict[str, Any]
+        ChatCompletionChunk | ChatCompletionMessageParam | Agent | ContextVariables
     ]: ...
 
     @overload
@@ -573,9 +585,7 @@ class AsyncSwarm(BaseSwarm):
     ) -> (
         Response
         | AsyncIterator[
-            dict[Literal["delim"], Literal["start", "end"]]
-            | dict[Literal["response"], Response]
-            | dict[str, Any]
+            ChatCompletionChunk | ChatCompletionMessageParam | Agent | ContextVariables
         ]
     ):
         if stream:
@@ -652,9 +662,7 @@ class Swarm(BaseSwarm):
         execute_tools: bool = True,
         **kwargs: Unpack[CompletionCreateParamsBase],
     ) -> Iterable[
-        dict[Literal["delim"], Literal["start", "end"]]
-        | dict[Literal["response"], Response]
-        | dict[str, Any]
+        ChatCompletionChunk | ChatCompletionMessageParam | Agent | ContextVariables
     ]: ...
 
     @overload
@@ -681,9 +689,7 @@ class Swarm(BaseSwarm):
     ) -> (
         Response
         | Iterable[
-            dict[Literal["delim"], Literal["start", "end"]]
-            | dict[Literal["response"], Response]
-            | dict[str, Any]
+            ChatCompletionChunk | ChatCompletionMessageParam | Agent | ContextVariables
         ]
     ):
         if stream:
@@ -715,64 +721,117 @@ class Swarm(BaseSwarm):
         )
 
 
-async def main():
-    import argparse
+async def main(
+    *,
+    model: Annotated[
+        str, typer.Option("--model", "-m", help="The model to use for the agent")
+    ] = "gpt-4o",
+    file: Annotated[
+        Path | None,
+        typer.Option(
+            "--file",
+            "-f",
+            exists=True,
+            help="The path to the swarmx file (JSON file containing `mcpServers` and `agent`)",
+        ),
+    ] = None,
+    output: Annotated[
+        Path | None,
+        typer.Option(
+            "--output",
+            "-o",
+            writable=True,
+            help="The path to the output file to save the conversation",
+        ),
+    ] = None,
+    verbose: Annotated[
+        bool,
+        typer.Option(
+            "--verbose/--quiet", "-v/-q", help="Print the data sent to the model"
+        ),
+    ] = False,
+):
+    """SwarmX Command Line Interface."""
 
-    parser = argparse.ArgumentParser(description="SwarmX Command Line Interface")
-
-    parser.add_argument(
-        "--model",
-        type=str,
-        default="gpt-4o",
-        help="The model to use for the agent",
-    )
-    parser.add_argument(
-        "--file",
-        type=Path,
-        default=None,
-        help="The path to the swarmx file (JSON file containing `mcpServers` and `agent`)",
-    )
-    parser.add_argument(
-        "--output",
-        type=Path,
-        default=None,
-        help="The path to the output file to save the conversation",
-    )
-    args = parser.parse_args()
-    if args.file is None:
+    if file is None:
         data = {}
     else:
-        data = json.loads(args.file.read_text())
+        data = json.loads(file.read_text())
     agent = Agent.model_validate(data.pop("agent", {}))
     client = AsyncSwarm.model_validate(data)
     messages: list[ChatCompletionMessageParam] = []
+    context_variables: dict[str, Any] = {}
     while True:
         try:
-            user_prompt = input(">>> ")
+            user_prompt = typer.prompt(">>>", prompt_suffix=" ")
             messages.append(
                 {
                     "role": "user",
                     "content": user_prompt,
                 }
             )
-            message = ""
             async for chunk in await client.run(
-                agent, model=args.model, messages=messages, stream=True
+                agent,
+                model=model,
+                messages=messages,
+                stream=True,
+                context_variables=context_variables,
             ):
-                if (c := chunk.get("content")) is not None:  # type: ignore
-                    message += c  # type: ignore
-                    print(c, end="", flush=True)  # noqa: T201
-                elif (response := chunk.get("response")) is not None:  # type: ignore
-                    messages.extend(response.messages)  # type: ignore
-            print()  # noqa: T201
+                # we would not support coloring ollama's deepseek-r1 because it couldn't
+                # produce <think> xml tag stably
+                match chunk:
+                    case ChatCompletionChunk():
+                        delta = chunk.choices[0].delta
+                        if delta.content is not None:
+                            typer.echo(delta.content, nl=False)
+                        if isinstance(
+                            c := getattr(delta, "reasoning_content", None), str
+                        ):
+                            typer.secho(c, nl=False, fg="green")
+                        if delta.refusal is not None:
+                            typer.secho(delta.refusal, nl=False, err=True, fg="purple")
+                        if chunk.choices[0].finish_reason is not None:
+                            typer.echo()
+                    case Agent():
+                        agent = chunk
+                        if verbose:
+                            typer.secho(f"agent: {agent.model_dump_json()}", fg="cyan")
+                    case ContextVariables():
+                        context_variables = chunk.context_variables
+                        if verbose:
+                            typer.secho(
+                                f"context: {json.dumps(context_variables)}", fg="gray"
+                            )
+                    case _ as message:
+                        messages.append(message)
+                        if verbose and not (
+                            message["role"] == "assistant"
+                            and message.get("name") == agent.name
+                        ):
+                            typer.secho(f"data: {json.dumps(message)}", fg="yellow")
         except KeyboardInterrupt:
             break
-    if args.output is not None:
-        args.output.write_text(json.dumps(messages, indent=2))
+        except Exception as e:
+            messages.append(
+                {
+                    "role": "assistant",
+                    "refusal": f"{e}",
+                }
+            )
+            typer.secho(f"{e}", err=True, fg="red")
+            break
+    if output is not None:
+        output.write_text(json.dumps(messages, indent=2, ensure_ascii=False))
 
 
 def repl():
-    asyncio.run(main())
+    """SwarmX REPL wrapper"""
+
+    @wraps(main)
+    def repl_main(*args, **kwargs):
+        return asyncio.run(main(*args, **kwargs))
+
+    typer.run(repl_main)
 
 
 if __name__ == "__main__":

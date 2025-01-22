@@ -1965,6 +1965,7 @@ dependencies = [
     { name = "mcp" },
     { name = "openai" },
     { name = "pydantic" },
+    { name = "typer" },
     { name = "typing-extensions" },
 ]
 
@@ -1985,6 +1986,7 @@ requires-dist = [
     { name = "mcp", specifier = ">=1.2.0" },
     { name = "openai", specifier = ">=1.59.9" },
     { name = "pydantic", specifier = ">=2.10.5" },
+    { name = "typer", specifier = ">=0.15.1" },
     { name = "typing-extensions", specifier = ">=4.12.2" },
 ]
 
