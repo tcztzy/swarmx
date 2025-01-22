@@ -347,12 +347,14 @@ for chunk in stream:
    print(chunk)
 ```
 
-Uses the same events as [Chat Completions API streaming](https://platform.openai.com/docs/api-reference/streaming). See `process_and_print_streaming_response` in `/swarm/repl/repl.py` as an example.
+Uses the same events as [Chat Completions API streaming](https://platform.openai.com/docs/api-reference/streaming). See `swarmx.repl()` as an example.
 
-Two new event types have been added:
+There are four types of item produced by SwarmX streaming API:
 
-- `{"delim":"start"}` and `{"delim":"end"}`, to signal each time an `Agent` handles a single message (response or function call). This helps identify switches between `Agent`s.
-- `{"response": Response}` will return a `Response` object at the end of a stream with the aggregated (complete) response, for convenience.
+1. `openai`'s `ChatCompletionChunk`
+2. `swarmx.Agent`
+3. `swarmx.ContentVariable`
+4. `openai`'s `ChatCompletionMessageParam`
 
 # Evaluations
 
