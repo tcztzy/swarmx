@@ -20,6 +20,7 @@ from typing import (
     Literal,
     TypeAlias,
     cast,
+    get_origin,
     get_type_hints,
     overload,
 )
@@ -165,6 +166,29 @@ def check_functions(functions: list[object]) -> list[AgentFunction]:
     return [check_function(func) for func in functions]
 
 
+def check_instructions(
+    instructions: str | object,
+) -> str | Callable[[dict[str, Any]], str]:
+    if isinstance(instructions, str):
+        return instructions
+    err = ValueError(
+        "Instructions should be a string or a callable takes context_variable and returns string"
+    )
+    if callable(instructions):
+        sig = inspect.signature(instructions)
+        if __CTX_VARS_NAME__ not in sig.parameters:
+            raise err
+        anno = sig.parameters[__CTX_VARS_NAME__].annotation
+        if (
+            anno is not inspect.Signature.empty
+            and anno is not dict
+            and get_origin(anno) is not dict
+        ):
+            raise err
+        return cast(Callable[[dict[str, Any]], str], instructions)
+    raise err
+
+
 class SwarmXGenerateJsonSchema(GenerateJsonSchema):
     def field_title_should_be_set(self, schema) -> bool:
         return False
@@ -177,7 +201,9 @@ class Agent(BaseModel):
     model: ChatModel | str = "gpt-4o"
     """The default model to use for the agent."""
 
-    instructions: str = "You are a helpful agent."
+    instructions: Annotated[ImportString | str, AfterValidator(check_instructions)] = (
+        "You are a helpful agent."
+    )
     """Agent's instructions, could be a Jinja2 template"""
 
     functions: Annotated[list[ImportString], AfterValidator(check_functions)] = Field(
@@ -200,7 +226,11 @@ class Agent(BaseModel):
         model: ChatModel | str,
         context_variables: dict[str, Any] | None = None,
     ) -> list[ChatCompletionMessageParam]:
-        content = Template(self.instructions).render(context_variables or {})
+        content = (
+            Template(self.instructions).render
+            if isinstance(self.instructions, str)
+            else cast(Callable[[dict[str, Any]], str], self.instructions)
+        )(context_variables or {})
         if model in ["o1", "o1-2024-12-17"]:
             instructions: ChatCompletionMessageParam = {
                 "role": "developer",
@@ -760,7 +790,7 @@ async def main(
     agent = Agent.model_validate(data.pop("agent", {}))
     client = AsyncSwarm.model_validate(data)
     messages: list[ChatCompletionMessageParam] = []
-    context_variables: dict[str, Any] = {}
+    context_variables: dict[str, Any] = data.pop(__CTX_VARS_NAME__, {})
     while True:
         try:
             user_prompt = typer.prompt(">>>", prompt_suffix=" ")
