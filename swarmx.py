@@ -522,18 +522,18 @@ class AsyncSwarm(BaseSwarm):
 
             reasoning = False
             async for chunk in completion:
+                yield chunk
                 delta = chunk.choices[0].delta
                 # deepseek-reasoner would have extra "reasoning_content" field, we would
-                # wrap it in <reasoning></reasoning> for further handling.
+                # wrap it in <think></think> for further handling.
                 if isinstance(
                     content := getattr(delta, "reasoning_content", None), str
                 ):
-                    delta.content = ("<reasoning>\n" if not reasoning else "") + content
+                    delta.content = ("<think>\n" if not reasoning else "") + content
                     reasoning = True
                 if reasoning and content is None:
-                    delta.content = "<reasoning>\n" + (delta.content or "")
+                    delta.content = "</think>\n" + (delta.content or "")
                     reasoning = False
-                yield chunk
                 merge_chunk(message, delta)
 
             message["tool_calls"] = list(message.get("tool_calls", {}).values())  # type: ignore
