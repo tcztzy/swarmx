@@ -249,12 +249,18 @@ class Agent(BaseModel):
         context_variables: dict[str, Any] | None = None,
         **kwargs: Unpack[CompletionCreateParamsBase],
     ) -> CompletionCreateParamsBase:
+        """Preprocess the agent's messages and context variables."""
         model = kwargs.get("model") or self.model
         messages = self._with_instructions(
             model=model,
             messages=kwargs["messages"],
             context_variables=context_variables,
         )
+        for message in messages:
+            if message["role"] == "assistant" and "tool_calls" not in message:
+                content = message.get("content")
+                if isinstance(content, str) and "</think>" in content:
+                    message["content"] = content.split("</think>")[1]
         return kwargs | {"messages": messages, "model": model}
 
     @computed_field
