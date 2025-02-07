@@ -1,6 +1,6 @@
 [project]
 name = "swarmx"
-version = "0.5.1"
+version = "0.5.2"
 authors = [
     { name = "Tang Ziya", email = "tcztzy@gmail.Com" }
 ]
@@ -10,7 +10,7 @@ license = "MIT"
 dependencies = [
     "jinja2>=3.1.5",
     "mcp>=1.2.1",
-    "openai>=1.60.2",
+    "openai>=1.61.1",
     "pydantic>=2.10.6",
     "typer>=0.15.1",
     "typing-extensions>=4.12.2",
@@ -29,8 +29,8 @@ dev = [
     "pre-commit>=4.1.0",
     "pytest>=8.3.4",
     "pytest-cov>=6.0.0",
-    "mypy>=1.14.1",
-    "deepeval>=2.2.6",
+    "mypy>=1.15.0",
+    "deepeval>=2.3.3",
     "tox>=4.24.1",
     "mcp-server-time>=0.6.2",
 ]

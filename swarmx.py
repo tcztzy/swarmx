@@ -83,7 +83,7 @@ def merge_chunk(
     if delta.refusal is not None:
         message["refusal"] = (message.get("refusal") or "") + delta.refusal
 
-    if delta.tool_calls:
+    if delta.tool_calls is not None:
         tool_calls = {i: call for i, call in enumerate(message.get("tool_calls") or [])}
         for call in delta.tool_calls:
             function = call.function
@@ -101,6 +101,10 @@ def merge_chunk(
                 function.arguments or "" if function else ""
             )
             tool_call["function"]["name"] = function.name or "" if function else ""
+            tool_calls[call.index] = tool_call
+        message["tool_calls"] = [
+            tool_call for _, tool_call in sorted(tool_calls.items())
+        ]
 
 
 def does_function_need_context(func: AgentFunction) -> bool:
