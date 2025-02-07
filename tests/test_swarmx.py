@@ -1,3 +1,5 @@
+from typing import Annotated
+
 from deepeval import assert_test
 from deepeval.metrics import GEval
 from deepeval.test_case import LLMTestCase, LLMTestCaseParams
@@ -7,7 +9,7 @@ from openai.types.chat.chat_completion_chunk import (
     ChoiceDeltaToolCallFunction,
 )
 
-from swarmx import Agent, Swarm, merge_chunk
+from swarmx import Agent, Result, Swarm, function_to_json, merge_chunk
 
 
 def test_merge_content_string():
@@ -155,3 +157,72 @@ def test_handoff(client: Swarm, skip_deepeval: bool, model: str):
         threshold=0.85,  # interesting, Llama rarely generate likelihoods above 0.9
     )
     assert_test(test_case, [spanish_detection])
+
+
+def sample(a: int, b: str) -> str:
+    """Sample function"""
+    return f"{a}{b}"
+
+
+async def async_func(c: float) -> Agent:
+    return Agent()
+
+
+def no_params() -> dict:
+    return {}
+
+
+class TestFunctionToJson:
+    def test_basic_function_conversion(self):
+        tool = function_to_json(sample)
+        assert tool["type"] == "function"
+        assert tool["function"]["name"] == "tests.test_swarmx.sample"
+        assert tool["function"]["description"] == "Sample function"
+        assert tool["function"]["parameters"] == {
+            "type": "object",
+            "properties": {"a": {"type": "integer"}, "b": {"type": "string"}},
+            "required": ["a", "b"],
+        }
+
+    def test_context_variables_exclusion(self):
+        def with_context(a: int, context_variables: dict) -> str:
+            return ""
+
+        tool = function_to_json(with_context)
+        assert "context_variables" not in tool["function"]["parameters"]["properties"]
+
+    def test_async_function_handling(self):
+        tool = function_to_json(async_func)
+        assert tool["function"]["name"] == "tests.test_swarmx.async_func"
+        assert tool["function"]["parameters"] == {
+            "type": "object",
+            "properties": {"c": {"type": "number"}},
+            "required": ["c"],
+        }
+
+    def test_function_with_complex_types(self):
+        def complex_types(
+            d: Annotated[str, "metadata"], e: list[dict[str, int]]
+        ) -> Result:
+            """Complex types"""
+            return Result(content=[])
+
+        tool = function_to_json(complex_types)
+        assert tool["function"]["parameters"] == {
+            "type": "object",
+            "properties": {
+                "d": {"type": "string"},
+                "e": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "additionalProperties": {"type": "integer"},
+                    },
+                },
+            },
+            "required": ["d", "e"],
+        }
+
+    def test_function_with_no_parameters(self):
+        tool = function_to_json(no_params)
+        assert tool["function"]["parameters"] == {"type": "object", "properties": {}}

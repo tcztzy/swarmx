@@ -126,10 +126,7 @@ def function_to_json(func: AgentFunction) -> ChatCompletionToolParam:
         warnings.simplefilter("ignore")
         arguments_model = create_model(func.__name__, **field_definitions)  # type: ignore[call-overload]
     name = TypeAdapter(ImportString).dump_json(func).decode()
-    if name.startswith('"') and name.endswith('"'):
-        name = name[1:-1]
-    else:
-        name = func.__name__
+    name = name[1:-1] if name.startswith('"') and name.endswith('"') else func.__name__
     return {
         "type": "function",
         "function": {

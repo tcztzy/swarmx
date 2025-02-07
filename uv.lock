@@ -444,7 +444,7 @@ wheels = [
 
 [[package]]
 name = "deepeval"
-version = "2.3.3"
+version = "2.3.4"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "datasets" },
@@ -474,9 +474,9 @@ dependencies = [
     { name = "tqdm" },
     { name = "typer" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/04/d4/44f076a2fca5a9999cab350124d682ff877499d2aa5b9ac088fd194c8705/deepeval-2.3.3.tar.gz", hash = "sha256:5376e77ac29df4c1ec022b6fbdac6e3936febe188628707916e2466d42ebfb33", size = 390302 }
+sdist = { url = "https://files.pythonhosted.org/packages/d9/71/afb180e94d62ef39b2535c61d9bda01a4c52b1a21d4fd85f3cdcff48d44e/deepeval-2.3.4.tar.gz", hash = "sha256:114d8b63889be9cb1a50fb1b090f393f62a311396961e0e7176ca7887ce4cef2", size = 391188 }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/ac/55/c13cf8f6780142edb1668fb76feb72c3dddb27cac0e1f27bea8000fb4105/deepeval-2.3.3-py3-none-any.whl", hash = "sha256:8d36d2f56c366277f9c75cd371f681126efd7a29815b29be06f34ed1f9716dbb", size = 557685 },
+    { url = "https://files.pythonhosted.org/packages/eb/07/dd3b87a46c9f7e6071998150033045e6ac584f873432d34fd7135c4eed54/deepeval-2.3.4-py3-none-any.whl", hash = "sha256:511194276a9fa89dfcc9aa7544de853b32b2e3b2d783b9acb688c79ac248471c", size = 558671 },
 ]
 
 [[package]]
@@ -2622,7 +2622,7 @@ wheels = [
 
 [[package]]
 name = "swarmx"
-version = "0.5.1"
+version = "0.5.2"
 source = { editable = "." }
 dependencies = [
     { name = "jinja2" },
