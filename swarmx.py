@@ -173,17 +173,15 @@ def check_instructions(
     if isinstance(instructions, str):
         return instructions
     err = ValueError(
-        "Instructions should be a string or a callable takes context_variable and returns string"
+        f"Instructions should be a string or a callable takes {__CTX_VARS_NAME__} and returns string"
     )
     if callable(instructions):
         sig = inspect.signature(instructions)
         if __CTX_VARS_NAME__ not in sig.parameters:
             raise err
         anno = sig.parameters[__CTX_VARS_NAME__].annotation
-        if (
-            anno is not inspect.Signature.empty
-            and anno is not dict
-            and get_origin(anno) is not dict
+        if not (
+            anno is inspect.Signature.empty or anno is dict or get_origin(anno) is dict
         ):
             raise err
         return cast(Callable[[dict[str, Any]], str], instructions)
