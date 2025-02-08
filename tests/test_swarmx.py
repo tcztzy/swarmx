@@ -1,5 +1,6 @@
 from typing import Annotated, Any
 
+import mcp.types
 import pytest
 from deepeval import assert_test
 from deepeval.metrics import GEval
@@ -17,6 +18,7 @@ from swarmx import (
     check_function,
     check_instructions,
     function_to_json,
+    handle_function_result,
     merge_chunk,
 )
 
@@ -349,3 +351,33 @@ class TestCheckInstructions:
 
         result = check_instructions(no_anno)
         assert result == no_anno
+
+
+class TestHandleFunctionResult:
+    def test_result_instance(self):
+        result = Result(content=[])
+        assert handle_function_result(result) == result
+
+    def test_agent_instance(self):
+        agent = Agent()
+        result = handle_function_result(agent)
+        assert isinstance(result, Result)
+        assert result.agent == agent
+
+    def test_dict_result(self):
+        d = {"key": "value"}
+        result = handle_function_result(d)
+        assert result.meta == d
+        assert result.content == []
+
+    def test_mcp_result(self):
+        mcp_result = mcp.types.CallToolResult(content=[])
+        result = handle_function_result(mcp_result)
+        assert isinstance(result, Result)
+        assert result.model_dump(exclude={"agent"}) == mcp_result.model_dump()
+
+    def test_string_result(self):
+        s = "test"
+        result = handle_function_result(s)
+        assert len(result.content) == 1
+        assert result.content[0].text == "test"

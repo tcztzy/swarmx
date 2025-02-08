@@ -363,14 +363,9 @@ def handle_function_result(result: Any) -> Result:
             return Result.model_validate(result.model_dump())
 
         case _:
-            try:
-                return Result(
-                    content=[mcp.types.TextContent(type="text", text=str(result))]
-                )
-            except Exception as e:
-                error_message = f"Failed to cast response to string: {result}. Make sure agent functions return a string or Result object. Error: {str(e)}"
-                logger.debug(error_message)
-                raise TypeError(error_message)
+            return Result(
+                content=[mcp.types.TextContent(type="text", text=str(result))]
+            )
 
 
 class BaseSwarm(BaseModel):
