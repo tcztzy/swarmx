@@ -1,6 +1,6 @@
 [project]
 name = "swarmx"
-version = "0.5.2"
+version = "0.6.0"
 authors = [
     { name = "Tang Ziya", email = "tcztzy@gmail.Com" }
 ]

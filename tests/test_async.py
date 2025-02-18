@@ -8,7 +8,7 @@ from deepeval.metrics import GEval
 from deepeval.test_case import LLMTestCase, LLMTestCaseParams
 from mcp.client.stdio import StdioServerParameters
 
-from swarmx import Agent, AsyncSwarm
+from swarmx import TOOL_REGISTRY, Agent, AsyncSwarm
 
 pytestmark = pytest.mark.anyio
 
@@ -21,7 +21,7 @@ async def test_handoff(client: AsyncSwarm, skip_deepeval: bool, model: str):
     )
     message_input = "Hola. ¿Como estás?"
     response = await client.run(
-        english_agent,
+        agent=english_agent,
         messages=[{"role": "user", "content": message_input}],
         model=model,
     )
@@ -54,9 +54,8 @@ async def test_mcp_tool_call(client: AsyncSwarm):
             args=["run", "mcp-server-time", "--local-timezone", "UTC"],
         )
     }
-    await client.__aenter__()
-    server, tool = client._tool_registry["get_current_time"]
-    assert tool == {
+    await TOOL_REGISTRY.add_mcp_server("time", client.mcp_servers["time"])
+    assert TOOL_REGISTRY.tools[0] == {
         "function": {
             "description": "Get current time in a specific timezones",
             "name": "get_current_time",
@@ -73,9 +72,7 @@ async def test_mcp_tool_call(client: AsyncSwarm):
         },
         "type": "function",
     }
-    result = await client._mcp_clients[server].call_tool(
-        "get_current_time", {"timezone": "UTC"}
-    )
+    result = await TOOL_REGISTRY.call_tool("get_current_time", {"timezone": "UTC"})
     assert result.content[0].type == "text"
     json_result = json.loads(result.content[0].text)
     assert (
@@ -110,4 +107,3 @@ async def test_mcp_tool_call(client: AsyncSwarm):
         tzinfo=datetime.timezone.utc
     )
     assert answer_time - now < datetime.timedelta(seconds=1)
-    await client.__aexit__(None, None, None)
