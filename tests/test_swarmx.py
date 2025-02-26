@@ -144,7 +144,7 @@ def test_handoff(client: Swarm, skip_deepeval: bool, model: str):
     )
     message_input = "Hola. ¿Como estás?"
     response = client.run(
-        english_agent,
+        agent=english_agent,
         messages=[{"role": "user", "content": message_input}],
         model=model,
     )

@@ -23,13 +23,16 @@ from typing import (
     get_type_hints,
     overload,
 )
+from uuid import UUID, uuid4
 
 import mcp.types
+import networkx as nx
 import typer
 from jinja2 import Template
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.sse import sse_client
 from mcp.client.stdio import stdio_client
+from networkx.readwrite import json_graph
 from openai import AsyncOpenAI, AsyncStream
 from openai.types import ChatModel
 from openai.types.chat import (
@@ -53,6 +56,7 @@ from pydantic import (
     Field,
     ImportString,
     PrivateAttr,
+    SecretStr,
     TypeAdapter,
     computed_field,
     create_model,
@@ -281,6 +285,9 @@ class Agent(BaseModel):
     name: str = "Agent"
     """The agent's name"""
 
+    id: UUID = Field(default_factory=uuid4)
+    """The agent's unique identifier"""
+
     model: ChatModel | str = "gpt-4o"
     """The default model to use for the agent."""
 
@@ -299,6 +306,12 @@ class Agent(BaseModel):
 
     parallel_tool_calls: bool = False
     """Whether to make tool calls in parallel"""
+
+    base_url: str | None = None
+    """The base URL for the OpenAI API"""
+
+    api_key: SecretStr | None = None
+    """The API key for the OpenAI API"""
 
     _tool_registry: dict[str, AgentFunction] = PrivateAttr(default_factory=dict)
 
@@ -354,6 +367,210 @@ class Agent(BaseModel):
             tools.append(function_to_json(func))
             self._tool_registry[tools[-1]["function"]["name"]] = func
         return tools
+
+    @overload
+    async def get_chat_completion(
+        self,
+        client: AsyncOpenAI,
+        context_variables: dict,
+        stream: Literal[True],
+        **kwargs: Unpack[CompletionCreateParamsBase],
+    ) -> AsyncStream[ChatCompletionChunk]: ...
+
+    @overload
+    async def get_chat_completion(
+        self,
+        client: AsyncOpenAI,
+        context_variables: dict,
+        stream: Literal[False] = False,
+        **kwargs: Unpack[CompletionCreateParamsBase],
+    ) -> ChatCompletion: ...
+
+    async def get_chat_completion(
+        self,
+        client: AsyncOpenAI,
+        context_variables: dict,
+        stream: bool = False,
+        **kwargs: Unpack[CompletionCreateParamsBase],
+    ) -> ChatCompletion | AsyncStream[ChatCompletionChunk]:
+        create_params = self.preprocess(context_variables=context_variables, **kwargs)
+        messages = create_params["messages"]
+        logger.debug("Getting chat completion for...:", messages)
+
+        # hide context_variables from model
+        for tool in self.tools:
+            params: dict[str, Any] = tool["function"].get(
+                "parameters", {"properties": {}}
+            )
+            params["properties"].pop(__CTX_VARS_NAME__, None)
+            if __CTX_VARS_NAME__ in params.get("required", []):
+                params["required"].remove(__CTX_VARS_NAME__)
+
+        if self.tool_choice:
+            create_params["tool_choice"] = self.tool_choice
+        create_params["parallel_tool_calls"] = self.parallel_tool_calls
+        create_params["tools"] = self.tools
+        if len(create_params["tools"]) == 0:
+            create_params.pop("tools")
+
+        return await client.chat.completions.create(stream=stream, **create_params)
+
+    async def _run_and_stream(
+        self,
+        client: AsyncOpenAI,
+        context_variables: dict[str, Any],
+        execute_tools: bool,
+        **kwargs: Unpack[CompletionCreateParamsBase],
+    ):
+        messages = list(kwargs["messages"])
+        message: ChatCompletionMessageParam = {
+            "content": "",
+            "name": self.name,
+            "role": "assistant",
+            "tool_calls": defaultdict(
+                lambda: {
+                    "function": {"arguments": "", "name": ""},
+                    "id": "",
+                    "type": "",
+                },
+            ),
+        }
+        completion = await self.get_chat_completion(
+            client=client, context_variables=context_variables, stream=True, **kwargs
+        )
+        reasoning = False
+        async for chunk in completion:
+            yield chunk
+            delta = chunk.choices[0].delta
+            # deepseek-reasoner would have extra "reasoning_content" field, we would
+            # wrap it in <think></think> for further handling.
+            if isinstance(content := getattr(delta, "reasoning_content", None), str):
+                delta.content = ("<think>\n" if not reasoning else "") + content
+                reasoning = True
+            if reasoning and content is None:
+                delta.content = "</think>\n" + (delta.content or "")
+                reasoning = False
+            merge_chunk(message, delta)
+        message["tool_calls"] = list(message.get("tool_calls", {}).values())  # type: ignore
+        if not message["tool_calls"]:
+            message.pop("tool_calls", None)
+        logger.debug("Received completion:", message)
+        messages.append(message)
+        yield message
+        if not message.get("tool_calls") or not execute_tools:
+            logger.debug("Ending turn.")
+            return
+
+        # convert tool_calls to objects
+        tool_calls = []
+        for tool_call in message["tool_calls"]:
+            function = Function(
+                arguments=tool_call["function"]["arguments"],
+                name=tool_call["function"]["name"],
+            )
+            tool_call_object = ChatCompletionMessageToolCall(
+                id=tool_call["id"], function=function, type=tool_call["type"]
+            )
+            tool_calls.append(tool_call_object)
+
+        # handle function calls, updating context_variables, and switching agents
+        partial_response = await handle_tool_calls(tool_calls)
+        messages.extend(partial_response.messages)
+        for message in partial_response.messages:
+            yield message
+        if partial_response.context_variables:
+            context_variables |= partial_response.context_variables
+            yield ContextVariables(context_variables=context_variables)
+        if partial_response.agent:
+            yield partial_response.agent
+
+    @overload
+    async def run(
+        self,
+        *,
+        client: AsyncOpenAI | None = None,
+        stream: Literal[True],
+        context_variables: dict[str, Any] | None = None,
+        execute_tools: bool = True,
+        **kwargs: Unpack[CompletionCreateParamsBase],
+    ) -> AsyncIterator[
+        ChatCompletionChunk | ChatCompletionMessageParam | "Agent" | "ContextVariables"
+    ]: ...
+
+    @overload
+    async def run(
+        self,
+        *,
+        client: AsyncOpenAI | None = None,
+        stream: Literal[False] = False,
+        context_variables: dict[str, Any] | None = None,
+        execute_tools: bool = True,
+        **kwargs: Unpack[CompletionCreateParamsBase],
+    ) -> "Response": ...
+
+    async def run(
+        self,
+        *,
+        client: AsyncOpenAI | None = None,
+        stream: bool = False,
+        context_variables: dict[str, Any] | None = None,
+        execute_tools: bool = True,
+        **kwargs: Unpack[CompletionCreateParamsBase],
+    ) -> (
+        "Response"
+        | AsyncIterator[
+            ChatCompletionChunk
+            | ChatCompletionMessageParam
+            | "Agent"
+            | "ContextVariables"
+        ]
+    ):
+        if client is None:
+            client = AsyncOpenAI(api_key=self.api_key, base_url=self.base_url)
+        client = (
+            client.with_options(
+                base_url=self.base_url or client.base_url,
+                api_key=self.api_key or client.api_key,
+            )
+            if self.base_url or self.api_key
+            else client
+        )
+        context_variables = copy.deepcopy(context_variables or {})
+        if stream:
+            return self._run_and_stream(
+                client=client,
+                context_variables=context_variables,
+                execute_tools=execute_tools,
+                **kwargs,
+            )
+        messages = copy.deepcopy(list(kwargs["messages"]))
+        init_len = len(messages)
+        completion = await self.get_chat_completion(
+            client=client,
+            context_variables=context_variables,
+            stream=False,
+            **kwargs,
+        )
+        message = completion.choices[0].message
+        logger.debug("Received completion:", message)
+        m = cast(
+            ChatCompletionAssistantMessageParam,
+            message.model_dump(mode="json", exclude_none=True),
+        )
+        m["name"] = self.name
+        messages.append(m)
+        if message.tool_calls and execute_tools:
+            partial_response = await handle_tool_calls(message.tool_calls)
+            messages.extend(partial_response.messages)
+            context_variables |= partial_response.context_variables
+            agent = partial_response.agent or self
+        else:
+            agent = self
+        return Response(
+            messages=messages[init_len:],
+            agent=agent,
+            context_variables=context_variables,
+        )
 
 
 class Response(BaseModel):
@@ -437,11 +654,36 @@ def handle_function_result(result: Any) -> Result:
 
 
 class BaseSwarm(BaseModel):
+    id: UUID = Field(default_factory=uuid4)
     mcp_servers: dict[str, StdioServerParameters | str] = Field(
         default_factory=dict,
         validation_alias=AliasChoices("mcp_servers", "mcpServers"),
         serialization_alias="mcpServers",
     )
+    _G: nx.DiGraph = PrivateAttr()
+
+    def model_post_init(self, __context: Any) -> None:
+        self._G = nx.DiGraph(**self.model_dump(mode="json"))
+
+    @property
+    def _can_be_added_as_node(self) -> bool:
+        """Check if graph has exactly one root and one leaf node."""
+        roots = [node for node in self._G.nodes if self._G.in_degree(node) == 0]
+        leaves = [node for node in self._G.nodes if self._G.out_degree(node) == 0]
+        return len(roots) == 1 and len(leaves) == 1
+
+    def add_node(self, node: "Agent | BaseSwarm") -> None:
+        attr = {}
+        if isinstance(node, BaseSwarm):
+            attr["type"] = "swarm"
+            attr |= json_graph.node_link_data(node._G)
+        else:
+            attr["type"] = "agent"
+            attr |= node.model_dump(mode="json", exclude={"api_key"})
+        self._G.add_node(node.id, **attr)
+
+    def add_edge(self, u: "Agent | BaseSwarm", v: "Agent | BaseSwarm") -> None:
+        self._G.add_edge(u.id, v.id)
 
 
 class ContextVariables(BaseModel):
@@ -453,56 +695,8 @@ class AsyncSwarm(BaseSwarm):
     _client: AsyncOpenAI = PrivateAttr()
 
     def model_post_init(self, __context: Any) -> None:
+        super().model_post_init(__context)
         self._client = AsyncOpenAI()
-
-    @overload
-    async def get_chat_completion(
-        self,
-        agent: Agent,
-        context_variables: dict,
-        stream: Literal[True],
-        **kwargs: Unpack[CompletionCreateParamsBase],
-    ) -> AsyncStream[ChatCompletionChunk]: ...
-
-    @overload
-    async def get_chat_completion(
-        self,
-        agent: Agent,
-        context_variables: dict,
-        stream: Literal[False] = False,
-        **kwargs: Unpack[CompletionCreateParamsBase],
-    ) -> ChatCompletion: ...
-
-    async def get_chat_completion(
-        self,
-        agent: Agent,
-        context_variables: dict,
-        stream: bool = False,
-        **kwargs: Unpack[CompletionCreateParamsBase],
-    ) -> ChatCompletion | AsyncStream[ChatCompletionChunk]:
-        create_params = agent.preprocess(context_variables=context_variables, **kwargs)
-        messages = create_params["messages"]
-        logger.debug("Getting chat completion for...:", messages)
-
-        # hide context_variables from model
-        for tool in cast(list[ChatCompletionToolParam], agent.tools):
-            params: dict[str, Any] = tool["function"].get(
-                "parameters", {"properties": {}}
-            )
-            params["properties"].pop(__CTX_VARS_NAME__, None)
-            if __CTX_VARS_NAME__ in params.get("required", []):
-                params["required"].remove(__CTX_VARS_NAME__)
-
-        if agent.tool_choice:
-            create_params["tool_choice"] = agent.tool_choice
-        create_params["parallel_tool_calls"] = agent.parallel_tool_calls
-        create_params["tools"] = agent.tools
-        if len(create_params["tools"]) == 0:
-            create_params.pop("tools")
-
-        return await self._client.chat.completions.create(
-            stream=stream, **create_params
-        )
 
     async def run_and_stream(
         self,
@@ -513,90 +707,38 @@ class AsyncSwarm(BaseSwarm):
         **kwargs: Unpack[CompletionCreateParamsBase],
     ):
         active_agent = agent
-        context_variables = (
-            copy.deepcopy(context_variables) if context_variables else {}
-        )
+        context_variables = copy.deepcopy(context_variables or {})
         messages = [m for m in copy.deepcopy(kwargs["messages"])]
         init_len = len(messages)
 
         while max_turns is None or len(messages) - init_len < max_turns:
-            message: ChatCompletionMessageParam = {
-                "content": "",
-                "name": agent.name,
-                "role": "assistant",
-                "tool_calls": defaultdict(
-                    lambda: {
-                        "function": {"arguments": "", "name": ""},
-                        "id": "",
-                        "type": "",
-                    }
-                ),
-            }
-
-            # get completion with current history, agent
-            completion = await self.get_chat_completion(
-                agent=active_agent,
-                context_variables=context_variables,
+            response = await active_agent.run(
+                client=self._client,
                 stream=True,
+                context_variables=context_variables,
+                execute_tools=execute_tools,
                 **kwargs,
             )
-
-            reasoning = False
-            async for chunk in completion:
-                yield chunk
-                delta = chunk.choices[0].delta
-                # deepseek-reasoner would have extra "reasoning_content" field, we would
-                # wrap it in <think></think> for further handling.
-                if isinstance(
-                    content := getattr(delta, "reasoning_content", None), str
-                ):
-                    delta.content = ("<think>\n" if not reasoning else "") + content
-                    reasoning = True
-                if reasoning and content is None:
-                    delta.content = "</think>\n" + (delta.content or "")
-                    reasoning = False
-                merge_chunk(message, delta)
-
-            message["tool_calls"] = list(message.get("tool_calls", {}).values())  # type: ignore
-            if not message["tool_calls"]:
-                message.pop("tool_calls", None)
-            logger.debug("Received completion:", message)
-            messages.append(message)
-            yield message
-
-            if not message.get("tool_calls") or not execute_tools:
-                logger.debug("Ending turn.")
-                break
-
-            # convert tool_calls to objects
-            tool_calls = []
-            for tool_call in message["tool_calls"]:
-                function = Function(
-                    arguments=tool_call["function"]["arguments"],
-                    name=tool_call["function"]["name"],
-                )
-                tool_call_object = ChatCompletionMessageToolCall(
-                    id=tool_call["id"], function=function, type=tool_call["type"]
-                )
-                tool_calls.append(tool_call_object)
-
-            # handle function calls, updating context_variables, and switching agents
-            partial_response = await handle_tool_calls(tool_calls)
-            messages.extend(partial_response.messages)
-            for message in partial_response.messages:
+            async for message in response:
                 yield message
-            if partial_response.context_variables:
-                context_variables |= partial_response.context_variables
-                yield ContextVariables(context_variables=context_variables)
-            if partial_response.agent:
-                active_agent = partial_response.agent
-                yield active_agent
+                match message:
+                    case Agent() as agent:
+                        self.add_node(agent)
+                        self.add_edge(active_agent, agent)
+                        active_agent = agent
+                    case ContextVariables():
+                        context_variables |= message.context_variables
+                    case ChatCompletionChunk():
+                        ...
+                    case _:
+                        messages = [*messages, message]
+                        kwargs["messages"] = messages
 
     @overload
     async def run(
         self,
-        agent: Agent,
         *,
+        agent: Agent | None = None,
         stream: Literal[True],
         context_variables: dict[str, Any] | None = None,
         max_turns: int | None = None,
@@ -609,8 +751,8 @@ class AsyncSwarm(BaseSwarm):
     @overload
     async def run(
         self,
-        agent: Agent,
         *,
+        agent: Agent | None = None,
         stream: Literal[False] = False,
         context_variables: dict[str, Any] | None = None,
         max_turns: int | None = None,
@@ -620,8 +762,8 @@ class AsyncSwarm(BaseSwarm):
 
     async def run(
         self,
-        agent: Agent,
         *,
+        agent: Agent | None = None,
         stream: bool = False,
         context_variables: dict[str, Any] | None = None,
         max_turns: int | None = None,
@@ -633,6 +775,9 @@ class AsyncSwarm(BaseSwarm):
             ChatCompletionChunk | ChatCompletionMessageParam | Agent | ContextVariables
         ]
     ):
+        if agent is None:
+            agent = Agent()
+        self.add_node(agent)
         for name, server_params in self.mcp_servers.items():
             await TOOL_REGISTRY.add_mcp_server(name, server_params)
         if stream:
@@ -644,39 +789,35 @@ class AsyncSwarm(BaseSwarm):
                 **kwargs,
             )
         active_agent = agent
-        context_variables = (
-            copy.deepcopy(context_variables) if context_variables else {}
-        )
+        context_variables = copy.deepcopy(context_variables or {})
         messages = list(copy.deepcopy(kwargs["messages"]))
         init_len = len(messages)
 
         while max_turns is None or len(messages) - init_len < max_turns:
             # get completion with current history, agent
-            completion = await self.get_chat_completion(
-                agent=active_agent,
-                context_variables=context_variables,
+            response = await active_agent.run(
+                client=self._client,
                 stream=stream,
+                context_variables=context_variables,
+                execute_tools=execute_tools,
                 **kwargs,
             )
-            message = completion.choices[0].message
-            logger.debug("Received completion:", message)
-            m = cast(
-                ChatCompletionAssistantMessageParam,
-                message.model_dump(mode="json", exclude_none=True),
-            )  # exclude none to avoid validation error
-            m["name"] = active_agent.name
-            messages.append(m)
-
-            if not message.tool_calls or not execute_tools:
-                logger.debug("Ending turn.")
+            # dump response to json avoiding pydantic's ValidatorIterator
+            messages = [*messages, *json.loads(response.model_dump_json())["messages"]]
+            # add agent and edge if exists
+            if response.agent:
+                self.add_node(response.agent)
+                self.add_edge(active_agent, response.agent)
+                active_agent = response.agent
+            if response.context_variables:
+                context_variables |= response.context_variables
+            last_message = response.messages[-1]
+            if (
+                last_message["role"] == "assistant"
+                and not last_message.get("tool_calls")
+                or not execute_tools
+            ):
                 break
-
-            # handle function calls, updating context_variables, and switching agents
-            partial_response = await handle_tool_calls(message.tool_calls)
-            messages.extend(partial_response.messages)
-            context_variables |= partial_response.context_variables
-            if partial_response.agent:
-                active_agent = partial_response.agent
             kwargs["messages"] = messages
 
         return Response(
@@ -690,13 +831,14 @@ class Swarm(BaseSwarm):
     _swarm: AsyncSwarm = PrivateAttr()
 
     def model_post_init(self, __context: Any) -> None:
-        self._swarm = AsyncSwarm(mcp_servers=self.mcp_servers)
+        self._swarm = AsyncSwarm.model_validate(self, from_attributes=True)
+        self._G = self._swarm._G
 
     @overload
     def run(
         self,
-        agent: Agent,
         *,
+        agent: Agent,
         stream: Literal[True],
         context_variables: dict[str, Any] | None = None,
         max_turns: int | None = None,
@@ -709,8 +851,8 @@ class Swarm(BaseSwarm):
     @overload
     def run(
         self,
-        agent: Agent,
         *,
+        agent: Agent,
         stream: Literal[False] = False,
         context_variables: dict[str, Any] | None = None,
         max_turns: int | None = None,
@@ -720,8 +862,8 @@ class Swarm(BaseSwarm):
 
     def run(
         self,
-        agent: Agent,
         *,
+        agent: Agent,
         stream: bool = False,
         context_variables: dict[str, Any] | None = None,
         max_turns: int | None = None,
@@ -812,7 +954,7 @@ async def main(
                 }
             )
             async for chunk in await client.run(
-                agent,
+                agent=agent,
                 model=model,
                 messages=messages,
                 stream=True,
