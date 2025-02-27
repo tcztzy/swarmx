@@ -7,7 +7,7 @@
                 "id": "call_dhqowyas",
                 "function": {
                     "arguments": "{}",
-                    "name": "tests.functions.transfer_to_spanish_agent"
+                    "name": "transfer_to_spanish_agent"
                 },
                 "type": "function"
             }

@@ -53,12 +53,12 @@ from pydantic import (
     AfterValidator,
     AliasChoices,
     BaseModel,
+    BeforeValidator,
     Field,
     ImportString,
     PrivateAttr,
     SecretStr,
     TypeAdapter,
-    computed_field,
     create_model,
 )
 from pydantic.json_schema import GenerateJsonSchema
@@ -128,12 +128,10 @@ def function_to_json(func: AgentFunction) -> ChatCompletionToolParam:
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         arguments_model = create_model(func.__name__, **field_definitions)  # type: ignore[call-overload]
-    name = TypeAdapter(ImportString).dump_json(func).decode()
-    name = name[1:-1] if name.startswith('"') and name.endswith('"') else func.__name__
     return {
         "type": "function",
         "function": {
-            "name": name,
+            "name": func.__name__,
             "description": func.__doc__ or "",
             "parameters": {
                 k: v
@@ -146,13 +144,16 @@ def function_to_json(func: AgentFunction) -> ChatCompletionToolParam:
     }
 
 
-def check_function(func: object) -> AgentFunction:
+def validate_tool(tool: object) -> ChatCompletionToolParam:
     e = TypeError(
         "Agent function return type must be str, Agent, dict[str, Any], or Result"
     )
-    match func:
-        case func if callable(func):
-            annotation = get_type_hints(func)
+    match tool:
+        case dict():
+            tool = TypeAdapter(ChatCompletionToolParam).validate_python(tool)
+            return tool
+        case tool if callable(tool):
+            annotation = get_type_hints(tool)
             if (return_anno := annotation.get("return")) is None:
                 warnings.warn(
                     "Agent function return type is not annotated, assuming str. "
@@ -161,14 +162,16 @@ def check_function(func: object) -> AgentFunction:
                 )
             if return_anno not in [str, Agent, dict[str, Any], Result, None]:
                 raise e
-            TOOL_REGISTRY.add_function(func)
-            return cast(AgentFunction, func)
+            TOOL_REGISTRY.add_function(tool)
+            return TOOL_REGISTRY.functions[getattr(tool, "__name__", str(tool))]
+        case str():
+            return validate_tool(TypeAdapter(ImportString).validate_python(tool))
         case _:
             raise e
 
 
-def check_functions(functions: list[object]) -> list[AgentFunction]:
-    return [check_function(func) for func in functions]
+def validate_tools(tools: list[object]) -> list[AgentFunction]:
+    return [validate_tool(tool) for tool in tools]
 
 
 def check_instructions(
@@ -218,7 +221,7 @@ class ToolRegistry(BaseModel):
     async def __aenter__(self):
         for name in self.functions:
             callable_func = TypeAdapter(ImportString).validate_python(name)
-            self._tools[name] = check_function(callable_func)
+            self._tools[name] = validate_tool(callable_func)
         for name, server_params in self.mcp_servers.items():
             await self.add_mcp_server(name, server_params)
         return self
@@ -274,8 +277,9 @@ class ToolRegistry(BaseModel):
 
     def add_function(self, func: AgentFunction):
         func_json = function_to_json(func)
-        self.functions[func_json["function"]["name"]] = func_json
-        self._tools[func_json["function"]["name"]] = func
+        name = func_json["function"]["name"]
+        self.functions[name] = func_json
+        self._tools[name] = func
 
 
 TOOL_REGISTRY = ToolRegistry.model_validate({})
@@ -296,8 +300,12 @@ class Agent(BaseModel):
     )
     """Agent's instructions, could be a Jinja2 template"""
 
-    functions: Annotated[list[ImportString], AfterValidator(check_functions)] = Field(
-        default_factory=list
+    tools: Annotated[
+        list[ChatCompletionToolParam],
+        BeforeValidator(validate_tools),
+    ] = Field(
+        default_factory=list,
+        validation_alias=AliasChoices("tools", "functions"),
     )
     """The tools available to the agent"""
 
@@ -359,15 +367,6 @@ class Agent(BaseModel):
                     message["content"] = content.split("</think>")[1]
         return kwargs | {"messages": messages, "model": model}
 
-    @computed_field
-    @property
-    def tools(self) -> Iterable[ChatCompletionToolParam]:
-        tools = []
-        for func in self.functions:
-            tools.append(function_to_json(func))
-            self._tool_registry[tools[-1]["function"]["name"]] = func
-        return tools
-
     @overload
     async def get_chat_completion(
         self,
@@ -398,7 +397,8 @@ class Agent(BaseModel):
         logger.debug("Getting chat completion for...:", messages)
 
         # hide context_variables from model
-        for tool in self.tools:
+        tools = self.model_dump(mode="json", exclude={"api_key"})["tools"]
+        for tool in tools:
             params: dict[str, Any] = tool["function"].get(
                 "parameters", {"properties": {}}
             )
@@ -406,12 +406,15 @@ class Agent(BaseModel):
             if __CTX_VARS_NAME__ in params.get("required", []):
                 params["required"].remove(__CTX_VARS_NAME__)
 
-        if self.tool_choice:
-            create_params["tool_choice"] = self.tool_choice
-        create_params["parallel_tool_calls"] = self.parallel_tool_calls
-        create_params["tools"] = self.tools
-        if len(create_params["tools"]) == 0:
-            create_params.pop("tools")
+        if len(tools) > 0:
+            create_params["tools"] = tools
+            if self.tool_choice:
+                create_params["tool_choice"] = self.tool_choice
+            create_params["parallel_tool_calls"] = self.parallel_tool_calls
+        else:
+            create_params.pop("tools", None)
+            create_params.pop("tool_choice", None)
+            create_params.pop("parallel_tool_calls", None)
 
         return await client.chat.completions.create(stream=stream, **create_params)
 

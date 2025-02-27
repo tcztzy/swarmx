@@ -15,11 +15,11 @@ from swarmx import (
     Agent,
     Result,
     Swarm,
-    check_function,
     check_instructions,
     function_to_json,
     handle_function_result,
     merge_chunk,
+    validate_tool,
 )
 
 
@@ -187,7 +187,7 @@ class TestFunctionToJson:
     def test_basic_function_conversion(self):
         tool = function_to_json(sample)
         assert tool["type"] == "function"
-        assert tool["function"]["name"] == "tests.test_swarmx.sample"
+        assert tool["function"]["name"] == "sample"
         assert tool["function"]["description"] == "Sample function"
         assert tool["function"]["parameters"] == {
             "type": "object",
@@ -204,7 +204,7 @@ class TestFunctionToJson:
 
     def test_async_function_handling(self):
         tool = function_to_json(async_func)
-        assert tool["function"]["name"] == "tests.test_swarmx.async_func"
+        assert tool["function"]["name"] == "async_func"
         assert tool["function"]["parameters"] == {
             "type": "object",
             "properties": {"c": {"type": "number"}},
@@ -239,50 +239,50 @@ class TestFunctionToJson:
         assert tool["function"]["parameters"] == {"type": "object", "properties": {}}
 
 
-class TestCheckFunction:
+class TestValidateTool:
     def test_valid_string_return(self):
         def valid_str() -> str:
             return "valid"
 
-        assert check_function(valid_str) == valid_str
+        assert validate_tool(valid_str)["function"]["name"] == "valid_str"
 
     def test_valid_agent_return(self):
         def valid_agent() -> Agent:
             return Agent()
 
-        assert check_function(valid_agent) == valid_agent
+        assert validate_tool(valid_agent)["function"]["name"] == "valid_agent"
 
     def test_valid_dict_return(self):
         def valid_dict() -> dict[str, Any]:
             return {"key": "value"}
 
-        assert check_function(valid_dict) == valid_dict
+        assert validate_tool(valid_dict)["function"]["name"] == "valid_dict"
 
     def test_valid_result_return(self):
         def valid_result() -> Result:
             return Result(content=[])
 
-        assert check_function(valid_result) == valid_result
+        assert validate_tool(valid_result)["function"]["name"] == "valid_result"
 
     def test_unannotated_return(self):
         def unannotated():
             return "no annotation"
 
         with pytest.warns(FutureWarning):
-            checked = check_function(unannotated)
-        assert checked == unannotated
+            checked = validate_tool(unannotated)
+        assert checked["function"]["name"] == "unannotated"
 
     def test_invalid_return_type(self):
         def invalid_return() -> int:
             return 42
 
         with pytest.raises(TypeError) as excinfo:
-            check_function(invalid_return)
+            validate_tool(invalid_return)
         assert "must be str, Agent, dict[str, Any], or Result" in str(excinfo.value)
 
     def test_non_callable_input(self):
         with pytest.raises(TypeError) as excinfo:
-            check_function("not a function")
+            validate_tool(None)
         assert "must be str, Agent, dict[str, Any], or Result" in str(excinfo.value)
 
     def test_none_return_annotation(self):
@@ -290,7 +290,7 @@ class TestCheckFunction:
             return None
 
         with pytest.raises(TypeError) as excinfo:
-            check_function(none_return)
+            validate_tool(none_return)
         assert "must be str, Agent, dict[str, Any], or Result" in str(excinfo.value)
 
 
