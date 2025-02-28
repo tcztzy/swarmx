@@ -1,4 +1,3 @@
-import inspect
 import json
 from datetime import datetime, timezone
 from pathlib import Path
@@ -171,9 +170,7 @@ def client(
                 mock_openai.set_sequential_responses(
                     [create_mock_response(message) for message in messages]
                 )
-        c._swarm._client = mock_openai  # type: ignore
-    if inspect.iscoroutinefunction(request.function):
-        return c._swarm
+        c._client = mock_openai  # type: ignore
     return c
 
 

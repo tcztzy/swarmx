@@ -1,3 +1,6 @@
+import datetime
+import json
+import re
 from typing import Annotated, Any
 
 import mcp.types
@@ -5,6 +8,7 @@ import pytest
 from deepeval import assert_test
 from deepeval.metrics import GEval
 from deepeval.test_case import LLMTestCase, LLMTestCaseParams
+from mcp.client.stdio import StdioServerParameters
 from openai.types.chat.chat_completion_chunk import (
     ChoiceDelta,
     ChoiceDeltaToolCall,
@@ -12,6 +16,7 @@ from openai.types.chat.chat_completion_chunk import (
 )
 
 from swarmx import (
+    TOOL_REGISTRY,
     Agent,
     Result,
     Swarm,
@@ -21,6 +26,8 @@ from swarmx import (
     merge_chunk,
     validate_tool,
 )
+
+pytestmark = pytest.mark.anyio
 
 
 def test_merge_content_string():
@@ -136,14 +143,14 @@ def test_multiple_tool_calls():
     assert message["tool_calls"][1]["id"] == "call_2"
 
 
-def test_handoff(client: Swarm, skip_deepeval: bool, model: str):
+async def test_handoff(client: Swarm, skip_deepeval: bool, model: str):
     english_agent = Agent(
         name="English Agent",
         instructions="You only speak English.",
         functions=["tests.functions.transfer_to_spanish_agent"],
     )
     message_input = "Hola. ¿Como estás?"
-    response = client.run(
+    response = await client.run(
         agent=english_agent,
         messages=[{"role": "user", "content": message_input}],
         model=model,
@@ -168,6 +175,68 @@ def test_handoff(client: Swarm, skip_deepeval: bool, model: str):
         threshold=0.85,  # interesting, Llama rarely generate likelihoods above 0.9
     )
     assert_test(test_case, [spanish_detection])
+
+
+async def test_mcp_tool_call(client: Swarm):
+    await TOOL_REGISTRY.add_mcp_server(
+        "time",
+        StdioServerParameters(
+            command="uv",
+            args=["run", "mcp-server-time", "--local-timezone", "UTC"],
+        ),
+    )
+    assert TOOL_REGISTRY.tools[0] == {
+        "function": {
+            "description": "Get current time in a specific timezones",
+            "name": "get_current_time",
+            "parameters": {
+                "properties": {
+                    "timezone": {
+                        "description": "IANA timezone name (e.g., 'America/New_York', 'Europe/London'). Use 'UTC' as local timezone if no timezone provided by the user.",
+                        "type": "string",
+                    }
+                },
+                "required": ["timezone"],
+                "type": "object",
+            },
+        },
+        "type": "function",
+    }
+    result = await TOOL_REGISTRY.call_tool("get_current_time", {"timezone": "UTC"})
+    assert result.content[0].type == "text"
+    json_result = json.loads(result.content[0].text)
+    assert (
+        "timezone" in json_result
+        and "datetime" in json_result
+        and "is_dst" in json_result
+    )
+    assert datetime.datetime.fromisoformat(
+        json_result["datetime"]
+    ) - datetime.datetime.now(datetime.timezone.utc) < datetime.timedelta(seconds=1)
+    agent = Agent()
+    response = await client.run(
+        agent=agent,
+        model="llama3.2",
+        messages=[
+            {
+                "role": "user",
+                "content": "What time is it now? UTC time is okay. "
+                "You should only answer time in %H:%M:%S format without "
+                "any other characters, e.g. 12:34:56",
+            }
+        ],
+    )
+    message = response.messages[-1]
+    assert message.get("name") == "Agent"
+    now = datetime.datetime.now(datetime.timezone.utc)
+    content = message.get("content")
+    assert isinstance(content, str)
+    mo = re.search(r"\d{2}:\d{2}:\d{2}", content)
+    assert mo is not None
+    answer_time = datetime.datetime.strptime(mo.group(), "%H:%M:%S").replace(
+        tzinfo=datetime.timezone.utc
+    )
+    assert answer_time - now < datetime.timedelta(seconds=1)
 
 
 def sample(a: int, b: str) -> str:

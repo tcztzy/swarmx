@@ -647,16 +647,23 @@ def handle_function_result(result: Any) -> Result:
             )
 
 
-class BaseSwarm(BaseModel):
+class ContextVariables(BaseModel):
+    type: Literal["context_variables"] = "context_variables"
+    context_variables: dict[str, Any]
+
+
+class Swarm(BaseModel):
     id: UUID = Field(default_factory=uuid4)
     _G: nx.DiGraph = PrivateAttr()
+    _client: AsyncOpenAI = PrivateAttr()
 
     def model_post_init(self, __context: Any) -> None:
         self._G = nx.DiGraph(**self.model_dump(mode="json"))
+        self._client = AsyncOpenAI()
 
-    def add_node(self, node: "Agent | BaseSwarm") -> None:
+    def add_node(self, node: "Agent | Swarm") -> None:
         attr = {}
-        if isinstance(node, BaseSwarm):
+        if isinstance(node, Swarm):
             attr["type"] = "swarm"
             attr |= json_graph.node_link_data(node._G, edges="links")
         else:
@@ -664,21 +671,8 @@ class BaseSwarm(BaseModel):
             attr |= node.model_dump(mode="json", exclude={"api_key"})
         self._G.add_node(node.id, **attr)
 
-    def add_edge(self, u: "Agent | BaseSwarm", v: "Agent | BaseSwarm") -> None:
+    def add_edge(self, u: "Agent | Swarm", v: "Agent | Swarm") -> None:
         self._G.add_edge(u.id, v.id)
-
-
-class ContextVariables(BaseModel):
-    type: Literal["context_variables"] = "context_variables"
-    context_variables: dict[str, Any]
-
-
-class AsyncSwarm(BaseSwarm):
-    _client: AsyncOpenAI = PrivateAttr()
-
-    def model_post_init(self, __context: Any) -> None:
-        super().model_post_init(__context)
-        self._client = AsyncOpenAI()
 
     async def run_and_stream(
         self,
@@ -812,83 +806,6 @@ class AsyncSwarm(BaseSwarm):
         )
 
 
-class Swarm(BaseSwarm):
-    _swarm: AsyncSwarm = PrivateAttr()
-
-    def model_post_init(self, __context: Any) -> None:
-        self._swarm = AsyncSwarm.model_validate(self, from_attributes=True)
-        self._G = self._swarm._G
-
-    @overload
-    def run(
-        self,
-        *,
-        agent: Agent,
-        stream: Literal[True],
-        context_variables: dict[str, Any] | None = None,
-        max_turns: int | None = None,
-        execute_tools: bool = True,
-        **kwargs: Unpack[CompletionCreateParamsBase],
-    ) -> Iterable[
-        ChatCompletionChunk | ChatCompletionMessageParam | Agent | ContextVariables
-    ]: ...
-
-    @overload
-    def run(
-        self,
-        *,
-        agent: Agent,
-        stream: Literal[False] = False,
-        context_variables: dict[str, Any] | None = None,
-        max_turns: int | None = None,
-        execute_tools: bool = True,
-        **kwargs: Unpack[CompletionCreateParamsBase],
-    ) -> Response: ...
-
-    def run(
-        self,
-        *,
-        agent: Agent,
-        stream: bool = False,
-        context_variables: dict[str, Any] | None = None,
-        max_turns: int | None = None,
-        execute_tools: bool = True,
-        **kwargs: Unpack[CompletionCreateParamsBase],
-    ) -> (
-        Response
-        | Iterable[
-            ChatCompletionChunk | ChatCompletionMessageParam | Agent | ContextVariables
-        ]
-    ):
-        if stream:
-            agenerator = self._swarm.run_and_stream(
-                agent=agent,
-                context_variables=context_variables,
-                max_turns=max_turns,
-                execute_tools=execute_tools,
-                **kwargs,
-            )
-
-            def generator():
-                while True:
-                    try:
-                        yield asyncio.run(anext(agenerator))
-                    except StopAsyncIteration:
-                        break
-
-            return generator()
-        return asyncio.run(
-            self._swarm.run(
-                agent=agent,
-                stream=False,
-                context_variables=context_variables,
-                max_turns=max_turns,
-                execute_tools=execute_tools,
-                **kwargs,
-            )
-        )
-
-
 async def main(
     *,
     model: Annotated[
@@ -926,7 +843,7 @@ async def main(
     else:
         data = json.loads(file.read_text())
     agent = Agent.model_validate(data.pop("agent", {}))
-    client = AsyncSwarm.model_validate(data)
+    client = Swarm.model_validate(data)
     messages: list[ChatCompletionMessageParam] = []
     context_variables: dict[str, Any] = data.pop(__CTX_VARS_NAME__, {})
     while True:
