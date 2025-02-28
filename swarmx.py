@@ -679,7 +679,7 @@ class BaseSwarm(BaseModel):
         attr = {}
         if isinstance(node, BaseSwarm):
             attr["type"] = "swarm"
-            attr |= json_graph.node_link_data(node._G)
+            attr |= json_graph.node_link_data(node._G, edges="links")
         else:
             attr["type"] = "agent"
             attr |= node.model_dump(mode="json", exclude={"api_key"})
