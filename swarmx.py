@@ -649,11 +649,6 @@ def handle_function_result(result: Any) -> Result:
 
 class BaseSwarm(BaseModel):
     id: UUID = Field(default_factory=uuid4)
-    mcp_servers: dict[str, StdioServerParameters | str] = Field(
-        default_factory=dict,
-        validation_alias=AliasChoices("mcp_servers", "mcpServers"),
-        serialization_alias="mcpServers",
-    )
     _G: nx.DiGraph = PrivateAttr()
 
     def model_post_init(self, __context: Any) -> None:
@@ -737,6 +732,7 @@ class AsyncSwarm(BaseSwarm):
         context_variables: dict[str, Any] | None = None,
         max_turns: int | None = None,
         execute_tools: bool = True,
+        mcp_servers: dict[str, StdioServerParameters | str] | None = None,
         **kwargs: Unpack[CompletionCreateParamsBase],
     ) -> AsyncIterator[
         ChatCompletionChunk | ChatCompletionMessageParam | Agent | ContextVariables
@@ -751,6 +747,7 @@ class AsyncSwarm(BaseSwarm):
         context_variables: dict[str, Any] | None = None,
         max_turns: int | None = None,
         execute_tools: bool = True,
+        mcp_servers: dict[str, StdioServerParameters | str] | None = None,
         **kwargs: Unpack[CompletionCreateParamsBase],
     ) -> Response: ...
 
@@ -762,6 +759,7 @@ class AsyncSwarm(BaseSwarm):
         context_variables: dict[str, Any] | None = None,
         max_turns: int | None = None,
         execute_tools: bool = True,
+        mcp_servers: dict[str, StdioServerParameters | str] | None = None,
         **kwargs: Unpack[CompletionCreateParamsBase],
     ) -> (
         Response
@@ -772,7 +770,7 @@ class AsyncSwarm(BaseSwarm):
         if agent is None:
             agent = Agent()
         self.add_node(agent)
-        for name, server_params in self.mcp_servers.items():
+        for name, server_params in (mcp_servers or {}).items():
             await TOOL_REGISTRY.add_mcp_server(name, server_params)
         if stream:
             return self.run_and_stream(

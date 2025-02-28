@@ -48,13 +48,13 @@ async def test_handoff(client: AsyncSwarm, skip_deepeval: bool, model: str):
 
 
 async def test_mcp_tool_call(client: AsyncSwarm):
-    client.mcp_servers = {
-        "time": StdioServerParameters(
+    await TOOL_REGISTRY.add_mcp_server(
+        "time",
+        StdioServerParameters(
             command="uv",
             args=["run", "mcp-server-time", "--local-timezone", "UTC"],
-        )
-    }
-    await TOOL_REGISTRY.add_mcp_server("time", client.mcp_servers["time"])
+        ),
+    )
     assert TOOL_REGISTRY.tools[0] == {
         "function": {
             "description": "Get current time in a specific timezones",
