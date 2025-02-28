@@ -654,13 +654,6 @@ class BaseSwarm(BaseModel):
     def model_post_init(self, __context: Any) -> None:
         self._G = nx.DiGraph(**self.model_dump(mode="json"))
 
-    @property
-    def _can_be_added_as_node(self) -> bool:
-        """Check if graph has exactly one root and one leaf node."""
-        roots = [node for node in self._G.nodes if self._G.in_degree(node) == 0]
-        leaves = [node for node in self._G.nodes if self._G.out_degree(node) == 0]
-        return len(roots) == 1 and len(leaves) == 1
-
     def add_node(self, node: "Agent | BaseSwarm") -> None:
         attr = {}
         if isinstance(node, BaseSwarm):

@@ -70,19 +70,3 @@ def test_graph_structure(sample_swarm: Swarm):
         (agent1.id, swarm.id),
         (swarm.id, agent2.id),
     ]
-
-
-def test_can_be_added_property(sample_swarm: Swarm):
-    agent = Agent()
-    sample_swarm.add_node(agent)
-
-    # Single node should be both root and leaf
-    assert sample_swarm._can_be_added_as_node
-
-    # Add second node and edge
-    agent2 = Agent()
-    sample_swarm.add_node(agent2)
-    sample_swarm.add_edge(agent, agent2)
-
-    # Now has one root and one leaf
-    assert sample_swarm._can_be_added_as_node
