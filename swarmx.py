@@ -7,6 +7,7 @@ import logging
 import warnings
 from collections import defaultdict
 from contextlib import AsyncExitStack
+from dataclasses import dataclass, field
 from functools import wraps
 from pathlib import Path
 from typing import (
@@ -128,11 +129,10 @@ def function_to_json(func: AgentFunction) -> ChatCompletionToolParam:
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         arguments_model = create_model(func.__name__, **field_definitions)  # type: ignore[call-overload]
-    return {
+    function: ChatCompletionToolParam = {
         "type": "function",
         "function": {
             "name": func.__name__,
-            "description": func.__doc__ or "",
             "parameters": {
                 k: v
                 for k, v in arguments_model.model_json_schema(
@@ -142,6 +142,9 @@ def function_to_json(func: AgentFunction) -> ChatCompletionToolParam:
             },
         },
     }
+    if func.__doc__:
+        function["function"]["description"] = func.__doc__
+    return function
 
 
 def validate_tool(tool: object) -> ChatCompletionToolParam:
@@ -200,34 +203,19 @@ class SwarmXGenerateJsonSchema(GenerateJsonSchema):
         return False
 
 
-class ToolRegistry(BaseModel):
-    mcp_servers: dict[str, StdioServerParameters | str] = Field(
-        default_factory=dict,
-        validation_alias=AliasChoices("mcp_servers", "mcpServers"),
-        serialization_alias="mcpServers",
-    )
-    functions: dict[str, ChatCompletionToolParam] = Field(default_factory=dict)
-    _mcp_tools: dict[tuple[str, str], ChatCompletionToolParam] = PrivateAttr(
+@dataclass
+class ToolRegistry:
+    functions: dict[str, ChatCompletionToolParam] = field(default_factory=dict)
+    mcp_tools: dict[tuple[str, str], ChatCompletionToolParam] = field(
         default_factory=dict
     )
-    _exit_stack: AsyncExitStack = PrivateAttr(default_factory=AsyncExitStack)
-    _mcp_clients: dict[str, ClientSession] = PrivateAttr(default_factory=dict)
-    _tools: dict[str, AgentFunction | str] = PrivateAttr(default_factory=dict)
+    exit_stack: AsyncExitStack = field(default_factory=AsyncExitStack)
+    mcp_clients: dict[str, ClientSession] = field(default_factory=dict)
+    _tools: dict[str, AgentFunction | str] = field(default_factory=dict)
 
     @property
     def tools(self) -> list[ChatCompletionToolParam]:
-        return list(self._mcp_tools.values()) + list(self.functions.values())
-
-    async def __aenter__(self):
-        for name in self.functions:
-            callable_func = TypeAdapter(ImportString).validate_python(name)
-            self._tools[name] = validate_tool(callable_func)
-        for name, server_params in self.mcp_servers.items():
-            await self.add_mcp_server(name, server_params)
-        return self
-
-    async def __aexit__(self, *exc_info):
-        await self._exit_stack.aclose()
+        return list(self.mcp_tools.values()) + list(self.functions.values())
 
     async def call_tool(
         self,
@@ -239,7 +227,7 @@ class ToolRegistry(BaseModel):
         if callable_func is None:
             raise ValueError(f"Tool {name} not found")
         if isinstance(callable_func, str):
-            result = await self._mcp_clients[callable_func].call_tool(name, arguments)
+            result = await self.mcp_clients[callable_func].call_tool(name, arguments)
             return handle_function_result(result)
         if does_function_need_context(callable_func):
             arguments[__CTX_VARS_NAME__] = context_variables or {}
@@ -251,26 +239,26 @@ class ToolRegistry(BaseModel):
     async def add_mcp_server(
         self, name: str, server_params: StdioServerParameters | str
     ):
-        if name in self._mcp_clients:
+        if name in self.mcp_clients:
             return
-        read_stream, write_stream = await self._exit_stack.enter_async_context(
+        read_stream, write_stream = await self.exit_stack.enter_async_context(
             sse_client(server_params)
             if isinstance(server_params, str)
             else stdio_client(server_params)
         )
         client = cast(
             ClientSession,
-            await self._exit_stack.enter_async_context(
+            await self.exit_stack.enter_async_context(
                 ClientSession(read_stream, write_stream)
             ),
         )
         await client.initialize()
-        self._mcp_clients[name] = client
+        self.mcp_clients[name] = client
         for tool in (await client.list_tools()).tools:
             self._tools[tool.name] = name
             function_schema = tool.model_dump(exclude_none=True)
             function_schema["parameters"] = function_schema.pop("inputSchema")
-            self._mcp_tools[name, tool.name] = ChatCompletionToolParam(
+            self.mcp_tools[name, tool.name] = ChatCompletionToolParam(
                 type="function",
                 function=function_schema,
             )
@@ -281,8 +269,11 @@ class ToolRegistry(BaseModel):
         self.functions[name] = func_json
         self._tools[name] = func
 
+    async def close(self):
+        await self.exit_stack.aclose()
 
-TOOL_REGISTRY = ToolRegistry.model_validate({})
+
+TOOL_REGISTRY = ToolRegistry()
 
 
 class Agent(BaseModel):
@@ -1008,6 +999,7 @@ async def main(
             break
     if output is not None:
         output.write_text(json.dumps(messages, indent=2, ensure_ascii=False))
+    await TOOL_REGISTRY.close()
 
 
 def repl():

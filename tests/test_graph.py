@@ -14,7 +14,7 @@ def sample_swarm():
     return Swarm()
 
 
-def test_add_agent_node(sample_agent, sample_swarm):
+def test_add_agent_node(sample_agent: Agent, sample_swarm: Swarm):
     sample_swarm.add_node(sample_agent)
 
     # Verify node exists in graph
@@ -26,7 +26,7 @@ def test_add_agent_node(sample_agent, sample_swarm):
     assert node_data["name"] == "TestAgent"
 
 
-def test_add_swarm_node(sample_swarm):
+def test_add_swarm_node(sample_swarm: Swarm):
     sub_swarm = Swarm()
     sample_swarm.add_node(sub_swarm)
 
@@ -40,7 +40,7 @@ def test_add_swarm_node(sample_swarm):
     assert "links" in node_data
 
 
-def test_add_edge(sample_agent, sample_swarm):
+def test_add_edge(sample_agent: Agent, sample_swarm: Swarm):
     agent2 = Agent(name="TestAgent2")
 
     sample_swarm.add_node(sample_agent)
@@ -51,7 +51,7 @@ def test_add_edge(sample_agent, sample_swarm):
     assert sample_swarm._G.has_edge(sample_agent.id, agent2.id)
 
 
-def test_graph_structure(sample_swarm):
+def test_graph_structure(sample_swarm: Swarm):
     agent1 = Agent(name="Agent1")
     agent2 = Agent(name="Agent2")
     swarm = Swarm()
@@ -72,7 +72,7 @@ def test_graph_structure(sample_swarm):
     ]
 
 
-def test_can_be_added_property(sample_swarm):
+def test_can_be_added_property(sample_swarm: Swarm):
     agent = Agent()
     sample_swarm.add_node(agent)
 
