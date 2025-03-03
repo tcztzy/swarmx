@@ -318,7 +318,6 @@ class Agent(BaseModel):
         self,
         *,
         messages: Iterable[ChatCompletionMessageParam],
-        model: ChatModel | str,
         context_variables: dict[str, Any] | None = None,
     ) -> list[ChatCompletionMessageParam]:
         content = (
@@ -326,17 +325,7 @@ class Agent(BaseModel):
             if isinstance(self.instructions, str)
             else cast(Callable[[dict[str, Any]], str], self.instructions)
         )(context_variables or {})
-        if model in ["o1", "o1-2024-12-17"]:
-            instructions: ChatCompletionMessageParam = {
-                "role": "developer",
-                "content": content,
-            }
-        else:
-            instructions = {
-                "role": "system",
-                "content": content,
-            }
-        return [instructions, *messages]
+        return [{"role": "system", "content": content}, *messages]
 
     def preprocess(
         self,
@@ -347,7 +336,6 @@ class Agent(BaseModel):
         """Preprocess the agent's messages and context variables."""
         model = kwargs.get("model") or self.model
         messages = self._with_instructions(
-            model=model,
             messages=kwargs["messages"],
             context_variables=context_variables,
         )
