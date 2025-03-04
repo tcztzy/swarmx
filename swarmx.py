@@ -33,7 +33,6 @@ from jinja2 import Template
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.sse import sse_client
 from mcp.client.stdio import stdio_client
-from networkx.readwrite import json_graph
 from openai import AsyncOpenAI, AsyncStream
 from openai.types import ChatModel
 from openai.types.chat import (
@@ -55,19 +54,25 @@ from pydantic import (
     AliasChoices,
     BaseModel,
     BeforeValidator,
+    Discriminator,
     Field,
     ImportString,
+    ModelWrapValidatorHandler,
     PrivateAttr,
     SecretStr,
     TypeAdapter,
+    ValidationError,
     create_model,
+    model_serializer,
+    model_validator,
 )
 from pydantic.json_schema import GenerateJsonSchema
-from typing_extensions import Unpack
+from typing_extensions import Self, Unpack
+
+warnings.filterwarnings("ignore", category=UserWarning, module="pydantic")
+logger = logging.getLogger(__name__)
 
 __CTX_VARS_NAME__ = "context_variables"
-
-logger = logging.getLogger(__name__)
 
 ReturnType: TypeAlias = "str | Agent | dict[str, Any] | Result"
 AgentFunction: TypeAlias = Callable[..., ReturnType | Coroutine[Any, Any, ReturnType]]
@@ -126,9 +131,7 @@ def function_to_json(func: AgentFunction) -> ChatCompletionToolParam:
             param.annotation if param.annotation is not param.empty else str,
             param.default if param.default is not param.empty else ...,
         )
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
-        arguments_model = create_model(func.__name__, **field_definitions)  # type: ignore[call-overload]
+    arguments_model = create_model(func.__name__, **field_definitions)  # type: ignore[call-overload]
     function: ChatCompletionToolParam = {
         "type": "function",
         "function": {
@@ -276,12 +279,16 @@ class ToolRegistry:
 TOOL_REGISTRY = ToolRegistry()
 
 
-class Agent(BaseModel):
+class Node(BaseModel):
+    id: UUID | str | int = Field(default_factory=uuid4, union_mode="left_to_right")
+    """The node's unique identifier"""
+
+
+class Agent(Node):
+    type: Literal["agent"] = "agent"
+
     name: str = "Agent"
     """The agent's name"""
-
-    id: UUID = Field(default_factory=uuid4)
-    """The agent's unique identifier"""
 
     model: ChatModel | str = "gpt-4o"
     """The default model to use for the agent."""
@@ -640,27 +647,92 @@ class ContextVariables(BaseModel):
     context_variables: dict[str, Any]
 
 
-class Swarm(BaseModel):
-    id: UUID = Field(default_factory=uuid4)
-    _G: nx.DiGraph = PrivateAttr()
-    _client: AsyncOpenAI = PrivateAttr()
+class Swarm(Node, nx.MultiDiGraph):
+    type: Literal["swarm"] = "swarm"
+
+    @model_validator(mode="wrap")
+    @classmethod
+    def node_link_validator(
+        cls, data: Any, handler: ModelWrapValidatorHandler[Self]
+    ) -> Self:
+        if not isinstance(data, dict):
+            raise ValidationError("Swarm must be a dictionary")
+        swarm = handler(data.get("graph", {}))
+        if not data.get("directed", True) or not data.get("multigraph", True):
+            raise ValidationError("Swarm must be a directed, multigraph")
+        for node in data.get("nodes", []):
+            swarm.add_node(
+                TypeAdapter(
+                    Annotated[Agent | Swarm, Discriminator("type")]
+                ).validate_python(node)
+            )
+        for edge in data.get("edges", []):
+            edge = copy.deepcopy(edge)
+            if not isinstance(edge, dict):
+                raise ValidationError("Edge must be a dictionary")
+            if (source := edge.pop("source", None)) is None or (
+                target := edge.pop("target", None)
+            ) is None:
+                raise ValidationError("Edge must have source and target")
+            key = edge.pop("key", None)
+            _ = TypeAdapter(
+                Annotated[UUID | str | int, Field(union_mode="left_to_right")]
+            ).validate_python
+            source = _(source)
+            target = _(target)
+            swarm.add_edge(source, target, key=key, **edge)
+        return swarm
+
+    @model_serializer()
+    def serialize_swarm(self):
+        return {
+            "graph": {"id": str(self.id)},
+            "nodes": [
+                data.model_dump(mode="json") for node, data in self.nodes(data=True)
+            ],
+            "edges": [
+                {
+                    "source": u if isinstance(u, int) else str(u),
+                    "target": v if isinstance(v, int) else str(v),
+                    "key": key,
+                }
+                | data
+                for u, v, key, data in self.edges(data=True, keys=True)
+            ],
+        }
 
     def model_post_init(self, __context: Any) -> None:
-        self._G = nx.DiGraph(**self.model_dump(mode="json"))
+        self._node = self.node_dict_factory()
+        self._adj = self.adjlist_outer_dict_factory()
+        self._pred = self.adjlist_outer_dict_factory()
+        self.__networkx_cache__: dict = {}
         self._client = AsyncOpenAI()
 
-    def add_node(self, node: "Agent | Swarm") -> None:
-        attr = {}
-        if isinstance(node, Swarm):
-            attr["type"] = "swarm"
-            attr |= json_graph.node_link_data(node._G, edges="links")
-        else:
-            attr["type"] = "agent"
-            attr |= node.model_dump(mode="json", exclude={"api_key"})
-        self._G.add_node(node.id, **attr)
+    def add_node(self, node_for_adding: Node):
+        if node_for_adding.id not in self._succ:
+            self._succ[node_for_adding.id] = self.adjlist_inner_dict_factory()
+            self._pred[node_for_adding.id] = self.adjlist_inner_dict_factory()
+        self._node[node_for_adding.id] = node_for_adding
+        nx._clear_cache(self)
 
-    def add_edge(self, u: "Agent | Swarm", v: "Agent | Swarm") -> None:
-        self._G.add_edge(u.id, v.id)
+    def add_edge(
+        self,
+        u: Node | UUID | str | int,
+        v: Node | UUID | str | int,
+        key: Any = None,
+        **attr: Any,
+    ) -> Any:
+        if not isinstance(u, Node) and u not in self._node:
+            raise ValueError(f"Node {u} not found")
+        if not isinstance(v, Node) and v not in self._node:
+            raise ValueError(f"Node {v} not found")
+        if isinstance(u, Node):
+            self.add_node(u)
+            u = u.id
+        if isinstance(v, Node):
+            self.add_node(v)
+            v = v.id
+        return super().add_edge(u, v, key, **attr)
 
     async def run_and_stream(
         self,
