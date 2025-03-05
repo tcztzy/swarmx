@@ -5,7 +5,9 @@ import inspect
 import json
 import logging
 import warnings
+from abc import ABC, abstractmethod
 from collections import defaultdict
+from collections.abc import Hashable
 from contextlib import AsyncExitStack
 from dataclasses import dataclass, field
 from functools import wraps
@@ -24,7 +26,6 @@ from typing import (
     get_type_hints,
     overload,
 )
-from uuid import UUID, uuid4
 
 import mcp.types
 import networkx as nx
@@ -63,6 +64,8 @@ from pydantic import (
     TypeAdapter,
     ValidationError,
     create_model,
+    field_serializer,
+    field_validator,
     model_serializer,
     model_validator,
 )
@@ -74,7 +77,7 @@ logger = logging.getLogger(__name__)
 
 __CTX_VARS_NAME__ = "context_variables"
 
-ReturnType: TypeAlias = "str | Agent | dict[str, Any] | Result"
+ReturnType: TypeAlias = "str | Node | dict[str, Any] | Result"
 AgentFunction: TypeAlias = Callable[..., ReturnType | Coroutine[Any, Any, ReturnType]]
 
 
@@ -277,11 +280,105 @@ class ToolRegistry:
 
 
 TOOL_REGISTRY = ToolRegistry()
+DEFAULT_CLIENT = AsyncOpenAI()
 
 
-class Node(BaseModel):
-    id: UUID | str | int = Field(default_factory=uuid4, union_mode="left_to_right")
-    """The node's unique identifier"""
+class ContextVariables(BaseModel):
+    type: Literal["context_variables"] = "context_variables"
+    context_variables: dict[str, Any]
+
+
+class Node(BaseModel, ABC):
+    client: AsyncOpenAI | None = None
+    """The client to use for the node"""
+
+    @field_validator("client", mode="plain")
+    def validate_client(cls, v: Any) -> AsyncOpenAI | None:
+        if v is None:
+            return None
+        if isinstance(v, AsyncOpenAI):
+            return v
+        return AsyncOpenAI(**v)
+
+    @field_serializer("client", mode="plain")
+    def serialize_client(self, v: AsyncOpenAI | None) -> dict[str, Any] | None:
+        if v is None:
+            return None
+        client = {}
+        if str(v.base_url) != "https://api.openai.com/v1":
+            client["base_url"] = str(v.base_url)
+        for key in (
+            "organization",
+            "project",
+            "websocket_base_url",
+        ):
+            if getattr(v, key, None) is not None:
+                client[key] = getattr(v, key)
+        return client
+
+    @overload
+    async def run(
+        self,
+        *,
+        client: AsyncOpenAI | None = None,
+        stream: Literal[True],
+        context_variables: dict[str, Any] | None = None,
+        max_turns: int | None = None,
+        execute_tools: bool = True,
+        **kwargs: Unpack[CompletionCreateParamsBase],
+    ) -> AsyncIterator[
+        ChatCompletionChunk | ChatCompletionMessageParam | "Node" | ContextVariables
+    ]: ...
+
+    @overload
+    async def run(
+        self,
+        *,
+        client: AsyncOpenAI | None = None,
+        stream: Literal[False] = False,
+        context_variables: dict[str, Any] | None = None,
+        max_turns: int | None = None,
+        execute_tools: bool = True,
+        **kwargs: Unpack[CompletionCreateParamsBase],
+    ) -> "Response": ...
+
+    @abstractmethod
+    async def run(
+        self,
+        *,
+        client: AsyncOpenAI | None = None,
+        stream: bool = False,
+        context_variables: dict[str, Any] | None = None,
+        max_turns: int | None = None,
+        execute_tools: bool = True,
+        **kwargs: Unpack[CompletionCreateParamsBase],
+    ) -> (
+        AsyncIterator[
+            ChatCompletionChunk | ChatCompletionMessageParam | "Node" | ContextVariables
+        ]
+        | "Response"
+    ): ...
+
+
+class Response(BaseModel):
+    messages: list[ChatCompletionMessageParam] = []
+    agent: Node | None = None
+    context_variables: dict[str, Any] = {}
+
+
+class Result(mcp.types.CallToolResult):
+    """
+    Encapsulates the possible return values for an agent function.
+
+    Attributes:
+        agent (Agent): The agent instance, if applicable.
+    """
+
+    agent: Node | None = None
+
+    @property
+    def value(self) -> str:
+        return "".join([c.text for c in self.content if c.type == "text"])
 
 
 class Agent(Node):
@@ -356,7 +453,7 @@ class Agent(Node):
     @overload
     async def get_chat_completion(
         self,
-        client: AsyncOpenAI,
+        client: AsyncOpenAI | None,
         context_variables: dict,
         stream: Literal[True],
         **kwargs: Unpack[CompletionCreateParamsBase],
@@ -365,7 +462,7 @@ class Agent(Node):
     @overload
     async def get_chat_completion(
         self,
-        client: AsyncOpenAI,
+        client: AsyncOpenAI | None,
         context_variables: dict,
         stream: Literal[False] = False,
         **kwargs: Unpack[CompletionCreateParamsBase],
@@ -373,7 +470,7 @@ class Agent(Node):
 
     async def get_chat_completion(
         self,
-        client: AsyncOpenAI,
+        client: AsyncOpenAI | None,
         context_variables: dict,
         stream: bool = False,
         **kwargs: Unpack[CompletionCreateParamsBase],
@@ -402,11 +499,13 @@ class Agent(Node):
             create_params.pop("tool_choice", None)
             create_params.pop("parallel_tool_calls", None)
 
-        return await client.chat.completions.create(stream=stream, **create_params)
+        return await (self.client or client or DEFAULT_CLIENT).chat.completions.create(
+            stream=stream, **create_params
+        )
 
     async def _run_and_stream(
         self,
-        client: AsyncOpenAI,
+        client: AsyncOpenAI | None,
         context_variables: dict[str, Any],
         execute_tools: bool,
         **kwargs: Unpack[CompletionCreateParamsBase],
@@ -480,10 +579,11 @@ class Agent(Node):
         client: AsyncOpenAI | None = None,
         stream: Literal[True],
         context_variables: dict[str, Any] | None = None,
+        max_turns: int | None = None,
         execute_tools: bool = True,
         **kwargs: Unpack[CompletionCreateParamsBase],
     ) -> AsyncIterator[
-        ChatCompletionChunk | ChatCompletionMessageParam | "Agent" | "ContextVariables"
+        ChatCompletionChunk | ChatCompletionMessageParam | Node | ContextVariables
     ]: ...
 
     @overload
@@ -493,6 +593,7 @@ class Agent(Node):
         client: AsyncOpenAI | None = None,
         stream: Literal[False] = False,
         context_variables: dict[str, Any] | None = None,
+        max_turns: int | None = None,
         execute_tools: bool = True,
         **kwargs: Unpack[CompletionCreateParamsBase],
     ) -> "Response": ...
@@ -503,27 +604,15 @@ class Agent(Node):
         client: AsyncOpenAI | None = None,
         stream: bool = False,
         context_variables: dict[str, Any] | None = None,
+        max_turns: int | None = None,
         execute_tools: bool = True,
         **kwargs: Unpack[CompletionCreateParamsBase],
     ) -> (
         "Response"
         | AsyncIterator[
-            ChatCompletionChunk
-            | ChatCompletionMessageParam
-            | "Agent"
-            | "ContextVariables"
+            ChatCompletionChunk | ChatCompletionMessageParam | Node | ContextVariables
         ]
     ):
-        if client is None:
-            client = AsyncOpenAI(api_key=self.api_key, base_url=self.base_url)
-        client = (
-            client.with_options(
-                base_url=self.base_url or client.base_url,
-                api_key=self.api_key or client.api_key,
-            )
-            if self.base_url or self.api_key
-            else client
-        )
         context_variables = copy.deepcopy(context_variables or {})
         if stream:
             return self._run_and_stream(
@@ -560,27 +649,6 @@ class Agent(Node):
             agent=agent,
             context_variables=context_variables,
         )
-
-
-class Response(BaseModel):
-    messages: list[ChatCompletionMessageParam] = []
-    agent: Agent | None = None
-    context_variables: dict[str, Any] = {}
-
-
-class Result(mcp.types.CallToolResult):
-    """
-    Encapsulates the possible return values for an agent function.
-
-    Attributes:
-        agent (Agent): The agent instance, if applicable.
-    """
-
-    agent: Agent | None = None
-
-    @property
-    def value(self) -> str:
-        return "".join([c.text for c in self.content if c.type == "text"])
 
 
 async def handle_tool_calls(
@@ -642,13 +710,12 @@ def handle_function_result(result: Any) -> Result:
             )
 
 
-class ContextVariables(BaseModel):
-    type: Literal["context_variables"] = "context_variables"
-    context_variables: dict[str, Any]
-
-
-class Swarm(Node, nx.MultiDiGraph):
+class Swarm(Node, nx.DiGraph):
     type: Literal["swarm"] = "swarm"
+    mcp_servers: dict[str, StdioServerParameters | str] | None = Field(
+        default=None,
+        alias="mcpServers",
+    )
 
     @model_validator(mode="wrap")
     @classmethod
@@ -657,14 +724,13 @@ class Swarm(Node, nx.MultiDiGraph):
     ) -> Self:
         if not isinstance(data, dict):
             raise ValidationError("Swarm must be a dictionary")
-        swarm = handler(data.get("graph", {}))
-        if not data.get("directed", True) or not data.get("multigraph", True):
-            raise ValidationError("Swarm must be a directed, multigraph")
+        swarm = handler(data)
         for node in data.get("nodes", []):
             swarm.add_node(
+                node["id"],
                 TypeAdapter(
                     Annotated[Agent | Swarm, Discriminator("type")]
-                ).validate_python(node)
+                ).validate_python(node),
             )
         for edge in data.get("edges", []):
             edge = copy.deepcopy(edge)
@@ -674,82 +740,82 @@ class Swarm(Node, nx.MultiDiGraph):
                 target := edge.pop("target", None)
             ) is None:
                 raise ValidationError("Edge must have source and target")
-            key = edge.pop("key", None)
-            _ = TypeAdapter(
-                Annotated[UUID | str | int, Field(union_mode="left_to_right")]
-            ).validate_python
-            source = _(source)
-            target = _(target)
-            swarm.add_edge(source, target, key=key, **edge)
+            swarm.add_edge(source, target, **edge)
         return swarm
 
     @model_serializer()
     def serialize_swarm(self):
-        return {
-            "graph": {"id": str(self.id)},
+        swarm = {
             "nodes": [
-                data.model_dump(mode="json") for node, data in self.nodes(data=True)
+                {"id": node} | data.model_dump(mode="json")
+                for node, data in self.nodes(data=True)
             ],
             "edges": [
                 {
                     "source": u if isinstance(u, int) else str(u),
                     "target": v if isinstance(v, int) else str(v),
-                    "key": key,
                 }
                 | data
-                for u, v, key, data in self.edges(data=True, keys=True)
+                for u, v, data in self.edges(data=True)
             ],
         }
+        if self.mcp_servers:
+            swarm["mcpServers"] = {
+                name: server_params.model_dump()
+                if isinstance(server_params, StdioServerParameters)
+                else server_params
+                for name, server_params in self.mcp_servers.items()
+            }
+        return swarm
+
+    @property
+    def root(self) -> Any:
+        roots = [node for node, degree in self.in_degree if degree == 0]
+        if len(roots) != 1:
+            raise ValueError("Swarm must have exactly one root node")
+        return roots[0]
 
     def model_post_init(self, __context: Any) -> None:
         self._node = self.node_dict_factory()
         self._adj = self.adjlist_outer_dict_factory()
         self._pred = self.adjlist_outer_dict_factory()
         self.__networkx_cache__: dict = {}
-        self._client = AsyncOpenAI()
 
-    def add_node(self, node_for_adding: Node):
-        if node_for_adding.id not in self._succ:
-            self._succ[node_for_adding.id] = self.adjlist_inner_dict_factory()
-            self._pred[node_for_adding.id] = self.adjlist_inner_dict_factory()
-        self._node[node_for_adding.id] = node_for_adding
+    def add_node(self, node_for_adding: Hashable, node: Node):
+        if node_for_adding not in self._succ:
+            self._succ[node_for_adding] = self.adjlist_inner_dict_factory()
+            self._pred[node_for_adding] = self.adjlist_inner_dict_factory()
+        self._node[node_for_adding] = node
         nx._clear_cache(self)
 
-    def add_edge(
-        self,
-        u: Node | UUID | str | int,
-        v: Node | UUID | str | int,
-        key: Any = None,
-        **attr: Any,
-    ) -> Any:
-        if not isinstance(u, Node) and u not in self._node:
+    def add_edge(self, u: Hashable, v: Hashable, **attr: Any):
+        if u not in self._node:
             raise ValueError(f"Node {u} not found")
-        if not isinstance(v, Node) and v not in self._node:
+        if v not in self._node:
             raise ValueError(f"Node {v} not found")
-        if isinstance(u, Node):
-            self.add_node(u)
-            u = u.id
-        if isinstance(v, Node):
-            self.add_node(v)
-            v = v.id
-        return super().add_edge(u, v, key, **attr)
+        super().add_edge(u, v, **attr)
 
-    async def run_and_stream(
+    @property
+    def _next_node(self) -> int:
+        return max([i for i in self.nodes if isinstance(i, int)] + [-1]) + 1
+
+    async def _run_and_stream(
         self,
-        agent: Agent,
+        client: AsyncOpenAI | None = None,
         context_variables: dict[str, Any] | None = None,
         max_turns: int | None = None,
         execute_tools: bool = True,
         **kwargs: Unpack[CompletionCreateParamsBase],
     ):
-        active_agent = agent
+        node = self.root
+        agent = cast(Node, self.nodes[node])
         context_variables = copy.deepcopy(context_variables or {})
         messages = [m for m in copy.deepcopy(kwargs["messages"])]
         init_len = len(messages)
 
         while max_turns is None or len(messages) - init_len < max_turns:
-            response = await active_agent.run(
-                client=self._client,
+            response = await agent.run(
+                client=self.client or client or DEFAULT_CLIENT,
                 stream=True,
                 context_variables=context_variables,
                 execute_tools=execute_tools,
@@ -758,10 +824,11 @@ class Swarm(Node, nx.MultiDiGraph):
             async for message in response:
                 yield message
                 match message:
-                    case Agent() as agent:
-                        self.add_node(agent)
-                        self.add_edge(active_agent, agent)
-                        active_agent = agent
+                    case Node():
+                        next_node = self._next_node
+                        self.add_node(next_node, message)
+                        self.add_edge(node, next_node)
+                        node, agent = next_node, message
                     case ContextVariables():
                         context_variables |= message.context_variables
                     case ChatCompletionChunk():
@@ -774,68 +841,63 @@ class Swarm(Node, nx.MultiDiGraph):
     async def run(
         self,
         *,
-        agent: Agent | None = None,
+        client: AsyncOpenAI | None = None,
         stream: Literal[True],
         context_variables: dict[str, Any] | None = None,
         max_turns: int | None = None,
         execute_tools: bool = True,
-        mcp_servers: dict[str, StdioServerParameters | str] | None = None,
         **kwargs: Unpack[CompletionCreateParamsBase],
     ) -> AsyncIterator[
-        ChatCompletionChunk | ChatCompletionMessageParam | Agent | ContextVariables
+        ChatCompletionChunk | ChatCompletionMessageParam | Node | ContextVariables
     ]: ...
 
     @overload
     async def run(
         self,
         *,
-        agent: Agent | None = None,
+        client: AsyncOpenAI | None = None,
         stream: Literal[False] = False,
         context_variables: dict[str, Any] | None = None,
         max_turns: int | None = None,
         execute_tools: bool = True,
-        mcp_servers: dict[str, StdioServerParameters | str] | None = None,
         **kwargs: Unpack[CompletionCreateParamsBase],
     ) -> Response: ...
 
     async def run(
         self,
         *,
-        agent: Agent | None = None,
+        client: AsyncOpenAI | None = None,
         stream: bool = False,
         context_variables: dict[str, Any] | None = None,
         max_turns: int | None = None,
         execute_tools: bool = True,
-        mcp_servers: dict[str, StdioServerParameters | str] | None = None,
         **kwargs: Unpack[CompletionCreateParamsBase],
     ) -> (
-        Response
-        | AsyncIterator[
-            ChatCompletionChunk | ChatCompletionMessageParam | Agent | ContextVariables
+        AsyncIterator[
+            ChatCompletionChunk | ChatCompletionMessageParam | Node | ContextVariables
         ]
+        | Response
     ):
-        if agent is None:
-            agent = Agent()
-        self.add_node(agent)
-        for name, server_params in (mcp_servers or {}).items():
+        for name, server_params in (self.mcp_servers or {}).items():
             await TOOL_REGISTRY.add_mcp_server(name, server_params)
         if stream:
-            return self.run_and_stream(
-                agent=agent,
+            return self._run_and_stream(
+                client=self.client or client or DEFAULT_CLIENT,
                 context_variables=context_variables,
                 max_turns=max_turns,
                 execute_tools=execute_tools,
                 **kwargs,
             )
-        active_agent = agent
+        node = self.root
+        agent = cast(Node, self.nodes[node])
         context_variables = copy.deepcopy(context_variables or {})
         messages = list(copy.deepcopy(kwargs["messages"]))
         init_len = len(messages)
 
         while max_turns is None or len(messages) - init_len < max_turns:
             # get completion with current history, agent
-            response = await active_agent.run(
-                client=self._client,
+            response = await agent.run(
+                client=self.client or client or DEFAULT_CLIENT,
                 stream=stream,
                 context_variables=context_variables,
                 execute_tools=execute_tools,
@@ -845,9 +907,10 @@ class Swarm(Node, nx.MultiDiGraph):
             messages = [*messages, *json.loads(response.model_dump_json())["messages"]]
             # add agent and edge if exists
             if response.agent:
-                self.add_node(response.agent)
-                self.add_edge(active_agent, response.agent)
-                active_agent = response.agent
+                next_node = self._next_node
+                self.add_node(next_node, response.agent)
+                self.add_edge(node, next_node)
+                node, agent = next_node, response.agent
             if response.context_variables:
                 context_variables |= response.context_variables
             last_message = response.messages[-1]
@@ -861,7 +924,7 @@ class Swarm(Node, nx.MultiDiGraph):
 
         return Response(
             messages=messages[init_len:],
-            agent=active_agent,
+            agent=agent,
             context_variables=context_variables,
         )
 
@@ -902,7 +965,7 @@ async def main(
         data = {}
     else:
         data = json.loads(file.read_text())
-    agent = Agent.model_validate(data.pop("agent", {}))
+    agent: Node = Agent.model_validate(data.pop("agent", {}))
     client = Swarm.model_validate(data)
     messages: list[ChatCompletionMessageParam] = []
     context_variables: dict[str, Any] = data.pop(__CTX_VARS_NAME__, {})
@@ -916,7 +979,6 @@ async def main(
                 }
             )
             async for chunk in await client.run(
-                agent=agent,
                 model=model,
                 messages=messages,
                 stream=True,
@@ -937,7 +999,7 @@ async def main(
                             typer.secho(delta.refusal, nl=False, err=True, fg="purple")
                         if chunk.choices[0].finish_reason is not None:
                             typer.echo()
-                    case Agent():
+                    case Node():
                         agent = chunk
                         if verbose:
                             typer.secho(f"agent: {agent.model_dump_json()}", fg="cyan")
@@ -951,7 +1013,7 @@ async def main(
                         messages.append(message)
                         if verbose and not (
                             message["role"] == "assistant"
-                            and message.get("name") == agent.name
+                            and message.get("name") == getattr(agent, "name", None)
                         ):
                             typer.secho(f"data: {json.dumps(message)}", fg="yellow")
         except KeyboardInterrupt:

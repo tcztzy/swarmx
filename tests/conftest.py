@@ -170,7 +170,7 @@ def client(
                 mock_openai.set_sequential_responses(
                     [create_mock_response(message) for message in messages]
                 )
-        c._client = mock_openai  # type: ignore
+        c.client = mock_openai  # type: ignore
     return c
 
 

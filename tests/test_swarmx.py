@@ -150,8 +150,8 @@ async def test_handoff(client: Swarm, skip_deepeval: bool, model: str):
         functions=["tests.functions.transfer_to_spanish_agent"],
     )
     message_input = "Hola. ¿Como estás?"
+    client.add_node(0, english_agent)
     response = await client.run(
-        agent=english_agent,
         messages=[{"role": "user", "content": message_input}],
         model=model,
     )
@@ -214,8 +214,8 @@ async def test_mcp_tool_call(client: Swarm):
         json_result["datetime"]
     ) - datetime.datetime.now(datetime.timezone.utc) < datetime.timedelta(seconds=1)
     agent = Agent()
+    client.add_node(0, agent)
     response = await client.run(
-        agent=agent,
         model="llama3.2",
         messages=[
             {
