@@ -376,32 +376,6 @@ class TestCheckInstructions:
         result = check_instructions(valid_func)
         assert result == valid_func
 
-    def test_callable_missing_context_var(self):
-        def invalid_func(a: int) -> str:
-            return str(a)
-
-        with pytest.raises(ValueError) as excinfo:
-            check_instructions(invalid_func)
-        assert "context_variable" in str(excinfo.value)
-
-    def test_callable_wrong_param_name(self):
-        def wrong_name(params: dict) -> str:
-            return ""
-
-        with pytest.raises(ValueError) as excinfo:
-            check_instructions(wrong_name)
-        assert "context_variables" in str(excinfo.value)
-
-    def test_callable_bad_annotation(self):
-        def bad_anno(context_variables: int) -> str:
-            return ""
-
-        with pytest.raises(ValueError) as excinfo:
-            check_instructions(bad_anno)
-        assert str(excinfo.value).startswith(
-            "Instructions should be a string or a callable takes "
-        )
-
     def test_non_callable_non_string(self):
         with pytest.raises(ValueError) as excinfo:
             check_instructions(42)

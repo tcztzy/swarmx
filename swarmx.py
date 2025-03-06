@@ -185,22 +185,34 @@ def validate_tools(tools: list[object]) -> list[AgentFunction]:
 
 def check_instructions(
     instructions: str | object,
-) -> str | Callable[[dict[str, Any]], str]:
+) -> str | Callable[..., str]:
     if isinstance(instructions, str):
         return instructions
     err = ValueError(
-        f"Instructions should be a string or a callable takes {__CTX_VARS_NAME__} and returns string"
+        f"Instructions should be a string or a callable that either has only one "
+        f"Mapping[str, Any] parameter named {__CTX_VARS_NAME__} or has multiple "
+        f"parameters excluding {__CTX_VARS_NAME__}"
     )
     if callable(instructions):
         sig = inspect.signature(instructions)
-        if __CTX_VARS_NAME__ not in sig.parameters:
-            raise err
-        anno = sig.parameters[__CTX_VARS_NAME__].annotation
-        if not (
-            anno is inspect.Signature.empty or anno is dict or get_origin(anno) is dict
-        ):
-            raise err
-        return cast(Callable[[dict[str, Any]], str], instructions)
+        params = sig.parameters
+
+        # Case 1: Only one parameter named __CTX_VARS_NAME__
+        if len(params) == 1 and __CTX_VARS_NAME__ in params:
+            anno = params[__CTX_VARS_NAME__].annotation
+            if not (
+                anno is inspect.Signature.empty
+                or anno is dict
+                or get_origin(anno) is dict
+            ):
+                raise err
+            return cast(Callable[[dict[str, Any]], str], instructions)
+
+        # Case 2: Multiple parameters but none named __CTX_VARS_NAME__
+        if __CTX_VARS_NAME__ not in params:
+            return cast(Callable[..., str], instructions)
+
+        raise err
     raise err
 
 
