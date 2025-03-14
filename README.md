@@ -3,7 +3,7 @@
 An extreme simple framework exploring ergonomic, lightweight multi-agent orchestration.
 
 ## Highlights
-1. Single file and about 500 lines
+1. Single file and about 1000 lines
 2. Only one third-party dependency (`openai`)
 3. Compatible with langchain tools
 
@@ -199,9 +199,7 @@ def instructions(context_variables):
    user_name = context_variables["user_name"]
    return f"Help the user, {user_name}, do whatever they want."
 
-agent = Agent(
-   instructions=instructions
-)
+agent = Agent(instructions=instructions)
 response = client.run(
    agent=agent,
    messages=[{"role":"user", "content": "Hi!"}],

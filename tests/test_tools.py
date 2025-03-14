@@ -6,7 +6,6 @@ from mcp.client.stdio import StdioServerParameters
 
 from swarmx import (
     Agent,
-    Result,
     ToolRegistry,
     does_function_need_context,
 )
@@ -37,7 +36,7 @@ def tool_registry():
 
 def test_tool_registry_properties(tool_registry):
     # Test the tools property
-    assert tool_registry.tools == []
+    assert tool_registry.tools == {}
 
     # Add a function
     def test_func():
@@ -47,10 +46,9 @@ def test_tool_registry_properties(tool_registry):
 
     # Check that the function was added correctly
     assert len(tool_registry.tools) == 1
-    assert tool_registry.tools[0]["function"]["name"] == "test_func"
+    assert tool_registry.tools["test_func"]["function"]["name"] == "test_func"
 
 
-@pytest.mark.anyio
 async def test_add_function_and_call_tool(tool_registry):
     # Define a test function
     def test_func(name: str):
@@ -63,11 +61,9 @@ async def test_add_function_and_call_tool(tool_registry):
     result = await tool_registry.call_tool("test_func", {"name": "World"})
 
     # Check the result
-    assert isinstance(result, Result)
-    assert result.value == "Hello, World!"
+    assert result == "Hello, World!"
 
 
-@pytest.mark.anyio
 async def test_call_tool_with_context(tool_registry):
     # Define a test function that needs context variables
     def test_func_with_ctx(name: str, context_variables: dict):
@@ -82,11 +78,9 @@ async def test_call_tool_with_context(tool_registry):
     )
 
     # Check the result
-    assert isinstance(result, Result)
-    assert result.value == "Hello, World! User ID: 12345"
+    assert result == "Hello, World! User ID: 12345"
 
 
-@pytest.mark.anyio
 async def test_call_tool_async_function(tool_registry):
     # Define an async test function
     async def async_test_func(name: str):
@@ -100,11 +94,9 @@ async def test_call_tool_async_function(tool_registry):
     result = await tool_registry.call_tool("async_test_func", {"name": "World"})
 
     # Check the result
-    assert isinstance(result, Result)
-    assert result.value == "Hello async, World!"
+    assert result == "Hello async, World!"
 
 
-@pytest.mark.anyio
 async def test_call_tool_agent_return(tool_registry):
     # Define a function that returns an Agent
     def agent_return_func():
@@ -117,9 +109,8 @@ async def test_call_tool_agent_return(tool_registry):
     result = await tool_registry.call_tool("agent_return_func", {})
 
     # Check the result
-    assert isinstance(result, Result)
-    assert isinstance(result.agent, Agent)
-    assert result.agent.name == "TestAgent"
+    assert isinstance(result, Agent)
+    assert result.name == "TestAgent"
 
 
 async def test_call_tool_not_found(tool_registry):

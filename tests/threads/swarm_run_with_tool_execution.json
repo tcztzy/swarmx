@@ -1,0 +1,19 @@
+[
+    {
+        "role": "assistant",
+        "tool_calls": [
+            {
+                "id": "call_123",
+                "type": "function",
+                "function": {
+                    "name": "calculator",
+                    "arguments": "{\"a\": 5, \"b\": 3, \"operation\": \"add\"}"
+                }
+            }
+        ]
+    },
+    {
+        "role": "assistant",
+        "content": "8"
+    }
+]

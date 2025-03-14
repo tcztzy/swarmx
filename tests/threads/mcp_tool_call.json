@@ -1,7 +1,6 @@
 [
     {
         "role": "assistant",
-        "name": "Agent",
         "tool_calls": [
             {
                 "id": "call_avhnmuri",
