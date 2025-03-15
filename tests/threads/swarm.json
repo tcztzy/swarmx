@@ -1,0 +1,30 @@
+[
+    {
+        "role": "assistant",
+        "tool_calls": [
+            {
+                "type": "function",
+                "function": {
+                    "name": "calculator",
+                    "arguments": "{\"a\": 5, \"b\": 3, \"operation\": \"add\"}"
+                }
+            }
+        ]
+    },
+    {
+        "role": "assistant",
+        "tool_calls": [
+            {
+                "type": "function",
+                "function": {
+                    "name": "calculator",
+                    "arguments": "{\"a\": 8, \"b\": 2, \"operation\": \"multiply\"}"
+                }
+            }
+        ]
+    },
+    {
+        "role": "assistant",
+        "content": "The result of 5 + 3 is 8, and 8 * 2 is 16."
+    }
+]

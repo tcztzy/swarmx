@@ -219,3 +219,23 @@ async def test_agent_run_with_max_turns_error():
 
     with pytest.raises(RuntimeError, match="Reached max turns"):
         await agent.run(messages=[{"role": "user", "content": "Hello"}], max_turns=0)
+
+
+async def test_agent_streaming():
+    """Test agent streaming functionality."""
+    agent = Agent(name="test_agent", instructions="You are a helpful assistant.")
+    messages = [{"role": "user", "content": "Say 'Hello World' in 3 parts"}]
+
+    chunks = []
+    async for chunk in await agent.run(messages=messages, stream=True):
+        chunks.append(chunk)
+
+    # Verify we got multiple chunks
+    assert len(chunks) > 1
+
+    # Verify the chunks can be merged into a coherent message
+    from swarmx import merge_chunks
+
+    merged_messages = merge_chunks(chunks)
+    assert len(merged_messages) == 1
+    assert "Hello World" in merged_messages[0]["content"]

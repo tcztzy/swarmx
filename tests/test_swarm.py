@@ -317,3 +317,52 @@ def test_swarm_add_edge_validation():
     # Test with non-existent target node
     with pytest.raises(ValueError, match="Node 999 not found"):
         swarm.add_edge(0, 999)
+
+
+async def test_swarm_streaming():
+    """Test swarm streaming functionality."""
+
+    # Create a simple calculator agent
+    def calculator(a: int, b: int, operation: str) -> str:
+        """Calculate the result of the operation."""
+        return str(
+            {
+                "add": operator.add,
+                "subtract": operator.sub,
+                "multiply": operator.mul,
+                "divide": operator.truediv,
+            }[operation](a, b)
+        )
+
+    agent = Agent(name="calculator", tools=[calculator])
+    swarm = Swarm()
+    swarm.add_node(0, type="agent", agent=agent)
+
+    messages = [
+        {
+            "role": "user",
+            "content": "Calculate 5+3, then multiply the result by 2",
+        }
+    ]
+
+    chunks = []
+    async for chunk in await swarm.run(messages=messages, stream=True):
+        chunks.append(chunk)
+
+    # Verify we got multiple chunks
+    assert len(chunks) > 1
+
+    # Verify the chunks contain both completion chunks and tool results
+    from openai.types.chat import ChatCompletionChunk
+
+    completion_chunks = [c for c in chunks if isinstance(c, ChatCompletionChunk)]
+    assert len(completion_chunks) > 0
+
+    # Verify the final result through merging chunks
+    from swarmx import merge_chunks
+
+    merged_messages = merge_chunks(completion_chunks)
+    assert len(merged_messages) > 0
+
+    # The final message should contain 16 (result of (5+3)*2)
+    assert "16" in merged_messages[-1]["content"]

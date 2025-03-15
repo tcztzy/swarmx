@@ -95,7 +95,9 @@ def create_mock_streaming_response(
                 object="chat.completion.chunk",
                 choices=[
                     ChunkChoice(
+                        index=0,
                         delta=ChoiceDelta(
+                            role="assistant" if i == 0 else None,
                             tool_calls=[
                                 ChoiceDeltaToolCall(
                                     index=i,
@@ -175,7 +177,11 @@ def client(
                     ).read_text()
                 )
                 mock_openai.set_sequential_responses(
-                    [create_mock_response(message, model) for message in messages]
+                    [
+                        create_mock_response(message, model)
+                        for message in messages
+                        if message["role"] == "assistant"
+                    ]
                     + [
                         create_mock_response(
                             {
@@ -208,6 +214,7 @@ def client(
                             [
                                 create_mock_response(message, model)
                                 for message in messages
+                                if message["role"] == "assistant"
                             ]
                         )
     with patch("swarmx.DEFAULT_CLIENT", mock_openai):

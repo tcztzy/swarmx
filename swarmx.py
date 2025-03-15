@@ -304,7 +304,7 @@ def _mcp_call_tool_result_to_content(
     for chunk in result.content:
         match chunk.type:
             case "text":
-                content.append(chunk.model_dump())
+                content.append(chunk.model_dump(exclude={"annotations"}))
             case "image":
                 content.append(_image_content_to_url(chunk))
             case "resource":
@@ -837,7 +837,7 @@ class Swarm(BaseModel, nx.DiGraph):
             async for chunk in task.result():
                 yield chunk
                 chunks.append(chunk)
-            node_messages[node] = await merge_chunks(chunks)  # type: ignore
+            node_messages[node] = merge_chunks(chunks)  # type: ignore
             self.nodes[node]["executed"] = True
         yield node_messages
 
@@ -1054,7 +1054,7 @@ async def main(
             "--file",
             "-f",
             exists=True,
-            help="The path to the swarmx file (JSON file containing `mcpServers` and `agent`)",
+            help="The path to the swarmx file (networkx node_link_data with additional `mcpServers` key)",
         ),
     ] = None,
     output: Annotated[
@@ -1079,8 +1079,9 @@ async def main(
         data = {}
     else:
         data = json.loads(file.read_text())
-    agent: Node = Agent.model_validate(data.pop("agent", {}))
     client = Swarm.model_validate(data)
+    if not client.nodes:
+        client.add_node(0, type="agent", agent=Agent(model=model))
     messages: list[ChatCompletionMessageParam] = []
     context_variables: dict[str, Any] = data.pop(__CTX_VARS_NAME__, {})
     while True:
@@ -1097,30 +1098,18 @@ async def main(
                 stream=True,
                 context_variables=context_variables,
             ):
-                match chunk:
-                    case ChatCompletionChunk():
-                        delta = chunk.choices[0].delta
-                        if delta.content is not None:
-                            typer.echo(delta.content, nl=False)
-                        if isinstance(
-                            c := getattr(delta, "reasoning_content", None), str
-                        ):
-                            typer.secho(c, nl=False, fg="green")
-                        if delta.refusal is not None:
-                            typer.secho(delta.refusal, nl=False, err=True, fg="purple")
-                        if chunk.choices[0].finish_reason is not None:
-                            typer.echo()
-                    case Agent() | Swarm():
-                        agent = chunk
-                        if verbose:
-                            typer.secho(f"agent: {agent.model_dump_json()}", fg="cyan")
-                    case _ as message:
-                        messages.append(message)
-                        if verbose and not (
-                            message["role"] == "assistant"
-                            and message.get("name") == getattr(agent, "name", None)
-                        ):
-                            typer.secho(f"data: {json.dumps(message)}", fg="yellow")
+                delta = chunk.choices[0].delta
+                if delta.content is not None:
+                    typer.echo(delta.content, nl=False)
+                if (
+                    isinstance(c := getattr(delta, "reasoning_content", None), str)
+                    and verbose
+                ):
+                    typer.secho(c, nl=False, fg="green")
+                if delta.refusal is not None:
+                    typer.secho(delta.refusal, nl=False, err=True, fg="purple")
+                if chunk.choices[0].finish_reason is not None:
+                    typer.echo()
         except KeyboardInterrupt:
             break
         except Exception as e:
@@ -1139,8 +1128,6 @@ async def main(
 
 if __name__ == "__main__":
     from functools import wraps
-
-    import typer
 
     def repl():
         """SwarmX REPL wrapper"""

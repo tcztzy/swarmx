@@ -1,6 +1,8 @@
 from collections import defaultdict
 from typing import Annotated, Any
+from unittest.mock import MagicMock
 
+import mcp.types
 import pytest
 from openai.types.chat.chat_completion_chunk import (
     ChatCompletionChunk,
@@ -16,6 +18,9 @@ from swarmx import (
     Agent,
     ReasoningChatCompletionAssistantMessageParam,
     Result,
+    _image_content_to_url,
+    _mcp_call_tool_result_to_content,
+    _resource_to_file,
     check_instructions,
     function_to_json,
     merge_chunk,
@@ -637,3 +642,94 @@ class TestValidateTool:
         with pytest.raises(TypeError) as excinfo:
             validate_tool(none_return)
         assert "must be str, Agent, dict[str, Any], or Result" in str(excinfo.value)
+
+
+def test_image_content_to_url():
+    """Test converting MCP image content to OpenAI image URL content part."""
+    # Create a mock ImageContent
+    image_content = mcp.types.ImageContent(
+        type="image", mimeType="image/png", data="base64encodeddata"
+    )
+
+    # Convert to OpenAI format
+    result = _image_content_to_url(image_content)
+
+    # Verify result
+    assert result["type"] == "image_url"
+    assert result["image_url"]["url"] == "data:image/png;base64,base64encodeddata"
+
+
+def test_resource_to_file_text():
+    """Test converting MCP text resource to OpenAI text content part."""
+    # Create a mock TextResourceContents
+    text_content = mcp.types.TextResourceContents(
+        uri="file:///some/path", mimeType="text/plain", text="Sample text"
+    )
+
+    # Create a mock EmbeddedResource with TextResourceContents
+    resource = mcp.types.EmbeddedResource(type="resource", resource=text_content)
+
+    # Convert to OpenAI format
+    result = _resource_to_file(resource)
+
+    # Verify result
+    assert result["type"] == "text"
+    assert result["text"] == "Sample text"
+
+
+def test_resource_to_file_blob():
+    """Test converting MCP blob resource to OpenAI file content part."""
+    # Create a mock BlobResourceContents
+    blob_content = mcp.types.BlobResourceContents(
+        uri="file:///some/path", mimeType="application/pdf", blob="base64encodedblob"
+    )
+
+    # Create a mock EmbeddedResource with BlobResourceContents
+    resource = mcp.types.EmbeddedResource(type="resource", resource=blob_content)
+
+    # Convert to OpenAI format
+    result = _resource_to_file(resource)
+
+    # Verify result
+    assert result["type"] == "file"
+    assert (
+        result["file"]["file_data"] == "data:application/pdf;base64,base64encodedblob"
+    )
+
+
+def test_resource_to_file_unknown():
+    """Test converting unknown MCP resource type raises exception."""
+    # Create a mock EmbeddedResource with unknown resource type
+    resource = MagicMock(spec=mcp.types.EmbeddedResource)
+    resource.resource = MagicMock()  # Not a known type
+
+    # Verify exception is raised
+    with pytest.raises(ValueError, match="Unknown resource type:"):
+        _resource_to_file(resource)
+
+
+def test_mcp_call_tool_result_to_content():
+    """Test converting MCP CallToolResult to OpenAI content parts."""
+    # Create a mock CallToolResult with various content types
+    call_result = mcp.types.CallToolResult(
+        content=[
+            mcp.types.TextContent(type="text", text="Some text"),
+            mcp.types.ImageContent(
+                type="image", mimeType="image/jpeg", data="base64imagedata"
+            ),
+            mcp.types.EmbeddedResource(
+                type="resource",
+                resource=mcp.types.TextResourceContents(
+                    uri="file:///some/path", mimeType="text/plain", text="Resource text"
+                ),
+            ),
+        ]
+    )
+
+    result = _mcp_call_tool_result_to_content(call_result)
+
+    # Verify results
+    assert len(result) == 3
+    assert result[0] == {"type": "text", "text": "Some text"}
+    assert result[1]["type"] == "image_url"
+    assert result[2]["type"] == "text"
