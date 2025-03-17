@@ -700,10 +700,14 @@ class Agent(BaseModel):
         return [m]
 
 
+def condition_parser(condition: str) -> Callable[[dict[str, Any]], bool]:
+    """Parse a condition string into a callable that takes a context and returns a boolean."""
+    # First, we should try to parse condition as ImportString
+    return TypeAdapter(ImportString).validate_python(condition)
+
+
 class Swarm(BaseModel, nx.DiGraph):
-    mcp_servers: dict[str, StdioServerParameters | str] | None = Field(
-        None, alias="mcpServers"
-    )
+    mcpServers: dict[str, StdioServerParameters | str] | None = None
     graph: dict = Field(default_factory=dict)
 
     @model_validator(mode="wrap")
@@ -727,6 +731,12 @@ class Swarm(BaseModel, nx.DiGraph):
                 target := edge.pop("target", None)
             ) is None:
                 raise ValidationError("Edge must have source and target")
+            # Validate condition if present
+            if "condition" in edge:
+                if isinstance(edge["condition"], str):
+                    edge["condition"] = condition_parser(edge["condition"])
+                if not callable(edge["condition"]):
+                    raise ValueError("Edge condition must be callable")
             swarm.add_edge(source, target, **edge)
         return swarm
 
@@ -748,12 +758,12 @@ class Swarm(BaseModel, nx.DiGraph):
             ],
             "graph": self.graph,
         }
-        if self.mcp_servers:
+        if self.mcpServers:
             swarm["mcpServers"] = {
                 name: server_params.model_dump()
                 if isinstance(server_params, StdioServerParameters)
                 else server_params
-                for name, server_params in self.mcp_servers.items()
+                for name, server_params in self.mcpServers.items()
             }
         return swarm
 
@@ -768,15 +778,43 @@ class Swarm(BaseModel, nx.DiGraph):
         nx.DiGraph.__init__(self)
 
     def add_edge(self, u: Hashable, v: Hashable, **attr: Any):
+        """Add an edge between nodes u and v with optional condition.
+
+        Args:
+            u: Source node
+            v: Target node
+            condition: Optional callable that takes context variables and returns bool
+            **attr: Additional edge attributes
+        """
         if u not in self._node:
             raise ValueError(f"Node {u} not found")
         if v not in self._node:
             raise ValueError(f"Node {v} not found")
+        condition = attr.get("condition", None)
+        if condition is not None and not callable(condition_parser(condition)):
+            raise ValueError("Edge condition must be callable")
         super().add_edge(u, v, **attr)
 
     @property
     def _next_node(self) -> int:
         return max([i for i in self.nodes if isinstance(i, int)] + [-1]) + 1
+
+    def active_successors(self, node: Hashable) -> list[Hashable]:
+        """Get successors of a node that have satisfied conditions.
+
+        Args:
+            node: The node to get successors for
+
+        Returns:
+            List of successor nodes whose conditions are satisfied
+        """
+        successors = []
+        for succ in self.successors(node):
+            edge_data = self.edges[node, succ]
+            condition = edge_data.get("condition")
+            if condition is None or condition(self.graph):
+                successors.append(succ)
+        return successors
 
     def _would_early_stop(
         self,
@@ -844,7 +882,7 @@ class Swarm(BaseModel, nx.DiGraph):
     async def _call_tools(
         self,
         tool_calls: dict[Hashable, list[ChatCompletionMessageToolCallParam]],
-        node: Hashable,
+        current_node: Hashable,
     ) -> dict[Hashable, list[ChatCompletionMessageParam]]:
         messages: dict[Hashable, list[ChatCompletionMessageParam]] = defaultdict(list)
         tasks: dict[
@@ -912,10 +950,10 @@ class Swarm(BaseModel, nx.DiGraph):
                     ),
                 )
                 self.add_edge(node, next_node)
-        if len(agents) == 0:
+        if len(agents) == 0 and len(list(self.successors(current_node))) == 0:
             next_node = self._next_node
-            self.add_node(next_node, **(self.nodes[node] | {"executed": False}))
-            self.add_edge(node, next_node)
+            self.add_node(next_node, **(self.nodes[current_node] | {"executed": False}))
+            self.add_edge(current_node, next_node)
         return messages
 
     async def _run_and_stream(
@@ -961,7 +999,7 @@ class Swarm(BaseModel, nx.DiGraph):
                     else self.nodes[s]["swarm"]
                 )
                 for n in agents.keys()
-                for s in self.successors(n)
+                for s in self.active_successors(n)
                 if all(self.nodes[p].get("executed") for p in self.predecessors(s))
             }
 
@@ -996,7 +1034,7 @@ class Swarm(BaseModel, nx.DiGraph):
         max_turns: int | None = None,
         execute_tools: bool = True,
     ) -> list[ChatCompletionMessageParam] | AsyncIterator[ChatCompletionChunk]:
-        for name, server_params in (self.mcp_servers or {}).items():
+        for name, server_params in (self.mcpServers or {}).items():
             await TOOL_REGISTRY.add_mcp_server(name, server_params)
         self.graph |= context_variables or {}
         if stream:
@@ -1036,7 +1074,7 @@ class Swarm(BaseModel, nx.DiGraph):
                     else self.nodes[s]["swarm"]
                 )
                 for n in agents.keys()
-                for s in self.successors(n)
+                for s in self.active_successors(n)
                 if all(self.nodes[p].get("executed") for p in self.predecessors(s))
             }
 

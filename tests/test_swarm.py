@@ -92,9 +92,9 @@ async def test_swarm_with_mcp_servers():
     swarm.add_node(0, type="agent", agent=agent)
 
     # Check server config is present
-    assert "time" in swarm.mcp_servers
-    assert swarm.mcp_servers["time"].command == sys.executable
-    assert swarm.mcp_servers["time"].args == [
+    assert "time" in swarm.mcpServers
+    assert swarm.mcpServers["time"].command == sys.executable
+    assert swarm.mcpServers["time"].args == [
         "-m",
         "mcp_server_time",
         "--local-timezone",
@@ -366,3 +366,119 @@ async def test_swarm_streaming():
 
     # The final message should contain 16 (result of (5+3)*2)
     assert "16" in merged_messages[-1]["content"]
+
+
+async def test_simple_chain():
+    """Test a simple chain of agents: A -> B -> C"""
+    swarm = Swarm()
+
+    # Create chain A -> B -> C
+    swarm.add_node(0, type="agent", agent=Agent(name="A"))
+    swarm.add_node(1, type="agent", agent=Agent(name="B"))
+    swarm.add_node(2, type="agent", agent=Agent(name="C"))
+    swarm.add_edge(0, 1)
+    swarm.add_edge(1, 2)
+
+    messages = await swarm.run(messages=[{"role": "user", "content": "Test"}])
+
+    assert swarm.nodes[2]["agent"].name == "C"
+    assert messages[-1]["content"] == "C"
+
+
+async def test_branch_execution():
+    """Test branching execution: A -> (B, C)"""
+    swarm = Swarm()
+
+    # Create branches A -> B and A -> C
+    swarm.add_node(0, type="agent", agent=Agent(name="A"))
+    swarm.add_node(1, type="agent", agent=Agent(name="B"))
+    swarm.add_node(2, type="agent", agent=Agent(name="C"))
+    swarm.add_edge(0, 1)
+    swarm.add_edge(0, 2)
+
+    messages = await swarm.run(messages=[{"role": "user", "content": "Test"}])
+    assert len(messages) == 3
+    assert messages[0]["content"] == "A"
+
+
+async def test_complex_graph():
+    """Test complex graph with multiple branches and joins"""
+    swarm = Swarm()
+
+    # Create a more complex graph:
+    # A -> B -> D
+    # A -> C -> D
+    # D -> E
+    swarm.add_node(0, type="agent", agent=Agent(name="A"))
+    swarm.add_node(1, type="agent", agent=Agent(name="B"))
+    swarm.add_node(2, type="agent", agent=Agent(name="C"))
+    swarm.add_node(3, type="agent", agent=Agent(name="D"))
+    swarm.add_node(4, type="agent", agent=Agent(name="E"))
+
+    swarm.add_edge(0, 1)  # A -> B
+    swarm.add_edge(0, 2)  # A -> C
+    swarm.add_edge(1, 3)  # B -> D
+    swarm.add_edge(2, 3)  # C -> D
+    swarm.add_edge(3, 4)  # D -> E
+
+    messages = [{"role": "user", "content": "Test"}]
+    await swarm.run(messages=messages)
+
+
+async def test_conditional_edges():
+    """Test conditional edges in a swarm."""
+    swarm = Swarm()
+
+    # Create agents
+    agent1 = Agent(name="Agent1")
+    agent2 = Agent(name="Agent2")
+    agent3 = Agent(name="Agent3")
+
+    # Add nodes
+    swarm.add_node(0, type="agent", agent=agent1)
+    swarm.add_node(1, type="agent", agent=agent2)
+    swarm.add_node(2, type="agent", agent=agent3)
+
+    # Add conditional edges
+    def condition_true(context):
+        return True
+
+    def condition_false(context):
+        return False
+
+    def condition_based_on_context(context):
+        return context.get("should_go_to_agent2", False)
+
+    # Add edges with conditions
+    swarm.add_edge(0, 1, condition=condition_true)  # Always goes to agent2
+    swarm.add_edge(0, 2, condition=condition_false)  # Never goes to agent3
+
+    # Test that only agent2 is reached
+    messages = await swarm.run(messages=[{"role": "user", "content": "Test"}])
+    assert len(messages) == 2  # Agent1 response + Agent2 response
+    assert messages[-1]["name"].startswith("Agent2")
+
+    # Test with context-based condition
+    swarm = Swarm()
+    swarm.add_node(0, type="agent", agent=agent1)
+    swarm.add_node(1, type="agent", agent=agent2)
+    swarm.add_node(2, type="agent", agent=agent3)
+
+    swarm.add_edge(0, 1, condition=condition_based_on_context)
+    swarm.add_edge(0, 2, condition=lambda ctx: not condition_based_on_context(ctx))
+
+    # Test with context that should go to agent2
+    messages = await swarm.run(
+        messages=[{"role": "user", "content": "Test"}],
+        context_variables={"should_go_to_agent2": True},
+    )
+    assert len(messages) == 2  # Agent1 response + Agent2 response
+    assert messages[-1]["name"].startswith("Agent2")
+
+    # Test with context that should go to agent3
+    messages = await swarm.run(
+        messages=[{"role": "user", "content": "Test"}],
+        context_variables={"should_go_to_agent2": False},
+    )
+    assert len(messages) == 2  # Agent1 response + Agent3 response
+    assert messages[-1]["name"].startswith("Agent3")

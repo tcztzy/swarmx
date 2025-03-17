@@ -1,0 +1,18 @@
+[
+    {
+        "role": "user",
+        "content": "Test"
+    },
+    {
+        "role": "assistant",
+        "content": "A"
+    },
+    {
+        "role": "assistant",
+        "content": "B"
+    },
+    {
+        "role": "assistant",
+        "content": "C"
+    }
+]

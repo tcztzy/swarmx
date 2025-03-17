@@ -3,11 +3,11 @@
 An extreme simple framework exploring ergonomic, lightweight multi-agent orchestration.
 
 ## Highlights
-1. Single file and about 1000 lines
-2. Only one third-party dependency (`openai`)
-3. Compatible with langchain tools
+1. SwarmX is both Agent and Workflow
+2. MCP servers support
+3. Single file and about 1000 lines and simple dependencies (`openai`, `networkx`, `mcp`, `typer` and `jinja2`)
 
-## Quickstart
+## Quick start
 
 After setting `OPENAI_API_KEY` environment variable, you can start a simple REPL by running the following command:
 
