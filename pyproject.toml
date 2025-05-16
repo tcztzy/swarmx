@@ -26,14 +26,14 @@ build-backend = "hatchling.build"
 
 [dependency-groups]
 dev = [
-    "pre-commit>=4.1.0",
+    "prefligit",
     "mcp-server-time>=0.6.2",
     {include-group = "test"},
 ]
 test = [
-    "tox>=4.24.2",
+    "tox>=4.26.0",
     "pytest>=8.3.5",
-    "pytest-cov>=6.0.0",
+    "pytest-cov>=6.1.1",
 ]
 
 [tool.ruff.lint]

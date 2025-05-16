@@ -777,23 +777,23 @@ class Swarm(BaseModel, nx.DiGraph):
     def model_post_init(self, __context: Any) -> None:
         nx.DiGraph.__init__(self)
 
-    def add_edge(self, u: Hashable, v: Hashable, **attr: Any):
+    def add_edge(self, u_of_edge: Hashable, v_of_edge: Hashable, **attr: Any):
         """Add an edge between nodes u and v with optional condition.
 
         Args:
-            u: Source node
-            v: Target node
+            u_of_edge: Source node
+            v_of_edge: Target node
             condition: Optional callable that takes context variables and returns bool
             **attr: Additional edge attributes
         """
-        if u not in self._node:
-            raise ValueError(f"Node {u} not found")
-        if v not in self._node:
-            raise ValueError(f"Node {v} not found")
+        if u_of_edge not in self._node:
+            raise ValueError(f"Node {u_of_edge} not found")
+        if v_of_edge not in self._node:
+            raise ValueError(f"Node {v_of_edge} not found")
         condition = attr.get("condition", None)
         if condition is not None and not callable(condition_parser(condition)):
             raise ValueError("Edge condition must be callable")
-        super().add_edge(u, v, **attr)
+        super().add_edge(u_of_edge, v_of_edge, **attr)
 
     @property
     def _next_node(self) -> int:
