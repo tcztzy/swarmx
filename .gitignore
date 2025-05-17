@@ -130,3 +130,4 @@ requirements-dev.lock
 
 # deepeval
 .deepeval*
+.aider*

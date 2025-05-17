@@ -51,9 +51,7 @@ from openai.types.chat.chat_completion_content_part_param import (
 from openai.types.chat.chat_completion_content_part_text_param import (
     ChatCompletionContentPartTextParam,
 )
-from openai.types.chat.chat_completion_message_param import (
-    ChatCompletionMessageParam as _ChatCompletionMessageParam,
-)
+from openai.types.chat.chat_completion_message_param import ChatCompletionMessageParam
 from openai.types.chat.chat_completion_message_tool_call_param import (
     ChatCompletionMessageToolCallParam,
 )
@@ -99,12 +97,6 @@ class SwarmXGenerateJsonSchema(GenerateJsonSchema):
         return False
 
 
-class ReasoningChatCompletionAssistantMessageParam(ChatCompletionAssistantMessageParam):
-    """Add reasoning_content to the message."""
-
-    reasoning_content: str | Iterable[ChatCompletionContentPartTextParam]
-
-
 class AgentNodeData(TypedDict, total=False):
     type: Required[Literal["agent"]]  # type: ignore
     agent: Required["Agent"]  # type: ignore
@@ -122,10 +114,6 @@ __CTX_VARS_NAME__ = "context_variables"
 DEFAULT_CLIENT = AsyncOpenAI()
 RANDOM_STRING_CHARS = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 
-# Union order matters, see https://github.com/pydantic/pydantic/discussions/11554
-ChatCompletionMessageParam: TypeAlias = (
-    ReasoningChatCompletionAssistantMessageParam | _ChatCompletionMessageParam
-)
 Node: TypeAlias = "Agent | Swarm"
 NodeData = Annotated[AgentNodeData | SwarmNodeData, Discriminator("type")]
 ReturnType: TypeAlias = "str | Node | dict[str, Any] | Result"
@@ -693,7 +681,7 @@ class Agent(BaseModel):
         message = completion.choices[0].message
         logger.debug("Received completion:", message)
         m = cast(
-            ReasoningChatCompletionAssistantMessageParam,
+            ChatCompletionAssistantMessageParam,
             message.model_dump(mode="json", exclude_none=True),
         )
         m["name"] = f"{self.name} ({completion.id})"

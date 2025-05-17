@@ -16,7 +16,6 @@ from openai.types.chat.chat_completion_chunk import (
 
 from swarmx import (
     Agent,
-    ReasoningChatCompletionAssistantMessageParam,
     Result,
     _image_content_to_url,
     _mcp_call_tool_result_to_content,
@@ -221,9 +220,11 @@ def test_multiple_tool_calls():
 
 def test_merge_chunk_with_content():
     """Test merging chunk with content into a message."""
-    message = ReasoningChatCompletionAssistantMessageParam(
-        {"role": "assistant", "content": "Hello, ", "reasoning_content": "Thinking... "}
-    )
+    message = {
+        "role": "assistant",
+        "content": "Hello, ",
+        "reasoning_content": "Thinking... ",
+    }
 
     delta = ChoiceDelta(content=" world!", reasoning_content=" Almost done!")
 
@@ -235,13 +236,11 @@ def test_merge_chunk_with_content():
 
 def test_merge_chunk_with_content_parts():
     """Test merging chunk with content parts into a message that already has content parts."""
-    message = ReasoningChatCompletionAssistantMessageParam(
-        {
-            "role": "assistant",
-            "content": [{"type": "text", "text": "Hello, "}],
-            "reasoning_content": [{"type": "text", "text": "Thinking... "}],
-        }
-    )
+    message = {
+        "role": "assistant",
+        "content": [{"type": "text", "text": "Hello, "}],
+        "reasoning_content": [{"type": "text", "text": "Thinking... "}],
+    }
 
     delta = ChoiceDelta(content=" world!", reasoning_content=" Almost done!")
 
@@ -258,7 +257,7 @@ def test_merge_chunk_with_content_parts():
 
 def test_merge_chunk_with_refusal():
     """Test merging chunk with refusal into a message."""
-    message = ReasoningChatCompletionAssistantMessageParam({"role": "assistant"})
+    message = {"role": "assistant"}
 
     delta = ChoiceDelta(refusal="I cannot provide information about that topic.")
 
@@ -278,18 +277,16 @@ def test_merge_chunk_with_refusal():
 
 def test_merge_chunk_with_tool_calls():
     """Test merging chunk with tool calls into a message."""
-    message = ReasoningChatCompletionAssistantMessageParam(
-        {
-            "role": "assistant",
-            "tool_calls": defaultdict(
-                lambda: {
-                    "id": "",
-                    "type": "function",
-                    "function": {"arguments": "", "name": ""},
-                }
-            ),
-        }
-    )
+    message = {
+        "role": "assistant",
+        "tool_calls": defaultdict(
+            lambda: {
+                "id": "",
+                "type": "function",
+                "function": {"arguments": "", "name": ""},
+            }
+        ),
+    }
 
     # First tool call chunk
     delta = ChoiceDelta(
@@ -358,13 +355,11 @@ def test_merge_chunk_with_tool_calls():
 
 def test_merge_chunk_multiple_updates():
     """Test merging multiple types of updates into a message."""
-    message = ReasoningChatCompletionAssistantMessageParam(
-        {
-            "role": "assistant",
-            "content": "Initial content. ",
-            "reasoning_content": "Initial reasoning. ",
-        }
-    )
+    message = {
+        "role": "assistant",
+        "content": "Initial content. ",
+        "reasoning_content": "Initial reasoning. ",
+    }
 
     delta = ChoiceDelta(
         content="Additional content.",
