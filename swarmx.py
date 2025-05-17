@@ -1107,7 +1107,7 @@ async def main(
         data = json.loads(file.read_text())
     client = Swarm.model_validate(data)
     if not client.nodes:
-        client.add_node(0, type="agent", agent=Agent(model=model))
+        client.add_node(0, type="agent", agent=Agent(name="Assistant", model=model))
     messages: list[ChatCompletionMessageParam] = []
     context_variables: dict[str, Any] = data.pop(__CTX_VARS_NAME__, {})
     while True:
