@@ -137,27 +137,28 @@ def get_random_string(length, allowed_chars=RANDOM_STRING_CHARS):
 # SECTION 3: Helper functions
 def merge_chunk(message: ChatCompletionMessageParam, delta: ChoiceDelta) -> None:
     if delta.role:
-        message["role"] = delta.role
-    content = message.get("content") or ""
-    if isinstance(content, str):
-        message["content"] = content + (delta.content or "")
-    else:
-        message["content"] = [*content, {"type": "text", "text": delta.content or ""}]
+        message["role"] = delta.role  # type: ignore
+    content = message.get("content")
+    if delta.content is not None:
+        if isinstance(content, str) or content is None:
+            message["content"] = (content or "") + delta.content
+        else:
+            message["content"] = [*content, {"type": "text", "text": delta.content}]  # type: ignore
 
     # Handle reasoning_content
-    if hasattr(delta, "reasoning_content"):
+    if (rc := getattr(delta, "reasoning_content", None)) is not None:
         reasoning_content = message.get("reasoning_content") or ""
         if isinstance(reasoning_content, str):
-            message["reasoning_content"] = reasoning_content + (
-                delta.reasoning_content or ""
-            )
+            message["reasoning_content"] = reasoning_content + rc  # type: ignore
         else:
-            message["reasoning_content"] = list(reasoning_content) + [
-                {"type": "text", "text": delta.reasoning_content or ""}
+            message["reasoning_content"] = list(reasoning_content) + [  # type: ignore
+                {"type": "text", "text": rc}
             ]
 
     if delta.refusal is not None:
-        message["refusal"] = (message.get("refusal") or "") + delta.refusal
+        cast(ChatCompletionAssistantMessageParam, message)["refusal"] = (
+            message.get("refusal") or ""
+        ) + delta.refusal
 
     if delta.tool_calls is not None:
         # We use defaultdict as intermediate structure here instead of list
@@ -185,17 +186,14 @@ def merge_chunk(message: ChatCompletionMessageParam, delta: ChoiceDelta) -> None
             )
             tool_call["function"]["name"] += function.name or "" if function else ""
             tool_calls[call.index] = tool_call
-        message["tool_calls"] = tool_calls
+        message["tool_calls"] = tool_calls  # type: ignore
 
 
 def merge_chunks(
     chunks: list[ChatCompletionChunk],
 ) -> list[ChatCompletionMessageParam]:
     messages: dict[str, ChatCompletionMessageParam] = defaultdict(
-        lambda: {
-            "content": "",
-            "role": "",
-        }
+        lambda: {"role": "assistant"}
     )
     for chunk in chunks:
         message = messages[chunk.id]
@@ -205,16 +203,13 @@ def merge_chunks(
             message.pop("tool_calls", None)
         logger.debug("Received completion:", message)
     for message in messages.values():
-        if message.get("tool_calls"):
-            # dict to list
-            tool_calls: dict[int, ChatCompletionMessageToolCallParam] = message.pop(
-                "tool_calls"
-            )
+        if tool_calls := message.get("tool_calls"):
+            tool_calls = cast(dict[int, ChatCompletionMessageToolCallParam], tool_calls)
             # assert no gap in tool_calls keys
             for i, index in enumerate(sorted(tool_calls)):
                 if i != index:
                     raise ValueError(f"Tool call index {index} is out of order")
-            message["tool_calls"] = [tool_calls[i] for i in sorted(tool_calls)]
+            message["tool_calls"] = [tool_calls[i] for i in sorted(tool_calls)]  # type: ignore
     return list(messages.values())
 
 
@@ -292,7 +287,12 @@ def _mcp_call_tool_result_to_content(
     for chunk in result.content:
         match chunk.type:
             case "text":
-                content.append(chunk.model_dump(exclude={"annotations"}))
+                content.append(
+                    cast(
+                        ChatCompletionContentPartTextParam,
+                        chunk.model_dump(exclude={"annotations"}),
+                    )
+                )
             case "image":
                 content.append(_image_content_to_url(chunk))
             case "resource":
@@ -351,7 +351,7 @@ def validate_tool(tool: object) -> ChatCompletionToolParam:
                 )
             if return_anno not in [str, Agent, dict[str, Any], Result, None]:
                 raise e
-            TOOL_REGISTRY.add_function(tool)
+            TOOL_REGISTRY.add_function(cast(AgentFunction, tool))
             return TOOL_REGISTRY.functions[getattr(tool, "__name__", str(tool))]
         case str():
             return validate_tool(TypeAdapter(ImportString).validate_python(tool))
@@ -359,7 +359,7 @@ def validate_tool(tool: object) -> ChatCompletionToolParam:
             raise e
 
 
-def validate_tools(tools: list[object]) -> list[Callable]:
+def validate_tools(tools: list[object]) -> list[ChatCompletionToolParam]:
     return [validate_tool(tool) for tool in tools]
 
 
@@ -424,7 +424,7 @@ class ToolRegistry:
             function_schema["parameters"] = function_schema.pop("inputSchema")
             self.mcp_tools[name, tool.name] = ChatCompletionToolParam(
                 type="function",
-                function=function_schema,
+                function=function_schema,  # type: ignore
             )
 
     def add_function(self, func: "AgentFunction"):
@@ -602,7 +602,10 @@ class Agent(BaseModel):
             messages=messages,
             context_variables=context_variables,
         )
-        create_params = {"messages": messages, "model": self.model}
+        create_params: CompletionCreateParamsBase = {
+            "messages": messages,
+            "model": self.model,
+        }
         logger.debug("Getting chat completion for...:", messages)
 
         # hide context_variables from model
@@ -615,7 +618,8 @@ class Agent(BaseModel):
             if __CTX_VARS_NAME__ in params.get("required", []):
                 params["required"].remove(__CTX_VARS_NAME__)
 
-        create_params = self.completion_create_params | create_params | {"tools": tools}
+        create_params = self.completion_create_params | create_params
+        create_params["tools"] = tools
 
         return await (self.client or DEFAULT_CLIENT).chat.completions.create(
             stream=stream, **create_params
@@ -694,7 +698,7 @@ def condition_parser(condition: str) -> Callable[[dict[str, Any]], bool]:
     return TypeAdapter(ImportString).validate_python(condition)
 
 
-class Swarm(BaseModel, nx.DiGraph):
+class Swarm(BaseModel, nx.DiGraph):  # type: ignore
     mcpServers: dict[str, StdioServerParameters | str] | None = None
     graph: dict = Field(default_factory=dict)
 
@@ -972,7 +976,7 @@ class Swarm(BaseModel, nx.DiGraph):
                     tc
                     for m in nm
                     if m["role"] == "assistant" and m.get("tool_calls")
-                    for tc in m["tool_calls"]
+                    for tc in m["tool_calls"]  # type: ignore
                 ]
                 for node, nm in _messages.items()
             }
@@ -1047,7 +1051,7 @@ class Swarm(BaseModel, nx.DiGraph):
                     tc
                     for m in nm
                     if m["role"] == "assistant" and m.get("tool_calls")
-                    for tc in m["tool_calls"]
+                    for tc in m["tool_calls"]  # type: ignore
                 ]
                 for node, nm in _messages.items()
             }
