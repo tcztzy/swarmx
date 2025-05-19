@@ -3,12 +3,15 @@ import copy
 import inspect
 import json
 import logging
+import mimetypes
+import os
 import secrets
 import sys
 import warnings
 from collections import defaultdict
 from contextlib import AsyncExitStack
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 from typing import (
     Annotated,
@@ -40,13 +43,22 @@ from openai.types.chat.chat_completion import ChatCompletion
 from openai.types.chat.chat_completion_assistant_message_param import (
     ChatCompletionAssistantMessageParam,
 )
-from openai.types.chat.chat_completion_chunk import ChatCompletionChunk, ChoiceDelta
+from openai.types.chat.chat_completion_chunk import (
+    ChatCompletionChunk,
+    Choice,
+    ChoiceDelta,
+    ChoiceDeltaToolCall,
+    ChoiceDeltaToolCallFunction,
+)
 from openai.types.chat.chat_completion_content_part_image_param import (
     ChatCompletionContentPartImageParam,
 )
 from openai.types.chat.chat_completion_content_part_param import (
     ChatCompletionContentPartParam,
     File,
+)
+from openai.types.chat.chat_completion_content_part_refusal_param import (
+    ChatCompletionContentPartRefusalParam,
 )
 from openai.types.chat.chat_completion_content_part_text_param import (
     ChatCompletionContentPartTextParam,
@@ -86,6 +98,8 @@ if PY_312:
 else:
     from typing_extensions import Required, TypedDict
 
+
+mimetypes.add_type("text/markdown", ".md")
 warnings.filterwarnings("ignore", category=UserWarning, module="pydantic")
 logger = logging.getLogger(__name__)
 
@@ -118,6 +132,11 @@ Node: TypeAlias = "Agent | Swarm"
 NodeData = Annotated[AgentNodeData | SwarmNodeData, Discriminator("type")]
 ReturnType: TypeAlias = "str | Node | dict[str, Any] | Result"
 AgentFunction: TypeAlias = Callable[..., ReturnType | Coroutine[Any, Any, ReturnType]]
+
+
+def now():
+    """OpenAI compatible timestamp in integer."""
+    return int(datetime.now().timestamp())
 
 
 def get_random_string(length, allowed_chars=RANDOM_STRING_CHARS):
@@ -213,6 +232,149 @@ def merge_chunks(
     return list(messages.values())
 
 
+def content_part_to_str(  # type: ignore[return]
+    part: ChatCompletionContentPartParam | ChatCompletionContentPartRefusalParam,
+) -> str:
+    match part["type"]:
+        case "text":
+            return part["text"]
+        case "refusal":
+            return part["refusal"]
+        case "image_url":
+            return f"![]({part['image_url']['url']})"
+        case "input_audio":
+            match part["input_audio"]["format"]:
+                case "mp3":
+                    mimetype = "audio/mpeg"
+                case "wav":
+                    mimetype = "audio/wav"
+            src = "data:audio/" + mimetype + ";base64," + part["input_audio"]["data"]
+            return f'<audio controls><source src="{src}" type="{mimetype}"></audio>'
+        case "file":
+            return f"\n```json\n{json.dumps(part, ensure_ascii=False)}\n```\n"
+
+
+def messages_to_chunks(messages: list[ChatCompletionMessageParam]):
+    id_to_name: dict[str, str] = {}
+    for message in messages:
+        message_id = message.get("tool_call_id", get_random_string(10))
+        model = message.get("name", "swarmx")
+        match message["role"]:
+            case "function":
+                raise NotImplementedError("SwarmX would not support function message.")
+            case _ as role:
+                # We only want support follow style of assistant message.
+                # text* (refusal* | tool_calls)
+                content = message.get("content")
+                refusal = message.get("refusal")
+                tool_calls = message.get("tool_calls")
+                if content is None and refusal is None and tool_calls is None:
+                    raise ValueError(
+                        "Assistant message must have content, refusal, or tool_calls"
+                    )
+                if (
+                    refusal is not None
+                    or (
+                        not isinstance(content, str)
+                        and content is not None
+                        and any(part["type"] == "refusal" for part in content)
+                    )
+                ) and tool_calls is not None:
+                    raise ValueError(
+                        "Assistant message cannot have both refusal and tool_calls"
+                    )
+                if content is None:
+                    content = cast(Iterable[ChatCompletionContentPartTextParam], [])
+                elif isinstance(content, str):
+                    content = cast(
+                        Iterable[ChatCompletionContentPartTextParam],
+                        [{"type": "text", "text": content}],
+                    )
+                if refusal is None:
+                    refusal = cast(Iterable[ChatCompletionContentPartRefusalParam], [])
+                else:
+                    refusal = cast(
+                        Iterable[ChatCompletionContentPartRefusalParam],
+                        [{"type": "refusal", "refusal": refusal}],
+                    )
+                content = [part for part in content if part["type"] == "text"]
+                refusal = [
+                    part for part in content if part["type"] == "refusal"
+                ] + list(refusal)
+                tool_calls = list(tool_calls) if tool_calls is not None else []
+                for tool_call in tool_calls:
+                    id_to_name[tool_call["id"]] = tool_call["function"]["name"]
+                num_parts = len(content) + len(refusal) + len(tool_calls)
+                for i, part in enumerate(content):
+                    yield ChatCompletionChunk(
+                        id=message_id,
+                        choices=[
+                            Choice(
+                                index=0,
+                                delta=ChoiceDelta(
+                                    role=role if i == 0 else None,
+                                    content=content_part_to_str(part),
+                                ),
+                                finish_reason="stop" if i == num_parts - 1 else None,
+                            )
+                        ],
+                        created=now(),
+                        model=id_to_name.get(message_id, model),
+                        object="chat.completion.chunk",
+                    )
+                for i, part in enumerate(refusal):
+                    yield ChatCompletionChunk(
+                        id=message_id,
+                        choices=[
+                            Choice(
+                                index=0,
+                                delta=ChoiceDelta(
+                                    role="assistant"
+                                    if i == 0 and len(content) == 0
+                                    else None,
+                                    refusal=content_part_to_str(part),
+                                ),
+                                finish_reason="content_filter"
+                                if i == num_parts - 1
+                                else None,
+                            )
+                        ],
+                        created=now(),
+                        model=model,
+                        object="chat.completion.chunk",
+                    )
+                if len(tool_calls) > 0:
+                    yield ChatCompletionChunk(
+                        id=message_id,
+                        choices=[
+                            Choice(
+                                index=0,
+                                delta=ChoiceDelta(
+                                    role="assistant" if len(content) == 0 else None,
+                                    tool_calls=[
+                                        ChoiceDeltaToolCall(
+                                            index=i,
+                                            id=tool_call["id"],
+                                            function=ChoiceDeltaToolCallFunction(
+                                                name=tool_call["function"]["name"],
+                                                arguments=tool_call["function"][
+                                                    "arguments"
+                                                ],
+                                            ),
+                                            type="function",
+                                        )
+                                        for i, tool_call in enumerate(tool_calls)
+                                    ],
+                                ),
+                                finish_reason="tool_calls",
+                            )
+                        ],
+                        created=now(),
+                        model=model,
+                        object="chat.completion.chunk",
+                    )
+
+
 def does_function_need_context(func) -> bool:
     signature = inspect.signature(func)
     return __CTX_VARS_NAME__ in signature.parameters
@@ -260,7 +422,7 @@ def _image_content_to_url(
     }
 
 
-def _resource_to_file(
+def _resource_to_file(  # type: ignore[return]
     resource: mcp.types.EmbeddedResource,
 ) -> ChatCompletionContentPartTextParam | File:
     match resource.resource:
@@ -270,14 +432,26 @@ def _resource_to_file(
                 "text": c.text,
             }
         case mcp.types.BlobResourceContents() as c:
+            if c.uri.path is not None:
+                filename = os.path.basename(c.uri.path)
+            elif c.uri.host is not None:
+                filename = c.uri.host
+            elif c.mimeType is not None:
+                ext = mimetypes.guess_extension(c.mimeType)
+                if ext is None:
+                    raise ValueError(
+                        f"Cannot determine filename for resource. mimeType={c.mimeType}"
+                    )
+                filename = f"file{ext}"
+            else:
+                raise ValueError("Cannot determine filename for resource.")
             return {
                 "type": "file",
                 "file": {
-                    "file_data": f"data:{c.mimeType};base64,{c.blob}",
+                    "file_data": c.blob,
+                    "filename": filename,
                 },
             }
-        case _:
-            raise ValueError(f"Unknown resource type: {type(resource)}")
 
 
 def _mcp_call_tool_result_to_content(
@@ -438,67 +612,6 @@ class ToolRegistry:
 
 
 TOOL_REGISTRY = ToolRegistry()
-
-
-async def call_tools(
-    tool_calls: dict[Hashable, list[ChatCompletionMessageToolCallParam]],
-    context_variables: dict[str, Any],
-) -> tuple[
-    dict[Hashable, list[ChatCompletionMessageParam]],
-    dict[str, Any],
-    dict[Hashable, list[Node]],
-]:
-    messages: dict[Hashable, list[ChatCompletionMessageParam]] = defaultdict(list)
-    tasks: dict[
-        Hashable, list[tuple[asyncio.Task, ChatCompletionMessageToolCallParam]]
-    ] = defaultdict(list)
-    async with asyncio.TaskGroup() as group:
-        for node, _tool_calls in tool_calls.items():
-            for tool_call in _tool_calls:
-                name = tool_call["function"]["name"]
-                arguments = json.loads(tool_call["function"]["arguments"])
-                tasks[node].append(
-                    (
-                        group.create_task(
-                            TOOL_REGISTRY.call_tool(name, arguments, context_variables)
-                        ),
-                        tool_call,
-                    )
-                )
-    agents: dict[Hashable, list[Node]] = defaultdict(list)
-    for node, _tasks in tasks.items():
-        for task, tool_call in _tasks:
-            i = tool_call["id"]
-            name = tool_call["function"]["name"]
-            match result := task.result():
-                case str():
-                    messages[node].append(
-                        {"role": "tool", "content": result, "tool_call_id": i}
-                    )
-                case dict():
-                    context_variables |= result
-                case Agent() | Swarm():
-                    agents[node].append(result)
-                case list() if all(isinstance(i, Agent | Swarm) for i in result):
-                    agents[node].extend(result)
-                case Result() as response:
-                    agents[node].extend(response.agents)
-                    context_variables |= response.context_variables
-                    new_messages = [m for m in response.messages]
-                    for m in new_messages:
-                        if m["role"] == "tool":
-                            m["tool_call_id"] = i
-                        else:
-                            m["name"] = f"{name} ({i})"
-                    messages[node].extend(new_messages)
-                case mcp.types.CallToolResult():
-                    content = _mcp_call_tool_result_to_content(result)
-                    messages[node].append(
-                        {"role": "user", "content": content, "name": f"{name} ({i})"}
-                    )
-                case _:
-                    raise ValueError(f"Unknown result type: {type(result)}")
-    return messages, context_variables, agents
 
 
 # SECTION 5: Models
@@ -948,6 +1061,101 @@ class Swarm(BaseModel, nx.DiGraph):  # type: ignore
             self.add_edge(current_node, next_node)
         return messages
 
+    async def _call_tools_streaming(
+        self,
+        tool_calls: dict[Hashable, list[ChatCompletionMessageToolCallParam]],
+        current_node: Hashable,
+    ) -> AsyncIterator[ChatCompletionChunk | ChatCompletionMessageParam]:
+        tasks: dict[
+            Hashable, list[tuple[asyncio.Task, ChatCompletionMessageToolCallParam]]
+        ] = defaultdict(list)
+        async with asyncio.TaskGroup() as group:
+            for node, _tool_calls in tool_calls.items():
+                for tool_call in _tool_calls:
+                    name = tool_call["function"]["name"]
+                    arguments = json.loads(tool_call["function"]["arguments"])
+                    tasks[node].append(
+                        (
+                            group.create_task(
+                                TOOL_REGISTRY.call_tool(name, arguments, self.graph)
+                            ),
+                            tool_call,
+                        )
+                    )
+        agents: dict[Hashable, list[Node]] = defaultdict(list)
+        for node, _tasks in tasks.items():
+            for task, tool_call in _tasks:
+                tool_call_id = tool_call["id"]
+                name = tool_call["function"]["name"]
+                match result := task.result():
+                    case dict():
+                        self.graph |= result
+                    case Agent() | Swarm():
+                        agents[node].append(result)
+                    case list() if all(isinstance(i, Agent | Swarm) for i in result):
+                        agents[node].extend(result)
+                    case Result() as response:
+                        agents[node].extend(response.agents)
+                        self.graph |= response.context_variables
+                        for message, chunk in zip(
+                            response.messages, messages_to_chunks(response.messages)
+                        ):
+                            yield chunk
+                            yield message
+                    case mcp.types.CallToolResult() | str():
+                        if isinstance(result, str):
+                            content: list[ChatCompletionContentPartParam] = [
+                                {"type": "text", "text": result},
+                            ]
+                        else:
+                            content = _mcp_call_tool_result_to_content(result)
+                        for i, part in enumerate(content):
+                            yield ChatCompletionChunk.model_validate(
+                                {
+                                    "id": tool_call_id,
+                                    "choices": [
+                                        {
+                                            "index": 0,
+                                            "delta": {
+                                                "role": "tool" if i == 0 else None,
+                                                "content": content_part_to_str(part),
+                                                "finish_reason": "stop"
+                                                if i == len(content) - 1
+                                                else None,
+                                            },
+                                        }
+                                    ],
+                                    "created": now(),
+                                    "model": name,
+                                    "object": "chat.completion.chunk",
+                                }
+                            )
+                        yield {
+                            "role": "tool",
+                            "content": "".join(
+                                content_part_to_str(part) for part in content
+                            ),
+                            "tool_call_id": tool_call_id,
+                        }
+                    case _:
+                        raise ValueError(f"Unknown result type: {type(result)}")
+        for node, _successors in agents.items():
+            for s in _successors:
+                next_node = self._next_node
+                self.add_node(
+                    next_node,
+                    **(
+                        {"type": "agent", "agent": s}
+                        if isinstance(s, Agent)
+                        else {"type": "swarm", "swarm": s}
+                    ),
+                )
+                self.add_edge(node, next_node)
+        if len(agents) == 0 and len(list(self.successors(current_node))) == 0:
+            next_node = self._next_node
+            self.add_node(next_node, **(self.nodes[current_node] | {"executed": False}))
+            self.add_edge(current_node, next_node)
+
     async def _run_and_stream(
         self,
         *,
@@ -982,8 +1190,13 @@ class Swarm(BaseModel, nx.DiGraph):  # type: ignore
             }
             if self._would_early_stop(agents, tool_calls, execute_tools):
                 break
-            _messages = await self._call_tools(tool_calls, next(iter(agents)))
-            messages = [*messages, *[m for nm in _messages.values() for m in nm]]
+            async for chunk in self._call_tools_streaming(
+                tool_calls, next(iter(agents))
+            ):
+                if isinstance(chunk, dict):
+                    messages.append(chunk)
+                else:
+                    yield chunk
             agents = {
                 s: (
                     self.nodes[s]["agent"]

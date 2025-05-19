@@ -1,6 +1,6 @@
+import json
 from collections import defaultdict
 from typing import Annotated, Any
-from unittest.mock import MagicMock
 
 import mcp.types
 import pytest
@@ -21,9 +21,11 @@ from swarmx import (
     _mcp_call_tool_result_to_content,
     _resource_to_file,
     check_instructions,
+    content_part_to_str,
     function_to_json,
     merge_chunk,
     merge_chunks,
+    messages_to_chunks,
     validate_tool,
 )
 
@@ -687,20 +689,82 @@ def test_resource_to_file_blob():
 
     # Verify result
     assert result["type"] == "file"
+    assert result["file"]["file_data"] == "base64encodedblob"
+
+
+def test_content_part_to_str():
+    """Test content_part_to_str function with different content part types."""
+    # Test text part
+    text_part = {"type": "text", "text": "hello"}
+    assert content_part_to_str(text_part) == "hello"
+
+    # Test refusal part
+    refusal_part = {"type": "refusal", "refusal": "no"}
+    assert content_part_to_str(refusal_part) == "no"
+
+    # Test image_url part
+    image_part = {
+        "type": "image_url",
+        "image_url": {"url": "http://example.com/image.png"},
+    }
+    assert content_part_to_str(image_part) == "![](http://example.com/image.png)"
+
+    # Test unknown type
+    unknown_part = {
+        "type": "file",
+        "file": {"file_data": "base64encodedblob", "filename": "file.pdf"},
+    }
     assert (
-        result["file"]["file_data"] == "data:application/pdf;base64,base64encodedblob"
+        content_part_to_str(unknown_part)
+        == f"\n```json\n{json.dumps(unknown_part, ensure_ascii=False)}\n```\n"
     )
 
 
-def test_resource_to_file_unknown():
-    """Test converting unknown MCP resource type raises exception."""
-    # Create a mock EmbeddedResource with unknown resource type
-    resource = MagicMock(spec=mcp.types.EmbeddedResource)
-    resource.resource = MagicMock()  # Not a known type
+def test_messages_to_chunks():
+    """Test messages_to_chunks function with different message types."""
+    # Test simple text message
+    text_message = {"role": "assistant", "content": "hello"}
+    chunks = list(messages_to_chunks([text_message]))
+    assert len(chunks) == 1
+    assert chunks[0].choices[0].delta.content == "hello"
+    assert chunks[0].choices[0].finish_reason == "stop"
 
-    # Verify exception is raised
-    with pytest.raises(ValueError, match="Unknown resource type:"):
-        _resource_to_file(resource)
+    # Test message with multiple content parts
+    multi_part_message = {
+        "role": "assistant",
+        "content": [
+            {"type": "text", "text": "hello"},
+            {"type": "text", "text": " world"},
+        ],
+    }
+    chunks = list(messages_to_chunks([multi_part_message]))
+    assert len(chunks) == 2
+    assert chunks[0].choices[0].delta.content == "hello"
+    assert chunks[1].choices[0].delta.content == " world"
+    assert chunks[1].choices[0].finish_reason == "stop"
+
+    # Test message with refusal
+    refusal_message = {"role": "assistant", "refusal": "no"}
+    chunks = list(messages_to_chunks([refusal_message]))
+    assert len(chunks) == 1
+    assert chunks[0].choices[0].delta.refusal == "no"
+    assert chunks[0].choices[0].finish_reason == "content_filter"
+
+    # Test message with tool calls
+    tool_message = {
+        "role": "assistant",
+        "tool_calls": [
+            {
+                "id": "1",
+                "type": "function",
+                "function": {"name": "test", "arguments": "{}"},
+            }
+        ],
+    }
+    chunks = list(messages_to_chunks([tool_message]))
+    assert len(chunks) == 1
+    assert chunks[0].choices[0].delta.tool_calls[0].function.name == "test"
+    assert chunks[0].choices[0].finish_reason == "tool_calls"
 
 
 def test_mcp_call_tool_result_to_content():
