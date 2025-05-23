@@ -1,4 +1,5 @@
 import asyncio
+import base64
 import copy
 import inspect
 import json
@@ -88,6 +89,8 @@ from pydantic import (
     model_validator,
 )
 from pydantic.json_schema import GenerateJsonSchema
+from pygments.lexers import get_lexer_for_filename, get_lexer_for_mimetype, guess_lexer
+from pygments.util import ClassNotFound
 
 # SECTION 1: Backports or compatibility code
 # Pydantic requires Python 3.12's typing.Required, TypedDict
@@ -235,6 +238,7 @@ def merge_chunks(
 def content_part_to_str(  # type: ignore[return]
     part: ChatCompletionContentPartParam | ChatCompletionContentPartRefusalParam,
 ) -> str:
+    """Convert a content part to string."""
     match part["type"]:
         case "text":
             return part["text"]
@@ -248,10 +252,29 @@ def content_part_to_str(  # type: ignore[return]
                     mimetype = "audio/mpeg"
                 case "wav":
                     mimetype = "audio/wav"
-            src = "data:audio/" + mimetype + ";base64," + part["input_audio"]["data"]
+            src = "data:" + mimetype + ";base64," + part["input_audio"]["data"]
             return f'<audio controls><source src="{src}" type="{mimetype}"></audio>'
         case "file":
-            return f"\n```json\n{json.dumps(part, ensure_ascii=False)}\n```\n"
+            file_data = part["file"].get("file_data")
+            filename = part["file"].get("filename", "file")
+            if file_data is None or filename is None:
+                raise ValueError("File content/name is not available")
+            file_content = base64.decodebytes(file_data.encode())
+
+            try:
+                lexer = get_lexer_for_filename(filename)
+            except ClassNotFound:
+                try:
+                    file_content_decoded = file_content.decode()
+                    lexer = guess_lexer(file_content_decoded)
+                except (UnicodeDecodeError, ClassNotFound):
+                    lexer = None
+                    mime, _ = mimetypes.guess_type(filename)
+                    if mime is None or not mime.startswith("text/"):
+                        return f"[{filename}](data:application/octet-stream;base64,{file_data})"
+
+            lang = lexer.aliases[0] if lexer else "text"
+            return f'\n```{lang} title="{filename}"\n{file_content.decode()}\n```\n'
 
 
 def messages_to_chunks(messages: list[ChatCompletionMessageParam]):
@@ -425,26 +448,41 @@ def _image_content_to_url(
 def _resource_to_file(  # type: ignore[return]
     resource: mcp.types.EmbeddedResource,
 ) -> ChatCompletionContentPartTextParam | File:
+    def get_filename(c: mcp.types.ResourceContents) -> str:
+        if c.uri.path is not None:
+            filename = os.path.basename(c.uri.path)
+        elif c.uri.host is not None:
+            filename = c.uri.host
+        elif c.mimeType is not None:
+            ext = mimetypes.guess_extension(c.mimeType)
+            if ext is None:
+                raise ValueError(
+                    f"Cannot determine filename for resource. mimeType={c.mimeType}"
+                )
+            filename = f"file{ext}"
+        else:
+            raise ValueError("Cannot determine filename for resource.")
+        return filename
+
+    filename = get_filename(resource.resource)
     match resource.resource:
         case mcp.types.TextResourceContents() as c:
+            if c.mimeType is None:
+                try:
+                    lexer = get_lexer_for_filename(filename)
+                except ClassNotFound:
+                    lexer = None
+            else:
+                try:
+                    lexer = get_lexer_for_mimetype(c.mimeType)
+                except ClassNotFound:
+                    lexer = None
+            lang = lexer.aliases[0] if lexer else "text"
             return {
                 "type": "text",
-                "text": c.text,
+                "text": f'\n```{lang} title="{c.uri}"\n{c.text}\n```\n',
             }
         case mcp.types.BlobResourceContents() as c:
-            if c.uri.path is not None:
-                filename = os.path.basename(c.uri.path)
-            elif c.uri.host is not None:
-                filename = c.uri.host
-            elif c.mimeType is not None:
-                ext = mimetypes.guess_extension(c.mimeType)
-                if ext is None:
-                    raise ValueError(
-                        f"Cannot determine filename for resource. mimeType={c.mimeType}"
-                    )
-                filename = f"file{ext}"
-            else:
-                raise ValueError("Cannot determine filename for resource.")
             return {
                 "type": "file",
                 "file": {
@@ -722,7 +760,10 @@ class Agent(BaseModel):
         logger.debug("Getting chat completion for...:", messages)
 
         # hide context_variables from model
-        tools = self.model_dump(mode="json", exclude={"api_key"})["tools"]
+        tools = [
+            *self.model_dump(mode="json", exclude={"api_key"})["tools"],
+            *TOOL_REGISTRY.tools.values(),
+        ]
         for tool in tools:
             params: dict[str, Any] = tool["function"].get(
                 "parameters", {"properties": {}}
@@ -732,7 +773,8 @@ class Agent(BaseModel):
                 params["required"].remove(__CTX_VARS_NAME__)
 
         create_params = self.completion_create_params | create_params
-        create_params["tools"] = tools
+        if len(tools) > 0:
+            create_params["tools"] = tools
 
         return await (self.client or DEFAULT_CLIENT).chat.completions.create(
             stream=stream, **create_params
@@ -1119,10 +1161,10 @@ class Swarm(BaseModel, nx.DiGraph):  # type: ignore
                                             "delta": {
                                                 "role": "tool" if i == 0 else None,
                                                 "content": content_part_to_str(part),
-                                                "finish_reason": "stop"
-                                                if i == len(content) - 1
-                                                else None,
                                             },
+                                            "finish_reason": "stop"
+                                            if i == len(content) - 1
+                                            else None,
                                         }
                                     ],
                                     "created": now(),
