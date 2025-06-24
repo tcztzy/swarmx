@@ -1,13 +1,4 @@
-# SwarmX (forked from OpenAI's Swarm)
-
-[![PyPI version](https://img.shields.io/pypi/v/swarmx)](https://pypi.org/project/swarm)
-[![Python Version](https://img.shields.io/pypi/pyversions/swarmx)](https://pypi.org/project/swarmx/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Downloads](https://img.shields.io/pypi/dm/swarmx)](https://pepy.tech/project/swarmx)
-[![GitHub stars](https://img.shields.io/github/stars/tcztzy/swarmx.svg)](https://github.com/tcztzy/swarmx/stargazers)
-[![GitHub forks](https://img.shields.io/github/forks/tcztzy/swarmx.svg)](https://github.com/tcztzy/swarmx/network)
-[![GitHub issues](https://img.shields.io/github/issues/tcztzy/swarmx.svg)](https://github.com/tcztzy/swarmx/issues)
-[![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/psf/black)
+# SwarmX
 
 An extreme simple framework exploring ergonomic, lightweight multi-agent orchestration.
 
@@ -16,7 +7,7 @@ An extreme simple framework exploring ergonomic, lightweight multi-agent orchest
 2. MCP servers support
 3. OpenAI-compatible streaming-server
 
-![asciicast](./docs/demo.svg)
+![asciicast](./demo.svg)
 
 ## Star History
 

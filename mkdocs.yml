@@ -1,0 +1,43 @@
+site_name: SwarmX
+site_url: https://tcztzy.github.io/swarmx/
+repo_url: https://github.com/tcztzy/swarmx
+
+theme:
+  name: material
+  features:
+    - navigation.indexes
+    - content.code.annotate
+  palette:
+    - scheme: default
+      primary: indigo
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    - scheme: slate
+      primary: deep purple
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+
+plugins:
+- search
+- literate-nav:
+    nav_file: SUMMARY.md
+- mkdocstrings:
+    handlers:
+      python:
+        rendering:
+          show_source: true
+          show_root_heading: false
+
+markdown_extensions:
+- admonition
+- pymdownx.superfences:
+    custom_fences:
+      - name: mermaid
+        class: mermaid
+        format: !!python/name:pymdownx.superfences.fence_code_format
+- attr_list
+
+nav:
+- Home: index.md

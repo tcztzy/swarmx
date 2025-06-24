@@ -44,7 +44,15 @@ dev = [
     "prefligit",
     "mcp-server-time>=0.6.2",
     "pre-commit>=4.2.0",
-    {include-group = "test"},
+    { include-group = "docs" },
+    { include-group = "test" },
+]
+docs = [
+    "mkdocs>=1.6.1",
+    "mkdocs-gen-files>=0.5.0",
+    "mkdocs-literate-nav>=0.6.2",
+    "mkdocs-material>=9.6.14",
+    "mkdocstrings[python]>=0.29.1",
 ]
 test = [
     "tox>=4.26.0",
