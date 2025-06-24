@@ -18,6 +18,10 @@ An extreme simple framework exploring ergonomic, lightweight multi-agent orchest
 
 ![asciicast](demo.svg)
 
+## Star History
+
+[![Star History Chart](https://api.star-history.com/svg?repos=tcztzy/swarmx&type=Date)](https://www.star-history.com/#tcztzy/swarmx&Date)
+
 ## Quick start
 
 After setting `OPENAI_API_KEY` environment variable, you can start a simple REPL by running the following command:
