@@ -13,6 +13,7 @@ from collections import defaultdict
 from contextlib import AsyncExitStack
 from dataclasses import dataclass, field
 from datetime import datetime
+from functools import wraps
 from pathlib import Path
 from typing import (
     Annotated,
@@ -1411,16 +1412,15 @@ async def main(
     await TOOL_REGISTRY.close()
 
 
+def repl():
+    """SwarmX REPL wrapper"""
+
+    @wraps(main)
+    def repl_main(*args, **kwargs):
+        return asyncio.run(main(*args, **kwargs))
+
+    typer.run(repl_main)
+
+
 if __name__ == "__main__":
-    from functools import wraps
-
-    def repl():
-        """SwarmX REPL wrapper"""
-
-        @wraps(main)
-        def repl_main(*args, **kwargs):
-            return asyncio.run(main(*args, **kwargs))
-
-        typer.run(repl_main)
-
     repl()

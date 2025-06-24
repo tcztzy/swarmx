@@ -1,11 +1,22 @@
 # SwarmX (forked from OpenAI's Swarm)
 
+[![PyPI version](https://img.shields.io/pypi/v/swarmx)](https://pypi.org/project/swarm)
+[![Python Version](https://img.shields.io/pypi/pyversions/swarmx)](https://pypi.org/project/swarmx/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Downloads](https://img.shields.io/pypi/dm/swarmx)](https://pepy.tech/project/swarmx)
+[![GitHub stars](https://img.shields.io/github/stars/tcztzy/swarmx.svg)](https://github.com/tcztzy/swarmx/stargazers)
+[![GitHub forks](https://img.shields.io/github/forks/tcztzy/swarmx.svg)](https://github.com/tcztzy/swarmx/network)
+[![GitHub issues](https://img.shields.io/github/issues/tcztzy/swarmx.svg)](https://github.com/tcztzy/swarmx/issues)
+[![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/psf/black)
+
 An extreme simple framework exploring ergonomic, lightweight multi-agent orchestration.
 
 ## Highlights
 1. SwarmX is both Agent and Workflow
 2. MCP servers support
-3. Single file and about 1000 lines and simple dependencies (`openai`, `networkx`, `mcp`, `typer` and `jinja2`)
+3. OpenAI-compatible streaming-server
+
+![asciicast](demo.svg)
 
 ## Quick start
 
@@ -14,15 +25,43 @@ After setting `OPENAI_API_KEY` environment variable, you can start a simple REPL
 ```shell
 export OPENAI_API_KEY="your-api-key"
 # export OPENAI_BASE_URL="http://localhost:11434/v1"  # optional
-uvx swarmx
+uvx swarmx  # Start interactive REPL
+```
+
+### API Server
+
+You can also start SwarmX as an OpenAI-compatible API server:
+
+```shell
+uvx swarmx serve --host 0.0.0.0 --port 8000
+```
+
+This provides OpenAI-compatible endpoints:
+- `POST /v1/chat/completions` - Chat completions with streaming support
+- `GET /v1/models` - List available models
+
+Use it with any OpenAI-compatible client:
+
+```python
+import openai
+
+client = openai.OpenAI(
+    base_url="http://localhost:8000/v1",
+    api_key="dummy"  # SwarmX doesn't require authentication
+)
+
+response = client.chat.completions.create(
+    model="gpt-4o",
+    messages=[{"role": "user", "content": "Hello!"}]
+)
 ```
 
 ## Install
 
-Requires Python 3.10+
+Requires Python 3.11+
 
 ```shell
-pip install swarmx
+pip install swarmx # or `uv tool install swarmx`
 ```
 
 ## Usage

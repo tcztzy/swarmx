@@ -1,6 +1,6 @@
 [project]
 name = "swarmx"
-version = "0.6.1"
+version = "0.6.2"
 authors = [
     { name = "Tang Ziya", email = "tcztzy@gmail.Com" }
 ]
@@ -16,6 +16,21 @@ dependencies = [
     "typer",
 ]
 requires-python = ">=3.11"  # for asyncio.TaskGroup & except* syntax
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: System :: Distributed Computing",
+    "Typing :: Typed",
+]
 
 [project.scripts]
 swarmx = "swarmx:repl"
@@ -28,6 +43,7 @@ build-backend = "hatchling.build"
 dev = [
     "prefligit",
     "mcp-server-time>=0.6.2",
+    "pre-commit>=4.2.0",
     {include-group = "test"},
 ]
 test = [
