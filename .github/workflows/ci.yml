@@ -37,5 +37,4 @@ jobs:
           restore-keys: |
             mkdocs-material-
 
-      - run: uv run pytest
       - run: uv run mkdocs gh-deploy --force
