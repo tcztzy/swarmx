@@ -1,6 +1,6 @@
 [project]
 name = "swarmx"
-version = "0.6.2"
+version = "0.6.3a0"
 authors = [
     { name = "Tang Ziya", email = "tcztzy@gmail.Com" }
 ]
@@ -8,12 +8,14 @@ description = "A lightweight, stateless multi-agent orchestration framework."
 readme = "README.md"
 license = "MIT"
 dependencies = [
+    "fastapi>=0.115.13",
     "jinja2",
     "mcp",
     "networkx",
     "openai",
     "pydantic",
     "typer",
+    "uvicorn",
 ]
 requires-python = ">=3.11"  # for asyncio.TaskGroup & except* syntax
 classifiers = [
@@ -33,7 +35,7 @@ classifiers = [
 ]
 
 [project.scripts]
-swarmx = "swarmx:repl"
+swarmx = "swarmx:app"
 
 [build-system]
 requires = ["hatchling"]

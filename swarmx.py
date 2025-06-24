@@ -1,6 +1,7 @@
 import asyncio
 import base64
 import copy
+import importlib.metadata
 import inspect
 import json
 import logging
@@ -13,7 +14,6 @@ from collections import defaultdict
 from contextlib import AsyncExitStack
 from dataclasses import dataclass, field
 from datetime import datetime
-from functools import wraps
 from pathlib import Path
 from typing import (
     Annotated,
@@ -36,6 +36,9 @@ from typing import (
 import mcp.types
 import networkx as nx
 import typer
+import uvicorn
+from fastapi import FastAPI
+from fastapi.responses import StreamingResponse
 from jinja2 import Template
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.sse import sse_client
@@ -70,7 +73,10 @@ from openai.types.chat.chat_completion_message_tool_call_param import (
     ChatCompletionMessageToolCallParam,
 )
 from openai.types.chat.chat_completion_tool_param import ChatCompletionToolParam
-from openai.types.chat.completion_create_params import CompletionCreateParamsBase
+from openai.types.chat.completion_create_params import (
+    CompletionCreateParams,
+    CompletionCreateParamsBase,
+)
 from openai.types.chat_model import ChatModel
 from pydantic import (
     AfterValidator,
@@ -81,6 +87,7 @@ from pydantic import (
     Field,
     ImportString,
     ModelWrapValidatorHandler,
+    RootModel,
     TypeAdapter,
     ValidationError,
     create_model,
@@ -102,6 +109,10 @@ if PY_312:
 else:
     from typing_extensions import Required, TypedDict
 
+try:
+    __version__ = importlib.metadata.version("swarmx")
+except importlib.metadata.PackageNotFoundError:
+    __version__ = "0.0.0"
 
 mimetypes.add_type("text/markdown", ".md")
 warnings.filterwarnings("ignore", category=UserWarning, module="pydantic")
@@ -1412,15 +1423,166 @@ async def main(
     await TOOL_REGISTRY.close()
 
 
-def repl():
-    """SwarmX REPL wrapper"""
+class ChatCompletionRequest(BaseModel):
+    """Request model for chat completions."""
 
-    @wraps(main)
-    def repl_main(*args, **kwargs):
-        return asyncio.run(main(*args, **kwargs))
+    messages: list[ChatCompletionMessageParam]
+    model: str = "gpt-4o"
+    stream: bool = False
+    temperature: float | None = None
+    max_tokens: int | None = None
 
-    typer.run(repl_main)
+
+def create_server_app(swarm: Swarm) -> FastAPI:
+    """Create FastAPI app with OpenAI-compatible endpoints."""
+    app = FastAPI(title="SwarmX API", version=__version__)
+
+    @app.get("/v1/models")
+    async def list_models():
+        """List available models."""
+        # Get unique models from all agents in the swarm
+
+        return {
+            "object": "list",
+            "data": [
+                {
+                    "id": swarm.name,
+                    "object": "model",
+                    "created": int(datetime.now().timestamp()),
+                    "owned_by": "swarmx",
+                }
+            ],
+        }
+
+    @app.post("/v1/chat/completions")
+    async def chat_completions(request: RootModel[CompletionCreateParams]):
+        """Handle chat completions with streaming support."""
+        messages = list(request.root["messages"])
+        stream = request.root.get("stream", False) or False
+        model = request.root["model"]
+
+        # Update the swarm's default model if specified
+        for node_id, node_data in swarm.nodes(data=True):
+            if node_data.get("type") == "agent":
+                agent = node_data.get("agent")
+                if agent:
+                    agent.model = model
+                    break
+        if not stream:
+            raise NotImplementedError("Non-streaming response is not supported.")
+
+        async def generate_stream():
+            """Generate streaming response."""
+            try:
+                async for chunk in await swarm.run(
+                    messages=messages,
+                    stream=True,
+                ):
+                    # Convert SwarmX chunk to OpenAI format
+                    yield f"data: {json.dumps(chunk.model_dump())}\n\n"
+            except Exception as e:
+                error_chunk = {
+                    "id": f"chatcmpl-{get_random_string(10)}",
+                    "object": "chat.completion.chunk",
+                    "created": int(datetime.now().timestamp()),
+                    "model": model,
+                    "choices": [
+                        {
+                            "index": 0,
+                            "delta": {"content": f"Error: {str(e)}"},
+                            "finish_reason": "stop",
+                        }
+                    ],
+                }
+                yield f"data: {json.dumps(error_chunk)}\n\n"
+            finally:
+                yield "data: [DONE]\n\n"
+
+        return StreamingResponse(generate_stream())
+
+    return app
+
+
+# Create the main typer app
+app = typer.Typer(help="SwarmX Command Line Interface")
+
+
+@app.callback(invoke_without_command=True)
+def repl(
+    ctx: typer.Context,
+    model: Annotated[
+        str, typer.Option("--model", "-m", help="The model to use for the agent")
+    ] = "gpt-4o",
+    file: Annotated[
+        Path | None,
+        typer.Option(
+            "--file",
+            "-f",
+            exists=True,
+            help="The path to the swarmx file (networkx node_link_data with additional `mcpServers` key)",
+        ),
+    ] = None,
+    output: Annotated[
+        Path | None,
+        typer.Option(
+            "--output",
+            "-o",
+            writable=True,
+            help="The path to the output file to save the conversation",
+        ),
+    ] = None,
+    verbose: Annotated[
+        bool,
+        typer.Option(
+            "--verbose/--quiet", "-v/-q", help="Print the data sent to the model"
+        ),
+    ] = False,
+):
+    """Start SwarmX REPL (default command)."""
+    if ctx.invoked_subcommand is not None:
+        return
+    asyncio.run(main(model=model, file=file, output=output, verbose=verbose))
+
+
+@app.command()
+def serve(
+    host: Annotated[
+        str, typer.Option("--host", help="Host to bind the server to")
+    ] = "127.0.0.1",
+    port: Annotated[
+        int, typer.Option("--port", help="Port to bind the server to")
+    ] = 8000,
+    model: Annotated[
+        str,
+        typer.Option("--model", "-m", help="The default model to use for the agent"),
+    ] = "gpt-4o",
+    file: Annotated[
+        Path | None,
+        typer.Option(
+            "--file",
+            "-f",
+            exists=True,
+            help="The path to the swarmx file (networkx node_link_data with additional `mcpServers` key)",
+        ),
+    ] = None,
+):
+    """Start SwarmX as an OpenAI-compatible API server."""
+    # Load swarm configuration
+    if file is None:
+        data = {}
+    else:
+        data = json.loads(file.read_text())
+
+    swarm = Swarm.model_validate(data)
+    if not swarm.nodes:
+        swarm.add_node(0, type="agent", agent=Agent(name="Assistant", model=model))
+
+    # Create FastAPI app
+    fastapi_app = create_server_app(swarm)
+
+    # Start the server
+    uvicorn.run(fastapi_app, host=host, port=port)
 
 
 if __name__ == "__main__":
-    repl()
+    app()
