@@ -15,6 +15,7 @@ An extreme simple framework exploring ergonomic, lightweight multi-agent orchest
 1. SwarmX is both Agent and Workflow
 2. MCP servers support
 3. OpenAI-compatible streaming-server
+4. Workflow import/export in JSON format
 
 ![asciicast](./docs/demo.svg)
 

@@ -6,8 +6,47 @@ An extreme simple framework exploring ergonomic, lightweight multi-agent orchest
 1. SwarmX is both Agent and Workflow
 2. MCP servers support
 3. OpenAI-compatible streaming-server
+4. Workflow import/export in JSON format
 
 ![asciicast](./demo.svg)
+
+## JSON Format Details
+SwarmX supports importing and exporting workflows in JSON format. The JSON structure includes:
+- `nodes`: List of nodes with their type (`agent` or `swarm`) and associated data
+- `edges`: List of edges connecting nodes, optionally with conditions
+- `mcpServers`: Optional configuration for MCP servers
+
+Example JSON structure:
+```json
+{
+  "nodes": [
+    {
+      "id": 0,
+      "type": "agent",
+      "agent": {
+        "name": "Assistant",
+        "model": "gpt-4o",
+        "instructions": "You are a helpful agent."
+      }
+    },
+    {
+      "id": 1,
+      "type": "agent",
+      "agent": {
+        "name": "Specialist",
+        "model": "deepseek-r1:7b",
+        "instructions": "You are a specialist agent."
+      }
+    }
+  ],
+  "edges": [
+    {
+      "source": 0,
+      "target": 1
+    }
+  ]
+}
+```
 
 ## Star History
 
