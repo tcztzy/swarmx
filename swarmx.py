@@ -140,7 +140,7 @@ class SwarmNodeData(TypedDict, total=False):
 
 # SECTION 2: Constants and type aliases
 __CTX_VARS_NAME__ = "context_variables"
-DEFAULT_CLIENT = AsyncOpenAI()
+DEFAULT_CLIENT: AsyncOpenAI | None = None
 RANDOM_STRING_CHARS = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 
 Node: TypeAlias = "Agent | Swarm"
@@ -672,7 +672,7 @@ class Result(BaseModel):
 
 
 class Agent(BaseModel):
-    name: str = Field("Agent", strict=True, max_length=256)
+    name: Annotated[str, Field(strict=True, max_length=256)] = "Agent"
     """User-friendly name for the display"""
 
     model: ChatModel | str = "deepseek-reasoner"
@@ -788,7 +788,7 @@ class Agent(BaseModel):
         if len(tools) > 0:
             create_params["tools"] = tools
 
-        return await (self.client or DEFAULT_CLIENT).chat.completions.create(
+        return await (self.client or DEFAULT_CLIENT or AsyncOpenAI()).chat.completions.create(
             stream=stream, **create_params
         )
 
