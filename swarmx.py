@@ -772,7 +772,7 @@ class Agent(BaseModel):
         logger.debug("Getting chat completion for...:", messages)
 
         # hide context_variables from model
-        tools = [
+        tools: list[ChatCompletionToolParam] = [
             *self.model_dump(mode="json", exclude={"api_key"})["tools"],
             *TOOL_REGISTRY.tools.values(),
         ]

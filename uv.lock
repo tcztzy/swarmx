@@ -1111,7 +1111,7 @@ wheels = [
 
 [[package]]
 name = "swarmx"
-version = "0.6.2"
+version = "0.6.3a1"
 source = { editable = "." }
 dependencies = [
     { name = "fastapi" },
