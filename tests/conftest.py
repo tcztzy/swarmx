@@ -217,7 +217,7 @@ def client(
                                 if message["role"] == "assistant"
                             ]
                         )
-    with patch("swarmx.DEFAULT_CLIENT", mock_openai):
+    with patch("swarmx.agent.DEFAULT_CLIENT", mock_openai):
         yield
 
 

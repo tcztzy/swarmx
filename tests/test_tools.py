@@ -121,8 +121,8 @@ async def test_call_tool_not_found(tool_registry):
 
 async def test_add_mcp_server():
     with (
-        patch("swarmx.stdio_client") as mock_stdio_client,
-        patch("swarmx.ClientSession") as mock_client_session,
+        patch("swarmx.agent.stdio_client") as mock_stdio_client,
+        patch("swarmx.agent.ClientSession") as mock_client_session,
     ):
         # Setup mocks
         mock_client = AsyncMock()
