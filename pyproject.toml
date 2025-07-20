@@ -43,7 +43,6 @@ build-backend = "uv_build"
 
 [dependency-groups]
 dev = [
-    "prefligit",
     "mcp-server-time>=0.6.2",
     "pre-commit>=4.2.0",
     { include-group = "docs" },
@@ -63,7 +62,16 @@ test = [
 ]
 
 [tool.ruff.lint]
-extend-select = ["I", "T20"]
+extend-select = ["D", "F", "I", "T20"]
+ignore = [
+    "D203",  # incorrect-blank-line-before-class
+    "D213",  # multi-line-summary-second-line
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = [
+    "D"
+]
 
 [tool.mypy]
 plugins = ['pydantic.mypy']

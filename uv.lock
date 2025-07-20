@@ -824,18 +824,6 @@ wheels = [
 ]
 
 [[package]]
-name = "prefligit"
-version = "0.0.10"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/fa/40/f31f3f4570776da072df0764511d82dbccdbda335f0f64c75c32526f68bb/prefligit-0.0.10.tar.gz", hash = "sha256:1c699afc61e45e278c9da6007e82c5e22cc794f1c8d7a54b7a84d3a4611309da", size = 107278, upload-time = "2025-02-18T08:41:32.076Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/82/33/41b37e527947d803e18a592d873ce44cc5d1dc17347f9754e8dd843c64d8/prefligit-0.0.10-py3-none-macosx_10_12_x86_64.whl", hash = "sha256:b0d73361bb5453bfca3edaaba1c08948ef92cfeef75c642b15d916781ef0ac58", size = 4324137, upload-time = "2025-02-18T08:41:18.651Z" },
-    { url = "https://files.pythonhosted.org/packages/6a/f8/a2448448e4b70d8990a00d1df5a9c9f551674c2c36f3dc988002c0245ea0/prefligit-0.0.10-py3-none-macosx_11_0_arm64.whl", hash = "sha256:22cc60be9fb4ce4178b6535d60825a0977a16265b58814247c351870091f54c3", size = 4148062, upload-time = "2025-02-18T08:41:21.204Z" },
-    { url = "https://files.pythonhosted.org/packages/36/9a/c4044e0513775b37a2b4980d1524017c58bf54a9368a1cbfee8ee8ed4f73/prefligit-0.0.10-py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:4565296552f48a1a22dc782d063da13aff4dfe46db56e967602271a7c8103847", size = 4656247, upload-time = "2025-02-18T08:41:26.426Z" },
-    { url = "https://files.pythonhosted.org/packages/44/09/a33638e5c6307c9a04ab8a3d80eb8405ebd473dc247eff5aa42117fb60ba/prefligit-0.0.10-py3-none-win_amd64.whl", hash = "sha256:0e4e2ae881c2bbb2dc0d592d08e2af0d4be4fe25fe71367dc90b2166d1a689fd", size = 3785929, upload-time = "2025-02-18T08:41:28.366Z" },
-]
-
-[[package]]
 name = "pydantic"
 version = "2.11.7"
 source = { registry = "https://pypi.org/simple" }
@@ -1308,7 +1296,6 @@ dev = [
     { name = "mkdocs-material" },
     { name = "mkdocstrings", extra = ["python"] },
     { name = "pre-commit" },
-    { name = "prefligit" },
     { name = "pytest" },
     { name = "pytest-cov" },
     { name = "tox" },
@@ -1347,7 +1334,6 @@ dev = [
     { name = "mkdocs-material", specifier = ">=9.6.14" },
     { name = "mkdocstrings", extras = ["python"], specifier = ">=0.29.1" },
     { name = "pre-commit", specifier = ">=4.2.0" },
-    { name = "prefligit" },
     { name = "pytest", specifier = ">=8.3.5" },
     { name = "pytest-cov", specifier = ">=6.1.1" },
     { name = "tox", specifier = ">=4.26.0" },

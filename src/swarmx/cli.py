@@ -1,3 +1,5 @@
+"""Command line interface for SwarmX."""
+
 import asyncio
 import json
 from datetime import datetime
@@ -17,9 +19,9 @@ from .agent import (
     TOOL_REGISTRY,
     Agent,
     Swarm,
-    __version__,
     get_random_string,
 )
+from .version import __version__
 
 
 async def main(
@@ -53,7 +55,6 @@ async def main(
     ] = False,
 ):
     """SwarmX Command Line Interface."""
-
     if file is None:
         data = {}
     else:
