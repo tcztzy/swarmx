@@ -18,9 +18,9 @@ from .agent import (
     __CTX_VARS_NAME__,
     TOOL_REGISTRY,
     Agent,
-    Swarm,
-    get_random_string,
 )
+from .swarm import Swarm
+from .utils import get_random_string
 from .version import __version__
 
 
