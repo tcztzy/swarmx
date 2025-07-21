@@ -9,13 +9,11 @@ readme = "README.md"
 license = "MIT"
 dependencies = [
     "fastapi>=0.115.13",
-    "jinja2",
-    "mcp",
-    "networkx",
-    "openai",
-    "pydantic",
-    "typer",
-    "uvicorn",
+    "jinja2>=3",
+    "mcp>=1.12.0",
+    "networkx>=3.5",
+    "openai>=1.97.0",
+    "typer>=0.16.0",
 ]
 requires-python = ">=3.11"  # for asyncio.TaskGroup & except* syntax
 classifiers = [
@@ -43,8 +41,6 @@ build-backend = "uv_build"
 
 [dependency-groups]
 dev = [
-    "mcp-server-time>=0.6.2",
-    "pre-commit>=4.2.0",
     { include-group = "docs" },
     { include-group = "test" },
 ]
@@ -56,7 +52,7 @@ docs = [
     "mkdocstrings[python]>=0.29.1",
 ]
 test = [
-    "tox>=4.26.0",
+    "mcp-server-time>=0.6.2",
     "pytest>=8.3.5",
     "pytest-cov>=6.1.1",
 ]
@@ -82,3 +78,11 @@ addopts = ["--cov=swarmx"]
 [tool.pyright]
 venvPath = "."
 venv = ".venv"
+
+[tool.tox]
+requires = ["tox>=4", "tox-uv>=1"]
+env_list = ["3.13", "3.12", "3.11"]
+
+[tool.tox.env_run_base]
+dependency_groups = ["test"]
+commands = [["pytest", { replace = "posargs", default = ["tests"], extend = true }]]

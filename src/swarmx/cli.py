@@ -60,8 +60,10 @@ async def main(
     else:
         data = json.loads(file.read_text())
     client = Swarm.model_validate(data)
-    if not client.nodes:
-        client.add_node(0, type="agent", agent=Agent(name="Assistant", model=model))
+    if not client.graph.nodes:
+        client.graph.add_node(
+            0, type="agent", agent=Agent(name="Assistant", model=model)
+        )
     messages: list[ChatCompletionMessageParam] = []
     context_variables: dict[str, Any] = data.pop(__CTX_VARS_NAME__, {})
     while True:
@@ -145,7 +147,7 @@ def create_server_app(swarm: Swarm) -> FastAPI:
         model = request.root["model"]
 
         # Update the swarm's default model if specified
-        for node_id, node_data in swarm.nodes(data=True):
+        for node_id, node_data in swarm.graph.nodes(data=True):
             if node_data.get("type") == "agent":
                 agent = node_data.get("agent")
                 if agent:
@@ -257,8 +259,10 @@ def serve(
         data = json.loads(file.read_text())
 
     swarm = Swarm.model_validate(data)
-    if not swarm.nodes:
-        swarm.add_node(0, type="agent", agent=Agent(name="Assistant", model=model))
+    if not swarm.graph.nodes:
+        swarm.graph.add_node(
+            0, type="agent", agent=Agent(name="Assistant", model=model)
+        )
 
     # Create FastAPI app
     fastapi_app = create_server_app(swarm)

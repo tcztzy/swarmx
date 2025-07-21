@@ -15,7 +15,6 @@ from typing import (
     Iterable,
     Literal,
     Required,
-    Self,
     TypedDict,
     cast,
     overload,
@@ -24,13 +23,7 @@ from typing import (
 import mcp.types
 import networkx as nx
 from mcp import StdioServerParameters
-from openai.types.chat.chat_completion_chunk import (
-    ChatCompletionChunk,
-    Choice,
-    ChoiceDelta,
-    ChoiceDeltaToolCall,
-    ChoiceDeltaToolCallFunction,
-)
+from openai.types.chat.chat_completion_chunk import ChatCompletionChunk
 from openai.types.chat.chat_completion_content_part_image_param import (
     ChatCompletionContentPartImageParam,
 )
@@ -49,15 +42,14 @@ from openai.types.chat.chat_completion_message_tool_call_param import (
     ChatCompletionMessageToolCallParam,
 )
 from pydantic import (
+    AliasChoices,
     BaseModel,
     Discriminator,
     Field,
-    ModelWrapValidatorHandler,
-    TypeAdapter,
-    ValidationError,
-    model_serializer,
-    model_validator,
+    GetCoreSchemaHandler,
+    field_validator,
 )
+from pydantic_core import core_schema
 from pygments.lexers import get_lexer_for_filename, get_lexer_for_mimetype, guess_lexer
 from pygments.util import ClassNotFound
 
@@ -266,150 +258,201 @@ def messages_to_chunks(messages: list[ChatCompletionMessageParam]):
                     id_to_name[tool_call["id"]] = tool_call["function"]["name"]
                 num_parts = len(content) + len(refusal) + len(tool_calls)
                 for i, part in enumerate(content):
-                    yield ChatCompletionChunk(
-                        id=message_id,
-                        choices=[
-                            Choice(
-                                index=0,
-                                delta=ChoiceDelta(
-                                    role=role if i == 0 else None,
-                                    content=content_part_to_str(part),
-                                ),
-                                finish_reason="stop" if i == num_parts - 1 else None,
-                            )
-                        ],
-                        created=now(),
-                        model=id_to_name.get(message_id, model),
-                        object="chat.completion.chunk",
+                    chunk = ChatCompletionChunk.model_validate(
+                        {
+                            "id": message_id,
+                            "choices": [
+                                {
+                                    "index": 0,
+                                    "delta": {"content": content_part_to_str(part)},
+                                }
+                            ],
+                            "created": now(),
+                            "model": id_to_name.get(message_id, model),
+                            "object": "chat.completion.chunk",
+                        }
                     )
+                    if i == 0:
+                        chunk.choices[0].delta.role = role
+                    if i == num_parts - 1:
+                        chunk.choices[0].finish_reason = "stop"
+                    yield chunk
                 for i, part in enumerate(refusal):
-                    yield ChatCompletionChunk(
-                        id=message_id,
-                        choices=[
-                            Choice(
-                                index=0,
-                                delta=ChoiceDelta(
-                                    role="assistant"
-                                    if i == 0 and len(content) == 0
-                                    else None,
-                                    refusal=content_part_to_str(part),
-                                ),
-                                finish_reason="content_filter"
-                                if i == num_parts - 1
-                                else None,
-                            )
-                        ],
-                        created=now(),
-                        model=model,
-                        object="chat.completion.chunk",
+                    chunk = ChatCompletionChunk.model_validate(
+                        {
+                            "id": message_id,
+                            "choices": [
+                                {
+                                    "index": 0,
+                                    "delta": {
+                                        "refusal": content_part_to_str(part),
+                                    },
+                                }
+                            ],
+                            "created": now(),
+                            "model": model,
+                            "object": "chat.completion.chunk",
+                        }
                     )
+                    if len(content) == 0 and i == 0:
+                        chunk.choices[0].delta.role = "assistant"
+                    if i == num_parts - 1:
+                        chunk.choices[0].finish_reason = "content_filter"
+                    yield chunk
                 if len(tool_calls) > 0:
-                    yield ChatCompletionChunk(
-                        id=message_id,
-                        choices=[
-                            Choice(
-                                index=0,
-                                delta=ChoiceDelta(
-                                    role="assistant" if len(content) == 0 else None,
-                                    tool_calls=[
-                                        ChoiceDeltaToolCall(
-                                            index=i,
-                                            id=tool_call["id"],
-                                            function=ChoiceDeltaToolCallFunction(
-                                                name=tool_call["function"]["name"],
-                                                arguments=tool_call["function"][
-                                                    "arguments"
-                                                ],
-                                            ),
-                                            type="function",
-                                        )
-                                        for i, tool_call in enumerate(tool_calls)
-                                    ],
-                                ),
-                                finish_reason="tool_calls",
-                            )
-                        ],
-                        created=now(),
-                        model=model,
-                        object="chat.completion.chunk",
+                    chunk = ChatCompletionChunk.model_validate(
+                        {
+                            "id": message_id,
+                            "choices": [
+                                {
+                                    "index": 0,
+                                    "delta": {
+                                        "tool_calls": [
+                                            {"index": i} | tool_call
+                                            for i, tool_call in enumerate(tool_calls)
+                                        ],
+                                    },
+                                    "finish_reason": "tool_calls",
+                                }
+                            ],
+                            "created": now(),
+                            "model": model,
+                            "object": "chat.completion.chunk",
+                        }
                     )
+                    if len(content) == 0:
+                        chunk.choices[0].delta.role = "assistant"
+                    yield chunk
 
 
-class Swarm(BaseModel, nx.DiGraph):  # noqa # type: ignore
-    mcpServers: dict[str, StdioServerParameters | str] | None = None
-    graph: dict = Field(default_factory=dict)
+class Graph(nx.DiGraph):
+    """Graph for a swarm.
 
-    @model_validator(mode="wrap")
+    This is a thin wrapper around a networkx DiGraph to provide
+    serialization and deserialization.
+
+    """
+
     @classmethod
-    def node_link_validator(
-        cls, data: Any, handler: ModelWrapValidatorHandler[Self]
-    ) -> Self:
-        """Validate the swarm data using node-link format.
+    def __get_pydantic_core_schema__(
+        cls, source_type: Any, handler: GetCoreSchemaHandler
+    ):
+        """Get the Pydantic core schema for the graph.
 
-        See https://networkx.org/documentation/stable/reference/readwrite/generated/networkx.readwrite.json_graph.node_link_data.html
+        We use node_link_data format for serialization and deserialization.
 
         """
-        if not isinstance(data, dict):
-            raise ValidationError("Swarm must be a dictionary")
-        swarm = handler(data)
-        for node in data.get("nodes", []):
-            swarm.add_node(
-                node["id"],
-                **TypeAdapter(NodeData).validate_python(node),
-            )
-        for edge in data.get("edges", []):
-            edge = copy.deepcopy(edge)
-            if not isinstance(edge, dict):
-                raise ValidationError("Edge must be a dictionary")
-            if (source := edge.pop("source", None)) is None or (
-                target := edge.pop("target", None)
-            ) is None:
-                raise ValidationError("Edge must have source and target")
-            # Validate condition if present
-            if "condition" in edge:
-                if isinstance(edge["condition"], str):
-                    edge["condition"] = condition_parser(edge["condition"])
-                if not callable(edge["condition"]):
-                    raise ValueError("Edge condition must be callable")
-            swarm.add_edge(source, target, **edge)
-        return swarm
 
-    @model_serializer()
-    def serialize_swarm(self):  # noqa
-        swarm = {
-            "nodes": [
-                {"id": node}
-                | json.loads(TypeAdapter(NodeData).dump_json(data, exclude_none=True))
-                for node, data in self.nodes(data=True)
-            ],
-            "edges": [
+        def validate(v: Any) -> Graph:
+            if isinstance(v, Graph):
+                return v
+            if isinstance(v, dict):
+                return nx.node_link_graph(
+                    v, edges="edges", directed=True, multigraph=False
+                )
+            raise ValueError("Invalid graph")
+
+        def serialize(v: Graph) -> dict[str, Any]:
+            data: dict = nx.node_link_data(v, edges="edges")
+            return {k: v for k, v in data.items() if k in ["nodes", "edges", "graph"]}
+
+        return core_schema.json_or_python_schema(
+            json_schema=core_schema.typed_dict_schema(
                 {
-                    "source": u if isinstance(u, int) else str(u),
-                    "target": v if isinstance(v, int) else str(v),
+                    "nodes": core_schema.typed_dict_field(core_schema.list_schema()),
+                    "edges": core_schema.typed_dict_field(core_schema.list_schema()),
+                    "graph": core_schema.typed_dict_field(core_schema.dict_schema()),
                 }
-                | data
-                for u, v, data in self.edges(data=True)
-            ],
-            "graph": self.graph,
-        }
-        if self.mcpServers:
-            swarm["mcpServers"] = {
-                name: server_params.model_dump()
-                if isinstance(server_params, StdioServerParameters)
-                else server_params
-                for name, server_params in self.mcpServers.items()
-            }
-        return swarm
+            ),
+            python_schema=core_schema.no_info_plain_validator_function(validate),
+            serialization=core_schema.plain_serializer_function_ser_schema(serialize),
+        )
+
+
+class Swarm(BaseModel, frozen=True, extra="forbid"):
+    """Swarm of agents and swarms.
+
+    A swarm is a directed graph of agents and swarms.
+    Each node in the graph is either an agent or a swarm.
+    Each edge in the graph represents a handoff between nodes.
+
+    """
+
+    mcp_servers: dict[str, StdioServerParameters | str] = Field(
+        default_factory=dict,
+        validation_alias=AliasChoices("mcp_servers", "mcpServers"),
+        serialization_alias="mcpServers",
+    )
+    graph: Graph = Field(
+        default_factory=Graph,
+        validation_alias=AliasChoices("graph", "G"),
+        serialization_alias="G",
+    )
+
+    @field_validator("graph", mode="after")
+    def validate_graph(cls, v: Graph) -> Graph:
+        """Validate the graph.
+
+        We check that the graph is a DAG and that it has exactly one root node.
+
+        """
+        for node, data in v.nodes(data=True):
+            if "type" not in data:
+                raise ValueError(f"Node {node} must have a type")
+            if data["type"] == "agent" and "agent" not in data:
+                raise ValueError(f"Node {node} must have an agent")
+            if data["type"] == "swarm" and "swarm" not in data:
+                raise ValueError(f"Node {node} must have a swarm")
+            kls = Swarm if data["type"] == "swarm" else Agent
+            v.nodes[node][data["type"]] = kls.model_validate(data[data["type"]])
+        return v
 
     @property
-    def root(self) -> Any:  # noqa
-        roots = [node for node, degree in self.in_degree if degree == 0]
+    def root(self) -> Any:  # noqa: D102
+        roots = [node for node, degree in self.graph.in_degree if degree == 0]
         if len(roots) != 1:
             raise ValueError("Swarm must have exactly one root node")
         return roots[0]
 
-    def model_post_init(self, __context: Any) -> None:  # noqa
-        nx.DiGraph.__init__(self)
+    @property
+    def nodes(self):  # noqa: D102
+        return self.graph.nodes
+
+    @property
+    def edges(self):  # noqa: D102
+        return self.graph.edges
+
+    @property
+    def G(self):  # noqa: D102
+        return self.graph
+
+    def successors(self, node: Hashable) -> list[Hashable]:
+        """Get successors of a node.
+
+        Args:
+            node: The node to get successors for
+
+        Returns:
+            List of successor nodes
+
+        """
+        return list(self.graph.successors(node))
+
+    def add_node(self, node_for_adding: Hashable, **attr: Any):
+        """Add a node with optional attributes.
+
+        Args:
+            node_for_adding: Node to add
+            **attr: Additional node attributes
+
+        """
+        if "type" not in attr:
+            raise ValueError("Node must have a type")
+        if attr["type"] == "agent" and "agent" not in attr:
+            raise ValueError("Node must have an agent")
+        if attr["type"] == "swarm" and "swarm" not in attr:
+            raise ValueError("Node must have a swarm")
+        self.graph.add_node(node_for_adding, **attr)
 
     def add_edge(self, u_of_edge: Hashable, v_of_edge: Hashable, **attr: Any):
         """Add an edge between nodes u and v with optional condition.
@@ -421,18 +464,18 @@ class Swarm(BaseModel, nx.DiGraph):  # noqa # type: ignore
             **attr: Additional edge attributes
 
         """
-        if u_of_edge not in self._node:
+        if u_of_edge not in self.graph._node:
             raise ValueError(f"Node {u_of_edge} not found")
-        if v_of_edge not in self._node:
+        if v_of_edge not in self.graph._node:
             raise ValueError(f"Node {v_of_edge} not found")
         condition = attr.get("condition", None)
         if condition is not None and not callable(condition_parser(condition)):
             raise ValueError("Edge condition must be callable")
-        super().add_edge(u_of_edge, v_of_edge, **attr)
+        self.graph.add_edge(u_of_edge, v_of_edge, **attr)
 
     @property
     def _next_node(self) -> int:
-        return max([i for i in self.nodes if isinstance(i, int)] + [-1]) + 1
+        return max([i for i in self.graph.nodes if isinstance(i, int)] + [-1]) + 1
 
     def active_successors(self, node: Hashable) -> list[Hashable]:
         """Get successors of a node that have satisfied conditions.
@@ -445,10 +488,10 @@ class Swarm(BaseModel, nx.DiGraph):  # noqa # type: ignore
 
         """
         successors = []
-        for succ in self.successors(node):
-            edge_data = self.edges[node, succ]
+        for succ in self.graph.successors(node):
+            edge_data = self.graph.edges[node, succ]
             condition = edge_data.get("condition")
-            if condition is None or condition(self.graph):
+            if condition is None or condition(self.graph.graph):
                 successors.append(succ)
         return successors
 
@@ -459,7 +502,7 @@ class Swarm(BaseModel, nx.DiGraph):  # noqa # type: ignore
         execute_tools: bool,
     ) -> bool:
         return (
-            len([s for n in agents.keys() for s in self.successors(n)])
+            len([s for n in agents.keys() for s in self.graph.successors(n)])
             == 0  # no successors
             and (
                 len([c for tc in tool_calls.values() for c in tc]) == 0
@@ -478,14 +521,14 @@ class Swarm(BaseModel, nx.DiGraph):  # noqa # type: ignore
                 tasks[node] = group.create_task(
                     agent.run(
                         stream=False,
-                        context_variables=self.graph,
+                        context_variables=self.graph.graph,
                         messages=messages,
                     )
                 )
         node_messages: dict[Hashable, list[ChatCompletionMessageParam]] = {}
         for node, task in tasks.items():
             node_messages[node] = task.result()
-            self.nodes[node]["executed"] = True
+            self.graph.nodes[node]["executed"] = True
         return node_messages
 
     async def _execute_agents_stream(
@@ -501,7 +544,7 @@ class Swarm(BaseModel, nx.DiGraph):  # noqa # type: ignore
                 tasks[node] = group.create_task(
                     agent.run(
                         stream=True,
-                        context_variables=self.graph,
+                        context_variables=self.graph.graph,
                         messages=messages,
                     )
                 )
@@ -512,7 +555,7 @@ class Swarm(BaseModel, nx.DiGraph):  # noqa # type: ignore
                 yield chunk
                 chunks.append(chunk)
             node_messages[node] = merge_chunks(chunks)  # type: ignore
-            self.nodes[node]["executed"] = True
+            self.graph.nodes[node]["executed"] = True
         yield node_messages
 
     async def _call_tools(
@@ -532,7 +575,9 @@ class Swarm(BaseModel, nx.DiGraph):  # noqa # type: ignore
                     tasks[node].append(
                         (
                             group.create_task(
-                                TOOL_REGISTRY.call_tool(name, arguments, self.graph)
+                                TOOL_REGISTRY.call_tool(
+                                    name, arguments, self.graph.graph
+                                )
                             ),
                             tool_call,
                         )
@@ -548,14 +593,14 @@ class Swarm(BaseModel, nx.DiGraph):  # noqa # type: ignore
                             {"role": "tool", "content": result, "tool_call_id": i}
                         )
                     case dict():
-                        self.graph |= result
+                        self.graph.graph |= result
                     case Agent() | Swarm():
                         agents[node].append(result)
                     case list() if all(isinstance(i, Agent | Swarm) for i in result):
                         agents[node].extend(result)
                     case Result() as response:
                         agents[node].extend(response.agents)
-                        self.graph |= response.context_variables
+                        self.graph.graph |= response.context_variables
                         new_messages = [m for m in response.messages]
                         for m in new_messages:
                             if m["role"] == "tool":
@@ -577,7 +622,7 @@ class Swarm(BaseModel, nx.DiGraph):  # noqa # type: ignore
         for node, _successors in agents.items():
             for s in _successors:
                 next_node = self._next_node
-                self.add_node(
+                self.graph.add_node(
                     next_node,
                     **(
                         {"type": "agent", "agent": s}
@@ -586,9 +631,11 @@ class Swarm(BaseModel, nx.DiGraph):  # noqa # type: ignore
                     ),
                 )
                 self.add_edge(node, next_node)
-        if len(agents) == 0 and len(list(self.successors(current_node))) == 0:
+        if len(agents) == 0 and len(list(self.graph.successors(current_node))) == 0:
             next_node = self._next_node
-            self.add_node(next_node, **(self.nodes[current_node] | {"executed": False}))
+            self.graph.add_node(
+                next_node, **(self.graph.nodes[current_node] | {"executed": False})
+            )
             self.add_edge(current_node, next_node)
         return messages
 
@@ -608,7 +655,9 @@ class Swarm(BaseModel, nx.DiGraph):  # noqa # type: ignore
                     tasks[node].append(
                         (
                             group.create_task(
-                                TOOL_REGISTRY.call_tool(name, arguments, self.graph)
+                                TOOL_REGISTRY.call_tool(
+                                    name, arguments, self.graph.graph
+                                )
                             ),
                             tool_call,
                         )
@@ -620,14 +669,14 @@ class Swarm(BaseModel, nx.DiGraph):  # noqa # type: ignore
                 name = tool_call["function"]["name"]
                 match result := task.result():
                     case dict():
-                        self.graph |= result
+                        self.graph.graph |= result
                     case Agent() | Swarm():
                         agents[node].append(result)
                     case list() if all(isinstance(i, Agent | Swarm) for i in result):
                         agents[node].extend(result)
                     case Result() as response:
                         agents[node].extend(response.agents)
-                        self.graph |= response.context_variables
+                        self.graph.graph |= response.context_variables
                         for message, chunk in zip(
                             response.messages, messages_to_chunks(response.messages)
                         ):
@@ -673,7 +722,7 @@ class Swarm(BaseModel, nx.DiGraph):  # noqa # type: ignore
         for node, _successors in agents.items():
             for s in _successors:
                 next_node = self._next_node
-                self.add_node(
+                self.graph.add_node(
                     next_node,
                     **(
                         {"type": "agent", "agent": s}
@@ -682,9 +731,11 @@ class Swarm(BaseModel, nx.DiGraph):  # noqa # type: ignore
                     ),
                 )
                 self.add_edge(node, next_node)
-        if len(agents) == 0 and len(list(self.successors(current_node))) == 0:
+        if len(agents) == 0 and len(list(self.graph.successors(current_node))) == 0:
             next_node = self._next_node
-            self.add_node(next_node, **(self.nodes[current_node] | {"executed": False}))
+            self.graph.add_node(
+                next_node, **(self.graph.nodes[current_node] | {"executed": False})
+            )
             self.add_edge(current_node, next_node)
 
     async def _run_and_stream(
@@ -694,7 +745,7 @@ class Swarm(BaseModel, nx.DiGraph):  # noqa # type: ignore
         max_turns: int | None = None,
         execute_tools: bool = True,
     ):
-        node_data = self.nodes[self.root]
+        node_data = self.graph.nodes[self.root]
         agents: dict[Hashable, Node] = {
             self.root: cast(Node, node_data[node_data["type"]])
         }
@@ -730,13 +781,16 @@ class Swarm(BaseModel, nx.DiGraph):  # noqa # type: ignore
                     yield chunk
             agents = {
                 s: (
-                    self.nodes[s]["agent"]
-                    if self.nodes[s]["type"] == "agent"
-                    else self.nodes[s]["swarm"]
+                    self.graph.nodes[s]["agent"]
+                    if self.graph.nodes[s]["type"] == "agent"
+                    else self.graph.nodes[s]["swarm"]
                 )
                 for n in agents.keys()
                 for s in self.active_successors(n)
-                if all(self.nodes[p].get("executed") for p in self.predecessors(s))
+                if all(
+                    self.graph.nodes[p].get("executed")
+                    for p in self.graph.predecessors(s)
+                )
             }
 
     @overload
@@ -780,15 +834,15 @@ class Swarm(BaseModel, nx.DiGraph):  # noqa # type: ignore
             execute_tools: Whether to execute tool calls
 
         """
-        for name, server_params in (self.mcpServers or {}).items():
+        for name, server_params in (self.mcp_servers or {}).items():
             await TOOL_REGISTRY.add_mcp_server(name, server_params)
-        self.graph |= context_variables or {}
+        self.graph.graph |= context_variables or {}
         if stream:
             return self._run_and_stream(
                 messages=messages,
                 max_turns=max_turns,
             )
-        node_data = self.nodes[self.root]
+        node_data = self.graph.nodes[self.root]
         agents: dict[Hashable, Node] = {
             self.root: cast(Node, node_data[node_data["type"]])
         }
@@ -815,13 +869,16 @@ class Swarm(BaseModel, nx.DiGraph):  # noqa # type: ignore
             messages = [*messages, *[m for nm in _messages.values() for m in nm]]
             agents = {
                 s: (
-                    self.nodes[s]["agent"]
-                    if self.nodes[s]["type"] == "agent"
-                    else self.nodes[s]["swarm"]
+                    self.graph.nodes[s]["agent"]
+                    if self.graph.nodes[s]["type"] == "agent"
+                    else self.graph.nodes[s]["swarm"]
                 )
                 for n in agents.keys()
                 for s in self.active_successors(n)
-                if all(self.nodes[p].get("executed") for p in self.predecessors(s))
+                if all(
+                    self.graph.nodes[p].get("executed")
+                    for p in self.graph.predecessors(s)
+                )
             }
 
         return messages[init_len:]

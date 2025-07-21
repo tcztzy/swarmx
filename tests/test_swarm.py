@@ -56,14 +56,15 @@ async def test_swarm_serialization():
 
     # Serialize
     serialized = swarm.model_dump(mode="json")
+    graph = serialized["graph"]
 
     # Check serialization result
-    assert "nodes" in serialized
-    assert "edges" in serialized
-    assert "graph" in serialized
-    assert len(serialized["nodes"]) == 2
-    assert len(serialized["edges"]) == 1
-    assert serialized["edges"][0]["priority"] == 1
+    assert "nodes" in graph
+    assert "edges" in graph
+    assert "graph" in graph
+    assert len(graph["nodes"]) == 2
+    assert len(graph["edges"]) == 1
+    assert graph["edges"][0]["priority"] == 1
 
     # Deserialize
     deserialized = Swarm.model_validate(serialized)
@@ -81,20 +82,24 @@ async def test_swarm_with_mcp_servers():
     agent = Agent(name="agent")
 
     # Create a swarm with MCP server configuration
-    swarm = Swarm(
-        mcpServers={
-            "time": StdioServerParameters(
-                command=sys.executable,
-                args=["-m", "mcp_server_time", "--local-timezone", "UTC"],
-            )
+    swarm = Swarm.model_validate(
+        {
+            "mcpServers": {
+                "time": {
+                    "command": sys.executable,
+                    "args": ["-m", "mcp_server_time", "--local-timezone", "UTC"],
+                }
+            }
         }
     )
     swarm.add_node(0, type="agent", agent=agent)
 
     # Check server config is present
-    assert "time" in swarm.mcpServers
-    assert swarm.mcpServers["time"].command == sys.executable
-    assert swarm.mcpServers["time"].args == [
+    assert "time" in swarm.mcp_servers and isinstance(
+        swarm.mcp_servers["time"], StdioServerParameters
+    )
+    assert swarm.mcp_servers["time"].command == sys.executable
+    assert swarm.mcp_servers["time"].args == [
         "-m",
         "mcp_server_time",
         "--local-timezone",
@@ -102,7 +107,7 @@ async def test_swarm_with_mcp_servers():
     ]
 
     # Test serialization with MCP servers
-    serialized = swarm.model_dump(mode="json")
+    serialized = swarm.model_dump(mode="json", by_alias=True)
     assert "mcpServers" in serialized
     assert "time" in serialized["mcpServers"]
 
@@ -175,15 +180,21 @@ async def test_mcp_tool_call():
     agent = Agent(name="agent")
 
     # Create a swarm with MCP server
-    swarm = Swarm(
-        mcpServers={
-            "time": StdioServerParameters(
-                command=sys.executable,
-                args=["-m", "mcp_server_time", "--local-timezone", "UTC"],
-            )
+    swarm = Swarm.model_validate(
+        {
+            "mcpServers": {
+                "time": {
+                    "command": sys.executable,
+                    "args": ["-m", "mcp_server_time", "--local-timezone", "UTC"],
+                }
+            },
+            "graph": {
+                "nodes": [{"id": 0, "type": "agent", "agent": agent}],
+                "edges": [],
+                "graph": {},
+            },
         }
     )
-    swarm.add_node(0, type="agent", agent=agent)
 
     messages = await swarm.run(
         messages=[
@@ -221,9 +232,10 @@ async def test_swarm_of_swarms():
 
     # Test serialization of nested swarm
     serialized = outer_swarm.model_dump(mode="json")
-    assert len(serialized["nodes"]) == 2
-    assert serialized["nodes"][1]["type"] == "swarm"
-    assert "nodes" in serialized["nodes"][1]["swarm"]
+    graph = serialized["graph"]
+    assert len(graph["nodes"]) == 2
+    assert graph["nodes"][1]["type"] == "swarm"
+    assert "nodes" in graph["nodes"][1]["swarm"]["graph"]
 
     # Test deserialization of nested swarm
     deserialized = Swarm.model_validate(serialized)
