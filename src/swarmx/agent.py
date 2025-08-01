@@ -1,90 +1,60 @@
 """SwarmX Agent module."""
 
-import copy
-import inspect
 import logging
-import sys
 import warnings
 from collections import defaultdict
 from typing import (
-    TYPE_CHECKING,
     Annotated,
     Any,
-    AsyncIterator,
-    Callable,
-    Coroutine,
-    Iterable,
+    AsyncGenerator,
+    Generic,
     Literal,
-    TypeAlias,
+    TypeVar,
     cast,
-    get_origin,
-    get_type_hints,
     overload,
 )
 
+from httpx import Timeout
 from jinja2 import Template
-from openai import AsyncOpenAI, AsyncStream
-from openai.types.chat.chat_completion import ChatCompletion
-from openai.types.chat.chat_completion_assistant_message_param import (
+from mcp.types import Tool
+from openai import DEFAULT_MAX_RETRIES, AsyncOpenAI, AsyncStream
+from openai.types.chat import (
+    ChatCompletion,
     ChatCompletionAssistantMessageParam,
-)
-from openai.types.chat.chat_completion_chunk import (
     ChatCompletionChunk,
-    ChoiceDelta,
-)
-from openai.types.chat.chat_completion_message_param import ChatCompletionMessageParam
-from openai.types.chat.chat_completion_message_tool_call_param import (
+    ChatCompletionMessageParam,
     ChatCompletionMessageToolCallParam,
 )
-from openai.types.chat.chat_completion_tool_param import ChatCompletionToolParam
 from openai.types.chat.completion_create_params import CompletionCreateParamsBase
 from openai.types.chat_model import ChatModel
 from pydantic import (
-    AfterValidator,
-    AliasChoices,
     BaseModel,
-    BeforeValidator,
     Field,
-    ImportString,
-    TypeAdapter,
+    PrivateAttr,
     field_serializer,
     field_validator,
 )
+from pydantic.json_schema import GenerateJsonSchema
 
-from .mcp_client import TOOL_REGISTRY
-
-PY_312 = sys.version_info >= (3, 12)
-
-if PY_312:
-    pass
-else:
-    pass
-
-
-if TYPE_CHECKING:
-    from .swarm import Swarm
+from .mcp_client import CLIENT_REGISTRY, exec_tool_calls
+from .types import MCPServer
+from .utils import join
 
 warnings.filterwarnings("ignore", category=UserWarning, module="pydantic")
+logging.basicConfig(filename=".swarmx.log", level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-
-__CTX_VARS_NAME__ = "context_variables"
 DEFAULT_CLIENT: AsyncOpenAI | None = None
-RANDOM_STRING_CHARS = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
-
-Node: TypeAlias = "Agent | Swarm"
-ReturnType: TypeAlias = "str | Node | dict[str, Any] | Result"
-AgentFunction: TypeAlias = Callable[..., ReturnType | Coroutine[Any, Any, ReturnType]]
+T = TypeVar("T", bound=dict | BaseModel)
+U = TypeVar("U", bound=dict | BaseModel)
 
 
-def merge_chunk(message: ChatCompletionMessageParam, delta: ChoiceDelta) -> None:
-    """Merge a chunk into a message.
-
-    This function mutates the message in-place.
-
-    """
-    if delta.role:
-        message["role"] = delta.role  # type: ignore
+def _merge_chunk(
+    messages: dict[str, ChatCompletionMessageParam],
+    chunk: ChatCompletionChunk,
+) -> None:
+    message = messages[chunk.id]
+    delta = chunk.choices[0].delta
     content = message.get("content")
     if delta.content is not None:
         if isinstance(content, str) or content is None:
@@ -92,21 +62,9 @@ def merge_chunk(message: ChatCompletionMessageParam, delta: ChoiceDelta) -> None
         else:
             message["content"] = [*content, {"type": "text", "text": delta.content}]  # type: ignore
 
-    # Handle reasoning_content
-    if (rc := getattr(delta, "reasoning_content", None)) is not None:
-        reasoning_content = message.get("reasoning_content") or ""
-        if isinstance(reasoning_content, str):
-            message["reasoning_content"] = reasoning_content + rc  # type: ignore
-        else:
-            message["reasoning_content"] = list(reasoning_content) + [  # type: ignore
-                {"type": "text", "text": rc}
-            ]
-
     if delta.refusal is not None:
-        cast(ChatCompletionAssistantMessageParam, message)["refusal"] = (
-            message.get("refusal") or ""
-        ) + delta.refusal
-
+        assert message["role"] == "assistant"
+        message["refusal"] = (message.get("refusal") or "") + delta.refusal
     if delta.tool_calls is not None:
         # We use defaultdict as intermediate structure here instead of list
         if message["role"] != "assistant":
@@ -127,148 +85,33 @@ def merge_chunk(message: ChatCompletionMessageParam, delta: ChoiceDelta) -> None
         for call in delta.tool_calls:
             function = call.function
             tool_call = tool_calls[call.index]
-            tool_call["id"] = call.id or tool_call["id"]
-            tool_call["function"]["arguments"] += (
-                function.arguments or "" if function else ""
-            )
-            tool_call["function"]["name"] += function.name or "" if function else ""
+            if call.id:
+                tool_call["id"] = call.id
+            if function:
+                tool_call["function"]["arguments"] += function.arguments or ""
+                tool_call["function"]["name"] += function.name or ""
             tool_calls[call.index] = tool_call
         message["tool_calls"] = tool_calls  # type: ignore
 
 
-def merge_chunks(
-    chunks: list[ChatCompletionChunk],
-) -> list[ChatCompletionMessageParam]:
-    """Merge a list of chunks into a list of messages.
+class SwarmXGenerateJsonSchema(GenerateJsonSchema):
+    """Remove the title field from the JSON schema."""
 
-    This function is useful for streaming the messages to the client.
-
-    """
-    messages: dict[str, ChatCompletionMessageParam] = defaultdict(
-        lambda: {"role": "assistant"}
-    )
-    for chunk in chunks:
-        message = messages[chunk.id]
-        delta = chunk.choices[0].delta
-        merge_chunk(message, delta)
-        if not message.get("tool_calls"):
-            message.pop("tool_calls", None)
-        logger.debug("Received completion:", message)
-    for message in messages.values():
-        if tool_calls := message.get("tool_calls"):
-            tool_calls = cast(dict[int, ChatCompletionMessageToolCallParam], tool_calls)
-            # assert no gap in tool_calls keys
-            for i, index in enumerate(sorted(tool_calls)):
-                if i != index:
-                    raise ValueError(f"Tool call index {index} is out of order")
-            message["tool_calls"] = [tool_calls[i] for i in sorted(tool_calls)]  # type: ignore
-    return list(messages.values())
+    def field_title_should_be_set(self, schema) -> bool:
+        """No title for all fields."""
+        return False
 
 
-def does_function_need_context(func) -> bool:
-    """Check if a function needs context variables.
+class Edge(BaseModel):
+    """Edge in the agent graph."""
 
-    This is determined by whether the function has a parameter named __CTX_VARS_NAME__.
-
-    """
-    signature = inspect.signature(func)
-    return __CTX_VARS_NAME__ in signature.parameters
-
-
-def check_instructions(
-    instructions: str | object,
-) -> str | Callable[..., str]:
-    """Check the instructions and convert it to a callable if necessary.
-
-    The instructions can be a string or a callable.
-    If it's a string, we return it as is.
-    If it's a callable, we check if it's valid and return it.
-
-    """
-    if isinstance(instructions, str):
-        return instructions
-    err = ValueError(
-        f"Instructions should be a string or a callable that either has only one "
-        f"Mapping[str, Any] parameter named {__CTX_VARS_NAME__} or has multiple "
-        f"parameters excluding {__CTX_VARS_NAME__}"
-    )
-    if callable(instructions):
-        sig = inspect.signature(instructions)
-        params = sig.parameters
-
-        # Case 1: Only one parameter named __CTX_VARS_NAME__
-        if len(params) == 1 and __CTX_VARS_NAME__ in params:
-            anno = params[__CTX_VARS_NAME__].annotation
-            if not (
-                anno is inspect.Signature.empty
-                or anno is dict
-                or get_origin(anno) is dict
-            ):
-                raise err
-            return cast(Callable[[dict[str, Any]], str], instructions)
-
-        # Case 2: Multiple parameters but none named __CTX_VARS_NAME__
-        if __CTX_VARS_NAME__ not in params:
-            return cast(Callable[..., str], instructions)
-
-        raise err
-    raise err
+    source: str | list[str]
+    """Name of the source node"""
+    target: str
+    """Name of the target node"""
 
 
-def validate_tool(tool: object) -> ChatCompletionToolParam:
-    """Validate the tool and convert it to the ChatCompletionToolParam format.
-
-    This function also adds the tool to the TOOL_REGISTRY.
-
-    """
-    e = TypeError(
-        "Agent function return type must be str, Agent, dict[str, Any], or Result"
-    )
-    match tool:
-        case dict():
-            tool = TypeAdapter(ChatCompletionToolParam).validate_python(tool)
-            return tool
-        case tool if callable(tool):
-            annotation = get_type_hints(tool)
-            if (return_anno := annotation.get("return")) is None:
-                warnings.warn(
-                    "Agent function return type is not annotated, assuming str. "
-                    "This will be an error in a future version.",
-                    FutureWarning,
-                )
-            if return_anno not in [str, Agent, dict[str, Any], Result, None]:
-                raise e
-            TOOL_REGISTRY.add_function(cast(AgentFunction, tool))
-            return TOOL_REGISTRY.functions[getattr(tool, "__name__", str(tool))]
-        case str():
-            return validate_tool(TypeAdapter(ImportString).validate_python(tool))
-        case _:
-            raise e
-
-
-def validate_tools(tools: list[object]) -> list[ChatCompletionToolParam]:
-    """Validate the tools and convert them to the ChatCompletionToolParam format.
-
-    This function also adds the tools to the TOOL_REGISTRY.
-
-    """
-    return [validate_tool(tool) for tool in tools]
-
-
-class Result(BaseModel):
-    """Result of running a node.
-
-    This is used to return the result of running a node.
-    The result can contain messages, agents, and context variables.
-
-    """
-
-    messages: list[ChatCompletionMessageParam] = Field(default_factory=list)
-    agents: list[Node] = Field(default_factory=list)
-    context_variables: dict[str, Any] = Field(default_factory=dict)
-
-
-class Agent(BaseModel):
+class Agent(BaseModel, Generic[T]):
     """Agent node in the swarm.
 
     An agent is a node in the swarm that can send and receive messages.
@@ -277,32 +120,52 @@ class Agent(BaseModel):
 
     """
 
-    name: Annotated[str, Field(strict=True, max_length=256)] = "Agent"
+    name: Annotated[str, Field(strict=True, max_length=256, frozen=True)] = "Agent"
     """User-friendly name for the display"""
 
     model: ChatModel | str = "deepseek-reasoner"
     """The default model to use for the agent."""
 
-    instructions: Annotated[ImportString | str, AfterValidator(check_instructions)] = (
-        "You are a helpful agent."
-    )
+    instructions: str | None = None
     """Agent's instructions, could be a Jinja2 template"""
 
-    tools: Annotated[
-        list[ChatCompletionToolParam],
-        BeforeValidator(validate_tools),
-    ] = Field(
-        default_factory=list,
-        validation_alias=AliasChoices("tools", "functions"),
-    )
-    """The tools available to the agent"""
+    mcp_servers: dict[str, MCPServer] = Field(default_factory=dict, alias="mcpServers")
+    """MCP configuration for the agent. Should be compatible with claude code."""
 
     completion_create_params: CompletionCreateParamsBase = Field(
         default_factory=lambda: {"model": "DUMMY", "messages": iter([])}
     )
+    """Additional parameters to pass to the chat completion API."""
 
     client: AsyncOpenAI | None = None
     """The client to use for the node"""
+
+    entry_point: str | None = None
+    """The entry point for the subagents"""
+
+    finish_point: str | None = None
+    """The finish point for the subagents"""
+
+    nodes: "dict[str, Agent]" = Field(default_factory=dict)
+    """The nodes in the Agent's graph"""
+
+    edges: list[Edge | Tool] = Field(default_factory=list)
+    """The edges in the Agent's graph"""
+
+    _visited: dict[str, bool] = PrivateAttr(
+        default_factory=lambda: defaultdict(lambda: False)
+    )
+
+    @classmethod
+    def as_tool(cls) -> Tool:
+        """Convert the agent to a tool."""
+        schema = cls.model_json_schema(schema_generator=SwarmXGenerateJsonSchema)
+        return Tool(
+            name="swarmx.Agent",
+            description="Create new Agent",
+            inputSchema=schema,
+            outputSchema=schema,
+        )
 
     @field_validator("client", mode="plain")
     def validate_client(cls, v: Any) -> AsyncOpenAI | None:
@@ -317,18 +180,21 @@ class Agent(BaseModel):
             return None
         if isinstance(v, AsyncOpenAI):
             return v
+        if isinstance(timeout_dict := v.get("timeout"), dict):
+            v["timeout"] = Timeout(**timeout_dict)
         return AsyncOpenAI(**v)
 
     @field_serializer("client", mode="plain")
     def serialize_client(self, v: AsyncOpenAI | None) -> dict[str, Any] | None:
         """Serialize the client.
 
-        We only serialize the non-default parameters.
+        We only serialize the non-default parameters. api_key would not be serialized
+        you can manually set it when deserializing.
 
         """
         if v is None:
             return None
-        client = {}
+        client: dict[str, Any] = {}
         if str(v.base_url) != "https://api.openai.com/v1":
             client["base_url"] = str(v.base_url)
         for key in (
@@ -338,97 +204,297 @@ class Agent(BaseModel):
         ):
             if getattr(v, key, None) is not None:
                 client[key] = getattr(v, key)
+        if isinstance(v.timeout, float | None):
+            client["timeout"] = v.timeout
+        elif isinstance(v.timeout, Timeout):
+            client["timeout"] = v.timeout.as_dict()
+        if v.max_retries != DEFAULT_MAX_RETRIES:
+            client["max_retries"] = v.max_retries
+        if bool(v._custom_headers):
+            client["default_headers"] = v._custom_headers
+        if bool(v._custom_query):
+            client["default_query"] = v._custom_query
         return client
 
-    def _with_instructions(
-        self,
-        *,
-        messages: Iterable[ChatCompletionMessageParam],
-        context_variables: dict[str, Any] | None = None,
-    ) -> list[ChatCompletionMessageParam]:
-        content = (
-            Template(self.instructions).render
-            if isinstance(self.instructions, str)
-            else cast(Callable[[dict[str, Any]], str], self.instructions)
-        )(context_variables or {})
-        return [{"role": "system", "content": content}, *messages]
-
     @overload
-    async def get_chat_completion(
+    async def _create_chat_completion(
         self,
         *,
         messages: list[ChatCompletionMessageParam],
-        context_variables: dict,
+        context: T | None = None,
         stream: Literal[True],
     ) -> AsyncStream[ChatCompletionChunk]: ...
 
     @overload
-    async def get_chat_completion(
+    async def _create_chat_completion(
         self,
         *,
         messages: list[ChatCompletionMessageParam],
-        context_variables: dict,
+        context: T | None = None,
         stream: Literal[False] = False,
     ) -> ChatCompletion: ...
 
-    async def get_chat_completion(
+    async def _create_chat_completion(
         self,
         *,
         messages: list[ChatCompletionMessageParam],
-        context_variables: dict,
+        context: T | None = None,
         stream: bool = False,
     ) -> ChatCompletion | AsyncStream[ChatCompletionChunk]:
         """Get a chat completion for the agent.
 
         Args:
             messages: The messages to start the conversation with
-            context_variables: The context variables to pass to the agent
+            context: The context variables to pass to the agent
             stream: Whether to stream the response
 
         """
-        messages = self._with_instructions(
-            messages=messages,
-            context_variables=context_variables,
-        )
-        create_params: CompletionCreateParamsBase = {
+        system_prompt = await self.get_system_prompt(context)
+        if system_prompt is not None:
+            messages = [{"role": "system", "content": system_prompt}, *messages]
+        params: CompletionCreateParamsBase = {
             "messages": messages,
             "model": self.model,
         }
         logger.debug("Getting chat completion for...:", messages)
 
-        # hide context_variables from model
-        tools: list[ChatCompletionToolParam] = [
-            *self.model_dump(mode="json", exclude={"api_key"})["tools"],
-            *TOOL_REGISTRY.tools.values(),
-        ]
-        for tool in tools:
-            params: dict[str, Any] = tool["function"].get(
-                "parameters", {"properties": {}}
-            )
-            params["properties"].pop(__CTX_VARS_NAME__, None)
-            if __CTX_VARS_NAME__ in params.get("required", []):
-                params["required"].remove(__CTX_VARS_NAME__)
+        # if tools are not specified, use all available tools from the tool registry
+        tools = CLIENT_REGISTRY.tools
 
-        create_params = self.completion_create_params | create_params
-        if len(tools) > 0:
-            create_params["tools"] = tools
+        params = self.completion_create_params | params
+        if params.get("tools") is None and len(tools) > 0:
+            params["tools"] = tools
 
         return await (
             self.client or DEFAULT_CLIENT or AsyncOpenAI()
-        ).chat.completions.create(stream=stream, **create_params)
+        ).chat.completions.create(stream=stream, **params)
 
-    async def _run_and_stream(
+    async def _run_node_stream(
+        self,
+        *,
+        node: str | None = None,
+        messages: list[ChatCompletionMessageParam],
+        context: T | None = None,
+    ) -> AsyncGenerator[ChatCompletionChunk, None]:
+        """Run the node and its successors."""
+        if node is None:
+            node = self.entry_point
+        if node is None:
+            return
+        agent = self.nodes[node]
+        async for chunk in await agent.run(messages=messages, stream=True):
+            yield chunk
+        self._visited[node] = True
+        if node == self.finish_point:
+            return
+        generators: list[AsyncGenerator[ChatCompletionChunk, None]] = []
+        for edge in self.edges:
+            match edge:
+                case Edge():
+                    if edge.source == node:
+                        generators.append(
+                            self._run_node_stream(
+                                node=edge.target,
+                                messages=messages,
+                                context=context,
+                            )
+                        )
+                    elif (
+                        isinstance(edge.source, list)
+                        and node in edge.source
+                        and all(self._visited[n] for n in edge.source)
+                    ):
+                        generators.append(
+                            self._run_node_stream(
+                                node=edge.target,
+                                messages=messages,
+                                context=context,
+                            )
+                        )
+                case Tool() as tool:
+                    assert tool.outputSchema == self.model_json_schema() or (
+                        tool.outputSchema
+                        == {
+                            "type": "object",
+                            "property": {"target": {"type": "string"}},
+                            "required": ["target"],
+                        }
+                    )
+                    result = await CLIENT_REGISTRY.call_tool(
+                        tool.name,
+                        context.model_dump()
+                        if isinstance(context, BaseModel)
+                        else context or {},
+                    )
+                    assert (content := result.structuredContent) is not None
+                    if (target := content.get("target")) in self.nodes:
+                        agent = self.nodes[target]
+                    else:
+                        agent = Agent.model_validate(result.structuredContent)
+                    generators.append(await agent.run(messages=messages, stream=True))
+
+        async for chunk in join(*generators):
+            yield chunk
+
+    async def _run_stream(
         self,
         *,
         messages: list[ChatCompletionMessageParam],
-        context_variables: dict[str, Any] | None = None,
-    ):
-        async for chunk in await self.get_chat_completion(
+        context: T | None = None,
+    ) -> AsyncGenerator[ChatCompletionChunk, None]:
+        """Run the agent and stream the response.
+
+        Args:
+            messages: The messages to start the conversation with
+            context: The context variables to pass to the agent
+
+        """
+        new_messages: list[ChatCompletionMessageParam] = []
+        _messages: dict[str, ChatCompletionMessageParam] = defaultdict(
+            lambda: {"role": "assistant"}
+        )
+        async for chunk in await self._create_chat_completion(
             messages=messages,
-            context_variables=context_variables or {},
+            context=context,
             stream=True,
         ):
+            logger.info(chunk.model_dump_json(exclude_unset=True))
+            _merge_chunk(_messages, chunk)
             yield chunk
+            if chunk.choices[0].finish_reason is not None:
+                new_messages.append(_messages[chunk.id])
+        else:
+            if len(new_messages) != len(_messages):
+                raise ValueError("Number of messages does not match number of chunks")
+        latest_message = new_messages[-1]
+        if (
+            latest_message["role"] == "assistant"
+            and (tool_calls := latest_message.get("tool_calls")) is not None
+        ):
+            new_messages.extend(await exec_tool_calls(tool_calls))
+        async for chunk in self._run_node_stream(
+            messages=messages,
+            context=context,
+        ):
+            yield chunk
+
+    async def _run_node(
+        self,
+        *,
+        node: str | None = None,
+        messages: list[ChatCompletionMessageParam],
+        context: T | None = None,
+    ) -> list[ChatCompletionMessageParam]:
+        """Run the node and its successors."""
+        if node is None:
+            node = self.entry_point
+        if node is None:
+            return []
+        agent = self.nodes[node]
+        result = await agent.run(messages=messages, stream=False, context=context)
+        self._visited[node] = True
+        if node == self.finish_point:
+            return result
+        results: list[ChatCompletionMessageParam] = []
+        for edge in self.edges:
+            match edge:
+                case Edge():
+                    if edge.source == node:
+                        results.extend(
+                            await self._run_node(
+                                node=edge.target,
+                                messages=messages,
+                                context=context,
+                            )
+                        )
+                    elif (
+                        isinstance(edge.source, list)
+                        and node in edge.source
+                        and all(self._visited[n] for n in edge.source)
+                    ):
+                        results.extend(
+                            await self._run_node(
+                                node=edge.target,
+                                messages=messages,
+                                context=context,
+                            )
+                        )
+                case Tool() as tool:
+                    assert tool.outputSchema == self.model_json_schema() or (
+                        tool.outputSchema
+                        == {
+                            "type": "object",
+                            "property": {"target": {"type": "string"}},
+                            "required": ["target"],
+                        }
+                    )
+                    tool_result = await CLIENT_REGISTRY.call_tool(
+                        tool.name,
+                        context.model_dump()
+                        if isinstance(context, BaseModel)
+                        else context or {},
+                    )
+                    assert (content := tool_result.structuredContent) is not None
+                    if (target := content.get("target")) in self.nodes:
+                        agent = self.nodes[target]
+                    else:
+                        agent = Agent.model_validate(tool_result.structuredContent)
+                    results.extend(await agent.run(messages=messages, stream=False))
+        return result + results
+
+    async def _run(
+        self,
+        *,
+        messages: list[ChatCompletionMessageParam],
+        context: T | None = None,
+    ) -> list[ChatCompletionMessageParam]:
+        """Run the agent without streaming the response.
+
+        Args:
+            messages: The messages to start the conversation with
+            context: The context variables to pass to the agent
+
+        """
+        new_messages: list[ChatCompletionMessageParam] = []
+        completion = await self._create_chat_completion(
+            messages=messages,
+            context=context,
+            stream=False,
+        )
+        logger.info(completion.model_dump_json(exclude_unset=True))
+        message = completion.choices[0].message
+        m = cast(
+            ChatCompletionAssistantMessageParam,
+            message.model_dump(mode="json", exclude_none=True),
+        )
+        m["name"] = f"{self.name} ({completion.id})"
+        new_messages.append(m)
+
+        if m["role"] == "assistant" and (tool_calls := m.get("tool_calls")) is not None:
+            new_messages.extend(await exec_tool_calls(tool_calls))
+
+        node_results = await self._run_node(
+            messages=messages,
+            context=context,
+        )
+
+        return new_messages + node_results
+
+    async def get_system_prompt(
+        self,
+        context: T | None = None,
+    ) -> str | None:
+        """Get the system prompt for the agent.
+
+        Args:
+            context: The context variables to pass to the agent
+
+        """
+        if self.instructions is None:
+            return None
+        return await Template(self.instructions, enable_async=True).render_async(
+            context or {}
+        )
 
     @overload
     async def run(
@@ -436,10 +502,8 @@ class Agent(BaseModel):
         *,
         messages: list[ChatCompletionMessageParam],
         stream: Literal[True],
-        context_variables: dict[str, Any] | None = None,
-        max_turns: int | None = None,
-        execute_tools: bool = True,
-    ) -> AsyncIterator[ChatCompletionChunk]: ...
+        context: T | None = None,
+    ) -> AsyncGenerator[ChatCompletionChunk, None]: ...
 
     @overload
     async def run(
@@ -447,9 +511,7 @@ class Agent(BaseModel):
         *,
         messages: list[ChatCompletionMessageParam],
         stream: Literal[False] = False,
-        context_variables: dict[str, Any] | None = None,
-        max_turns: int | None = None,
-        execute_tools: bool = True,
+        context: T | None = None,
     ) -> list[ChatCompletionMessageParam]: ...
 
     async def run(
@@ -457,44 +519,25 @@ class Agent(BaseModel):
         *,
         messages: list[ChatCompletionMessageParam],
         stream: bool = False,
-        context_variables: dict[str, Any] | None = None,
-        max_turns: int | None = None,
-        execute_tools: bool = True,
-    ) -> list[ChatCompletionMessageParam] | AsyncIterator[ChatCompletionChunk]:
+        context: T | None = None,
+    ) -> list[ChatCompletionMessageParam] | AsyncGenerator[ChatCompletionChunk, None]:
         """Run the agent.
 
         Args:
             messages: The messages to start the conversation with
             stream: Whether to stream the response
-            context_variables: The context variables to pass to the agent
-            max_turns: The maximum number of turns to run the agent for
+            context: The context variables to pass to the agent
             execute_tools: Whether to execute tool calls
 
         """
-        if max_turns is not None and max_turns <= 0:
-            raise RuntimeError("Reached max turns")
-        context_variables = copy.deepcopy(context_variables or {})
+        for name, server_params in self.mcp_servers.items():
+            await CLIENT_REGISTRY.add_server(name, server_params)
         if stream:
-            return self._run_and_stream(
+            return self._run_stream(
                 messages=messages,
-                context_variables=context_variables,
+                context=context,
             )
-        completion = await self.get_chat_completion(
+        return await self._run(
             messages=messages,
-            context_variables=context_variables,
-            stream=False,
+            context=context,
         )
-        message = completion.choices[0].message
-        logger.debug("Received completion:", message)
-        m = cast(
-            ChatCompletionAssistantMessageParam,
-            message.model_dump(mode="json", exclude_none=True),
-        )
-        m["name"] = f"{self.name} ({completion.id})"
-        return [m]
-
-
-def condition_parser(condition: str) -> Callable[[dict[str, Any]], bool]:
-    """Parse a condition string into a callable that takes a context and returns a boolean."""
-    # First, we should try to parse condition as ImportString
-    return TypeAdapter(ImportString).validate_python(condition)

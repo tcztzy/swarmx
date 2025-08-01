@@ -4,7 +4,7 @@ import asyncio
 import json
 from datetime import datetime
 from pathlib import Path
-from typing import Annotated, Any
+from typing import Annotated
 
 import typer
 import uvicorn
@@ -15,20 +15,16 @@ from openai.types.chat.completion_create_params import CompletionCreateParams
 from pydantic import BaseModel, RootModel
 
 from .agent import (
-    __CTX_VARS_NAME__,
-    TOOL_REGISTRY,
+    CLIENT_REGISTRY,
     Agent,
+    T,
 )
-from .swarm import Swarm
 from .utils import get_random_string
 from .version import __version__
 
 
 async def main(
     *,
-    model: Annotated[
-        str, typer.Option("--model", "-m", help="The model to use for the agent")
-    ] = "gpt-4o",
     file: Annotated[
         Path | None,
         typer.Option(
@@ -59,13 +55,8 @@ async def main(
         data = {}
     else:
         data = json.loads(file.read_text())
-    client = Swarm.model_validate(data)
-    if not client.graph.nodes:
-        client.graph.add_node(
-            0, type="agent", agent=Agent(name="Assistant", model=model)
-        )
+    client: Agent = Agent.model_validate(data)
     messages: list[ChatCompletionMessageParam] = []
-    context_variables: dict[str, Any] = data.pop(__CTX_VARS_NAME__, {})
     while True:
         try:
             user_prompt = typer.prompt(">>>", prompt_suffix=" ")
@@ -78,7 +69,6 @@ async def main(
             async for chunk in await client.run(
                 messages=messages,
                 stream=True,
-                context_variables=context_variables,
             ):
                 delta = chunk.choices[0].delta
                 if delta.content is not None:
@@ -105,7 +95,7 @@ async def main(
             break
     if output is not None:
         output.write_text(json.dumps(messages, indent=2, ensure_ascii=False))
-    await TOOL_REGISTRY.close()
+    await CLIENT_REGISTRY.close()
 
 
 class ChatCompletionRequest(BaseModel):
@@ -118,7 +108,7 @@ class ChatCompletionRequest(BaseModel):
     max_tokens: int | None = None
 
 
-def create_server_app(swarm: Swarm) -> FastAPI:
+def create_server_app(swarm: Agent[T]) -> FastAPI:
     """Create FastAPI app with OpenAI-compatible endpoints."""
     app = FastAPI(title="SwarmX API", version=__version__)
 
@@ -146,13 +136,6 @@ def create_server_app(swarm: Swarm) -> FastAPI:
         stream = request.root.get("stream", False) or False
         model = request.root["model"]
 
-        # Update the swarm's default model if specified
-        for node_id, node_data in swarm.graph.nodes(data=True):
-            if node_data.get("type") == "agent":
-                agent = node_data.get("agent")
-                if agent:
-                    agent.model = model
-                    break
         if not stream:
             raise NotImplementedError("Non-streaming response is not supported.")
 
@@ -195,9 +178,6 @@ app = typer.Typer(help="SwarmX Command Line Interface")
 @app.callback(invoke_without_command=True)
 def repl(
     ctx: typer.Context,
-    model: Annotated[
-        str, typer.Option("--model", "-m", help="The model to use for the agent")
-    ] = "gpt-4o",
     file: Annotated[
         Path | None,
         typer.Option(
@@ -226,7 +206,7 @@ def repl(
     """Start SwarmX REPL (default command)."""
     if ctx.invoked_subcommand is not None:
         return
-    asyncio.run(main(model=model, file=file, output=output, verbose=verbose))
+    asyncio.run(main(file=file, output=output, verbose=verbose))
 
 
 @app.command()
@@ -237,10 +217,6 @@ def serve(
     port: Annotated[
         int, typer.Option("--port", help="Port to bind the server to")
     ] = 8000,
-    model: Annotated[
-        str,
-        typer.Option("--model", "-m", help="The default model to use for the agent"),
-    ] = "gpt-4o",
     file: Annotated[
         Path | None,
         typer.Option(
@@ -258,14 +234,8 @@ def serve(
     else:
         data = json.loads(file.read_text())
 
-    swarm = Swarm.model_validate(data)
-    if not swarm.graph.nodes:
-        swarm.graph.add_node(
-            0, type="agent", agent=Agent(name="Assistant", model=model)
-        )
-
     # Create FastAPI app
-    fastapi_app = create_server_app(swarm)
+    fastapi_app = create_server_app(Agent.model_validate(data))
 
     # Start the server
     uvicorn.run(fastapi_app, host=host, port=port)

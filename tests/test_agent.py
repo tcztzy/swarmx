@@ -1,19 +1,16 @@
-import inspect
-
 import pytest
-
-from swarmx import (
-    __CTX_VARS_NAME__,
-    Agent,
-    check_instructions,
-    validate_tool,
-    validate_tools,
+from openai.types.chat import (
+    ChatCompletionMessageParam,
+    ChatCompletionMessageToolCallParam,
 )
+
+from swarmx import Agent
+from swarmx.agent import Edge, exec_tool_calls
 
 pytestmark = pytest.mark.anyio
 
 
-async def test_agent_creation():
+async def test_agent_validate_and_serialize():
     agent = Agent(
         name="test_agent",
         model="deepseek-r1",
@@ -23,19 +20,23 @@ async def test_agent_creation():
     assert agent.model == "deepseek-r1"
     assert agent.instructions == "You are a fantasy writer."
 
+    # Test serialization and deserialization
+    serialized = agent.model_dump(mode="json")
+    assert isinstance(serialized, dict)
+    assert serialized["name"] == "test_agent"
+    assert serialized["model"] == "deepseek-r1"
+    assert serialized["instructions"] == "You are a fantasy writer."
 
-async def test_agent_with_default_values():
-    agent = Agent()
-    assert agent.name == "Agent"
-    assert agent.model == "deepseek-reasoner"
-    assert agent.instructions == "You are a helpful agent."
-    assert agent.tools == []
-    assert agent.client is None
+    # Test loading from serialized data
+    loaded_agent = Agent(**serialized)
+    assert loaded_agent.name == "test_agent"
+    assert loaded_agent.model == "deepseek-r1"
+    assert loaded_agent.instructions == "You are a fantasy writer."
 
 
 async def test_agent_with_custom_client():
     client_config = {"api_key": "test_key", "organization": "test_org"}
-    agent = Agent(client=client_config)
+    agent = Agent(client=client_config)  # type: ignore
     assert agent.client is not None
     assert agent.client.api_key == "test_key"
     assert agent.client.organization == "test_org"
@@ -47,195 +48,183 @@ async def test_agent_with_custom_client():
     assert "api_key" not in serialized["client"]  # Should not serialize the API key
 
 
-async def test_agent_with_callable_instructions():
-    def get_instructions(ctx):
-        return f"You are a helpful assistant with context: {ctx.get('user_info', '')}"
-
-    agent = Agent(instructions=get_instructions)
-    assert callable(agent.instructions)
-
-    # Test _with_instructions method
-    messages = [{"role": "user", "content": "Hello"}]
-    ctx_vars = {"user_info": "John Doe"}
-    result = agent._with_instructions(messages=messages, context_variables=ctx_vars)
-
-    assert len(result) == 2
-    assert result[0]["role"] == "system"
-    assert "John Doe" in result[0]["content"]
-    assert result[1] == messages[0]
-
-
 async def test_agent_with_jinja_template_instructions():
     agent = Agent(instructions="You are a helpful assistant for {{ user_name }}.")
-
-    messages = [{"role": "user", "content": "Hello"}]
     ctx_vars = {"user_name": "Alice"}
-    result = agent._with_instructions(messages=messages, context_variables=ctx_vars)
-
-    assert len(result) == 2
-    assert result[0]["role"] == "system"
-    assert "Alice" in result[0]["content"]
+    result = await agent.get_system_prompt(context=ctx_vars)
+    assert result is not None and "Alice" in result
 
 
-async def test_agent_with_tools():
-    def tool_function(x: int, y: int) -> str:
-        """Add two numbers.
+async def test_run_node_stream():
+    agent = Agent(
+        name="test_agent",
+        model="deepseek-r1",
+        instructions="You are a fantasy writer.",
+        entry_point="agent1",
+        nodes={"agent1": Agent(name="agent1")},
+    )
+    messages: list[ChatCompletionMessageParam] = [{"role": "user", "content": "Hello"}]
+    context = None
 
-        Args:
-            x: First number
-            y: Second number
-
-        Returns:
-            The sum as a string
-        """
-        return str(x + y)
-
-    tool_dict = {
-        "type": "function",
-        "function": {
-            "name": "get_weather",
-            "description": "Get the weather for a location",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "location": {
-                        "type": "string",
-                        "description": "The location to get weather for",
-                    }
-                },
-                "required": ["location"],
-            },
-        },
-    }
-
-    agent = Agent(name="tool_agent", tools=[tool_function, tool_dict])
-
-    assert len(agent.tools) == 2
-    assert agent.tools[0]["function"]["name"] == "tool_function"
-    assert agent.tools[1]["function"]["name"] == "get_weather"
+    async for chunk in agent._run_node_stream(
+        messages=messages,
+        context=context,
+    ):
+        assert chunk.id is not None
 
 
-def test_check_instructions_with_string():
-    """Test check_instructions function with a string input"""
-    instructions = "You are a helpful assistant."
-    result = check_instructions(instructions)
-    assert result == instructions
+async def test_create_chat_completion():
+    agent = Agent(
+        name="test_agent",
+        model="deepseek-r1",
+        instructions="You are a fantasy writer.",
+    )
+    messages: list[ChatCompletionMessageParam] = [{"role": "user", "content": "Hello"}]
+    context = None
+
+    completion = await agent._create_chat_completion(
+        messages=messages,
+        context=context,
+        stream=False,
+    )
+    assert len(completion.choices) > 0
 
 
-def test_check_instructions_with_valid_callable_ctx():
-    """Test check_instructions function with a valid callable that accepts __CTX_VARS_NAME__"""
-    # Using a dynamic function name to match __CTX_VARS_NAME__
-    func_code = f"def instructions_func({__CTX_VARS_NAME__}):\n    return f'You are a helpful assistant with context: {{{__CTX_VARS_NAME__}}}'"
-    namespace = {}
-    exec(func_code, namespace)
-    instructions_func = namespace["instructions_func"]
-
-    result = check_instructions(instructions_func)
-    assert callable(result)
-
-
-def test_check_instructions_with_valid_callable_params():
-    """Test check_instructions function with a valid callable that has multiple parameters"""
-
-    def instructions_func(name, age):
-        return f"You are a helpful assistant for {name} who is {age} years old."
-
-    result = check_instructions(instructions_func)
-    assert callable(result)
+async def test_get_system_prompt_edge_cases():
+    agent = Agent(
+        name="test_agent",
+        model="deepseek-r1",
+        instructions="You are a helpful assistant for {{ user_name }}.",
+    )
+    # Test with None context
+    result = await agent.get_system_prompt(context=None)
+    assert result is not None and "user_name" not in result
+    # Test with empty context
+    result = await agent.get_system_prompt(context={})
+    assert result is not None and "user_name" not in result
+    # Test with invalid context
+    result = await agent.get_system_prompt(context={"invalid_key": "value"})
+    assert result is not None and "user_name" not in result
 
 
-def test_check_instructions_with_invalid_callable():
-    """Test check_instructions function with an invalid callable"""
-    # Create a function that has both context and __CTX_VARS_NAME__ parameters
-    func_code = f"""\
-def invalid_func(context, {__CTX_VARS_NAME__}):
-    return f'Invalid function with both context and {{{__CTX_VARS_NAME__}}}'
-"""
-    namespace = {}
-    exec(func_code, namespace)
-    invalid_func = namespace["invalid_func"]
-
-    # Ensure the signature has both parameters
-    sig = inspect.signature(invalid_func)
-    assert "context" in sig.parameters
-    assert __CTX_VARS_NAME__ in sig.parameters
-
-    with pytest.raises(ValueError):
-        check_instructions(invalid_func)
+async def test_exec_tool_calls():
+    tool_calls: list[ChatCompletionMessageToolCallParam] = [
+        {
+            "id": "1",
+            "type": "function",
+            "function": {"name": "test_tool", "arguments": "{}"},
+        }
+    ]
+    result = await exec_tool_calls(tool_calls)
+    assert isinstance(result, list)
+    assert len(result) > 0
 
 
-def test_validate_tool_with_dict():
-    """Test validate_tool function with a dictionary input"""
-    tool_dict = {
-        "type": "function",
-        "function": {
-            "name": "test_tool",
-            "description": "A test tool",
-            "parameters": {"type": "object", "properties": {}, "required": []},
-        },
-    }
+async def test_linear_sequence_of_subagents():
+    # Create main agent with nodes
+    main_agent = Agent(
+        name="main_agent",
+        model="deepseek-r1",
+        instructions="Coordinate the workflow.",
+    )
 
-    result = validate_tool(tool_dict)
-    assert result["type"] == "function"
-    assert result["function"]["name"] == "test_tool"
+    # Create subagents
+    agent1 = Agent(
+        name="agent1",
+        model="deepseek-r1",
+        instructions="You are a fantasy writer.",
+    )
+    agent2 = Agent(
+        name="agent2",
+        model="deepseek-r1",
+        instructions="You are a fantasy editor.",
+    )
+    agent3 = Agent(
+        name="agent3",
+        model="deepseek-r1",
+        instructions="You are a fantasy publisher.",
+    )
 
+    # Add nodes to main agent
+    main_agent.nodes = {"agent1": agent1, "agent2": agent2, "agent3": agent3}
 
-def test_validate_tool_with_function():
-    """Test validate_tool function with a callable input"""
+    # Add edges to create linear sequence
+    main_agent.edges = [
+        Edge(source="agent1", target="agent2"),
+        Edge(source="agent2", target="agent3"),
+    ]
 
-    def test_func(x: int) -> str:
-        """A test function"""
-        return str(x)
+    # Test the sequence
+    assert "agent1" in main_agent.nodes
+    assert "agent2" in main_agent.nodes
+    assert "agent3" in main_agent.nodes
+    assert any(e.source == "agent1" and e.target == "agent2" for e in main_agent.edges)
+    assert any(e.source == "agent2" and e.target == "agent3" for e in main_agent.edges)
 
-    result = validate_tool(test_func)
-    assert result["type"] == "function"
-    assert result["function"]["name"] == "test_func"
-
-
-def test_validate_tools():
-    """Test validate_tools function"""
-
-    def test_func(x: int) -> str:
-        """A test function"""
-        return str(x)
-
-    tool_dict = {
-        "type": "function",
-        "function": {
-            "name": "test_tool",
-            "description": "A test tool",
-            "parameters": {"type": "object", "properties": {}, "required": []},
-        },
-    }
-
-    result = validate_tools([test_func, tool_dict])
-    assert len(result) == 2
-    assert result[0]["function"]["name"] == "test_func"
-    assert result[1]["function"]["name"] == "test_tool"
-
-
-async def test_agent_run_with_max_turns_error():
-    agent = Agent()
-
-    with pytest.raises(RuntimeError, match="Reached max turns"):
-        await agent.run(messages=[{"role": "user", "content": "Hello"}], max_turns=0)
+    # Test serialization and deserialization
+    serialized = main_agent.model_dump(mode="json")
+    loaded_agent = Agent(**serialized)
+    assert "agent1" in loaded_agent.nodes
+    assert "agent2" in loaded_agent.nodes
+    assert "agent3" in loaded_agent.nodes
+    assert any(
+        e.source == "agent1" and e.target == "agent2" for e in loaded_agent.edges
+    )
+    assert any(
+        e.source == "agent2" and e.target == "agent3" for e in loaded_agent.edges
+    )
 
 
-async def test_agent_streaming():
-    """Test agent streaming functionality."""
-    agent = Agent(name="test_agent", instructions="You are a helpful assistant.")
-    messages = [{"role": "user", "content": "Say 'Hello World' in 3 parts"}]
+async def test_agent_sequence_execution_stream():
+    # Create main agent with nodes
+    main_agent = Agent(
+        name="main_agent",
+        model="deepseek-r1",
+        instructions="Coordinate the workflow.",
+        entry_point="agent1",
+    )
 
-    chunks = []
-    async for chunk in await agent.run(messages=messages, stream=True):
-        chunks.append(chunk)
+    # Create subagents with specific behaviors
+    agent1 = Agent(
+        name="agent1",
+        model="deepseek-r1",
+        instructions="You are a fantasy writer. Always respond with 'Story written'.",
+    )
+    agent2 = Agent(
+        name="agent2",
+        model="deepseek-r1",
+        instructions="You are a fantasy editor. Always respond with 'Story edited'.",
+    )
+    agent3 = Agent(
+        name="agent3",
+        model="deepseek-r1",
+        instructions="You are a fantasy publisher. Always respond with 'Story published'.",
+    )
 
-    # Verify we got multiple chunks
-    assert len(chunks) > 1
+    # Add nodes and edges
+    main_agent.nodes = {"agent1": agent1, "agent2": agent2, "agent3": agent3}
+    main_agent.edges = [
+        Edge(source="agent1", target="agent2"),
+        Edge(source="agent2", target="agent3"),
+    ]
 
-    # Verify the chunks can be merged into a coherent message
-    from swarmx import merge_chunks
+    # Test execution flow
+    messages = [{"role": "user", "content": "Create a fantasy story"}]
+    responses = []
 
-    merged_messages = merge_chunks(chunks)
-    assert len(merged_messages) == 1
-    assert "Hello World" in merged_messages[0]["content"]
+    async for chunk in main_agent._run_node_stream(messages=messages):
+        if chunk.choices[0].delta.content:
+            responses.append(chunk.choices[0].delta.content)
+
+    # Verify each agent responded in sequence
+    assert "Story written" in "".join(responses)
+    assert "Story edited" in "".join(responses)
+    assert "Story published" in "".join(responses)
+
+    # Verify order of responses
+    assert "".join(responses).index("Story written") < "".join(responses).index(
+        "Story edited"
+    )
+    assert "".join(responses).index("Story edited") < "".join(responses).index(
+        "Story published"
+    )

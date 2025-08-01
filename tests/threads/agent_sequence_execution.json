@@ -1,0 +1,18 @@
+[
+    {
+        "role": "user",
+        "content": "Create a fantasy story"
+    },
+    {
+        "role": "assistant",
+        "content": "Story written"
+    },
+    {
+        "role": "assistant",
+        "content": "Story edited"
+    },
+    {
+        "role": "assistant",
+        "content": "Story published"
+    }
+]

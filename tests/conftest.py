@@ -2,10 +2,12 @@ import json
 import re
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any, AsyncGenerator
 from unittest.mock import AsyncMock, MagicMock, patch
+from uuid import uuid4
 
 import pytest
-from openai.types.chat.chat_completion import ChatCompletion, Choice
+from openai.types.chat.chat_completion import ChatCompletion
 from openai.types.chat.chat_completion_assistant_message_param import (
     ChatCompletionAssistantMessageParam,
 )
@@ -52,7 +54,7 @@ def anyio_backend():
     return "asyncio"
 
 
-def create_mock_streaming_response(
+def create_mock_stream_response(
     message: ChatCompletionAssistantMessageParam,
     model: str,
 ):
@@ -66,11 +68,12 @@ def create_mock_streaming_response(
             tokens = [part["text"] for part in content if part["type"] == "text"]
 
     tool_calls = list(message.get("tool_calls", []))
+    message_id = str(uuid4())
 
     async def _generator():
         for i, token in enumerate(tokens):
             yield ChatCompletionChunk(
-                id="mock_cc_id",
+                id=message_id,
                 created=int(datetime.now().timestamp()),
                 model=model,
                 object="chat.completion.chunk",
@@ -89,7 +92,7 @@ def create_mock_streaming_response(
             )
         for i, call in enumerate(tool_calls):
             yield ChatCompletionChunk(
-                id="mock_cc_id",
+                id=message_id,
                 created=int(datetime.now().timestamp()),
                 model=model,
                 object="chat.completion.chunk",
@@ -101,7 +104,7 @@ def create_mock_streaming_response(
                             tool_calls=[
                                 ChoiceDeltaToolCall(
                                     index=i,
-                                    id=f"mock_tc_id_{i}",
+                                    id=f"{message_id}_{i}",
                                     type="function",
                                     function=ChoiceDeltaToolCallFunction(
                                         name=call["function"]["name"],
@@ -120,18 +123,20 @@ def create_mock_streaming_response(
 def create_mock_response(message, model):
     message = ChatCompletionMessage.model_validate(message)
 
-    return ChatCompletion(
-        id="mock_cc_id",
-        created=int(datetime.now().timestamp()),
-        model=model,
-        object="chat.completion",
-        choices=[
-            Choice(
-                message=message,
-                finish_reason="tool_calls" if message.tool_calls else "stop",
-                index=0,
-            )
-        ],
+    return ChatCompletion.model_validate(
+        {
+            "id": str(uuid4()),
+            "created": int(datetime.now().timestamp()),
+            "model": model,
+            "object": "chat.completion",
+            "choices": [
+                {
+                    "message": message,
+                    "finish_reason": "tool_calls" if message.tool_calls else "stop",
+                    "index": 0,
+                }
+            ],
+        }
     )
 
 
@@ -148,7 +153,11 @@ class MockAsyncOpenAI:
         """
         self.chat.completions.create.return_value = response
 
-    def set_sequential_responses(self, responses: list[ChatCompletion]):
+    def set_sequential_responses(
+        self,
+        responses: list[ChatCompletion]
+        | list[AsyncGenerator[ChatCompletionChunk, Any]],
+    ):
         """
         Set the mock to return different responses sequentially.
         :param responses: A list of ChatCompletion responses to return in order.
@@ -196,17 +205,18 @@ def client(
                 )
             case name if name.startswith("test_"):
                 n = name.replace("test_", "")
-                if n.endswith("_streaming"):
-                    n = n.replace("_streaming", "")
+                if n.endswith("_stream"):
+                    n = n.replace("_stream", "")
                 if (
                     json_file := Path(__file__).parent / "threads" / f"{n}.json"
                 ).exists():
                     messages = json.loads(json_file.read_text())
-                    if name.endswith("_streaming"):
+                    if name.endswith("_stream"):
                         mock_openai.set_sequential_responses(
                             [
-                                create_mock_streaming_response(message, model)
+                                create_mock_stream_response(message, model)
                                 for message in messages
+                                if message["role"] == "assistant"
                             ]
                         )
                     else:
@@ -217,6 +227,23 @@ def client(
                                 if message["role"] == "assistant"
                             ]
                         )
+                else:
+                    messages = [
+                        {
+                            "role": "assistant",
+                            "content": "Hello World",
+                        }
+                    ]
+                    mock_openai.set_sequential_responses(
+                        [
+                            (
+                                create_mock_response
+                                if not name.endswith("_stream")
+                                else create_mock_stream_response
+                            )(message, model)  # type: ignore
+                            for message in messages
+                        ]
+                    )
     with patch("swarmx.agent.DEFAULT_CLIENT", mock_openai):
         yield
 
