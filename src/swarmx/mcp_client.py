@@ -8,7 +8,7 @@ import os
 from contextlib import AsyncExitStack
 from dataclasses import dataclass, field
 from datetime import timedelta
-from typing import Any, Iterable
+from typing import Any, Iterable, assert_never
 
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.sse import sse_client
@@ -17,6 +17,7 @@ from mcp.shared.session import ProgressFnT
 from mcp.types import (
     BlobResourceContents,
     CallToolResult,
+    ContentBlock,
     EmbeddedResource,
     ImageContent,
     ResourceContents,
@@ -24,18 +25,18 @@ from mcp.types import (
     Tool,
 )
 from openai.types.chat import (
-    ChatCompletionContentPartImageParam,
-    ChatCompletionContentPartParam,
+    ChatCompletionChunk,
     ChatCompletionContentPartTextParam,
     ChatCompletionMessageParam,
     ChatCompletionMessageToolCallParam,
+    ChatCompletionToolMessageParam,
     ChatCompletionToolParam,
 )
-from openai.types.chat.chat_completion_content_part_param import File
 from pygments.lexers import get_lexer_for_filename, get_lexer_for_mimetype
 from pygments.util import ClassNotFound
 
-from .types import MCPServer
+from .types import MarkdownFlavor, MCPServer
+from .utils import now
 
 mimetypes.add_type("text/markdown", ".md")
 logging.basicConfig(filename=".swarmx.log", level=logging.INFO)
@@ -122,20 +123,17 @@ class ClientRegistry:
 CLIENT_REGISTRY = ClientRegistry()
 
 
-def _image_content_to_url(
+def _image_to_md(
     content: ImageContent,
-) -> ChatCompletionContentPartImageParam:
-    return {
-        "type": "image_url",
-        "image_url": {
-            "url": f"data:{content.mimeType};base64,{content.data}",
-        },
-    }
+) -> str:
+    alt = (content.meta or {}).get("alt", "")
+    return f"![{alt}](data:{content.mimeType};base64,{content.data})"
 
 
-def _resource_to_file(
+def _resource_to_md(
     resource: EmbeddedResource,
-) -> ChatCompletionContentPartTextParam | File:
+    flavor: MarkdownFlavor = "gfm",
+) -> str:
     def get_filename(c: ResourceContents) -> str:
         if c.uri.path is not None:
             filename = os.path.basename(c.uri.path)
@@ -152,104 +150,132 @@ def _resource_to_file(
             raise ValueError("Cannot determine filename for resource.")
         return filename
 
-    filename = get_filename(resource.resource)
+    def get_lang(c: ResourceContents) -> str:
+        if c.mimeType is None:
+            try:
+                lexer = get_lexer_for_filename(get_filename(c))
+            except ClassNotFound:
+                lexer = None
+        else:
+            try:
+                lexer = get_lexer_for_mimetype(c.mimeType)
+            except ClassNotFound:
+                lexer = None
+        return lexer.aliases[0] if lexer else "text"
+
     match resource.resource:
         case TextResourceContents() as c:
-            if c.mimeType is None:
-                try:
-                    lexer = get_lexer_for_filename(filename)
-                except ClassNotFound:
-                    lexer = None
-            else:
-                try:
-                    lexer = get_lexer_for_mimetype(c.mimeType)
-                except ClassNotFound:
-                    lexer = None
-            lang = lexer.aliases[0] if lexer else "text"
-            return {
-                "type": "text",
-                "text": f'\n```{lang} title="{c.uri}"\n{c.text}\n```\n',
-            }
+            lang = get_lang(c)
+            match flavor:
+                case "gfm":
+                    return f'\n```{lang} title="{c.uri}"\n{c.text}\n```\n'
+                case "mystmd":
+                    return f"\n```{{code}} {lang}\n:filename: {c.uri}\n{c.text}\n```\n"
+                case _:
+                    assert_never(flavor)
         case BlobResourceContents() as c:
-            return {
-                "type": "file",
-                "file": {
-                    "file_data": c.blob,
-                    "filename": filename,
-                },
-            }
-        case _:
-            raise ValueError("Unsupported resource type.")
+            return (
+                "<embed"
+                f' type="{c.mimeType or "application/octet-stream"}"'
+                f' src="data:{c.mimeType or ""};base64,{c.blob}"'
+                f' title="{c.uri}"'
+                " />"
+            )
+        case _ as unreachable:
+            assert_never(unreachable)
+
+
+def result_to_content(
+    result: CallToolResult,
+    flavor: MarkdownFlavor = "gfm",
+) -> list[ChatCompletionContentPartTextParam]:
+    """Convert MCP tool call result to text params."""
+
+    def _2text(block: ContentBlock):
+        match block.type:
+            case "text":
+                text = block.text
+            case "image":
+                text = _image_to_md(block)
+            case "resource":
+                text = _resource_to_md(block, flavor)
+            case "audio":
+                text = f'<audio src="data:{block.mimeType};base64,{block.data}" />'
+            case "resource_link":
+                text = f"[{block.name}](blob:{block.uri})"
+            case _ as unreachable:
+                assert_never(unreachable)
+        return text
+
+    return [{"text": _2text(block), "type": "text"} for block in result.content]
 
 
 def result_to_message(
     result: CallToolResult,
     tool_call_id: str,
-) -> ChatCompletionMessageParam:
+) -> ChatCompletionToolMessageParam:
     """Convert MCP tool call result to OpenAI's message parameter."""
-    content: list[ChatCompletionContentPartParam] = []
-    for chunk in result.content:
-        match chunk.type:
-            case "text":
-                content.append({"type": "text", "text": chunk.text})
-            case "image":
-                content.append(_image_content_to_url(chunk))
-            case "resource":
-                content.append(_resource_to_file(chunk))
-            case "audio":
-                match chunk.mimeType:
-                    case (
-                        "audio/vnd.wav"
-                        | "audio/vnd.wave"
-                        | "audio/wave"
-                        | "audio/x-pn-wav"
-                        | "audio/x-wav"
-                        | "audio/wav"
-                    ):
-                        format = "wav"
-                    case "audio/mpeg":
-                        format = "mp3"
-                    case _:
-                        raise ValueError(f"Unsupported audio format: {chunk.mimeType}")
-                content.append(
-                    {
-                        "type": "input_audio",
-                        "input_audio": {"data": chunk.data, "format": format},
-                    }
-                )
-            case "resource_link":
-                content.append({"text": str(chunk.uri), "type": "text"})
-    if all(part for part in content):
-        return {"role": "tool", "content": content, "tool_call_id": tool_call_id}  # type: ignore
-    return {"role": "user", "content": content, "name": tool_call_id}
+    return {
+        "role": "tool",
+        "content": result_to_content(result),
+        "tool_call_id": tool_call_id,
+    }
+
+
+def result_to_chunk(
+    tool_call: ChatCompletionMessageToolCallParam,
+    result: CallToolResult | BaseException,
+) -> ChatCompletionChunk:
+    """Convert MCP tool call result to OpenAI's chunk parameter."""
+    content: str = ""
+    if isinstance(result, CallToolResult):
+        content = "".join(p["text"] for p in result_to_content(result))
+    else:
+        content = str(result)
+
+    return ChatCompletionChunk.model_validate(
+        {
+            "id": tool_call["id"],
+            "object": "chat.completion.chunk",
+            "created": now(),
+            "model": tool_call["function"]["name"],
+            "choices": [
+                {
+                    "index": 0,
+                    "delta": {"content": content, "role": "tool"},
+                    "finish_reason": "stop",
+                }
+            ],
+        }
+    )
 
 
 async def exec_tool_calls(tool_calls: Iterable[ChatCompletionMessageToolCallParam]):
     """Execute tool calls and return the messages."""
     messages: list[ChatCompletionMessageParam] = []
-    tasks = [
-        asyncio.create_task(
-            CLIENT_REGISTRY.call_tool(
+
+    async def _inner(
+        tool_call: ChatCompletionMessageToolCallParam,
+    ) -> tuple[ChatCompletionMessageParam, ChatCompletionChunk]:
+        try:
+            result = await CLIENT_REGISTRY.call_tool(
                 tool_call["function"]["name"],
                 json.loads(tool_call["function"]["arguments"]),
             )
-        )
-        for tool_call in tool_calls
-    ]
-    results: list[CallToolResult | BaseException] = await asyncio.gather(
-        *tasks, return_exceptions=True
-    )
-    for tool_call, result in zip(tool_calls, results):
-        if isinstance(result, BaseException):
-            logger.error(f"{tool_call['id']} failed:", exc_info=result)
-            messages.append(
-                {
-                    "role": "tool",
-                    "content": str(result),
-                    "tool_call_id": tool_call["id"],
-                }
+            return result_to_message(result, tool_call["id"]), result_to_chunk(
+                tool_call, result
             )
-        else:
-            logger.info(result.model_dump_json(exclude_unset=True))
-            messages.append(result_to_message(result, tool_call["id"]))
-    return messages
+        except Exception as e:
+            return {
+                "role": "tool",
+                "content": str(e),
+                "tool_call_id": tool_call["id"],
+            }, result_to_chunk(tool_call, e)
+
+    async with asyncio.TaskGroup() as tg:
+        tasks = [tg.create_task(_inner(tool_call)) for tool_call in tool_calls]
+        for task in asyncio.as_completed(tasks):
+            message, chunk = await task
+            yield chunk
+            messages.append(message)
+    yield messages

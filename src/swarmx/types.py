@@ -19,3 +19,4 @@ class SSEServer(BaseModel):
 
 
 MCPServer = StdioServerParameters | SSEServer
+MarkdownFlavor = Literal["gfm", "mystmd"]

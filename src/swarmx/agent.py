@@ -24,6 +24,7 @@ from openai.types.chat import (
     ChatCompletionChunk,
     ChatCompletionMessageParam,
     ChatCompletionMessageToolCallParam,
+    ParsedChatCompletion,
 )
 from openai.types.chat.completion_create_params import CompletionCreateParamsBase
 from openai.types.chat_model import ChatModel
@@ -47,7 +48,7 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_CLIENT: AsyncOpenAI | None = None
 T = TypeVar("T", bound=dict | BaseModel)
-U = TypeVar("U", bound=dict | BaseModel)
+U = TypeVar("U")
 
 
 def _merge_chunk(
@@ -223,6 +224,9 @@ class Agent(BaseModel, Generic[T], use_attribute_docstrings=True):
             client["default_query"] = v._custom_query
         return client
 
+    def _get_client(self):
+        return self.client or DEFAULT_CLIENT or AsyncOpenAI()
+
     @overload
     async def _create_chat_completion(
         self,
@@ -241,18 +245,29 @@ class Agent(BaseModel, Generic[T], use_attribute_docstrings=True):
         stream: Literal[False] = False,
     ) -> ChatCompletion: ...
 
+    @overload
     async def _create_chat_completion(
         self,
         *,
         messages: list[ChatCompletionMessageParam],
         context: T | None = None,
+        response_format: type[U] | None = None,
+    ) -> ParsedChatCompletion[U]: ...
+
+    async def _create_chat_completion(
+        self,
+        *,
+        messages: list[ChatCompletionMessageParam],
+        context: T | None = None,
+        response_format: type[U] | None = None,
         stream: bool = False,
-    ) -> ChatCompletion | AsyncStream[ChatCompletionChunk]:
+    ) -> ChatCompletion | AsyncStream[ChatCompletionChunk] | ParsedChatCompletion[U]:
         """Get a chat completion for the agent.
 
         Args:
             messages: The messages to start the conversation with
             context: The context variables to pass to the agent
+            response_format: The response type will be parsed
             stream: Whether to stream the response
 
         """
@@ -272,9 +287,15 @@ class Agent(BaseModel, Generic[T], use_attribute_docstrings=True):
         if params.get("tools") is None and len(tools) > 0:
             params["tools"] = tools
 
-        return await (
-            self.client or DEFAULT_CLIENT or AsyncOpenAI()
-        ).chat.completions.create(stream=stream, **params)
+        if response_format is None:
+            return await self._get_client().chat.completions.create(
+                stream=stream, **params
+            )
+        if stream:
+            raise NotImplementedError("Streamed parsing is not supported.")
+        return await self._get_client().chat.completions.parse(
+            **(params | {"response_format": response_format}),  # type: ignore
+        )
 
     async def _run_node_stream(
         self,
@@ -378,7 +399,11 @@ class Agent(BaseModel, Generic[T], use_attribute_docstrings=True):
             latest_message["role"] == "assistant"
             and (tool_calls := latest_message.get("tool_calls")) is not None
         ):
-            new_messages.extend(await exec_tool_calls(tool_calls))
+            async for chunk in exec_tool_calls(tool_calls):
+                if isinstance(chunk, ChatCompletionChunk):
+                    yield chunk
+                else:
+                    new_messages.extend(chunk)
         if self.distill_agent is not None:
             (
                 distilled_messages,
@@ -488,7 +513,9 @@ class Agent(BaseModel, Generic[T], use_attribute_docstrings=True):
         new_messages.append(m)
 
         if m["role"] == "assistant" and (tool_calls := m.get("tool_calls")) is not None:
-            new_messages.extend(await exec_tool_calls(tool_calls))
+            async for chunk in exec_tool_calls(tool_calls):
+                if not isinstance(chunk, ChatCompletionChunk):
+                    new_messages.extend(chunk)
 
         if self.distill_agent is not None:
             (

@@ -27,9 +27,7 @@ async def test_result_to_message_image():
     message = result_to_message(result, "test_tool_call_id")
     assert message["role"] == "tool"
     assert message["tool_call_id"] == "test_tool_call_id"
-    assert (
-        message["content"][0]["image_url"]["url"] == "data:image/png;base64,base64data"
-    )
+    assert message["content"][0]["text"] == "![](data:image/png;base64,base64data)"
 
 
 async def test_result_to_message_resource():
@@ -65,7 +63,10 @@ async def test_result_to_message_audio():
     message = result_to_message(result, "test_tool_call_id")
     assert message["role"] == "tool"
     assert message["tool_call_id"] == "test_tool_call_id"
-    assert message["content"][0]["input_audio"]["format"] == "wav"
+    assert (
+        message["content"][0]["text"]
+        == '<audio src="data:audio/wav;base64,base64data" />'
+    )
 
 
 async def test_result_to_message_mixed_content():
@@ -87,7 +88,5 @@ async def test_result_to_message_mixed_content():
     assert message["tool_call_id"] == "test_tool_call_id"
     assert len(message["content"]) == 3
     assert message["content"][0]["text"] == "Hello, world!"
-    assert (
-        message["content"][1]["image_url"]["url"] == "data:image/png;base64,base64data"
-    )
+    assert message["content"][1]["text"] == "![](data:image/png;base64,base64data)"
     assert "File content" in message["content"][2]["text"]

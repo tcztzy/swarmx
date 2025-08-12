@@ -115,9 +115,11 @@ async def test_exec_tool_calls():
             "function": {"name": "test_tool", "arguments": "{}"},
         }
     ]
-    result = await exec_tool_calls(tool_calls)
-    assert isinstance(result, list)
-    assert len(result) > 0
+    async for chunk in exec_tool_calls(tool_calls):
+        ...
+    else:
+        assert isinstance(chunk, list)
+        assert len(chunk) > 0
 
 
 async def test_linear_sequence_of_subagents():
