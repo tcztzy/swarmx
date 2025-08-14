@@ -32,7 +32,6 @@ from pydantic import (
     BaseModel,
     Field,
     PrivateAttr,
-    TypeAdapter,
     field_serializer,
     field_validator,
 )
@@ -141,12 +140,6 @@ class Agent(BaseModel, Generic[T], use_attribute_docstrings=True):
 
     client: AsyncOpenAI | None = None
     """The client to use for the node"""
-
-    distill_agent: "Agent | None" = None
-    """Distill context to subagents"""
-
-    summary_agent: "Agent | None" = None
-    """Summary subagents' outputs"""
 
     entry_point: str | None = None
     """The entry point for the subagents"""
@@ -404,19 +397,9 @@ class Agent(BaseModel, Generic[T], use_attribute_docstrings=True):
                     yield chunk
                 else:
                     new_messages.extend(chunk)
-        if self.distill_agent is not None:
-            (
-                distilled_messages,
-                distilled_context,
-            ) = await self.distill_agent._update_context(
-                messages=messages + new_messages, context=context
-            )
-        else:
-            distilled_messages = messages + new_messages
-            distilled_context = context
         async for chunk in self._run_node_stream(
-            messages=distilled_messages,
-            context=distilled_context,
+            messages=messages + new_messages,
+            context=context,
         ):
             yield chunk
 
@@ -517,58 +500,12 @@ class Agent(BaseModel, Generic[T], use_attribute_docstrings=True):
                 if not isinstance(chunk, ChatCompletionChunk):
                     new_messages.extend(chunk)
 
-        if self.distill_agent is not None:
-            (
-                distilled_messages,
-                distilled_context,
-            ) = await self.distill_agent._update_context(
-                messages=messages + new_messages, context=context
-            )
-        else:
-            distilled_messages = messages + new_messages
-            distilled_context = context
         node_results = await self._run_node(
-            messages=distilled_messages,
-            context=distilled_context,
+            messages=messages + new_messages,
+            context=context,
         )
 
         return new_messages + node_results
-
-    async def _update_context(
-        self,
-        messages: list[ChatCompletionMessageParam],
-        context: T | None = None,
-    ) -> tuple[list[ChatCompletionMessageParam], T | None]:
-        """Update context.
-
-        Args:
-            messages: The messages to update
-            context: The context variables to update
-
-        Returns:
-            A tuple of (distilled_messages, distilled_context)
-
-        """
-        if self is None:
-            return messages, context
-
-        _messages = await self.run(
-            messages=messages,
-            stream=False,
-            context=context,
-        )
-        if len(messages) == 1 and (message := _messages[0])["role"] == "assistant":
-            content = message.get("content") or "[[],{}]"
-            if not isinstance(content, str):
-                content = "".join(p["text"] for p in content if p["type"] == "text")
-            try:
-                return TypeAdapter(
-                    tuple[list[ChatCompletionMessageParam], T]
-                ).validate_python(content)
-            except Exception:
-                return messages, context
-        else:
-            return messages, context
 
     async def get_system_prompt(
         self,
