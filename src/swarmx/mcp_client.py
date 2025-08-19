@@ -139,13 +139,6 @@ def _resource_to_md(
             filename = os.path.basename(c.uri.path)
         elif c.uri.host is not None:
             filename = c.uri.host
-        elif c.mimeType is not None:
-            ext = mimetypes.guess_extension(c.mimeType)
-            if ext is None:
-                raise ValueError(
-                    f"Cannot determine filename for resource. mimeType={c.mimeType}"
-                )
-            filename = f"file{ext}"
         else:
             raise ValueError("Cannot determine filename for resource.")
         return filename

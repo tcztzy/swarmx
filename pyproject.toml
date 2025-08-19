@@ -80,6 +80,12 @@ addopts = ["--cov=swarmx"]
 venvPath = "."
 venv = ".venv"
 
+[tool.coverage.report]
+exclude_also = [
+    "if __name__ == \"__main__\":",
+    'case _( as .+)?:\n\s*assert_never\(.+\)',
+]
+
 [tool.tox]
 requires = ["tox>=4", "tox-uv>=1"]
 env_list = ["3.13", "3.12", "3.11"]

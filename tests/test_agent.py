@@ -278,6 +278,33 @@ async def test_merge_chunk_with_content():
     assert messages["test_id"].get("content") == "Hello world"
 
 
+async def test_merge_chunk_with_content_list():
+    """Test _merge_chunk function with content as list (line 64)."""
+    messages: dict[str, ChatCompletionMessageParam] = defaultdict(
+        lambda: {"role": "assistant"}
+    )
+    # Set initial content as a list - use type ignore to bypass type checking for test
+    messages["test_id"]["content"] = [{"type": "text", "text": "Initial"}]  # type: ignore
+
+    chunk = ChatCompletionChunk.model_validate(
+        {
+            "id": "test_id",
+            "choices": [{"index": 0, "delta": {"content": " more text"}}],
+            "created": now(),
+            "model": "gpt-4o",
+            "object": "chat.completion.chunk",
+        }
+    )
+    _merge_chunk(messages, chunk)
+
+    # Should append new text content to the list
+    content = messages["test_id"]["content"]
+    assert isinstance(content, list)
+    assert len(content) == 2
+    assert content[0] == {"type": "text", "text": "Initial"}
+    assert content[1] == {"type": "text", "text": " more text"}
+
+
 async def test_merge_chunk_with_refusal():
     """Test _merge_chunk function with refusal."""
     messages: dict[str, ChatCompletionMessageParam] = defaultdict(
@@ -388,6 +415,15 @@ async def test_swarmx_generate_json_schema():
     assert isinstance(schema_generator, SwarmXGenerateJsonSchema)
 
 
+async def test_agent_as_tool():
+    """Test Agent.as_tool method (lines 163-164)."""
+    tool = Agent.as_tool()
+    assert tool.name == "swarmx.Agent"
+    assert tool.description == "Create new Agent"
+    assert tool.inputSchema is not None
+    assert tool.outputSchema is not None
+
+
 async def test_agent_client_serialization_with_timeout():
     """Test agent client serialization with Timeout object."""
     timeout = Timeout(10.0)
@@ -399,6 +435,19 @@ async def test_agent_client_serialization_with_timeout():
     assert "timeout" in serialized["client"]
 
 
+async def test_agent_client_validation_with_timeout_dict():
+    """Test agent client validation with timeout as dict (line 185)."""
+    client_config = {
+        "api_key": "test-key",
+        "timeout": {"connect": 5.0, "read": 10.0, "write": 5.0, "pool": 10.0},
+    }
+    agent = Agent(client=client_config)  # type: ignore
+    assert agent.client is not None
+    assert isinstance(agent.client.timeout, Timeout)
+    assert agent.client.timeout.connect == 5.0
+    assert agent.client.timeout.read == 10.0
+
+
 async def test_agent_client_serialization_with_custom_headers():
     """Test agent client serialization with custom headers."""
     client = AsyncOpenAI(api_key="test-key", default_headers={"Custom-Header": "value"})
@@ -407,6 +456,17 @@ async def test_agent_client_serialization_with_custom_headers():
     serialized = agent.model_dump(mode="json")
     assert "client" in serialized
     assert "default_headers" in serialized["client"]
+
+
+async def test_agent_client_serialization_with_float_timeout():
+    """Test agent client serialization with timeout as float (line 209)."""
+    client = AsyncOpenAI(api_key="test-key", timeout=15.0)
+    agent = Agent(client=client)
+
+    serialized = agent.model_dump(mode="json")
+    assert "client" in serialized
+    assert "timeout" in serialized["client"]
+    assert serialized["client"]["timeout"] == 15.0
 
 
 async def test_agent_client_serialization_with_custom_query():
@@ -699,3 +759,17 @@ async def test_agent_run_with_tool_execution():
         result = await agent._run(messages=[{"role": "user", "content": "Hello"}])
 
         assert len(result) >= 2  # At least assistant message and node result
+
+
+async def test_swarmx_generate_json_schema_field_title():
+    """Test SwarmXGenerateJsonSchema field_title_should_be_set method (line 103)."""
+    from swarmx.agent import SwarmXGenerateJsonSchema
+
+    schema_generator = SwarmXGenerateJsonSchema()
+    # This method should always return False regardless of input
+    # We can't easily test with the exact schema type, but we can test the method exists
+    # and returns False
+    assert hasattr(schema_generator, "field_title_should_be_set")
+    # The method should return False for any input
+    result = schema_generator.field_title_should_be_set(None)  # type: ignore
+    assert result is False
