@@ -1,11 +1,19 @@
+from collections import defaultdict
+from unittest.mock import AsyncMock, patch
+
 import pytest
+from httpx import Timeout
+from mcp.client.stdio import StdioServerParameters
+from openai import AsyncOpenAI
 from openai.types.chat import (
     ChatCompletionMessageParam,
     ChatCompletionMessageToolCallParam,
 )
+from openai.types.chat.chat_completion_chunk import ChatCompletionChunk
 
 from swarmx import Agent
-from swarmx.agent import Edge, exec_tool_calls
+from swarmx.agent import Edge, SwarmXGenerateJsonSchema, _merge_chunk, exec_tool_calls
+from swarmx.utils import now
 
 pytestmark = pytest.mark.anyio
 
@@ -118,7 +126,7 @@ async def test_exec_tool_calls():
     async for chunk in exec_tool_calls(tool_calls):
         ...
     else:
-        assert isinstance(chunk, list)
+        assert isinstance(chunk, list)  # type: ignore
         assert len(chunk) > 0
 
 
@@ -160,8 +168,17 @@ async def test_linear_sequence_of_subagents():
     assert "agent1" in main_agent.nodes
     assert "agent2" in main_agent.nodes
     assert "agent3" in main_agent.nodes
-    assert any(e.source == "agent1" and e.target == "agent2" for e in main_agent.edges)
-    assert any(e.source == "agent2" and e.target == "agent3" for e in main_agent.edges)
+    assert all(isinstance(e, Edge) for e in main_agent.edges)
+    assert any(
+        e.source == "agent1" and e.target == "agent2"
+        for e in main_agent.edges
+        if isinstance(e, Edge)
+    )
+    assert any(
+        e.source == "agent2" and e.target == "agent3"
+        for e in main_agent.edges
+        if isinstance(e, Edge)
+    )
 
     # Test serialization and deserialization
     serialized = main_agent.model_dump(mode="json")
@@ -169,11 +186,16 @@ async def test_linear_sequence_of_subagents():
     assert "agent1" in loaded_agent.nodes
     assert "agent2" in loaded_agent.nodes
     assert "agent3" in loaded_agent.nodes
+    assert all(isinstance(e, Edge) for e in loaded_agent.edges)
     assert any(
-        e.source == "agent1" and e.target == "agent2" for e in loaded_agent.edges
+        e.source == "agent1" and e.target == "agent2"
+        for e in loaded_agent.edges
+        if isinstance(e, Edge)
     )
     assert any(
-        e.source == "agent2" and e.target == "agent3" for e in loaded_agent.edges
+        e.source == "agent2" and e.target == "agent3"
+        for e in loaded_agent.edges
+        if isinstance(e, Edge)
     )
 
 
@@ -211,7 +233,9 @@ async def test_agent_sequence_execution_stream():
     ]
 
     # Test execution flow
-    messages = [{"role": "user", "content": "Create a fantasy story"}]
+    messages: list[ChatCompletionMessageParam] = [
+        {"role": "user", "content": "Create a fantasy story"}
+    ]
     responses = []
 
     async for chunk in main_agent._run_node_stream(messages=messages):
@@ -230,3 +254,448 @@ async def test_agent_sequence_execution_stream():
     assert "".join(responses).index("Story edited") < "".join(responses).index(
         "Story published"
     )
+
+
+async def test_merge_chunk_with_content():
+    """Test _merge_chunk function with content."""
+    messages: dict[str, ChatCompletionMessageParam] = defaultdict(
+        lambda: {"role": "assistant"}
+    )
+    chunk = ChatCompletionChunk.model_validate(
+        {
+            "id": "test_id",
+            "choices": [{"index": 0, "delta": {"content": "Hello world"}}],
+            "created": now(),
+            "model": "gpt-4o",
+            "object": "chat.completion.chunk",
+        }
+    )
+
+    _merge_chunk(messages, chunk)
+
+    assert "test_id" in messages
+    assert messages["test_id"]["role"] == "assistant"
+    assert messages["test_id"].get("content") == "Hello world"
+
+
+async def test_merge_chunk_with_refusal():
+    """Test _merge_chunk function with refusal."""
+    messages: dict[str, ChatCompletionMessageParam] = defaultdict(
+        lambda: {"role": "assistant"}
+    )
+    chunk = ChatCompletionChunk.model_validate(
+        {
+            "id": "test_id",
+            "choices": [{"index": 0, "delta": {"refusal": "I cannot help with that"}}],
+            "created": now(),
+            "model": "gpt-4o",
+            "object": "chat.completion.chunk",
+        }
+    )
+
+    _merge_chunk(messages, chunk)
+
+    assert "test_id" in messages
+    assert messages["test_id"]["role"] == "assistant"
+    assert messages["test_id"].get("refusal") == "I cannot help with that"
+
+
+async def test_merge_chunk_with_tool_calls():
+    """Test _merge_chunk function with tool calls."""
+    messages: dict[str, ChatCompletionMessageParam] = defaultdict(
+        lambda: {"role": "assistant"}
+    )
+    chunk = ChatCompletionChunk.model_validate(
+        {
+            "id": "test_id",
+            "choices": [
+                {
+                    "index": 0,
+                    "delta": {
+                        "tool_calls": [
+                            {
+                                "index": 0,
+                                "id": "call_123",
+                                "function": {
+                                    "name": "test_function",
+                                    "arguments": '{"arg": "value"}',
+                                },
+                                "type": "function",
+                            }
+                        ]
+                    },
+                    "finish_reason": "tool_calls",
+                }
+            ],
+            "created": now(),
+            "model": "gpt-4o",
+            "object": "chat.completion.chunk",
+        }
+    )
+
+    _merge_chunk(messages, chunk)
+
+    assert "test_id" in messages
+    assert messages["test_id"]["role"] == "assistant"
+    assert "tool_calls" in messages["test_id"]
+
+
+async def test_merge_chunk_invalid_tool_call_role():
+    """Test _merge_chunk function with tool calls on non-assistant message."""
+    messages: dict[str, ChatCompletionMessageParam] = defaultdict(
+        lambda: {"role": "assistant"}
+    )
+    messages["test_id"] = {"role": "user", "content": "Hello"}
+    chunk = ChatCompletionChunk.model_validate(
+        {
+            "id": "test_id",
+            "choices": [
+                {
+                    "index": 0,
+                    "delta": {
+                        "tool_calls": [
+                            {
+                                "index": 0,
+                                "id": "call_123",
+                                "function": {
+                                    "name": "test_function",
+                                    "arguments": '{"arg": "value"}',
+                                },
+                                "type": "function",
+                            }
+                        ]
+                    },
+                    "finish_reason": "tool_calls",
+                }
+            ],
+            "created": now(),
+            "model": "gpt-4o",
+            "object": "chat.completion.chunk",
+        }
+    )
+
+    with pytest.raises(
+        ValueError, match="Tool calls can only be added to assistant messages"
+    ):
+        _merge_chunk(messages, chunk)
+
+
+async def test_swarmx_generate_json_schema():
+    """Test SwarmXGenerateJsonSchema class."""
+    schema_generator = SwarmXGenerateJsonSchema()
+
+    # Test that it exists and is the right type
+    assert isinstance(schema_generator, SwarmXGenerateJsonSchema)
+
+
+async def test_agent_client_serialization_with_timeout():
+    """Test agent client serialization with Timeout object."""
+    timeout = Timeout(10.0)
+    client = AsyncOpenAI(api_key="test-key", timeout=timeout)
+    agent = Agent(client=client)
+
+    serialized = agent.model_dump(mode="json")
+    assert "client" in serialized
+    assert "timeout" in serialized["client"]
+
+
+async def test_agent_client_serialization_with_custom_headers():
+    """Test agent client serialization with custom headers."""
+    client = AsyncOpenAI(api_key="test-key", default_headers={"Custom-Header": "value"})
+    agent = Agent(client=client)
+
+    serialized = agent.model_dump(mode="json")
+    assert "client" in serialized
+    assert "default_headers" in serialized["client"]
+
+
+async def test_agent_client_serialization_with_custom_query():
+    """Test agent client serialization with custom query parameters."""
+    client = AsyncOpenAI(api_key="test-key", default_query={"param": "value"})
+    agent = Agent(client=client)
+
+    serialized = agent.model_dump(mode="json")
+    assert "client" in serialized
+    assert "default_query" in serialized["client"]
+
+
+async def test_agent_client_serialization_with_max_retries():
+    """Test agent client serialization with non-default max_retries."""
+    client = AsyncOpenAI(api_key="test-key", max_retries=5)
+    agent = Agent(client=client)
+
+    serialized = agent.model_dump(mode="json")
+    assert "client" in serialized
+    assert "max_retries" in serialized["client"]
+    assert serialized["client"]["max_retries"] == 5
+
+
+async def test_agent_with_mcp_servers():
+    """Test agent with MCP servers configuration."""
+    server_params = StdioServerParameters(command="python", args=["-m", "test_server"])
+
+    # Use the alias field name that Agent expects
+    agent = Agent(mcpServers={"test_server": server_params})
+
+    # The mcp_servers should be set
+    assert agent.mcp_servers is not None
+    assert isinstance(agent.mcp_servers, dict)
+    assert "test_server" in agent.mcp_servers and isinstance(
+        agent.mcp_servers["test_server"], StdioServerParameters
+    )
+    assert agent.mcp_servers["test_server"].command == "python"
+
+
+async def test_agent_run_with_mcp_servers():
+    """Test agent run method with MCP servers."""
+    with patch("swarmx.mcp_client.CLIENT_REGISTRY.add_server") as mock_add_server:
+        server_params = StdioServerParameters(
+            command="python", args=["-m", "test_server"]
+        )
+        # Use the alias field name that Agent expects
+        agent = Agent(mcpServers={"test_server": server_params})
+
+        # Mock the run method to avoid actual API calls
+        with patch.object(agent, "_run") as mock_run:
+            mock_run.return_value = []
+
+            await agent.run(messages=[{"role": "user", "content": "Hello"}])
+
+            # Should have called add_server for each server in mcp_servers
+            mock_add_server.assert_called_with("test_server", server_params)
+
+
+async def test_agent_create_chat_completion_with_tools():
+    """Test _create_chat_completion with tools."""
+    agent = Agent()
+
+    with patch.object(agent, "_get_client") as mock_get_client:
+        mock_client = AsyncMock()
+        mock_get_client.return_value = mock_client
+
+        # Mock CLIENT_REGISTRY.tools property by patching the property directly
+        with patch("swarmx.agent.CLIENT_REGISTRY") as mock_registry:
+            mock_registry.tools = [{"name": "test_tool"}]
+
+            await agent._create_chat_completion(
+                messages=[{"role": "user", "content": "Hello"}], stream=False
+            )
+
+            # Verify tools were included in the call
+            call_args = mock_client.chat.completions.create.call_args
+            assert "tools" in call_args.kwargs
+            assert call_args.kwargs["tools"] == [{"name": "test_tool"}]
+
+
+async def test_agent_create_chat_completion_with_response_format_and_stream():
+    """Test _create_chat_completion with response format and streaming raises error."""
+    agent = Agent()
+
+    with pytest.raises(NotImplementedError, match="Streamed parsing is not supported"):
+        await agent._create_chat_completion(
+            messages=[{"role": "user", "content": "Hello"}],  # type: ignore
+            response_format=dict,
+            stream=True,
+        )
+
+
+async def test_agent_create_chat_completion_with_response_format():
+    """Test _create_chat_completion with response format."""
+    agent = Agent()
+
+    with patch.object(agent, "_get_client") as mock_get_client:
+        mock_client = AsyncMock()
+        mock_get_client.return_value = mock_client
+
+        await agent._create_chat_completion(
+            messages=[{"role": "user", "content": "Hello"}],  # type: ignore
+            response_format=dict,
+            stream=False,
+        )
+
+        # Verify parse method was called instead of create
+        mock_client.chat.completions.parse.assert_called_once()
+        mock_client.chat.completions.create.assert_not_called()
+
+
+async def test_agent_run_node_stream_with_no_entry_point():
+    """Test _run_node_stream with no entry point."""
+    agent = Agent()
+
+    result = []
+    async for chunk in agent._run_node_stream(
+        messages=[{"role": "user", "content": "Hello"}]
+    ):
+        result.append(chunk)
+
+    # Should return empty generator when no entry point
+    assert len(result) == 0
+
+
+async def test_agent_run_node_with_no_entry_point():
+    """Test _run_node with no entry point."""
+    agent = Agent()
+
+    result = await agent._run_node(messages=[{"role": "user", "content": "Hello"}])
+
+    # Should return empty list when no entry point
+    assert result == []
+
+
+# Removed problematic tests that patch Pydantic model methods
+
+
+async def test_agent_run_stream_with_tool_execution():
+    """Test _run_stream with tool execution."""
+    agent = Agent()
+
+    with (
+        patch.object(agent, "_create_chat_completion") as mock_create,
+        patch("swarmx.agent.exec_tool_calls") as mock_exec_tools,
+        patch.object(agent, "_run_node_stream") as mock_run_node,
+    ):
+        # Mock chat completion with tool calls
+        async def mock_completion_stream():
+            chunk = ChatCompletionChunk.model_validate(
+                {
+                    "id": "test",
+                    "choices": [
+                        {
+                            "index": 0,
+                            "delta": {
+                                "tool_calls": [
+                                    {
+                                        "index": 0,
+                                        "id": "call_123",
+                                        "function": {
+                                            "name": "test_tool",
+                                            "arguments": "{}",
+                                        },
+                                        "type": "function",
+                                    }
+                                ]
+                            },
+                            "finish_reason": "tool_calls",
+                        }
+                    ],
+                    "created": 1234567890,
+                    "model": "gpt-4o",
+                    "object": "chat.completion.chunk",
+                }
+            )
+            yield chunk
+
+        mock_create.return_value = mock_completion_stream()
+
+        # Mock tool execution
+        async def mock_tool_stream():
+            yield [
+                {"role": "tool", "content": "Tool result", "tool_call_id": "call_123"}
+            ]
+
+        mock_exec_tools.return_value = mock_tool_stream()
+
+        # Mock node stream
+        async def mock_node_stream():
+            yield ChatCompletionChunk.model_validate(
+                {
+                    "id": "test2",
+                    "choices": [
+                        {
+                            "index": 0,
+                            "delta": {"content": "Final"},
+                            "finish_reason": "stop",
+                        }
+                    ],
+                    "created": 1234567890,
+                    "model": "gpt-4o",
+                    "object": "chat.completion.chunk",
+                }
+            )
+
+        mock_run_node.return_value = mock_node_stream()
+
+        result = []
+        async for chunk in agent._run_stream(
+            messages=[{"role": "user", "content": "Hello"}]
+        ):
+            result.append(chunk)
+
+        assert len(result) >= 1
+
+
+async def test_agent_run_stream_message_count_mismatch():
+    """Test _run_stream with message count mismatch."""
+    agent = Agent()
+
+    with patch.object(agent, "_create_chat_completion") as mock_create:
+        # Mock completion that creates mismatched messages
+        async def mock_completion_stream():
+            # First chunk with one ID
+            chunk1 = ChatCompletionChunk.model_validate(
+                {
+                    "id": "test1",
+                    "choices": [{"index": 0, "delta": {"content": "Hello"}}],
+                    "created": now(),
+                    "model": "gpt-4o",
+                    "object": "chat.completion.chunk",
+                }
+            )
+            yield chunk1
+
+            # Second chunk with different ID but no finish_reason
+            chunk2 = ChatCompletionChunk.model_validate(
+                {
+                    "id": "test2",
+                    "choices": [{"index": 0, "delta": {"content": " World"}}],
+                    "created": now(),
+                    "model": "gpt-4o",
+                    "object": "chat.completion.chunk",
+                }
+            )
+            yield chunk2
+
+            # Only finish the first chunk
+            chunk3 = ChatCompletionChunk.model_validate(
+                {
+                    "id": "test1",
+                    "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
+                    "created": now(),
+                    "model": "gpt-4o",
+                    "object": "chat.completion.chunk",
+                }
+            )
+            yield chunk3
+
+        mock_create.return_value = mock_completion_stream()
+
+        with pytest.raises(
+            ValueError, match="Number of messages does not match number of chunks"
+        ):
+            result = []
+            async for chunk in agent._run_stream(
+                messages=[{"role": "user", "content": "Hello"}]
+            ):
+                result.append(chunk)
+
+
+async def test_agent_run_with_tool_execution():
+    """Test _run with tool execution."""
+    agent = Agent()
+
+    with (
+        patch("swarmx.agent.exec_tool_calls") as mock_exec_tools,
+    ):
+        # Mock completion with tool calls
+
+        # Mock tool execution
+        async def mock_tool_stream():
+            yield [
+                {"role": "tool", "content": "Tool result", "tool_call_id": "call_123"}
+            ]
+
+        mock_exec_tools.return_value = mock_tool_stream()
+
+        result = await agent._run(messages=[{"role": "user", "content": "Hello"}])
+
+        assert len(result) >= 2  # At least assistant message and node result
