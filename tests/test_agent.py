@@ -4,12 +4,14 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from httpx import Timeout
 from mcp.client.stdio import StdioServerParameters
+from mcp.types import CallToolResult, Tool
 from openai import AsyncOpenAI
 from openai.types.chat import (
     ChatCompletionMessageParam,
     ChatCompletionMessageToolCallParam,
 )
 from openai.types.chat.chat_completion_chunk import ChatCompletionChunk
+from pydantic import BaseModel
 
 from swarmx import Agent
 from swarmx.agent import Edge, SwarmXGenerateJsonSchema, _merge_chunk, exec_tool_calls
@@ -773,3 +775,801 @@ async def test_swarmx_generate_json_schema_field_title():
     # The method should return False for any input
     result = schema_generator.field_title_should_be_set(None)  # type: ignore
     assert result is False
+
+
+# Tests for _run_node method
+async def test_run_node_with_no_entry_point():
+    """Test _run_node returns empty list when no entry point is set."""
+    agent = Agent()
+    messages: list[ChatCompletionMessageParam] = [{"role": "user", "content": "Hello"}]
+
+    result = await agent._run_node(messages=messages)
+
+    assert result == []
+
+
+async def test_run_node_with_explicit_node():
+    """Test _run_node with explicitly specified node."""
+    # Create subagent
+    subagent = Agent(name="subagent", instructions="You are a test agent.")
+
+    # Create main agent with nodes
+    main_agent = Agent(name="main_agent", nodes={"test_node": subagent})
+
+    messages: list[ChatCompletionMessageParam] = [{"role": "user", "content": "Hello"}]
+
+    with patch.object(Agent, "run") as mock_run:
+        mock_run.return_value = [
+            {"role": "assistant", "content": "Response from subagent"}
+        ]
+
+        result = await main_agent._run_node(node="test_node", messages=messages)
+
+        # Should call subagent.run with correct parameters
+        mock_run.assert_called_once_with(messages=messages, stream=False, context=None)
+        # Should return the result from subagent
+        assert result == [{"role": "assistant", "content": "Response from subagent"}]
+        # Should mark node as visited
+        assert main_agent._visited["test_node"] is True
+
+
+async def test_run_node_with_entry_point():
+    """Test _run_node uses entry_point when node is None."""
+    # Create subagent
+    subagent = Agent(name="subagent", instructions="You are a test agent.")
+
+    # Create main agent with entry point
+    main_agent = Agent(
+        name="main_agent", entry_point="entry_node", nodes={"entry_node": subagent}
+    )
+
+    messages: list[ChatCompletionMessageParam] = [{"role": "user", "content": "Hello"}]
+
+    with patch.object(Agent, "run") as mock_run:
+        mock_run.return_value = [
+            {"role": "assistant", "content": "Response from entry"}
+        ]
+
+        result = await main_agent._run_node(messages=messages)
+
+        # Should call subagent.run with correct parameters
+        mock_run.assert_called_once_with(messages=messages, stream=False, context=None)
+        # Should return the result from subagent
+        assert result == [{"role": "assistant", "content": "Response from entry"}]
+        # Should mark node as visited
+        assert main_agent._visited["entry_node"] is True
+
+
+async def test_run_node_with_finish_point():
+    """Test _run_node returns early when reaching finish_point."""
+    # Create main agent with finish point
+    main_agent = Agent(
+        name="main_agent",
+        entry_point="node1",
+        finish_point="node1",  # Same as entry point to test early return
+        nodes={"node1": Agent(name="subagent1"), "node2": Agent(name="subagent2")},
+        edges=[Edge(source="node1", target="node2")],
+    )
+
+    messages: list[ChatCompletionMessageParam] = [{"role": "user", "content": "Hello"}]
+
+    with patch.object(Agent, "run") as mock_run:
+        mock_run.return_value = [
+            {"role": "assistant", "content": "Response from node1"}
+        ]
+
+        result = await main_agent._run_node(messages=messages)
+
+        # Should call only once (for the entry node, then return due to finish_point)
+        mock_run.assert_called_once()
+        # Should return result from first node only
+        assert result == [{"role": "assistant", "content": "Response from node1"}]
+
+
+async def test_run_node_with_simple_edge():
+    """Test _run_node follows simple edges between nodes."""
+    # Create main agent with edge
+    main_agent = Agent(
+        name="main_agent",
+        entry_point="node1",
+        nodes={"node1": Agent(name="subagent1"), "node2": Agent(name="subagent2")},
+        edges=[Edge(source="node1", target="node2")],
+    )
+
+    messages: list[ChatCompletionMessageParam] = [{"role": "user", "content": "Hello"}]
+
+    with patch.object(Agent, "run") as mock_run:
+        mock_run.side_effect = [
+            [{"role": "assistant", "content": "Response from node1"}],
+            [{"role": "assistant", "content": "Response from node2"}],
+        ]
+
+        result = await main_agent._run_node(messages=messages)
+
+        # Should call both subagents
+        assert mock_run.call_count == 2
+        # Should return combined results
+        expected = [
+            {"role": "assistant", "content": "Response from node1"},
+            {"role": "assistant", "content": "Response from node2"},
+        ]
+        assert result == expected
+
+
+async def test_run_node_with_list_source_edge():
+    """Test _run_node handles edges with list sources (conditional execution)."""
+    # Create main agent with conditional edge
+    main_agent = Agent(
+        name="main_agent",
+        entry_point="node1",
+        nodes={
+            "node1": Agent(name="subagent1"),
+            "node2": Agent(name="subagent2"),
+            "node3": Agent(name="subagent3"),
+        },
+        edges=[
+            Edge(source="node1", target="node2"),
+            Edge(source=["node1", "node2"], target="node3"),  # Conditional edge
+        ],
+    )
+
+    messages: list[ChatCompletionMessageParam] = [{"role": "user", "content": "Hello"}]
+
+    # For this test, let's simplify and just test that the method runs without error
+    # and calls the expected number of agents
+    with patch.object(Agent, "run") as mock_run:
+        mock_run.return_value = [{"role": "assistant", "content": "Response"}]
+
+        result = await main_agent._run_node(messages=messages)
+
+        # Should call node1, node2, and node3 (node3 might be called multiple times due to conditional edge)
+        assert mock_run.call_count >= 3
+        # Should return some result
+        assert len(result) > 0
+
+
+async def test_run_node_with_tool_edge():
+    """Test _run_node handles Tool edges."""
+    # Create tool
+    tool = Tool(
+        name="test_tool",
+        description="A test tool",
+        inputSchema={"type": "object", "properties": {}},
+        outputSchema={
+            "type": "object",
+            "property": {"target": {"type": "string"}},
+            "required": ["target"],
+        },
+    )
+
+    # Create main agent with tool edge
+    main_agent = Agent(
+        name="main_agent",
+        entry_point="node1",
+        nodes={
+            "node1": Agent(name="subagent"),
+            "target_node": Agent(name="target_agent"),
+        },
+        edges=[tool],
+    )
+
+    messages: list[ChatCompletionMessageParam] = [{"role": "user", "content": "Hello"}]
+
+    with (
+        patch.object(Agent, "run") as mock_run,
+        patch("swarmx.agent.CLIENT_REGISTRY") as mock_registry,
+    ):
+        # Mock tool call result
+        tool_result = CallToolResult.model_validate(
+            {
+                "content": [{"type": "text", "text": "Tool executed"}],
+                "structuredContent": {"target": "target_node"},
+            }
+        )
+        mock_registry.call_tool = AsyncMock(return_value=tool_result)
+
+        mock_run.return_value = [{"role": "assistant", "content": "Response"}]
+
+        await main_agent._run_node(messages=messages)
+
+        # Should call the tool
+        mock_registry.call_tool.assert_called_once_with("test_tool", {})
+        # Should call Agent.run twice (once for entry, once for target)
+        assert mock_run.call_count == 2
+
+
+async def test_run_node_with_tool_edge_creates_new_agent():
+    """Test _run_node creates new agent when tool returns agent config."""
+    # Create tool that returns agent schema
+    tool = Tool(
+        name="test_tool",
+        description="A test tool",
+        inputSchema={"type": "object", "properties": {}},
+        outputSchema=Agent.model_json_schema(),
+    )
+
+    # Create main agent with tool edge
+    main_agent = Agent(
+        name="main_agent",
+        entry_point="node1",
+        nodes={"node1": Agent(name="subagent")},
+        edges=[tool],
+    )
+
+    messages: list[ChatCompletionMessageParam] = [{"role": "user", "content": "Hello"}]
+
+    with (
+        patch.object(Agent, "run") as mock_run,
+        patch("swarmx.agent.CLIENT_REGISTRY") as mock_registry,
+        patch.object(Agent, "model_validate") as mock_validate,
+    ):
+        # Mock tool call result with agent config
+        tool_result = CallToolResult.model_validate(
+            {
+                "content": [{"type": "text", "text": "Agent created"}],
+                "structuredContent": {"name": "dynamic_agent", "model": "gpt-4"},
+            }
+        )
+        mock_registry.call_tool = AsyncMock(return_value=tool_result)
+
+        # Mock the created agent
+        dynamic_agent = Agent(name="dynamic_agent")
+        mock_validate.return_value = dynamic_agent
+
+        mock_run.return_value = [{"role": "assistant", "content": "Response"}]
+
+        await main_agent._run_node(messages=messages)
+
+        # Should call the tool
+        mock_registry.call_tool.assert_called_once_with("test_tool", {})
+        # Should create new agent from tool result
+        mock_validate.assert_called_once_with(
+            {"name": "dynamic_agent", "model": "gpt-4"}
+        )
+
+
+async def test_run_node_with_context():
+    """Test _run_node passes context to tool calls."""
+
+    class TestContext(BaseModel):
+        user_id: str
+        session_id: str
+
+    # Create tool
+    tool = Tool(
+        name="test_tool",
+        description="A test tool",
+        inputSchema={"type": "object", "properties": {}},
+        outputSchema={
+            "type": "object",
+            "property": {"target": {"type": "string"}},
+            "required": ["target"],
+        },
+    )
+
+    # Create main agent with tool edge
+    main_agent = Agent(
+        name="main_agent",
+        entry_point="node1",
+        nodes={
+            "node1": Agent(name="subagent"),
+            "target_node": Agent(name="target_agent"),
+        },
+        edges=[tool],
+    )
+
+    messages: list[ChatCompletionMessageParam] = [{"role": "user", "content": "Hello"}]
+    context = TestContext(user_id="123", session_id="abc")
+
+    with (
+        patch.object(Agent, "run") as mock_run,
+        patch("swarmx.agent.CLIENT_REGISTRY") as mock_registry,
+    ):
+        # Mock tool call result
+        tool_result = CallToolResult.model_validate(
+            {
+                "content": [{"type": "text", "text": "Tool executed"}],
+                "structuredContent": {"target": "target_node"},
+            }
+        )
+        mock_registry.call_tool = AsyncMock(return_value=tool_result)
+
+        mock_run.return_value = [{"role": "assistant", "content": "Response"}]
+
+        await main_agent._run_node(messages=messages, context=context)
+
+        # Should call the tool with context
+        mock_registry.call_tool.assert_called_once_with(
+            "test_tool", {"user_id": "123", "session_id": "abc"}
+        )
+
+
+# Tests for _run_node_stream method
+async def test_run_node_stream_with_no_entry_point():
+    """Test _run_node_stream returns empty generator when no entry point is set."""
+    agent = Agent()
+    messages: list[ChatCompletionMessageParam] = [{"role": "user", "content": "Hello"}]
+
+    result = []
+    async for chunk in agent._run_node_stream(messages=messages):
+        result.append(chunk)
+
+    assert result == []
+
+
+async def test_run_node_stream_with_explicit_node():
+    """Test _run_node_stream with explicitly specified node."""
+    from swarmx.utils import now
+
+    # Create main agent with nodes
+    main_agent = Agent(
+        name="main_agent",
+        nodes={
+            "test_node": Agent(name="subagent", instructions="You are a test agent.")
+        },
+    )
+
+    messages: list[ChatCompletionMessageParam] = [{"role": "user", "content": "Hello"}]
+
+    # Mock stream response
+    async def mock_stream():
+        yield ChatCompletionChunk.model_validate(
+            {
+                "id": "test_chunk",
+                "choices": [{"index": 0, "delta": {"content": "Response"}}],
+                "created": now(),
+                "model": "gpt-4o",
+                "object": "chat.completion.chunk",
+            }
+        )
+
+    with patch.object(Agent, "run") as mock_run:
+        mock_run.return_value = mock_stream()
+
+        result = []
+        async for chunk in main_agent._run_node_stream(
+            node="test_node", messages=messages
+        ):
+            result.append(chunk)
+
+        # Should call Agent.run with correct parameters
+        mock_run.assert_called_once_with(messages=messages, stream=True)
+        # Should return chunks from subagent
+        assert len(result) == 1
+        assert result[0].choices[0].delta.content == "Response"
+        # Should mark node as visited
+        assert main_agent._visited["test_node"] is True
+
+
+async def test_run_node_stream_with_entry_point():
+    """Test _run_node_stream uses entry_point when node is None."""
+    from swarmx.utils import now
+
+    # Create main agent with entry point
+    main_agent = Agent(
+        name="main_agent",
+        entry_point="entry_node",
+        nodes={
+            "entry_node": Agent(name="subagent", instructions="You are a test agent.")
+        },
+    )
+
+    messages: list[ChatCompletionMessageParam] = [{"role": "user", "content": "Hello"}]
+
+    # Mock stream response
+    async def mock_stream():
+        yield ChatCompletionChunk.model_validate(
+            {
+                "id": "test_chunk",
+                "choices": [{"index": 0, "delta": {"content": "Entry response"}}],
+                "created": now(),
+                "model": "gpt-4o",
+                "object": "chat.completion.chunk",
+            }
+        )
+
+    with patch.object(Agent, "run") as mock_run:
+        mock_run.return_value = mock_stream()
+
+        result = []
+        async for chunk in main_agent._run_node_stream(messages=messages):
+            result.append(chunk)
+
+        # Should call Agent.run with correct parameters
+        mock_run.assert_called_once_with(messages=messages, stream=True)
+        # Should return chunks from subagent
+        assert len(result) == 1
+        assert result[0].choices[0].delta.content == "Entry response"
+        # Should mark node as visited
+        assert main_agent._visited["entry_node"] is True
+
+
+async def test_run_node_stream_with_finish_point():
+    """Test _run_node_stream returns early when reaching finish_point."""
+    from swarmx.utils import now
+
+    # Create main agent with finish point
+    main_agent = Agent(
+        name="main_agent",
+        entry_point="node1",
+        finish_point="node1",  # Same as entry point to test early return
+        nodes={"node1": Agent(name="subagent1"), "node2": Agent(name="subagent2")},
+        edges=[Edge(source="node1", target="node2")],
+    )
+
+    messages: list[ChatCompletionMessageParam] = [{"role": "user", "content": "Hello"}]
+
+    # Mock stream response
+    async def mock_stream():
+        yield ChatCompletionChunk.model_validate(
+            {
+                "id": "test_chunk",
+                "choices": [{"index": 0, "delta": {"content": "Node1 response"}}],
+                "created": now(),
+                "model": "gpt-4o",
+                "object": "chat.completion.chunk",
+            }
+        )
+
+    with patch.object(Agent, "run") as mock_run:
+        mock_run.return_value = mock_stream()
+
+        result = []
+        async for chunk in main_agent._run_node_stream(messages=messages):
+            result.append(chunk)
+
+        # Should call only once (for the entry node, then return due to finish_point)
+        mock_run.assert_called_once()
+        # Should return chunks from first node only
+        assert len(result) == 1
+        assert result[0].choices[0].delta.content == "Node1 response"
+
+
+async def test_run_node_stream_with_simple_edge():
+    """Test _run_node_stream follows simple edges between nodes."""
+    from swarmx.utils import now
+
+    # Create main agent with edge
+    main_agent = Agent(
+        name="main_agent",
+        entry_point="node1",
+        nodes={"node1": Agent(name="subagent1"), "node2": Agent(name="subagent2")},
+        edges=[Edge(source="node1", target="node2")],
+    )
+
+    messages: list[ChatCompletionMessageParam] = [{"role": "user", "content": "Hello"}]
+
+    # Mock stream responses
+    async def mock_stream1():
+        yield ChatCompletionChunk.model_validate(
+            {
+                "id": "chunk1",
+                "choices": [{"index": 0, "delta": {"content": "Node1"}}],
+                "created": now(),
+                "model": "gpt-4o",
+                "object": "chat.completion.chunk",
+            }
+        )
+
+    async def mock_stream2():
+        yield ChatCompletionChunk.model_validate(
+            {
+                "id": "chunk2",
+                "choices": [{"index": 0, "delta": {"content": "Node2"}}],
+                "created": now(),
+                "model": "gpt-4o",
+                "object": "chat.completion.chunk",
+            }
+        )
+
+    with patch.object(Agent, "run") as mock_run:
+        mock_run.side_effect = [mock_stream1(), mock_stream2()]
+
+        result = []
+        async for chunk in main_agent._run_node_stream(messages=messages):
+            result.append(chunk)
+
+        # Should call both subagents
+        assert mock_run.call_count == 2
+        # Should return chunks from both nodes
+        assert len(result) == 2
+        contents = [chunk.choices[0].delta.content for chunk in result]
+        assert "Node1" in contents
+        assert "Node2" in contents
+
+
+async def test_run_node_stream_with_list_source_edge():
+    """Test _run_node_stream handles edges with list sources (conditional execution)."""
+    from swarmx.utils import now
+
+    # Create main agent with conditional edge
+    main_agent = Agent(
+        name="main_agent",
+        entry_point="node1",
+        nodes={
+            "node1": Agent(name="subagent1"),
+            "node2": Agent(name="subagent2"),
+            "node3": Agent(name="subagent3"),
+        },
+        edges=[
+            Edge(source="node1", target="node2"),
+            Edge(source=["node1", "node2"], target="node3"),  # Conditional edge
+        ],
+    )
+
+    messages: list[ChatCompletionMessageParam] = [{"role": "user", "content": "Hello"}]
+
+    # Mock stream responses
+    async def mock_stream1():
+        yield ChatCompletionChunk.model_validate(
+            {
+                "id": "chunk1",
+                "choices": [{"index": 0, "delta": {"content": "Node1"}}],
+                "created": now(),
+                "model": "gpt-4o",
+                "object": "chat.completion.chunk",
+            }
+        )
+
+    async def mock_stream2():
+        yield ChatCompletionChunk.model_validate(
+            {
+                "id": "chunk2",
+                "choices": [{"index": 0, "delta": {"content": "Node2"}}],
+                "created": now(),
+                "model": "gpt-4o",
+                "object": "chat.completion.chunk",
+            }
+        )
+
+    async def mock_stream3():
+        yield ChatCompletionChunk.model_validate(
+            {
+                "id": "chunk3",
+                "choices": [{"index": 0, "delta": {"content": "Node3"}}],
+                "created": now(),
+                "model": "gpt-4o",
+                "object": "chat.completion.chunk",
+            }
+        )
+
+    with patch.object(Agent, "run") as mock_run:
+        mock_run.side_effect = [mock_stream1(), mock_stream2(), mock_stream3()]
+
+        result = []
+        async for chunk in main_agent._run_node_stream(messages=messages):
+            result.append(chunk)
+
+        # Should call all three subagents
+        assert mock_run.call_count == 3
+        # Should return chunks from all nodes
+        assert len(result) == 3
+        contents = [chunk.choices[0].delta.content for chunk in result]
+        assert "Node1" in contents
+        assert "Node2" in contents
+        assert "Node3" in contents
+
+
+async def test_run_node_stream_with_tool_edge():
+    """Test _run_node_stream handles Tool edges."""
+    from swarmx.utils import now
+
+    # Create tool
+    tool = Tool(
+        name="test_tool",
+        description="A test tool",
+        inputSchema={"type": "object", "properties": {}},
+        outputSchema={
+            "type": "object",
+            "property": {"target": {"type": "string"}},
+            "required": ["target"],
+        },
+    )
+
+    # Create main agent with tool edge
+    main_agent = Agent(
+        name="main_agent",
+        entry_point="node1",
+        nodes={
+            "node1": Agent(name="subagent"),
+            "target_node": Agent(name="target_agent"),
+        },
+        edges=[tool],
+    )
+
+    messages: list[ChatCompletionMessageParam] = [{"role": "user", "content": "Hello"}]
+
+    # Mock stream response
+    async def mock_stream():
+        yield ChatCompletionChunk.model_validate(
+            {
+                "id": "test_chunk",
+                "choices": [{"index": 0, "delta": {"content": "Response"}}],
+                "created": now(),
+                "model": "gpt-4o",
+                "object": "chat.completion.chunk",
+            }
+        )
+
+    with (
+        patch.object(Agent, "run") as mock_run,
+        patch("swarmx.agent.CLIENT_REGISTRY") as mock_registry,
+    ):
+        # Mock tool call result
+        tool_result = CallToolResult.model_validate(
+            {
+                "content": [{"type": "text", "text": "Tool executed"}],
+                "structuredContent": {"target": "target_node"},
+            }
+        )
+        mock_registry.call_tool = AsyncMock(return_value=tool_result)
+
+        mock_run.return_value = mock_stream()
+
+        result = []
+        async for chunk in main_agent._run_node_stream(messages=messages):
+            result.append(chunk)
+
+        # Should call the tool
+        mock_registry.call_tool.assert_called_once_with("test_tool", {})
+        # Should call Agent.run twice (once for entry, once for target)
+        assert mock_run.call_count == 2
+
+
+async def test_run_node_stream_with_tool_edge_creates_new_agent():
+    """Test _run_node_stream creates new agent when tool returns agent config (line 354)."""
+    from swarmx.utils import now
+
+    # Create tool that returns agent schema
+    tool = Tool(
+        name="test_tool",
+        description="A test tool",
+        inputSchema={"type": "object", "properties": {}},
+        outputSchema=Agent.model_json_schema(),
+    )
+
+    # Create main agent with tool edge
+    main_agent = Agent(
+        name="main_agent",
+        entry_point="node1",
+        nodes={"node1": Agent(name="subagent")},
+        edges=[tool],
+    )
+
+    messages: list[ChatCompletionMessageParam] = [{"role": "user", "content": "Hello"}]
+
+    # Mock stream response
+    async def mock_stream():
+        yield ChatCompletionChunk.model_validate(
+            {
+                "id": "test_chunk",
+                "choices": [{"index": 0, "delta": {"content": "Response"}}],
+                "created": now(),
+                "model": "gpt-4o",
+                "object": "chat.completion.chunk",
+            }
+        )
+
+    with (
+        patch.object(Agent, "run") as mock_run,
+        patch("swarmx.agent.CLIENT_REGISTRY") as mock_registry,
+        patch.object(Agent, "model_validate") as mock_validate,
+    ):
+        # Mock tool call result with agent config (not targeting existing node)
+        tool_result = CallToolResult.model_validate(
+            {
+                "content": [{"type": "text", "text": "Agent created"}],
+                "structuredContent": {"name": "dynamic_agent", "model": "gpt-4"},
+            }
+        )
+        mock_registry.call_tool = AsyncMock(return_value=tool_result)
+
+        # Mock the created agent
+        dynamic_agent = Agent(name="dynamic_agent")
+        mock_validate.return_value = dynamic_agent
+
+        mock_run.return_value = mock_stream()
+
+        result = []
+        async for chunk in main_agent._run_node_stream(messages=messages):
+            result.append(chunk)
+
+        # Should call the tool
+        mock_registry.call_tool.assert_called_once_with("test_tool", {})
+        # Should create new agent from tool result (line 354)
+        mock_validate.assert_called_once_with(
+            {"name": "dynamic_agent", "model": "gpt-4"}
+        )
+        # Should call Agent.run twice (once for entry, once for dynamic agent)
+        assert mock_run.call_count == 2
+
+
+async def test_run_stream_with_tool_execution_chunk_yield():
+    """Test _run_stream yields ChatCompletionChunk from tool execution (line 397)."""
+    from swarmx.utils import now
+
+    agent = Agent()
+
+    with (
+        patch.object(agent, "_create_chat_completion") as mock_create,
+        patch("swarmx.agent.exec_tool_calls") as mock_exec_tools,
+        patch.object(agent, "_run_node_stream") as mock_run_node,
+    ):
+        # Mock chat completion with tool calls
+        async def mock_completion_stream():
+            chunk = ChatCompletionChunk.model_validate(
+                {
+                    "id": "test",
+                    "choices": [
+                        {
+                            "index": 0,
+                            "delta": {
+                                "tool_calls": [
+                                    {
+                                        "index": 0,
+                                        "id": "call_123",
+                                        "function": {
+                                            "name": "test_tool",
+                                            "arguments": "{}",
+                                        },
+                                        "type": "function",
+                                    }
+                                ]
+                            },
+                            "finish_reason": "tool_calls",
+                        }
+                    ],
+                    "created": now(),
+                    "model": "gpt-4o",
+                    "object": "chat.completion.chunk",
+                }
+            )
+            yield chunk
+
+        mock_create.return_value = mock_completion_stream()
+
+        # Mock tool execution that yields a ChatCompletionChunk (to test line 397)
+        async def mock_tool_stream():
+            # First yield a ChatCompletionChunk (this should be yielded on line 397)
+            yield ChatCompletionChunk.model_validate(
+                {
+                    "id": "tool_chunk",
+                    "choices": [{"index": 0, "delta": {"content": "Tool chunk"}}],
+                    "created": now(),
+                    "model": "gpt-4o",
+                    "object": "chat.completion.chunk",
+                }
+            )
+            # Then yield messages
+            yield [
+                {"role": "tool", "content": "Tool result", "tool_call_id": "call_123"}
+            ]
+
+        mock_exec_tools.return_value = mock_tool_stream()
+
+        # Mock node stream
+        async def mock_node_stream():
+            yield ChatCompletionChunk.model_validate(
+                {
+                    "id": "node_chunk",
+                    "choices": [{"index": 0, "delta": {"content": "Node"}}],
+                    "created": now(),
+                    "model": "gpt-4o",
+                    "object": "chat.completion.chunk",
+                }
+            )
+
+        mock_run_node.return_value = mock_node_stream()
+
+        result = []
+        async for chunk in agent._run_stream(
+            messages=[{"role": "user", "content": "Hello"}]
+        ):
+            result.append(chunk)
+
+        # Should have chunks from completion, tool execution, and node stream
+        assert len(result) >= 3
+        # Should include the tool chunk that was yielded on line 397
+        tool_chunks = [chunk for chunk in result if chunk.id == "tool_chunk"]
+        assert len(tool_chunks) == 1
+        assert tool_chunks[0].choices[0].delta.content == "Tool chunk"
