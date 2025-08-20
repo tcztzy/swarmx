@@ -128,6 +128,4 @@ dmypy.json
 requirements.lock
 requirements-dev.lock
 
-# deepeval
-.deepeval*
 .aider*

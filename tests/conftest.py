@@ -23,9 +23,6 @@ from openai.types.chat.chat_completion_message import ChatCompletionMessage
 
 def pytest_addoption(parser: pytest.Parser) -> None:
     parser.addoption(
-        "--deepeval", action="store_true", default=False, help="Run deepeval tests"
-    )
-    parser.addoption(
         "--openai",
         action="store_true",
         default=False,
@@ -37,11 +34,6 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         default="deepseek-reasoner",
         help="Model to use for tests",
     )
-
-
-@pytest.fixture
-def skip_deepeval(pytestconfig: pytest.Config):
-    return not pytestconfig.getoption("deepeval")
 
 
 @pytest.fixture
