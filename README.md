@@ -25,13 +25,22 @@ An extreme simple framework exploring ergonomic, lightweight multi-agent orchest
 
 ## Quick start
 
-After setting `OPENAI_API_KEY` environment variable, you can start a simple REPL by running the following command:
+SwarmX automatically loads environment variables from a `.env` file if present. You can either:
 
-```shell
-export OPENAI_API_KEY="your-api-key"
-# export OPENAI_BASE_URL="http://localhost:11434/v1"  # optional
-uvx swarmx  # Start interactive REPL
-```
+1. **Use a .env file** (recommended):
+   ```shell
+   # Create a .env file in your project directory
+   echo "OPENAI_API_KEY=your-api-key" > .env
+   echo "OPENAI_BASE_URL=http://localhost:11434/v1" >> .env  # optional
+   uvx swarmx  # Start interactive REPL
+   ```
+
+2. **Set environment variables manually**:
+   ```shell
+   export OPENAI_API_KEY="your-api-key"
+   # export OPENAI_BASE_URL="http://localhost:11434/v1"  # optional
+   uvx swarmx  # Start interactive REPL
+   ```
 
 ### API Server
 

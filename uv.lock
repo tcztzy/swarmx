@@ -1244,6 +1244,7 @@ dependencies = [
     { name = "mcp" },
     { name = "networkx" },
     { name = "openai" },
+    { name = "python-dotenv" },
     { name = "typer" },
 ]
 
@@ -1279,6 +1280,7 @@ requires-dist = [
     { name = "mcp", specifier = "==1.12.1" },
     { name = "networkx", specifier = "==3.5" },
     { name = "openai", specifier = "==1.97.1" },
+    { name = "python-dotenv", specifier = ">=1.1.1" },
     { name = "typer", specifier = "==0.16.0" },
 ]
 
