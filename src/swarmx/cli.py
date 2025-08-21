@@ -15,7 +15,6 @@ from openai.types.chat.completion_create_params import CompletionCreateParams
 from pydantic import BaseModel, RootModel
 
 from .agent import (
-    CLIENT_REGISTRY,
     Agent,
     T,
 )
@@ -95,7 +94,6 @@ async def main(
             break
     if output is not None:
         output.write_text(json.dumps(messages, indent=2, ensure_ascii=False))
-    await CLIENT_REGISTRY.close()
 
 
 class ChatCompletionRequest(BaseModel):

@@ -31,7 +31,7 @@ def pytest_addoption(parser: pytest.Parser) -> None:
     parser.addoption(
         "--model",
         action="store",
-        default="deepseek-reasoner",
+        default="openai/gpt-oss-120b",
         help="Model to use for tests",
     )
 
@@ -236,7 +236,10 @@ def client(
                             for message in messages
                         ]
                     )
-    with patch("swarmx.agent.DEFAULT_CLIENT", mock_openai):
+        # Only patch when mocking
+        with patch("swarmx.agent.DEFAULT_CLIENT", mock_openai):
+            yield
+    else:
         yield
 
 

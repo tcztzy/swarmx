@@ -67,13 +67,13 @@ async def test_agent_with_jinja_template_instructions():
     assert result is not None and "Alice" in result
 
 
-async def test_run_node_stream():
+async def test_run_node_stream(model):
     agent = Agent(
         name="test_agent",
-        model="deepseek-r1",
+        model=model,
         instructions="You are a fantasy writer.",
         entry_point="agent1",
-        nodes={"agent1": Agent(name="agent1")},
+        nodes={"agent1": Agent(name="agent1", model=model)},
     )
     messages: list[ChatCompletionMessageParam] = [{"role": "user", "content": "Hello"}]
     context = None
@@ -85,10 +85,10 @@ async def test_run_node_stream():
         assert chunk.id is not None
 
 
-async def test_create_chat_completion():
+async def test_create_chat_completion(model):
     agent = Agent(
         name="test_agent",
-        model="deepseek-r1",
+        model=model,
         instructions="You are a fantasy writer.",
     )
     messages: list[ChatCompletionMessageParam] = [{"role": "user", "content": "Hello"}]
@@ -203,11 +203,11 @@ async def test_linear_sequence_of_subagents():
     )
 
 
-async def test_agent_sequence_execution_stream():
+async def test_agent_sequence_execution_stream(model):
     # Create main agent with nodes
     main_agent = Agent(
         name="main_agent",
-        model="deepseek-r1",
+        model=model,
         instructions="Coordinate the workflow.",
         entry_point="agent1",
     )
@@ -215,17 +215,17 @@ async def test_agent_sequence_execution_stream():
     # Create subagents with specific behaviors
     agent1 = Agent(
         name="agent1",
-        model="deepseek-r1",
+        model=model,
         instructions="You are a fantasy writer. Always respond with 'Story written'.",
     )
     agent2 = Agent(
         name="agent2",
-        model="deepseek-r1",
+        model=model,
         instructions="You are a fantasy editor. Always respond with 'Story edited'.",
     )
     agent3 = Agent(
         name="agent3",
-        model="deepseek-r1",
+        model=model,
         instructions="You are a fantasy publisher. Always respond with 'Story published'.",
     )
 
@@ -743,26 +743,22 @@ async def test_agent_run_stream_message_count_mismatch():
                 result.append(chunk)
 
 
-async def test_agent_run_with_tool_execution():
+async def test_agent_run_with_tool_execution(model):
     """Test _run with tool execution."""
-    agent = Agent()
+    agent = Agent(
+        model=model,
+        mcpServers={
+            "time": StdioServerParameters(
+                command="python", args=["-m", "mcp_server_time"]
+            )
+        },
+    )
 
-    with (
-        patch("swarmx.agent.exec_tool_calls") as mock_exec_tools,
-    ):
-        # Mock completion with tool calls
+    result = await agent.run(
+        messages=[{"role": "user", "content": "What is time now?"}]
+    )
 
-        # Mock tool execution
-        async def mock_tool_stream():
-            yield [
-                {"role": "tool", "content": "Tool result", "tool_call_id": "call_123"}
-            ]
-
-        mock_exec_tools.return_value = mock_tool_stream()
-
-        result = await agent._run(messages=[{"role": "user", "content": "Hello"}])
-
-        assert len(result) >= 2  # At least assistant message and node result
+    assert len(result) >= 2  # At least assistant message and node result
 
 
 async def test_swarmx_generate_json_schema_field_title():

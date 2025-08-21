@@ -206,10 +206,10 @@ async def test_execute_hooks_with_structured_output(mock_client_registry):
     assert result_context == {"modified": True, "value": "updated"}
 
 
-async def test_hook_integration_with_agent_run(mock_client_registry):
+async def test_hook_integration_with_agent_run(mock_client_registry, model):
     """Test that hooks are executed during agent run."""
     hook = Hook(on_start="start_tool", on_end="end_tool")
-    agent = Agent(hooks=[hook])
+    agent = Agent(hooks=[hook], model=model)
 
     messages = cast(
         list[ChatCompletionMessageParam], [{"role": "user", "content": "test"}]
