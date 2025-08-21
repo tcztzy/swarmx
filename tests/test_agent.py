@@ -7,6 +7,7 @@ from mcp.client.stdio import StdioServerParameters
 from mcp.types import CallToolResult, Tool
 from openai import AsyncOpenAI
 from openai.types.chat import (
+    ChatCompletion,
     ChatCompletionMessageParam,
     ChatCompletionMessageToolCallParam,
 )
@@ -15,6 +16,7 @@ from pydantic import BaseModel
 
 from swarmx import Agent
 from swarmx.agent import Edge, SwarmXGenerateJsonSchema, _merge_chunk, exec_tool_calls
+from swarmx.hook import Hook
 from swarmx.utils import now
 
 pytestmark = pytest.mark.anyio
@@ -1488,7 +1490,8 @@ async def test_run_stream_with_tool_execution_chunk_yield():
     """Test _run_stream yields ChatCompletionChunk from tool execution (line 397)."""
     from swarmx.utils import now
 
-    agent = Agent()
+    # Create agent with a node so that _run_node_stream is called
+    agent = Agent(nodes={"test_node": Agent()})
 
     with (
         patch.object(agent, "_create_chat_completion") as mock_create,
@@ -1573,3 +1576,68 @@ async def test_run_stream_with_tool_execution_chunk_yield():
         tool_chunks = [chunk for chunk in result if chunk.id == "tool_chunk"]
         assert len(tool_chunks) == 1
         assert tool_chunks[0].choices[0].delta.content == "Tool chunk"
+
+
+async def test_agent_run_with_nodes_and_subagents_hooks():
+    """Test agent.run with nodes executes subagents hooks (covers lines 574-585)."""
+    # Create a subagent
+    subagent = Agent(name="subagent", instructions="You are a test subagent.")
+
+    # Create main agent with nodes and hooks
+    hook = Hook(on_subagents_start="start_hook", on_subagents_end="end_hook")
+    agent = Agent(
+        name="main_agent", hooks=[hook], entry_point="sub1", nodes={"sub1": subagent}
+    )
+
+    with (
+        patch.object(agent, "_create_chat_completion") as mock_create,
+        patch.object(agent, "_execute_hooks") as mock_hooks,
+        patch.object(agent, "_run_node") as mock_run_node,
+    ):
+        # Mock chat completion
+        mock_create.return_value = ChatCompletion.model_validate(
+            {
+                "id": "test",
+                "choices": [
+                    {
+                        "index": 0,
+                        "message": {"role": "assistant", "content": "Main response"},
+                        "finish_reason": "stop",
+                    }
+                ],
+                "created": 1234567890,
+                "model": "gpt-4o",
+                "object": "chat.completion",
+            }
+        )
+
+        # Mock hooks to return input unchanged
+        mock_hooks.side_effect = lambda _hook_type, messages, context: (
+            messages,
+            context,
+        )
+
+        # Mock _run_node to return subagent response
+        mock_run_node.return_value = [
+            {"role": "assistant", "content": "Subagent response"}
+        ]
+
+        # Run agent with stream=False to trigger the non-streaming path
+        result = await agent.run(
+            messages=[{"role": "user", "content": "Hello"}], stream=False
+        )
+
+        # Verify subagents hooks were called
+        hook_calls = [call for call in mock_hooks.call_args_list]
+        hook_types = [call[0][0] for call in hook_calls]
+
+        assert "on_subagents_start" in hook_types
+        assert "on_subagents_end" in hook_types
+
+        # Verify _run_node was called
+        mock_run_node.assert_called_once()
+
+        # Verify result includes both main and subagent responses
+        assert len(result) == 2
+        assert result[0].get("content") == "Main response"
+        assert result[1].get("content") == "Subagent response"

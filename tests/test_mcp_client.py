@@ -8,7 +8,10 @@ from mcp.types import (
     EmbeddedResource,
     Tool,
 )
-from openai.types.chat import ChatCompletionMessageToolCallParam
+from openai.types.chat import (
+    ChatCompletionMessageParam,
+    ChatCompletionMessageToolCallParam,
+)
 
 from swarmx.mcp_client import (
     ClientRegistry,
@@ -576,3 +579,73 @@ async def test_result_to_content_resource_link():
     assert len(content) == 1
     assert content[0]["type"] == "text"
     assert "[Test Resource](blob:file:///test.txt)" in content[0]["text"]
+
+
+async def test_with_tool_hooks_decorator():
+    """Test the with_tool_hooks decorator functionality."""
+    from swarmx.hook import Hook, with_tool_hooks
+
+    tool_calls: list[ChatCompletionMessageToolCallParam] = [
+        {
+            "id": "call_123",
+            "type": "function",
+            "function": {"name": "test_tool", "arguments": '{"arg": "value"}'},
+        }
+    ]
+
+    # Create hooks
+    hooks = [Hook(on_tool_start="mock_hook_tool", on_tool_end="mock_hook_tool")]
+    messages: list[ChatCompletionMessageParam] = [
+        {"role": "user", "content": "test message"}
+    ]
+    context = {"test_key": "test_value"}
+
+    with (
+        patch("swarmx.mcp_client.CLIENT_REGISTRY.call_tool") as mock_call_tool,
+        patch("swarmx.hook.execute_hooks") as mock_execute_hooks,
+    ):
+        # Mock tool call result
+        mock_result = CallToolResult.model_validate(
+            {"content": [{"type": "text", "text": "Tool result"}]}
+        )
+        mock_call_tool.return_value = mock_result
+
+        # Mock hook execution - return modified messages and context
+        mock_execute_hooks.return_value = (
+            messages + [{"role": "assistant", "content": "hook modified"}],
+            {"test_key": "modified_value"},
+        )
+
+        # Apply decorator to exec_tool_calls
+        decorated_exec_tool_calls = with_tool_hooks(hooks, messages, context)(
+            exec_tool_calls
+        )
+
+        results = []
+        async for chunk in decorated_exec_tool_calls(tool_calls):
+            results.append(chunk)
+
+        # Verify hooks were called
+        assert mock_execute_hooks.call_count == 2  # on_tool_start and on_tool_end
+
+        # Verify on_tool_start was called
+        mock_execute_hooks.assert_any_call(hooks, "on_tool_start", messages, context)
+
+        # Verify on_tool_end was called with updated messages
+        expected_final_messages = (
+            messages + [{"role": "assistant", "content": "hook modified"}] + results[-1]
+        )
+        mock_execute_hooks.assert_any_call(
+            hooks,
+            "on_tool_end",
+            expected_final_messages,
+            {"test_key": "modified_value"},
+        )
+
+        # exec_tool_calls yields both chunks and messages
+        assert len(results) == 2
+        # Last result should be the list of messages
+        assert isinstance(results[-1], list)
+        assert len(results[-1]) == 1
+        assert results[-1][0]["role"] == "tool"
+        assert results[-1][0]["tool_call_id"] == "call_123"

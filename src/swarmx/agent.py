@@ -37,6 +37,7 @@ from pydantic import (
 )
 from pydantic.json_schema import GenerateJsonSchema
 
+from .hook import Hook, HookType, execute_hooks, with_tool_hooks
 from .mcp_client import CLIENT_REGISTRY, exec_tool_calls
 from .types import MCPServer
 from .utils import join
@@ -153,6 +154,9 @@ class Agent(BaseModel, Generic[T], use_attribute_docstrings=True):
     edges: list[Edge | Tool] = Field(default_factory=list)
     """The edges in the Agent's graph"""
 
+    hooks: list[Hook] = Field(default_factory=list)
+    """Hooks to execute at various points in the agent lifecycle"""
+
     _visited: dict[str, bool] = PrivateAttr(
         default_factory=lambda: defaultdict(lambda: False)
     )
@@ -219,6 +223,25 @@ class Agent(BaseModel, Generic[T], use_attribute_docstrings=True):
 
     def _get_client(self):
         return self.client or DEFAULT_CLIENT or AsyncOpenAI()
+
+    async def _execute_hooks(
+        self,
+        hook_type: HookType,
+        messages: list[ChatCompletionMessageParam],
+        context: T | None = None,
+    ) -> tuple[list[ChatCompletionMessageParam], T | None]:
+        """Execute hooks of a specific type.
+
+        Args:
+            hook_type: The type of hook to execute (e.g., 'on_start', 'on_end')
+            messages: The current messages to pass to hook tools
+            context: The context variables to pass to the hook tools
+
+        Returns:
+            Tuple of (modified_messages, modified_context)
+
+        """
+        return await execute_hooks(self.hooks, hook_type, messages, context)
 
     @overload
     async def _create_chat_completion(
@@ -370,10 +393,14 @@ class Agent(BaseModel, Generic[T], use_attribute_docstrings=True):
             context: The context variables to pass to the agent
 
         """
+        # Execute on_start hooks
+        messages, context = await self._execute_hooks("on_start", messages, context)
+
         new_messages: list[ChatCompletionMessageParam] = []
         _messages: dict[str, ChatCompletionMessageParam] = defaultdict(
             lambda: {"role": "assistant"}
         )
+        await self._execute_hooks("on_llm_start", messages, context)
         async for chunk in await self._create_chat_completion(
             messages=messages,
             context=context,
@@ -387,21 +414,44 @@ class Agent(BaseModel, Generic[T], use_attribute_docstrings=True):
         else:
             if len(new_messages) != len(_messages):
                 raise ValueError("Number of messages does not match number of chunks")
+        await self._execute_hooks("on_llm_end", messages + new_messages, context)
         latest_message = new_messages[-1]
         if (
             latest_message["role"] == "assistant"
             and (tool_calls := latest_message.get("tool_calls")) is not None
         ):
-            async for chunk in exec_tool_calls(tool_calls):
+            # Apply hook decorator to exec_tool_calls
+            decorated_exec_tool_calls = with_tool_hooks(
+                self.hooks, messages + new_messages, context
+            )(exec_tool_calls)
+
+            async for chunk in decorated_exec_tool_calls(tool_calls):
                 if isinstance(chunk, ChatCompletionChunk):
                     yield chunk
                 else:
                     new_messages.extend(chunk)
-        async for chunk in self._run_node_stream(
-            messages=messages + new_messages,
-            context=context,
-        ):
-            yield chunk
+
+        if len(self.nodes) > 0:
+            # Execute on_subagents_start hooks before running nodes
+            messages, context = await self._execute_hooks(
+                "on_subagents_start", messages + new_messages, context
+            )
+
+            async for chunk in self._run_node_stream(
+                messages=messages + new_messages,
+                context=context,
+            ):
+                yield chunk
+
+            # Execute on_subagents_end hooks after running nodes
+            messages, context = await self._execute_hooks(
+                "on_subagents_end", messages + new_messages, context
+            )
+
+        # Execute on_end hooks
+        messages, context = await self._execute_hooks(
+            "on_end", messages + new_messages, context
+        )
 
     async def _run_node(
         self,
@@ -480,7 +530,11 @@ class Agent(BaseModel, Generic[T], use_attribute_docstrings=True):
             context: The context variables to pass to the agent
 
         """
+        # Execute on_start hooks
+        messages, context = await self._execute_hooks("on_start", messages, context)
+
         new_messages: list[ChatCompletionMessageParam] = []
+        await self._execute_hooks("on_llm_start", messages, context)
         completion = await self._create_chat_completion(
             messages=messages,
             context=context,
@@ -494,18 +548,40 @@ class Agent(BaseModel, Generic[T], use_attribute_docstrings=True):
         )
         m["name"] = f"{self.name} ({completion.id})"
         new_messages.append(m)
+        await self._execute_hooks("on_llm_end", messages + new_messages, context)
 
         if m["role"] == "assistant" and (tool_calls := m.get("tool_calls")) is not None:
-            async for chunk in exec_tool_calls(tool_calls):
+            # Apply hook decorator to exec_tool_calls
+            decorated_exec_tool_calls = with_tool_hooks(
+                self.hooks, messages + new_messages, context
+            )(exec_tool_calls)
+
+            async for chunk in decorated_exec_tool_calls(tool_calls):
                 if not isinstance(chunk, ChatCompletionChunk):
                     new_messages.extend(chunk)
+        if len(self.nodes) > 0:
+            # Execute on_subagents_start hooks before running nodes
+            messages, context = await self._execute_hooks(
+                "on_subagents_start", messages + new_messages, context
+            )
 
-        node_results = await self._run_node(
-            messages=messages + new_messages,
-            context=context,
+            node_results = await self._run_node(
+                messages=messages + new_messages,
+                context=context,
+            )
+            new_messages.extend(node_results)
+
+            # Execute on_subagents_end hooks after running nodes
+            messages, context = await self._execute_hooks(
+                "on_subagents_end", messages + new_messages, context
+            )
+
+        # Execute on_end hooks
+        messages, context = await self._execute_hooks(
+            "on_end", messages + new_messages, context
         )
 
-        return new_messages + node_results
+        return new_messages
 
     async def get_system_prompt(
         self,
