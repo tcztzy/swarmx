@@ -16,7 +16,6 @@ from typing import (
 
 from httpx import Timeout
 from jinja2 import Template
-from mcp.types import Tool
 from openai import DEFAULT_MAX_RETRIES, AsyncOpenAI, AsyncStream
 from openai.types.chat import (
     ChatCompletion,
@@ -151,7 +150,7 @@ class Agent(BaseModel, Generic[T], use_attribute_docstrings=True):
     nodes: "dict[str, Agent]" = Field(default_factory=dict)
     """The nodes in the Agent's graph"""
 
-    edges: list[Edge | Tool] = Field(default_factory=list)
+    edges: list[Edge] = Field(default_factory=list)
     """The edges in the Agent's graph"""
 
     hooks: list[Hook] = Field(default_factory=list)
@@ -322,49 +321,18 @@ class Agent(BaseModel, Generic[T], use_attribute_docstrings=True):
             return
         generators: list[AsyncGenerator[ChatCompletionChunk, None]] = []
         for edge in self.edges:
-            match edge:
-                case Edge():
-                    if edge.source == node:
-                        generators.append(
-                            self._run_node_stream(
-                                node=edge.target,
-                                messages=messages,
-                                context=context,
-                            )
-                        )
-                    elif (
-                        isinstance(edge.source, list)
-                        and node in edge.source
-                        and all(self._visited[n] for n in edge.source)
-                    ):
-                        generators.append(
-                            self._run_node_stream(
-                                node=edge.target,
-                                messages=messages,
-                                context=context,
-                            )
-                        )
-                case Tool() as tool:
-                    assert tool.outputSchema == self.model_json_schema() or (
-                        tool.outputSchema
-                        == {
-                            "type": "object",
-                            "property": {"target": {"type": "string"}},
-                            "required": ["target"],
-                        }
+            if edge.source == node or (
+                isinstance(edge.source, list)
+                and node in edge.source
+                and all(self._visited[n] for n in edge.source)
+            ):
+                generators.append(
+                    self._run_node_stream(
+                        node=edge.target,
+                        messages=messages,
+                        context=context,
                     )
-                    result = await CLIENT_REGISTRY.call_tool(
-                        tool.name,
-                        context.model_dump()
-                        if isinstance(context, BaseModel)
-                        else context or {},
-                    )
-                    assert (content := result.structuredContent) is not None
-                    if (target := content.get("target")) in self.nodes:
-                        agent = self.nodes[target]
-                    else:
-                        agent = Agent.model_validate(result.structuredContent)
-                    generators.append(await agent.run(messages=messages, stream=True))
+                )
 
         async for chunk in join(*generators):
             yield chunk
@@ -461,49 +429,18 @@ class Agent(BaseModel, Generic[T], use_attribute_docstrings=True):
             return result
         results: list[ChatCompletionMessageParam] = []
         for edge in self.edges:
-            match edge:
-                case Edge():
-                    if edge.source == node:
-                        results.extend(
-                            await self._run_node(
-                                node=edge.target,
-                                messages=messages,
-                                context=context,
-                            )
-                        )
-                    elif (
-                        isinstance(edge.source, list)
-                        and node in edge.source
-                        and all(self._visited[n] for n in edge.source)
-                    ):
-                        results.extend(
-                            await self._run_node(
-                                node=edge.target,
-                                messages=messages,
-                                context=context,
-                            )
-                        )
-                case Tool() as tool:
-                    assert tool.outputSchema == self.model_json_schema() or (
-                        tool.outputSchema
-                        == {
-                            "type": "object",
-                            "property": {"target": {"type": "string"}},
-                            "required": ["target"],
-                        }
+            if edge.source == node or (
+                isinstance(edge.source, list)
+                and node in edge.source
+                and all(self._visited[n] for n in edge.source)
+            ):
+                results.extend(
+                    await self._run_node(
+                        node=edge.target,
+                        messages=messages,
+                        context=context,
                     )
-                    tool_result = await CLIENT_REGISTRY.call_tool(
-                        tool.name,
-                        context.model_dump()
-                        if isinstance(context, BaseModel)
-                        else context or {},
-                    )
-                    assert (content := tool_result.structuredContent) is not None
-                    if (target := content.get("target")) in self.nodes:
-                        agent = self.nodes[target]
-                    else:
-                        agent = Agent.model_validate(tool_result.structuredContent)
-                    results.extend(await agent.run(messages=messages, stream=False))
+                )
         return result + results
 
     async def _run(
