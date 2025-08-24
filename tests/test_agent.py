@@ -419,15 +419,6 @@ async def test_swarmx_generate_json_schema():
     assert isinstance(schema_generator, SwarmXGenerateJsonSchema)
 
 
-async def test_agent_as_tool():
-    """Test Agent.as_tool method (lines 163-164)."""
-    tool = Agent.as_tool()
-    assert tool.name == "swarmx.Agent"
-    assert tool.description == "Create new Agent"
-    assert tool.inputSchema is not None
-    assert tool.outputSchema is not None
-
-
 async def test_agent_client_serialization_with_timeout():
     """Test agent client serialization with Timeout object."""
     timeout = Timeout(10.0)

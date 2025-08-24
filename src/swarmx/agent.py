@@ -161,17 +161,6 @@ class Agent(BaseModel, Generic[T], use_attribute_docstrings=True):
         default_factory=lambda: defaultdict(lambda: False)
     )
 
-    @classmethod
-    def as_tool(cls) -> Tool:
-        """Convert the agent to a tool."""
-        schema = cls.model_json_schema(schema_generator=SwarmXGenerateJsonSchema)
-        return Tool(
-            name="swarmx.Agent",
-            description="Create new Agent",
-            inputSchema=schema,
-            outputSchema=schema,
-        )
-
     @field_validator("client", mode="plain")
     def validate_client(cls, v: Any) -> AsyncOpenAI | None:
         """Validate the client.
