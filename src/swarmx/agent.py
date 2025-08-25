@@ -416,40 +416,40 @@ class Agent(BaseModel, Generic[T], use_attribute_docstrings=True):
         node: str | None = None,
         messages: list[ChatCompletionMessageParam],
         context: T | None = None,
-    ) -> list[ChatCompletionMessageParam]:
+    ) -> AsyncGenerator[ChatCompletion, None]:
         """Run the node and its successors."""
         if node is None:
             node = self.entry_point
         if node is None:
-            return []
+            return
         agent = self.nodes[node]
-        result = await agent.run(messages=messages, stream=False, context=context)
+        async for completion in await agent.run(
+            messages=messages, stream=False, context=context
+        ):
+            yield completion
         self._visited[node] = True
         if node == self.finish_point:
-            return result
-        results: list[ChatCompletionMessageParam] = []
+            return
         for edge in self.edges:
             if edge.source == node or (
                 isinstance(edge.source, list)
                 and node in edge.source
                 and all(self._visited[n] for n in edge.source)
             ):
-                results.extend(
-                    await self._run_node(
-                        node=edge.target,
-                        messages=messages,
-                        context=context,
-                    )
-                )
-        return result + results
+                async for completion in self._run_node(
+                    node=edge.target,
+                    messages=messages,
+                    context=context,
+                ):
+                    yield completion
 
     async def _run(
         self,
         *,
         messages: list[ChatCompletionMessageParam],
         context: T | None = None,
-    ) -> list[ChatCompletionMessageParam]:
-        """Run the agent without streaming the response.
+    ) -> AsyncGenerator[ChatCompletion, None]:
+        """Run the agent and yield ChatCompletion objects.
 
         Args:
             messages: The messages to start the conversation with
@@ -467,16 +467,25 @@ class Agent(BaseModel, Generic[T], use_attribute_docstrings=True):
             stream=False,
         )
         logger.info(completion.model_dump_json(exclude_unset=True))
-        message = completion.choices[0].message
-        m = cast(
+
+        # Yield the completion object to preserve all metadata
+        yield completion
+
+        # Extract message for hook processing and tool calls
+        message = cast(
             ChatCompletionAssistantMessageParam,
-            message.model_dump(mode="json", exclude_none=True),
+            completion.choices[0].message.model_dump(
+                mode="json", exclude_unset=True, exclude_none=True
+            ),
         )
-        m["name"] = f"{self.name} ({completion.id})"
-        new_messages.append(m)
+        message["name"] = f"{self.name} ({completion.id})"
+        new_messages.append(message)
         await self._execute_hooks("on_llm_end", messages + new_messages, context)
 
-        if m["role"] == "assistant" and (tool_calls := m.get("tool_calls")) is not None:
+        if (
+            message["role"] == "assistant"
+            and (tool_calls := message.get("tool_calls")) is not None
+        ):
             # Apply hook decorator to exec_tool_calls
             decorated_exec_tool_calls = with_tool_hooks(
                 self.hooks, messages + new_messages, context
@@ -491,11 +500,11 @@ class Agent(BaseModel, Generic[T], use_attribute_docstrings=True):
                 "on_subagents_start", messages + new_messages, context
             )
 
-            node_results = await self._run_node(
+            async for completion in self._run_node(
                 messages=messages + new_messages,
                 context=context,
-            )
-            new_messages.extend(node_results)
+            ):
+                yield completion
 
             # Execute on_subagents_end hooks after running nodes
             messages, context = await self._execute_hooks(
@@ -506,8 +515,6 @@ class Agent(BaseModel, Generic[T], use_attribute_docstrings=True):
         messages, context = await self._execute_hooks(
             "on_end", messages + new_messages, context
         )
-
-        return new_messages
 
     async def get_system_prompt(
         self,
@@ -541,7 +548,7 @@ class Agent(BaseModel, Generic[T], use_attribute_docstrings=True):
         messages: list[ChatCompletionMessageParam],
         stream: Literal[False] = False,
         context: T | None = None,
-    ) -> list[ChatCompletionMessageParam]: ...
+    ) -> AsyncGenerator[ChatCompletion, None]: ...
 
     async def run(
         self,
@@ -549,7 +556,9 @@ class Agent(BaseModel, Generic[T], use_attribute_docstrings=True):
         messages: list[ChatCompletionMessageParam],
         stream: bool = False,
         context: T | None = None,
-    ) -> list[ChatCompletionMessageParam] | AsyncGenerator[ChatCompletionChunk, None]:
+    ) -> (
+        AsyncGenerator[ChatCompletion, None] | AsyncGenerator[ChatCompletionChunk, None]
+    ):
         """Run the agent.
 
         Args:
@@ -566,7 +575,7 @@ class Agent(BaseModel, Generic[T], use_attribute_docstrings=True):
                 messages=messages,
                 context=context,
             )
-        return await self._run(
+        return self._run(
             messages=messages,
             context=context,
         )

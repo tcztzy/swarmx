@@ -214,7 +214,9 @@ async def test_hook_integration_with_agent_run(mock_client_registry, model):
     messages = cast(
         list[ChatCompletionMessageParam], [{"role": "user", "content": "test"}]
     )
-    await agent._run(messages=messages)
+    # Consume the async generator
+    async for _ in agent._run(messages=messages):
+        pass
 
     # Verify hooks were called with the new signature
     assert mock_client_registry.call_count >= 2

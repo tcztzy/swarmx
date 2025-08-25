@@ -589,7 +589,11 @@ async def test_agent_run_node_with_no_entry_point():
     """Test _run_node with no entry point."""
     agent = Agent()
 
-    result = await agent._run_node(messages=[{"role": "user", "content": "Hello"}])
+    result = []
+    async for completion in agent._run_node(
+        messages=[{"role": "user", "content": "Hello"}]
+    ):
+        result.append(completion)
 
     # Should return empty list when no entry point
     assert result == []
@@ -743,11 +747,13 @@ async def test_agent_run_with_tool_execution(model):
         },
     )
 
-    result = await agent.run(
+    result = []
+    async for completion in await agent.run(
         messages=[{"role": "user", "content": "What is time now?"}]
-    )
+    ):
+        result.append(completion)
 
-    assert len(result) >= 2  # At least assistant message and node result
+    assert len(result) >= 1  # At least one completion
 
 
 async def test_swarmx_generate_json_schema_field_title():
@@ -770,7 +776,9 @@ async def test_run_node_with_no_entry_point():
     agent = Agent()
     messages: list[ChatCompletionMessageParam] = [{"role": "user", "content": "Hello"}]
 
-    result = await agent._run_node(messages=messages)
+    result = []
+    async for completion in agent._run_node(messages=messages):
+        result.append(completion)
 
     assert result == []
 
@@ -786,11 +794,17 @@ async def test_run_node_with_explicit_node():
     messages: list[ChatCompletionMessageParam] = [{"role": "user", "content": "Hello"}]
 
     with patch.object(Agent, "run") as mock_run:
-        mock_run.return_value = [
-            {"role": "assistant", "content": "Response from subagent"}
-        ]
+        # Mock to return an async generator
+        async def mock_async_gen():
+            yield {"role": "assistant", "content": "Response from subagent"}
 
-        result = await main_agent._run_node(node="test_node", messages=messages)
+        mock_run.return_value = mock_async_gen()
+
+        result = []
+        async for completion in main_agent._run_node(
+            node="test_node", messages=messages
+        ):
+            result.append(completion)
 
         # Should call subagent.run with correct parameters
         mock_run.assert_called_once_with(messages=messages, stream=False, context=None)
@@ -813,11 +827,15 @@ async def test_run_node_with_entry_point():
     messages: list[ChatCompletionMessageParam] = [{"role": "user", "content": "Hello"}]
 
     with patch.object(Agent, "run") as mock_run:
-        mock_run.return_value = [
-            {"role": "assistant", "content": "Response from entry"}
-        ]
+        # Mock to return an async generator
+        async def mock_async_gen():
+            yield {"role": "assistant", "content": "Response from entry"}
 
-        result = await main_agent._run_node(messages=messages)
+        mock_run.return_value = mock_async_gen()
+
+        result = []
+        async for completion in main_agent._run_node(messages=messages):
+            result.append(completion)
 
         # Should call subagent.run with correct parameters
         mock_run.assert_called_once_with(messages=messages, stream=False, context=None)
@@ -841,11 +859,15 @@ async def test_run_node_with_finish_point():
     messages: list[ChatCompletionMessageParam] = [{"role": "user", "content": "Hello"}]
 
     with patch.object(Agent, "run") as mock_run:
-        mock_run.return_value = [
-            {"role": "assistant", "content": "Response from node1"}
-        ]
+        # Mock to return an async generator
+        async def mock_async_gen():
+            yield {"role": "assistant", "content": "Response from node1"}
 
-        result = await main_agent._run_node(messages=messages)
+        mock_run.return_value = mock_async_gen()
+
+        result = []
+        async for completion in main_agent._run_node(messages=messages):
+            result.append(completion)
 
         # Should call only once (for the entry node, then return due to finish_point)
         mock_run.assert_called_once()
@@ -866,12 +888,18 @@ async def test_run_node_with_simple_edge():
     messages: list[ChatCompletionMessageParam] = [{"role": "user", "content": "Hello"}]
 
     with patch.object(Agent, "run") as mock_run:
-        mock_run.side_effect = [
-            [{"role": "assistant", "content": "Response from node1"}],
-            [{"role": "assistant", "content": "Response from node2"}],
-        ]
+        # Mock to return async generators
+        async def mock_async_gen1():
+            yield {"role": "assistant", "content": "Response from node1"}
 
-        result = await main_agent._run_node(messages=messages)
+        async def mock_async_gen2():
+            yield {"role": "assistant", "content": "Response from node2"}
+
+        mock_run.side_effect = [mock_async_gen1(), mock_async_gen2()]
+
+        result = []
+        async for completion in main_agent._run_node(messages=messages):
+            result.append(completion)
 
         # Should call both subagents
         assert mock_run.call_count == 2
@@ -905,9 +933,15 @@ async def test_run_node_with_list_source_edge():
     # For this test, let's simplify and just test that the method runs without error
     # and calls the expected number of agents
     with patch.object(Agent, "run") as mock_run:
-        mock_run.return_value = [{"role": "assistant", "content": "Response"}]
+        # Mock to return an async generator
+        async def mock_async_gen():
+            yield {"role": "assistant", "content": "Response"}
 
-        result = await main_agent._run_node(messages=messages)
+        mock_run.return_value = mock_async_gen()
+
+        result = []
+        async for completion in main_agent._run_node(messages=messages):
+            result.append(completion)
 
         # Should call node1, node2, and node3 (node3 might be called multiple times due to conditional edge)
         assert mock_run.call_count >= 3
@@ -1312,15 +1346,18 @@ async def test_agent_run_with_nodes_and_subagents_hooks():
             context,
         )
 
-        # Mock _run_node to return subagent response
-        mock_run_node.return_value = [
-            {"role": "assistant", "content": "Subagent response"}
-        ]
+        # Mock _run_node to return async generator
+        async def mock_node_gen():
+            yield {"role": "assistant", "content": "Subagent response"}
+
+        mock_run_node.return_value = mock_node_gen()
 
         # Run agent with stream=False to trigger the non-streaming path
-        result = await agent.run(
+        result = []
+        async for completion in await agent.run(
             messages=[{"role": "user", "content": "Hello"}], stream=False
-        )
+        ):
+            result.append(completion)
 
         # Verify subagents hooks were called
         hook_calls = [call for call in mock_hooks.call_args_list]
@@ -1334,5 +1371,7 @@ async def test_agent_run_with_nodes_and_subagents_hooks():
 
         # Verify result includes both main and subagent responses
         assert len(result) == 2
-        assert result[0].get("content") == "Main response"
+        # First result should be the ChatCompletion from main agent
+        assert result[0].choices[0].message.content == "Main response"
+        # Second result should be the subagent response (mocked as dict)
         assert result[1].get("content") == "Subagent response"
