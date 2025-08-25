@@ -7,15 +7,12 @@ from httpx import Timeout
 from mcp.client.stdio import StdioServerParameters
 from openai import AsyncOpenAI
 from openai.types.chat import (
-    ChatCompletion,
     ChatCompletionMessageParam,
-    ChatCompletionMessageToolCallParam,
 )
 from openai.types.chat.chat_completion_chunk import ChatCompletionChunk
 
 from swarmx import Agent
-from swarmx.agent import Edge, SwarmXGenerateJsonSchema, _merge_chunk, exec_tool_calls
-from swarmx.hook import Hook
+from swarmx.agent import Edge, SwarmXGenerateJsonSchema, _merge_chunk
 from swarmx.utils import now
 
 pytestmark = pytest.mark.anyio
@@ -116,21 +113,6 @@ async def test_get_system_prompt_edge_cases():
     # Test with invalid context
     result = await agent.get_system_prompt(context={"invalid_key": "value"})
     assert result is not None and "user_name" not in result
-
-
-async def test_exec_tool_calls():
-    tool_calls: list[ChatCompletionMessageToolCallParam] = [
-        {
-            "id": "1",
-            "type": "function",
-            "function": {"name": "test_tool", "arguments": "{}"},
-        }
-    ]
-    async for chunk in exec_tool_calls(tool_calls):
-        ...
-    else:
-        assert isinstance(chunk, list)  # type: ignore
-        assert len(chunk) > 0
 
 
 async def test_linear_sequence_of_subagents():
@@ -600,88 +582,6 @@ async def test_agent_run_node_with_no_entry_point():
 
     # Should return empty list when no entry point
     assert result == []
-
-
-# Removed problematic tests that patch Pydantic model methods
-
-
-async def test_agent_run_stream_with_tool_execution():
-    """Test _run_stream with tool execution."""
-    agent = Agent()
-
-    with (
-        patch.object(agent, "_create_chat_completion") as mock_create,
-        patch("swarmx.agent.exec_tool_calls") as mock_exec_tools,
-        patch.object(agent, "_run_node_stream") as mock_run_node,
-    ):
-        # Mock chat completion with tool calls
-        async def mock_completion_stream():
-            chunk = ChatCompletionChunk.model_validate(
-                {
-                    "id": "test",
-                    "choices": [
-                        {
-                            "index": 0,
-                            "delta": {
-                                "tool_calls": [
-                                    {
-                                        "index": 0,
-                                        "id": "call_123",
-                                        "function": {
-                                            "name": "test_tool",
-                                            "arguments": "{}",
-                                        },
-                                        "type": "function",
-                                    }
-                                ]
-                            },
-                            "finish_reason": "tool_calls",
-                        }
-                    ],
-                    "created": 1234567890,
-                    "model": "gpt-4o",
-                    "object": "chat.completion.chunk",
-                }
-            )
-            yield chunk
-
-        mock_create.return_value = mock_completion_stream()
-
-        # Mock tool execution
-        async def mock_tool_stream():
-            yield [
-                {"role": "tool", "content": "Tool result", "tool_call_id": "call_123"}
-            ]
-
-        mock_exec_tools.return_value = mock_tool_stream()
-
-        # Mock node stream
-        async def mock_node_stream():
-            yield ChatCompletionChunk.model_validate(
-                {
-                    "id": "test2",
-                    "choices": [
-                        {
-                            "index": 0,
-                            "delta": {"content": "Final"},
-                            "finish_reason": "stop",
-                        }
-                    ],
-                    "created": 1234567890,
-                    "model": "gpt-4o",
-                    "object": "chat.completion.chunk",
-                }
-            )
-
-        mock_run_node.return_value = mock_node_stream()
-
-        result = []
-        async for chunk in agent._run_stream(
-            messages=[{"role": "user", "content": "Hello"}]
-        ):
-            result.append(chunk)
-
-        assert len(result) >= 1
 
 
 async def test_agent_run_stream_message_count_mismatch():
@@ -1216,165 +1116,3 @@ async def test_run_node_stream_with_list_source_edge():
         assert "Node1" in contents
         assert "Node2" in contents
         assert "Node3" in contents
-
-
-async def test_run_stream_with_tool_execution_chunk_yield():
-    """Test _run_stream yields ChatCompletionChunk from tool execution (line 397)."""
-    from swarmx.utils import now
-
-    # Create agent with a node so that _run_node_stream is called
-    agent = Agent(nodes={"test_node": Agent()})
-
-    with (
-        patch.object(agent, "_create_chat_completion") as mock_create,
-        patch("swarmx.agent.exec_tool_calls") as mock_exec_tools,
-        patch.object(agent, "_run_node_stream") as mock_run_node,
-    ):
-        # Mock chat completion with tool calls
-        async def mock_completion_stream():
-            chunk = ChatCompletionChunk.model_validate(
-                {
-                    "id": "test",
-                    "choices": [
-                        {
-                            "index": 0,
-                            "delta": {
-                                "tool_calls": [
-                                    {
-                                        "index": 0,
-                                        "id": "call_123",
-                                        "function": {
-                                            "name": "test_tool",
-                                            "arguments": "{}",
-                                        },
-                                        "type": "function",
-                                    }
-                                ]
-                            },
-                            "finish_reason": "tool_calls",
-                        }
-                    ],
-                    "created": now(),
-                    "model": "gpt-4o",
-                    "object": "chat.completion.chunk",
-                }
-            )
-            yield chunk
-
-        mock_create.return_value = mock_completion_stream()
-
-        # Mock tool execution that yields a ChatCompletionChunk (to test line 397)
-        async def mock_tool_stream():
-            # First yield a ChatCompletionChunk (this should be yielded on line 397)
-            yield ChatCompletionChunk.model_validate(
-                {
-                    "id": "tool_chunk",
-                    "choices": [{"index": 0, "delta": {"content": "Tool chunk"}}],
-                    "created": now(),
-                    "model": "gpt-4o",
-                    "object": "chat.completion.chunk",
-                }
-            )
-            # Then yield messages
-            yield [
-                {"role": "tool", "content": "Tool result", "tool_call_id": "call_123"}
-            ]
-
-        mock_exec_tools.return_value = mock_tool_stream()
-
-        # Mock node stream
-        async def mock_node_stream():
-            yield ChatCompletionChunk.model_validate(
-                {
-                    "id": "node_chunk",
-                    "choices": [{"index": 0, "delta": {"content": "Node"}}],
-                    "created": now(),
-                    "model": "gpt-4o",
-                    "object": "chat.completion.chunk",
-                }
-            )
-
-        mock_run_node.return_value = mock_node_stream()
-
-        result = []
-        async for chunk in agent._run_stream(
-            messages=[{"role": "user", "content": "Hello"}]
-        ):
-            result.append(chunk)
-
-        # Should have chunks from completion, tool execution, and node stream
-        assert len(result) >= 3
-        # Should include the tool chunk that was yielded on line 397
-        tool_chunks = [chunk for chunk in result if chunk.id == "tool_chunk"]
-        assert len(tool_chunks) == 1
-        assert tool_chunks[0].choices[0].delta.content == "Tool chunk"
-
-
-async def test_agent_run_with_nodes_and_subagents_hooks():
-    """Test agent.run with nodes executes subagents hooks (covers lines 574-585)."""
-    # Create a subagent
-    subagent = Agent(name="subagent", instructions="You are a test subagent.")
-
-    # Create main agent with nodes and hooks
-    hook = Hook(on_subagents_start="start_hook", on_subagents_end="end_hook")
-    agent = Agent(
-        name="main_agent", hooks=[hook], entry_point="sub1", nodes={"sub1": subagent}
-    )
-
-    with (
-        patch.object(agent, "_create_chat_completion") as mock_create,
-        patch.object(agent, "_execute_hooks") as mock_hooks,
-        patch.object(agent, "_run_node") as mock_run_node,
-    ):
-        # Mock chat completion
-        mock_create.return_value = ChatCompletion.model_validate(
-            {
-                "id": "test",
-                "choices": [
-                    {
-                        "index": 0,
-                        "message": {"role": "assistant", "content": "Main response"},
-                        "finish_reason": "stop",
-                    }
-                ],
-                "created": 1234567890,
-                "model": "gpt-4o",
-                "object": "chat.completion",
-            }
-        )
-
-        # Mock hooks to return input unchanged
-        mock_hooks.side_effect = lambda _hook_type, messages, context: (
-            messages,
-            context,
-        )
-
-        # Mock _run_node to return async generator
-        async def mock_node_gen():
-            yield {"role": "assistant", "content": "Subagent response"}
-
-        mock_run_node.return_value = mock_node_gen()
-
-        # Run agent with stream=False to trigger the non-streaming path
-        result = []
-        async for completion in await agent.run(
-            messages=[{"role": "user", "content": "Hello"}], stream=False
-        ):
-            result.append(completion)
-
-        # Verify subagents hooks were called
-        hook_calls = [call for call in mock_hooks.call_args_list]
-        hook_types = [call[0][0] for call in hook_calls]
-
-        assert "on_subagents_start" in hook_types
-        assert "on_subagents_end" in hook_types
-
-        # Verify _run_node was called
-        mock_run_node.assert_called_once()
-
-        # Verify result includes both main and subagent responses
-        assert len(result) == 2
-        # First result should be the ChatCompletion from main agent
-        assert result[0].choices[0].message.content == "Main response"
-        # Second result should be the subagent response (mocked as dict)
-        assert result[1].get("content") == "Subagent response"

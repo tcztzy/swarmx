@@ -26,16 +26,12 @@ async def test_hook_creation():
         on_end="end_tool",
         on_tool_start="tool_start_tool",
         on_tool_end="tool_end_tool",
-        on_subagents_start="subagents_start_tool",
-        on_subagents_end="subagents_end_tool",
     )
 
     assert hook.on_start == "start_tool"
     assert hook.on_end == "end_tool"
     assert hook.on_tool_start == "tool_start_tool"
     assert hook.on_tool_end == "tool_end_tool"
-    assert hook.on_subagents_start == "subagents_start_tool"
-    assert hook.on_subagents_end == "subagents_end_tool"
 
 
 async def test_hook_serialization():
@@ -287,8 +283,6 @@ def test_hook_json_schema():
     assert "on_end" in schema["properties"]
     assert "on_tool_start" in schema["properties"]
     assert "on_tool_end" in schema["properties"]
-    assert "on_subagents_start" in schema["properties"]
-    assert "on_subagents_end" in schema["properties"]
 
 
 async def test_execute_hooks_with_basemodel_context_modification(mock_client_registry):

@@ -2,14 +2,9 @@
 
 import logging
 import sys
-from functools import wraps
-from typing import Any, AsyncGenerator, Callable, Iterable, Literal, TypeVar, Union
+from typing import Any, Literal, TypeVar
 
-from openai.types.chat import (
-    ChatCompletionChunk,
-    ChatCompletionMessageParam,
-    ChatCompletionMessageToolCallParam,
-)
+from openai.types.chat import ChatCompletionMessageParam
 from pydantic import BaseModel, TypeAdapter
 
 from .mcp_client import CLIENT_REGISTRY
@@ -50,12 +45,6 @@ class Hook(BaseModel):
     on_llm_end: str | None = None
     """Tool name to execute after LLM call"""
 
-    on_subagents_start: str | None = None
-    """Tool name to execute before subagent processing starts"""
-
-    on_subagents_end: str | None = None
-    """Tool name to execute after subagent processing ends"""
-
 
 HookType = Literal[
     "on_start",
@@ -64,8 +53,6 @@ HookType = Literal[
     "on_tool_end",
     "on_llm_start",
     "on_llm_end",
-    "on_subagents_start",
-    "on_subagents_end",
 ]
 
 
@@ -135,59 +122,3 @@ async def execute_hooks(
                 logger.warning(f"Hook {hook_type} failed for tool {tool_name}: {e}")
 
     return current_messages, current_context  # type: ignore
-
-
-def with_tool_hooks(
-    hooks: list[Hook],
-    messages: list[ChatCompletionMessageParam],
-    context: Union[dict[str, Any], BaseModel, None] = None,
-):
-    """Add hook execution to exec_tool_calls function.
-
-    Args:
-        hooks: List of hooks to execute
-        messages: Current messages for hook context
-        context: Context variables for hook execution
-
-    Returns:
-        Decorator function that wraps exec_tool_calls with hook execution
-
-    """
-
-    def decorator(
-        exec_func: Callable[
-            [Iterable[ChatCompletionMessageToolCallParam]],
-            AsyncGenerator[
-                Union[ChatCompletionChunk, list[ChatCompletionMessageParam]], None
-            ],
-        ],
-    ):
-        @wraps(exec_func)
-        async def wrapper(
-            tool_calls: Iterable[ChatCompletionMessageToolCallParam],
-        ) -> AsyncGenerator[
-            Union[ChatCompletionChunk, list[ChatCompletionMessageParam]], None
-        ]:
-            # Execute on_tool_start hooks
-            current_messages, current_context = await execute_hooks(
-                hooks, "on_tool_start", messages, context
-            )
-
-            # Store final messages for on_tool_end hooks
-            final_tool_messages = []
-
-            # Execute the original function
-            async for result in exec_func(tool_calls):
-                yield result
-                # If this is the final messages list, store for on_tool_end hooks
-                if isinstance(result, list):
-                    final_tool_messages = result
-
-            # Execute on_tool_end hooks with all messages
-            if final_tool_messages:
-                all_messages = current_messages + final_tool_messages
-                await execute_hooks(hooks, "on_tool_end", all_messages, current_context)
-
-        return wrapper
-
-    return decorator

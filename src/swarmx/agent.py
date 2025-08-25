@@ -1,5 +1,6 @@
 """SwarmX Agent module."""
 
+import asyncio
 import logging
 import warnings
 from collections import defaultdict
@@ -36,8 +37,8 @@ from pydantic import (
 )
 from pydantic.json_schema import GenerateJsonSchema
 
-from .hook import Hook, HookType, execute_hooks, with_tool_hooks
-from .mcp_client import CLIENT_REGISTRY, exec_tool_calls
+from .hook import Hook, HookType, execute_hooks
+from .mcp_client import CLIENT_REGISTRY, exec_tool_call
 from .types import MCPServer
 from .utils import join
 
@@ -377,33 +378,20 @@ class Agent(BaseModel, Generic[T], use_attribute_docstrings=True):
             latest_message["role"] == "assistant"
             and (tool_calls := latest_message.get("tool_calls")) is not None
         ):
-            # Apply hook decorator to exec_tool_calls
-            decorated_exec_tool_calls = with_tool_hooks(
-                self.hooks, messages + new_messages, context
-            )(exec_tool_calls)
-
-            async for chunk in decorated_exec_tool_calls(tool_calls):
-                if isinstance(chunk, ChatCompletionChunk):
-                    yield chunk
-                else:
-                    new_messages.extend(chunk)
+            async with asyncio.TaskGroup() as tg:
+                tasks = [
+                    tg.create_task(exec_tool_call(tool_call, True))
+                    for tool_call in tool_calls
+                ]
+                for future in asyncio.as_completed(tasks):
+                    yield await future
 
         if len(self.nodes) > 0:
-            # Execute on_subagents_start hooks before running nodes
-            messages, context = await self._execute_hooks(
-                "on_subagents_start", messages + new_messages, context
-            )
-
             async for chunk in self._run_node_stream(
                 messages=messages + new_messages,
                 context=context,
             ):
                 yield chunk
-
-            # Execute on_subagents_end hooks after running nodes
-            messages, context = await self._execute_hooks(
-                "on_subagents_end", messages + new_messages, context
-            )
 
         # Execute on_end hooks
         messages, context = await self._execute_hooks(
@@ -482,34 +470,21 @@ class Agent(BaseModel, Generic[T], use_attribute_docstrings=True):
         new_messages.append(message)
         await self._execute_hooks("on_llm_end", messages + new_messages, context)
 
-        if (
-            message["role"] == "assistant"
-            and (tool_calls := message.get("tool_calls")) is not None
-        ):
+        if (tool_calls := message.get("tool_calls")) is not None:
             # Apply hook decorator to exec_tool_calls
-            decorated_exec_tool_calls = with_tool_hooks(
-                self.hooks, messages + new_messages, context
-            )(exec_tool_calls)
-
-            async for chunk in decorated_exec_tool_calls(tool_calls):
-                if not isinstance(chunk, ChatCompletionChunk):
-                    new_messages.extend(chunk)
+            async with asyncio.TaskGroup() as tg:
+                tasks = [
+                    tg.create_task(exec_tool_call(tool_call, False))
+                    for tool_call in tool_calls
+                ]
+                for future in asyncio.as_completed(tasks):
+                    yield await future
         if len(self.nodes) > 0:
-            # Execute on_subagents_start hooks before running nodes
-            messages, context = await self._execute_hooks(
-                "on_subagents_start", messages + new_messages, context
-            )
-
             async for completion in self._run_node(
                 messages=messages + new_messages,
                 context=context,
             ):
                 yield completion
-
-            # Execute on_subagents_end hooks after running nodes
-            messages, context = await self._execute_hooks(
-                "on_subagents_end", messages + new_messages, context
-            )
 
         # Execute on_end hooks
         messages, context = await self._execute_hooks(

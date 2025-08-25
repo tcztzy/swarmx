@@ -1,6 +1,5 @@
 """MCP client related."""
 
-import asyncio
 import json
 import logging
 import mimetypes
@@ -9,7 +8,7 @@ import re
 from contextlib import AsyncExitStack
 from dataclasses import dataclass, field
 from datetime import timedelta
-from typing import Any, Iterable, assert_never
+from typing import Any, Literal, assert_never, overload
 
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.sse import sse_client
@@ -26,11 +25,10 @@ from mcp.types import (
     Tool,
 )
 from openai.types.chat import (
+    ChatCompletion,
     ChatCompletionChunk,
     ChatCompletionContentPartTextParam,
-    ChatCompletionMessageParam,
     ChatCompletionMessageToolCallParam,
-    ChatCompletionToolMessageParam,
     ChatCompletionToolParam,
 )
 from pygments.lexers import get_lexer_for_filename, get_lexer_for_mimetype
@@ -208,16 +206,32 @@ def result_to_content(
     return [{"text": _2text(block), "type": "text"} for block in result.content]
 
 
-def result_to_message(
-    result: CallToolResult,
-    tool_call_id: str,
-) -> ChatCompletionToolMessageParam:
+def result_to_completion(
+    tool_call: ChatCompletionMessageToolCallParam,
+    result: CallToolResult | BaseException,
+) -> ChatCompletion:
     """Convert MCP tool call result to OpenAI's message parameter."""
-    return {
-        "role": "tool",
-        "content": result_to_content(result),
-        "tool_call_id": tool_call_id,
-    }
+    return ChatCompletion.model_validate(
+        {
+            "id": tool_call["id"],
+            "object": "chat.completion",
+            "created": now(),
+            "model": tool_call["function"]["name"],
+            "choices": [
+                {
+                    "message": {
+                        "role": "assistant",
+                        "openai_role": "tool",  # for openai's role since messagee role is fixed to assistant
+                        "content": "".join(p["text"] for p in result_to_content(result))
+                        if isinstance(result, CallToolResult)
+                        else str(result),
+                    },
+                    "finish_reason": "stop",
+                    "index": 0,
+                }
+            ],
+        }
+    )
 
 
 def result_to_chunk(
@@ -248,32 +262,36 @@ def result_to_chunk(
     )
 
 
-async def exec_tool_calls(tool_calls: Iterable[ChatCompletionMessageToolCallParam]):
-    """Execute tool calls and return the messages."""
-    messages: list[ChatCompletionMessageParam] = []
+@overload
+async def exec_tool_call(
+    tool_call: ChatCompletionMessageToolCallParam, stream: Literal[False]
+) -> ChatCompletion: ...
 
-    async def _inner(
-        tool_call: ChatCompletionMessageToolCallParam,
-    ) -> tuple[ChatCompletionMessageParam, ChatCompletionChunk]:
-        try:
-            result = await CLIENT_REGISTRY.call_tool(
-                tool_call["function"]["name"],
-                json.loads(tool_call["function"]["arguments"]),
-            )
-            return result_to_message(result, tool_call["id"]), result_to_chunk(
-                tool_call, result
-            )
-        except Exception as e:
-            return {
-                "role": "tool",
-                "content": str(e),
-                "tool_call_id": tool_call["id"],
-            }, result_to_chunk(tool_call, e)
 
-    async with asyncio.TaskGroup() as tg:
-        tasks = [tg.create_task(_inner(tool_call)) for tool_call in tool_calls]
-        for task in asyncio.as_completed(tasks):
-            message, chunk = await task
-            yield chunk
-            messages.append(message)
-    yield messages
+@overload
+async def exec_tool_call(
+    tool_call: ChatCompletionMessageToolCallParam, stream: Literal[True]
+) -> ChatCompletionChunk: ...
+
+
+async def exec_tool_call(
+    tool_call: ChatCompletionMessageToolCallParam,
+    stream: bool,
+) -> ChatCompletion | ChatCompletionChunk:
+    """Execute a tool call and return the message."""
+    try:
+        r = await CLIENT_REGISTRY.call_tool(
+            tool_call["function"]["name"],
+            json.loads(tool_call["function"]["arguments"]),
+        )
+        return (
+            result_to_chunk(tool_call, r)
+            if stream
+            else result_to_completion(tool_call, r)
+        )
+    except Exception as e:
+        return (
+            result_to_chunk(tool_call, e)
+            if stream
+            else result_to_completion(tool_call, e)
+        )
