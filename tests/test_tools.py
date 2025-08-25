@@ -18,8 +18,14 @@ def tool_registry():
 
 async def test_call_tool_not_found(tool_registry):
     # Attempt to call a tool that doesn't exist
-    with pytest.raises(ValueError, match="Tool nonexistent_tool not found"):
+    with pytest.raises(ValueError, match="Invalid tool name, expected <server>/<tool>"):
         await tool_registry.call_tool("nonexistent_tool", {})
+    with pytest.raises(KeyError, match="Server nonexistent_server not found"):
+        await tool_registry.call_tool("nonexistent_server/nonexistent_tool", {})
+    tool_registry.mcp_clients["test_server"] = AsyncMock()
+    tool_registry._tools["test_server"] = [MagicMock(name="test_tool")]
+    with pytest.raises(KeyError, match="Tool nonexistent_tool not found"):
+        await tool_registry.call_tool("test_server/nonexistent_tool", {})
 
 
 async def test_add_mcp_server():
@@ -60,8 +66,9 @@ async def test_add_mcp_server():
         mock_client.list_tools.assert_called_once()
 
         # Verify that the tool was added correctly
-        assert ("test_server", "test_tool") in registry._tools
-        assert registry._tool_to_server["test_tool"] == "test_server"
+        assert "test_server" in registry._tools and any(
+            tool.name == "test_tool" for tool in registry._tools["test_server"]
+        )
 
         # Cleanup
         await registry.close()

@@ -1,7 +1,10 @@
-from datetime import timedelta
+import json
+import sys
+from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from mcp.client.session import ClientSession
 from mcp.client.stdio import StdioServerParameters
 from mcp.types import (
     CallToolResult,
@@ -143,69 +146,39 @@ async def test_result_to_message_mixed_content():
     assert "File content" in parts[2]["text"]
 
 
-async def test_client_registry_call_tool_not_found():
-    """Test ClientRegistry call_tool with tool not found."""
-    registry = ClientRegistry()
-
-    with pytest.raises(ValueError, match="Tool nonexistent_tool not found"):
-        await registry.call_tool("nonexistent_tool", {})
-
-
 async def test_client_registry_add_server_already_exists():
     """Test ClientRegistry add_server when server already exists."""
     registry = ClientRegistry()
 
-    # Mock that server already exists
-    registry.mcp_clients["test_server"] = MagicMock()
-
-    server_params = StdioServerParameters(command="python", args=["-m", "test_server"])
+    server_params = StdioServerParameters(
+        command=sys.executable, args=["-m", "mcp_server_time"]
+    )
+    await registry.add_server("time", server_params)
 
     # Should return early without adding
-    await registry.add_server("test_server", server_params)
+    await registry.add_server(
+        "time",
+        StdioServerParameters(command=sys.executable, args=["-m", "not_a_server"]),
+    )
 
     # Should still have the original mock
-    assert isinstance(registry.mcp_clients["test_server"], MagicMock)
+    assert isinstance(registry.mcp_clients["time"], ClientSession)
 
 
 async def test_client_registry_add_stdio_server():
     """Test ClientRegistry add_server with stdio server."""
     registry = ClientRegistry()
 
-    with (
-        patch("swarmx.mcp_client.stdio_client") as mock_stdio_client,
-        patch("swarmx.mcp_client.ClientSession") as mock_client_session,
-    ):
-        # Setup mocks
-        mock_client = AsyncMock()
-        mock_client.initialize = AsyncMock()
-        mock_client.list_tools = AsyncMock()
+    server_params = StdioServerParameters(
+        command=sys.executable, args=["-m", "mcp_server_time"]
+    )
+    await registry.add_server("time", server_params)
 
-        tool = MagicMock()
-        tool.name = "test_tool"
-        tool.model_dump.return_value = {
-            "name": "test_tool",
-            "inputSchema": {"type": "object", "properties": {}},
-        }
-
-        mock_client.list_tools.return_value.tools = [tool]
-        mock_client_session.return_value.__aenter__.return_value = mock_client
-
-        mock_read_stream = AsyncMock()
-        mock_write_stream = AsyncMock()
-        mock_stdio_client.return_value.__aenter__.return_value = (
-            mock_read_stream,
-            mock_write_stream,
-        )
-
-        server_params = StdioServerParameters(
-            command="python", args=["-m", "test_server"]
-        )
-
-        await registry.add_server("test_server", server_params)
-
-        assert "test_server" in registry.mcp_clients
-        assert "test_tool" in registry._tool_to_server
-        assert registry._tool_to_server["test_tool"] == "test_server"
+    assert "time" in registry.mcp_clients
+    assert any(tool.name == "get_current_time" for tool in registry._tools["time"])
+    assert any(
+        tool["function"]["name"] == "time/get_current_time" for tool in registry.tools
+    )
 
 
 async def test_client_registry_add_sse_server():
@@ -247,8 +220,7 @@ async def test_client_registry_add_sse_server():
         await registry.add_server("test_server", server_params)
 
         assert "test_server" in registry.mcp_clients
-        assert "test_tool" in registry._tool_to_server
-        assert registry._tool_to_server["test_tool"] == "test_server"
+        assert any(tool.name == "test_tool" for tool in registry._tools["test_server"])
 
 
 async def test_client_registry_call_tool_success():
@@ -256,22 +228,18 @@ async def test_client_registry_call_tool_success():
     registry = ClientRegistry()
 
     # Mock MCP client
-    mock_client = AsyncMock()
-    mock_client.call_tool = AsyncMock()
-    mock_result = CallToolResult.model_validate(
-        {"content": [{"type": "text", "text": "Tool result"}]}
+    server_params = StdioServerParameters(
+        command=sys.executable, args=["-m", "mcp_server_time"]
     )
-    mock_client.call_tool.return_value = mock_result
-
-    registry.mcp_clients["test_server"] = mock_client
-    registry._tool_to_server["test_tool"] = "test_server"
-
-    result = await registry.call_tool("test_tool", {"arg": "value"})
-
-    assert result == mock_result
-    mock_client.call_tool.assert_called_once_with(
-        "test_tool", {"arg": "value"}, None, None
+    await registry.add_server("time", server_params)
+    result = await registry.call_tool("time/get_current_time", {"timezone": "UTC"})
+    assert (text_part := result.content[0]).type == "text"
+    obj = json.loads(text_part.text)
+    assert (
+        obj["timezone"] == "UTC"
+        and (dt := datetime.fromisoformat(obj["datetime"])).tzinfo == UTC
     )
+    assert datetime.now(tz=UTC) - dt < timedelta(seconds=1)
 
 
 async def test_client_registry_call_tool_with_timeout_and_callback():
@@ -287,12 +255,14 @@ async def test_client_registry_call_tool_with_timeout_and_callback():
     mock_client.call_tool.return_value = mock_result
 
     registry.mcp_clients["test_server"] = mock_client
-    registry._tool_to_server["test_tool"] = "test_server"
+    registry._tools["test_server"] = [
+        Tool(name="test_tool", inputSchema={"type": "object", "properties": {}})
+    ]
 
     callback = AsyncMock()
 
     result = await registry.call_tool(
-        "test_tool",
+        "test_server/test_tool",
         {"arg": "value"},
         read_timeout_seconds=timedelta(seconds=30),
         progress_callback=callback,
@@ -320,14 +290,13 @@ async def test_client_registry_tools_property():
     )
 
     # Set tools directly on the registry's internal storage with correct key format
-    registry._tools[("server1", "tool1")] = tool1
-    registry._tools[("server2", "tool2")] = tool2
+    registry._tools["server1"] = [tool1]
+    registry._tools["server2"] = [tool2]
 
     tools = registry.tools
 
-    assert len(tools) == 2
-    assert any(tool["function"]["name"] == "tool1" for tool in tools)
-    assert any(tool["function"]["name"] == "tool2" for tool in tools)
+    assert tools[0]["function"]["name"] == "server1/tool1"
+    assert tools[1]["function"]["name"] == "server2/tool2"
 
 
 async def test_client_registry_close():

@@ -5,6 +5,7 @@ import json
 import logging
 import mimetypes
 import os
+import re
 from contextlib import AsyncExitStack
 from dataclasses import dataclass, field
 from datetime import timedelta
@@ -50,23 +51,25 @@ class ClientRegistry:
 
     exit_stack: AsyncExitStack = field(default_factory=AsyncExitStack)
     mcp_clients: dict[str, ClientSession] = field(default_factory=dict)
-    _tools: dict[tuple[str, str], Tool] = field(default_factory=dict)
-    _tool_to_server: dict[str, str] = field(default_factory=dict)
+    _tools: dict[str, list[Tool]] = field(default_factory=dict)
 
     @property
     def tools(self) -> list[ChatCompletionToolParam]:
         """Return all tools, both local and MCP."""
-        return [
-            ChatCompletionToolParam(
-                type="function",
-                function={
-                    "name": tool.name,
-                    "description": tool.description or "",
-                    "parameters": tool.inputSchema,
-                },
-            )
-            for tool in self._tools.values()
-        ]
+        _tools = []
+        for server, tools in self._tools.items():
+            for tool in tools:
+                _tool = ChatCompletionToolParam(
+                    type="function",
+                    function={
+                        "name": f"{server}/{tool.name}",
+                        "parameters": tool.inputSchema,
+                    },
+                )
+                if tool.description:
+                    _tool["function"]["description"] = tool.description
+                _tools.append(_tool)
+        return _tools
 
     async def call_tool(
         self,
@@ -84,11 +87,15 @@ class ClientRegistry:
             progress_callback: The progress callback for the tool call
 
         """
-        server_name = self._tool_to_server.get(name)
-        if server_name is None:
-            raise ValueError(f"Tool {name} not found")
+        if (mo := re.match(r"(?P<server>[^/]+)/(?P<name>[^/]+)", name)) is None:
+            raise ValueError("Invalid tool name, expected <server>/<tool>")
+        server_name, tool_name = mo.group("server"), mo.group("name")
+        if server_name not in self.mcp_clients:
+            raise KeyError(f"Server {server_name} not found")
+        if tool_name not in (tool.name for tool in self._tools[server_name]):
+            raise KeyError(f"Tool {tool_name} not found")
         return await self.mcp_clients[server_name].call_tool(
-            name, arguments, read_timeout_seconds, progress_callback
+            tool_name, arguments, read_timeout_seconds, progress_callback
         )
 
     async def add_server(self, name: str, server_params: MCPServer):
@@ -111,9 +118,7 @@ class ClientRegistry:
         )
         await client.initialize()
         self.mcp_clients[name] = client
-        for tool in (await client.list_tools()).tools:
-            self._tool_to_server[tool.name] = name
-            self._tools[name, tool.name] = tool
+        self._tools[name] = (await client.list_tools()).tools
 
     async def close(self):
         """Close all clients."""

@@ -1,3 +1,4 @@
+import sys
 from collections import defaultdict
 from unittest.mock import AsyncMock, patch
 
@@ -485,7 +486,9 @@ async def test_agent_client_serialization_with_max_retries():
 
 async def test_agent_with_mcp_servers():
     """Test agent with MCP servers configuration."""
-    server_params = StdioServerParameters(command="python", args=["-m", "test_server"])
+    server_params = StdioServerParameters(
+        command=sys.executable, args=["-m", "test_server"]
+    )
 
     # Use the alias field name that Agent expects
     agent = Agent(mcpServers={"test_server": server_params})
@@ -496,14 +499,14 @@ async def test_agent_with_mcp_servers():
     assert "test_server" in agent.mcp_servers and isinstance(
         agent.mcp_servers["test_server"], StdioServerParameters
     )
-    assert agent.mcp_servers["test_server"].command == "python"
+    assert agent.mcp_servers["test_server"].command == sys.executable
 
 
 async def test_agent_run_with_mcp_servers():
     """Test agent run method with MCP servers."""
     with patch("swarmx.mcp_client.CLIENT_REGISTRY.add_server") as mock_add_server:
         server_params = StdioServerParameters(
-            command="python", args=["-m", "test_server"]
+            command=sys.executable, args=["-m", "test_server"]
         )
         # Use the alias field name that Agent expects
         agent = Agent(mcpServers={"test_server": server_params})
@@ -742,7 +745,7 @@ async def test_agent_run_with_tool_execution(model):
         model=model,
         mcpServers={
             "time": StdioServerParameters(
-                command="python", args=["-m", "mcp_server_time"]
+                command=sys.executable, args=["-m", "mcp_server_time"]
             )
         },
     )
