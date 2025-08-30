@@ -12,7 +12,12 @@ from openai.types.chat import (
 from openai.types.chat.chat_completion_chunk import ChatCompletionChunk
 
 from swarmx import Agent
-from swarmx.agent import Edge, SwarmXGenerateJsonSchema, _merge_chunk
+from swarmx.agent import (
+    Edge,
+    SwarmXGenerateJsonSchema,
+    _apply_message_slice,
+    _merge_chunk,
+)
 from swarmx.utils import now
 
 pytestmark = pytest.mark.anyio
@@ -671,6 +676,41 @@ async def test_swarmx_generate_json_schema_field_title():
     # The method should return False for any input
     result = schema_generator.field_title_should_be_set(None)  # type: ignore
     assert result is False
+
+
+async def test_apply_message_slice():
+    """Test _apply_message_slice function with various slice patterns."""
+    messages: list[ChatCompletionMessageParam] = [
+        {"role": "user", "content": "message1"},
+        {"role": "assistant", "content": "message2"},
+        {"role": "user", "content": "message3"},
+        {"role": "assistant", "content": "message4"},
+        {"role": "user", "content": "message5"},
+    ]
+
+    # Test basic slice patterns
+    assert _apply_message_slice(messages, "0:3") == messages[0:3]
+    assert _apply_message_slice(messages, "1:4") == messages[1:4]
+    assert _apply_message_slice(messages, "2:") == messages[2:]
+    assert _apply_message_slice(messages, ":3") == messages[:3]
+    assert _apply_message_slice(messages, "-2:") == messages[-2:]
+    assert _apply_message_slice(messages, ":-1") == messages[:-1]
+    assert _apply_message_slice(messages, "-3:-1") == messages[-3:-1]
+
+    # Test edge cases
+    assert _apply_message_slice(messages, "0:0") == []
+    assert _apply_message_slice(messages, "10:20") == []
+    assert _apply_message_slice(messages, ":") == messages
+    assert _apply_message_slice(messages, "-100:") == messages
+
+    # Test with step (rarely used but supported)
+    assert _apply_message_slice(messages, "0:5:2") == messages[0:5:2]
+
+    # Test invalid slice patterns
+    with pytest.raises(ValueError, match="Invalid message slice"):
+        _apply_message_slice(messages, "invalid")
+    with pytest.raises(ValueError, match="Invalid message slice"):
+        _apply_message_slice(messages, "a:b")  # Non-numeric values
 
 
 # Tests for _run_node method

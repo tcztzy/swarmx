@@ -69,6 +69,22 @@ class ClientRegistry:
                 _tools.append(_tool)
         return _tools
 
+    def _parse_name(self, name: str) -> tuple[str, Tool]:
+        if (mo := re.match(r"(?P<server>[^/]+)/(?P<name>[^/]+)", name)) is None:
+            raise ValueError("Invalid tool name, expected <server>/<tool>")
+        server_name, tool_name = mo.group("server"), mo.group("name")
+        if server_name not in self.mcp_clients:
+            raise KeyError(f"Server {server_name} not found")
+        for tool in self._tools[server_name]:
+            if tool.name == tool_name:
+                return server_name, tool
+        raise KeyError(f"Tool {tool_name} not found")
+
+    def get_tool(self, name: str) -> Tool:
+        """Get Tool by name."""
+        _, tool = self._parse_name(name)
+        return tool
+
     async def call_tool(
         self,
         name: str,
@@ -85,15 +101,9 @@ class ClientRegistry:
             progress_callback: The progress callback for the tool call
 
         """
-        if (mo := re.match(r"(?P<server>[^/]+)/(?P<name>[^/]+)", name)) is None:
-            raise ValueError("Invalid tool name, expected <server>/<tool>")
-        server_name, tool_name = mo.group("server"), mo.group("name")
-        if server_name not in self.mcp_clients:
-            raise KeyError(f"Server {server_name} not found")
-        if tool_name not in (tool.name for tool in self._tools[server_name]):
-            raise KeyError(f"Tool {tool_name} not found")
+        server_name, tool = self._parse_name(name)
         return await self.mcp_clients[server_name].call_tool(
-            tool_name, arguments, read_timeout_seconds, progress_callback
+            tool.name, arguments, read_timeout_seconds, progress_callback
         )
 
     async def add_server(self, name: str, server_params: MCPServer):

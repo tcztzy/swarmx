@@ -14,10 +14,7 @@ from openai.types.chat.chat_completion_message_param import ChatCompletionMessag
 from openai.types.chat.completion_create_params import CompletionCreateParams
 from pydantic import BaseModel, RootModel
 
-from .agent import (
-    Agent,
-    T,
-)
+from .agent import Agent
 from .utils import get_random_string
 from .version import __version__
 
@@ -106,7 +103,7 @@ class ChatCompletionRequest(BaseModel):
     max_tokens: int | None = None
 
 
-def create_server_app(swarm: Agent[T]) -> FastAPI:
+def create_server_app(swarm: Agent) -> FastAPI:
     """Create FastAPI app with OpenAI-compatible endpoints."""
     app = FastAPI(title="SwarmX API", version=__version__)
 

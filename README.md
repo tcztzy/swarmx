@@ -116,6 +116,113 @@ async def main():
 asyncio.run(main())
 ```
 
+## Context Variables
+
+SwarmX supports special context variables that control agent behavior:
+
+### `background`
+Provides additional context for the agent. This can be used for:
+- Adding external knowledge (web search results, database queries)
+- Compressing previous conversation history into summaries
+- Isolating context for sub-agents who don't need full conversation history
+
+**Example:**
+```python
+context = {
+    "background": "Recent news: AI conference announced for next month. User is interested in AI developments."
+}
+```
+
+### `message_slice` 
+Controls which messages are sent to the LLM using Python slice syntax. This enables:
+- Context compression by sending only recent messages
+- LLM-driven filtering decisions
+- Memory management for long conversations
+
+**Slice patterns:**
+- `":10"` - First 10 messages
+- `"-5:"` - Last 5 messages  
+- `":0"` - No messages (useful with `background` for context compression)
+- `"2:8"` - Messages from index 2 to 7
+
+**Example:**
+```python
+context = {
+    "message_slice": "-10:"  # Send only last 10 messages
+}
+```
+
+### `tools`
+Dynamically selects which tools are available for the current completion. This allows:
+- Context-aware tool selection
+- Reducing tool overload by showing only relevant tools
+- Dynamic tool routing based on conversation context
+
+**Example:**
+```python
+context = {
+    "tools": [
+        {
+            "type": "function",
+            "function": {
+                "name": "search_web",
+                "description": "Search the web for information",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "query": {"type": "string"}
+                    },
+                    "required": ["query"]
+                }
+            }
+        },
+        {
+            "type": "function", 
+            "function": {
+                "name": "get_weather",
+                "description": "Get weather information for a location",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "location": {"type": "string"}
+                    },
+                    "required": ["location"]
+                }
+            }
+        }
+    ]
+}
+```
+
+### Advanced Usage Examples
+
+**Context Compression:**
+```python
+# Compress history into background and send no previous messages
+context = {
+    "background": "Previous conversation summary: User asked about weather, then travel plans.",
+    "message_slice": ":0"  # No previous messages
+}
+```
+
+**RAG Pattern:**
+```python
+# Add web search results to background, send all messages for comprehensive context
+context = {
+    "background": "Web search results: Latest AI developments from yesterday's conference...",
+    # No slice means all message might pass to LLM
+}
+```
+
+**Dynamic Tool Selection:**
+```python
+# Based on conversation topic, show only relevant tools
+if "weather" in user_message:
+    context = {"tools": [{"type": "function", "function": {"name": "get_weather", "description": "Get weather", "parameters": {"type": "object", "properties": {"location": {"type": "string"}}, "required": ["location"]}}}]}
+elif "search" in user_message:
+    context = {"tools": [{"type": "function", "function": {"name": "search_web", "description": "Search web", "parameters": {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]}}}]}
+```
+
 ## Architecture
 
 ```mermaid

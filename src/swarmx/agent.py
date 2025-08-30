@@ -2,13 +2,14 @@
 
 import asyncio
 import logging
+import re
 import warnings
 from collections import defaultdict
+from copy import deepcopy
 from typing import (
     Annotated,
     Any,
     AsyncGenerator,
-    Generic,
     Literal,
     TypeVar,
     cast,
@@ -37,7 +38,7 @@ from pydantic import (
 )
 from pydantic.json_schema import GenerateJsonSchema
 
-from .hook import Hook, HookType, execute_hooks
+from .hook import Hook, HookType
 from .mcp_client import CLIENT_REGISTRY, exec_tool_call
 from .types import MCPServer
 from .utils import join
@@ -47,8 +48,7 @@ logging.basicConfig(filename=".swarmx.log", level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 DEFAULT_CLIENT: AsyncOpenAI | None = None
-T = TypeVar("T", bound=dict | BaseModel)
-U = TypeVar("U")
+T = TypeVar("T")
 
 
 def _merge_chunk(
@@ -96,6 +96,26 @@ def _merge_chunk(
         message["tool_calls"] = tool_calls  # type: ignore
 
 
+def _apply_message_slice(
+    messages: list[ChatCompletionMessageParam], message_slice: str
+) -> list[ChatCompletionMessageParam]:
+    """Apply message filters.
+
+    Filters are applied in order. Filters can be either a slice string or a CEL expression. (CEL do not support slice natively)
+
+    >>> _apply_message_slice(messages, "-100:") # take last 100 messages
+    >>> _apply_message_slice(messages, "0:10") # take first 10 messages
+    >>> _apply_message_slice(messages, ":0") # take no messages
+    >>> _apply_message_slice(messages, ":") # take all messages, equivalent to no filter
+    >>> _apply_message_slice(messages, "0:10:-1") # RARELY USED: take first 10 messages, reverse order
+    """
+    if re.match(r"-?\d*:-?\d*(:-?\d*)?", message_slice):
+        return messages[
+            slice(*[int(v) if v else None for v in message_slice.split(":")])
+        ]
+    raise ValueError(f"Invalid message slice: {message_slice}")
+
+
 class SwarmXGenerateJsonSchema(GenerateJsonSchema):
     """Remove the title field from the JSON schema."""
 
@@ -113,7 +133,7 @@ class Edge(BaseModel):
     """Name of the target node"""
 
 
-class Agent(BaseModel, Generic[T], use_attribute_docstrings=True):
+class Agent(BaseModel, use_attribute_docstrings=True):
     """Agent node in the swarm.
 
     An agent is a node in the swarm that can send and receive messages.
@@ -217,27 +237,103 @@ class Agent(BaseModel, Generic[T], use_attribute_docstrings=True):
         self,
         hook_type: HookType,
         messages: list[ChatCompletionMessageParam],
-        context: T | None = None,
-    ) -> tuple[list[ChatCompletionMessageParam], T | None]:
+        context: dict[str, Any],
+        tool_name: str | None = None,
+        to_agent: "Agent | None" = None,
+    ):
         """Execute hooks of a specific type.
 
         Args:
             hook_type: The type of hook to execute (e.g., 'on_start', 'on_end')
             messages: The current messages to pass to hook tools
             context: The context variables to pass to the hook tools
-
-        Returns:
-            Tuple of (modified_messages, modified_context)
+            tool_name: The name of the tool being called (for on_tool_start and on_tool_end)
+            to_agent: The agent being handed off to (for on_handoff)
 
         """
-        return await execute_hooks(self.hooks, hook_type, messages, context)
+        for hook in [h for h in self.hooks if hasattr(h, hook_type)]:
+            hook_name: str = getattr(hook, hook_type)
+            hook_tool = CLIENT_REGISTRY.get_tool(hook_name)
+            properties = hook_tool.inputSchema["properties"]
+            arguments: dict[str, Any] = {}
+            available = {"messages": messages, "context": context}
+            if tool_name is not None:
+                available["tool"] = CLIENT_REGISTRY.get_tool(tool_name)
+            if to_agent is not None:
+                available["from_agent"] = self.model_dump(
+                    mode="json", exclude_unset=True
+                )
+                available["to_agent"] = to_agent.model_dump(
+                    mode="json", exclude_unset=True
+                )
+            else:
+                available["agent"] = self.model_dump(mode="json", exclude_unset=True)
+            for key, value in available.items():
+                if key in properties:
+                    arguments |= {key: value}
+            try:
+                result = await CLIENT_REGISTRY.call_tool(hook_name, arguments)
+                if result.structuredContent is None:
+                    raise ValueError("Hook tool must return structured content")
+                context |= result.structuredContent
+            except Exception as e:
+                logger.warning(f"Hook {hook_type} failed for {hook_name}: {e}")
+
+    @overload
+    async def _execute_tool_with_hooks(
+        self,
+        tool_call: ChatCompletionMessageToolCallParam,
+        stream: Literal[False],
+        messages: list[ChatCompletionMessageParam],
+        context: dict[str, Any],
+    ) -> ChatCompletion: ...
+
+    @overload
+    async def _execute_tool_with_hooks(
+        self,
+        tool_call: ChatCompletionMessageToolCallParam,
+        stream: Literal[True],
+        messages: list[ChatCompletionMessageParam],
+        context: dict[str, Any],
+    ) -> ChatCompletionChunk: ...
+
+    async def _execute_tool_with_hooks(
+        self,
+        tool_call: ChatCompletionMessageToolCallParam,
+        stream: bool,
+        messages: list[ChatCompletionMessageParam],
+        context: dict[str, Any],
+    ) -> ChatCompletion | ChatCompletionChunk:
+        """Execute a tool call with on_tool_start and on_tool_end hooks.
+
+        Args:
+            tool_call: The tool call to execute
+            stream: Whether to stream the response
+            messages: The current messages
+            context: The context variables
+
+        Returns:
+            The result of the tool execution
+
+        """
+        tool_name = tool_call["function"]["name"]
+        await self._execute_hooks("on_tool_start", messages, context, tool_name)
+
+        try:
+            result = await exec_tool_call(tool_call, stream)  # type: ignore
+            await self._execute_hooks("on_tool_end", messages, context, tool_name)
+            return result
+        except Exception as e:
+            logger.warning(f"Tool execution failed for {tool_name}: {e}")
+            await self._execute_hooks("on_tool_end", messages, context, tool_name)
+            raise
 
     @overload
     async def _create_chat_completion(
         self,
         *,
         messages: list[ChatCompletionMessageParam],
-        context: T | None = None,
+        context: dict[str, Any] | None = None,
         stream: Literal[True],
     ) -> AsyncStream[ChatCompletionChunk]: ...
 
@@ -246,7 +342,7 @@ class Agent(BaseModel, Generic[T], use_attribute_docstrings=True):
         self,
         *,
         messages: list[ChatCompletionMessageParam],
-        context: T | None = None,
+        context: dict[str, Any] | None = None,
         stream: Literal[False] = False,
     ) -> ChatCompletion: ...
 
@@ -255,18 +351,18 @@ class Agent(BaseModel, Generic[T], use_attribute_docstrings=True):
         self,
         *,
         messages: list[ChatCompletionMessageParam],
-        context: T | None = None,
-        response_format: type[U] | None = None,
-    ) -> ParsedChatCompletion[U]: ...
+        context: dict[str, Any] | None = None,
+        response_format: type[T] | None = None,
+    ) -> ParsedChatCompletion[T]: ...
 
     async def _create_chat_completion(
         self,
         *,
         messages: list[ChatCompletionMessageParam],
-        context: T | None = None,
-        response_format: type[U] | None = None,
+        context: dict[str, Any] | None = None,
+        response_format: type[T] | None = None,
         stream: bool = False,
-    ) -> ChatCompletion | AsyncStream[ChatCompletionChunk] | ParsedChatCompletion[U]:
+    ) -> ChatCompletion | AsyncStream[ChatCompletionChunk] | ParsedChatCompletion[T]:
         """Get a chat completion for the agent.
 
         Args:
@@ -276,6 +372,9 @@ class Agent(BaseModel, Generic[T], use_attribute_docstrings=True):
             stream: Whether to stream the response
 
         """
+        message_slice: str | None = (context or {}).get("message_slice")
+        if message_slice is not None:
+            messages = _apply_message_slice(messages, message_slice)
         system_prompt = await self.get_system_prompt(context)
         if system_prompt is not None:
             messages = [{"role": "system", "content": system_prompt}, *messages]
@@ -285,12 +384,11 @@ class Agent(BaseModel, Generic[T], use_attribute_docstrings=True):
         }
         logger.debug("Getting chat completion for...:", messages)
 
-        # if tools are not specified, use all available tools from the tool registry
-        tools = CLIENT_REGISTRY.tools
-
         params = self.completion_create_params | params
-        if params.get("tools") is None and len(tools) > 0:
+        if len(tools := (context or {}).get("tools", CLIENT_REGISTRY.tools)) > 0:
             params["tools"] = tools
+        elif "tools" in params:
+            del params["tools"]
 
         if response_format is None:
             return await self._get_client().chat.completions.create(
@@ -307,7 +405,7 @@ class Agent(BaseModel, Generic[T], use_attribute_docstrings=True):
         *,
         node: str | None = None,
         messages: list[ChatCompletionMessageParam],
-        context: T | None = None,
+        context: dict[str, Any] | None = None,
     ) -> AsyncGenerator[ChatCompletionChunk, None]:
         """Run the node and its successors."""
         if node is None:
@@ -342,7 +440,7 @@ class Agent(BaseModel, Generic[T], use_attribute_docstrings=True):
         self,
         *,
         messages: list[ChatCompletionMessageParam],
-        context: T | None = None,
+        context: dict[str, Any] | None = None,
     ) -> AsyncGenerator[ChatCompletionChunk, None]:
         """Run the agent and stream the response.
 
@@ -351,10 +449,9 @@ class Agent(BaseModel, Generic[T], use_attribute_docstrings=True):
             context: The context variables to pass to the agent
 
         """
-        # Execute on_start hooks
-        messages, context = await self._execute_hooks("on_start", messages, context)
-
-        new_messages: list[ChatCompletionMessageParam] = []
+        if context is None:
+            context = {}
+        init_len = len(messages)
         _messages: dict[str, ChatCompletionMessageParam] = defaultdict(
             lambda: {"role": "assistant"}
         )
@@ -368,19 +465,23 @@ class Agent(BaseModel, Generic[T], use_attribute_docstrings=True):
             _merge_chunk(_messages, chunk)
             yield chunk
             if chunk.choices[0].finish_reason is not None:
-                new_messages.append(_messages[chunk.id])
+                messages.append(_messages[chunk.id])
         else:
-            if len(new_messages) != len(_messages):
+            if len(messages) - init_len != len(_messages):
                 raise ValueError("Number of messages does not match number of chunks")
-        await self._execute_hooks("on_llm_end", messages + new_messages, context)
-        latest_message = new_messages[-1]
+        await self._execute_hooks("on_llm_end", messages, context)
+        latest_message = messages[-1]
         if (
             latest_message["role"] == "assistant"
             and (tool_calls := latest_message.get("tool_calls")) is not None
         ):
             async with asyncio.TaskGroup() as tg:
                 tasks = [
-                    tg.create_task(exec_tool_call(tool_call, True))
+                    tg.create_task(
+                        self._execute_tool_with_hooks(
+                            tool_call, True, messages, context
+                        )
+                    )
                     for tool_call in tool_calls
                 ]
                 for future in asyncio.as_completed(tasks):
@@ -388,22 +489,17 @@ class Agent(BaseModel, Generic[T], use_attribute_docstrings=True):
 
         if len(self.nodes) > 0:
             async for chunk in self._run_node_stream(
-                messages=messages + new_messages,
+                messages=messages,
                 context=context,
             ):
                 yield chunk
-
-        # Execute on_end hooks
-        messages, context = await self._execute_hooks(
-            "on_end", messages + new_messages, context
-        )
 
     async def _run_node(
         self,
         *,
         node: str | None = None,
         messages: list[ChatCompletionMessageParam],
-        context: T | None = None,
+        context: dict[str, Any] | None = None,
     ) -> AsyncGenerator[ChatCompletion, None]:
         """Run the node and its successors."""
         if node is None:
@@ -435,7 +531,7 @@ class Agent(BaseModel, Generic[T], use_attribute_docstrings=True):
         self,
         *,
         messages: list[ChatCompletionMessageParam],
-        context: T | None = None,
+        context: dict[str, Any] | None = None,
     ) -> AsyncGenerator[ChatCompletion, None]:
         """Run the agent and yield ChatCompletion objects.
 
@@ -444,10 +540,8 @@ class Agent(BaseModel, Generic[T], use_attribute_docstrings=True):
             context: The context variables to pass to the agent
 
         """
-        # Execute on_start hooks
-        messages, context = await self._execute_hooks("on_start", messages, context)
-
-        new_messages: list[ChatCompletionMessageParam] = []
+        if context is None:
+            context = {}
         await self._execute_hooks("on_llm_start", messages, context)
         completion = await self._create_chat_completion(
             messages=messages,
@@ -467,33 +561,32 @@ class Agent(BaseModel, Generic[T], use_attribute_docstrings=True):
             ),
         )
         message["name"] = f"{self.name} ({completion.id})"
-        new_messages.append(message)
-        await self._execute_hooks("on_llm_end", messages + new_messages, context)
+        messages.append(message)
+        await self._execute_hooks("on_llm_end", messages, context)
 
         if (tool_calls := message.get("tool_calls")) is not None:
             # Apply hook decorator to exec_tool_calls
             async with asyncio.TaskGroup() as tg:
                 tasks = [
-                    tg.create_task(exec_tool_call(tool_call, False))
+                    tg.create_task(
+                        self._execute_tool_with_hooks(
+                            tool_call, False, messages, context
+                        )
+                    )
                     for tool_call in tool_calls
                 ]
                 for future in asyncio.as_completed(tasks):
                     yield await future
         if len(self.nodes) > 0:
             async for completion in self._run_node(
-                messages=messages + new_messages,
+                messages=messages,
                 context=context,
             ):
                 yield completion
 
-        # Execute on_end hooks
-        messages, context = await self._execute_hooks(
-            "on_end", messages + new_messages, context
-        )
-
     async def get_system_prompt(
         self,
-        context: T | None = None,
+        context: dict[str, Any] | None = None,
     ) -> str | None:
         """Get the system prompt for the agent.
 
@@ -513,7 +606,7 @@ class Agent(BaseModel, Generic[T], use_attribute_docstrings=True):
         *,
         messages: list[ChatCompletionMessageParam],
         stream: Literal[True],
-        context: T | None = None,
+        context: dict[str, Any] | None = None,
     ) -> AsyncGenerator[ChatCompletionChunk, None]: ...
 
     @overload
@@ -522,7 +615,7 @@ class Agent(BaseModel, Generic[T], use_attribute_docstrings=True):
         *,
         messages: list[ChatCompletionMessageParam],
         stream: Literal[False] = False,
-        context: T | None = None,
+        context: dict[str, Any] | None = None,
     ) -> AsyncGenerator[ChatCompletion, None]: ...
 
     async def run(
@@ -530,7 +623,7 @@ class Agent(BaseModel, Generic[T], use_attribute_docstrings=True):
         *,
         messages: list[ChatCompletionMessageParam],
         stream: bool = False,
-        context: T | None = None,
+        context: dict[str, Any] | None = None,
     ) -> (
         AsyncGenerator[ChatCompletion, None] | AsyncGenerator[ChatCompletionChunk, None]
     ):
@@ -545,12 +638,20 @@ class Agent(BaseModel, Generic[T], use_attribute_docstrings=True):
         """
         for name, server_params in self.mcp_servers.items():
             await CLIENT_REGISTRY.add_server(name, server_params)
+        messages = deepcopy(messages)
+        # context is intentionaly not deepcopied since it's mutable
+        if context is None:
+            context = {}
+        await self._execute_hooks("on_start", messages, context)
         if stream:
-            return self._run_stream(
+            g = self._run_stream(
                 messages=messages,
                 context=context,
             )
-        return self._run(
-            messages=messages,
-            context=context,
-        )
+        else:
+            g = self._run(
+                messages=messages,
+                context=context,
+            )
+        await self._execute_hooks("on_end", messages, context)
+        return g

@@ -11,7 +11,7 @@ except ImportError:  # pragma: no cover
 
 from .agent import Agent
 from .cli import app
-from .hook import Hook, HookOutput
+from .hook import Hook
 from .mcp_client import ClientRegistry
 from .version import __version__
 
@@ -19,7 +19,6 @@ __all__ = (
     "__version__",
     "Agent",
     "Hook",
-    "HookOutput",
     "ClientRegistry",
     "app",
 )
