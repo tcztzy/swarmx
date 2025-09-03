@@ -16,6 +16,7 @@ from typing import (
     overload,
 )
 
+from cel import evaluate
 from httpx import Timeout
 from jinja2 import Template
 from openai import DEFAULT_MAX_RETRIES, AsyncOpenAI, AsyncStream
@@ -425,13 +426,15 @@ class Agent(BaseModel, use_attribute_docstrings=True):
                 and node in edge.source
                 and all(self._visited[n] for n in edge.source)
             ):
-                generators.append(
-                    self._run_node_stream(
-                        node=edge.target,
-                        messages=messages,
-                        context=context,
+                targets = await self._resolve_edge_target(edge.target, context)
+                for target in targets:
+                    generators.append(
+                        self._run_node_stream(
+                            node=target,
+                            messages=messages,
+                            context=context,
+                        )
                     )
-                )
 
         async for chunk in join(*generators):
             yield chunk
@@ -514,18 +517,25 @@ class Agent(BaseModel, use_attribute_docstrings=True):
         self._visited[node] = True
         if node == self.finish_point:
             return
+        generators: list[AsyncGenerator[ChatCompletion, None]] = []
         for edge in self.edges:
             if edge.source == node or (
                 isinstance(edge.source, list)
                 and node in edge.source
                 and all(self._visited[n] for n in edge.source)
             ):
-                async for completion in self._run_node(
-                    node=edge.target,
-                    messages=messages,
-                    context=context,
-                ):
-                    yield completion
+                targets = await self._resolve_edge_target(edge.target, context)
+                for target in targets:
+                    generators.append(
+                        self._run_node(
+                            node=target,
+                            messages=messages,
+                            context=context,
+                        )
+                    )
+
+        async for completion in join(*generators):
+            yield completion
 
     async def _run(
         self,
@@ -599,6 +609,53 @@ class Agent(BaseModel, use_attribute_docstrings=True):
         return await Template(self.instructions, enable_async=True).render_async(
             context or {}
         )
+
+    async def _resolve_edge_target(
+        self, target: str, context: dict[str, Any] | None = None
+    ) -> list[str]:
+        """Resolve edge target, which can be a node name, function name, or CEL expression."""
+        # First check if target exists as a node
+        if target in self.nodes:
+            return [target]
+
+        # Then check if target is a function in CLIENT_REGISTRY
+        try:
+            result = await CLIENT_REGISTRY.call_tool(target, context or {})
+
+            if result.structuredContent is not None:
+                r = result.structuredContent.get("result")
+                if isinstance(r, list) and all(isinstance(item, str) for item in r):
+                    return r
+                elif isinstance(r, str):
+                    return [r]
+                else:
+                    raise TypeError(
+                        "Conditional edge should return string or list of string only"
+                    )
+            else:
+                if len(result.content) != 1 or result.content[0].type != "text":
+                    raise ValueError(
+                        "Conditional edge should return one text content block only"
+                    )
+                return [result.content[0].text]
+        except KeyError:
+            pass
+
+        # Finally try to evaluate as CEL expression
+        try:
+            result = evaluate(target, context)
+            if isinstance(result, str):
+                return [result]
+            elif isinstance(result, list) and all(
+                isinstance(item, str) for item in result
+            ):
+                return result
+            else:
+                raise ValueError(
+                    f"CEL expression must return str or list[str], got {type(result)}"
+                )
+        except Exception as e:
+            raise ValueError(f"Invalid edge target '{target}': {e}")
 
     @overload
     async def run(
