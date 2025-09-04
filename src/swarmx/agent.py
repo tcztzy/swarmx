@@ -406,42 +406,41 @@ class Agent(BaseModel, use_attribute_docstrings=True):
             **(params | {"response_format": response_format}),  # type: ignore
         )
 
-    async def _run_node_stream(
+    async def _handoff(
         self,
         *,
-        node: str | None = None,
+        node: str,
         messages: list[ChatCompletionMessageParam],
         context: dict[str, Any] | None = None,
-    ) -> AsyncGenerator[ChatCompletionChunk, None]:
-        """Run the node and its successors."""
-        if node is None:
-            node = self.entry_point
-        if node is None:
-            return
+        stream: bool = False,
+    ):
+        """Handoff to the agent."""
         agent = self.nodes[node]
-        async for chunk in await agent.run(messages=messages, stream=True):
+
+        async for chunk in await agent.run(  # type: ignore
+            messages=messages, stream=stream, context=context
+        ):
             yield chunk
+
         self._visited[node] = True
         if node == self.finish_point:
             return
-        generators: list[AsyncGenerator[ChatCompletionChunk, None]] = []
-        for edge in self.edges:
-            if edge.source == node or (
-                isinstance(edge.source, list)
-                and node in edge.source
-                and all(self._visited[n] for n in edge.source)
-            ):
-                targets = await self._resolve_edge_target(edge.target, context)
-                for target in targets:
-                    generators.append(
-                        self._run_node_stream(
-                            node=target,
-                            messages=messages,
-                            context=context,
-                        )
-                    )
 
-        async for chunk in join(*generators):
+        async for chunk in join(
+            *[
+                self._handoff(
+                    node=target, messages=messages, context=context, stream=stream
+                )
+                for edge in self.edges
+                if edge.source == node
+                or (
+                    isinstance(edge.source, list)
+                    and node in edge.source
+                    and all(self._visited[n] for n in edge.source)
+                )
+                for target in await self._resolve_edge_target(edge.target, context)
+            ]
+        ):
             yield chunk
 
     async def _run_stream(
@@ -500,52 +499,14 @@ class Agent(BaseModel, use_attribute_docstrings=True):
                 for future in asyncio.as_completed(tasks):
                     yield await future
 
-        if len(self.nodes) > 0:
-            async for chunk in self._run_node_stream(
+        if self.entry_point in self.nodes:
+            async for chunk in self._handoff(
+                node=self.entry_point,
                 messages=messages,
                 context=context,
+                stream=True,
             ):
-                yield chunk
-
-    async def _run_node(
-        self,
-        *,
-        node: str | None = None,
-        messages: list[ChatCompletionMessageParam],
-        context: dict[str, Any] | None = None,
-    ) -> AsyncGenerator[ChatCompletion, None]:
-        """Run the node and its successors."""
-        if node is None:
-            node = self.entry_point
-        if node is None:
-            return
-        agent = self.nodes[node]
-        async for completion in await agent.run(
-            messages=messages, stream=False, context=context
-        ):
-            yield completion
-        self._visited[node] = True
-        if node == self.finish_point:
-            return
-        generators: list[AsyncGenerator[ChatCompletion, None]] = []
-        for edge in self.edges:
-            if edge.source == node or (
-                isinstance(edge.source, list)
-                and node in edge.source
-                and all(self._visited[n] for n in edge.source)
-            ):
-                targets = await self._resolve_edge_target(edge.target, context)
-                for target in targets:
-                    generators.append(
-                        self._run_node(
-                            node=target,
-                            messages=messages,
-                            context=context,
-                        )
-                    )
-
-        async for completion in join(*generators):
-            yield completion
+                yield chunk  # type: ignore
 
     async def _run(
         self,
@@ -602,12 +563,14 @@ class Agent(BaseModel, use_attribute_docstrings=True):
                 ]
                 for future in asyncio.as_completed(tasks):
                     yield await future
-        if len(self.nodes) > 0:
-            async for completion in self._run_node(
+        if self.entry_point in self.nodes:
+            async for completion in self._handoff(
+                node=self.entry_point,
                 messages=messages,
                 context=context,
+                stream=False,
             ):
-                yield completion
+                yield completion  # type: ignore
 
     async def get_system_prompt(
         self,

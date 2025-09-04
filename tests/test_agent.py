@@ -1,5 +1,6 @@
 import sys
 from collections import defaultdict
+from typing import cast
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -66,24 +67,6 @@ async def test_agent_with_jinja_template_instructions():
     ctx_vars = {"user_name": "Alice"}
     result = await agent.get_system_prompt(context=ctx_vars)
     assert result is not None and "Alice" in result
-
-
-async def test_run_node_stream(model):
-    agent = Agent(
-        name="test_agent",
-        model=model,
-        instructions="You are a fantasy writer.",
-        entry_point="agent1",
-        nodes={"agent1": Agent(name="agent1", model=model)},
-    )
-    messages: list[ChatCompletionMessageParam] = [{"role": "user", "content": "Hello"}]
-    context = None
-
-    async for chunk in agent._run_node_stream(
-        messages=messages,
-        context=context,
-    ):
-        assert chunk.id is not None
 
 
 async def test_create_chat_completion(model):
@@ -228,9 +211,11 @@ async def test_agent_sequence_execution_stream(model):
     ]
     responses = []
 
-    async for chunk in main_agent._run_node_stream(messages=messages):
-        if chunk.choices[0].delta.content:
-            responses.append(chunk.choices[0].delta.content)
+    async for chunk in main_agent._handoff(
+        node="agent1", messages=messages, stream=True
+    ):
+        if content := cast(ChatCompletionChunk, chunk).choices[0].delta.content:
+            responses.append(content)
 
     # Verify each agent responded in sequence
     assert "Story written" in "".join(responses)
@@ -561,34 +546,6 @@ async def test_agent_create_chat_completion_with_response_format():
         mock_client.chat.completions.create.assert_not_called()
 
 
-async def test_agent_run_node_stream_with_no_entry_point():
-    """Test _run_node_stream with no entry point."""
-    agent = Agent()
-
-    result = []
-    async for chunk in agent._run_node_stream(
-        messages=[{"role": "user", "content": "Hello"}]
-    ):
-        result.append(chunk)
-
-    # Should return empty generator when no entry point
-    assert len(result) == 0
-
-
-async def test_agent_run_node_with_no_entry_point():
-    """Test _run_node with no entry point."""
-    agent = Agent()
-
-    result = []
-    async for completion in agent._run_node(
-        messages=[{"role": "user", "content": "Hello"}]
-    ):
-        result.append(completion)
-
-    # Should return empty list when no entry point
-    assert result == []
-
-
 async def test_agent_run_stream_message_count_mismatch():
     """Test _run_stream with message count mismatch."""
     agent = Agent()
@@ -713,19 +670,6 @@ async def test_apply_message_slice():
         _apply_message_slice(messages, "a:b")  # Non-numeric values
 
 
-# Tests for _run_node method
-async def test_run_node_with_no_entry_point():
-    """Test _run_node returns empty list when no entry point is set."""
-    agent = Agent()
-    messages: list[ChatCompletionMessageParam] = [{"role": "user", "content": "Hello"}]
-
-    result = []
-    async for completion in agent._run_node(messages=messages):
-        result.append(completion)
-
-    assert result == []
-
-
 async def test_run_node_with_explicit_node():
     """Test _run_node with explicitly specified node."""
     # Create subagent
@@ -744,7 +688,7 @@ async def test_run_node_with_explicit_node():
         mock_run.return_value = mock_async_gen()
 
         result = []
-        async for completion in main_agent._run_node(
+        async for completion in main_agent._handoff(
             node="test_node", messages=messages
         ):
             result.append(completion)
@@ -777,7 +721,9 @@ async def test_run_node_with_entry_point():
         mock_run.return_value = mock_async_gen()
 
         result = []
-        async for completion in main_agent._run_node(messages=messages):
+        async for completion in main_agent._handoff(
+            node="entry_node", messages=messages
+        ):
             result.append(completion)
 
         # Should call subagent.run with correct parameters
@@ -809,7 +755,7 @@ async def test_run_node_with_finish_point():
         mock_run.return_value = mock_async_gen()
 
         result = []
-        async for completion in main_agent._run_node(messages=messages):
+        async for completion in main_agent._handoff(node="node1", messages=messages):
             result.append(completion)
 
         # Should call only once (for the entry node, then return due to finish_point)
@@ -841,7 +787,7 @@ async def test_run_node_with_simple_edge():
         mock_run.side_effect = [mock_async_gen1(), mock_async_gen2()]
 
         result = []
-        async for completion in main_agent._run_node(messages=messages):
+        async for completion in main_agent._handoff(node="node1", messages=messages):
             result.append(completion)
 
         # Should call both subagents
@@ -883,26 +829,13 @@ async def test_run_node_with_list_source_edge():
         mock_run.return_value = mock_async_gen()
 
         result = []
-        async for completion in main_agent._run_node(messages=messages):
+        async for completion in main_agent._handoff(node="node1", messages=messages):
             result.append(completion)
 
         # Should call node1, node2, and node3 (node3 might be called multiple times due to conditional edge)
         assert mock_run.call_count >= 3
         # Should return some result
         assert len(result) > 0
-
-
-# Tests for _run_node_stream method
-async def test_run_node_stream_with_no_entry_point():
-    """Test _run_node_stream returns empty generator when no entry point is set."""
-    agent = Agent()
-    messages: list[ChatCompletionMessageParam] = [{"role": "user", "content": "Hello"}]
-
-    result = []
-    async for chunk in agent._run_node_stream(messages=messages):
-        result.append(chunk)
-
-    assert result == []
 
 
 async def test_run_node_stream_with_explicit_node():
@@ -935,13 +868,13 @@ async def test_run_node_stream_with_explicit_node():
         mock_run.return_value = mock_stream()
 
         result = []
-        async for chunk in main_agent._run_node_stream(
-            node="test_node", messages=messages
+        async for chunk in main_agent._handoff(
+            node="test_node", messages=messages, stream=True
         ):
             result.append(chunk)
 
         # Should call Agent.run with correct parameters
-        mock_run.assert_called_once_with(messages=messages, stream=True)
+        mock_run.assert_called_once_with(messages=messages, stream=True, context=None)
         # Should return chunks from subagent
         assert len(result) == 1
         assert result[0].choices[0].delta.content == "Response"
@@ -980,11 +913,13 @@ async def test_run_node_stream_with_entry_point():
         mock_run.return_value = mock_stream()
 
         result = []
-        async for chunk in main_agent._run_node_stream(messages=messages):
+        async for chunk in main_agent._handoff(
+            node="entry_node", messages=messages, stream=True
+        ):
             result.append(chunk)
 
         # Should call Agent.run with correct parameters
-        mock_run.assert_called_once_with(messages=messages, stream=True)
+        mock_run.assert_called_once_with(messages=messages, stream=True, context=None)
         # Should return chunks from subagent
         assert len(result) == 1
         assert result[0].choices[0].delta.content == "Entry response"
@@ -1023,7 +958,9 @@ async def test_run_node_stream_with_finish_point():
         mock_run.return_value = mock_stream()
 
         result = []
-        async for chunk in main_agent._run_node_stream(messages=messages):
+        async for chunk in main_agent._handoff(
+            node="node1", messages=messages, stream=True
+        ):
             result.append(chunk)
 
         # Should call only once (for the entry node, then return due to finish_point)
@@ -1074,7 +1011,9 @@ async def test_run_node_stream_with_simple_edge():
         mock_run.side_effect = [mock_stream1(), mock_stream2()]
 
         result = []
-        async for chunk in main_agent._run_node_stream(messages=messages):
+        async for chunk in main_agent._handoff(
+            node="node1", messages=messages, stream=True
+        ):
             result.append(chunk)
 
         # Should call both subagents
@@ -1145,7 +1084,9 @@ async def test_run_node_stream_with_list_source_edge():
         mock_run.side_effect = [mock_stream1(), mock_stream2(), mock_stream3()]
 
         result = []
-        async for chunk in main_agent._run_node_stream(messages=messages):
+        async for chunk in main_agent._handoff(
+            node="node1", messages=messages, stream=True
+        ):
             result.append(chunk)
 
         # Should call all three subagents
