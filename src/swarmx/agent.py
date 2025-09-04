@@ -26,6 +26,7 @@ from openai.types.chat import (
     ChatCompletionChunk,
     ChatCompletionMessageParam,
     ChatCompletionMessageToolCallParam,
+    ChatCompletionToolParam,
     ParsedChatCompletion,
 )
 from openai.types.chat.completion_create_params import CompletionCreateParamsBase
@@ -240,6 +241,7 @@ class Agent(BaseModel, use_attribute_docstrings=True):
         messages: list[ChatCompletionMessageParam],
         context: dict[str, Any],
         tool_name: str | None = None,
+        available_tools: list[ChatCompletionToolParam] | None = None,
         to_agent: "Agent | None" = None,
     ):
         """Execute hooks of a specific type.
@@ -249,6 +251,7 @@ class Agent(BaseModel, use_attribute_docstrings=True):
             messages: The current messages to pass to hook tools
             context: The context variables to pass to the hook tools
             tool_name: The name of the tool being called (for on_tool_start and on_tool_end)
+            available_tools: The available tools can be called
             to_agent: The agent being handed off to (for on_handoff)
 
         """
@@ -269,6 +272,8 @@ class Agent(BaseModel, use_attribute_docstrings=True):
                 )
             else:
                 available["agent"] = self.model_dump(mode="json", exclude_unset=True)
+            if available_tools is not None:
+                available["available_tools"] = available_tools
             for key, value in available.items():
                 if key in properties:
                     arguments |= {key: value}
@@ -458,7 +463,12 @@ class Agent(BaseModel, use_attribute_docstrings=True):
         _messages: dict[str, ChatCompletionMessageParam] = defaultdict(
             lambda: {"role": "assistant"}
         )
-        await self._execute_hooks("on_llm_start", messages, context)
+        await self._execute_hooks(
+            "on_llm_start",
+            messages,
+            context,
+            available_tools=CLIENT_REGISTRY.tools,
+        )
         async for chunk in await self._create_chat_completion(
             messages=messages,
             context=context,
@@ -552,7 +562,12 @@ class Agent(BaseModel, use_attribute_docstrings=True):
         """
         if context is None:
             context = {}
-        await self._execute_hooks("on_llm_start", messages, context)
+        await self._execute_hooks(
+            "on_llm_start",
+            messages,
+            context,
+            available_tools=CLIENT_REGISTRY.tools,
+        )
         completion = await self._create_chat_completion(
             messages=messages,
             context=context,
