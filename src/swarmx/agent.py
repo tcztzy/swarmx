@@ -416,6 +416,9 @@ class Agent(BaseModel, use_attribute_docstrings=True):
     ):
         """Handoff to the agent."""
         agent = self.nodes[node]
+        if context is None:
+            context = {}
+        await self._execute_hooks("on_handoff", messages, context, to_agent=agent)
 
         async for chunk in await agent.run(  # type: ignore
             messages=messages, stream=stream, context=context

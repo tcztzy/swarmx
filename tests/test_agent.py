@@ -694,7 +694,7 @@ async def test_run_node_with_explicit_node():
             result.append(completion)
 
         # Should call subagent.run with correct parameters
-        mock_run.assert_called_once_with(messages=messages, stream=False, context=None)
+        mock_run.assert_called_once_with(messages=messages, stream=False, context={})
         # Should return the result from subagent
         assert result == [{"role": "assistant", "content": "Response from subagent"}]
         # Should mark node as visited
@@ -727,7 +727,7 @@ async def test_run_node_with_entry_point():
             result.append(completion)
 
         # Should call subagent.run with correct parameters
-        mock_run.assert_called_once_with(messages=messages, stream=False, context=None)
+        mock_run.assert_called_once_with(messages=messages, stream=False, context={})
         # Should return the result from subagent
         assert result == [{"role": "assistant", "content": "Response from entry"}]
         # Should mark node as visited
@@ -874,7 +874,7 @@ async def test_run_node_stream_with_explicit_node():
             result.append(chunk)
 
         # Should call Agent.run with correct parameters
-        mock_run.assert_called_once_with(messages=messages, stream=True, context=None)
+        mock_run.assert_called_once_with(messages=messages, stream=True, context={})
         # Should return chunks from subagent
         assert len(result) == 1
         assert result[0].choices[0].delta.content == "Response"
@@ -919,7 +919,7 @@ async def test_run_node_stream_with_entry_point():
             result.append(chunk)
 
         # Should call Agent.run with correct parameters
-        mock_run.assert_called_once_with(messages=messages, stream=True, context=None)
+        mock_run.assert_called_once_with(messages=messages, stream=True, context={})
         # Should return chunks from subagent
         assert len(result) == 1
         assert result[0].choices[0].delta.content == "Entry response"
