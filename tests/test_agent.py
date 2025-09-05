@@ -78,7 +78,7 @@ async def test_agent_with_custom_client():
 async def test_agent_with_jinja_template_instructions():
     agent = Agent(instructions="You are a helpful assistant for {{ user_name }}.")
     ctx_vars = {"user_name": "Alice"}
-    result = await agent.get_system_prompt(context=ctx_vars)
+    result = await agent._get_system_prompt(context=ctx_vars)
     assert result is not None and "Alice" in result
 
 
@@ -106,13 +106,13 @@ async def test_get_system_prompt_edge_cases():
         instructions="You are a helpful assistant for {{ user_name }}.",
     )
     # Test with None context
-    result = await agent.get_system_prompt(context=None)
+    result = await agent._get_system_prompt(context=None)
     assert result is not None and "user_name" not in result
     # Test with empty context
-    result = await agent.get_system_prompt(context={})
+    result = await agent._get_system_prompt(context={})
     assert result is not None and "user_name" not in result
     # Test with invalid context
-    result = await agent.get_system_prompt(context={"invalid_key": "value"})
+    result = await agent._get_system_prompt(context={"invalid_key": "value"})
     assert result is not None and "user_name" not in result
 
 
@@ -142,18 +142,18 @@ async def test_linear_sequence_of_subagents():
     )
 
     # Add nodes to main agent
-    main_agent.nodes = {"agent1": agent1, "agent2": agent2, "agent3": agent3}
+    main_agent.nodes = {agent1, agent2, agent3}
 
     # Add edges to create linear sequence
-    main_agent.edges = [
+    main_agent.edges = {
         Edge(source="agent1", target="agent2"),
         Edge(source="agent2", target="agent3"),
-    ]
+    }
 
     # Test the sequence
-    assert "agent1" in main_agent.nodes
-    assert "agent2" in main_agent.nodes
-    assert "agent3" in main_agent.nodes
+    assert agent1 in main_agent.nodes
+    assert agent2 in main_agent.nodes
+    assert agent3 in main_agent.nodes
     assert all(isinstance(e, Edge) for e in main_agent.edges)
     assert any(
         e.source == "agent1" and e.target == "agent2"
@@ -169,9 +169,8 @@ async def test_linear_sequence_of_subagents():
     # Test serialization and deserialization
     serialized = main_agent.model_dump(mode="json")
     loaded_agent = Agent(**serialized)
-    assert "agent1" in loaded_agent.nodes
-    assert "agent2" in loaded_agent.nodes
-    assert "agent3" in loaded_agent.nodes
+    node_names = {a.name for a in loaded_agent.nodes}
+    assert node_names == {"agent1", "agent2", "agent3"}
     assert all(isinstance(e, Edge) for e in loaded_agent.edges)
     assert any(
         e.source == "agent1" and e.target == "agent2"
@@ -191,7 +190,6 @@ async def test_agent_sequence_execution_stream(model):
         name="main_agent",
         model=model,
         instructions="Coordinate the workflow.",
-        entry_point="agent1",
     )
 
     # Create subagents with specific behaviors
@@ -212,11 +210,11 @@ async def test_agent_sequence_execution_stream(model):
     )
 
     # Add nodes and edges
-    main_agent.nodes = {"agent1": agent1, "agent2": agent2, "agent3": agent3}
-    main_agent.edges = [
+    main_agent.nodes = {agent1, agent2, agent3}
+    main_agent.edges = {
         Edge(source="agent1", target="agent2"),
         Edge(source="agent2", target="agent3"),
-    ]
+    }
 
     # Test execution flow
     messages: list[ChatCompletionMessageParam] = [
@@ -225,7 +223,7 @@ async def test_agent_sequence_execution_stream(model):
     responses = []
 
     async for chunk in main_agent._handoff(
-        node="agent1", messages=messages, stream=True
+        agent=agent1, messages=messages, stream=True
     ):
         if content := cast(ChatCompletionChunk, chunk).choices[0].delta.content:
             responses.append(content)
@@ -658,79 +656,16 @@ async def test_apply_message_slice():
         _apply_message_slice(messages, "a:b")  # Non-numeric values
 
 
-async def test_run_node_with_explicit_node():
-    """Test _run_node with explicitly specified node."""
-    # Create subagent
-    subagent = Agent(name="subagent", instructions="You are a test agent.")
-
-    # Create main agent with nodes
-    main_agent = Agent(name="main_agent", nodes={"test_node": subagent})
-
-    messages: list[ChatCompletionMessageParam] = [{"role": "user", "content": "Hello"}]
-
-    with patch.object(Agent, "run") as mock_run:
-        # Mock to return an async generator
-        async def mock_async_gen():
-            yield {"role": "assistant", "content": "Response from subagent"}
-
-        mock_run.return_value = mock_async_gen()
-
-        result = []
-        async for completion in main_agent._handoff(
-            node="test_node", messages=messages
-        ):
-            result.append(completion)
-
-        # Should call subagent.run with correct parameters
-        mock_run.assert_called_once_with(messages=messages, stream=False, context={})
-        # Should return the result from subagent
-        assert result == [{"role": "assistant", "content": "Response from subagent"}]
-        # Should mark node as visited
-        assert main_agent._visited["test_node"] is True
-
-
-async def test_run_node_with_entry_point():
-    """Test _run_node uses entry_point when node is None."""
-    # Create subagent
-    subagent = Agent(name="subagent", instructions="You are a test agent.")
-
-    # Create main agent with entry point
-    main_agent = Agent(
-        name="main_agent", entry_point="entry_node", nodes={"entry_node": subagent}
-    )
-
-    messages: list[ChatCompletionMessageParam] = [{"role": "user", "content": "Hello"}]
-
-    with patch.object(Agent, "run") as mock_run:
-        # Mock to return an async generator
-        async def mock_async_gen():
-            yield {"role": "assistant", "content": "Response from entry"}
-
-        mock_run.return_value = mock_async_gen()
-
-        result = []
-        async for completion in main_agent._handoff(
-            node="entry_node", messages=messages
-        ):
-            result.append(completion)
-
-        # Should call subagent.run with correct parameters
-        mock_run.assert_called_once_with(messages=messages, stream=False, context={})
-        # Should return the result from subagent
-        assert result == [{"role": "assistant", "content": "Response from entry"}]
-        # Should mark node as visited
-        assert main_agent._visited["entry_node"] is True
-
-
 async def test_run_node_with_finish_point():
     """Test _run_node returns early when reaching finish_point."""
     # Create main agent with finish point
+    node1 = Agent(name="node1")
+    node2 = Agent(name="node2")
     main_agent = Agent(
         name="main_agent",
-        entry_point="node1",
         finish_point="node1",  # Same as entry point to test early return
-        nodes={"node1": Agent(name="subagent1"), "node2": Agent(name="subagent2")},
-        edges=[Edge(source="node1", target="node2")],
+        nodes={node1, node2},
+        edges={Edge(source="node1", target="node2")},
     )
 
     messages: list[ChatCompletionMessageParam] = [{"role": "user", "content": "Hello"}]
@@ -743,7 +678,7 @@ async def test_run_node_with_finish_point():
         mock_run.return_value = mock_async_gen()
 
         result = []
-        async for completion in main_agent._handoff(node="node1", messages=messages):
+        async for completion in main_agent._handoff(agent=node1, messages=messages):
             result.append(completion)
 
         # Should call only once (for the entry node, then return due to finish_point)
@@ -755,11 +690,12 @@ async def test_run_node_with_finish_point():
 async def test_run_node_with_simple_edge():
     """Test _run_node follows simple edges between nodes."""
     # Create main agent with edge
+    node1 = Agent(name="node1")
+    node2 = Agent(name="node2")
     main_agent = Agent(
         name="main_agent",
-        entry_point="node1",
-        nodes={"node1": Agent(name="subagent1"), "node2": Agent(name="subagent2")},
-        edges=[Edge(source="node1", target="node2")],
+        nodes={node1, node2},
+        edges={Edge(source="node1", target="node2")},
     )
 
     messages: list[ChatCompletionMessageParam] = [{"role": "user", "content": "Hello"}]
@@ -775,7 +711,7 @@ async def test_run_node_with_simple_edge():
         mock_run.side_effect = [mock_async_gen1(), mock_async_gen2()]
 
         result = []
-        async for completion in main_agent._handoff(node="node1", messages=messages):
+        async for completion in main_agent._handoff(agent=node1, messages=messages):
             result.append(completion)
 
         # Should call both subagents
@@ -791,18 +727,16 @@ async def test_run_node_with_simple_edge():
 async def test_run_node_with_list_source_edge():
     """Test _run_node handles edges with list sources (conditional execution)."""
     # Create main agent with conditional edge
+    node1 = Agent(name="node1")
+    node2 = Agent(name="node2")
+    node3 = Agent(name="node3")
     main_agent = Agent(
         name="main_agent",
-        entry_point="node1",
-        nodes={
-            "node1": Agent(name="subagent1"),
-            "node2": Agent(name="subagent2"),
-            "node3": Agent(name="subagent3"),
-        },
-        edges=[
+        nodes={node1, node2, node3},
+        edges={
             Edge(source="node1", target="node2"),
-            Edge(source=["node1", "node2"], target="node3"),  # Conditional edge
-        ],
+            Edge(source=("node1", "node2"), target="node3"),  # Conditional edge
+        },
     )
 
     messages: list[ChatCompletionMessageParam] = [{"role": "user", "content": "Hello"}]
@@ -817,7 +751,7 @@ async def test_run_node_with_list_source_edge():
         mock_run.return_value = mock_async_gen()
 
         result = []
-        async for completion in main_agent._handoff(node="node1", messages=messages):
+        async for completion in main_agent._handoff(agent=node1, messages=messages):
             result.append(completion)
 
         # Should call node1, node2, and node3 (node3 might be called multiple times due to conditional edge)
@@ -831,11 +765,10 @@ async def test_run_node_stream_with_explicit_node():
     from swarmx.utils import now
 
     # Create main agent with nodes
+    test_node = Agent(name="test_node", instructions="You are a test agent.")
     main_agent = Agent(
         name="main_agent",
-        nodes={
-            "test_node": Agent(name="subagent", instructions="You are a test agent.")
-        },
+        nodes={test_node},
     )
 
     messages: list[ChatCompletionMessageParam] = [{"role": "user", "content": "Hello"}]
@@ -857,7 +790,7 @@ async def test_run_node_stream_with_explicit_node():
 
         result = []
         async for chunk in main_agent._handoff(
-            node="test_node", messages=messages, stream=True
+            agent=test_node, messages=messages, stream=True
         ):
             result.append(chunk)
 
@@ -870,62 +803,18 @@ async def test_run_node_stream_with_explicit_node():
         assert main_agent._visited["test_node"] is True
 
 
-async def test_run_node_stream_with_entry_point():
-    """Test _run_node_stream uses entry_point when node is None."""
-    from swarmx.utils import now
-
-    # Create main agent with entry point
-    main_agent = Agent(
-        name="main_agent",
-        entry_point="entry_node",
-        nodes={
-            "entry_node": Agent(name="subagent", instructions="You are a test agent.")
-        },
-    )
-
-    messages: list[ChatCompletionMessageParam] = [{"role": "user", "content": "Hello"}]
-
-    # Mock stream response
-    async def mock_stream():
-        yield ChatCompletionChunk.model_validate(
-            {
-                "id": "test_chunk",
-                "choices": [{"index": 0, "delta": {"content": "Entry response"}}],
-                "created": now(),
-                "model": "gpt-4o",
-                "object": "chat.completion.chunk",
-            }
-        )
-
-    with patch.object(Agent, "run") as mock_run:
-        mock_run.return_value = mock_stream()
-
-        result = []
-        async for chunk in main_agent._handoff(
-            node="entry_node", messages=messages, stream=True
-        ):
-            result.append(chunk)
-
-        # Should call Agent.run with correct parameters
-        mock_run.assert_called_once_with(messages=messages, stream=True, context={})
-        # Should return chunks from subagent
-        assert len(result) == 1
-        assert result[0].choices[0].delta.content == "Entry response"
-        # Should mark node as visited
-        assert main_agent._visited["entry_node"] is True
-
-
 async def test_run_node_stream_with_finish_point():
     """Test _run_node_stream returns early when reaching finish_point."""
     from swarmx.utils import now
 
     # Create main agent with finish point
+    node1 = Agent(name="node1")
+    node2 = Agent(name="node2")
     main_agent = Agent(
         name="main_agent",
-        entry_point="node1",
         finish_point="node1",  # Same as entry point to test early return
-        nodes={"node1": Agent(name="subagent1"), "node2": Agent(name="subagent2")},
-        edges=[Edge(source="node1", target="node2")],
+        nodes={node1, node2},
+        edges={Edge(source="node1", target="node2")},
     )
 
     messages: list[ChatCompletionMessageParam] = [{"role": "user", "content": "Hello"}]
@@ -947,7 +836,7 @@ async def test_run_node_stream_with_finish_point():
 
         result = []
         async for chunk in main_agent._handoff(
-            node="node1", messages=messages, stream=True
+            agent=node1, messages=messages, stream=True
         ):
             result.append(chunk)
 
@@ -963,11 +852,12 @@ async def test_run_node_stream_with_simple_edge():
     from swarmx.utils import now
 
     # Create main agent with edge
+    node1 = Agent(name="node1")
+    node2 = Agent(name="node2")
     main_agent = Agent(
         name="main_agent",
-        entry_point="node1",
-        nodes={"node1": Agent(name="subagent1"), "node2": Agent(name="subagent2")},
-        edges=[Edge(source="node1", target="node2")],
+        nodes={node1, node2},
+        edges={Edge(source="node1", target="node2")},
     )
 
     messages: list[ChatCompletionMessageParam] = [{"role": "user", "content": "Hello"}]
@@ -1000,7 +890,7 @@ async def test_run_node_stream_with_simple_edge():
 
         result = []
         async for chunk in main_agent._handoff(
-            node="node1", messages=messages, stream=True
+            agent=node1, messages=messages, stream=True
         ):
             result.append(chunk)
 
@@ -1013,23 +903,21 @@ async def test_run_node_stream_with_simple_edge():
         assert "Node2" in contents
 
 
-async def test_run_node_stream_with_list_source_edge():
+async def test_run_node_stream_with_tuple_source_edge():
     """Test _run_node_stream handles edges with list sources (conditional execution)."""
     from swarmx.utils import now
 
     # Create main agent with conditional edge
+    node1 = Agent(name="node1")
+    node2 = Agent(name="node2")
+    node3 = Agent(name="node3")
     main_agent = Agent(
         name="main_agent",
-        entry_point="node1",
-        nodes={
-            "node1": Agent(name="subagent1"),
-            "node2": Agent(name="subagent2"),
-            "node3": Agent(name="subagent3"),
-        },
-        edges=[
+        nodes={node1, node2, node3},
+        edges={
             Edge(source="node1", target="node2"),
-            Edge(source=["node1", "node2"], target="node3"),  # Conditional edge
-        ],
+            Edge(source=("node1", "node2"), target="node3"),  # Conditional edge
+        },
     )
 
     messages: list[ChatCompletionMessageParam] = [{"role": "user", "content": "Hello"}]
@@ -1073,7 +961,7 @@ async def test_run_node_stream_with_list_source_edge():
 
         result = []
         async for chunk in main_agent._handoff(
-            node="node1", messages=messages, stream=True
+            agent=node1, messages=messages, stream=True
         ):
             result.append(chunk)
 

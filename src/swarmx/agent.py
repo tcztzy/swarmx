@@ -38,6 +38,7 @@ from pydantic import (
     PrivateAttr,
     field_serializer,
     field_validator,
+    model_validator,
 )
 from pydantic.json_schema import GenerateJsonSchema
 
@@ -127,10 +128,10 @@ class SwarmXGenerateJsonSchema(GenerateJsonSchema):
         return False
 
 
-class Edge(BaseModel):
+class Edge(BaseModel, frozen=True, use_attribute_docstrings=True):
     """Edge in the agent graph."""
 
-    source: str | list[str]
+    source: str | tuple[str, ...]
     """Name of the source node"""
     target: str
     """Name of the target node"""
@@ -165,24 +166,48 @@ class Agent(BaseModel, use_attribute_docstrings=True):
     client: AsyncOpenAI | None = None
     """The client to use for the node"""
 
-    entry_point: str | None = None
-    """The entry point for the subagents"""
-
     finish_point: str | None = None
     """The finish point for the subagents"""
 
-    nodes: "dict[str, Agent]" = Field(default_factory=dict)
+    nodes: "set[Agent]" = Field(default_factory=set)
     """The nodes in the Agent's graph"""
 
-    edges: list[Edge] = Field(default_factory=list)
+    edges: set[Edge] = Field(default_factory=set)
     """The edges in the Agent's graph"""
 
     hooks: list[Hook] = Field(default_factory=list)
     """Hooks to execute at various points in the agent lifecycle"""
 
-    _visited: dict[str, bool] = PrivateAttr(
+    _visited: "dict[str, bool]" = PrivateAttr(
         default_factory=lambda: defaultdict(lambda: False)
     )
+
+    def __hash__(self):
+        """Since name is unique, make this as hash key."""
+        return hash(self.name)
+
+    @property
+    def agents(self) -> "dict[str, Agent]":
+        """Get all agent names in the hierarchy, including self and nested agents."""
+        agents: "dict[str, Agent]" = {}
+
+        def collect_agents(agent: "Agent") -> None:
+            """Recursively collect all agent names."""
+            if agent.name in agents:
+                raise ValueError("Duplicated agent name")
+            agents[agent.name] = agent
+            for subagent in agent.nodes:
+                collect_agents(subagent)
+
+        collect_agents(self)
+
+        return agents
+
+    @model_validator(mode="after")
+    def validate_unique_agent_name(self):
+        """Validate agent names are unique."""
+        self.agents
+        return self
 
     @field_validator("client", mode="plain")
     def validate_client(cls, v: Any) -> AsyncOpenAI | None:
@@ -373,6 +398,22 @@ class Agent(BaseModel, use_attribute_docstrings=True):
             )
             raise
 
+    async def _get_system_prompt(
+        self,
+        context: dict[str, Any] | None = None,
+    ) -> str | None:
+        """Get the system prompt for the agent.
+
+        Args:
+            context: The context variables to pass to the agent
+
+        """
+        if self.instructions is None:
+            return None
+        return await Template(self.instructions, enable_async=True).render_async(
+            context or {}
+        )
+
     async def _prepare_chat_completion_params(
         self,
         messages: list[ChatCompletionMessageParam],
@@ -382,7 +423,7 @@ class Agent(BaseModel, use_attribute_docstrings=True):
         message_slice: str | None = (context or {}).get("message_slice")
         if message_slice is not None:
             messages = _apply_message_slice(messages, message_slice)
-        system_prompt = await self.get_system_prompt(context)
+        system_prompt = await self._get_system_prompt(context)
         if system_prompt is not None:
             messages = [{"role": "system", "content": system_prompt}, *messages]
         params = self.completion_create_params | {
@@ -449,16 +490,70 @@ class Agent(BaseModel, use_attribute_docstrings=True):
             result._request_id = request_id
             return result
 
+    def _get_agent_by_name(self, name: str) -> "Agent":
+        for agent in self.nodes:
+            if agent.name == name:
+                return agent
+        raise KeyError(f"Agent {name} not exist in nodes")
+
+    async def _resolve_edge_target(
+        self, target: str, context: dict[str, Any] | None = None
+    ) -> "set[Agent]":
+        """Resolve edge target, which can be a node name, function name, or CEL expression."""
+        # First check if target exists as a node
+        try:
+            return {self._get_agent_by_name(target)}
+        except KeyError:
+            pass
+
+        # Then check if target is a function in CLIENT_REGISTRY
+        try:
+            result = await CLIENT_REGISTRY.call_tool(target, context or {})
+
+            if result.structuredContent is not None:
+                r = result.structuredContent.get("result")
+                if isinstance(r, list) and all(isinstance(item, str) for item in r):
+                    return {self._get_agent_by_name(s) for s in r}
+                elif isinstance(r, str):
+                    return {self._get_agent_by_name(r)}
+                else:
+                    raise TypeError(
+                        "Conditional edge should return string or list of string only"
+                    )
+            else:
+                if len(result.content) != 1 or result.content[0].type != "text":
+                    raise ValueError(
+                        "Conditional edge should return one text content block only"
+                    )
+                return {self._get_agent_by_name(result.content[0].text)}
+        except KeyError:
+            pass
+
+        # Finally try to evaluate as CEL expression
+        try:
+            result = evaluate(target, context)
+            if isinstance(result, str):
+                return {self._get_agent_by_name(result)}
+            elif isinstance(result, list) and all(
+                isinstance(item, str) for item in result
+            ):
+                return {self._get_agent_by_name(s) for s in result}
+            else:
+                raise ValueError(
+                    f"CEL expression must return str or list[str], got {type(result)}"
+                )
+        except Exception as e:
+            raise ValueError(f"Invalid edge target '{target}': {e}")
+
     async def _handoff(
         self,
         *,
-        node: str,
+        agent: "Agent",
         messages: list[ChatCompletionMessageParam],
         context: dict[str, Any] | None = None,
         stream: bool = False,
-    ):
+    ) -> AsyncGenerator[ChatCompletion | ChatCompletionChunk, None]:
         """Handoff to the agent."""
-        agent = self.nodes[node]
         if context is None:
             context = {}
         await self._execute_hooks("on_handoff", messages, context, to_agent=agent)
@@ -466,26 +561,26 @@ class Agent(BaseModel, use_attribute_docstrings=True):
         async for chunk in await agent.run(  # type: ignore
             messages=messages, stream=stream, context=context
         ):
-            yield chunk
+            yield chunk  # type: ignore
 
-        self._visited[node] = True
-        if node == self.finish_point:
+        self._visited[agent.name] = True
+        if agent.name == self.finish_point:
             return
 
         async for chunk in join(
             *[
                 self._handoff(
-                    node=target, messages=messages, context=context, stream=stream
+                    agent=target, messages=messages, context=context, stream=stream
                 )
                 for edge in self.edges
-                if edge.source == node
+                if edge.source == agent.name
                 or (
-                    isinstance(edge.source, list)
-                    and node in edge.source
+                    isinstance(edge.source, tuple)
+                    and agent.name in edge.source
                     and all(self._visited[n] for n in edge.source)
                 )
                 for target in await self._resolve_edge_target(edge.target, context)
-            ]
+            ]  # type: ignore
         ):
             yield chunk
 
@@ -558,14 +653,20 @@ class Agent(BaseModel, use_attribute_docstrings=True):
                 for future in asyncio.as_completed(tasks):
                     yield await future
 
-        if self.entry_point in self.nodes:
-            async for chunk in self._handoff(
-                node=self.entry_point,
-                messages=messages,
-                context=context,
-                stream=True,
-            ):
-                yield chunk  # type: ignore
+        generators: list[AsyncGenerator[ChatCompletionChunk, None]] = []
+        for edge in self.edges:
+            if edge.source == self.name:
+                for target in await self._resolve_edge_target(edge.target):
+                    generators.append(
+                        self._handoff(
+                            agent=target,
+                            messages=messages,
+                            context=context,
+                            stream=True,
+                        )  # type: ignore
+                    )
+        async for chunk in join(*generators):
+            yield chunk
 
     async def _run(
         self,
@@ -628,77 +729,21 @@ class Agent(BaseModel, use_attribute_docstrings=True):
                 ]
                 for future in asyncio.as_completed(tasks):
                     yield await future
-        if self.entry_point in self.nodes:
-            async for completion in self._handoff(
-                node=self.entry_point,
-                messages=messages,
-                context=context,
-                stream=False,
-            ):
-                yield completion  # type: ignore
 
-    async def get_system_prompt(
-        self,
-        context: dict[str, Any] | None = None,
-    ) -> str | None:
-        """Get the system prompt for the agent.
-
-        Args:
-            context: The context variables to pass to the agent
-
-        """
-        if self.instructions is None:
-            return None
-        return await Template(self.instructions, enable_async=True).render_async(
-            context or {}
-        )
-
-    async def _resolve_edge_target(
-        self, target: str, context: dict[str, Any] | None = None
-    ) -> list[str]:
-        """Resolve edge target, which can be a node name, function name, or CEL expression."""
-        # First check if target exists as a node
-        if target in self.nodes:
-            return [target]
-
-        # Then check if target is a function in CLIENT_REGISTRY
-        try:
-            result = await CLIENT_REGISTRY.call_tool(target, context or {})
-
-            if result.structuredContent is not None:
-                r = result.structuredContent.get("result")
-                if isinstance(r, list) and all(isinstance(item, str) for item in r):
-                    return r
-                elif isinstance(r, str):
-                    return [r]
-                else:
-                    raise TypeError(
-                        "Conditional edge should return string or list of string only"
+        generators: list[AsyncGenerator[ChatCompletion, None]] = []
+        for edge in self.edges:
+            if edge.source == self.name:
+                for target in await self._resolve_edge_target(edge.target):
+                    generators.append(
+                        self._handoff(
+                            agent=target,
+                            messages=messages,
+                            context=context,
+                            stream=False,
+                        )  # type: ignore
                     )
-            else:
-                if len(result.content) != 1 or result.content[0].type != "text":
-                    raise ValueError(
-                        "Conditional edge should return one text content block only"
-                    )
-                return [result.content[0].text]
-        except KeyError:
-            pass
-
-        # Finally try to evaluate as CEL expression
-        try:
-            result = evaluate(target, context)
-            if isinstance(result, str):
-                return [result]
-            elif isinstance(result, list) and all(
-                isinstance(item, str) for item in result
-            ):
-                return result
-            else:
-                raise ValueError(
-                    f"CEL expression must return str or list[str], got {type(result)}"
-                )
-        except Exception as e:
-            raise ValueError(f"Invalid edge target '{target}': {e}")
+        async for completion in join(*generators):
+            yield completion
 
     @overload
     async def run(

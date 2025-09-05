@@ -11,13 +11,14 @@ pytestmark = pytest.mark.anyio
 
 async def test_resolve_edge_target_node_exists():
     """Test _resolve_edge_target when target is an existing node."""
+    node = Agent(name="existing_node")
     agent = Agent(
         name="test_agent",
-        nodes={"existing_node": Agent(name="subagent")},
+        nodes={node},
     )
 
     result = await agent._resolve_edge_target("existing_node", {})
-    assert result == ["existing_node"]
+    assert result == {node}
 
 
 async def test_resolve_edge_target_node_not_exists():
@@ -40,7 +41,8 @@ async def test_resolve_edge_target_node_not_exists():
 
 async def test_resolve_edge_target_tool_returns_string():
     """Test _resolve_edge_target when tool returns a string."""
-    agent = Agent(name="test_agent")
+    target_node = Agent(name="target_node")
+    agent = Agent(name="test_agent", nodes={target_node})
 
     # Mock tool result with string content
     structured_output = {"result": "target_node"}
@@ -53,12 +55,13 @@ async def test_resolve_edge_target_tool_returns_string():
         mock_call_tool.return_value = mock_result
 
         result = await agent._resolve_edge_target("test_tool", {})
-        assert result == ["target_node"]
+        assert result == {target_node}
 
 
 async def test_resolve_edge_target_tool_returns_list():
     """Test _resolve_edge_target when tool returns a list of strings."""
-    agent = Agent(name="test_agent")
+    node1, node2, node3 = Agent(name="node1"), Agent(name="node2"), Agent(name="node3")
+    agent = Agent(name="test_agent", nodes={node1, node2, node3})
 
     # Mock tool result with list content
     structed_output = {"result": ["node1", "node2", "node3"]}
@@ -71,7 +74,7 @@ async def test_resolve_edge_target_tool_returns_list():
         mock_call_tool.return_value = mock_result
 
         result = await agent._resolve_edge_target("test_tool", {})
-        assert result == ["node1", "node2", "node3"]
+        assert result == {node1, node2, node3}
 
 
 async def test_resolve_edge_target_tool_returns_invalid_list():
@@ -118,7 +121,8 @@ async def test_resolve_edge_target_tool_returns_invalid_type():
 
 async def test_resolve_edge_target_tool_returns_text_content():
     """Test _resolve_edge_target when tool returns text content (no structuredContent)."""
-    agent = Agent(name="test_agent")
+    target_node = Agent(name="target_node")
+    agent = Agent(name="test_agent", nodes={target_node})
 
     # Mock tool result with text content
     mock_result = CallToolResult(
@@ -129,7 +133,7 @@ async def test_resolve_edge_target_tool_returns_text_content():
         mock_call_tool.return_value = mock_result
 
         result = await agent._resolve_edge_target("test_tool", {})
-        assert result == ["target_node"]
+        assert result == {target_node}
 
 
 async def test_resolve_edge_target_tool_returns_multiple_text_contents():
@@ -177,7 +181,8 @@ async def test_resolve_edge_target_tool_returns_non_text_content():
 
 async def test_resolve_edge_target_with_context():
     """Test _resolve_edge_target passes context to tool call."""
-    agent = Agent(name="test_agent")
+    target_node = Agent(name="target_node")
+    agent = Agent(name="test_agent", nodes={target_node})
 
     context = {"user": "test_user", "data": "test_data"}
 
@@ -191,7 +196,7 @@ async def test_resolve_edge_target_with_context():
         mock_call_tool.return_value = mock_result
 
         result = await agent._resolve_edge_target("test_tool", context)
-        assert result == ["target_node"]
+        assert result == {target_node}
 
         # Verify context was passed to tool call
         mock_call_tool.assert_called_with("test_tool", context)
@@ -199,7 +204,8 @@ async def test_resolve_edge_target_with_context():
 
 async def test_resolve_edge_target_none_context():
     """Test _resolve_edge_target with None context."""
-    agent = Agent(name="test_agent")
+    target_node = Agent(name="target_node")
+    agent = Agent(name="test_agent", nodes={target_node})
 
     # Mock tool result
     mock_result = CallToolResult(
@@ -211,7 +217,7 @@ async def test_resolve_edge_target_none_context():
         mock_call_tool.return_value = mock_result
 
         result = await agent._resolve_edge_target("test_tool", None)
-        assert result == ["target_node"]
+        assert result == {target_node}
 
         # Verify empty dict was passed when context is None
         mock_call_tool.assert_called_with("test_tool", {})
