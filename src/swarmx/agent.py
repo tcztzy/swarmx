@@ -1,8 +1,10 @@
 """SwarmX Agent module."""
 
 import asyncio
+import json
 import logging
 import re
+import uuid
 import warnings
 from collections import defaultdict
 from copy import deepcopy
@@ -19,7 +21,7 @@ from typing import (
 from cel import evaluate
 from httpx import Timeout
 from jinja2 import Template
-from openai import DEFAULT_MAX_RETRIES, AsyncOpenAI, AsyncStream
+from openai import DEFAULT_MAX_RETRIES, AsyncOpenAI
 from openai.types.chat import (
     ChatCompletion,
     ChatCompletionAssistantMessageParam,
@@ -282,6 +284,10 @@ class Agent(BaseModel, use_attribute_docstrings=True):
                 available["agent"] = self.model_dump(mode="json", exclude_unset=True)
             if available_tools is not None:
                 available["available_tools"] = available_tools
+            if chunk is not None:
+                available["chunk"] = chunk
+            if completion is not None:
+                available["completion"] = completion
             for key, value in available.items():
                 if key in properties:
                     arguments |= {key: value}
@@ -291,7 +297,7 @@ class Agent(BaseModel, use_attribute_docstrings=True):
                     raise ValueError("Hook tool must return structured content")
                 context |= result.structuredContent
             except Exception as e:
-                logger.warning(f"Hook {hook_type} failed for {hook_name}: {e}")
+                raise e
 
     @overload
     async def _execute_tool_with_hooks(
@@ -355,7 +361,7 @@ class Agent(BaseModel, use_attribute_docstrings=True):
         messages: list[ChatCompletionMessageParam],
         context: dict[str, Any] | None = None,
         stream: Literal[True],
-    ) -> AsyncStream[ChatCompletionChunk]: ...
+    ) -> AsyncGenerator[ChatCompletionChunk, None]: ...
 
     @overload
     async def _create_chat_completion(
@@ -372,8 +378,8 @@ class Agent(BaseModel, use_attribute_docstrings=True):
         messages: list[ChatCompletionMessageParam],
         context: dict[str, Any] | None = None,
         stream: bool = False,
-    ) -> ChatCompletion | AsyncStream[ChatCompletionChunk]:
-        """Get a chat completion for the agent.
+    ) -> ChatCompletion | AsyncGenerator[ChatCompletionChunk, None]:
+        """Get a chat completion for the agent with UUID tracing.
 
         Args:
             messages: The messages to start the conversation with
@@ -381,6 +387,9 @@ class Agent(BaseModel, use_attribute_docstrings=True):
             stream: Whether to stream the response
 
         """
+        # Even OpenAI support x-request-id header, but most providers don't support
+        # So we should manually set it for each.
+        request_id = str(uuid.uuid4())
         message_slice: str | None = (context or {}).get("message_slice")
         if message_slice is not None:
             messages = _apply_message_slice(messages, message_slice)
@@ -395,8 +404,22 @@ class Agent(BaseModel, use_attribute_docstrings=True):
             params["tools"] = tools
         elif "tools" in params:
             del params["tools"]
-        logger.info("Create chat completion for:", params)
-        return await self._get_client().chat.completions.create(stream=stream, **params)
+        logger.info(json.dumps(params | {"stream": stream, "request_id": request_id}))
+        client = self._get_client()
+        if stream:
+
+            async def traced_stream():
+                async for chunk in await client.chat.completions.create(
+                    stream=stream, **params
+                ):
+                    chunk._request_id = request_id
+                    yield chunk
+
+            return traced_stream()
+        else:
+            result = await client.chat.completions.create(stream=stream, **params)
+            result._request_id = request_id
+            return result
 
     async def _handoff(
         self,
@@ -468,7 +491,12 @@ class Agent(BaseModel, use_attribute_docstrings=True):
             context=context,
             stream=True,
         ):
-            logger.info(chunk.model_dump_json(exclude_unset=True))
+            logger.info(
+                json.dumps(
+                    chunk.model_dump(mode="json", exclude_unset=True)
+                    | {"request_id": chunk._request_id}
+                )
+            )
             await self._execute_hooks(
                 "on_chunk",
                 messages
@@ -537,7 +565,12 @@ class Agent(BaseModel, use_attribute_docstrings=True):
             context=context,
             stream=False,
         )
-        logger.info(completion.model_dump_json(exclude_unset=True))
+        logger.info(
+            json.dumps(
+                completion.model_dump(mode="json", exclude_unset=True)
+                | {"request_id": completion._request_id}
+            )
+        )
         await self._execute_hooks(
             "on_llm_end", messages, context, completion=completion
         )

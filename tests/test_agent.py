@@ -517,7 +517,10 @@ async def test_agent_create_chat_completion_with_tools():
 
 async def test_agent_run_stream_message_count_mismatch():
     """Test _run_stream with message count mismatch."""
+    import uuid
+
     agent = Agent()
+    request_id = str(uuid.uuid4())
 
     with patch.object(agent, "_create_chat_completion") as mock_create:
         # Mock completion that creates mismatched messages
@@ -532,6 +535,7 @@ async def test_agent_run_stream_message_count_mismatch():
                     "object": "chat.completion.chunk",
                 }
             )
+            chunk1._request_id = request_id
             yield chunk1
 
             # Second chunk with different ID but no finish_reason
@@ -544,6 +548,7 @@ async def test_agent_run_stream_message_count_mismatch():
                     "object": "chat.completion.chunk",
                 }
             )
+            chunk2._request_id = request_id
             yield chunk2
 
             # Only finish the first chunk
@@ -556,6 +561,7 @@ async def test_agent_run_stream_message_count_mismatch():
                     "object": "chat.completion.chunk",
                 }
             )
+            chunk3._request_id = request_id
             yield chunk3
 
         mock_create.return_value = mock_completion_stream()
