@@ -219,8 +219,8 @@ class Agent(BaseModel, use_attribute_docstrings=True):
             "project",
             "websocket_base_url",
         ):
-            if getattr(v, key, None) is not None:
-                client[key] = getattr(v, key)
+            if (attr := getattr(v, key, None)) is not None:
+                client[key] = attr
         if isinstance(v.timeout, float | None):
             client["timeout"] = v.timeout
         elif isinstance(v.timeout, Timeout):
@@ -354,6 +354,28 @@ class Agent(BaseModel, use_attribute_docstrings=True):
             )
             raise
 
+    async def _prepare_chat_completion_params(
+        self,
+        messages: list[ChatCompletionMessageParam],
+        context: dict[str, Any] | None = None,
+    ) -> CompletionCreateParamsBase:
+        """Prepare parameters for chat completion."""
+        message_slice: str | None = (context or {}).get("message_slice")
+        if message_slice is not None:
+            messages = _apply_message_slice(messages, message_slice)
+        system_prompt = await self.get_system_prompt(context)
+        if system_prompt is not None:
+            messages = [{"role": "system", "content": system_prompt}, *messages]
+        params = self.completion_create_params | {
+            "messages": messages,
+            "model": self.model,
+        }
+        if len(tools := (context or {}).get("tools", CLIENT_REGISTRY.tools)) > 0:
+            params["tools"] = tools
+        elif "tools" in params:
+            params.pop("tools", None)
+        return params
+
     @overload
     async def _create_chat_completion(
         self,
@@ -390,20 +412,7 @@ class Agent(BaseModel, use_attribute_docstrings=True):
         # Even OpenAI support x-request-id header, but most providers don't support
         # So we should manually set it for each.
         request_id = str(uuid.uuid4())
-        message_slice: str | None = (context or {}).get("message_slice")
-        if message_slice is not None:
-            messages = _apply_message_slice(messages, message_slice)
-        system_prompt = await self.get_system_prompt(context)
-        if system_prompt is not None:
-            messages = [{"role": "system", "content": system_prompt}, *messages]
-        params = self.completion_create_params | {
-            "messages": messages,
-            "model": self.model,
-        }
-        if len(tools := (context or {}).get("tools", CLIENT_REGISTRY.tools)) > 0:
-            params["tools"] = tools
-        elif "tools" in params:
-            del params["tools"]
+        params = await self._prepare_chat_completion_params(messages, context)
         logger.info(json.dumps(params | {"stream": stream, "request_id": request_id}))
         client = self._get_client()
         if stream:
