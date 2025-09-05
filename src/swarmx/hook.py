@@ -37,6 +37,9 @@ class Hook(BaseModel):
     on_llm_end: str | None = None
     """Tool name to execute after LLM call"""
 
+    on_chunk: str | None = None
+    """Tool name to execute after each stream data chunk"""
+
 
 HookType = Literal[
     "on_start",
@@ -46,4 +49,5 @@ HookType = Literal[
     "on_tool_end",
     "on_llm_start",
     "on_llm_end",
+    "on_chunk",
 ]

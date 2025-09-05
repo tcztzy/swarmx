@@ -240,9 +240,12 @@ class Agent(BaseModel, use_attribute_docstrings=True):
         hook_type: HookType,
         messages: list[ChatCompletionMessageParam],
         context: dict[str, Any],
+        *,
         tool_name: str | None = None,
         available_tools: list[ChatCompletionToolParam] | None = None,
         to_agent: "Agent | None" = None,
+        chunk: ChatCompletionChunk | None = None,
+        completion: ChatCompletion | None = None,
     ):
         """Execute hooks of a specific type.
 
@@ -253,6 +256,8 @@ class Agent(BaseModel, use_attribute_docstrings=True):
             tool_name: The name of the tool being called (for on_tool_start and on_tool_end)
             available_tools: The available tools can be called
             to_agent: The agent being handed off to (for on_handoff)
+            chunk: The ChatCompletionChunk object (for on_chunk)
+            completion: The ChatCompletion object (for on_llm_end)
 
         """
         for hook in [h for h in self.hooks if hasattr(h, hook_type)]:
@@ -261,6 +266,10 @@ class Agent(BaseModel, use_attribute_docstrings=True):
             properties = hook_tool.inputSchema["properties"]
             arguments: dict[str, Any] = {}
             available = {"messages": messages, "context": context}
+            if chunk is not None:
+                available["chunk"] = chunk
+            if completion is not None:
+                available["completion"] = completion
             if tool_name is not None:
                 available["tool"] = CLIENT_REGISTRY.get_tool(tool_name)
             if to_agent is not None:
@@ -323,15 +332,21 @@ class Agent(BaseModel, use_attribute_docstrings=True):
 
         """
         tool_name = tool_call["function"]["name"]
-        await self._execute_hooks("on_tool_start", messages, context, tool_name)
+        await self._execute_hooks(
+            "on_tool_start", messages, context, tool_name=tool_name
+        )
 
         try:
             result = await exec_tool_call(tool_call, stream)  # type: ignore
-            await self._execute_hooks("on_tool_end", messages, context, tool_name)
+            await self._execute_hooks(
+                "on_tool_end", messages, context, tool_name=tool_name
+            )
             return result
         except Exception as e:
             logger.warning(f"Tool execution failed for {tool_name}: {e}")
-            await self._execute_hooks("on_tool_end", messages, context, tool_name)
+            await self._execute_hooks(
+                "on_tool_end", messages, context, tool_name=tool_name
+            )
             raise
 
     @overload
@@ -384,18 +399,15 @@ class Agent(BaseModel, use_attribute_docstrings=True):
         system_prompt = await self.get_system_prompt(context)
         if system_prompt is not None:
             messages = [{"role": "system", "content": system_prompt}, *messages]
-        params: CompletionCreateParamsBase = {
+        params = self.completion_create_params | {
             "messages": messages,
             "model": self.model,
         }
-        logger.debug("Getting chat completion for...:", messages)
-
-        params = self.completion_create_params | params
         if len(tools := (context or {}).get("tools", CLIENT_REGISTRY.tools)) > 0:
             params["tools"] = tools
         elif "tools" in params:
             del params["tools"]
-
+        logger.info("Create chat completion for:", params)
         if response_format is None:
             return await self._get_client().chat.completions.create(
                 stream=stream, **params
@@ -477,6 +489,14 @@ class Agent(BaseModel, use_attribute_docstrings=True):
             stream=True,
         ):
             logger.info(chunk.model_dump_json(exclude_unset=True))
+            await self._execute_hooks(
+                "on_chunk",
+                messages
+                + [m for i, m in _messages.items() if i != chunk.id]
+                + [_messages[chunk.id]],
+                context,
+                chunk=chunk,
+            )
             _merge_chunk(_messages, chunk)
             yield chunk
             if chunk.choices[0].finish_reason is not None:
@@ -538,7 +558,9 @@ class Agent(BaseModel, use_attribute_docstrings=True):
             stream=False,
         )
         logger.info(completion.model_dump_json(exclude_unset=True))
-
+        await self._execute_hooks(
+            "on_llm_end", messages, context, completion=completion
+        )
         # Yield the completion object to preserve all metadata
         yield completion
 
@@ -551,7 +573,6 @@ class Agent(BaseModel, use_attribute_docstrings=True):
         )
         message["name"] = f"{self.name} ({completion.id})"
         messages.append(message)
-        await self._execute_hooks("on_llm_end", messages, context)
 
         if (tool_calls := message.get("tool_calls")) is not None:
             # Apply hook decorator to exec_tool_calls
