@@ -233,6 +233,25 @@ class Agent(BaseModel, use_attribute_docstrings=True):
             client["default_query"] = v._custom_query
         return client
 
+    @field_validator("completion_create_params", mode="before")
+    def validate_completion_create_params(cls, v: Any) -> CompletionCreateParamsBase:
+        """Validate completion create params, ensuring messages and model are dummy."""
+        if isinstance(v, dict):
+            v = v.copy()
+            v["model"] = "DUMMY"
+            v["messages"] = iter([])
+        return v
+
+    @field_serializer("completion_create_params", mode="plain")
+    def serialize_completion_create_params(
+        self, v: CompletionCreateParamsBase
+    ) -> dict[str, Any]:
+        """Serialize completion create params, excluding messages and model."""
+        r = dict(v)
+        r.pop("messages", None)
+        r.pop("model", None)
+        return r
+
     def _get_client(self):
         return self.client or DEFAULT_CLIENT or AsyncOpenAI()
 

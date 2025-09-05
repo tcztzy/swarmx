@@ -29,10 +29,15 @@ async def test_agent_validate_and_serialize():
         name="test_agent",
         model="deepseek-r1",
         instructions="You are a fantasy writer.",
+        completion_create_params={"temperature": 0.7, "max_tokens": 100},  # type: ignore
     )
     assert agent.name == "test_agent"
     assert agent.model == "deepseek-r1"
     assert agent.instructions == "You are a fantasy writer."
+    assert agent.completion_create_params["temperature"] == 0.7  # type: ignore
+    assert agent.completion_create_params["max_tokens"] == 100  # type: ignore
+    assert agent.completion_create_params["model"] == "DUMMY"
+    assert hasattr(agent.completion_create_params["messages"], "__iter__")
 
     # Test serialization and deserialization
     serialized = agent.model_dump(mode="json")
@@ -40,12 +45,20 @@ async def test_agent_validate_and_serialize():
     assert serialized["name"] == "test_agent"
     assert serialized["model"] == "deepseek-r1"
     assert serialized["instructions"] == "You are a fantasy writer."
+    assert serialized["completion_create_params"]["temperature"] == 0.7
+    assert serialized["completion_create_params"]["max_tokens"] == 100
+    assert "messages" not in serialized["completion_create_params"]
+    assert "model" not in serialized["completion_create_params"]
 
     # Test loading from serialized data
     loaded_agent = Agent(**serialized)
     assert loaded_agent.name == "test_agent"
     assert loaded_agent.model == "deepseek-r1"
     assert loaded_agent.instructions == "You are a fantasy writer."
+    assert loaded_agent.completion_create_params["temperature"] == 0.7  # type: ignore
+    assert loaded_agent.completion_create_params["max_tokens"] == 100  # type: ignore
+    assert loaded_agent.completion_create_params["model"] == "DUMMY"
+    assert hasattr(loaded_agent.completion_create_params["messages"], "__iter__")
 
 
 async def test_agent_with_custom_client():
