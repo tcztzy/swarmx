@@ -515,37 +515,6 @@ async def test_agent_create_chat_completion_with_tools():
             assert call_args.kwargs["tools"] == [{"name": "test_tool"}]
 
 
-async def test_agent_create_chat_completion_with_response_format_and_stream():
-    """Test _create_chat_completion with response format and streaming raises error."""
-    agent = Agent()
-
-    with pytest.raises(NotImplementedError, match="Streamed parsing is not supported"):
-        await agent._create_chat_completion(
-            messages=[{"role": "user", "content": "Hello"}],  # type: ignore
-            response_format=dict,
-            stream=True,
-        )
-
-
-async def test_agent_create_chat_completion_with_response_format():
-    """Test _create_chat_completion with response format."""
-    agent = Agent()
-
-    with patch.object(agent, "_get_client") as mock_get_client:
-        mock_client = AsyncMock()
-        mock_get_client.return_value = mock_client
-
-        await agent._create_chat_completion(
-            messages=[{"role": "user", "content": "Hello"}],  # type: ignore
-            response_format=dict,
-            stream=False,
-        )
-
-        # Verify parse method was called instead of create
-        mock_client.chat.completions.parse.assert_called_once()
-        mock_client.chat.completions.create.assert_not_called()
-
-
 async def test_agent_run_stream_message_count_mismatch():
     """Test _run_stream with message count mismatch."""
     agent = Agent()

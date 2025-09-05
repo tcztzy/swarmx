@@ -27,7 +27,6 @@ from openai.types.chat import (
     ChatCompletionMessageParam,
     ChatCompletionMessageToolCallParam,
     ChatCompletionToolParam,
-    ParsedChatCompletion,
 )
 from openai.types.chat.completion_create_params import CompletionCreateParamsBase
 from openai.types.chat_model import ChatModel
@@ -367,29 +366,18 @@ class Agent(BaseModel, use_attribute_docstrings=True):
         stream: Literal[False] = False,
     ) -> ChatCompletion: ...
 
-    @overload
     async def _create_chat_completion(
         self,
         *,
         messages: list[ChatCompletionMessageParam],
         context: dict[str, Any] | None = None,
-        response_format: type[T] | None = None,
-    ) -> ParsedChatCompletion[T]: ...
-
-    async def _create_chat_completion(
-        self,
-        *,
-        messages: list[ChatCompletionMessageParam],
-        context: dict[str, Any] | None = None,
-        response_format: type[T] | None = None,
         stream: bool = False,
-    ) -> ChatCompletion | AsyncStream[ChatCompletionChunk] | ParsedChatCompletion[T]:
+    ) -> ChatCompletion | AsyncStream[ChatCompletionChunk]:
         """Get a chat completion for the agent.
 
         Args:
             messages: The messages to start the conversation with
             context: The context variables to pass to the agent
-            response_format: The response type will be parsed
             stream: Whether to stream the response
 
         """
@@ -408,15 +396,7 @@ class Agent(BaseModel, use_attribute_docstrings=True):
         elif "tools" in params:
             del params["tools"]
         logger.info("Create chat completion for:", params)
-        if response_format is None:
-            return await self._get_client().chat.completions.create(
-                stream=stream, **params
-            )
-        if stream:
-            raise NotImplementedError("Streamed parsing is not supported.")
-        return await self._get_client().chat.completions.parse(
-            **(params | {"response_format": response_format}),  # type: ignore
-        )
+        return await self._get_client().chat.completions.create(stream=stream, **params)
 
     async def _handoff(
         self,
