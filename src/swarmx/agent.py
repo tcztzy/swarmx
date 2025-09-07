@@ -12,6 +12,7 @@ from typing import (
     Annotated,
     Any,
     AsyncGenerator,
+    Iterable,
     Literal,
     TypeVar,
     cast,
@@ -30,8 +31,16 @@ from openai.types.chat import (
     ChatCompletionMessageToolCallParam,
     ChatCompletionToolParam,
 )
-from openai.types.chat.completion_create_params import CompletionCreateParamsBase
-from openai.types.chat_model import ChatModel
+from openai.types.chat.chat_completion_stream_options_param import (
+    ChatCompletionStreamOptionsParam,
+)
+from openai.types.chat.chat_completion_tool_choice_option_param import (
+    ChatCompletionToolChoiceOptionParam,
+)
+from openai.types.chat.completion_create_params import (
+    CompletionCreateParamsBase,
+    ResponseFormat,
+)
 from pydantic import (
     BaseModel,
     Field,
@@ -53,6 +62,7 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_CLIENT: AsyncOpenAI | None = None
 T = TypeVar("T")
+Mode = Literal["automatic", "semi", "manual"]
 
 
 def _merge_chunk(
@@ -129,38 +139,188 @@ class SwarmXGenerateJsonSchema(GenerateJsonSchema):
 
 
 class Edge(BaseModel, frozen=True, use_attribute_docstrings=True):
-    """Edge in the agent graph."""
+    """Edge in the agent graph.
 
-    source: str | tuple[str, ...]
-    """Name of the source node"""
-    target: str
-    """Name of the target node"""
+    Using this when you need to create an edge for transferring conversation control from source agent to target agents. All existing agents are list in tools before this one.
 
-
-class Agent(BaseModel, use_attribute_docstrings=True):
-    """Agent node in the swarm.
-
-    An agent is a node in the swarm that can send and receive messages.
-    It can have tools and instructions.
-    It can also have a client to use for the chat completion API.
+    Examples:
+    - Context: User needs to transfer from a general assistant to a specialized Python programming agent
+        user: "I need help writing a complex Python script for data processing"
+        assistant: "I'll create an edge from the current assistant to the PythonExpert agent, as this requires specialized programming expertise beyond my general capabilities."
+    - Context: Data analysis task requires visualization expertise
+        user: "I have analyzed the sales data, now I need to create interactive charts and dashboards"
+        assistant: "I'll create an edge from DataAnalyst to VisualizationSpecialist agent to handle the chart creation and dashboard development."
+    - Context: Content creation task requires multiple specialized agents
+        user: "I need to create a technical blog post, then optimize it for SEO and social media sharing"
+        assistant: "I'll create edges from ContentWriter to SEOSpecialist and SocialMediaManager agents to handle the optimization and distribution phases."
+    - Context: API integration requires security review
+        user: "I've built the API integration, but need security validation before deployment"
+        assistant: "I'll create an edge from WebIntegration to SecurityReviewer agent to ensure the implementation follows security best practices."
 
     """
 
-    name: Annotated[str, Field(strict=True, max_length=256, frozen=True)] = "Agent"
-    """User-friendly name for the display"""
+    source: str | tuple[str, ...]
+    """Name of the source node, if is array of string, which means transferring to target need all sources done."""
+    target: str
+    """Name of the target node, could be agent's name or (tool/common expression language) which returns agent names."""
 
-    model: ChatModel | str = "deepseek-reasoner"
+
+class Parameters(BaseModel, use_attribute_docstrings=True):
+    """Popular parameters supported by most providers."""
+
+    frequency_penalty: float | None = None
+    """Number between -2.0 and 2.0.
+
+    Positive values penalize new tokens based on their existing frequency in the
+    text so far, decreasing the model's likelihood to repeat the same line verbatim.
+    """
+
+    logprobs: bool | None = None
+    """Whether to return log probabilities of the output tokens or not.
+
+    If true, returns the log probabilities of each output token returned in the
+    `content` of `message`.
+    """
+
+    max_tokens: int | None = None
+    """
+    The maximum number of [tokens](/tokenizer) that can be generated in the chat
+    completion. This value can be used to control
+    [costs](https://openai.com/api/pricing/) for text generated via API.
+
+    This value is now deprecated in favor of `max_completion_tokens`, and is not
+    compatible with
+    [o-series models](https://platform.openai.com/docs/guides/reasoning).
+    """
+
+    presence_penalty: float | None = None
+    """Number between -2.0 and 2.0.
+
+    Positive values penalize new tokens based on whether they appear in the text so
+    far, increasing the model's likelihood to talk about new topics.
+    """
+
+    response_format: ResponseFormat | None = None
+    """An object specifying the format that the model must output.
+
+    Setting to `{ "type": "json_schema", "json_schema": {...} }` enables Structured
+    Outputs which ensures the model will match your supplied JSON schema. Learn more
+    in the
+    [Structured Outputs guide](https://platform.openai.com/docs/guides/structured-outputs).
+
+    Setting to `{ "type": "json_object" }` enables the older JSON mode, which
+    ensures the message the model generates is valid JSON. Using `json_schema` is
+    preferred for models that support it.
+    """
+
+    seed: int | None = None
+    """
+    This feature is in Beta. If specified, our system will make a best effort to
+    sample deterministically, such that repeated requests with the same `seed` and
+    parameters should return the same result. Determinism is not guaranteed, and you
+    should refer to the `system_fingerprint` response parameter to monitor changes
+    in the backend.
+    """
+
+    stop: str | list[str] | None = None
+    """Not supported with latest reasoning models `o3` and `o4-mini`.
+
+    Up to 4 sequences where the API will stop generating further tokens. The
+    returned text will not contain the stop sequence.
+    """
+
+    stream_options: ChatCompletionStreamOptionsParam | None = None
+    """Options for streaming response. Only set this when you set `stream: true`."""
+
+    temperature: float | None = None
+    """What sampling temperature to use, between 0 and 2.
+
+    Higher values like 0.8 will make the output more random, while lower values like
+    0.2 will make it more focused and deterministic. We generally recommend altering
+    this or `top_p` but not both.
+    """
+
+    tool_choice: ChatCompletionToolChoiceOptionParam | None = None
+    """
+    Controls which (if any) tool is called by the model. `none` means the model will
+    not call any tool and instead generates a message. `auto` means the model can
+    pick between generating a message or calling one or more tools. `required` means
+    the model must call one or more tools. Specifying a particular tool via
+    `{"type": "function", "function": {"name": "my_function"}}` forces the model to
+    call that tool.
+
+    `none` is the default when no tools are present. `auto` is the default if tools
+    are present.
+    """
+
+    top_logprobs: int | None = None
+    """
+    An integer between 0 and 20 specifying the number of most likely tokens to
+    return at each token position, each with an associated log probability.
+    `logprobs` must be set to `true` if this parameter is used.
+    """
+
+    top_p: float | None = None
+    """
+    An alternative to sampling with temperature, called nucleus sampling, where the
+    model considers the results of the tokens with top_p probability mass. So 0.1
+    means only the tokens comprising the top 10% probability mass are considered.
+
+    We generally recommend altering this or `temperature` but not both.
+    """
+
+
+class Agent(BaseModel, use_attribute_docstrings=True, serialize_by_alias=True):
+    """Agent in the agent graph.
+
+    Using this when you need to break down complex tasks into specialized sub-tasks and create reusable, composable AI components. All existing agents are list in tools before this one.
+
+    # Examples:
+    - Context: User has requested you to write Python code to solve his/her problem.
+        user: "I want to create a Python script for very professional and academic task."
+        assistant: "Currently, there are no Python experts in the agent graph (aka swarm), so we need create a new agent who are good at Python programming."
+    - Context: User needs to analyze complex data and generate visualizations
+        user: "I have a large dataset with sales figures and customer demographics that needs analysis and visualization"
+        assistant: "The current swarm lacks data analysis expertise. I'll create a DataAnalyst agent specialized in pandas, matplotlib, and statistical analysis to handle this task."
+    - Context: User requests content creation with specific tone and style
+        user: "I need marketing copy written for a new SaaS product launch, targeting enterprise customers with a professional tone"
+        assistant: "There's no marketing content specialist in the swarm. I'll create a ContentWriter agent focused on B2B marketing copy, brand voice consistency, and conversion optimization."
+    - Context: User needs API integration and web scraping capabilities
+        user: "I want to build a system that scrapes product data from e-commerce sites and integrates with our inventory management API"
+        assistant: "The swarm needs web scraping and API integration expertise. I'll create a WebIntegration agent specialized in BeautifulSoup, requests, and REST API development."
+    """
+
+    name: Annotated[str, Field(strict=True, max_length=256, frozen=True)] = "Agent"
+    """User-friendly name for the display.
+    
+    The name is unique among all sub-agents and their nested sub-sub-agents.
+    """
+
+    description: str = "You are a helpful AI assistant"
+    """Agent's description for tool generation and documentation.
+
+    Here is a template for description.
+    ```
+    Using this agent when <condition or necessity for this role>.
+
+    Examples:
+    - Context: <introduce the background of the real world case>
+        user: "<user's query>"
+        assistant: "<assistant's response>"
+    - <more examples like the first one>
+    ```
+    """
+
+    model: str = "deepseek-reasoner"
     """The default model to use for the agent."""
 
     instructions: str | None = None
-    """Agent's instructions, could be a Jinja2 template"""
+    """Agent's instructions, could be a Jinja2 template."""
 
     mcp_servers: dict[str, MCPServer] = Field(default_factory=dict, alias="mcpServers")
     """MCP configuration for the agent. Should be compatible with claude code."""
 
-    completion_create_params: CompletionCreateParamsBase = Field(
-        default_factory=lambda: {"model": "DUMMY", "messages": iter([])}
-    )
+    parameters: Parameters = Field(default_factory=Parameters)
     """Additional parameters to pass to the chat completion API."""
 
     client: AsyncOpenAI | None = None
@@ -258,24 +418,71 @@ class Agent(BaseModel, use_attribute_docstrings=True):
             client["default_query"] = v._custom_query
         return client
 
-    @field_validator("completion_create_params", mode="before")
-    def validate_completion_create_params(cls, v: Any) -> CompletionCreateParamsBase:
-        """Validate completion create params, ensuring messages and model are dummy."""
+    @field_validator("parameters", mode="before")
+    def validate_params(cls, v: Any) -> CompletionCreateParamsBase:
+        """Validate completion create parameters, ensuring messages and model are dummy."""
         if isinstance(v, dict):
-            v = v.copy()
-            v["model"] = "DUMMY"
-            v["messages"] = iter([])
+            return v | {"model": "DUMMY", "messages": []}  # type: ignore
         return v
 
-    @field_serializer("completion_create_params", mode="plain")
-    def serialize_completion_create_params(
-        self, v: CompletionCreateParamsBase
-    ) -> dict[str, Any]:
-        """Serialize completion create params, excluding messages and model."""
+    @field_serializer("parameters", mode="plain")
+    def serialize_params(self, v: CompletionCreateParamsBase) -> dict[str, Any]:
+        """Serialize completion create parameters, excluding messages and model."""
         r = dict(v)
         r.pop("messages", None)
         r.pop("model", None)
         return r
+
+    def extra_tools(self, mode: Mode = "automatic") -> list[ChatCompletionToolParam]:
+        """Extra tools based on operation mode.
+
+        Args:
+            mode: Operation mode that affects tool availability:
+                - automatic: agent can create new agents and edges for handoff
+                - semiautomatic: agent can create edges but not new agents
+                - manual: no extra_tools available
+
+        """
+        if mode == "manual":
+            return []
+        base_tools: list[ChatCompletionToolParam] = [
+            *[
+                {
+                    "type": "function",
+                    "function": {
+                        "name": agent.name,
+                        "description": agent.description,
+                        "parameters": {"type": "object", "properties": {}},
+                    },
+                }
+                for agent in cast(list[Agent], [self, *self.nodes])
+            ]
+        ]
+
+        edge_tool: ChatCompletionToolParam = {
+            "type": "function",
+            "function": {
+                "name": "create_edge",
+                "description": Edge.__doc__ or "",
+                "parameters": Edge.model_json_schema(),
+            },
+        }
+
+        if mode == "semi":
+            return base_tools + [edge_tool]
+
+        # automatic mode - include both create_agent and create_edge
+        return base_tools + [
+            {
+                "type": "function",
+                "function": {
+                    "name": "create_agent",
+                    "description": self.__class__.__doc__ or "",
+                    "parameters": self.model_json_schema(),
+                },
+            },
+            edge_tool,
+        ]
 
     def _get_client(self):
         return self.client or DEFAULT_CLIENT or AsyncOpenAI()
@@ -418,6 +625,7 @@ class Agent(BaseModel, use_attribute_docstrings=True):
         self,
         messages: list[ChatCompletionMessageParam],
         context: dict[str, Any] | None = None,
+        mode: Mode = "automatic",
     ) -> CompletionCreateParamsBase:
         """Prepare parameters for chat completion."""
         message_slice: str | None = (context or {}).get("message_slice")
@@ -426,15 +634,13 @@ class Agent(BaseModel, use_attribute_docstrings=True):
         system_prompt = await self._get_system_prompt(context)
         if system_prompt is not None:
             messages = [{"role": "system", "content": system_prompt}, *messages]
-        params = self.completion_create_params | {
+        parameters = self.parameters.model_dump(mode="json", exclude_none=True) | {
             "messages": messages,
             "model": self.model,
         }
         if len(tools := (context or {}).get("tools", CLIENT_REGISTRY.tools)) > 0:
-            params["tools"] = tools
-        elif "tools" in params:
-            params.pop("tools", None)
-        return params
+            parameters["tools"] = self.extra_tools(mode) + tools
+        return parameters  # type: ignore
 
     @overload
     async def _create_chat_completion(
@@ -443,6 +649,7 @@ class Agent(BaseModel, use_attribute_docstrings=True):
         messages: list[ChatCompletionMessageParam],
         context: dict[str, Any] | None = None,
         stream: Literal[True],
+        mode: Mode = "automatic",
     ) -> AsyncGenerator[ChatCompletionChunk, None]: ...
 
     @overload
@@ -452,6 +659,7 @@ class Agent(BaseModel, use_attribute_docstrings=True):
         messages: list[ChatCompletionMessageParam],
         context: dict[str, Any] | None = None,
         stream: Literal[False] = False,
+        mode: Mode = "automatic",
     ) -> ChatCompletion: ...
 
     async def _create_chat_completion(
@@ -460,6 +668,7 @@ class Agent(BaseModel, use_attribute_docstrings=True):
         messages: list[ChatCompletionMessageParam],
         context: dict[str, Any] | None = None,
         stream: bool = False,
+        mode: Mode = "automatic",
     ) -> ChatCompletion | AsyncGenerator[ChatCompletionChunk, None]:
         """Get a chat completion for the agent with UUID tracing.
 
@@ -467,30 +676,79 @@ class Agent(BaseModel, use_attribute_docstrings=True):
             messages: The messages to start the conversation with
             context: The context variables to pass to the agent
             stream: Whether to stream the response
+            mode: Operation mode that affects extra_tools availability:
+                - automatic: agent can create new agents and edges for handoff
+                - semiautomatic: agent can create edges but not new agents
+                - manual: no extra_tools available
 
         """
         # Even OpenAI support x-request-id header, but most providers don't support
         # So we should manually set it for each.
         request_id = str(uuid.uuid4())
-        params = await self._prepare_chat_completion_params(messages, context)
-        logger.info(json.dumps(params | {"stream": stream, "request_id": request_id}))
+        parameters = await self._prepare_chat_completion_params(messages, context, mode)
+        logger.info(
+            json.dumps(parameters | {"stream": stream, "request_id": request_id})
+        )
         client = self._get_client()
         if stream:
 
             async def traced_stream():
                 async for chunk in await client.chat.completions.create(
-                    stream=stream, **params
+                    stream=stream, **parameters
                 ):
                     chunk._request_id = request_id
                     yield chunk
 
             return traced_stream()
         else:
-            result = await client.chat.completions.create(stream=stream, **params)
+            result = await client.chat.completions.create(stream=stream, **parameters)
             result._request_id = request_id
             return result
 
+    async def _execute_tool_calls(
+        self,
+        tool_calls: Iterable[ChatCompletionMessageToolCallParam],
+        messages: list[ChatCompletionMessageParam],
+        context: dict[str, Any],
+        stream: bool,
+    ):
+        async with asyncio.TaskGroup() as tg:
+            tasks = []
+            for tool_call in tool_calls:
+                match tool_call["function"]["name"]:
+                    case "create_agent":
+                        agent = Agent.model_validate_json(
+                            tool_call["function"]["arguments"]
+                        )
+                        self.nodes.add(agent)
+                    case "create_edge":
+                        edge = Edge.model_validate_json(
+                            tool_call["function"]["arguments"]
+                        )
+                        self.edges.add(edge)
+                    case name if name in [
+                        self.name,
+                        *[agent.name for agent in self.nodes],
+                    ]:
+                        self.edges.add(Edge(source=self.name, target=name))
+                    case _:
+                        task = tg.create_task(
+                            self._execute_tool_with_hooks(  # type: ignore[call-overload]
+                                tool_call, stream, messages, context
+                            )
+                        )
+                        tasks.append(task)
+            for future in asyncio.as_completed(tasks):
+                yield await future
+
     def _get_agent_by_name(self, name: str) -> "Agent":
+        """Get agent by name.
+
+        Only self & level 1 sub agents would be returned, avoid directly handoff to
+        sub-sub-agent.
+        """
+        if name == self.name:
+            return self
         for agent in self.nodes:
             if agent.name == name:
                 return agent
@@ -589,12 +847,17 @@ class Agent(BaseModel, use_attribute_docstrings=True):
         *,
         messages: list[ChatCompletionMessageParam],
         context: dict[str, Any] | None = None,
+        mode: Mode = "automatic",
     ) -> AsyncGenerator[ChatCompletionChunk, None]:
         """Run the agent and stream the response.
 
         Args:
             messages: The messages to start the conversation with
             context: The context variables to pass to the agent
+            mode: Operation mode that affects extra_tools availability:
+                - automatic: agent can create new agents and edges for handoff
+                - semiautomatic: agent can create edges but not new agents
+                - manual: no extra_tools available
 
         """
         if context is None:
@@ -613,6 +876,7 @@ class Agent(BaseModel, use_attribute_docstrings=True):
             messages=messages,
             context=context,
             stream=True,
+            mode=mode,
         ):
             logger.info(
                 json.dumps(
@@ -641,17 +905,10 @@ class Agent(BaseModel, use_attribute_docstrings=True):
             latest_message["role"] == "assistant"
             and (tool_calls := latest_message.get("tool_calls")) is not None
         ):
-            async with asyncio.TaskGroup() as tg:
-                tasks = [
-                    tg.create_task(
-                        self._execute_tool_with_hooks(
-                            tool_call, True, messages, context
-                        )
-                    )
-                    for tool_call in tool_calls
-                ]
-                for future in asyncio.as_completed(tasks):
-                    yield await future
+            async for chunk in self._execute_tool_calls(
+                tool_calls, messages, context, True
+            ):
+                yield chunk
 
         generators: list[AsyncGenerator[ChatCompletionChunk, None]] = []
         for edge in self.edges:
@@ -673,12 +930,17 @@ class Agent(BaseModel, use_attribute_docstrings=True):
         *,
         messages: list[ChatCompletionMessageParam],
         context: dict[str, Any] | None = None,
+        mode: Mode = "automatic",
     ) -> AsyncGenerator[ChatCompletion, None]:
         """Run the agent and yield ChatCompletion objects.
 
         Args:
             messages: The messages to start the conversation with
             context: The context variables to pass to the agent
+            mode: Operation mode that affects extra_tools availability:
+                - automatic: agent can create new agents and edges for handoff
+                - semiautomatic: agent can create edges but not new agents
+                - manual: no extra_tools available
 
         """
         if context is None:
@@ -693,6 +955,7 @@ class Agent(BaseModel, use_attribute_docstrings=True):
             messages=messages,
             context=context,
             stream=False,
+            mode=mode,
         )
         logger.info(
             json.dumps(
@@ -717,18 +980,10 @@ class Agent(BaseModel, use_attribute_docstrings=True):
         messages.append(message)
 
         if (tool_calls := message.get("tool_calls")) is not None:
-            # Apply hook decorator to exec_tool_calls
-            async with asyncio.TaskGroup() as tg:
-                tasks = [
-                    tg.create_task(
-                        self._execute_tool_with_hooks(
-                            tool_call, False, messages, context
-                        )
-                    )
-                    for tool_call in tool_calls
-                ]
-                for future in asyncio.as_completed(tasks):
-                    yield await future
+            async for chunk in self._execute_tool_calls(
+                tool_calls, messages, context, False
+            ):
+                yield chunk
 
         generators: list[AsyncGenerator[ChatCompletion, None]] = []
         for edge in self.edges:
@@ -769,6 +1024,7 @@ class Agent(BaseModel, use_attribute_docstrings=True):
         messages: list[ChatCompletionMessageParam],
         stream: bool = False,
         context: dict[str, Any] | None = None,
+        mode: Mode = "automatic",
     ) -> (
         AsyncGenerator[ChatCompletion, None] | AsyncGenerator[ChatCompletionChunk, None]
     ):
@@ -778,13 +1034,16 @@ class Agent(BaseModel, use_attribute_docstrings=True):
             messages: The messages to start the conversation with
             stream: Whether to stream the response
             context: The context variables to pass to the agent
-            execute_tools: Whether to execute tool calls
+            mode: Operation mode that affects extra_tools availability:
+                - automatic: agent can create new agents and edges for handoff
+                - semiautomatic: agent can create edges but not new agents
+                - manual: no extra_tools available
 
         """
         for name, server_params in self.mcp_servers.items():
             await CLIENT_REGISTRY.add_server(name, server_params)
         messages = deepcopy(messages)
-        # context is intentionaly not deepcopied since it's mutable
+        # context is intentionally not deep copied since it's mutable
         if context is None:
             context = {}
         await self._execute_hooks("on_start", messages, context)
@@ -792,11 +1051,13 @@ class Agent(BaseModel, use_attribute_docstrings=True):
             g = self._run_stream(
                 messages=messages,
                 context=context,
+                mode=mode,
             )
         else:
             g = self._run(
                 messages=messages,
                 context=context,
+                mode=mode,
             )
         await self._execute_hooks("on_end", messages, context)
         return g
