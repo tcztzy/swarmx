@@ -10,4 +10,4 @@ repos:
     hooks:
     -   id: mypy
         exclude: ^tests/
-        additional_dependencies: [pydantic, types-PyYAML]
+        additional_dependencies: [pydantic-settings, types-PyYAML]

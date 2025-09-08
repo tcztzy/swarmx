@@ -53,6 +53,7 @@ from pydantic import (
 )
 from pydantic.json_schema import GenerateJsonSchema
 
+from . import settings
 from .hook import Hook, HookType
 from .mcp_client import CLIENT_REGISTRY, exec_tool_call
 from .types import MCPServer
@@ -523,7 +524,14 @@ class Agent(BaseModel, use_attribute_docstrings=True, serialize_by_alias=True):
         ]
 
     def _get_client(self):
-        return self.client or DEFAULT_CLIENT or AsyncOpenAI()
+        return (
+            self.client
+            or DEFAULT_CLIENT
+            or AsyncOpenAI(
+                api_key=settings.OPENAI_API_KEY,
+                base_url=settings.OPENAI_BASE_URL,
+            )
+        )
 
     async def _execute_hooks(
         self,
@@ -1076,7 +1084,9 @@ class Agent(BaseModel, use_attribute_docstrings=True, serialize_by_alias=True):
                 - manual: no extra_tools available
 
         """
-        for name, server_params in self.mcp_servers.items():
+        for name, server_params in (
+            (settings.mcp_servers if settings is not None else {}) | self.mcp_servers
+        ).items():
             await CLIENT_REGISTRY.add_server(name, server_params)
         messages = deepcopy(messages)
         # context is intentionally not deep copied since it's mutable

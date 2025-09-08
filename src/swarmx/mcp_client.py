@@ -1,7 +1,6 @@
 """MCP client related."""
 
 import json
-import logging
 import mimetypes
 import os
 import re
@@ -38,11 +37,8 @@ from .types import MarkdownFlavor, MCPServer
 from .utils import now
 
 mimetypes.add_type("text/markdown", ".md")
-logging.basicConfig(filename=".swarmx.log", level=logging.INFO)
-logger = logging.getLogger(__name__)
 
 
-# SECTION 4: Tool registry
 @dataclass
 class ClientRegistry:
     """Registry for tools."""

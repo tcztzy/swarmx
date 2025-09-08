@@ -1,14 +1,6 @@
 """SwarmX: A lightweight, stateless multi-agent orchestration framework."""
 
-# Load environment variables from .env file if it exists
-try:
-    from dotenv import load_dotenv
-
-    load_dotenv()
-except ImportError:  # pragma: no cover
-    # python-dotenv not available, skip loading
-    pass
-
+from ._settings import settings
 from .agent import Agent
 from .cli import app
 from .hook import Hook
@@ -21,4 +13,5 @@ __all__ = (
     "Hook",
     "ClientRegistry",
     "app",
+    "settings",
 )
