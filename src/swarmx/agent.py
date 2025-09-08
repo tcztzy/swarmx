@@ -8,6 +8,7 @@ import uuid
 import warnings
 from collections import defaultdict
 from copy import deepcopy
+from pathlib import Path
 from typing import (
     Annotated,
     Any,
@@ -19,6 +20,7 @@ from typing import (
     overload,
 )
 
+import yaml
 from cel import evaluate
 from httpx import Timeout
 from jinja2 import Template
@@ -345,6 +347,45 @@ class Agent(BaseModel, use_attribute_docstrings=True, serialize_by_alias=True):
     def __hash__(self):
         """Since name is unique, make this as hash key."""
         return hash(self.name)
+
+    @classmethod
+    def model_validate_md(
+        cls,
+        md_data: str | bytes | bytearray,
+        *,
+        strict: bool | None = None,
+        context: Any | None = None,
+        by_alias: bool | None = None,
+        by_name: bool | None = None,
+    ):
+        """Markdown parsing."""
+        if isinstance(md_data, bytes | bytearray):
+            md_data = md_data.decode("utf-8")
+        if md_data.startswith("---"):
+            parts = re.split("-{3,}\n", md_data, 2)
+            if len(parts) >= 3:
+                return cls.model_validate(
+                    yaml.safe_load(parts[1]) | {"instructions": parts[2].lstrip("\n")},
+                    strict=strict,
+                    context=context,
+                    by_alias=by_alias,
+                    by_name=by_name,
+                )
+        raise ValueError("Invalid agent markdown")
+
+    def as_agent_md(self) -> str:
+        """Serialize model to markdown with YAML front matter."""
+        data = self.model_dump(include={"name", "description", "model"})
+        content = self.instructions or "You are a helpful AI assistant."
+        front = yaml.safe_dump(data, sort_keys=False)
+        return f"---\n{front}---\n\n{content}"
+
+    def dump_agent_md(self, path: Path):
+        """Serialize all existing agents to target path."""
+        if not path.is_dir():
+            raise TypeError("Can only dump agents to a directory.")
+        for name, agent in self.agents.items():
+            (path / f"{name}.md").write_text(agent.as_agent_md())
 
     @property
     def agents(self) -> "dict[str, Agent]":
