@@ -328,9 +328,6 @@ class Agent(BaseModel, use_attribute_docstrings=True, serialize_by_alias=True):
     client: AsyncOpenAI | None = None
     """The client to use for the node"""
 
-    finish_point: str | None = None
-    """The finish point for the subagents"""
-
     nodes: "set[Agent]" = Field(default_factory=set)
     """The nodes in the Agent's graph"""
 
@@ -863,8 +860,6 @@ class Agent(BaseModel, use_attribute_docstrings=True, serialize_by_alias=True):
             yield chunk  # type: ignore
 
         self._visited[agent.name] = True
-        if agent.name == self.finish_point:
-            return
 
         async for chunk in join(
             *[

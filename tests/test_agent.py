@@ -651,37 +651,6 @@ async def test_apply_message_slice():
         _apply_message_slice(messages, "a:b")  # Non-numeric values
 
 
-async def test_run_node_with_finish_point():
-    """Test _run_node returns early when reaching finish_point."""
-    # Create main agent with finish point
-    node1 = Agent(name="node1")
-    node2 = Agent(name="node2")
-    main_agent = Agent(
-        name="main_agent",
-        finish_point="node1",  # Same as entry point to test early return
-        nodes={node1, node2},
-        edges={Edge(source="node1", target="node2")},
-    )
-
-    messages: list[ChatCompletionMessageParam] = [{"role": "user", "content": "Hello"}]
-
-    with patch.object(Agent, "run") as mock_run:
-        # Mock to return an async generator
-        async def mock_async_gen():
-            yield {"role": "assistant", "content": "Response from node1"}
-
-        mock_run.return_value = mock_async_gen()
-
-        result = []
-        async for completion in main_agent._handoff(agent=node1, messages=messages):
-            result.append(completion)
-
-        # Should call only once (for the entry node, then return due to finish_point)
-        mock_run.assert_called_once()
-        # Should return result from first node only
-        assert result == [{"role": "assistant", "content": "Response from node1"}]
-
-
 async def test_run_node_with_simple_edge():
     """Test _run_node follows simple edges between nodes."""
     # Create main agent with edge
@@ -796,50 +765,6 @@ async def test_run_node_stream_with_explicit_node():
         assert result[0].choices[0].delta.content == "Response"
         # Should mark node as visited
         assert main_agent._visited["test_node"] is True
-
-
-async def test_run_node_stream_with_finish_point():
-    """Test _run_node_stream returns early when reaching finish_point."""
-    from swarmx.utils import now
-
-    # Create main agent with finish point
-    node1 = Agent(name="node1")
-    node2 = Agent(name="node2")
-    main_agent = Agent(
-        name="main_agent",
-        finish_point="node1",  # Same as entry point to test early return
-        nodes={node1, node2},
-        edges={Edge(source="node1", target="node2")},
-    )
-
-    messages: list[ChatCompletionMessageParam] = [{"role": "user", "content": "Hello"}]
-
-    # Mock stream response
-    async def mock_stream():
-        yield ChatCompletionChunk.model_validate(
-            {
-                "id": "test_chunk",
-                "choices": [{"index": 0, "delta": {"content": "Node1 response"}}],
-                "created": now(),
-                "model": "gpt-4o",
-                "object": "chat.completion.chunk",
-            }
-        )
-
-    with patch.object(Agent, "run") as mock_run:
-        mock_run.return_value = mock_stream()
-
-        result = []
-        async for chunk in main_agent._handoff(
-            agent=node1, messages=messages, stream=True
-        ):
-            result.append(chunk)
-
-        # Should call only once (for the entry node, then return due to finish_point)
-        mock_run.assert_called_once()
-        # Should return chunks from first node only
-        assert len(result) == 1
-        assert result[0].choices[0].delta.content == "Node1 response"
 
 
 async def test_run_node_stream_with_simple_edge():
