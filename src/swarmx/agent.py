@@ -24,6 +24,9 @@ import yaml
 from cel import evaluate
 from httpx import Timeout
 from jinja2 import Template
+from markdown_it import MarkdownIt
+from mdformat.renderer import MDRenderer
+from mdit_py_plugins.front_matter import front_matter_plugin
 from openai import DEFAULT_MAX_RETRIES, AsyncOpenAI
 from openai.types.chat import (
     ChatCompletion,
@@ -66,6 +69,21 @@ logger = logging.getLogger(__name__)
 DEFAULT_CLIENT: AsyncOpenAI | None = None
 T = TypeVar("T")
 Mode = Literal["automatic", "semi", "manual"]
+
+
+def _parse_front_matter(front_matter: str):
+    try:
+        return yaml.safe_load(front_matter)
+    except yaml.YAMLError:
+        pass
+    data: dict[str, Any] = {}
+    for line in front_matter.splitlines():
+        line = line.strip()
+        if not line or ":" not in line:
+            continue
+        key, val = line.split(":", 1)
+        data[key.strip()] = val.strip()
+    return data
 
 
 def _merge_chunk(
@@ -356,20 +374,30 @@ class Agent(BaseModel, use_attribute_docstrings=True, serialize_by_alias=True):
         by_alias: bool | None = None,
         by_name: bool | None = None,
     ):
-        """Markdown parsing."""
-        if isinstance(md_data, bytes | bytearray):
+        """Markdown parsing with tolerant front matter handling.
+
+        Supports front matter delimited by any line of three or more dashes,
+        even when the opening and closing delimiter counts differ. Parses the
+        YAML-like key/value pairs manually (one ``key: value`` per line) to avoid
+        issues with special-character escaping, then attaches the remaining markdown
+        as ``instructions``.
+        """
+        if isinstance(md_data, (bytes, bytearray)):
             md_data = md_data.decode("utf-8")
-        if md_data.startswith("---"):
-            parts = re.split("-{3,}\n", md_data, 2)
-            if len(parts) >= 3:
-                return cls.model_validate(
-                    yaml.safe_load(parts[1]) | {"instructions": parts[2].lstrip("\n")},
-                    strict=strict,
-                    context=context,
-                    by_alias=by_alias,
-                    by_name=by_name,
-                )
-        raise ValueError("Invalid agent markdown")
+        md = MarkdownIt("commonmark", {"breaks": True, "html": True}).use(
+            front_matter_plugin
+        )
+        tokens = md.parse(md_data)
+        if (front_matter_token := tokens[0]).type != "front_matter":
+            raise ValueError("Invalid agent markdown")
+        front_matter = front_matter_token.content
+        body = MDRenderer().render(tokens[1:], {}, {})
+        try:
+            return cls.model_validate(
+                _parse_front_matter(front_matter) | {"instructions": body}
+            )
+        except Exception as e:
+            raise ValueError("Invalid agent markdown") from e
 
     def as_agent_md(self) -> str:
         """Serialize model to markdown with YAML front matter."""
