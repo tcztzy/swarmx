@@ -1,6 +1,6 @@
 [project]
 name = "swarmx"
-version = "0.7.0a1"
+version = "0.7.0a2"
 authors = [
     { name = "Tang Ziya", email = "tcztzy@gmail.Com" }
 ]
@@ -9,16 +9,16 @@ readme = "README.md"
 license = "MIT"
 dependencies = [
     "common-expression-language>=0.5.1",
-    "fastapi==0.116.1",
+    "fastapi>=0.116.1",
     "jinja2>=3.1.6",
     "markdown-it-py[plugins]>=4.0.0",
-    "mcp==1.12.1",
+    "mcp>=1.13.1",
     "mdformat>=0.7.22",
-    "networkx==3.5",
-    "openai==1.97.1",
+    "networkx>=3.5",
+    "openai>=1.107.0",
     "pydantic-settings>=2.10.1",
     "pyyaml>=6.0.2",
-    "typer==0.16.1",
+    "typer>=0.17.4",
 ]
 requires-python = ">=3.11"  # for asyncio.TaskGroup & except* syntax
 classifiers = [
