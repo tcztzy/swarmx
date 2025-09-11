@@ -223,7 +223,7 @@ def test_create_server_app():
     client = TestClient(app)
 
     # Test models endpoint
-    response = client.get("/v1/models")
+    response = client.get("/models")
     assert response.status_code == 200
     data = response.json()
     assert data["object"] == "list"
@@ -242,10 +242,10 @@ def test_server_app_non_streaming_error():
     # which FastAPI will convert to a 500 error
     try:
         response = client.post(
-            "/v1/chat/completions",
+            "/chat/completions",
             json={
                 "messages": [{"role": "user", "content": "Hello"}],
-                "model": "gpt-4o",
+                "model": "test_agent",
                 "stream": False,
             },
         )
@@ -287,10 +287,10 @@ def test_server_app_streaming_success():
         client = TestClient(app)
 
         response = client.post(
-            "/v1/chat/completions",
+            "/chat/completions",
             json={
                 "messages": [{"role": "user", "content": "Hello"}],
-                "model": "gpt-4o",
+                "model": "test_agent",
                 "stream": True,
             },
         )
@@ -357,17 +357,17 @@ def test_chat_completions_error_handling():
     # Mock the Agent.run method to raise an exception
     with patch("swarmx.agent.Agent.run", side_effect=Exception("Test error")):
         request_data = {
-            "model": "gpt-4o",
+            "model": "test",
             "messages": [{"role": "user", "content": "Hello"}],
             "stream": True,
         }
 
-        response = client.post("/v1/chat/completions", json=request_data)
+        response = client.post("/chat/completions", json=request_data)
         assert response.status_code == 200
 
         # Check that error is handled in the stream
         content = response.content.decode()
-        assert "Error:" in content
+        assert "Test error" in content
         assert "data: [DONE]" in content
 
 

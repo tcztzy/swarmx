@@ -1,5 +1,5 @@
 # Repository Guidelines
-    
+
 ## Project Structure & Module Organization
 
 The project follows a standard Python package structure:

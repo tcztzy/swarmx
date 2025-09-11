@@ -57,6 +57,9 @@ class Settings(BaseSettings, case_sensitive=True, env_file=".env", extra="ignore
     mcp_servers: dict[str, MCPServer] = Field(default_factory=dict, alias="mcpServers")
     """MCP configuration for the agent. Should be compatible with claude code."""
 
+    agents_md: Path | list[Path] = Path.cwd() / "AGENTS.md"
+    """A simple, open format for guiding agents."""
+
     @classmethod
     def settings_customise_sources(
         cls,
@@ -74,6 +77,26 @@ class Settings(BaseSettings, case_sensitive=True, env_file=".env", extra="ignore
             file_secret_settings,
             ClaudeCodeSettingsSource(settings_cls),
         )
+
+    def get_agents_md_content(self) -> str:
+        agents_mds = (
+            [self.agents_md] if isinstance(self.agents_md, Path) else self.agents_md
+        )
+        if isinstance(self.agents_md, Path):
+            agents_mds = [self.agents_md]
+        else:
+            agents_mds = self.agents_md
+        contents = []
+        for agent_md in agents_mds:
+            if agent_md.exists():
+                try:
+                    contents.append(
+                        f'```markdown title="{agent_md}"\n{agent_md.read_text().strip()}\n```'
+                    )
+                except Exception:
+                    # ignore any error
+                    pass
+        return "\n\n".join(contents)
 
 
 settings = Settings()  # type: ignore

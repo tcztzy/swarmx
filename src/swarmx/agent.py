@@ -694,11 +694,21 @@ class Agent(BaseModel, use_attribute_docstrings=True, serialize_by_alias=True):
             context: The context variables to pass to the agent
 
         """
-        if self.instructions is None:
-            return None
-        return await Template(self.instructions, enable_async=True).render_async(
-            context or {}
-        )
+        parts = []
+        if self.instructions is not None:
+            parts.append(
+                await Template(self.instructions, enable_async=True).render_async(
+                    context or {}
+                )
+            )
+        if len(agent_md_content := settings.get_agents_md_content()) > 0:
+            parts.append(
+                "Following are extra contexts, what were considered as long-term memory.\n"
+                + agent_md_content
+            )
+        if len(parts) > 0:
+            return "\n\n".join(parts)
+        return None
 
     async def _prepare_chat_completion_params(
         self,

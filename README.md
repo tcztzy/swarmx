@@ -52,8 +52,8 @@ uvx swarmx serve --host 0.0.0.0 --port 8000
 
 This provides OpenAI-compatible endpoints:
 
-- `POST /v1/chat/completions` - Chat completions with streaming support
-- `GET /v1/models` - List available models
+- `POST /chat/completions` - Chat completions with streaming support
+- `GET /models` - List available models
 
 Use it with any OpenAI-compatible client:
 
@@ -61,12 +61,12 @@ Use it with any OpenAI-compatible client:
 import openai
 
 client = openai.OpenAI(
-    base_url="http://localhost:8000/v1",
+    base_url="http://localhost:8000",
     api_key="dummy"  # SwarmX doesn't require authentication
 )
 
 response = client.chat.completions.create(
-    model="gpt-4o",
+    model="agent-created-by-yourself",
     messages=[{"role": "user", "content": "Hello!"}]
 )
 ```
