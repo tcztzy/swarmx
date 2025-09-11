@@ -395,7 +395,11 @@ class Agent(BaseModel, use_attribute_docstrings=True, serialize_by_alias=True):
         body = MDRenderer().render(tokens[1:], {}, {})
         try:
             return cls.model_validate(
-                _parse_front_matter(front_matter) | {"instructions": body}
+                _parse_front_matter(front_matter) | {"instructions": body},
+                strict=strict,
+                context=context,
+                by_alias=by_alias,
+                by_name=by_name,
             )
         except Exception as e:
             raise ValueError("Invalid agent markdown") from e
