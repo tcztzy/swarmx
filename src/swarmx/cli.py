@@ -107,29 +107,35 @@ def create_server_app(swarm: Agent) -> FastAPI:
     """Create FastAPI app with OpenAI-compatible endpoints."""
     app = FastAPI(title="SwarmX API", version=__version__)
 
-    @app.get("/v1/models")
+    @app.get("/models")
     async def list_models():
         """List available models."""
-        # Get unique models from all agents in the swarm
-
+        # List all agents in the swarm as models
+        agents = swarm.agents
         return {
             "object": "list",
             "data": [
                 {
-                    "id": swarm.name,
+                    "id": name,
                     "object": "model",
                     "created": int(datetime.now().timestamp()),
                     "owned_by": "swarmx",
                 }
+                for name in agents
             ],
         }
 
-    @app.post("/v1/chat/completions")
+    @app.post("/chat/completions")
     async def chat_completions(request: RootModel[CompletionCreateParams]):
-        """Handle chat completions with streaming support."""
+        """Handle chat completions with streaming support, routing to the requested agent model."""
         messages = list(request.root["messages"])
         stream = request.root.get("stream", False) or False
         model = request.root["model"]
+
+        # Resolve the target agent based on the model name
+        target_agent = swarm if model == swarm.name else swarm.agents.get(model)
+        if target_agent is None:
+            raise ValueError(f"Model '{model}' not found in swarm agents.")
 
         if not stream:
             raise NotImplementedError("Non-streaming response is not supported.")
@@ -137,12 +143,11 @@ def create_server_app(swarm: Agent) -> FastAPI:
         async def generate_stream():
             """Generate streaming response."""
             try:
-                async for chunk in await swarm.run(
+                async for chunk in await target_agent.run(
                     messages=messages,
                     stream=True,
                 ):
-                    # Convert SwarmX chunk to OpenAI format
-                    yield f"data: {json.dumps(chunk.model_dump())}\n\n"
+                    yield f"data: {chunk.model_dump_json()}\n\n"
             except Exception as e:
                 error_chunk = {
                     "id": f"chatcmpl-{get_random_string(10)}",
@@ -152,7 +157,7 @@ def create_server_app(swarm: Agent) -> FastAPI:
                     "choices": [
                         {
                             "index": 0,
-                            "delta": {"content": f"Error: {str(e)}"},
+                            "delta": {"content": str(e)},
                             "finish_reason": "stop",
                         }
                     ],
@@ -179,7 +184,7 @@ def repl(
             "--file",
             "-f",
             exists=True,
-            help="The path to the swarmx file (networkx node_link_data with additional `mcpServers` key)",
+            help="The path to the swarmx file",
         ),
     ] = None,
     output: Annotated[

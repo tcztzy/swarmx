@@ -772,12 +772,14 @@ class Agent(BaseModel, use_attribute_docstrings=True, serialize_by_alias=True):
                     stream=stream, **parameters
                 ):
                     chunk._request_id = request_id
+                    chunk.model = self.name
                     yield chunk
 
             return traced_stream()
         else:
             result = await client.chat.completions.create(stream=stream, **parameters)
             result._request_id = request_id
+            result.model = self.name
             return result
 
     async def _execute_tool_calls(
