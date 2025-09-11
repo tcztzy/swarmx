@@ -53,7 +53,7 @@ class Settings(BaseSettings, case_sensitive=True, env_file=".env", extra="ignore
     """Settings."""
 
     OPENAI_BASE_URL: str = "https://api.openai.com/v1"
-    OPENAI_API_KEY: str
+    OPENAI_API_KEY: str | None = None
     mcp_servers: dict[str, MCPServer] = Field(default_factory=dict, alias="mcpServers")
     """MCP configuration for the agent. Should be compatible with claude code."""
 

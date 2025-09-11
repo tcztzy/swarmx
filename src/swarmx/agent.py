@@ -34,6 +34,7 @@ from openai.types.chat import (
     ChatCompletionChunk,
     ChatCompletionMessageParam,
     ChatCompletionMessageToolCallParam,
+    ChatCompletionMessageToolCallUnionParam,
     ChatCompletionToolParam,
 )
 from openai.types.chat.chat_completion_stream_options_param import (
@@ -781,7 +782,7 @@ class Agent(BaseModel, use_attribute_docstrings=True, serialize_by_alias=True):
 
     async def _execute_tool_calls(
         self,
-        tool_calls: Iterable[ChatCompletionMessageToolCallParam],
+        tool_calls: Iterable[ChatCompletionMessageToolCallUnionParam],
         messages: list[ChatCompletionMessageParam],
         context: dict[str, Any],
         stream: bool,
@@ -789,6 +790,8 @@ class Agent(BaseModel, use_attribute_docstrings=True, serialize_by_alias=True):
         async with asyncio.TaskGroup() as tg:
             tasks = []
             for tool_call in tool_calls:
+                if tool_call["type"] == "custom":
+                    continue
                 match tool_call["function"]["name"]:
                     case "create_agent":
                         agent = Agent.model_validate_json(
