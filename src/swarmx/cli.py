@@ -146,6 +146,7 @@ def create_server_app(swarm: Agent) -> FastAPI:
                 async for chunk in await target_agent.run(
                     messages=messages,
                     stream=True,
+                    max_tokens=request.root.get("max_tokens"),
                 ):
                     yield f"data: {chunk.model_dump_json()}\n\n"
             except Exception as e:

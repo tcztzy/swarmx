@@ -1098,6 +1098,8 @@ class Agent(BaseModel, use_attribute_docstrings=True, serialize_by_alias=True):
         messages: list[ChatCompletionMessageParam],
         stream: Literal[True],
         context: dict[str, Any] | None = None,
+        mode: Mode = "automatic",
+        max_tokens: int | None = None,
     ) -> AsyncGenerator[ChatCompletionChunk, None]: ...
 
     @overload
@@ -1107,6 +1109,8 @@ class Agent(BaseModel, use_attribute_docstrings=True, serialize_by_alias=True):
         messages: list[ChatCompletionMessageParam],
         stream: Literal[False] = False,
         context: dict[str, Any] | None = None,
+        mode: Mode = "automatic",
+        max_tokens: int | None = None,
     ) -> AsyncGenerator[ChatCompletion, None]: ...
 
     async def run(
@@ -1116,6 +1120,7 @@ class Agent(BaseModel, use_attribute_docstrings=True, serialize_by_alias=True):
         stream: bool = False,
         context: dict[str, Any] | None = None,
         mode: Mode = "automatic",
+        max_tokens: int | None = None,
     ) -> (
         AsyncGenerator[ChatCompletion, None] | AsyncGenerator[ChatCompletionChunk, None]
     ):
@@ -1129,6 +1134,7 @@ class Agent(BaseModel, use_attribute_docstrings=True, serialize_by_alias=True):
                 - automatic: agent can create new agents and edges for handoff
                 - semiautomatic: agent can create edges but not new agents
                 - manual: no extra_tools available
+            max_tokens: The max tokens limit.
 
         """
         for name, server_params in (
@@ -1139,6 +1145,7 @@ class Agent(BaseModel, use_attribute_docstrings=True, serialize_by_alias=True):
         # context is intentionally not deep copied since it's mutable
         if context is None:
             context = {}
+        # We'll enforce max_tokens manually without altering self.parameters
         await self._execute_hooks("on_start", messages, context)
         if stream:
             g = self._run_stream(
@@ -1153,4 +1160,33 @@ class Agent(BaseModel, use_attribute_docstrings=True, serialize_by_alias=True):
                 mode=mode,
             )
         await self._execute_hooks("on_end", messages, context)
-        return g
+        # Apply token limit if max_tokens is set
+        if max_tokens is not None:
+
+            async def limited_gen(gen):
+                total = 0
+                async for item in gen:
+                    if isinstance(item, ChatCompletionChunk):
+                        delta = item.choices[0].delta
+                        content = delta.content or json.dumps(delta.tool_calls)
+                        total += (
+                            len(content.encode()) * 0.3
+                            if item.usage is None
+                            else item.usage.total_tokens
+                        )
+                    elif isinstance(item, ChatCompletion):
+                        message = item.choices[0].message
+                        content = message.content or json.dumps(message.tool_calls)
+                        total += (
+                            len(content.encode()) * 0.3
+                            if item.usage is None
+                            else item.usage.total_tokens
+                        )
+                    if total > max_tokens:
+                        item.choices[0].finish_reason = "length"
+                        yield item
+                        break
+                    yield item
+
+            g = limited_gen(g)
+        return g  # type: ignore
