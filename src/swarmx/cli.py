@@ -2,7 +2,6 @@
 
 import asyncio
 import json
-from datetime import datetime
 from pathlib import Path
 from typing import Annotated
 
@@ -15,7 +14,7 @@ from openai.types.chat.completion_create_params import CompletionCreateParams
 from pydantic import BaseModel, RootModel
 
 from .agent import Agent
-from .utils import get_random_string
+from .utils import get_random_string, now
 from .version import __version__
 
 
@@ -118,7 +117,7 @@ def create_server_app(swarm: Agent) -> FastAPI:
                 {
                     "id": name,
                     "object": "model",
-                    "created": int(datetime.now().timestamp()),
+                    "created": now(),
                     "owned_by": "swarmx",
                 }
                 for name in agents
@@ -153,7 +152,7 @@ def create_server_app(swarm: Agent) -> FastAPI:
                 error_chunk = {
                     "id": f"chatcmpl-{get_random_string(10)}",
                     "object": "chat.completion.chunk",
-                    "created": int(datetime.now().timestamp()),
+                    "created": now(),
                     "model": model,
                     "choices": [
                         {
