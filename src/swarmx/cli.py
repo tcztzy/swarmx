@@ -7,15 +7,10 @@ from typing import Annotated
 
 import typer
 import uvicorn
-from fastapi import FastAPI
-from fastapi.responses import StreamingResponse
 from openai.types.chat.chat_completion_message_param import ChatCompletionMessageParam
-from openai.types.chat.completion_create_params import CompletionCreateParams
-from pydantic import BaseModel, RootModel
 
 from .agent import Agent
-from .utils import get_random_string, now
-from .version import __version__
+from .server import create_server_app
 
 
 async def main(
@@ -90,85 +85,6 @@ async def main(
             break
     if output is not None:
         output.write_text(json.dumps(messages, indent=2, ensure_ascii=False))
-
-
-class ChatCompletionRequest(BaseModel):
-    """Request model for chat completions."""
-
-    messages: list[ChatCompletionMessageParam]
-    model: str = "gpt-4o"
-    stream: bool = False
-    temperature: float | None = None
-    max_tokens: int | None = None
-
-
-def create_server_app(swarm: Agent) -> FastAPI:
-    """Create FastAPI app with OpenAI-compatible endpoints."""
-    app = FastAPI(title="SwarmX API", version=__version__)
-
-    @app.get("/models")
-    async def list_models():
-        """List available models."""
-        # List all agents in the swarm as models
-        agents = swarm.agents
-        return {
-            "object": "list",
-            "data": [
-                {
-                    "id": name,
-                    "object": "model",
-                    "created": now(),
-                    "owned_by": "swarmx",
-                }
-                for name in agents
-            ],
-        }
-
-    @app.post("/chat/completions")
-    async def chat_completions(request: RootModel[CompletionCreateParams]):
-        """Handle chat completions with streaming support, routing to the requested agent model."""
-        messages = list(request.root["messages"])
-        stream = request.root.get("stream", False) or False
-        model = request.root["model"]
-
-        # Resolve the target agent based on the model name
-        target_agent = swarm if model == swarm.name else swarm.agents.get(model)
-        if target_agent is None:
-            raise ValueError(f"Model '{model}' not found in swarm agents.")
-
-        if not stream:
-            raise NotImplementedError("Non-streaming response is not supported.")
-
-        async def generate_stream():
-            """Generate streaming response."""
-            try:
-                async for chunk in await target_agent.run(
-                    messages=messages,
-                    stream=True,
-                    max_tokens=request.root.get("max_tokens"),
-                ):
-                    yield f"data: {chunk.model_dump_json()}\n\n"
-            except Exception as e:
-                error_chunk = {
-                    "id": f"chatcmpl-{get_random_string(10)}",
-                    "object": "chat.completion.chunk",
-                    "created": now(),
-                    "model": model,
-                    "choices": [
-                        {
-                            "index": 0,
-                            "delta": {"content": str(e)},
-                            "finish_reason": "stop",
-                        }
-                    ],
-                }
-                yield f"data: {json.dumps(error_chunk)}\n\n"
-            finally:
-                yield "data: [DONE]\n\n"
-
-        return StreamingResponse(generate_stream())
-
-    return app
 
 
 # Create the main typer app
