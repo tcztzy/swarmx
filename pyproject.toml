@@ -1,6 +1,6 @@
 [project]
 name = "swarmx"
-version = "0.7.0a3"
+version = "0.7.0a4"
 authors = [
     { name = "Tang Ziya", email = "tcztzy@gmail.Com" }
 ]
@@ -9,16 +9,15 @@ readme = "README.md"
 license = "MIT"
 dependencies = [
     "common-expression-language>=0.5.1",
-    "fastapi>=0.116.1",
+    "fastapi>=0.116.2",
     "jinja2>=3.1.6",
     "markdown-it-py[plugins]>=4.0.0",
-    "mcp>=1.13.1",
-    "mdformat>=0.7.22",
+    "mcp>=1.14.1",
     "networkx>=3.5",
-    "openai>=1.107.0",
+    "openai>=1.108.1",
     "pydantic-settings>=2.10.1",
     "pyyaml>=6.0.2",
-    "typer>=0.17.4",
+    "typer>=0.19.1",
 ]
 requires-python = ">=3.11"  # for asyncio.TaskGroup & except* syntax
 classifiers = [
@@ -54,17 +53,17 @@ docs = [
     "mkdocs>=1.6.1",
     "mkdocs-gen-files>=0.5.0",
     "mkdocs-literate-nav>=0.6.2",
-    "mkdocs-material>=9.6.18",
-    "mkdocstrings[python]>=0.30.0",
+    "mkdocs-material>=9.6.20",
+    "mkdocstrings[python]>=0.30.1",
 ]
 lint = [
-    "ruff>=0.12.11",
+    "ruff>=0.13.1",
 ]
 test = [
     "mcp-server-time>=2025.8.4",
-    "pytest>=8.4.1",
-    "pytest-cov>=6.2.1",
-    "tox>=4.30.1",
+    "pytest>=8.4.2",
+    "pytest-cov>=7.0.0",
+    "tox>=4.30.2",
     "tox-uv>=1.28.0",
 ]
 
@@ -104,6 +103,3 @@ env_list = ["3.13", "3.12", "3.11"]
 [tool.tox.env_run_base]
 dependency_groups = ["test"]
 commands = [["pytest", { replace = "posargs", default = ["tests"], extend = true }]]
-
-[tool.uv.sources]
-mdformat = { git = "https://github.com/hukkin/mdformat" }

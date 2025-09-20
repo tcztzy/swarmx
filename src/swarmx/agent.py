@@ -25,7 +25,6 @@ from cel import evaluate
 from httpx import Timeout
 from jinja2 import Template
 from markdown_it import MarkdownIt
-from mdformat.renderer import MDRenderer
 from mdit_py_plugins.front_matter import front_matter_plugin
 from openai import DEFAULT_MAX_RETRIES, AsyncOpenAI
 from openai.types.chat import (
@@ -387,10 +386,10 @@ class Agent(BaseModel, use_attribute_docstrings=True, serialize_by_alias=True):
         if (front_matter_token := tokens[0]).type != "front_matter":
             raise ValueError("Invalid agent markdown")
         front_matter = front_matter_token.content
-        body = MDRenderer().render(tokens[1:], {}, {})
+        _, _, body = md_data.split("---", maxsplit=2)
         try:
             return cls.model_validate(
-                _parse_front_matter(front_matter) | {"instructions": body},
+                _parse_front_matter(front_matter) | {"instructions": body.strip()},
                 strict=strict,
                 context=context,
                 by_alias=by_alias,

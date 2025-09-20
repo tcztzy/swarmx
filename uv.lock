@@ -1436,16 +1436,16 @@ test = [
 [package.metadata]
 requires-dist = [
     { name = "common-expression-language", specifier = ">=0.5.1" },
-    { name = "fastapi", specifier = ">=0.116.1" },
+    { name = "fastapi", specifier = ">=0.116.2" },
     { name = "jinja2", specifier = ">=3.1.6" },
     { name = "markdown-it-py", extras = ["plugins"], specifier = ">=4.0.0" },
-    { name = "mcp", specifier = ">=1.13.1" },
+    { name = "mcp", specifier = ">=1.14.1" },
     { name = "mdformat", git = "https://github.com/hukkin/mdformat" },
     { name = "networkx", specifier = ">=3.5" },
-    { name = "openai", specifier = ">=1.107.0" },
+    { name = "openai", specifier = ">=1.108.1" },
     { name = "pydantic-settings", specifier = ">=2.10.1" },
     { name = "pyyaml", specifier = ">=6.0.2" },
-    { name = "typer", specifier = ">=0.17.4" },
+    { name = "typer", specifier = ">=0.19.1" },
 ]
 
 [package.metadata.requires-dev]
@@ -1454,27 +1454,27 @@ dev = [
     { name = "mkdocs", specifier = ">=1.6.1" },
     { name = "mkdocs-gen-files", specifier = ">=0.5.0" },
     { name = "mkdocs-literate-nav", specifier = ">=0.6.2" },
-    { name = "mkdocs-material", specifier = ">=9.6.18" },
-    { name = "mkdocstrings", extras = ["python"], specifier = ">=0.30.0" },
-    { name = "pytest", specifier = ">=8.4.1" },
-    { name = "pytest-cov", specifier = ">=6.2.1" },
-    { name = "ruff", specifier = ">=0.12.11" },
-    { name = "tox", specifier = ">=4.30.1" },
+    { name = "mkdocs-material", specifier = ">=9.6.20" },
+    { name = "mkdocstrings", extras = ["python"], specifier = ">=0.30.1" },
+    { name = "pytest", specifier = ">=8.4.2" },
+    { name = "pytest-cov", specifier = ">=7.0.0" },
+    { name = "ruff", specifier = ">=0.13.1" },
+    { name = "tox", specifier = ">=4.30.2" },
     { name = "tox-uv", specifier = ">=1.28.0" },
 ]
 docs = [
     { name = "mkdocs", specifier = ">=1.6.1" },
     { name = "mkdocs-gen-files", specifier = ">=0.5.0" },
     { name = "mkdocs-literate-nav", specifier = ">=0.6.2" },
-    { name = "mkdocs-material", specifier = ">=9.6.18" },
-    { name = "mkdocstrings", extras = ["python"], specifier = ">=0.30.0" },
+    { name = "mkdocs-material", specifier = ">=9.6.20" },
+    { name = "mkdocstrings", extras = ["python"], specifier = ">=0.30.1" },
 ]
-lint = [{ name = "ruff", specifier = ">=0.12.11" }]
+lint = [{ name = "ruff", specifier = ">=0.13.1" }]
 test = [
     { name = "mcp-server-time", specifier = ">=2025.8.4" },
-    { name = "pytest", specifier = ">=8.4.1" },
-    { name = "pytest-cov", specifier = ">=6.2.1" },
-    { name = "tox", specifier = ">=4.30.1" },
+    { name = "pytest", specifier = ">=8.4.2" },
+    { name = "pytest-cov", specifier = ">=7.0.0" },
+    { name = "tox", specifier = ">=4.30.2" },
     { name = "tox-uv", specifier = ">=1.28.0" },
 ]
 
@@ -1565,7 +1565,7 @@ wheels = [
 
 [[package]]
 name = "typer"
-version = "0.18.0"
+version = "0.19.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "click" },
@@ -1573,9 +1573,9 @@ dependencies = [
     { name = "shellingham" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/73/f2/8214025e8fd1ada825d1b2183bd5895148b42b88ffe3ea3eed1224568ed0/typer-0.18.0.tar.gz", hash = "sha256:342049be1a608c972b0f77dd2b2573e74366b83465cfd5ebd3fede187e1f885e", size = 103878, upload-time = "2025-09-19T19:21:32.856Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/03/ea/9cc57c3c627fd7a6a0907ea371019fe74c3ec00e3cf209a6864140a602ad/typer-0.19.1.tar.gz", hash = "sha256:cb881433a4b15dacc875bb0583d1a61e78497806741f9aba792abcab390c03e6", size = 104802, upload-time = "2025-09-20T08:59:22.692Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/55/cc/c476930fbb1649658cb2195144dac1a9899e474bb6433bf35bf37b6946cb/typer-0.18.0-py3-none-any.whl", hash = "sha256:e0f91cc4bc0761f739c74ffd92aab3c8df279c4cab271b0dba1f302afa0b5a84", size = 46753, upload-time = "2025-09-19T19:21:30.993Z" },
+    { url = "https://files.pythonhosted.org/packages/1e/fa/6473c00b5eb26a2ba427813107699d3e6f4e1a4afad3f7494b17bdef3422/typer-0.19.1-py3-none-any.whl", hash = "sha256:914b2b39a1da4bafca5f30637ca26fa622a5bf9f515e5fdc772439f306d5682a", size = 46876, upload-time = "2025-09-20T08:59:21.153Z" },
 ]
 
 [[package]]
