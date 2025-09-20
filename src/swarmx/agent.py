@@ -35,6 +35,7 @@ from openai.types.chat import (
     ChatCompletionMessageParam,
     ChatCompletionMessageToolCallParam,
     ChatCompletionMessageToolCallUnionParam,
+    ChatCompletionToolMessageParam,
     ChatCompletionToolParam,
 )
 from openai.types.chat.chat_completion_stream_options_param import (
@@ -55,11 +56,11 @@ from pydantic import (
     field_validator,
     model_validator,
 )
-from pydantic.json_schema import GenerateJsonSchema
 
 from . import settings
 from .hook import Hook, HookType
 from .mcp_client import CLIENT_REGISTRY, exec_tool_call
+from .quota import QuotaManager
 from .types import MCPServer
 from .utils import join
 
@@ -92,6 +93,8 @@ def _merge_chunk(
     chunk: ChatCompletionChunk,
 ) -> None:
     message = messages[chunk.id]
+    if len(chunk.choices) == 0:  # last usage chunk
+        return None
     delta = chunk.choices[0].delta
     content = message.get("content")
     if delta.content is not None:
@@ -150,14 +153,6 @@ def _apply_message_slice(
             slice(*[int(v) if v else None for v in message_slice.split(":")])
         ]
     raise ValueError(f"Invalid message slice: {message_slice}")
-
-
-class SwarmXGenerateJsonSchema(GenerateJsonSchema):
-    """Remove the title field from the JSON schema."""
-
-    def field_title_should_be_set(self, schema) -> bool:
-        """No title for all fields."""
-        return False
 
 
 class Edge(BaseModel, frozen=True, use_attribute_docstrings=True):
@@ -636,7 +631,7 @@ class Agent(BaseModel, use_attribute_docstrings=True, serialize_by_alias=True):
         stream: Literal[False],
         messages: list[ChatCompletionMessageParam],
         context: dict[str, Any],
-    ) -> ChatCompletion: ...
+    ) -> ChatCompletionToolMessageParam: ...
 
     @overload
     async def _execute_tool_with_hooks(
@@ -653,7 +648,7 @@ class Agent(BaseModel, use_attribute_docstrings=True, serialize_by_alias=True):
         stream: bool,
         messages: list[ChatCompletionMessageParam],
         context: dict[str, Any],
-    ) -> ChatCompletion | ChatCompletionChunk:
+    ) -> ChatCompletionToolMessageParam | ChatCompletionChunk:
         """Execute a tool call with on_tool_start and on_tool_end hooks.
 
         Args:
@@ -736,9 +731,10 @@ class Agent(BaseModel, use_attribute_docstrings=True, serialize_by_alias=True):
         self,
         *,
         messages: list[ChatCompletionMessageParam],
-        context: dict[str, Any] | None = None,
+        context: dict[str, Any],
         stream: Literal[True],
         mode: Mode = "automatic",
+        quota_manager: QuotaManager,
     ) -> AsyncGenerator[ChatCompletionChunk, None]: ...
 
     @overload
@@ -746,18 +742,20 @@ class Agent(BaseModel, use_attribute_docstrings=True, serialize_by_alias=True):
         self,
         *,
         messages: list[ChatCompletionMessageParam],
-        context: dict[str, Any] | None = None,
+        context: dict[str, Any],
         stream: Literal[False] = False,
         mode: Mode = "automatic",
+        quota_manager: QuotaManager,
     ) -> ChatCompletion: ...
 
     async def _create_chat_completion(
         self,
         *,
         messages: list[ChatCompletionMessageParam],
-        context: dict[str, Any] | None = None,
+        context: dict[str, Any],
         stream: bool = False,
         mode: Mode = "automatic",
+        quota_manager: QuotaManager,
     ) -> ChatCompletion | AsyncGenerator[ChatCompletionChunk, None]:
         """Get a chat completion for the agent with UUID tracing.
 
@@ -769,6 +767,7 @@ class Agent(BaseModel, use_attribute_docstrings=True, serialize_by_alias=True):
                 - automatic: agent can create new agents and edges for handoff
                 - semiautomatic: agent can create edges but not new agents
                 - manual: no extra_tools available
+            quota_manager: Quota manager for tokens and other resource.
 
         """
         # Even OpenAI support x-request-id header, but most providers don't support
@@ -779,21 +778,40 @@ class Agent(BaseModel, use_attribute_docstrings=True, serialize_by_alias=True):
             json.dumps(parameters | {"stream": stream, "request_id": request_id})
         )
         client = self._get_client()
+        # Execute on_llm_start hook before making the request
+        await self._execute_hooks(
+            "on_llm_start",
+            messages,
+            context,
+            available_tools=CLIENT_REGISTRY.tools,
+        )
+
         if stream:
 
             async def traced_stream():
+                parameters["stream_options"] = (
+                    parameters.get("stream_options") or {}
+                ) | {"include_usage": True}
                 async for chunk in await client.chat.completions.create(
                     stream=stream, **parameters
                 ):
                     chunk._request_id = request_id
-                    chunk.model = self.name
                     yield chunk
+                    if chunk.usage is not None:
+                        await quota_manager.consume(self.name, chunk.usage.total_tokens)
+                # After the stream completes, trigger on_llm_end hook
+                await self._execute_hooks("on_llm_end", messages, context)
 
             return traced_stream()
         else:
             result = await client.chat.completions.create(stream=stream, **parameters)
             result._request_id = request_id
-            result.model = self.name
+            total_tokens = result.usage.total_tokens if result.usage else 0
+            await quota_manager.consume(self.name, total_tokens)
+            # Trigger on_llm_end hook for non‑stream response
+            await self._execute_hooks(
+                "on_llm_end", messages, context, completion=result
+            )
             return result
 
     async def _execute_tool_calls(
@@ -896,49 +914,29 @@ class Agent(BaseModel, use_attribute_docstrings=True, serialize_by_alias=True):
         except Exception as e:
             raise ValueError(f"Invalid edge target '{target}': {e}")
 
-    async def _handoff(
+    async def _run_stream_with_on_handoff(
         self,
-        *,
-        agent: "Agent",
+        to_agent: "Agent",
         messages: list[ChatCompletionMessageParam],
-        context: dict[str, Any] | None = None,
-        stream: bool = False,
-    ) -> AsyncGenerator[ChatCompletion | ChatCompletionChunk, None]:
-        """Handoff to the agent."""
-        if context is None:
-            context = {}
-        await self._execute_hooks("on_handoff", messages, context, to_agent=agent)
-
-        async for chunk in await agent.run(  # type: ignore
-            messages=messages, stream=stream, context=context
-        ):
-            yield chunk  # type: ignore
-
-        self._visited[agent.name] = True
-
-        async for chunk in join(
-            *[
-                self._handoff(
-                    agent=target, messages=messages, context=context, stream=stream
-                )
-                for edge in self.edges
-                if edge.source == agent.name
-                or (
-                    isinstance(edge.source, tuple)
-                    and agent.name in edge.source
-                    and all(self._visited[n] for n in edge.source)
-                )
-                for target in await self._resolve_edge_target(edge.target, context)
-            ]  # type: ignore
-        ):
-            yield chunk
+        context: dict[str, Any],
+        mode: Mode,
+        quota_manager: QuotaManager,
+    ):
+        await self._execute_hooks("on_handoff", messages, context, to_agent=to_agent)
+        return to_agent._run_stream(
+            messages=messages,
+            context=context,
+            mode=mode,
+            quota_manager=quota_manager,
+        )
 
     async def _run_stream(
         self,
         *,
         messages: list[ChatCompletionMessageParam],
-        context: dict[str, Any] | None = None,
+        context: dict[str, Any],
         mode: Mode = "automatic",
+        quota_manager: QuotaManager,
     ) -> AsyncGenerator[ChatCompletionChunk, None]:
         """Run the agent and stream the response.
 
@@ -949,25 +947,20 @@ class Agent(BaseModel, use_attribute_docstrings=True, serialize_by_alias=True):
                 - automatic: agent can create new agents and edges for handoff
                 - semiautomatic: agent can create edges but not new agents
                 - manual: no extra_tools available
+            from_agent: The agent handoff from.
+            quota_manager: Quota manager for tokens and other resource.
 
         """
-        if context is None:
-            context = {}
         init_len = len(messages)
         _messages: dict[str, ChatCompletionMessageParam] = defaultdict(
             lambda: {"role": "assistant"}
-        )
-        await self._execute_hooks(
-            "on_llm_start",
-            messages,
-            context,
-            available_tools=CLIENT_REGISTRY.tools,
         )
         async for chunk in await self._create_chat_completion(
             messages=messages,
             context=context,
             stream=True,
             mode=mode,
+            quota_manager=quota_manager,
         ):
             logger.info(
                 json.dumps(
@@ -975,6 +968,7 @@ class Agent(BaseModel, use_attribute_docstrings=True, serialize_by_alias=True):
                     | {"request_id": chunk._request_id}
                 )
             )
+            # on_hook must implement here because partial message
             await self._execute_hooks(
                 "on_chunk",
                 messages
@@ -984,13 +978,12 @@ class Agent(BaseModel, use_attribute_docstrings=True, serialize_by_alias=True):
                 chunk=chunk,
             )
             _merge_chunk(_messages, chunk)
-            yield chunk
-            if chunk.choices[0].finish_reason is not None:
+            yield chunk.model_copy(update={"model": self.name})
+            if len(chunk.choices) > 0 and chunk.choices[0].finish_reason is not None:
                 messages.append(_messages[chunk.id])
         else:
             if len(messages) - init_len != len(_messages):
                 raise ValueError("Number of messages does not match number of chunks")
-        await self._execute_hooks("on_llm_end", messages, context)
         latest_message = messages[-1]
         if (
             latest_message["role"] == "assistant"
@@ -1001,64 +994,124 @@ class Agent(BaseModel, use_attribute_docstrings=True, serialize_by_alias=True):
             ):
                 yield chunk
 
-        generators: list[AsyncGenerator[ChatCompletionChunk, None]] = []
-        for edge in self.edges:
-            if edge.source == self.name:
-                for target in await self._resolve_edge_target(edge.target):
-                    generators.append(
-                        self._handoff(
-                            agent=target,
+        self._visited[self.name] = True
+        targets = [
+            target
+            for edge in self.edges
+            if edge.source == self.name
+            or (
+                isinstance(edge.source, tuple)
+                and self.name in edge.source
+                and all(self._visited[n] for n in edge.source)
+            )
+            for target in await self._resolve_edge_target(edge.target, context)
+        ]
+        async with asyncio.TaskGroup() as tg:
+            tasks: list[asyncio.Task[AsyncGenerator[ChatCompletionChunk, None]]] = []
+            for target in targets:
+                tasks.append(
+                    tg.create_task(
+                        self._run_stream_with_on_handoff(
+                            target,
                             messages=messages,
                             context=context,
-                            stream=True,
-                        )  # type: ignore
+                            mode=mode,
+                            quota_manager=quota_manager,
+                        )
                     )
-        async for chunk in join(*generators):
+                )
+        async for chunk in join(*[task.result() for task in tasks]):
             yield chunk
 
-    async def _run(
+    @overload
+    async def run(
         self,
         *,
         messages: list[ChatCompletionMessageParam],
+        stream: Literal[True],
         context: dict[str, Any] | None = None,
         mode: Mode = "automatic",
-    ) -> AsyncGenerator[ChatCompletion, None]:
-        """Run the agent and yield ChatCompletion objects.
+        max_tokens: int | None = None,
+        from_agent: "Agent | None" = None,
+        quota_manager: QuotaManager | None = None,
+    ) -> AsyncGenerator[ChatCompletionChunk, None]: ...
+
+    @overload
+    async def run(
+        self,
+        *,
+        messages: list[ChatCompletionMessageParam],
+        stream: Literal[False] = False,
+        context: dict[str, Any] | None = None,
+        mode: Mode = "automatic",
+        max_tokens: int | None = None,
+        from_agent: "Agent | None" = None,
+        quota_manager: QuotaManager | None = None,
+    ) -> list[ChatCompletionMessageParam]: ...
+
+    async def run(
+        self,
+        *,
+        messages: list[ChatCompletionMessageParam],
+        stream: bool = False,
+        context: dict[str, Any] | None = None,
+        mode: Mode = "automatic",
+        max_tokens: int | None = None,
+        from_agent: "Agent | None" = None,
+        quota_manager: QuotaManager | None = None,
+    ) -> list[ChatCompletionMessageParam] | AsyncGenerator[ChatCompletionChunk, None]:
+        """Run the agent.
 
         Args:
             messages: The messages to start the conversation with
+            stream: Whether to stream the response
             context: The context variables to pass to the agent
             mode: Operation mode that affects extra_tools availability:
                 - automatic: agent can create new agents and edges for handoff
                 - semiautomatic: agent can create edges but not new agents
                 - manual: no extra_tools available
+            max_tokens: The max tokens limit
+            from_agent: The agent handoff from
+            quota_manager: The quota manager for tokens and other resources
 
         """
+        for name, server_params in (
+            (settings.mcp_servers if settings is not None else {}) | self.mcp_servers
+        ).items():
+            await CLIENT_REGISTRY.add_server(name, server_params)
+        messages = deepcopy(messages)
         if context is None:
             context = {}
-        await self._execute_hooks(
-            "on_llm_start",
-            messages,
-            context,
-            available_tools=CLIENT_REGISTRY.tools,
-        )
+        if quota_manager is None:
+            quota_manager = QuotaManager(max_tokens)
+        if from_agent is not None:
+            await from_agent._execute_hooks(
+                "on_handoff", messages, context, to_agent=self
+            )
+        await self._execute_hooks("on_start", messages, context)
+        if stream:
+            return self._run_stream(
+                messages=messages,
+                context=context,
+                mode=mode,
+                quota_manager=quota_manager,
+            )
+        init_len = len(messages)
         completion = await self._create_chat_completion(
             messages=messages,
             context=context,
             stream=False,
             mode=mode,
+            quota_manager=quota_manager,
         )
+        total_tokens = completion.usage.total_tokens if completion.usage else 0
+        await quota_manager.consume(self.name, total_tokens)
         logger.info(
             json.dumps(
                 completion.model_dump(mode="json", exclude_unset=True)
                 | {"request_id": completion._request_id}
             )
         )
-        await self._execute_hooks(
-            "on_llm_end", messages, context, completion=completion
-        )
-        # Yield the completion object to preserve all metadata
-        yield completion
 
         # Extract message for hook processing and tool calls
         message = cast(
@@ -1071,122 +1124,36 @@ class Agent(BaseModel, use_attribute_docstrings=True, serialize_by_alias=True):
         messages.append(message)
 
         if (tool_calls := message.get("tool_calls")) is not None:
-            async for chunk in self._execute_tool_calls(
+            async for message in self._execute_tool_calls(
                 tool_calls, messages, context, False
             ):
-                yield chunk
-
-        generators: list[AsyncGenerator[ChatCompletion, None]] = []
-        for edge in self.edges:
-            if edge.source == self.name:
-                for target in await self._resolve_edge_target(edge.target):
-                    generators.append(
-                        self._handoff(
-                            agent=target,
-                            messages=messages,
-                            context=context,
-                            stream=False,
-                        )  # type: ignore
+                messages.append(message)
+        self._visited[self.name] = True
+        targets = [
+            target
+            for edge in self.edges
+            if edge.source == self.name
+            or (
+                isinstance(edge.source, tuple)
+                and self.name in edge.source
+                and all(self._visited[n] for n in edge.source)
+            )
+            for target in await self._resolve_edge_target(edge.target, context)
+        ]
+        async with asyncio.TaskGroup() as tg:
+            tasks: list[asyncio.Task[list[ChatCompletionMessageParam]]] = []
+            for target in targets:
+                task = tg.create_task(
+                    target.run(
+                        messages=messages,
+                        context=context,
+                        mode=mode,
+                        quota_manager=quota_manager,
+                        from_agent=self,
                     )
-        async for completion in join(*generators):
-            yield completion
-
-    @overload
-    async def run(
-        self,
-        *,
-        messages: list[ChatCompletionMessageParam],
-        stream: Literal[True],
-        context: dict[str, Any] | None = None,
-        mode: Mode = "automatic",
-        max_tokens: int | None = None,
-    ) -> AsyncGenerator[ChatCompletionChunk, None]: ...
-
-    @overload
-    async def run(
-        self,
-        *,
-        messages: list[ChatCompletionMessageParam],
-        stream: Literal[False] = False,
-        context: dict[str, Any] | None = None,
-        mode: Mode = "automatic",
-        max_tokens: int | None = None,
-    ) -> AsyncGenerator[ChatCompletion, None]: ...
-
-    async def run(
-        self,
-        *,
-        messages: list[ChatCompletionMessageParam],
-        stream: bool = False,
-        context: dict[str, Any] | None = None,
-        mode: Mode = "automatic",
-        max_tokens: int | None = None,
-    ) -> (
-        AsyncGenerator[ChatCompletion, None] | AsyncGenerator[ChatCompletionChunk, None]
-    ):
-        """Run the agent.
-
-        Args:
-            messages: The messages to start the conversation with
-            stream: Whether to stream the response
-            context: The context variables to pass to the agent
-            mode: Operation mode that affects extra_tools availability:
-                - automatic: agent can create new agents and edges for handoff
-                - semiautomatic: agent can create edges but not new agents
-                - manual: no extra_tools available
-            max_tokens: The max tokens limit.
-
-        """
-        for name, server_params in (
-            (settings.mcp_servers if settings is not None else {}) | self.mcp_servers
-        ).items():
-            await CLIENT_REGISTRY.add_server(name, server_params)
-        messages = deepcopy(messages)
-        # context is intentionally not deep copied since it's mutable
-        if context is None:
-            context = {}
-        # We'll enforce max_tokens manually without altering self.parameters
-        await self._execute_hooks("on_start", messages, context)
-        if stream:
-            g = self._run_stream(
-                messages=messages,
-                context=context,
-                mode=mode,
-            )
-        else:
-            g = self._run(
-                messages=messages,
-                context=context,
-                mode=mode,
-            )
+                )
+                tasks.append(task)
+        for task in tasks:
+            messages.extend(task.result())
         await self._execute_hooks("on_end", messages, context)
-        # Apply token limit if max_tokens is set
-        if max_tokens is not None:
-
-            async def limited_gen(gen):
-                total = 0
-                async for item in gen:
-                    if isinstance(item, ChatCompletionChunk):
-                        delta = item.choices[0].delta
-                        content = delta.content or json.dumps(delta.tool_calls)
-                        total += (
-                            len(content.encode()) * 0.3
-                            if item.usage is None
-                            else item.usage.total_tokens
-                        )
-                    elif isinstance(item, ChatCompletion):
-                        message = item.choices[0].message
-                        content = message.content or json.dumps(message.tool_calls)
-                        total += (
-                            len(content.encode()) * 0.3
-                            if item.usage is None
-                            else item.usage.total_tokens
-                        )
-                    if total > max_tokens:
-                        item.choices[0].finish_reason = "length"
-                        yield item
-                        break
-                    yield item
-
-            g = limited_gen(g)
-        return g  # type: ignore
+        return messages[init_len:]

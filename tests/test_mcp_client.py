@@ -1,7 +1,7 @@
 import json
 import sys
 from datetime import UTC, datetime, timedelta
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock
 
 import pytest
 from mcp.client.session import ClientSession
@@ -17,7 +17,6 @@ from swarmx.mcp_client import (
     _resource_to_md,
     result_to_content,
 )
-from swarmx.types import SSEServer
 
 pytestmark = pytest.mark.anyio
 
@@ -55,48 +54,6 @@ async def test_client_registry_add_stdio_server():
     assert any(
         tool["function"]["name"] == "time/get_current_time" for tool in registry.tools
     )
-
-
-async def test_client_registry_add_sse_server():
-    """Test ClientRegistry add_server with SSE server."""
-    registry = ClientRegistry()
-
-    with (
-        patch("swarmx.mcp_client.sse_client") as mock_sse_client,
-        patch("swarmx.mcp_client.ClientSession") as mock_client_session,
-    ):
-        # Setup mocks
-        mock_client = AsyncMock()
-        mock_client.initialize = AsyncMock()
-        mock_client.list_tools = AsyncMock()
-
-        tool = MagicMock()
-        tool.name = "test_tool"
-        tool.model_dump.return_value = {
-            "name": "test_tool",
-            "inputSchema": {"type": "object", "properties": {}},
-        }
-
-        mock_client.list_tools.return_value.tools = [tool]
-        mock_client_session.return_value.__aenter__.return_value = mock_client
-
-        mock_read_stream = AsyncMock()
-        mock_write_stream = AsyncMock()
-        mock_sse_client.return_value.__aenter__.return_value = (
-            mock_read_stream,
-            mock_write_stream,
-        )
-
-        server_params = SSEServer(
-            type="sse",
-            url="http://localhost:8000/sse",
-            headers={"Authorization": "Bearer token"},
-        )
-
-        await registry.add_server("test_server", server_params)
-
-        assert "test_server" in registry.mcp_clients
-        assert any(tool.name == "test_tool" for tool in registry._tools["test_server"])
 
 
 async def test_client_registry_call_tool_success():

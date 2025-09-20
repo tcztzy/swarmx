@@ -12,7 +12,7 @@ from fastapi.testclient import TestClient
 from openai.types.chat.chat_completion_chunk import ChatCompletionChunk
 
 from swarmx.agent import Agent
-from swarmx.cli import ChatCompletionRequest, create_server_app, main
+from swarmx.cli import create_server_app, main
 from swarmx.utils import now
 
 pytestmark = pytest.mark.anyio
@@ -183,33 +183,6 @@ async def test_main_with_refusal():
         mock_secho.assert_called_with(
             "I cannot help with that", nl=False, err=True, fg="purple"
         )
-
-
-def test_chat_completion_request_model():
-    """Test ChatCompletionRequest model."""
-    request = ChatCompletionRequest(
-        messages=[{"role": "user", "content": "Hello"}],
-        model="gpt-4o",
-        stream=True,
-        temperature=0.7,
-        max_tokens=100,
-    )
-
-    assert request.messages == [{"role": "user", "content": "Hello"}]
-    assert request.model == "gpt-4o"
-    assert request.stream is True
-    assert request.temperature == 0.7
-    assert request.max_tokens == 100
-
-
-def test_chat_completion_request_defaults():
-    """Test ChatCompletionRequest with default values."""
-    request = ChatCompletionRequest(messages=[{"role": "user", "content": "Hello"}])
-
-    assert request.model == "gpt-4o"
-    assert request.stream is False
-    assert request.temperature is None
-    assert request.max_tokens is None
 
 
 def test_create_server_app():

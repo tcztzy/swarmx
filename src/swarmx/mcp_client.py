@@ -24,10 +24,10 @@ from mcp.types import (
     Tool,
 )
 from openai.types.chat import (
-    ChatCompletion,
     ChatCompletionChunk,
     ChatCompletionContentPartTextParam,
     ChatCompletionMessageToolCallParam,
+    ChatCompletionToolMessageParam,
     ChatCompletionToolParam,
 )
 from pygments.lexers import get_lexer_for_filename, get_lexer_for_mimetype
@@ -212,32 +212,18 @@ def result_to_content(
     return [{"text": _2text(block), "type": "text"} for block in result.content]
 
 
-def result_to_completion(
+def result_to_message(
     tool_call: ChatCompletionMessageToolCallParam,
     result: CallToolResult | BaseException,
-) -> ChatCompletion:
+) -> ChatCompletionToolMessageParam:
     """Convert MCP tool call result to OpenAI's message parameter."""
-    return ChatCompletion.model_validate(
-        {
-            "id": tool_call["id"],
-            "object": "chat.completion",
-            "created": now(),
-            "model": tool_call["function"]["name"],
-            "choices": [
-                {
-                    "message": {
-                        "role": "assistant",
-                        "openai_role": "tool",  # for openai's role since messagee role is fixed to assistant
-                        "content": "".join(p["text"] for p in result_to_content(result))
-                        if isinstance(result, CallToolResult)
-                        else str(result),
-                    },
-                    "finish_reason": "stop",
-                    "index": 0,
-                }
-            ],
-        }
-    )
+    return {
+        "role": "tool",
+        "tool_call_id": tool_call["id"],
+        "content": "".join(p["text"] for p in result_to_content(result))
+        if isinstance(result, CallToolResult)
+        else str(result),
+    }
 
 
 def result_to_chunk(
@@ -271,7 +257,7 @@ def result_to_chunk(
 @overload
 async def exec_tool_call(
     tool_call: ChatCompletionMessageToolCallParam, stream: Literal[False]
-) -> ChatCompletion: ...
+) -> ChatCompletionToolMessageParam: ...
 
 
 @overload
@@ -283,7 +269,7 @@ async def exec_tool_call(
 async def exec_tool_call(
     tool_call: ChatCompletionMessageToolCallParam,
     stream: bool,
-) -> ChatCompletion | ChatCompletionChunk:
+) -> ChatCompletionToolMessageParam | ChatCompletionChunk:
     """Execute a tool call and return the message."""
     try:
         r = await CLIENT_REGISTRY.call_tool(
@@ -291,13 +277,9 @@ async def exec_tool_call(
             json.loads(tool_call["function"]["arguments"]),
         )
         return (
-            result_to_chunk(tool_call, r)
-            if stream
-            else result_to_completion(tool_call, r)
+            result_to_chunk(tool_call, r) if stream else result_to_message(tool_call, r)
         )
     except Exception as e:
         return (
-            result_to_chunk(tool_call, e)
-            if stream
-            else result_to_completion(tool_call, e)
+            result_to_chunk(tool_call, e) if stream else result_to_message(tool_call, e)
         )
