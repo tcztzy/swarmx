@@ -314,16 +314,16 @@ wheels = [
 
 [[package]]
 name = "fastapi"
-version = "0.116.2"
+version = "0.117.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "pydantic" },
     { name = "starlette" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/01/64/1296f46d6b9e3b23fb22e5d01af3f104ef411425531376212f1eefa2794d/fastapi-0.116.2.tar.gz", hash = "sha256:231a6af2fe21cfa2c32730170ad8514985fc250bec16c9b242d3b94c835ef529", size = 298595, upload-time = "2025-09-16T18:29:23.058Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/7e/7e/d9788300deaf416178f61fb3c2ceb16b7d0dc9f82a08fdb87a5e64ee3cc7/fastapi-0.117.1.tar.gz", hash = "sha256:fb2d42082d22b185f904ca0ecad2e195b851030bd6c5e4c032d1c981240c631a", size = 307155, upload-time = "2025-09-20T20:16:56.663Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/32/e4/c543271a8018874b7f682bf6156863c416e1334b8ed3e51a69495c5d4360/fastapi-0.116.2-py3-none-any.whl", hash = "sha256:c3a7a8fb830b05f7e087d920e0d786ca1fc9892eb4e9a84b227be4c1bc7569db", size = 95670, upload-time = "2025-09-16T18:29:21.329Z" },
+    { url = "https://files.pythonhosted.org/packages/6d/45/d9d3e8eeefbe93be1c50060a9d9a9f366dba66f288bb518a9566a23a8631/fastapi-0.117.1-py3-none-any.whl", hash = "sha256:33c51a0d21cab2b9722d4e56dbb9316f3687155be6b276191790d8da03507552", size = 95959, upload-time = "2025-09-20T20:16:53.661Z" },
 ]
 
 [[package]]
@@ -632,14 +632,6 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/04/1c/0593458e9bd1aba06fb981092e213ee668b739f58c58e87a0880d67c7e6f/mcp_server_time-2025.8.4.tar.gz", hash = "sha256:5605e5222b8d2814160c09c38947731cf816fa977a4158c344a95f6a363ca124", size = 30140, upload-time = "2025-08-04T14:52:29.944Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/5e/f7/c961382d84df694682ebc76486b2a98cfce429c7d15b1eb3ce89e9cf7ff0/mcp_server_time-2025.8.4-py3-none-any.whl", hash = "sha256:8c7bf9ce770fc0df9268cb1ed29d1a6f0ba8e96dac68ee505d1533e58db3ae74", size = 6510, upload-time = "2025-08-04T14:52:28.891Z" },
-]
-
-[[package]]
-name = "mdformat"
-version = "0.7.22"
-source = { git = "https://github.com/hukkin/mdformat#2fba3881b2aa3696fb96da4cf4c078c3ab910c29" }
-dependencies = [
-    { name = "markdown-it-py" },
 ]
 
 [[package]]
@@ -1385,7 +1377,7 @@ wheels = [
 
 [[package]]
 name = "swarmx"
-version = "0.7.0a3"
+version = "0.7.0a5"
 source = { editable = "." }
 dependencies = [
     { name = "common-expression-language" },
@@ -1393,7 +1385,6 @@ dependencies = [
     { name = "jinja2" },
     { name = "markdown-it-py", extra = ["plugins"] },
     { name = "mcp" },
-    { name = "mdformat" },
     { name = "networkx" },
     { name = "openai" },
     { name = "pydantic-settings" },
@@ -1436,11 +1427,10 @@ test = [
 [package.metadata]
 requires-dist = [
     { name = "common-expression-language", specifier = ">=0.5.1" },
-    { name = "fastapi", specifier = ">=0.116.2" },
+    { name = "fastapi", specifier = ">=0.117.1" },
     { name = "jinja2", specifier = ">=3.1.6" },
     { name = "markdown-it-py", extras = ["plugins"], specifier = ">=4.0.0" },
     { name = "mcp", specifier = ">=1.14.1" },
-    { name = "mdformat", git = "https://github.com/hukkin/mdformat" },
     { name = "networkx", specifier = ">=3.5" },
     { name = "openai", specifier = ">=1.108.1" },
     { name = "pydantic-settings", specifier = ">=2.10.1" },

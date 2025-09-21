@@ -21,7 +21,7 @@ class ChatCompletionCreateParams(BaseModel):
     max_tokens: int | None = None
 
 
-def create_server_app(swarm: Agent) -> FastAPI:
+def create_server_app(swarm: Agent, *, auto: bool = True) -> FastAPI:
     """Create FastAPI app with OpenAI-compatible endpoints."""
     app = FastAPI(title="SwarmX API", version=__version__)
 
@@ -65,6 +65,7 @@ def create_server_app(swarm: Agent) -> FastAPI:
                     messages=params.messages,
                     stream=True,
                     max_tokens=params.max_tokens,
+                    auto=auto,
                 ):
                     yield f"data: {chunk.model_dump_json()}\n\n"
             except Exception as e:

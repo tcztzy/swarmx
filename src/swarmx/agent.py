@@ -51,6 +51,7 @@ from pydantic import (
     BaseModel,
     Field,
     PrivateAttr,
+    TypeAdapter,
     field_serializer,
     field_validator,
     model_validator,
@@ -711,6 +712,11 @@ class Agent(BaseModel, use_attribute_docstrings=True, serialize_by_alias=True):
         mode: Mode = "automatic",
     ) -> CompletionCreateParamsBase:
         """Prepare parameters for chat completion."""
+        messages = [
+            m
+            for m in messages
+            if not (m.get("role") == "user" and m.get("name") == "approval")
+        ]
         message_slice: str | None = (context or {}).get("message_slice")
         if message_slice is not None:
             messages = _apply_message_slice(messages, message_slice)
@@ -913,22 +919,6 @@ class Agent(BaseModel, use_attribute_docstrings=True, serialize_by_alias=True):
         except Exception as e:
             raise ValueError(f"Invalid edge target '{target}': {e}")
 
-    async def _run_stream_with_on_handoff(
-        self,
-        to_agent: "Agent",
-        messages: list[ChatCompletionMessageParam],
-        context: dict[str, Any],
-        mode: Mode,
-        quota_manager: QuotaManager,
-    ):
-        await self._execute_hooks("on_handoff", messages, context, to_agent=to_agent)
-        return to_agent._run_stream(
-            messages=messages,
-            context=context,
-            mode=mode,
-            quota_manager=quota_manager,
-        )
-
     async def _run_stream(
         self,
         *,
@@ -936,6 +926,7 @@ class Agent(BaseModel, use_attribute_docstrings=True, serialize_by_alias=True):
         context: dict[str, Any],
         mode: Mode = "automatic",
         quota_manager: QuotaManager,
+        auto: bool = True,
     ) -> AsyncGenerator[ChatCompletionChunk, None]:
         """Run the agent and stream the response.
 
@@ -948,6 +939,7 @@ class Agent(BaseModel, use_attribute_docstrings=True, serialize_by_alias=True):
                 - manual: no extra_tools available
             from_agent: The agent handoff from.
             quota_manager: Quota manager for tokens and other resource.
+            auto: Automatically execute tools or not
 
         """
         init_len = len(messages)
@@ -984,6 +976,8 @@ class Agent(BaseModel, use_attribute_docstrings=True, serialize_by_alias=True):
             if len(messages) - init_len != len(_messages):
                 raise ValueError("Number of messages does not match number of chunks")
         latest_message = messages[-1]
+        if not auto:
+            return
         if (
             latest_message["role"] == "assistant"
             and (tool_calls := latest_message.get("tool_calls")) is not None
@@ -1010,12 +1004,14 @@ class Agent(BaseModel, use_attribute_docstrings=True, serialize_by_alias=True):
             for target in targets:
                 tasks.append(
                     tg.create_task(
-                        self._run_stream_with_on_handoff(
-                            target,
+                        target.run(
                             messages=messages,
                             context=context,
+                            stream=True,
                             mode=mode,
+                            from_agent=self,
                             quota_manager=quota_manager,
+                            auto=auto,
                         )
                     )
                 )
@@ -1033,6 +1029,7 @@ class Agent(BaseModel, use_attribute_docstrings=True, serialize_by_alias=True):
         max_tokens: int | None = None,
         from_agent: "Agent | None" = None,
         quota_manager: QuotaManager | None = None,
+        auto: bool = True,
     ) -> AsyncGenerator[ChatCompletionChunk, None]: ...
 
     @overload
@@ -1046,6 +1043,7 @@ class Agent(BaseModel, use_attribute_docstrings=True, serialize_by_alias=True):
         max_tokens: int | None = None,
         from_agent: "Agent | None" = None,
         quota_manager: QuotaManager | None = None,
+        auto: bool = True,
     ) -> list[ChatCompletionMessageParam]: ...
 
     async def run(
@@ -1058,6 +1056,7 @@ class Agent(BaseModel, use_attribute_docstrings=True, serialize_by_alias=True):
         max_tokens: int | None = None,
         from_agent: "Agent | None" = None,
         quota_manager: QuotaManager | None = None,
+        auto: bool = True,
     ) -> list[ChatCompletionMessageParam] | AsyncGenerator[ChatCompletionChunk, None]:
         """Run the agent.
 
@@ -1072,12 +1071,14 @@ class Agent(BaseModel, use_attribute_docstrings=True, serialize_by_alias=True):
             max_tokens: The max tokens limit
             from_agent: The agent handoff from
             quota_manager: The quota manager for tokens and other resources
+            auto: Automatically execute tools or not
 
         """
         for name, server_params in (
             (settings.mcp_servers if settings is not None else {}) | self.mcp_servers
         ).items():
             await CLIENT_REGISTRY.add_server(name, server_params)
+        init_len = len(messages)
         messages = deepcopy(messages)
         if context is None:
             context = {}
@@ -1088,14 +1089,37 @@ class Agent(BaseModel, use_attribute_docstrings=True, serialize_by_alias=True):
                 "on_handoff", messages, context, to_agent=self
             )
         await self._execute_hooks("on_start", messages, context)
+        if (
+            len(messages) >= 2
+            and (last_message := messages[-1])["role"] == "user"
+            and last_message.get("name") == "approval"
+            and (second_to_last_message := messages[-2])["role"] == "assistant"
+            and (tool_calls := second_to_last_message.get("tool_calls")) is not None
+        ):
+            content = last_message["content"]
+            if not isinstance(content, str):
+                raise TypeError("User approval should be string.")
+            try:
+                approval = TypeAdapter(bool | list[str]).validate_json(content)  # type: ignore
+                if isinstance(approval, list):
+                    tool_calls = [c for c in tool_calls if c["id"] in approval]
+                elif not approval:
+                    tool_calls = []
+            except Exception:
+                raise ValueError("User approval should be a list of tool call ids.")
+            async for exec_msg in self._execute_tool_calls(
+                tool_calls, messages, context, False
+            ):
+                messages.append(exec_msg)
         if stream:
-            return self._run_stream(
+            generator = self._run_stream(
                 messages=messages,
                 context=context,
                 mode=mode,
                 quota_manager=quota_manager,
             )
-        init_len = len(messages)
+            await self._execute_hooks("on_end", messages, context)
+            return generator
         completion = await self._create_chat_completion(
             messages=messages,
             context=context,
@@ -1122,6 +1146,8 @@ class Agent(BaseModel, use_attribute_docstrings=True, serialize_by_alias=True):
         message["name"] = f"{self.name} ({completion.id})"
         messages.append(message)
 
+        if not auto:
+            return messages[init_len:]
         if (tool_calls := message.get("tool_calls")) is not None:
             async for message in self._execute_tool_calls(
                 tool_calls, messages, context, False
@@ -1149,6 +1175,7 @@ class Agent(BaseModel, use_attribute_docstrings=True, serialize_by_alias=True):
                         mode=mode,
                         quota_manager=quota_manager,
                         from_agent=self,
+                        auto=auto,
                     )
                 )
                 tasks.append(task)

@@ -1,6 +1,6 @@
 [project]
 name = "swarmx"
-version = "0.7.0a4"
+version = "0.7.0a5"
 authors = [
     { name = "Tang Ziya", email = "tcztzy@gmail.Com" }
 ]
@@ -9,7 +9,7 @@ readme = "README.md"
 license = "MIT"
 dependencies = [
     "common-expression-language>=0.5.1",
-    "fastapi>=0.116.2",
+    "fastapi>=0.117.1",
     "jinja2>=3.1.6",
     "markdown-it-py[plugins]>=4.0.0",
     "mcp>=1.14.1",

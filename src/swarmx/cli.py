@@ -142,6 +142,7 @@ def serve(
             help="The path to the swarmx file (networkx node_link_data with additional `mcpServers` key)",
         ),
     ] = None,
+    auto: bool = True,
 ):
     """Start SwarmX as an OpenAI-compatible API server."""
     # Load swarm configuration
@@ -151,7 +152,7 @@ def serve(
         data = json.loads(file.read_text())
 
     # Create FastAPI app
-    fastapi_app = create_server_app(Agent.model_validate(data))
+    fastapi_app = create_server_app(Agent.model_validate(data), auto=auto)
 
     # Start the server
     uvicorn.run(fastapi_app, host=host, port=port)
