@@ -4,7 +4,7 @@ import json
 
 from fastapi import FastAPI
 from fastapi.responses import StreamingResponse
-from openai.types.chat import ChatCompletionMessageParam
+from openai.types.chat import ChatCompletion, ChatCompletionMessageParam
 from pydantic import BaseModel
 
 from .agent import Agent
@@ -56,7 +56,31 @@ def create_server_app(swarm: Agent, *, auto: bool = True) -> FastAPI:
             raise ValueError(f"Model '{params.model}' not found in swarm agents.")
 
         if not params.stream:
-            raise NotImplementedError("Non-streaming response is not supported.")
+            # Run the target agent synchronously (non‑stream mode) and build an OpenAI‑compatible response
+            messages = await target_agent.run(
+                messages=params.messages,
+                stream=False,
+                max_tokens=params.max_tokens,
+                auto=auto,
+            )
+            return ChatCompletion.model_validate(
+                {
+                    "id": f"chatcmpl-{get_random_string(10)}",
+                    "object": "chat.completion",
+                    "created": now(),
+                    "model": params.model,
+                    "choices": [
+                        {
+                            "index": 0,
+                            "message": {
+                                "role": "assistant",
+                                "content": json.dumps(messages),
+                            },
+                            "finish_reason": "stop",
+                        }
+                    ],
+                }
+            )
 
         async def generate_stream():
             """Generate streaming response."""
