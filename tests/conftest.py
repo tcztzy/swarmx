@@ -1,3 +1,4 @@
+import sys
 from pathlib import Path
 from typing import Any, AsyncGenerator, Unpack
 from unittest.mock import AsyncMock
@@ -97,11 +98,11 @@ def cached_openai(monkeypatch: pytest.MonkeyPatch):
     and matches calls based on the supplied parameters. No per-test JSON
     handling is required.
     """
-    monkeypatch.setattr(
-        openai,
-        "AsyncOpenAI",
-        CachedAsyncOpenAI,
-    )
+    monkeypatch.setattr(openai, "AsyncOpenAI", CachedAsyncOpenAI)
+
+    agent_module = sys.modules.get("swarmx.agent")
+    if agent_module is not None:
+        monkeypatch.setattr(agent_module, "AsyncOpenAI", CachedAsyncOpenAI)
 
 
 @pytest.fixture

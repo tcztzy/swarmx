@@ -1,12 +1,13 @@
 import pytest
 
+from swarmx import Agent, settings
+
 pytestmark = pytest.mark.anyio
 
 
 @pytest.fixture
 def hello_agent(model):
-    from swarmx import Agent, settings
-
+    # disable local AGENTS.md for context length.
     settings.agents_md = []
     return Agent(
         name="hello-agent", instructions="You are a helpful AI assistant.", model=model
