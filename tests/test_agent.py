@@ -14,12 +14,12 @@ def hello_agent(model):
     )
 
 
-async def test_agent_run(hello_agent):
+async def test_agent_run(hello_agent: Agent):
     response = await hello_agent.run(messages=[{"role": "user", "content": "Hello"}])
     assert len(response) >= 1 and response[0]["role"] == "assistant"
 
 
-async def test_agent_run_stream(hello_agent):
+async def test_agent_run_stream(hello_agent: Agent):
     response = await hello_agent.run(
         messages=[{"role": "user", "content": "Hello"}], stream=True
     )

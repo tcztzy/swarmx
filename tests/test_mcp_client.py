@@ -9,13 +9,18 @@ from mcp.client.stdio import StdioServerParameters
 from mcp.types import (
     CallToolResult,
     EmbeddedResource,
+    ImageContent,
     Tool,
 )
+from openai.types.chat import ChatCompletionMessageToolCallParam
 
 from swarmx.mcp_client import (
     ClientRegistry,
+    _image_to_md,
     _resource_to_md,
+    result_to_chunk,
     result_to_content,
+    result_to_message,
 )
 
 pytestmark = pytest.mark.anyio
@@ -286,3 +291,62 @@ async def test_result_to_content_resource_link():
     assert len(content) == 1
     assert content[0]["type"] == "text"
     assert "[Test Resource](blob:file:///test.txt)" in content[0]["text"]
+
+
+async def test_client_registry_tools_include_description():
+    registry = ClientRegistry()
+    registry._tools["server"] = [
+        Tool(
+            name="described",
+            description="Helpful tool",
+            inputSchema={"type": "object", "properties": {}},
+        )
+    ]
+    tools = registry.tools
+    assert tools[0]["function"].get("description") == "Helpful tool"
+
+
+async def test_client_registry_parse_name_errors():
+    registry = ClientRegistry()
+    with pytest.raises(ValueError):
+        registry._parse_name("invalid")
+    registry.mcp_clients["server"] = AsyncMock()
+    registry._tools["server"] = []
+    with pytest.raises(KeyError):
+        registry._parse_name("server/missing")
+
+
+async def test_client_registry_call_tool_missing_server():
+    registry = ClientRegistry()
+    with pytest.raises(KeyError):
+        await registry.call_tool("ghost/tool", {})
+
+
+async def test_image_to_md_and_result_to_content_image():
+    image = ImageContent.model_validate(
+        {
+            "type": "image",
+            "data": "base64",
+            "mimeType": "image/png",
+            "meta": {"alt": "alt"},
+        }
+    )
+    md = _image_to_md(image)
+    assert md.startswith("![") and "data:image/png" in md
+
+    result = CallToolResult.model_validate({"content": [image.model_dump()]})
+    parts = result_to_content(result)
+    assert md in parts[0]["text"]
+
+
+async def test_result_to_message_and_chunk_error_path():
+    tool_call: ChatCompletionMessageToolCallParam = {
+        "id": "tool",
+        "type": "function",
+        "function": {"name": "server/tool", "arguments": "{}"},
+    }
+    message = result_to_message(tool_call, Exception("boom"))
+    assert message["content"] == "boom"
+
+    chunk = result_to_chunk(tool_call, Exception("boom"))
+    assert chunk.choices[0].delta.content == "boom"
