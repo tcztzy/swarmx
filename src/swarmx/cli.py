@@ -10,6 +10,7 @@ import uvicorn
 from openai.types.chat.chat_completion_message_param import ChatCompletionMessageParam
 
 from .agent import Agent
+from .mcp_server import create_mcp_server
 from .server import create_server_app
 
 
@@ -156,6 +157,26 @@ def serve(
 
     # Start the server
     uvicorn.run(fastapi_app, host=host, port=port)
+
+
+@app.command()
+def mcp(
+    file: Annotated[
+        Path | None,
+        typer.Option(
+            "--file",
+            "-f",
+            exists=True,
+            help="The path to the swarmx file (networkx node_link_data with additional `mcpServers` key)",
+        ),
+    ] = None,
+):
+    """Run the agent as an MCP server over stdio."""
+    if file is None:
+        data = {}
+    else:
+        data = json.loads(file.read_text())
+    create_mcp_server(Agent.model_validate(data)).run()
 
 
 if __name__ == "__main__":
