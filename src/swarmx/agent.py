@@ -30,7 +30,6 @@ from mdit_py_plugins.front_matter import front_matter_plugin
 from openai import DEFAULT_MAX_RETRIES, AsyncOpenAI
 from openai.types.chat import (
     ChatCompletion,
-    ChatCompletionAssistantMessageParam,
     ChatCompletionChunk,
     ChatCompletionMessageParam,
     ChatCompletionMessageToolCallParam,
@@ -63,7 +62,7 @@ from .hook import Hook, HookType
 from .mcp_client import CLIENT_REGISTRY, exec_tool_call
 from .quota import QuotaManager
 from .types import GraphMode, MCPServer
-from .utils import join
+from .utils import completion_to_message, join
 
 warnings.filterwarnings("ignore", category=UserWarning, module="pydantic")
 logging.basicConfig(filename=".swarmx.log", level=logging.INFO)
@@ -989,6 +988,9 @@ class Agent(BaseModel, use_attribute_docstrings=True, serialize_by_alias=True):
             _merge_chunk(_messages, chunk)
             yield chunk.model_copy(update={"model": self.name})
             if len(chunk.choices) > 0 and chunk.choices[0].finish_reason is not None:
+                message = _messages[chunk.id]
+                if "tool_calls" in message:
+                    message["tool_calls"] = list(message["tool_calls"].values())  # type: ignore
                 messages.append(_messages[chunk.id])
         else:
             if len(messages) - init_len != len(_messages):
@@ -1004,6 +1006,13 @@ class Agent(BaseModel, use_attribute_docstrings=True, serialize_by_alias=True):
                 tool_calls, messages, context, True
             ):
                 yield chunk
+                messages.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": chunk.id,
+                        "content": chunk.choices[0].delta.content,
+                    }
+                )
 
         self._visited[self.name] = True
         targets = [
@@ -1017,6 +1026,8 @@ class Agent(BaseModel, use_attribute_docstrings=True, serialize_by_alias=True):
             )
             for target in await self._resolve_edge_target(edge.target, context)
         ]
+        if messages[-1]["role"] == "tool" and len(targets) == 0:
+            targets.append(self)
         async with asyncio.TaskGroup() as tg:
             tasks: list[asyncio.Task[AsyncGenerator[ChatCompletionChunk, None]]] = []
             for target in targets:
@@ -1156,12 +1167,7 @@ class Agent(BaseModel, use_attribute_docstrings=True, serialize_by_alias=True):
         )
 
         # Extract message for hook processing and tool calls
-        message = cast(
-            ChatCompletionAssistantMessageParam,
-            completion.choices[0].message.model_dump(
-                mode="json", exclude_unset=True, exclude_none=True
-            ),
-        )
+        message = completion_to_message(completion)
         message["name"] = f"{self.name} ({completion.id})"
         messages.append(message)
 

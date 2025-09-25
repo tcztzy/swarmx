@@ -1,5 +1,7 @@
+import copy
 import os
 import sys
+from datetime import datetime
 from pathlib import Path
 from typing import Any, AsyncGenerator, Unpack
 from unittest.mock import AsyncMock
@@ -11,6 +13,7 @@ from openai import AsyncOpenAI, AsyncStream
 from openai.types.chat import (
     ChatCompletion,
     ChatCompletionChunk,
+    CompletionCreateParams,
 )
 from openai.types.chat.completion_create_params import CompletionCreateParamsBase
 from pydantic import BaseModel
@@ -37,6 +40,46 @@ class Thread(BaseModel):
     completion: ChatCompletion | list[ChatCompletionChunk]
 
 
+class GetCurrentTimeResult(BaseModel):
+    timezone: str
+    datetime: datetime
+    is_dst: bool
+
+
+def message_eq(message1, message2):
+    if message1["role"] == message2["role"] == "tool":
+        try:
+            result1 = GetCurrentTimeResult.model_validate_json(message1["content"])
+            result2 = GetCurrentTimeResult.model_validate_json(message2["content"])
+            return (
+                message1["tool_call_id"] == message2["tool_call_id"]
+                and result1.timezone == result2.timezone
+                and result1.is_dst == result2.is_dst
+            )
+        except Exception:
+            return False
+    else:
+        return message1 == message2
+
+
+def cache_hit(
+    cached_parameter: CompletionCreateParams,
+    parameter: CompletionCreateParams,
+):
+    cached_parameter = copy.deepcopy(cached_parameter)
+    parameter = copy.deepcopy(parameter)
+    cached_messages = cached_parameter.pop("messages")
+    messages = parameter.pop("messages")
+    return (
+        cached_parameter == parameter
+        and len(cached_messages) == len(messages)  # type: ignore
+        and all(
+            message_eq(m1, m2)
+            for m1, m2 in zip(cached_messages, messages)  # type: ignore
+        )
+    )
+
+
 class CachedAsyncOpenAI(AsyncOpenAI):
     def __init__(self, **params):
         super().__init__(**params)
@@ -59,7 +102,7 @@ class CachedAsyncOpenAI(AsyncOpenAI):
             # Call the actual API.
             parameters = kw | {"stream": stream}
             for thread in self._threads:
-                if thread.parameters == parameters:
+                if cache_hit(thread.parameters, parameters):  # type: ignore
                     if isinstance(thread.completion, list):
 
                         async def gen():
