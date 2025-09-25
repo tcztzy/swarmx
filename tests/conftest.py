@@ -1,3 +1,4 @@
+import os
 import sys
 from pathlib import Path
 from typing import Any, AsyncGenerator, Unpack
@@ -5,6 +6,7 @@ from unittest.mock import AsyncMock
 
 import openai
 import pytest
+from mcp.client.stdio import StdioServerParameters
 from openai import AsyncOpenAI, AsyncStream
 from openai.types.chat import (
     ChatCompletion,
@@ -12,6 +14,8 @@ from openai.types.chat import (
 )
 from openai.types.chat.completion_create_params import CompletionCreateParamsBase
 from pydantic import BaseModel
+
+from swarmx.mcp_client import CLIENT_REGISTRY
 
 
 def pytest_addoption(parser: pytest.Parser) -> None:
@@ -108,3 +112,19 @@ def cached_openai(monkeypatch: pytest.MonkeyPatch):
 @pytest.fixture
 def model(pytestconfig: pytest.Config):
     return pytestconfig.getoption("model")
+
+
+@pytest.fixture
+async def hooks_params():
+    script = Path(__file__).parent / "hooks.py"
+    try:
+        yield StdioServerParameters(
+            command=sys.executable,
+            args=[str(script)],
+            env=dict(os.environ),
+            cwd=str(Path(__file__).parent.parent),
+            encoding="utf-8",
+            encoding_error_handler="strict",
+        )
+    finally:
+        await CLIENT_REGISTRY.close()

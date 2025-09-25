@@ -17,6 +17,7 @@ from typing import (
     Literal,
     TypeVar,
     cast,
+    get_args,
     overload,
 )
 
@@ -61,7 +62,7 @@ from . import settings
 from .hook import Hook, HookType
 from .mcp_client import CLIENT_REGISTRY, exec_tool_call
 from .quota import QuotaManager
-from .types import MCPServer
+from .types import GraphMode, MCPServer
 from .utils import join
 
 warnings.filterwarnings("ignore", category=UserWarning, module="pydantic")
@@ -70,7 +71,6 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_CLIENT: AsyncOpenAI | None = None
 T = TypeVar("T")
-Mode = Literal["automatic", "semi", "manual"]
 
 
 def _parse_front_matter(front_matter: str):
@@ -500,17 +500,19 @@ class Agent(BaseModel, use_attribute_docstrings=True, serialize_by_alias=True):
         r.pop("model", None)
         return r
 
-    def extra_tools(self, mode: Mode = "automatic") -> list[ChatCompletionToolParam]:
+    def extra_tools(
+        self, graph_mode: GraphMode = "locked"
+    ) -> list[ChatCompletionToolParam]:
         """Extra tools based on operation mode.
 
         Args:
-            mode: Operation mode that affects tool availability:
-                - automatic: agent can create new agents and edges for handoff
-                - semiautomatic: agent can create edges but not new agents
-                - manual: no extra_tools available
+            graph_mode: Operation mode that affects tool availability:
+                - locked: agent cannot modify the graph
+                - handoff: agent can create edges but not new agents
+                - expand: agent can create new agents and edges
 
         """
-        if mode == "manual":
+        if graph_mode == "locked":
             return []
         base_tools: list[ChatCompletionToolParam] = [
             *[
@@ -535,10 +537,10 @@ class Agent(BaseModel, use_attribute_docstrings=True, serialize_by_alias=True):
             },
         }
 
-        if mode == "semi":
+        if graph_mode == "handoff":
             return base_tools + [edge_tool]
 
-        # automatic mode - include both create_agent and create_edge
+        # expand mode - include both create_agent and create_edge
         return base_tools + [
             {
                 "type": "function",
@@ -586,7 +588,7 @@ class Agent(BaseModel, use_attribute_docstrings=True, serialize_by_alias=True):
             completion: The ChatCompletion object (for on_llm_end)
 
         """
-        for hook in [h for h in self.hooks if hasattr(h, hook_type)]:
+        for hook in [h for h in self.hooks if getattr(h, hook_type, None) is not None]:
             hook_name: str = getattr(hook, hook_type)
             hook_tool = CLIENT_REGISTRY.get_tool(hook_name)
             properties = hook_tool.inputSchema["properties"]
@@ -705,11 +707,23 @@ class Agent(BaseModel, use_attribute_docstrings=True, serialize_by_alias=True):
             return "\n\n".join(parts)
         return None
 
+    def _visible_tools(self, *, graph_mode: GraphMode, context: dict[str, Any] | None):
+        all_tools = (context or {}).get("tools", CLIENT_REGISTRY.tools)
+        hook_names = [
+            getattr(hook, hook_type)
+            for hook in self.hooks
+            for hook_type in get_args(HookType)
+            if getattr(hook, hook_type, None) is not None
+        ]
+        return [
+            tool for tool in all_tools if tool["function"]["name"] not in hook_names
+        ] + self.extra_tools(graph_mode)
+
     async def _prepare_chat_completion_params(
         self,
         messages: list[ChatCompletionMessageParam],
         context: dict[str, Any] | None = None,
-        mode: Mode = "automatic",
+        graph_mode: GraphMode = "locked",
     ) -> CompletionCreateParamsBase:
         """Prepare parameters for chat completion."""
         messages = [
@@ -727,8 +741,11 @@ class Agent(BaseModel, use_attribute_docstrings=True, serialize_by_alias=True):
             "messages": messages,
             "model": self.model,
         }
-        if len(tools := (context or {}).get("tools", CLIENT_REGISTRY.tools)) > 0:
-            parameters["tools"] = self.extra_tools(mode) + tools
+        if (
+            len(tools := self._visible_tools(graph_mode=graph_mode, context=context))
+            > 0
+        ):
+            parameters["tools"] = tools
         return parameters  # type: ignore
 
     @overload
@@ -738,7 +755,7 @@ class Agent(BaseModel, use_attribute_docstrings=True, serialize_by_alias=True):
         messages: list[ChatCompletionMessageParam],
         context: dict[str, Any],
         stream: Literal[True],
-        mode: Mode = "automatic",
+        graph_mode: GraphMode = "locked",
         quota_manager: QuotaManager,
     ) -> AsyncGenerator[ChatCompletionChunk, None]: ...
 
@@ -749,7 +766,7 @@ class Agent(BaseModel, use_attribute_docstrings=True, serialize_by_alias=True):
         messages: list[ChatCompletionMessageParam],
         context: dict[str, Any],
         stream: Literal[False] = False,
-        mode: Mode = "automatic",
+        graph_mode: GraphMode = "locked",
         quota_manager: QuotaManager,
     ) -> ChatCompletion: ...
 
@@ -759,7 +776,7 @@ class Agent(BaseModel, use_attribute_docstrings=True, serialize_by_alias=True):
         messages: list[ChatCompletionMessageParam],
         context: dict[str, Any],
         stream: bool = False,
-        mode: Mode = "automatic",
+        graph_mode: GraphMode = "locked",
         quota_manager: QuotaManager,
     ) -> ChatCompletion | AsyncGenerator[ChatCompletionChunk, None]:
         """Get a chat completion for the agent with UUID tracing.
@@ -768,17 +785,19 @@ class Agent(BaseModel, use_attribute_docstrings=True, serialize_by_alias=True):
             messages: The messages to start the conversation with
             context: The context variables to pass to the agent
             stream: Whether to stream the response
-            mode: Operation mode that affects extra_tools availability:
-                - automatic: agent can create new agents and edges for handoff
-                - semiautomatic: agent can create edges but not new agents
-                - manual: no extra_tools available
+            graph_mode: Operation mode that affects extra_tools availability:
+                - expand: agent can create new agents and edges for handoff
+                - handoff: agent can create edges but not new agents
+                - locked: no extra_tools available
             quota_manager: Quota manager for tokens and other resource.
 
         """
         # Even OpenAI support x-request-id header, but most providers don't support
         # So we should manually set it for each.
         request_id = str(uuid.uuid4())
-        parameters = await self._prepare_chat_completion_params(messages, context, mode)
+        parameters = await self._prepare_chat_completion_params(
+            messages, context, graph_mode
+        )
         logger.info(
             json.dumps(parameters | {"stream": stream, "request_id": request_id})
         )
@@ -788,7 +807,7 @@ class Agent(BaseModel, use_attribute_docstrings=True, serialize_by_alias=True):
             "on_llm_start",
             messages,
             context,
-            available_tools=CLIENT_REGISTRY.tools,
+            available_tools=self._visible_tools(context=context, graph_mode=graph_mode),
         )
 
         if stream:
@@ -924,22 +943,21 @@ class Agent(BaseModel, use_attribute_docstrings=True, serialize_by_alias=True):
         *,
         messages: list[ChatCompletionMessageParam],
         context: dict[str, Any],
-        mode: Mode = "automatic",
+        graph_mode: GraphMode = "locked",
         quota_manager: QuotaManager,
-        auto: bool = True,
+        auto_execute_tools: bool = True,
     ) -> AsyncGenerator[ChatCompletionChunk, None]:
         """Run the agent and stream the response.
 
         Args:
             messages: The messages to start the conversation with
             context: The context variables to pass to the agent
-            mode: Operation mode that affects extra_tools availability:
-                - automatic: agent can create new agents and edges for handoff
-                - semiautomatic: agent can create edges but not new agents
-                - manual: no extra_tools available
-            from_agent: The agent handoff from.
+            graph_mode: Operation mode that affects extra_tools availability:
+                - locked: agent cannot modify the graph
+                - handoff: agent can create edges but not new agents
+                - expand: agent can create new agents and edges
             quota_manager: Quota manager for tokens and other resource.
-            auto: Automatically execute tools or not
+            auto_execute_tools: Automatically execute tools or not
 
         """
         init_len = len(messages)
@@ -950,7 +968,7 @@ class Agent(BaseModel, use_attribute_docstrings=True, serialize_by_alias=True):
             messages=messages,
             context=context,
             stream=True,
-            mode=mode,
+            graph_mode=graph_mode,
             quota_manager=quota_manager,
         ):
             logger.info(
@@ -976,7 +994,7 @@ class Agent(BaseModel, use_attribute_docstrings=True, serialize_by_alias=True):
             if len(messages) - init_len != len(_messages):
                 raise ValueError("Number of messages does not match number of chunks")
         latest_message = messages[-1]
-        if not auto:
+        if not auto_execute_tools:
             return
         if (
             latest_message["role"] == "assistant"
@@ -1008,10 +1026,10 @@ class Agent(BaseModel, use_attribute_docstrings=True, serialize_by_alias=True):
                             messages=messages,
                             context=context,
                             stream=True,
-                            mode=mode,
+                            graph_mode=graph_mode,
                             from_agent=self,
                             quota_manager=quota_manager,
-                            auto=auto,
+                            auto_execute_tools=auto_execute_tools,
                         )
                     )
                 )
@@ -1025,11 +1043,11 @@ class Agent(BaseModel, use_attribute_docstrings=True, serialize_by_alias=True):
         messages: list[ChatCompletionMessageParam],
         stream: Literal[True],
         context: dict[str, Any] | None = None,
-        mode: Mode = "automatic",
+        graph_mode: GraphMode = "locked",
         max_tokens: int | None = None,
         from_agent: "Agent | None" = None,
         quota_manager: QuotaManager | None = None,
-        auto: bool = True,
+        auto_execute_tools: bool = True,
     ) -> AsyncGenerator[ChatCompletionChunk, None]: ...
 
     @overload
@@ -1039,11 +1057,11 @@ class Agent(BaseModel, use_attribute_docstrings=True, serialize_by_alias=True):
         messages: list[ChatCompletionMessageParam],
         stream: Literal[False] = False,
         context: dict[str, Any] | None = None,
-        mode: Mode = "automatic",
+        graph_mode: GraphMode = "locked",
         max_tokens: int | None = None,
         from_agent: "Agent | None" = None,
         quota_manager: QuotaManager | None = None,
-        auto: bool = True,
+        auto_execute_tools: bool = True,
     ) -> list[ChatCompletionMessageParam]: ...
 
     async def run(
@@ -1052,11 +1070,11 @@ class Agent(BaseModel, use_attribute_docstrings=True, serialize_by_alias=True):
         messages: list[ChatCompletionMessageParam],
         stream: bool = False,
         context: dict[str, Any] | None = None,
-        mode: Mode = "automatic",
+        graph_mode: GraphMode = "locked",
         max_tokens: int | None = None,
         from_agent: "Agent | None" = None,
         quota_manager: QuotaManager | None = None,
-        auto: bool = True,
+        auto_execute_tools: bool = True,
     ) -> list[ChatCompletionMessageParam] | AsyncGenerator[ChatCompletionChunk, None]:
         """Run the agent.
 
@@ -1064,14 +1082,14 @@ class Agent(BaseModel, use_attribute_docstrings=True, serialize_by_alias=True):
             messages: The messages to start the conversation with
             stream: Whether to stream the response
             context: The context variables to pass to the agent
-            mode: Operation mode that affects extra_tools availability:
-                - automatic: agent can create new agents and edges for handoff
-                - semiautomatic: agent can create edges but not new agents
-                - manual: no extra_tools available
+            graph_mode: Operation mode that affects extra_tools availability:
+                - locked: agent cannot modify the graph
+                - handoff: agent can create edges but not new agents
+                - expand: agent can create new agents and edges
             max_tokens: The max tokens limit
             from_agent: The agent handoff from
             quota_manager: The quota manager for tokens and other resources
-            auto: Automatically execute tools or not
+            auto_execute_tools: Automatically execute tools or not
 
         """
         for name, server_params in (
@@ -1115,8 +1133,9 @@ class Agent(BaseModel, use_attribute_docstrings=True, serialize_by_alias=True):
             generator = self._run_stream(
                 messages=messages,
                 context=context,
-                mode=mode,
+                graph_mode=graph_mode,
                 quota_manager=quota_manager,
+                auto_execute_tools=auto_execute_tools,
             )
             await self._execute_hooks("on_end", messages, context)
             return generator
@@ -1124,7 +1143,7 @@ class Agent(BaseModel, use_attribute_docstrings=True, serialize_by_alias=True):
             messages=messages,
             context=context,
             stream=False,
-            mode=mode,
+            graph_mode=graph_mode,
             quota_manager=quota_manager,
         )
         total_tokens = completion.usage.total_tokens if completion.usage else 0
@@ -1146,7 +1165,7 @@ class Agent(BaseModel, use_attribute_docstrings=True, serialize_by_alias=True):
         message["name"] = f"{self.name} ({completion.id})"
         messages.append(message)
 
-        if not auto:
+        if not auto_execute_tools:
             return messages[init_len:]
         if (tool_calls := message.get("tool_calls")) is not None:
             async for message in self._execute_tool_calls(
@@ -1172,10 +1191,10 @@ class Agent(BaseModel, use_attribute_docstrings=True, serialize_by_alias=True):
                     target.run(
                         messages=messages,
                         context=context,
-                        mode=mode,
+                        graph_mode=graph_mode,
                         quota_manager=quota_manager,
                         from_agent=self,
-                        auto=auto,
+                        auto_execute_tools=auto_execute_tools,
                     )
                 )
                 tasks.append(task)

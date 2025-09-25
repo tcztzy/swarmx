@@ -8,6 +8,7 @@ from openai.types.chat import ChatCompletion, ChatCompletionMessageParam
 from pydantic import BaseModel
 
 from .agent import Agent
+from .types import GraphMode
 from .utils import get_random_string, now
 from .version import __version__
 
@@ -21,7 +22,12 @@ class ChatCompletionCreateParams(BaseModel):
     max_tokens: int | None = None
 
 
-def create_server_app(swarm: Agent, *, auto: bool = True) -> FastAPI:
+def create_server_app(
+    swarm: Agent,
+    *,
+    graph_mode: GraphMode = "locked",
+    auto_execute_tools: bool = True,
+) -> FastAPI:
     """Create FastAPI app with OpenAI-compatible endpoints."""
     app = FastAPI(title="SwarmX API", version=__version__)
 
@@ -61,7 +67,8 @@ def create_server_app(swarm: Agent, *, auto: bool = True) -> FastAPI:
                 messages=params.messages,
                 stream=False,
                 max_tokens=params.max_tokens,
-                auto=auto,
+                graph_mode=graph_mode,
+                auto_execute_tools=auto_execute_tools,
             )
             return ChatCompletion.model_validate(
                 {
@@ -89,7 +96,8 @@ def create_server_app(swarm: Agent, *, auto: bool = True) -> FastAPI:
                     messages=params.messages,
                     stream=True,
                     max_tokens=params.max_tokens,
-                    auto=auto,
+                    graph_mode=graph_mode,
+                    auto_execute_tools=auto_execute_tools,
                 ):
                     yield f"data: {chunk.model_dump_json()}\n\n"
             except Exception as e:

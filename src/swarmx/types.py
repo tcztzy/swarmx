@@ -18,5 +18,7 @@ class SSEServer(BaseModel):
     headers: dict[str, str] | None = None
 
 
+GraphMode = Literal["locked", "handoff", "expand"]
+
 MCPServer = StdioServerParameters | SSEServer
 MarkdownFlavor = Literal["gfm", "mystmd"]

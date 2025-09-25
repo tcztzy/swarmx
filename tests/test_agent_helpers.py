@@ -1,7 +1,5 @@
 """Unit tests for synchronous helpers in swarmx.agent."""
 
-from __future__ import annotations
-
 import json
 from pathlib import Path
 
@@ -58,42 +56,40 @@ def test_agents_duplicate_detection():
         Agent(name="duplicate", model="m", nodes={child})
 
 
-def test_validate_client_accepts_dict_and_async_openai(monkeypatch):
+def test_validate_client_accepts_dict_and_async_openai():
     client_dict = {
         "api_key": "test",
         "timeout": {"connect": 1, "read": 2, "write": 2, "pool": 1},
     }
-    agent = Agent(name="client", model="m", client=client_dict)
+    agent = Agent(name="client", model="m", client=client_dict)  # type: ignore
     assert isinstance(agent.client, AsyncOpenAI)
     assert isinstance(agent.client.timeout, Timeout)
 
-    raw_client = AsyncOpenAI(
-        api_key="key", base_url="https://example.com", max_retries=5
-    )
-    raw_client._custom_headers["X-Test"] = "true"
-    raw_client._custom_query["mode"] = "full"
     agent2 = Agent(
         name="client2",
         model="m",
         client=agent_module.AsyncOpenAI(
-            api_key="key", base_url="https://example.com", max_retries=5
+            api_key="key",
+            base_url="https://example.com",
+            max_retries=5,
+            default_headers={"X-Test": "true"},
+            default_query={"mode": "full"},
         ),
     )
-    agent2.client._custom_headers["X-Test"] = "true"
-    agent2.client._custom_query["mode"] = "full"
     dumped = agent2.model_dump(mode="json")
     serialized = dumped["client"]
     assert serialized["base_url"] == "https://example.com"
     assert serialized["max_retries"] == 5
     assert serialized["default_headers"] == {"X-Test": "true"}
     assert serialized["default_query"] == {"mode": "full"}
+    assert "api_key" not in serialized
 
 
 def test_validate_parameters_and_serializer():
     agent = Agent(
         name="params",
         model="m",
-        parameters={"temperature": 0.7, "messages": ["ignored"], "model": "ignored"},
+        parameters={"temperature": 0.7, "messages": ["ignored"], "model": "ignored"},  # type: ignore
     )
     params = agent.parameters.model_dump()
     assert params["temperature"] == 0.7
@@ -102,14 +98,14 @@ def test_validate_parameters_and_serializer():
     assert "model" not in dumped["parameters"]
 
 
-def test_extra_tools_modes(monkeypatch):
+def test_extra_tools_modes():
     agent = Agent(name="tools", model="m")
-    manual = agent.extra_tools("manual")
+    manual = agent.extra_tools("locked")
     assert manual == []
 
     agent.nodes.add(Agent(name="child", model="m"))
-    semi = agent.extra_tools("semi")
-    auto = agent.extra_tools("automatic")
+    semi = agent.extra_tools("handoff")
+    auto = agent.extra_tools("expand")
     assert any(tool["function"]["name"] == "create_edge" for tool in semi)
     assert any(tool["function"]["name"] == "create_agent" for tool in auto)
 

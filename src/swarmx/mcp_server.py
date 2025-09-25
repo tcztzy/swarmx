@@ -7,7 +7,8 @@ from typing import Any
 from mcp.server.fastmcp import FastMCP
 from openai.types.chat import ChatCompletionMessageParam
 
-from .agent import Agent, Mode
+from .agent import Agent
+from .types import GraphMode
 
 
 def create_mcp_server(agent: Agent) -> FastMCP:
@@ -18,17 +19,17 @@ def create_mcp_server(agent: Agent) -> FastMCP:
         async def call_agent(
             messages: list[ChatCompletionMessageParam],
             context: dict[str, Any] | None = None,
-            auto: bool = True,
-            mode: Mode = "automatic",
+            auto_execute_tools: bool = True,
+            graph_mode: GraphMode = "locked",
             max_tokens: int | None = None,
         ) -> dict:
             result = await agent.run(
                 messages=messages,
                 context=context,
                 stream=False,
-                mode=mode,
+                graph_mode=graph_mode,
                 max_tokens=max_tokens,
-                auto=auto,
+                auto_execute_tools=auto_execute_tools,
             )
 
             return {"messages": result, "context": context}

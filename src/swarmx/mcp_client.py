@@ -127,6 +127,8 @@ class ClientRegistry:
     async def close(self):
         """Close all clients."""
         await self.exit_stack.aclose()
+        self.mcp_clients = {}
+        self._tools = {}
 
 
 CLIENT_REGISTRY = ClientRegistry()
