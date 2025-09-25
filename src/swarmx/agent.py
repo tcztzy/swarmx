@@ -1184,6 +1184,8 @@ class Agent(BaseModel, use_attribute_docstrings=True, serialize_by_alias=True):
             )
             for target in await self._resolve_edge_target(edge.target, context)
         ]
+        if messages[-1]["role"] == "tool" and len(targets) == 0:
+            targets.append(self)
         async with asyncio.TaskGroup() as tg:
             tasks: list[asyncio.Task[list[ChatCompletionMessageParam]]] = []
             for target in targets:
