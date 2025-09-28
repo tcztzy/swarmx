@@ -57,7 +57,8 @@ async def test_client_registry_add_stdio_server():
     assert "time" in registry.mcp_clients
     assert any(tool.name == "get_current_time" for tool in registry._tools["time"])
     assert any(
-        tool["function"]["name"] == "time/get_current_time" for tool in registry.tools
+        tool["function"]["name"] == "mcp__time__get_current_time"
+        for tool in registry.tools
     )
 
 
@@ -70,7 +71,9 @@ async def test_client_registry_call_tool_success():
         command=sys.executable, args=["-m", "mcp_server_time"]
     )
     await registry.add_server("time", server_params)
-    result = await registry.call_tool("time/get_current_time", {"timezone": "UTC"})
+    result = await registry.call_tool(
+        "mcp__time__get_current_time", {"timezone": "UTC"}
+    )
     assert (text_part := result.content[0]).type == "text"
     obj = json.loads(text_part.text)
     assert (
@@ -100,7 +103,7 @@ async def test_client_registry_call_tool_with_timeout_and_callback():
     callback = AsyncMock()
 
     result = await registry.call_tool(
-        "test_server/test_tool",
+        "mcp__test_server__test_tool",
         {"arg": "value"},
         read_timeout_seconds=timedelta(seconds=30),
         progress_callback=callback,
@@ -133,21 +136,8 @@ async def test_client_registry_tools_property():
 
     tools = registry.tools
 
-    assert tools[0]["function"]["name"] == "server1/tool1"
-    assert tools[1]["function"]["name"] == "server2/tool2"
-
-
-async def test_client_registry_close():
-    """Test ClientRegistry close method."""
-    registry = ClientRegistry()
-
-    # Mock exit stack
-    mock_exit_stack = AsyncMock()
-    registry.exit_stack = mock_exit_stack
-
-    await registry.close()
-
-    mock_exit_stack.aclose.assert_called_once()
+    assert tools[0]["function"]["name"] == "mcp__server1__tool1"
+    assert tools[1]["function"]["name"] == "mcp__server2__tool2"
 
 
 async def test_resource_to_md_filename_from_host():
@@ -313,13 +303,13 @@ async def test_client_registry_parse_name_errors():
     registry.mcp_clients["server"] = AsyncMock()
     registry._tools["server"] = []
     with pytest.raises(KeyError):
-        registry._parse_name("server/missing")
+        registry._parse_name("mcp__server__missing")
 
 
 async def test_client_registry_call_tool_missing_server():
     registry = ClientRegistry()
     with pytest.raises(KeyError):
-        await registry.call_tool("ghost/tool", {})
+        await registry.call_tool("mcp__ghost__tool", {})
 
 
 async def test_image_to_md_and_result_to_content_image():

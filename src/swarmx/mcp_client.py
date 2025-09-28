@@ -56,7 +56,7 @@ class ClientRegistry:
                 _tool = ChatCompletionToolParam(
                     type="function",
                     function={
-                        "name": f"{server}/{tool.name}",
+                        "name": f"mcp__{server}__{tool.name}",
                         "parameters": tool.inputSchema,
                     },
                 )
@@ -66,8 +66,8 @@ class ClientRegistry:
         return _tools
 
     def _parse_name(self, name: str) -> tuple[str, Tool]:
-        if (mo := re.match(r"(?P<server>[^/]+)/(?P<name>[^/]+)", name)) is None:
-            raise ValueError("Invalid tool name, expected <server>/<tool>")
+        if (mo := re.match(r"mcp__(?P<server>[^/]+)__(?P<name>[^/]+)", name)) is None:
+            raise ValueError("Invalid tool name, expected mcp__<server>__<tool>")
         server_name, tool_name = mo.group("server"), mo.group("name")
         if server_name not in self.mcp_clients:
             raise KeyError(f"Server {server_name} not found")
