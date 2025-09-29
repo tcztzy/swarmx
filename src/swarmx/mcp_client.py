@@ -130,8 +130,42 @@ class ClientRegistry:
         self.mcp_clients = {}
         self._tools = {}
 
+    @overload
+    async def exec_tool_call(
+        self,
+        tool_call: ChatCompletionMessageToolCallParam,
+        stream: Literal[False],
+    ) -> ChatCompletionToolMessageParam: ...
 
-CLIENT_REGISTRY = ClientRegistry()
+    @overload
+    async def exec_tool_call(
+        self,
+        tool_call: ChatCompletionMessageToolCallParam,
+        stream: Literal[True],
+    ) -> ChatCompletionChunk: ...
+
+    async def exec_tool_call(
+        self,
+        tool_call: ChatCompletionMessageToolCallParam,
+        stream: bool,
+    ) -> ChatCompletionToolMessageParam | ChatCompletionChunk:
+        """Execute a tool call and return the message."""
+        try:
+            r = await self.call_tool(
+                tool_call["function"]["name"],
+                json.loads(tool_call["function"]["arguments"]),
+            )
+            return (
+                result_to_chunk(tool_call, r)
+                if stream
+                else result_to_message(tool_call, r)
+            )
+        except Exception as e:
+            return (
+                result_to_chunk(tool_call, e)
+                if stream
+                else result_to_message(tool_call, e)
+            )
 
 
 def _image_to_md(
@@ -254,34 +288,3 @@ def result_to_chunk(
             ],
         }
     )
-
-
-@overload
-async def exec_tool_call(
-    tool_call: ChatCompletionMessageToolCallParam, stream: Literal[False]
-) -> ChatCompletionToolMessageParam: ...
-
-
-@overload
-async def exec_tool_call(
-    tool_call: ChatCompletionMessageToolCallParam, stream: Literal[True]
-) -> ChatCompletionChunk: ...
-
-
-async def exec_tool_call(
-    tool_call: ChatCompletionMessageToolCallParam,
-    stream: bool,
-) -> ChatCompletionToolMessageParam | ChatCompletionChunk:
-    """Execute a tool call and return the message."""
-    try:
-        r = await CLIENT_REGISTRY.call_tool(
-            tool_call["function"]["name"],
-            json.loads(tool_call["function"]["arguments"]),
-        )
-        return (
-            result_to_chunk(tool_call, r) if stream else result_to_message(tool_call, r)
-        )
-    except Exception as e:
-        return (
-            result_to_chunk(tool_call, e) if stream else result_to_message(tool_call, e)
-        )

@@ -18,8 +18,6 @@ from openai.types.chat import (
 from openai.types.chat.completion_create_params import CompletionCreateParamsBase
 from pydantic import BaseModel
 
-from swarmx.mcp_client import CLIENT_REGISTRY
-
 
 def pytest_addoption(parser: pytest.Parser) -> None:
     parser.addoption(
@@ -160,14 +158,11 @@ def model(pytestconfig: pytest.Config):
 @pytest.fixture
 async def hooks_params():
     script = Path(__file__).parent / "hooks.py"
-    try:
-        yield StdioServerParameters(
-            command=sys.executable,
-            args=[str(script)],
-            env=dict(os.environ),
-            cwd=str(Path(__file__).parent.parent),
-            encoding="utf-8",
-            encoding_error_handler="strict",
-        )
-    finally:
-        await CLIENT_REGISTRY.close()
+    return StdioServerParameters(
+        command=sys.executable,
+        args=[str(script)],
+        env=dict(os.environ),
+        cwd=str(Path(__file__).parent.parent),
+        encoding="utf-8",
+        encoding_error_handler="strict",
+    )

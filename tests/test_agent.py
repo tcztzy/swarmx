@@ -9,12 +9,13 @@ pytestmark = pytest.mark.anyio
 
 
 @pytest.fixture
-def hello_agent(model):
+async def hello_agent(model):
     # disable local AGENTS.md for context length.
     settings.agents_md = []
-    return Agent(
+    async with Agent(
         name="hello-agent", instructions="You are a helpful AI assistant.", model=model
-    )
+    ) as agent:
+        yield agent
 
 
 async def test_agent_run(hello_agent: Agent):
@@ -35,10 +36,10 @@ async def test_agent_run_stream(hello_agent: Agent):
 
 
 @pytest.fixture
-def hello_agent_with_time(model):
+async def hello_agent_with_time(model):
     # disable local AGENTS.md for context length.
     settings.agents_md = []
-    return Agent(
+    async with Agent(
         name="hello-agent",
         instructions="You are a helpful AI assistant.",
         model=model,
@@ -47,7 +48,8 @@ def hello_agent_with_time(model):
                 command=sys.executable, args=["-m", "mcp_server_time"]
             )
         },
-    )
+    ) as agent:
+        yield agent
 
 
 async def test_agent_run_with_mcp_tool_call(hello_agent_with_time: Agent):

@@ -59,7 +59,7 @@ from pydantic import (
 
 from . import settings
 from .hook import Hook, HookType
-from .mcp_client import CLIENT_REGISTRY, exec_tool_call
+from .mcp_client import ClientRegistry
 from .quota import QuotaManager
 from .types import GraphMode, MCPServer
 from .utils import completion_to_message, join
@@ -354,6 +354,7 @@ class Agent(BaseModel, use_attribute_docstrings=True, serialize_by_alias=True):
     _visited: "dict[str, bool]" = PrivateAttr(
         default_factory=lambda: defaultdict(lambda: False)
     )
+    _client_registry: ClientRegistry | None = PrivateAttr(default=None)
 
     def __hash__(self):
         """Since name is unique, make this as hash key."""
@@ -411,6 +412,52 @@ class Agent(BaseModel, use_attribute_docstrings=True, serialize_by_alias=True):
             raise TypeError("Can only dump agents to a directory.")
         for name, agent in self.agents.items():
             (path / f"{name}.md").write_text(agent.as_agent_md())
+
+    def model_post_init(self, __context: Any) -> None:
+        """Initialize private attributes after validation."""
+        extra = getattr(self, "model_extra", None) or {}
+        registry = None
+        if isinstance(extra, dict):
+            registry = extra.pop("client_registry", None) or extra.pop(
+                "clientRegistry", None
+            )
+        self._client_registry = registry or self._client_registry or ClientRegistry()
+
+    @property
+    def client_registry(self) -> ClientRegistry:
+        """MCP Client registry."""
+        if self._client_registry is None:
+            self._client_registry = ClientRegistry()
+        return self._client_registry
+
+    @client_registry.setter
+    def client_registry(self, value: ClientRegistry) -> None:
+        self._client_registry = value
+
+    async def __aenter__(self) -> "Agent":
+        """Allow usage as an async context manager without extra setup."""
+        return self
+
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        tb: Any,
+    ) -> None:
+        """Exit."""
+        """Release MCP client sessions held by this agent hierarchy."""
+        visited: set["Agent"] = set()
+
+        async def _close(agent: "Agent") -> None:
+            if agent in visited:
+                return
+            visited.add(agent)
+            await agent.client_registry.close()
+            agent._client_registry = None
+            for child in agent.nodes:
+                await _close(child)
+
+        await _close(self)
 
     @property
     def agents(self) -> "dict[str, Agent]":
@@ -589,7 +636,7 @@ class Agent(BaseModel, use_attribute_docstrings=True, serialize_by_alias=True):
         """
         for hook in [h for h in self.hooks if getattr(h, hook_type, None) is not None]:
             hook_name: str = getattr(hook, hook_type)
-            hook_tool = CLIENT_REGISTRY.get_tool(hook_name)
+            hook_tool = self.client_registry.get_tool(hook_name)
             properties = hook_tool.inputSchema["properties"]
             arguments: dict[str, Any] = {}
             available = {"messages": messages, "context": context}
@@ -598,7 +645,7 @@ class Agent(BaseModel, use_attribute_docstrings=True, serialize_by_alias=True):
             if completion is not None:
                 available["completion"] = completion
             if tool_name is not None:
-                available["tool"] = CLIENT_REGISTRY.get_tool(tool_name)
+                available["tool"] = self.client_registry.get_tool(tool_name)
             if to_agent is not None:
                 available["from_agent"] = self.model_dump(
                     mode="json", exclude_unset=True
@@ -618,7 +665,7 @@ class Agent(BaseModel, use_attribute_docstrings=True, serialize_by_alias=True):
                 if key in properties:
                     arguments |= {key: value}
             try:
-                result = await CLIENT_REGISTRY.call_tool(hook_name, arguments)
+                result = await self.client_registry.call_tool(hook_name, arguments)
                 if result.structuredContent is None:
                     raise ValueError("Hook tool must return structured content")
                 context |= result.structuredContent
@@ -668,7 +715,7 @@ class Agent(BaseModel, use_attribute_docstrings=True, serialize_by_alias=True):
         )
 
         try:
-            result = await exec_tool_call(tool_call, stream)  # type: ignore
+            result = await self.client_registry.exec_tool_call(tool_call, stream)  # type: ignore[call-overload]
             await self._execute_hooks(
                 "on_tool_end", messages, context, tool_name=tool_name
             )
@@ -707,7 +754,7 @@ class Agent(BaseModel, use_attribute_docstrings=True, serialize_by_alias=True):
         return None
 
     def _visible_tools(self, *, graph_mode: GraphMode, context: dict[str, Any] | None):
-        all_tools = (context or {}).get("tools", CLIENT_REGISTRY.tools)
+        all_tools = (context or {}).get("tools", self.client_registry.tools)
         hook_names = [
             getattr(hook, hook_type)
             for hook in self.hooks
@@ -898,9 +945,9 @@ class Agent(BaseModel, use_attribute_docstrings=True, serialize_by_alias=True):
         except KeyError:
             pass
 
-        # Then check if target is a function in CLIENT_REGISTRY
+        # Then check if target is a function available through this registry
         try:
-            result = await CLIENT_REGISTRY.call_tool(target, context or {})
+            result = await self.client_registry.call_tool(target, context or {})
 
             if result.structuredContent is not None:
                 r = result.structuredContent.get("result")
@@ -1106,7 +1153,7 @@ class Agent(BaseModel, use_attribute_docstrings=True, serialize_by_alias=True):
         for name, server_params in (
             (settings.mcp_servers if settings is not None else {}) | self.mcp_servers
         ).items():
-            await CLIENT_REGISTRY.add_server(name, server_params)
+            await self.client_registry.add_server(name, server_params)
         init_len = len(messages)
         messages = deepcopy(messages)
         if context is None:

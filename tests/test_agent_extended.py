@@ -8,7 +8,6 @@ from openai.types.chat import (
     ChatCompletionMessageParam,
 )
 
-import swarmx.agent as agent_module
 from swarmx.agent import (
     QuotaManager,
     _apply_message_slice,
@@ -18,14 +17,6 @@ from swarmx.quota import QuotaExceededError
 from swarmx.utils import join
 
 pytestmark = pytest.mark.anyio
-
-
-@pytest.fixture(autouse=True)
-def reset_agent_globals():
-    agent_module.DEFAULT_CLIENT = None
-    agent_module.CLIENT_REGISTRY.tools  # ensure property exists
-    yield
-    agent_module.DEFAULT_CLIENT = None
 
 
 def _chunk_from_delta(content: str) -> ChatCompletionChunk:

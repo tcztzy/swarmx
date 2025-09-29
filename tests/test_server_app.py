@@ -4,31 +4,31 @@ import pytest
 from fastapi.testclient import TestClient
 from openai import OpenAI
 
+from swarmx import Agent, settings
+from swarmx.server import create_server_app
+
+pytestmark = pytest.mark.anyio
+
 
 @pytest.fixture
-def hello_agent(model):
-    from swarmx import Agent, settings
-
+async def hello_agent(model):
     settings.agents_md = []
-    return Agent(
+    async with Agent(
         name="hello-agent", instructions="You are a helpful AI assistant.", model=model
-    )
+    ) as agent:
+        yield agent
 
 
 @pytest.fixture
 def client(hello_agent) -> OpenAI:
-    from swarmx.server import create_server_app
-
     http_client = TestClient(create_server_app(hello_agent))
     return OpenAI(
         api_key="swarmx", base_url=http_client.base_url, http_client=http_client
     )
 
 
-def test_create_server_app(model, hello_agent):
+async def test_create_server_app(model, hello_agent):
     """Test create_server_app function."""
-    from swarmx import Agent, settings
-    from swarmx.server import create_server_app
 
     settings.agents_md = []
     hello_agent.nodes.add(
@@ -43,7 +43,7 @@ def test_create_server_app(model, hello_agent):
     assert model_names == ["hello-agent", "sub_agent"]
 
 
-def test_server_app_non_streaming(client: OpenAI):
+async def test_server_app_non_streaming(client: OpenAI):
     """Test that non-streaming requests."""
     response = client.chat.completions.create(
         messages=[{"role": "user", "content": "Hello"}], model="hello-agent"
@@ -51,7 +51,7 @@ def test_server_app_non_streaming(client: OpenAI):
     assert len(response.choices[0].message.content or "") > 0
 
 
-def test_server_app_streaming(client: OpenAI):
+async def test_server_app_streaming(client: OpenAI):
     """Test streaming chat completions."""
     response = client.chat.completions.create(
         messages=[{"role": "user", "content": "Hello"}],
