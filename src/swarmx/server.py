@@ -2,7 +2,7 @@
 
 import json
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.responses import StreamingResponse
 from openai.types.chat import ChatCompletion, ChatCompletionMessageParam
 from pydantic import BaseModel
@@ -59,7 +59,10 @@ def create_server_app(
             swarm if params.model == swarm.name else swarm.agents.get(params.model)
         )
         if target_agent is None:
-            raise ValueError(f"Model '{params.model}' not found in swarm agents.")
+            raise HTTPException(
+                status_code=404,
+                detail=f"Model '{params.model}' not found in swarm agents.",
+            )
 
         if not params.stream:
             # Run the target agent synchronously (non‑stream mode) and build an OpenAI‑compatible response

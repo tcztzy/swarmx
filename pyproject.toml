@@ -9,15 +9,15 @@ readme = "README.md"
 license = "MIT"
 dependencies = [
     "common-expression-language>=0.5.1",
-    "fastapi>=0.117.1",
+    "fastapi>=0.118.0",
     "jinja2>=3.1.6",
     "markdown-it-py[plugins]>=4.0.0",
-    "mcp>=1.14.1",
+    "mcp>=1.16.0",
     "networkx>=3.5",
-    "openai>=1.108.1",
-    "pydantic-settings>=2.10.1",
-    "pyyaml>=6.0.2",
-    "typer>=0.19.1",
+    "openai>=2.1.0",
+    "pydantic-settings>=2.11.0",
+    "pyyaml>=6.0.3",
+    "typer>=0.19.2",
 ]
 requires-python = ">=3.11"  # for asyncio.TaskGroup & except* syntax
 classifiers = [
@@ -53,17 +53,17 @@ docs = [
     "mkdocs>=1.6.1",
     "mkdocs-gen-files>=0.5.0",
     "mkdocs-literate-nav>=0.6.2",
-    "mkdocs-material>=9.6.20",
+    "mkdocs-material>=9.6.21",
     "mkdocstrings[python]>=0.30.1",
 ]
 lint = [
-    "ruff>=0.13.1",
+    "ruff>=0.13.3",
 ]
 test = [
-    "mcp-server-time>=2025.8.4",
+    "mcp-server-time>=2025.9.25",
     "pytest>=8.4.2",
     "pytest-cov>=7.0.0",
-    "tox>=4.30.2",
+    "tox>=4.30.3",
     "tox-uv>=1.28.0",
 ]
 
