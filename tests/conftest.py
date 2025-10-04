@@ -137,7 +137,7 @@ class CachedAsyncOpenAI(AsyncOpenAI):
 
 @pytest.fixture(autouse=True)
 def cached_openai(monkeypatch: pytest.MonkeyPatch):
-    """Patch ``swarmx.agent.DEFAULT_CLIENT`` with the mock.
+    """Patch openai.AsyncOpenAI with the mock.
 
     The new ``MockAsyncOpenAI`` reads responses from ``tests/threads.json``
     and matches calls based on the supplied parameters. No per-test JSON

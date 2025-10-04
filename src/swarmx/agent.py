@@ -15,7 +15,6 @@ from typing import (
     AsyncGenerator,
     Iterable,
     Literal,
-    TypeVar,
     cast,
     get_args,
     overload,
@@ -68,9 +67,6 @@ from .utils import completion_to_message, join
 warnings.filterwarnings("ignore", category=UserWarning, module="pydantic")
 logging.basicConfig(filename=".swarmx.log", level=logging.INFO)
 logger = logging.getLogger(__name__)
-
-DEFAULT_CLIENT: AsyncOpenAI | None = None
-T = TypeVar("T")
 
 
 def _parse_front_matter(front_matter: str):
@@ -461,7 +457,6 @@ class Agent(BaseModel, use_attribute_docstrings=True, serialize_by_alias=True):
         """Validate the client.
 
         If it's a dict, we create a new AsyncOpenAI client from it.
-        If it's None, we use the global DEFAULT_CLIENT.
         Otherwise, we assume it's already a valid AsyncOpenAI client.
 
         """
@@ -574,13 +569,9 @@ class Agent(BaseModel, use_attribute_docstrings=True, serialize_by_alias=True):
         ]
 
     def _get_client(self):
-        return (
-            self.client
-            or DEFAULT_CLIENT
-            or AsyncOpenAI(
-                api_key=settings.OPENAI_API_KEY,
-                base_url=settings.OPENAI_BASE_URL,
-            )
+        return self.client or AsyncOpenAI(
+            api_key=settings.OPENAI_API_KEY,
+            base_url=settings.OPENAI_BASE_URL,
         )
 
     async def _execute_hooks(
