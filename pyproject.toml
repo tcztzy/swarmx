@@ -9,12 +9,13 @@ readme = "README.md"
 license = "MIT"
 dependencies = [
     "common-expression-language>=0.5.1",
-    "fastapi>=0.118.0",
+    "fastapi>=0.119.0",
     "jinja2>=3.1.6",
+    "jsonschema>=4.25.1",
     "markdown-it-py[plugins]>=4.0.0",
-    "mcp>=1.16.0",
+    "mcp>=1.17.0",
     "networkx>=3.5",
-    "openai>=2.1.0",
+    "openai>=2.3.0",
     "pydantic-settings>=2.11.0",
     "pyyaml>=6.0.3",
     "typer>=0.19.2",
@@ -57,14 +58,14 @@ docs = [
     "mkdocstrings[python]>=0.30.1",
 ]
 lint = [
-    "ruff>=0.13.3",
+    "ruff>=0.14.0",
 ]
 test = [
     "mcp-server-time>=2025.9.25",
     "pytest>=8.4.2",
     "pytest-cov>=7.0.0",
-    "tox>=4.30.3",
-    "tox-uv>=1.28.0",
+    "tox>=4.31.0",
+    "tox-uv>=1.29.0",
 ]
 
 [tool.ruff.lint]

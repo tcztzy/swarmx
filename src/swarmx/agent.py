@@ -20,6 +20,7 @@ from typing import (
     overload,
 )
 
+import jsonschema
 import yaml
 from cel import evaluate
 from httpx import Timeout
@@ -46,9 +47,11 @@ from openai.types.chat.completion_create_params import (
     CompletionCreateParamsBase,
     ResponseFormat,
 )
+from openai.types.shared_params.response_format_json_schema import JSONSchema
 from pydantic import (
     BaseModel,
     Field,
+    PlainSerializer,
     PrivateAttr,
     TypeAdapter,
     field_serializer,
@@ -61,12 +64,169 @@ from .edge import Edge
 from .hook import Hook, HookType
 from .mcp_client import ClientRegistry
 from .quota import QuotaManager
-from .types import GraphMode, MCPServer
-from .utils import completion_to_message, join
+from .types import AssistantMessage, GraphMode, MCPServer, MessageParam
+from .utils import completion_to_message, join, now
 
 warnings.filterwarnings("ignore", category=UserWarning, module="pydantic")
 logging.basicConfig(filename=".swarmx.log", level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+STRUCTURED_OUTPUT_TOOL_PREFIX = "response_format__"
+
+
+def _coerce_response_format(value: Any) -> ResponseFormat | None:
+    """Convert Python types into OpenAI response_format payloads."""
+    try:
+        return TypeAdapter(ResponseFormat | None).validate_python(value)
+    except Exception:
+        pass
+    if isinstance(value, type) and issubclass(value, BaseModel):
+        schema = value.model_json_schema()
+        description = schema.pop("description", value.__doc__)
+        title = schema.pop("title", value.__name__)
+    else:
+        schema = TypeAdapter(value).json_schema()
+        title = str(value)
+        description = None
+    name = re.sub(r"[^0-9A-Za-z_]+", "_", title)
+    json_schema: JSONSchema = {
+        "name": name,
+        "schema": schema,
+        "strict": True,
+    }
+    if description:
+        json_schema["description"] = description
+    return {
+        "type": "json_schema",
+        "json_schema": json_schema,
+    }
+
+
+@overload
+def _structured_output_tool_result(
+    tool_call: ChatCompletionMessageToolCallParam,
+    response_format: Any,
+    stream: Literal[True],
+) -> ChatCompletionChunk: ...
+
+
+@overload
+def _structured_output_tool_result(
+    tool_call: ChatCompletionMessageToolCallParam,
+    response_format: Any,
+    stream: Literal[False],
+) -> AssistantMessage: ...
+
+
+def _structured_output_tool_result(
+    tool_call: ChatCompletionMessageToolCallParam,
+    response_format: Any,
+    stream: bool,
+) -> AssistantMessage | ChatCompletionChunk:
+    """Create a tool message or chunk for structured output fallback."""
+    content = tool_call["function"]["arguments"]
+    match response_format:
+        case {"type": "text"}:
+            parsed = None
+        case {"type": "json_object"} | {
+            "type": "json_schema",
+        }:
+            parsed = json.loads(content)
+            if response_format["type"] == "json_schema":
+                jsonschema.validate(
+                    parsed, response_format["json_schema"].get("schema")
+                )
+        case None:
+            parsed = None
+        case _ if isinstance(response_format, type) and issubclass(
+            response_format, BaseModel
+        ):
+            parsed = response_format.model_validate_json(content)
+        case _:
+            parsed = TypeAdapter(response_format).validate_strings(content)
+    if stream:
+        return ChatCompletionChunk.model_validate(
+            {
+                "id": tool_call["id"],
+                "object": "chat.completion.chunk",
+                "created": now(),
+                "model": tool_call["function"]["name"],
+                "choices": [
+                    {
+                        "index": 0,
+                        "delta": {"content": content, "role": "assistant"},
+                        "finish_reason": "stop",
+                    }
+                ],
+            }
+        )
+    return {
+        "role": "assistant",
+        "content": content,
+        "parsed": parsed,
+    }
+
+
+def _coerce_structured_output_message(
+    message: ChatCompletionMessageParam,
+    response_format: Any,
+) -> list[MessageParam]:
+    """Convert structured output tool call assistant message into normalized messages."""
+
+    def _is_empty_content(content: Any) -> bool:
+        match content:
+            case None:
+                return True
+            case str():
+                return content == ""
+            case list():
+                return len("".join(b["text"] for b in content if "text" in b)) == 0
+            case _:
+                return False
+
+    if (
+        response_format is None
+        or response_format == {"type": "text"}
+        or message["role"] != "assistant"
+    ):
+        return [message]
+    tool_calls = cast(
+        list[ChatCompletionMessageToolCallUnionParam] | None, message.get("tool_calls")
+    )
+    if not tool_calls:
+        return [message]
+
+    structured_calls: list[ChatCompletionMessageToolCallParam] = []
+    remaining_calls: list[ChatCompletionMessageToolCallUnionParam] = []
+    for call in tool_calls:
+        if call["type"] == "function" and call["function"]["name"].startswith(
+            STRUCTURED_OUTPUT_TOOL_PREFIX
+        ):
+            structured_calls.append(call)
+        else:
+            remaining_calls.append(call)
+
+    if not structured_calls:
+        return [message]
+
+    base_message = cast(AssistantMessage, message)
+    if remaining_calls:
+        base_message["tool_calls"] = remaining_calls
+    else:
+        base_message.pop("tool_calls", None)
+
+    content_empty = _is_empty_content(base_message.get("content"))
+
+    messages: list[MessageParam] = []
+
+    for call in structured_calls:
+        structured = _structured_output_tool_result(call, response_format, False)
+        messages.append(structured)
+
+    if not content_empty or remaining_calls:
+        messages.append(base_message)
+
+    return messages
 
 
 def _parse_front_matter(front_matter: str):
@@ -186,7 +346,10 @@ class Parameters(BaseModel, use_attribute_docstrings=True):
     far, increasing the model's likelihood to talk about new topics.
     """
 
-    response_format: ResponseFormat | None = None
+    response_format: Annotated[
+        ResponseFormat | Any | None,
+        PlainSerializer(_coerce_response_format),
+    ] = None
     """An object specifying the format that the model must output.
 
     Setting to `{ "type": "json_schema", "json_schema": {...} }` enables Structured
@@ -577,7 +740,7 @@ class Agent(BaseModel, use_attribute_docstrings=True, serialize_by_alias=True):
     async def _execute_hooks(
         self,
         hook_type: HookType,
-        messages: list[ChatCompletionMessageParam],
+        messages: list[MessageParam],
         context: dict[str, Any],
         *,
         tool_name: str | None = None,
@@ -642,7 +805,7 @@ class Agent(BaseModel, use_attribute_docstrings=True, serialize_by_alias=True):
         self,
         tool_call: ChatCompletionMessageToolCallParam,
         stream: Literal[False],
-        messages: list[ChatCompletionMessageParam],
+        messages: list[MessageParam],
         context: dict[str, Any],
     ) -> ChatCompletionToolMessageParam: ...
 
@@ -651,7 +814,7 @@ class Agent(BaseModel, use_attribute_docstrings=True, serialize_by_alias=True):
         self,
         tool_call: ChatCompletionMessageToolCallParam,
         stream: Literal[True],
-        messages: list[ChatCompletionMessageParam],
+        messages: list[MessageParam],
         context: dict[str, Any],
     ) -> ChatCompletionChunk: ...
 
@@ -659,7 +822,7 @@ class Agent(BaseModel, use_attribute_docstrings=True, serialize_by_alias=True):
         self,
         tool_call: ChatCompletionMessageToolCallParam,
         stream: bool,
-        messages: list[ChatCompletionMessageParam],
+        messages: list[MessageParam],
         context: dict[str, Any],
     ) -> ChatCompletionToolMessageParam | ChatCompletionChunk:
         """Execute a tool call with on_tool_start and on_tool_end hooks.
@@ -732,13 +895,20 @@ class Agent(BaseModel, use_attribute_docstrings=True, serialize_by_alias=True):
 
     async def _prepare_chat_completion_params(
         self,
-        messages: list[ChatCompletionMessageParam],
+        messages: list[MessageParam],
         context: dict[str, Any] | None = None,
         graph_mode: GraphMode = "locked",
     ) -> CompletionCreateParamsBase:
         """Prepare parameters for chat completion."""
         messages = [
-            m
+            cast(
+                ChatCompletionMessageParam,
+                {
+                    k: v
+                    for k, v in m.items()
+                    if k not in ("parsed", "reasoning_content")
+                },
+            )
             for m in messages
             if not (m.get("role") == "user" and m.get("name") == "approval")
         ]
@@ -748,22 +918,65 @@ class Agent(BaseModel, use_attribute_docstrings=True, serialize_by_alias=True):
         system_prompt = await self._get_system_prompt(context)
         if system_prompt is not None:
             messages = [{"role": "system", "content": system_prompt}, *messages]
-        parameters = self.parameters.model_dump(mode="json", exclude_none=True) | {
+        parameters = self.parameters.model_dump(mode="json", exclude_none=True)
+        tools: list[ChatCompletionToolParam] = [*parameters.get("tools", [])]
+        existing_tool_names = {
+            tool["function"]["name"] for tool in tools if tool["type"] == "function"
+        }
+        for tool in self._visible_tools(graph_mode=graph_mode, context=context):
+            if (
+                tool["type"] == "function"
+                and tool["function"]["name"] in existing_tool_names
+            ):
+                continue
+            tools.append(tool)
+            if tool["type"] == "function":
+                existing_tool_names.add(tool["function"]["name"])
+        response_format = cast(ResponseFormat | None, parameters.get("response_format"))
+        if (
+            response_format is not None
+            and response_format["type"] == "json_schema"
+            and (schema := response_format["json_schema"].get("schema")) is not None
+            and self.model in settings.format_fallback_tool_models
+        ):
+            tool_name = (
+                STRUCTURED_OUTPUT_TOOL_PREFIX + response_format["json_schema"]["name"]
+            )
+            if tool_name not in existing_tool_names:
+                tools.append(
+                    {
+                        "type": "function",
+                        "function": {
+                            "name": tool_name,
+                            "description": (
+                                "Return a response that matches the requested schema."
+                            ),
+                            "parameters": schema,
+                        },
+                    }
+                )
+                existing_tool_names.add(tool_name)
+            parameters.pop("response_format", None)
+            if parameters.get("tool_choice") is None:
+                parameters["tool_choice"] = {
+                    "type": "function",
+                    "function": {"name": tool_name},
+                }
+        if tools:
+            parameters["tools"] = tools
+        else:
+            parameters.pop("tools", None)
+        parameters |= {
             "messages": messages,
             "model": self.model,
         }
-        if (
-            len(tools := self._visible_tools(graph_mode=graph_mode, context=context))
-            > 0
-        ):
-            parameters["tools"] = tools
         return parameters  # type: ignore
 
     @overload
     async def _create_chat_completion(
         self,
         *,
-        messages: list[ChatCompletionMessageParam],
+        messages: list[MessageParam],
         context: dict[str, Any],
         stream: Literal[True],
         graph_mode: GraphMode = "locked",
@@ -774,7 +987,7 @@ class Agent(BaseModel, use_attribute_docstrings=True, serialize_by_alias=True):
     async def _create_chat_completion(
         self,
         *,
-        messages: list[ChatCompletionMessageParam],
+        messages: list[MessageParam],
         context: dict[str, Any],
         stream: Literal[False] = False,
         graph_mode: GraphMode = "locked",
@@ -784,7 +997,7 @@ class Agent(BaseModel, use_attribute_docstrings=True, serialize_by_alias=True):
     async def _create_chat_completion(
         self,
         *,
-        messages: list[ChatCompletionMessageParam],
+        messages: list[MessageParam],
         context: dict[str, Any],
         stream: bool = False,
         graph_mode: GraphMode = "locked",
@@ -852,7 +1065,7 @@ class Agent(BaseModel, use_attribute_docstrings=True, serialize_by_alias=True):
     async def _execute_tool_calls(
         self,
         tool_calls: Iterable[ChatCompletionMessageToolCallUnionParam],
-        messages: list[ChatCompletionMessageParam],
+        messages: list[MessageParam],
         context: dict[str, Any],
         stream: bool,
     ):
@@ -952,7 +1165,7 @@ class Agent(BaseModel, use_attribute_docstrings=True, serialize_by_alias=True):
     async def _run_stream(
         self,
         *,
-        messages: list[ChatCompletionMessageParam],
+        messages: list[MessageParam],
         context: dict[str, Any],
         graph_mode: GraphMode = "locked",
         quota_manager: QuotaManager,
@@ -1003,7 +1216,11 @@ class Agent(BaseModel, use_attribute_docstrings=True, serialize_by_alias=True):
                 message = _messages[chunk.id]
                 if "tool_calls" in message:
                     message["tool_calls"] = list(message["tool_calls"].values())  # type: ignore
-                messages.append(_messages[chunk.id])
+                messages.extend(
+                    _coerce_structured_output_message(
+                        _messages[chunk.id], self.parameters.response_format
+                    )
+                )
         else:
             if len(messages) - init_len != len(_messages):
                 raise ValueError("Number of messages does not match number of chunks")
@@ -1063,7 +1280,7 @@ class Agent(BaseModel, use_attribute_docstrings=True, serialize_by_alias=True):
     async def run(
         self,
         *,
-        messages: list[ChatCompletionMessageParam],
+        messages: list[MessageParam],
         stream: Literal[True],
         context: dict[str, Any] | None = None,
         graph_mode: GraphMode = "locked",
@@ -1077,7 +1294,7 @@ class Agent(BaseModel, use_attribute_docstrings=True, serialize_by_alias=True):
     async def run(
         self,
         *,
-        messages: list[ChatCompletionMessageParam],
+        messages: list[MessageParam],
         stream: Literal[False] = False,
         context: dict[str, Any] | None = None,
         graph_mode: GraphMode = "locked",
@@ -1085,12 +1302,12 @@ class Agent(BaseModel, use_attribute_docstrings=True, serialize_by_alias=True):
         from_agent: "Agent | None" = None,
         quota_manager: QuotaManager | None = None,
         auto_execute_tools: bool = True,
-    ) -> list[ChatCompletionMessageParam]: ...
+    ) -> list[MessageParam]: ...
 
     async def run(
         self,
         *,
-        messages: list[ChatCompletionMessageParam],
+        messages: list[MessageParam],
         stream: bool = False,
         context: dict[str, Any] | None = None,
         graph_mode: GraphMode = "locked",
@@ -1098,7 +1315,7 @@ class Agent(BaseModel, use_attribute_docstrings=True, serialize_by_alias=True):
         from_agent: "Agent | None" = None,
         quota_manager: QuotaManager | None = None,
         auto_execute_tools: bool = True,
-    ) -> list[ChatCompletionMessageParam] | AsyncGenerator[ChatCompletionChunk, None]:
+    ) -> list[MessageParam] | AsyncGenerator[ChatCompletionChunk, None]:
         """Run the agent.
 
         Args:
@@ -1181,11 +1398,16 @@ class Agent(BaseModel, use_attribute_docstrings=True, serialize_by_alias=True):
         # Extract message for hook processing and tool calls
         message = completion_to_message(completion)
         message["name"] = f"{self.name} ({completion.id})"
-        messages.append(message)
+        messages.extend(
+            _coerce_structured_output_message(
+                message,
+                self.parameters.response_format,
+            )
+        )
 
         if not auto_execute_tools:
             return messages[init_len:]
-        if (tool_calls := message.get("tool_calls")) is not None:
+        if (tool_calls := messages[-1].get("tool_calls")) is not None:
             async for message in self._execute_tool_calls(
                 tool_calls, messages, context, False
             ):
@@ -1205,7 +1427,7 @@ class Agent(BaseModel, use_attribute_docstrings=True, serialize_by_alias=True):
         if messages[-1]["role"] == "tool" and len(targets) == 0:
             targets.append(self)
         async with asyncio.TaskGroup() as tg:
-            tasks: list[asyncio.Task[list[ChatCompletionMessageParam]]] = []
+            tasks: list[asyncio.Task[list[MessageParam]]] = []
             for target in targets:
                 task = tg.create_task(
                     target.run(

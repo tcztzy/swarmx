@@ -1,8 +1,12 @@
 """SwarmX types."""
 
-from typing import Literal
+from typing import Any, Literal, TypeAlias
 
 from mcp.client.stdio import StdioServerParameters
+from openai.types.chat import (
+    ChatCompletionAssistantMessageParam,
+    ChatCompletionMessageParam,
+)
 from pydantic import BaseModel
 
 
@@ -22,3 +26,12 @@ GraphMode = Literal["locked", "handoff", "expand"]
 
 MCPServer = StdioServerParameters | SSEServer
 MarkdownFlavor = Literal["gfm", "mystmd"]
+
+
+class AssistantMessage(ChatCompletionAssistantMessageParam, total=False):  # type: ignore
+    """Extended assistant message."""
+
+    parsed: Any
+
+
+MessageParam: TypeAlias = ChatCompletionMessageParam | AssistantMessage

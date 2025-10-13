@@ -1,19 +1,25 @@
 """Extended coverage tests for swarmx.agent internals."""
 
+import json
 from collections import defaultdict
+from typing import cast
 
 import pytest
 from openai.types.chat import (
     ChatCompletionChunk,
     ChatCompletionMessageParam,
+    ChatCompletionMessageToolCallParam,
 )
 
 from swarmx.agent import (
+    STRUCTURED_OUTPUT_TOOL_PREFIX,
     QuotaManager,
     _apply_message_slice,
+    _coerce_structured_output_message,
     _merge_chunk,
 )
 from swarmx.quota import QuotaExceededError
+from swarmx.types import AssistantMessage, MessageParam
 from swarmx.utils import join
 
 pytestmark = pytest.mark.anyio
@@ -125,3 +131,77 @@ async def test_merge_chunk_handles_refusal_and_tool_calls():
         }
     )
     assert _merge_chunk(messages, empty_chunk) is None
+
+
+def test_coerce_structured_output_message():
+    tool_call: ChatCompletionMessageToolCallParam = {
+        "id": "call-structured",
+        "type": "function",
+        "function": {
+            "name": STRUCTURED_OUTPUT_TOOL_PREFIX + "Example",
+            "arguments": json.dumps({"message": "hi", "count": 2}),
+        },
+    }
+    message: MessageParam = cast(
+        MessageParam,
+        {"role": "assistant", "tool_calls": [tool_call]},
+    )
+    response_format = {
+        "type": "json_schema",
+        "json_schema": {
+            "name": "Example",
+            "schema": {
+                "type": "object",
+                "properties": {
+                    "message": {"type": "string"},
+                    "count": {"type": "integer"},
+                },
+                "required": ["message", "count"],
+            },
+        },
+    }
+    result = _coerce_structured_output_message(message, response_format)
+    assert len(result) == 1
+    coerced = cast(AssistantMessage, result[0])
+    assert coerced["role"] == "assistant"
+    assert coerced.get("parsed") == {"message": "hi", "count": 2}
+    assert "tool_calls" not in coerced
+
+
+def test_coerce_structured_message_preserves_original_with_content():
+    tool_call: ChatCompletionMessageToolCallParam = {
+        "id": "call-structured",
+        "type": "function",
+        "function": {
+            "name": STRUCTURED_OUTPUT_TOOL_PREFIX + "Example",
+            "arguments": json.dumps({"message": "hi", "count": 2}),
+        },
+    }
+    message_with_content: MessageParam = cast(
+        MessageParam,
+        {
+            "role": "assistant",
+            "content": "partial response",
+            "tool_calls": [tool_call],
+        },
+    )
+    response_format = {
+        "type": "json_schema",
+        "json_schema": {
+            "name": "Example",
+            "schema": {
+                "type": "object",
+                "properties": {
+                    "message": {"type": "string"},
+                    "count": {"type": "integer"},
+                },
+                "required": ["message", "count"],
+            },
+        },
+    }
+    result = _coerce_structured_output_message(message_with_content, response_format)
+    assert len(result) == 2
+    structured, base = result
+    assert base["content"] == "partial response"
+    assert "tool_calls" not in base
+    assert structured.get("parsed") == {"message": "hi", "count": 2}
