@@ -31,6 +31,7 @@ classifiers = [
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
     "Topic :: Software Development :: Libraries :: Python Modules",
     "Topic :: System :: Distributed Computing",
@@ -99,7 +100,7 @@ exclude_also = [
 
 [tool.tox]
 requires = ["tox>=4", "tox-uv>=1"]
-env_list = ["3.13", "3.12", "3.11"]
+env_list = ["3.14", "3.13", "3.12", "3.11"]
 
 [tool.tox.env_run_base]
 dependency_groups = ["test"]
