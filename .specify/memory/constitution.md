@@ -1,7 +1,7 @@
 <!--
 Sync Impact Report
-Version change: 1.0.0 → 1.0.1
-Modified principles: (added VII. Language-Neutral Agent Interoperability and commit guide)
+Version change: 1.0.1 → 1.0.2
+Modified principles: Human audit
 Added sections: None
 Removed sections: None
 Templates requiring updates: ✅ .specify/templates/plan-template.md; ✅ .specify/templates/spec-template.md; ✅ .specify/templates/tasks-template.md; ✅ .specify/templates/agent-file-template.md
@@ -21,13 +21,14 @@ Rationale: Predictable, legible code keeps multi-agent orchestration safe for th
 
 - Contributors MUST author failing automated tests with pytest before implementing behavior, covering success, error, and regression paths.
 - Code merges only after the new tests pass and the full suite runs green via `uv run pytest`.
+- Ask for human contributors' help while cannot resolved by yourself after several trials.
+- DO NOT just filter out the failed test cases and make test passed.
 Rationale: TDD guards against regressions in distributed agent workflows and sustains long-term contributor confidence.
 
 ### III. Document-Driven Delivery (NON-NEGOTIABLE)
 
-- Significant changes MUST begin with updated plan, research, and spec documents in the `.specify/` and `docs/` hierarchies before writing production code.
+- Significant changes MUST begin with updated plan, research, and spec documents in `docs/` hierarchies before writing production code.
 - Implementation tasks MUST reference document anchors and keep them in sync with the delivered behavior.
-- Any undocumented development MUST have explicit, written authorization from a human maintainer and include a follow-up plan to restore document parity.
 Rationale: Forward documentation synchronizes expectations across maintainers, reviewers, and users.
 
 ### IV. Competitive Research Before Implementation
@@ -42,11 +43,13 @@ Rationale: Understanding peer solutions avoids redundant work and accelerates be
 - Deprecations MUST ship with documented fallbacks and regression tests that exercise legacy flows until removal.
 Rationale: Predictable upgrades sustain user trust and protect integrations built on SwarmX.
 
-### VI. Performance With Cost Discipline
+### VI. Token Economy
 
-- Implementations MUST prefer the highest-performing approach that meets requirements and prove claims with benchmarks or profiling when risk is present.
-- Teams MUST pursue efficiency with minimal new dependencies, opting for built-in capabilities or shared services before expanding infrastructure spend.
-Rationale: High-performance multi-agent systems must stay economically sustainable for contributors and operators.
+- Performance MUST be defined as achieving the required behavior with minimal additional wall-clock time and computational overhead on top of raw LLM inference, while sustaining a high agent task success rate across representative scenarios.
+- Teams MUST instrument and report both speed metrics (latency, throughput) and outcome metrics (success rate, retry counts) so that performance regressions are detected before release.
+- The performance-cost ratio MUST never trade away previously achieved performance; cost reductions (primarily token consumption and related usage fees) are acceptable only when success rates and latency remain at or above baseline.
+- When the token or time cost of a workflow renders an otherwise simple task impractical—e.g., multi-minute runs consuming millions of tokens—the team MUST redesign the approach instead of accepting the expense.
+Rationale: SwarmX operates on a token economy—deliver the strongest achievable results at an acceptable cost ceiling without eroding speed or success guarantees.
 
 ### VII. Language-Neutral Agent Interoperability
 
@@ -76,4 +79,4 @@ Rationale: A language-agnostic architecture keeps SwarmX portable and inexpensiv
 - Amendments require documented proposals, review by maintainers, impact assessment on existing users, and, when adopted, version increments per semantic rules (major for incompatible shifts, minor for new mandates, patch for clarifications).
 - Compliance reviews occur each release cycle to verify documentation freshness, research logs, test coverage, and compatibility commitments; unresolved findings block release.
 
-**Version**: 1.0.1 | **Ratified**: 2025-10-13 | **Last Amended**: 2025-10-14
+**Version**: 1.0.2 | **Ratified**: 2025-10-13 | **Last Amended**: 2025-10-15
