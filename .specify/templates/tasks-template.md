@@ -8,6 +8,7 @@ description: "Task list template for feature implementation"
 **Prerequisites**: plan.md (required), spec.md (required for user stories), research.md, data-model.md, contracts/
 
 **Tests**: Tests are REQUIRED. Write and commit failing tests before implementation to comply with the constitution's TDD mandate.
+**Commits**: Break work into the smallest validated increments; each test-validated slice should land as a single-intent commit referencing the relevant task and evidence.
 
 **Organization**: Tasks are grouped by user story to enable independent implementation and testing of each story.
 
@@ -15,6 +16,7 @@ description: "Task list template for feature implementation"
 - **[P]**: Can run in parallel (different files, no dependencies)
 - **[Story]**: Which user story this task belongs to (e.g., US1, US2, US3)
 - Include exact file paths in descriptions
+- Ensure tasks covering agent orchestration preserve JSON-describable state and MCP-compatible execution flows (Principle VII).
 
 ## Path Conventions
 - **Single project**: `src/`, `tests/` at repository root

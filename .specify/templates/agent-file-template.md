@@ -7,6 +7,8 @@ Auto-generated from all feature plans. Last updated: [DATE]
 - Summarize competitive research insights that informed active features, citing `/specs/*/research.md`.
 - Record compatibility commitments for the active minor version and any pending deprecations.
 - Capture performance benchmarks and associated cost guardrails tracked by the team.
+- Describe how agent definitions, tool routing, and execution hooks remain JSON-serializable and MCP-consumable across runtimes.
+- Outline how recent commits adhered to the single-intent, validated-increment workflow with links back to tasks or audit evidence.
 
 ## Active Technologies
 [EXTRACTED FROM ALL PLAN.MD FILES]

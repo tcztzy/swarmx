@@ -38,7 +38,9 @@
 - [ ] TDD workflow defined: enumerate failing tests to write before implementation (`uv run pytest`) and reference their file paths (Principle II).
 - [ ] Compatibility strategy captured: identify user-facing surfaces impacted and describe how minor-version continuity is protected or migrations delivered (Principle V).
 - [ ] Performance and cost targets documented: include benchmarks, profiling plan, or budget guardrails for the feature (Principle VI).
+- [ ] Agent interoperability preserved: describe how agent definitions, tool routing, and execution hooks remain JSON-serializable and MCP-consumable across runtimes (Principle VII).
 - [ ] Code quality approach clarified: outline simplifications, removals, or refactors that keep the solution readable and maintainable (Principle I).
+- [ ] Commit sequencing documented: break work into single-intent increments tied to compliance evidence so each validated slice can land independently (Operational Workflow).
 
 ## Project Structure
 

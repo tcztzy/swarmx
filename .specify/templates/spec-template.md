@@ -98,11 +98,12 @@
 - **FR-004**: System MUST [data requirement, e.g., "persist user preferences"]
 - **FR-005**: System MUST [behavior, e.g., "log all security events"]
 - **FR-006**: Solution MUST maintain backward-compatible user experience and APIs within the active minor version (cite mitigation plan if risk exists)
+- **FR-007**: Agent behaviors, tools, and routing MUST remain language-neutral by being fully expressible as JSON payloads with MCP-compatible execution hooks (Principle VII).
 
 *Example of marking unclear requirements:*
 
-- **FR-007**: System MUST authenticate users via [NEEDS CLARIFICATION: auth method not specified - email/password, SSO, OAuth?]
-- **FR-008**: System MUST retain user data for [NEEDS CLARIFICATION: retention period not specified]
+- **FR-008**: System MUST authenticate users via [NEEDS CLARIFICATION: auth method not specified - email/password, SSO, OAuth?]
+- **FR-009**: System MUST retain user data for [NEEDS CLARIFICATION: retention period not specified]
 
 ### Key Entities *(include if feature involves data)*
 
@@ -131,6 +132,7 @@
 - **Regression Tests Required**: [List failing tests to author before change]
 - **Migration Plan**: [Steps, timelines, and documentation for any breaking change request]
 - **Rollout Strategy**: [Feature flags, phased release, or beta program details]
+- **Cross-Runtime Interoperability**: [Document how JSON agent definitions and MCP tool bridges preserve parity for alternate language runtimes (Principle VII)]
 
 ## Performance & Cost Plan *(mandatory)*
 

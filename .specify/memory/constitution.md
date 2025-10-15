@@ -1,8 +1,8 @@
 <!--
 Sync Impact Report
-Version change: 0.0.0 (template) → 1.0.0
-Modified principles: (initial publication)
-Added sections: Core Principles; Delivery Research Mandate; Operational Workflow; Governance
+Version change: 1.0.0 → 1.0.1
+Modified principles: (added VII. Language-Neutral Agent Interoperability and commit guide)
+Added sections: None
 Removed sections: None
 Templates requiring updates: ✅ .specify/templates/plan-template.md; ✅ .specify/templates/spec-template.md; ✅ .specify/templates/tasks-template.md; ✅ .specify/templates/agent-file-template.md
 Follow-up TODOs: None
@@ -48,6 +48,13 @@ Rationale: Predictable upgrades sustain user trust and protect integrations buil
 - Teams MUST pursue efficiency with minimal new dependencies, opting for built-in capabilities or shared services before expanding infrastructure spend.
 Rationale: High-performance multi-agent systems must stay economically sustainable for contributors and operators.
 
+### VII. Language-Neutral Agent Interoperability
+
+- Agents MUST remain fully describable as JSON payloads so that behavior, tools, and routing can be exported, reviewed, and rehydrated by any runtime.
+- Execution requiring code MUST be delegated to MCP servers or equivalent tool bridges, enabling alternate language hosts to achieve feature parity by consuming JSON and speaking MCP.
+- Changes to the core MUST avoid baking in language-specific assumptions that would prevent interoperable agent definitions or MCP-driven execution flows.
+Rationale: A language-agnostic architecture keeps SwarmX portable and inexpensive to adopt across ecosystems.
+
 ## Delivery Research Mandate
 
 - Feature kickoffs MUST populate `/specs/<feature>/research.md` with competitive findings, explicit evaluation criteria, and performance benchmarks.
@@ -57,8 +64,11 @@ Rationale: High-performance multi-agent systems must stay economically sustainab
 ## Operational Workflow
 
 - Development follows the sequence: documentation update → research review → failing tests committed → implementation → validation → release notes.
-- Pull requests MUST demonstrate passing tests, updated docs, and evidence that principles I–VI remain satisfied (e.g., links to benchmarks or compatibility checks).
+- Pull requests MUST demonstrate passing tests, updated docs, and evidence that principles I–VII remain satisfied (e.g., links to benchmarks or compatibility checks).
 - Release candidates MUST include a compatibility verification checklist covering CLI flows, API responses, and user experience touchpoints.
+- Contributors MUST break work into the smallest user-observable or process-observable increments and commit as soon as each increment passes local validation.
+- Every commit MUST focus on a single intent—tests, documentation sync, configuration, or code fix—and reference the corresponding task or evidence in the compliance audit.
+- Mixing unrelated changes in one commit is prohibited unless a maintainer grants explicit written approval and follow-up remediation is scheduled.
 
 ## Governance
 
@@ -66,4 +76,4 @@ Rationale: High-performance multi-agent systems must stay economically sustainab
 - Amendments require documented proposals, review by maintainers, impact assessment on existing users, and, when adopted, version increments per semantic rules (major for incompatible shifts, minor for new mandates, patch for clarifications).
 - Compliance reviews occur each release cycle to verify documentation freshness, research logs, test coverage, and compatibility commitments; unresolved findings block release.
 
-**Version**: 1.0.0 | **Ratified**: 2025-10-13 | **Last Amended**: 2025-10-13
+**Version**: 1.0.1 | **Ratified**: 2025-10-13 | **Last Amended**: 2025-10-14
