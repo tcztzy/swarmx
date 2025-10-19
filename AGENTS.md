@@ -1,112 +1,105 @@
 # Repository Guidelines
 
+Authoritative instructions for coding agents working in this repo. Follow every constraint unless the user explicitly overrides it.
+
+## Quick Start
+
+1. Read the user request twice; capture unstated constraints or cross-file impacts.
+2. If the task is multi-step, sketch a plan and revise it as progress is made; otherwise proceed directly.
+3. Inspect relevant files with read-only commands (`rg`, `ls`, `cat`) or equivalent tooling in your environment before editing.
+4. Make focused, minimal changes—prefer patch-style edits or targeted scripts rather than overwriting large sections.
+5. Run only the minimum validation needed (tests, linters) via `uv run ...`. Summarize key results instead of dumping logs.
+6. Craft the final response following the messaging rules below; include verification status and next actions when appropriate.
+
 ## Project Structure & Module Organization
 
-The project follows a standard Python package structure:
+The codebase follows a standard Python package layout:
 
-- `src/swarmx/` - Core package source code
-    - `agent.py` - Agent class and orchestration logic
-    - `cli.py` - Command-line interface implementation
-    - `mcp_client.py` - Model Context Protocol client
-    - `utils.py` - Utility functions and helpers
-    - `types.py` - Type definitions and Pydantic models
-    - `hook.py` - Hook system for custom extensions
+- `src/swarmx/` – Core package source code  
+  Files of note: `agent.py`, `cli.py`, `mcp_client.py`, `utils.py`, `types.py`, `hook.py`
+- `tests/` – Comprehensive pytest suite  
+  Mirrors source modules: `test_agent.py`, `test_cli.py`, `test_mcp_client.py`, `threads/`
+- `docs/`, `examples/` – Narrative documentation and usage patterns
 
-- `tests/` - Test suite with comprehensive coverage
-    - `test_agent.py` - Agent orchestration tests
-    - `test_cli.py` - CLI command tests
-    - `test_mcp_client.py` - MCP integration tests
-    - `threads/` - Test fixtures and thread data
+For deeper architectural context, see `README.md` (overview) and `docs/` (detailed guides).
 
-- `docs/` - Documentation and examples
-- `examples/` - Usage examples and patterns
+## Workflow & Execution Guardrails
 
-## Build, Test, and Development Commands
+- **Planning:** Break work into discrete steps when the effort is more than trivial and keep the plan updated as you complete steps.
+- **Edits:** Default to ASCII. Add concise comments only when they clarify complex logic. Never revert user-owned changes.
+- **Testing:** Run targeted checks with `uv run <tool>` only when they add value. Mention if tests were skipped and why.
+- **Environment Constraints:** Stay within the access level provided (filesystem, network, credentials). Seek approval from the maintainer before attempting privileged actions.
+- **Failures:** Surface command failures promptly, include relevant output, and propose alternatives or follow-up actions.
 
-- All Python dependencies **must be installed, synchronized, and locked** using uv
-- Never use pip, pip-tools, poetry, or conda directly for dependency management
+## Command Reference
 
-Use these commands:
-
-- Install dependencies: `uv add <package>`
-- Remove dependencies: `uv remove <package>`
-- Sync dependencies: `uv sync`
-
-## Running Python Code
-
-- Run a Python script with `uv run <script-name>.py`
-- Run Python tools like Pytest with `uv run pytest` or `uv run ruff`
-- Launch a Python repl with `uv run python`
-
-## Managing Scripts with PEP 723 Inline Metadata
-
-- Run a Python script with inline metadata (dependencies defined at the top of the file) with: `uv run script.py`
-- You can add or remove dependencies manually from the `dependencies =` section at the top of the script, or
-- Or using uv CLI:
-    - `uv add package-name --script script.py`
-    - `uv remove package-name --script script.py`
+- Inspect repo: `ls`, `rg --files`, `rg "<pattern>" <path>`
+- Format/lint: `uv run ruff check`, `uv run ruff format`
+- Tests: `uv run pytest`, `uv run pytest -xvs`
+- Script execution: `uv run <script>.py`
+- Dependency changes: `uv add <pkg>`, `uv remove <pkg>`, `uv sync`
+- Editing: prefer patch-based tools or scripted transformations to keep changes scoped.
 
 ## Coding Style & Naming Conventions
 
-- **Python 3.11+**: Uses modern Python features (async/await, type hints)
-- **Ruff**: Primary linter and formatter (configured in pyproject.toml)
-- **Type Hints**: Extensive use of type annotations throughout
-- **Pydantic**: Data validation and serialization models
-- **Naming**:
-    - Classes: `PascalCase` (e.g., `Agent`, `Swarm`)
-    - Functions/Variables: `snake_case` (e.g., `run_agent`, `message_slice`)
-    - Constants: `UPPER_SNAKE_CASE` (e.g., `DEFAULT_MODEL`)
+- Target Python 3.11+ features, async/await, and type hints throughout.
+- Ruff is the source of truth for linting/formatting (configured in `pyproject.toml`).
+- Use Pydantic models defined in `types.py` for validation.
+- Naming: Classes `PascalCase`, functions/variables `snake_case`, constants `UPPER_SNAKE_CASE`.
 
 ## Testing Guidelines
 
-- **Framework**: pytest with pytest-cov for coverage
-- **Coverage**: Aim for >90% test coverage
-- **Test Structure**:
-    - Tests mirror source structure (test_*.py files)
-    - Use pytest fixtures for test setup
-    - Async tests use pytest-asyncio
-- **Naming**: Test functions start with `test_`
-- **Running**: Use `pytest -xvs` for verbose test execution
+- pytest (with pytest-cov) is the framework of record; aim for >90% coverage.
+- Mirror source structure in tests; leverage fixtures and `pytest-asyncio` for async code.
+- Prefer `uv run pytest -xvs` during focused debugging; share only salient failures.
+- Document in the final message whether tests ran, passed, or were intentionally skipped.
+
+## Communication & Final Messages
+
+- Tone: concise, collaborative, factual. Reference files with clickable paths `path/to/file.py:42`.
+- Structure: Lead with the outcome, then expand on changes by file/section. Avoid heavy formatting; use bullets sparingly.
+- Always note verification status (tests/linters run or skipped) and suggest logical next steps only when they exist.
+- Do not dump large diffs; describe the impact and location so the user can inspect locally.
 
 ## Commit & Pull Request Guidelines
 
-**Commit Messages:**
-- Follow KeepAChangelog guideline
-- Use imperative mood ("Added", "Changed", "Deprecated", "Removed", "Fixed", "Security") and DO NOT use any other words
-- Keep first line under 50 characters
-- Provide context in body if needed
-- Reference issues when applicable
-- DO NOT ADD ANY "GENERATED BY LLM" INFOMATION IN COMMIT MESSAGE
+**Commit Messages**
 
-**Pull Requests:**
-- Include clear description of changes
-- Link related issues
-- Ensure all tests pass
-- Update documentation if needed
-- Follow existing code style patterns
+- Follow KeepAChangelog verbs (`Added`, `Changed`, `Deprecated`, `Removed`, `Fixed`, `Security`).
+- Keep the subject ≤50 characters; imperative mood only.
+- Provide contextual body when necessary; reference related issues.
+- Never include “generated by LLM” or similar wording.
 
-**Note:** Pre-commit hooks are configured to run ruff and mypy checks automatically. Agents do not need to manually run these checks after commits as they are handled by the git pre-commit hook system.
+**Pull Requests**
+
+- Describe changes clearly, link issues, ensure tests pass, and update docs when required.
+- Pre-commit hooks will run `ruff` and `mypy`; no manual invocation needed post-commit.
 
 ## Security & Configuration Tips
 
-- Environment variables loaded from `.env` file
-- API keys should never be committed
-- Use `.env.example` as template for required variables
-- MCP servers require proper authentication setup
+- Environment variables load from `.env`; maintain `.env.example` as the contract.
+- Never commit secrets or credentials.
+- MCP servers require proper authentication; keep configuration in sync with `mcp_client.py`.
 
 ## Agent-Specific Instructions
 
-**Agent Design:**
-- Keep agents focused and single-purpose
-- Use hooks (`on_llm_start`, `on_handoff`) for custom behavior
-- Leverage context variables (`background`, `message_slice`, `tools`)
+**Design Principles**
+- Build focused, single-purpose agents. Use hooks (`on_llm_start`, `on_handoff`) for custom behavior.
+- Leverage context (`background`, `message_slice`, `tools`) to limit prompt size and enable targeted tool use.
 
-**Workflow Patterns:**
-- Use function-based edge transfers for agent routing
-- Implement context compression with `message_slice`
-- Support dynamic tool selection via `tools` context
+**Workflow Patterns**
+- Use function-based edge transfers for routing between agents.
+- Apply context compression (`message_slice`) when handing off or persisting state.
+- Support dynamic tool selection by exposing capabilities through the `tools` context.
 
-**MCP Integration:**
-- Configure MCP servers in environment
-- Use `mcp_client.py` for protocol interactions
-- Follow MCP specification for tool definitions
+**MCP Integration**
+- Configure MCP servers via environment variables before use.
+- Interact through `src/swarmx/mcp_client.py` and adhere to the MCP specification for tool definitions.
+- Validate tool schemas and authentication flows when adding or modifying MCP integrations.
+
+## Related Resources
+
+- `README.md` – High-level project overview and getting started.
+- `CLAUDE.md` – Claude-specific working instructions (cross-check when collaborating with other agents).
+- `docs/` – Extended documentation, tutorials, and reference material.
+- `examples/` – Practical usage scenarios and patterns to mirror or extend.
