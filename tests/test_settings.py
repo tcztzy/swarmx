@@ -42,6 +42,7 @@ def test_get_agents_md_content_handles_list_and_errors(tmp_path: Path, monkeypat
     good = tmp_path / "good.md"
     bad = tmp_path / "bad.md"
     good.write_text("Content")
+    bad.write_text("Broken")
 
     settings = Settings(agents_md=[good, bad])
 
@@ -70,3 +71,17 @@ def restore_global_settings():
     original = settings_module.settings.agents_md
     yield
     settings_module.settings.agents_md = original
+
+
+def test_claude_code_settings_source_handles_invalid_json(tmp_path: Path, monkeypatch):
+    """Gracefully ignore malformed project configuration files."""
+    claude = tmp_path / ".claude.json"
+    mcp = tmp_path / ".mcp.json"
+    claude.write_text("{invalid")
+    mcp.write_text("{invalid")
+
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    monkeypatch.setattr(Path, "cwd", lambda: tmp_path)
+
+    source = ClaudeCodeSettingsSource(Settings)
+    assert source.init_kwargs == {}
