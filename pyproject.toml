@@ -8,17 +8,17 @@ description = "A lightweight, stateless multi-agent orchestration framework."
 readme = "README.md"
 license = "MIT"
 dependencies = [
-    "common-expression-language>=0.5.1",
-    "fastapi>=0.119.0",
+    "common-expression-language>=0.5.3",
+    "fastapi>=0.119.1",
     "jinja2>=3.1.6",
     "jsonschema>=4.25.1",
     "markdown-it-py[plugins]>=4.0.0",
-    "mcp>=1.17.0",
+    "mcp>=1.18.0",
     "networkx>=3.5",
-    "openai>=2.3.0",
+    "openai>=2.6.0",
     "pydantic-settings>=2.11.0",
     "pyyaml>=6.0.3",
-    "typer>=0.19.2",
+    "typer>=0.20.0",
 ]
 requires-python = ">=3.11"  # for asyncio.TaskGroup & except* syntax
 classifiers = [
@@ -50,16 +50,17 @@ dev = [
     { include-group = "docs" },
     { include-group = "lint" },
     { include-group = "test" },
+    "pre-commit>=4.3.0",
 ]
 docs = [
     "mkdocs>=1.6.1",
     "mkdocs-gen-files>=0.5.0",
     "mkdocs-literate-nav>=0.6.2",
-    "mkdocs-material>=9.6.21",
+    "mkdocs-material>=9.6.22",
     "mkdocstrings[python]>=0.30.1",
 ]
 lint = [
-    "ruff>=0.14.0",
+    "ruff>=0.14.1",
 ]
 test = [
     "mcp-server-time>=2025.9.25",

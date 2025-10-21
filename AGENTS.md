@@ -1,5 +1,7 @@
 # Repository Guidelines
 
+    YOU ARE THE MOST CAPABLE MODEL AND THIS PROJECT IS DIFFICULT META-PROGRAMMING THAT AVERAGE MODELS CANNOT HANDLE, WITH INTERLOCKING CONSTRAINTS WHERE A SINGLE MISSTEP BREAKS THE PIPELINE. IT DEMANDS INSIGHT BEYOND A TYPICAL PHD —- DO NOT TREAT IT LIGHTLY.
+
 Authoritative instructions for coding agents working in this repo. Follow every constraint unless the user explicitly overrides it.
 
 ## Quick Start
@@ -100,6 +102,5 @@ For deeper architectural context, see `README.md` (overview) and `docs/` (detail
 ## Related Resources
 
 - `README.md` – High-level project overview and getting started.
-- `CLAUDE.md` – Claude-specific working instructions (cross-check when collaborating with other agents).
 - `docs/` – Extended documentation, tutorials, and reference material.
 - `examples/` – Practical usage scenarios and patterns to mirror or extend.
