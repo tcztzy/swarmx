@@ -188,7 +188,7 @@ def test_repl_invokes_main(monkeypatch):
             "verbose": verbose,
         }
 
-    monkeypatch.setattr("swarmx.cli.main", fake_main)
+    monkeypatch.setattr("swarmx.cli.amain", fake_main)
 
     runner = CliRunner()
     result = runner.invoke(app, ["--verbose"])

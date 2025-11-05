@@ -33,7 +33,7 @@ from openai.types.chat import (
 from pygments.lexers import get_lexer_for_filename, get_lexer_for_mimetype
 from pygments.util import ClassNotFound
 
-from .types import MarkdownFlavor, MCPServer
+from .types import MCPServer
 from .utils import now
 
 mimetypes.add_type("text/markdown", ".md")
@@ -177,7 +177,6 @@ def _image_to_md(
 
 def _resource_to_md(
     resource: EmbeddedResource,
-    flavor: MarkdownFlavor = "gfm",
 ) -> str:
     def get_filename(c: ResourceContents) -> str:
         if c.uri.path is not None:
@@ -203,14 +202,12 @@ def _resource_to_md(
 
     match resource.resource:
         case TextResourceContents() as c:
+            # For markdown/html/plain, insert directly with HTML comment delimiters
+            if c.mimeType in ("text/markdown", "text/plain"):
+                return f"\n<!-- begin {c.uri} -->\n{c.text}\n<!-- end {c.uri} -->\n"
+            # For other types, wrap in code block
             lang = get_lang(c)
-            match flavor:
-                case "gfm":
-                    return f'\n```{lang} title="{c.uri}"\n{c.text}\n```\n'
-                case "mystmd":
-                    return f"\n```{{code}} {lang}\n:filename: {c.uri}\n{c.text}\n```\n"
-                case _:
-                    assert_never(flavor)
+            return f'\n```{lang} title="{c.uri}"\n{c.text}\n```\n'
         case BlobResourceContents() as c:
             return (
                 "<embed"
@@ -225,7 +222,6 @@ def _resource_to_md(
 
 def result_to_content(
     result: CallToolResult,
-    flavor: MarkdownFlavor = "gfm",
 ) -> list[ChatCompletionContentPartTextParam]:
     """Convert MCP tool call result to text params."""
 
@@ -236,11 +232,11 @@ def result_to_content(
             case "image":
                 text = _image_to_md(block)
             case "resource":
-                text = _resource_to_md(block, flavor)
+                text = _resource_to_md(block)
             case "audio":
                 text = f'<audio src="data:{block.mimeType};base64,{block.data}" />'
             case "resource_link":
-                text = f"[{block.name}](blob:{block.uri})"
+                text = f"[{block.name}]({block.uri})"
             case _ as unreachable:
                 assert_never(unreachable)
         return text

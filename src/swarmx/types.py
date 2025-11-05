@@ -25,7 +25,6 @@ class SSEServer(BaseModel):
 GraphMode = Literal["locked", "handoff", "expand"]
 
 MCPServer = StdioServerParameters | SSEServer
-MarkdownFlavor = Literal["gfm", "mystmd"]
 
 
 class AssistantMessage(ChatCompletionAssistantMessageParam, total=False):  # type: ignore

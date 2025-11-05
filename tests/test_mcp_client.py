@@ -159,12 +159,12 @@ async def test_resource_to_md_filename_from_host():
 
 
 async def test_resource_to_md_filename_from_mimetype():
-    """Test _resource_to_md filename determination from mimeType."""
+    """Test _resource_to_md with text/plain mimeType uses HTML comments."""
     resource = EmbeddedResource.model_validate(
         {
             "type": "resource",
             "resource": {
-                "uri": "data://",
+                "uri": "data://test.txt",
                 "text": "Test content",
                 "mimeType": "text/plain",
             },
@@ -172,7 +172,39 @@ async def test_resource_to_md_filename_from_mimetype():
     )
 
     result = _resource_to_md(resource)
+    assert "<!-- begin data://test.txt -->" in result
     assert "Test content" in result
+    assert "<!-- end data://test.txt -->" in result
+
+
+async def test_resource_to_md_markdown_with_nested_code_blocks():
+    """Test _resource_to_md with markdown containing nested code blocks."""
+    markdown_content = """# Example
+
+```python
+def hello():
+    print("world")
+```
+
+More text here."""
+
+    resource = EmbeddedResource.model_validate(
+        {
+            "type": "resource",
+            "resource": {
+                "uri": "file:///example.md",
+                "text": markdown_content,
+                "mimeType": "text/markdown",
+            },
+        }
+    )
+
+    result = _resource_to_md(resource)
+    assert "<!-- begin file:///example.md -->" in result
+    assert markdown_content in result
+    assert "<!-- end file:///example.md -->" in result
+    # Verify the nested code block is preserved
+    assert "```python" in result
 
 
 async def test_resource_to_md_filename_error():
@@ -204,25 +236,6 @@ async def test_resource_to_md_lexer_not_found():
     # Should default to "text" when lexer is not found
     assert "```text" in result
     assert "Test content" in result
-
-
-async def test_resource_to_md_mystmd_flavor():
-    """Test _resource_to_md with mystmd flavor"""
-    resource = EmbeddedResource.model_validate(
-        {
-            "type": "resource",
-            "resource": {
-                "uri": "file:///test.py",
-                "text": "print('hello')",
-                "mimeType": "text/python",
-            },
-        }
-    )
-
-    result = _resource_to_md(resource, flavor="mystmd")
-    assert "```{code}" in result
-    assert ":filename:" in result
-    assert "print('hello')" in result
 
 
 async def test_resource_to_md_blob_content():
@@ -280,7 +293,7 @@ async def test_result_to_content_resource_link():
     content = result_to_content(result)
     assert len(content) == 1
     assert content[0]["type"] == "text"
-    assert "[Test Resource](blob:file:///test.txt)" in content[0]["text"]
+    assert "[Test Resource](file:///test.txt)" in content[0]["text"]
 
 
 async def test_client_registry_tools_include_description():
