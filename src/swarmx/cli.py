@@ -12,36 +12,16 @@ from openai.types.chat.chat_completion_message_param import ChatCompletionMessag
 from .agent import Agent
 from .mcp_server import create_mcp_server
 from .server import create_server_app
+from .version import __version__
 
 
-async def main(
+async def amain(
     *,
-    file: Annotated[
-        Path | None,
-        typer.Option(
-            "--file",
-            "-f",
-            exists=True,
-            help="The path to the swarmx file (networkx node_link_data with additional `mcpServers` key)",
-        ),
-    ] = None,
-    output: Annotated[
-        Path | None,
-        typer.Option(
-            "--output",
-            "-o",
-            writable=True,
-            help="The path to the output file to save the conversation",
-        ),
-    ] = None,
-    verbose: Annotated[
-        bool,
-        typer.Option(
-            "--verbose/--quiet", "-v/-q", help="Print the data sent to the model"
-        ),
-    ] = False,
+    file: Path | None = None,
+    output: Path | None = None,
+    verbose: bool = False,
 ):
-    """SwarmX Command Line Interface."""
+    """SwarmX REPL."""
     if file is None:
         data = {}
     else:
@@ -93,7 +73,7 @@ app = typer.Typer(help="SwarmX Command Line Interface")
 
 
 @app.callback(invoke_without_command=True)
-def repl(
+def main(
     ctx: typer.Context,
     file: Annotated[
         Path | None,
@@ -119,11 +99,17 @@ def repl(
             "--verbose/--quiet", "-v/-q", help="Print the data sent to the model"
         ),
     ] = False,
+    version: Annotated[
+        bool, typer.Option("--version", is_eager=True, help="Print the app version")
+    ] = False,
 ):
-    """Start SwarmX REPL (default command)."""
+    """SwarmX Command Line Interface."""
     if ctx.invoked_subcommand is not None:
         return
-    asyncio.run(main(file=file, output=output, verbose=verbose))
+    if version:
+        typer.echo(f"SwarmX v{__version__}")
+        raise typer.Exit()
+    asyncio.run(amain(file=file, output=output, verbose=verbose))
 
 
 @app.command()

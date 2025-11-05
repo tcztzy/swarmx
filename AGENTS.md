@@ -45,6 +45,7 @@ For deeper architectural context, see `README.md` (overview) and `docs/` (detail
 ## Coding Style & Naming Conventions
 
 - Target Python 3.11+ features, async/await, and type hints throughout.
+- Prefer concise, idiomatic Python; leverage built-ins, comprehensions, and standard library.
 - Ruff is the source of truth for linting/formatting (configured in `pyproject.toml`).
 - Use Pydantic models defined in `types.py` for validation.
 - Naming: Classes `PascalCase`, functions/variables `snake_case`, constants `UPPER_SNAKE_CASE`.

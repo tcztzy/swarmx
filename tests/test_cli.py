@@ -10,7 +10,7 @@ import pytest
 import typer
 from typer.testing import CliRunner
 
-from swarmx.cli import app, main
+from swarmx.cli import amain, app
 from swarmx.server import create_server_app
 
 pytestmark = pytest.mark.anyio
@@ -121,7 +121,7 @@ async def test_main_stream_cycle_writes_output(tmp_path: Path, monkeypatch):
     monkeypatch.setattr(typer, "secho", fake_secho)
 
     output_file = tmp_path / "conversation.json"
-    await main(file=config_file, output=output_file, verbose=True)
+    await amain(file=config_file, output=output_file, verbose=True)
 
     saved = json.loads(output_file.read_text())
     assert saved == [
@@ -169,7 +169,7 @@ async def test_main_appends_refusal_on_error(tmp_path: Path, monkeypatch):
     monkeypatch.setattr(typer, "echo", lambda *args, **kwargs: None)
 
     output_file = tmp_path / "error.json"
-    await main(output=output_file)
+    await amain(output=output_file)
 
     saved = json.loads(output_file.read_text())
     assert saved[0]["content"] == "question"
