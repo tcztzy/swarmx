@@ -3,12 +3,10 @@
 import json
 
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import StreamingResponse
 from openai.types.chat import ChatCompletion, ChatCompletionMessageParam
 from pydantic import BaseModel
 
 from .agent import Agent
-from .types import GraphMode
 from .utils import get_random_string, now
 from .version import __version__
 
@@ -25,7 +23,6 @@ class ChatCompletionCreateParams(BaseModel):
 def create_server_app(
     swarm: Agent,
     *,
-    graph_mode: GraphMode = "locked",
     auto_execute_tools: bool = True,
 ) -> FastAPI:
     """Create FastAPI app with OpenAI-compatible endpoints."""
@@ -66,12 +63,12 @@ def create_server_app(
 
         if not params.stream:
             # Run the target agent synchronously (non‑stream mode) and build an OpenAI‑compatible response
-            messages = await target_agent.run(
-                messages=params.messages,
-                stream=False,
-                max_tokens=params.max_tokens,
-                graph_mode=graph_mode,
-                auto_execute_tools=auto_execute_tools,
+            messages = await target_agent(
+                {
+                    "messages": params.messages,
+                    "stream": False,
+                    "max_tokens": params.max_tokens,
+                },
             )
             return ChatCompletion.model_validate(
                 {
@@ -92,35 +89,35 @@ def create_server_app(
                 }
             )
 
-        async def generate_stream():
-            """Generate streaming response."""
-            try:
-                async for chunk in await target_agent.run(
-                    messages=params.messages,
-                    stream=True,
-                    max_tokens=params.max_tokens,
-                    graph_mode=graph_mode,
-                    auto_execute_tools=auto_execute_tools,
-                ):
-                    yield f"data: {chunk.model_dump_json()}\n\n"
-            except Exception as e:
-                error_chunk = {
-                    "id": f"chatcmpl-{get_random_string(10)}",
-                    "object": "chat.completion.chunk",
-                    "created": now(),
-                    "model": params.model,
-                    "choices": [
-                        {
-                            "index": 0,
-                            "delta": {"content": str(e)},
-                            "finish_reason": "stop",
-                        }
-                    ],
-                }
-                yield f"data: {json.dumps(error_chunk)}\n\n"
-            finally:
-                yield "data: [DONE]\n\n"
+        # async def generate_stream():
+        #     """Generate streaming response."""
+        #     try:
+        #         async for chunk in await target_agent(
+        #             {
+        #                 "messages": params.messages,
+        #                 "stream": True,
+        #                 "max_tokens": params.max_tokens,
+        #             },
+        #         ):
+        #             yield f"data: {chunk.model_dump_json()}\n\n"
+        #     except Exception as e:
+        #         error_chunk = {
+        #             "id": f"chatcmpl-{get_random_string(10)}",
+        #             "object": "chat.completion.chunk",
+        #             "created": now(),
+        #             "model": params.model,
+        #             "choices": [
+        #                 {
+        #                     "index": 0,
+        #                     "delta": {"content": str(e)},
+        #                     "finish_reason": "stop",
+        #                 }
+        #             ],
+        #         }
+        #         yield f"data: {json.dumps(error_chunk)}\n\n"
+        #     finally:
+        #         yield "data: [DONE]\n\n"
 
-        return StreamingResponse(generate_stream())
+        # return StreamingResponse(generate_stream())
 
     return app

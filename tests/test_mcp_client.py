@@ -12,15 +12,12 @@ from mcp.types import (
     ImageContent,
     Tool,
 )
-from openai.types.chat import ChatCompletionMessageToolCallParam
 
-from swarmx.mcp_client import (
-    ClientRegistry,
+from swarmx.mcp_manager import (
+    MCPManager,
     _image_to_md,
     _resource_to_md,
-    result_to_chunk,
     result_to_content,
-    result_to_message,
 )
 
 pytestmark = pytest.mark.anyio
@@ -28,7 +25,7 @@ pytestmark = pytest.mark.anyio
 
 async def test_client_registry_add_server_already_exists():
     """Test ClientRegistry add_server when server already exists."""
-    registry = ClientRegistry()
+    registry = MCPManager()
 
     server_params = StdioServerParameters(
         command=sys.executable, args=["-m", "mcp_server_time"]
@@ -47,7 +44,7 @@ async def test_client_registry_add_server_already_exists():
 
 async def test_client_registry_add_stdio_server():
     """Test ClientRegistry add_server with stdio server."""
-    registry = ClientRegistry()
+    registry = MCPManager()
 
     server_params = StdioServerParameters(
         command=sys.executable, args=["-m", "mcp_server_time"]
@@ -64,7 +61,7 @@ async def test_client_registry_add_stdio_server():
 
 async def test_client_registry_call_tool_success():
     """Test ClientRegistry call_tool success."""
-    registry = ClientRegistry()
+    registry = MCPManager()
 
     # Mock MCP client
     server_params = StdioServerParameters(
@@ -85,7 +82,7 @@ async def test_client_registry_call_tool_success():
 
 async def test_client_registry_call_tool_with_timeout_and_callback():
     """Test ClientRegistry call_tool with timeout and progress callback."""
-    registry = ClientRegistry()
+    registry = MCPManager()
 
     # Mock MCP client
     mock_client = AsyncMock()
@@ -117,7 +114,7 @@ async def test_client_registry_call_tool_with_timeout_and_callback():
 
 async def test_client_registry_tools_property():
     """Test ClientRegistry tools property."""
-    registry = ClientRegistry()
+    registry = MCPManager()
 
     tool1 = Tool(
         name="tool1",
@@ -297,7 +294,7 @@ async def test_result_to_content_resource_link():
 
 
 async def test_client_registry_tools_include_description():
-    registry = ClientRegistry()
+    registry = MCPManager()
     registry._tools["server"] = [
         Tool(
             name="described",
@@ -310,7 +307,7 @@ async def test_client_registry_tools_include_description():
 
 
 async def test_client_registry_parse_name_errors():
-    registry = ClientRegistry()
+    registry = MCPManager()
     with pytest.raises(ValueError):
         registry._parse_name("invalid")
     registry.mcp_clients["server"] = AsyncMock()
@@ -320,7 +317,7 @@ async def test_client_registry_parse_name_errors():
 
 
 async def test_client_registry_call_tool_missing_server():
-    registry = ClientRegistry()
+    registry = MCPManager()
     with pytest.raises(KeyError):
         await registry.call_tool("mcp__ghost__tool", {})
 
@@ -340,16 +337,3 @@ async def test_image_to_md_and_result_to_content_image():
     result = CallToolResult.model_validate({"content": [image.model_dump()]})
     parts = result_to_content(result)
     assert md in parts[0]["text"]
-
-
-async def test_result_to_message_and_chunk_error_path():
-    tool_call: ChatCompletionMessageToolCallParam = {
-        "id": "tool",
-        "type": "function",
-        "function": {"name": "server/tool", "arguments": "{}"},
-    }
-    message = result_to_message(tool_call, Exception("boom"))
-    assert message["content"] == "boom"
-
-    chunk = result_to_chunk(tool_call, Exception("boom"))
-    assert chunk.choices[0].delta.content == "boom"

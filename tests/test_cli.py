@@ -4,13 +4,11 @@ import json
 import runpy
 import tempfile
 from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
-import typer
 from typer.testing import CliRunner
 
-from swarmx.cli import amain, app
+from swarmx.cli import app
 from swarmx.server import create_server_app
 
 pytestmark = pytest.mark.anyio
@@ -45,136 +43,6 @@ def test_cli_main_execution():
     result = runner.invoke(app, ["--help"])
     assert result.exit_code == 0
     assert "SwarmX Command Line Interface" in result.stdout
-
-
-async def test_main_stream_cycle_writes_output(tmp_path: Path, monkeypatch):
-    """Ensure main loop handles prompts, streaming chunks, and output writing."""
-
-    def make_chunk(
-        content: str | None,
-        *,
-        reasoning: str | None = None,
-        refusal: str | None = None,
-        finish_reason: str | None = None,
-    ):
-        delta = SimpleNamespace(
-            content=content,
-            reasoning_content=reasoning,
-            refusal=refusal,
-        )
-        choice = SimpleNamespace(delta=delta, finish_reason=finish_reason)
-        chunk = SimpleNamespace(choices=[choice])
-        chunk.model_dump_json = lambda: json.dumps({"content": content})
-        return chunk
-
-    config_file = tmp_path / "swarm.json"
-    config_file.write_text(json.dumps({"config": True}))
-
-    stream_chunks = [
-        make_chunk("hi", reasoning="thinking"),
-        make_chunk(None, refusal="nope", finish_reason="stop"),
-    ]
-
-    class DummyAgent:
-        def __init__(self):
-            self.name = "primary"
-            self.agents = {"primary": self}
-            self.calls: list[dict[str, object]] = []
-
-        @classmethod
-        def model_validate(cls, data):
-            return cls()
-
-        async def run(self, *, stream: bool, **kwargs):
-            self.calls.append({"stream": stream, **kwargs})
-
-            if stream:
-
-                async def generator():
-                    for chunk in stream_chunks:
-                        yield chunk
-
-                return generator()
-            return [{"role": "assistant", "content": "done"}]
-
-    monkeypatch.setattr("swarmx.cli.Agent", DummyAgent)
-
-    prompt_calls = {"count": 0}
-
-    def fake_prompt(*args, **kwargs):
-        if prompt_calls["count"] == 0:
-            prompt_calls["count"] += 1
-            return "hello"
-        raise KeyboardInterrupt
-
-    echo_calls: list[tuple[str, dict[str, object]]] = []
-    secho_calls: list[tuple[str, dict[str, object]]] = []
-
-    def fake_echo(message: str = "", **kwargs):
-        echo_calls.append((message, kwargs))
-
-    def fake_secho(message: str = "", **kwargs):
-        secho_calls.append((message, kwargs))
-
-    monkeypatch.setattr(typer, "prompt", fake_prompt)
-    monkeypatch.setattr(typer, "echo", fake_echo)
-    monkeypatch.setattr(typer, "secho", fake_secho)
-
-    output_file = tmp_path / "conversation.json"
-    await amain(file=config_file, output=output_file, verbose=True)
-
-    saved = json.loads(output_file.read_text())
-    assert saved == [
-        {
-            "role": "user",
-            "content": "hello",
-        }
-    ]
-    assert any(message == "nope" for message, _ in secho_calls)
-    assert any(message == "" for message, _ in echo_calls)
-
-
-async def test_main_appends_refusal_on_error(tmp_path: Path, monkeypatch):
-    """Capture exceptions from the agent and persist them to the transcript."""
-
-    class FailingAgent:
-        def __init__(self):
-            self.name = "primary"
-            self.agents = {"primary": self}
-
-        @classmethod
-        def model_validate(cls, data):
-            return cls()
-
-        async def run(self, *, stream: bool, **kwargs):
-            raise RuntimeError("boom")
-
-    monkeypatch.setattr("swarmx.cli.Agent", FailingAgent)
-
-    prompt_calls = {"count": 0}
-
-    def fake_prompt(*args, **kwargs):
-        if prompt_calls["count"] == 0:
-            prompt_calls["count"] += 1
-            return "question"
-        raise AssertionError("prompt called again unexpectedly")
-
-    messages: list[str] = []
-
-    def fake_secho(message: str = "", **kwargs):
-        messages.append(message)
-
-    monkeypatch.setattr(typer, "prompt", fake_prompt)
-    monkeypatch.setattr(typer, "secho", fake_secho)
-    monkeypatch.setattr(typer, "echo", lambda *args, **kwargs: None)
-
-    output_file = tmp_path / "error.json"
-    await amain(output=output_file)
-
-    saved = json.loads(output_file.read_text())
-    assert saved[0]["content"] == "question"
-    assert saved[1]["refusal"] == "boom"
-    assert messages[-1] == "boom"
 
 
 def test_repl_invokes_main(monkeypatch):

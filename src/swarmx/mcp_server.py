@@ -8,7 +8,7 @@ from mcp.server.fastmcp import FastMCP
 from openai.types.chat import ChatCompletionMessageParam
 
 from .agent import Agent
-from .types import GraphMode
+from .types import CompletionCreateParams
 
 
 def create_mcp_server(agent: Agent) -> FastMCP:
@@ -20,16 +20,14 @@ def create_mcp_server(agent: Agent) -> FastMCP:
             messages: list[ChatCompletionMessageParam],
             context: dict[str, Any] | None = None,
             auto_execute_tools: bool = True,
-            graph_mode: GraphMode = "locked",
             max_tokens: int | None = None,
         ) -> dict:
-            result = await agent.run(
-                messages=messages,
+            state: CompletionCreateParams = {"messages": messages}
+            if max_tokens is not None:
+                state["max_tokens"] = max_tokens
+            result = await agent(
+                state,
                 context=context,
-                stream=False,
-                graph_mode=graph_mode,
-                max_tokens=max_tokens,
-                auto_execute_tools=auto_execute_tools,
             )
 
             return {"messages": result, "context": context}
@@ -37,6 +35,9 @@ def create_mcp_server(agent: Agent) -> FastMCP:
         return call_agent
 
     for subagent in agent.agents.values():
-        server.tool(name=agent.name, description=agent.description)(wrapper(subagent))
+        if isinstance(subagent, Agent):
+            server.tool(name=agent.name, description=agent.description)(
+                wrapper(subagent)
+            )
 
     return server

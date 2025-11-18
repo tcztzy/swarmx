@@ -5,7 +5,7 @@ from .agent import Agent
 from .cli import app
 from .edge import Edge
 from .hook import Hook
-from .mcp_client import ClientRegistry
+from .mcp_manager import MCPManager
 from .version import __version__
 
 __all__ = (
@@ -13,7 +13,7 @@ __all__ = (
     "Agent",
     "Edge",
     "Hook",
-    "ClientRegistry",
+    "MCPManager",
     "app",
     "settings",
 )

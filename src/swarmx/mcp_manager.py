@@ -1,13 +1,12 @@
 """MCP client related."""
 
-import json
 import mimetypes
 import os
 import re
 from contextlib import AsyncExitStack
 from dataclasses import dataclass, field
 from datetime import timedelta
-from typing import Any, Literal, assert_never, overload
+from typing import Any, assert_never
 
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.sse import sse_client
@@ -21,39 +20,37 @@ from mcp.types import (
     ImageContent,
     ResourceContents,
     TextResourceContents,
-    Tool,
 )
+from mcp.types import Tool as _Tool
 from openai.types.chat import (
-    ChatCompletionChunk,
     ChatCompletionContentPartTextParam,
-    ChatCompletionMessageToolCallParam,
+    ChatCompletionFunctionToolParam,
     ChatCompletionToolMessageParam,
-    ChatCompletionToolParam,
 )
 from pygments.lexers import get_lexer_for_filename, get_lexer_for_mimetype
 from pygments.util import ClassNotFound
 
+from .nodes import Tool
 from .types import MCPServer
-from .utils import now
 
 mimetypes.add_type("text/markdown", ".md")
 
 
 @dataclass
-class ClientRegistry:
+class MCPManager:
     """Registry for tools."""
 
     exit_stack: AsyncExitStack = field(default_factory=AsyncExitStack)
     mcp_clients: dict[str, ClientSession] = field(default_factory=dict)
-    _tools: dict[str, list[Tool]] = field(default_factory=dict)
+    _tools: dict[str, list[_Tool]] = field(default_factory=dict)
 
     @property
-    def tools(self) -> list[ChatCompletionToolParam]:
+    def tools(self) -> list[ChatCompletionFunctionToolParam]:
         """Return all tools, both local and MCP."""
         _tools = []
         for server, tools in self._tools.items():
             for tool in tools:
-                _tool = ChatCompletionToolParam(
+                _tool = ChatCompletionFunctionToolParam(
                     type="function",
                     function={
                         "name": f"mcp__{server}__{tool.name}",
@@ -65,7 +62,7 @@ class ClientRegistry:
                 _tools.append(_tool)
         return _tools
 
-    def _parse_name(self, name: str) -> tuple[str, Tool]:
+    def _parse_name(self, name: str) -> tuple[str, _Tool]:
         if (mo := re.match(r"mcp__(?P<server>[^/]+)__(?P<name>[^/]+)", name)) is None:
             raise ValueError("Invalid tool name, expected mcp__<server>__<tool>")
         server_name, tool_name = mo.group("server"), mo.group("name")
@@ -76,17 +73,39 @@ class ClientRegistry:
                 return server_name, tool
         raise KeyError(f"Tool {tool_name} not found")
 
-    def get_tool(self, name: str) -> Tool:
+    def get_tool(self, name: str) -> _Tool:
         """Get Tool by name."""
         _, tool = self._parse_name(name)
         return tool
 
+    def make_tool_node(self, name: str, tool_call_id: str) -> Tool:
+        """Create a graph Tool node bound to this manager."""
+        server_name, tool = self._parse_name(name)
+        payload = tool.model_dump(mode="python")
+        payload["tool_name"] = name
+        payload["tool_call_id"] = tool_call_id
+        payload["name"] = f"{name}__call__{self._sanitize_call_id(tool_call_id)}"
+        payload["mcp_manager"] = self
+        payload.setdefault(
+            "description",
+            f"{tool.description or ''} (from {server_name})".strip(),
+        )
+        return Tool.model_validate(payload)
+
+    @staticmethod
+    def _sanitize_call_id(tool_call_id: str) -> str:
+        """Return a filesystem-safe representation of a tool call id."""
+        safe = re.sub(r"[^A-Za-z0-9_]", "_", tool_call_id)
+        return safe or "call"
+
     async def call_tool(
         self,
         name: str,
-        arguments: dict[str, Any],
+        arguments: dict[str, Any] | None = None,
         read_timeout_seconds: timedelta | None = None,
         progress_callback: ProgressFnT | None = None,
+        *,
+        meta: dict[str, Any] | None = None,
     ):
         """Call a tool.
 
@@ -95,11 +114,12 @@ class ClientRegistry:
             arguments: The arguments to pass to the tool
             read_timeout_seconds: The read timeout for the tool call
             progress_callback: The progress callback for the tool call
+            meta: The meta data for the tool call
 
         """
         server_name, tool = self._parse_name(name)
         return await self.mcp_clients[server_name].call_tool(
-            tool.name, arguments, read_timeout_seconds, progress_callback
+            tool.name, arguments, read_timeout_seconds, progress_callback, meta=meta
         )
 
     async def add_server(self, name: str, server_params: MCPServer):
@@ -129,43 +149,6 @@ class ClientRegistry:
         await self.exit_stack.aclose()
         self.mcp_clients = {}
         self._tools = {}
-
-    @overload
-    async def exec_tool_call(
-        self,
-        tool_call: ChatCompletionMessageToolCallParam,
-        stream: Literal[False],
-    ) -> ChatCompletionToolMessageParam: ...
-
-    @overload
-    async def exec_tool_call(
-        self,
-        tool_call: ChatCompletionMessageToolCallParam,
-        stream: Literal[True],
-    ) -> ChatCompletionChunk: ...
-
-    async def exec_tool_call(
-        self,
-        tool_call: ChatCompletionMessageToolCallParam,
-        stream: bool,
-    ) -> ChatCompletionToolMessageParam | ChatCompletionChunk:
-        """Execute a tool call and return the message."""
-        try:
-            r = await self.call_tool(
-                tool_call["function"]["name"],
-                json.loads(tool_call["function"]["arguments"]),
-            )
-            return (
-                result_to_chunk(tool_call, r)
-                if stream
-                else result_to_message(tool_call, r)
-            )
-        except Exception as e:
-            return (
-                result_to_chunk(tool_call, e)
-                if stream
-                else result_to_message(tool_call, e)
-            )
 
 
 def _image_to_md(
@@ -245,42 +228,14 @@ def result_to_content(
 
 
 def result_to_message(
-    tool_call: ChatCompletionMessageToolCallParam,
+    tool_call_id: str,
     result: CallToolResult | BaseException,
 ) -> ChatCompletionToolMessageParam:
     """Convert MCP tool call result to OpenAI's message parameter."""
     return {
         "role": "tool",
-        "tool_call_id": tool_call["id"],
+        "tool_call_id": tool_call_id,
         "content": "".join(p["text"] for p in result_to_content(result))
         if isinstance(result, CallToolResult)
         else str(result),
     }
-
-
-def result_to_chunk(
-    tool_call: ChatCompletionMessageToolCallParam,
-    result: CallToolResult | BaseException,
-) -> ChatCompletionChunk:
-    """Convert MCP tool call result to OpenAI's chunk parameter."""
-    content: str = ""
-    if isinstance(result, CallToolResult):
-        content = "".join(p["text"] for p in result_to_content(result))
-    else:
-        content = str(result)
-
-    return ChatCompletionChunk.model_validate(
-        {
-            "id": tool_call["id"],
-            "object": "chat.completion.chunk",
-            "created": now(),
-            "model": tool_call["function"]["name"],
-            "choices": [
-                {
-                    "index": 0,
-                    "delta": {"content": content, "role": "tool"},
-                    "finish_reason": "stop",
-                }
-            ],
-        }
-    )

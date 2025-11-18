@@ -37,22 +37,12 @@ async def amain(
                     "content": user_prompt,
                 }
             )
-            async for chunk in await client.run(
-                messages=messages,
-                stream=True,
+            for message in await client(
+                {
+                    "messages": messages,
+                }
             ):
-                delta = chunk.choices[0].delta
-                if delta.content is not None:
-                    typer.echo(delta.content, nl=False)
-                if (
-                    isinstance(c := getattr(delta, "reasoning_content", None), str)
-                    and verbose
-                ):
-                    typer.secho(c, nl=False, fg="green")
-                if delta.refusal is not None:
-                    typer.secho(delta.refusal, nl=False, err=True, fg="purple")
-                if chunk.choices[0].finish_reason is not None:
-                    typer.echo()
+                ...
         except KeyboardInterrupt:
             break
         except Exception as e:

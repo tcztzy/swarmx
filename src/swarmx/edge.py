@@ -1,5 +1,6 @@
 """Edge."""
 
+from openai.types.chat import ChatCompletionFunctionToolParam
 from pydantic import BaseModel
 
 
@@ -28,3 +29,15 @@ class Edge(BaseModel, frozen=True, use_attribute_docstrings=True):
     """Name of the source node, if is array of string, which means transferring to target need all sources done."""
     target: str
     """Name of the target node, could be agent's name or (tool/common expression language) which returns agent names."""
+
+    @classmethod
+    def as_tool(cls) -> ChatCompletionFunctionToolParam:
+        """Dump."""
+        return {
+            "type": "function",
+            "function": {
+                "name": "create_edge",
+                "description": cls.__doc__ or "",
+                "parameters": cls.model_json_schema(),
+            },
+        }

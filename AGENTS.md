@@ -88,11 +88,9 @@ For deeper architectural context, see `README.md` (overview) and `docs/` (detail
 
 **Design Principles**
 - Build focused, single-purpose agents. Use hooks (`on_llm_start`, `on_handoff`) for custom behavior.
-- Leverage context (`background`, `message_slice`, `tools`) to limit prompt size and enable targeted tool use.
 
 **Workflow Patterns**
 - Use function-based edge transfers for routing between agents.
-- Apply context compression (`message_slice`) when handing off or persisting state.
 - Support dynamic tool selection by exposing capabilities through the `tools` context.
 
 **MCP Integration**

@@ -9,19 +9,17 @@ readme = "README.md"
 license = "MIT"
 dependencies = [
     "common-expression-language>=0.5.3",
-    "fastapi>=0.121.0",
+    "fastapi>=0.121.2",
     "jinja2>=3.1.6",
     "jsonschema>=4.25.1",
-    "markdown-it-py[plugins]>=4.0.0",
-    "mcp>=1.20.0",
-    "mdformat>=1.0.0",
+    "mcp>=1.21.2",
     "networkx>=3.5",
-    "openai>=2.7.1",
-    "pydantic-settings>=2.11.0",
-    "pyyaml>=6.0.3",
+    "openai>=2.8.1",
+    "pydantic-settings>=2.12.0",
+    "tenacity>=9.1.2",
     "typer>=0.20.0",
 ]
-requires-python = ">=3.11"  # for asyncio.TaskGroup & except* syntax
+requires-python = ">=3.12"
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
@@ -29,7 +27,6 @@ classifiers = [
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
     "Programming Language :: Python :: 3.14",
@@ -43,7 +40,7 @@ classifiers = [
 swarmx = "swarmx:app"
 
 [build-system]
-requires = ["uv_build>=0.8.0,<0.9.0"]
+requires = ["uv_build>=0.9.0,<0.10.0"]
 build-backend = "uv_build"
 
 [dependency-groups]
@@ -102,7 +99,7 @@ exclude_also = [
 
 [tool.tox]
 requires = ["tox>=4", "tox-uv>=1"]
-env_list = ["3.14", "3.13", "3.12", "3.11"]
+env_list = ["3.14", "3.13", "3.12"]
 
 [tool.tox.env_run_base]
 dependency_groups = ["test"]

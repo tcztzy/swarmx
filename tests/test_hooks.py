@@ -21,8 +21,8 @@ async def test_execute_hooks_updates_context_via_mcp(hooks_params, model):
     ) as agent:
         context = {"hook_counter": 0}
 
-        await agent.run(
-            messages=[{"role": "user", "content": "Hello"}], context=context
+        await agent(
+            {"messages": [{"role": "user", "content": "Hello"}]}, context=context
         )
 
         assert context["hook_counter"] == 1

@@ -54,8 +54,6 @@ class Settings(BaseSettings, case_sensitive=True, env_file=".env", extra="ignore
 
     OPENAI_BASE_URL: str = "https://api.openai.com/v1"
     OPENAI_API_KEY: str | None = None
-    format_fallback_tool_models: set[str] = Field(default_factory=set)
-    """Models that require tool-call fallback for structured output when JSON schema is unsupported."""
     mcp_servers: dict[str, MCPServer] = Field(default_factory=dict, alias="mcpServers")
     """MCP configuration for the agent. Should be compatible with claude code."""
 

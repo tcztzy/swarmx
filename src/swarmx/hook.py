@@ -1,11 +1,8 @@
 """SwarmX Hook module."""
 
-import logging
 from typing import Literal
 
 from pydantic import BaseModel
-
-logger = logging.getLogger(__name__)
 
 
 class Hook(BaseModel):

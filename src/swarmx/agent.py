@@ -3,423 +3,49 @@
 import asyncio
 import json
 import logging
-import re
 import uuid
 import warnings
 from collections import defaultdict
 from copy import deepcopy
-from pathlib import Path
-from typing import (
-    Annotated,
-    Any,
-    AsyncGenerator,
-    Iterable,
-    Literal,
-    cast,
-    get_args,
-    overload,
-)
+from typing import Annotated, Any, Iterable, cast, get_args
 
-import jsonschema
-import yaml
 from cel import evaluate
 from httpx import Timeout
 from jinja2 import Template
-from markdown_it import MarkdownIt
-from mdit_py_plugins.front_matter import front_matter_plugin
 from openai import DEFAULT_MAX_RETRIES, AsyncOpenAI
 from openai.types.chat import (
     ChatCompletion,
     ChatCompletionChunk,
+    ChatCompletionFunctionToolParam,
     ChatCompletionMessageParam,
-    ChatCompletionMessageToolCallParam,
     ChatCompletionMessageToolCallUnionParam,
-    ChatCompletionToolMessageParam,
-    ChatCompletionToolParam,
-)
-from openai.types.chat.chat_completion_stream_options_param import (
-    ChatCompletionStreamOptionsParam,
-)
-from openai.types.chat.chat_completion_tool_choice_option_param import (
-    ChatCompletionToolChoiceOptionParam,
 )
 from openai.types.chat.completion_create_params import (
     CompletionCreateParamsBase,
-    ResponseFormat,
 )
-from openai.types.shared_params.response_format_json_schema import JSONSchema
 from pydantic import (
-    BaseModel,
     Field,
-    PlainSerializer,
     PrivateAttr,
     TypeAdapter,
     field_serializer,
     field_validator,
-    model_validator,
 )
 
 from . import settings
 from .edge import Edge
 from .hook import Hook, HookType
-from .mcp_client import ClientRegistry
+from .mcp_manager import MCPManager, result_to_message
+from .nodes import Node, Tool
 from .quota import QuotaManager
-from .types import AssistantMessage, GraphMode, MCPServer, MessageParam
-from .utils import completion_to_message, join, now
+from .types import CompletionCreateParams, MCPServer, MessagesState
+from .utils import completion_to_message
 
 warnings.filterwarnings("ignore", category=UserWarning, module="pydantic")
 logging.basicConfig(filename=".swarmx.log", level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-STRUCTURED_OUTPUT_TOOL_PREFIX = "response_format__"
 
-
-def _coerce_response_format(value: Any) -> ResponseFormat | None:
-    """Convert Python types into OpenAI response_format payloads."""
-    try:
-        return TypeAdapter(ResponseFormat | None).validate_python(value)
-    except Exception:
-        pass
-    if isinstance(value, type) and issubclass(value, BaseModel):
-        schema = value.model_json_schema()
-        description = schema.pop("description", value.__doc__)
-        title = schema.pop("title", value.__name__)
-    else:
-        schema = TypeAdapter(value).json_schema()
-        title = str(value)
-        description = None
-    name = re.sub(r"[^0-9A-Za-z_]+", "_", title)
-    json_schema: JSONSchema = {
-        "name": name,
-        "schema": schema,
-        "strict": True,
-    }
-    if description:
-        json_schema["description"] = description
-    return {
-        "type": "json_schema",
-        "json_schema": json_schema,
-    }
-
-
-@overload
-def _structured_output_tool_result(
-    tool_call: ChatCompletionMessageToolCallParam,
-    response_format: Any,
-    stream: Literal[True],
-) -> ChatCompletionChunk: ...
-
-
-@overload
-def _structured_output_tool_result(
-    tool_call: ChatCompletionMessageToolCallParam,
-    response_format: Any,
-    stream: Literal[False],
-) -> AssistantMessage: ...
-
-
-def _structured_output_tool_result(
-    tool_call: ChatCompletionMessageToolCallParam,
-    response_format: Any,
-    stream: bool,
-) -> AssistantMessage | ChatCompletionChunk:
-    """Create a tool message or chunk for structured output fallback."""
-    content = tool_call["function"]["arguments"]
-    match response_format:
-        case {"type": "text"}:
-            parsed = None
-        case {"type": "json_object"} | {
-            "type": "json_schema",
-        }:
-            parsed = json.loads(content)
-            if response_format["type"] == "json_schema":
-                jsonschema.validate(
-                    parsed, response_format["json_schema"].get("schema")
-                )
-        case None:
-            parsed = None
-        case _ if isinstance(response_format, type) and issubclass(
-            response_format, BaseModel
-        ):
-            parsed = response_format.model_validate_json(content)
-        case _:
-            parsed = TypeAdapter(response_format).validate_strings(content)
-    if stream:
-        return ChatCompletionChunk.model_validate(
-            {
-                "id": tool_call["id"],
-                "object": "chat.completion.chunk",
-                "created": now(),
-                "model": tool_call["function"]["name"],
-                "choices": [
-                    {
-                        "index": 0,
-                        "delta": {"content": content, "role": "assistant"},
-                        "finish_reason": "stop",
-                    }
-                ],
-            }
-        )
-    return {
-        "role": "assistant",
-        "content": content,
-        "parsed": parsed,
-    }
-
-
-def _coerce_structured_output_message(
-    message: ChatCompletionMessageParam,
-    response_format: Any,
-) -> list[MessageParam]:
-    """Convert structured output tool call assistant message into normalized messages."""
-
-    def _is_empty_content(content: Any) -> bool:
-        match content:
-            case None:
-                return True
-            case str():
-                return content == ""
-            case list():
-                return len("".join(b["text"] for b in content if "text" in b)) == 0
-            case _:
-                return False
-
-    if (
-        response_format is None
-        or response_format == {"type": "text"}
-        or message["role"] != "assistant"
-    ):
-        return [message]
-    tool_calls = cast(
-        list[ChatCompletionMessageToolCallUnionParam] | None, message.get("tool_calls")
-    )
-    if not tool_calls:
-        return [message]
-
-    structured_calls: list[ChatCompletionMessageToolCallParam] = []
-    remaining_calls: list[ChatCompletionMessageToolCallUnionParam] = []
-    for call in tool_calls:
-        if call["type"] == "function" and call["function"]["name"].startswith(
-            STRUCTURED_OUTPUT_TOOL_PREFIX
-        ):
-            structured_calls.append(call)
-        else:
-            remaining_calls.append(call)
-
-    if not structured_calls:
-        return [message]
-
-    base_message = cast(AssistantMessage, message)
-    if remaining_calls:
-        base_message["tool_calls"] = remaining_calls
-    else:
-        base_message.pop("tool_calls", None)
-
-    content_empty = _is_empty_content(base_message.get("content"))
-
-    messages: list[MessageParam] = []
-
-    for call in structured_calls:
-        structured = _structured_output_tool_result(call, response_format, False)
-        messages.append(structured)
-
-    if not content_empty or remaining_calls:
-        messages.append(base_message)
-
-    return messages
-
-
-def _parse_front_matter(front_matter: str):
-    try:
-        return yaml.safe_load(front_matter)
-    except yaml.YAMLError:
-        pass
-    data: dict[str, Any] = {}
-    for line in front_matter.splitlines():
-        line = line.strip()
-        if not line or ":" not in line:
-            continue
-        key, val = line.split(":", 1)
-        data[key.strip()] = val.strip()
-    return data
-
-
-def _merge_chunk(
-    messages: dict[str, ChatCompletionMessageParam],
-    chunk: ChatCompletionChunk,
-) -> None:
-    message = messages[chunk.id]
-    if len(chunk.choices) == 0:  # last usage chunk
-        return None
-    delta = chunk.choices[0].delta
-    content = message.get("content")
-    if delta.content is not None:
-        if isinstance(content, str) or content is None:
-            message["content"] = (content or "") + delta.content
-        else:
-            message["content"] = [*content, {"type": "text", "text": delta.content}]  # type: ignore
-
-    if delta.refusal is not None:
-        assert message["role"] == "assistant"
-        message["refusal"] = (message.get("refusal") or "") + delta.refusal
-    if delta.tool_calls is not None:
-        # We use defaultdict as intermediate structure here instead of list
-        if message["role"] != "assistant":
-            raise ValueError("Tool calls can only be added to assistant messages")
-        tool_calls = cast(
-            defaultdict[int, ChatCompletionMessageToolCallParam],
-            message.get(
-                "tool_calls",
-                defaultdict(
-                    lambda: {
-                        "id": "",
-                        "type": "function",
-                        "function": {"arguments": "", "name": ""},
-                    },
-                ),
-            ),
-        )
-        for call in delta.tool_calls:
-            function = call.function
-            tool_call = tool_calls[call.index]
-            if call.id:
-                tool_call["id"] = call.id
-            if function:
-                tool_call["function"]["arguments"] += function.arguments or ""
-                tool_call["function"]["name"] += function.name or ""
-            tool_calls[call.index] = tool_call
-        message["tool_calls"] = tool_calls  # type: ignore
-
-
-def _apply_message_slice(
-    messages: list[ChatCompletionMessageParam], message_slice: str
-) -> list[ChatCompletionMessageParam]:
-    """Apply message filters.
-
-    Filters are applied in order. Filters can be either a slice string or a CEL expression. (CEL do not support slice natively)
-
-    >>> _apply_message_slice(messages, "-100:") # take last 100 messages
-    >>> _apply_message_slice(messages, "0:10") # take first 10 messages
-    >>> _apply_message_slice(messages, ":0") # take no messages
-    >>> _apply_message_slice(messages, ":") # take all messages, equivalent to no filter
-    >>> _apply_message_slice(messages, "0:10:-1") # RARELY USED: take first 10 messages, reverse order
-    """
-    if re.match(r"-?\d*:-?\d*(:-?\d*)?", message_slice):
-        return messages[
-            slice(*[int(v) if v else None for v in message_slice.split(":")])
-        ]
-    raise ValueError(f"Invalid message slice: {message_slice}")
-
-
-class Parameters(BaseModel, use_attribute_docstrings=True):
-    """Popular parameters supported by most providers."""
-
-    frequency_penalty: float | None = None
-    """Number between -2.0 and 2.0.
-
-    Positive values penalize new tokens based on their existing frequency in the
-    text so far, decreasing the model's likelihood to repeat the same line verbatim.
-    """
-
-    logprobs: bool | None = None
-    """Whether to return log probabilities of the output tokens or not.
-
-    If true, returns the log probabilities of each output token returned in the
-    `content` of `message`.
-    """
-
-    max_tokens: int | None = None
-    """
-    The maximum number of [tokens](/tokenizer) that can be generated in the chat
-    completion. This value can be used to control
-    [costs](https://openai.com/api/pricing/) for text generated via API.
-
-    This value is now deprecated in favor of `max_completion_tokens`, and is not
-    compatible with
-    [o-series models](https://platform.openai.com/docs/guides/reasoning).
-    """
-
-    presence_penalty: float | None = None
-    """Number between -2.0 and 2.0.
-
-    Positive values penalize new tokens based on whether they appear in the text so
-    far, increasing the model's likelihood to talk about new topics.
-    """
-
-    response_format: Annotated[
-        ResponseFormat | Any | None,
-        PlainSerializer(_coerce_response_format),
-    ] = None
-    """An object specifying the format that the model must output.
-
-    Setting to `{ "type": "json_schema", "json_schema": {...} }` enables Structured
-    Outputs which ensures the model will match your supplied JSON schema. Learn more
-    in the
-    [Structured Outputs guide](https://platform.openai.com/docs/guides/structured-outputs).
-
-    Setting to `{ "type": "json_object" }` enables the older JSON mode, which
-    ensures the message the model generates is valid JSON. Using `json_schema` is
-    preferred for models that support it.
-    """
-
-    seed: int | None = None
-    """
-    This feature is in Beta. If specified, our system will make a best effort to
-    sample deterministically, such that repeated requests with the same `seed` and
-    parameters should return the same result. Determinism is not guaranteed, and you
-    should refer to the `system_fingerprint` response parameter to monitor changes
-    in the backend.
-    """
-
-    stop: str | list[str] | None = None
-    """Not supported with latest reasoning models `o3` and `o4-mini`.
-
-    Up to 4 sequences where the API will stop generating further tokens. The
-    returned text will not contain the stop sequence.
-    """
-
-    stream_options: ChatCompletionStreamOptionsParam | None = None
-    """Options for streaming response. Only set this when you set `stream: true`."""
-
-    temperature: float | None = None
-    """What sampling temperature to use, between 0 and 2.
-
-    Higher values like 0.8 will make the output more random, while lower values like
-    0.2 will make it more focused and deterministic. We generally recommend altering
-    this or `top_p` but not both.
-    """
-
-    tool_choice: ChatCompletionToolChoiceOptionParam | None = None
-    """
-    Controls which (if any) tool is called by the model. `none` means the model will
-    not call any tool and instead generates a message. `auto` means the model can
-    pick between generating a message or calling one or more tools. `required` means
-    the model must call one or more tools. Specifying a particular tool via
-    `{"type": "function", "function": {"name": "my_function"}}` forces the model to
-    call that tool.
-
-    `none` is the default when no tools are present. `auto` is the default if tools
-    are present.
-    """
-
-    top_logprobs: int | None = None
-    """
-    An integer between 0 and 20 specifying the number of most likely tokens to
-    return at each token position, each with an associated log probability.
-    `logprobs` must be set to `true` if this parameter is used.
-    """
-
-    top_p: float | None = None
-    """
-    An alternative to sampling with temperature, called nucleus sampling, where the
-    model considers the results of the tokens with top_p probability mass. So 0.1
-    means only the tokens comprising the top 10% probability mass are considered.
-
-    We generally recommend altering this or `temperature` but not both.
-    """
-
-
-class Agent(BaseModel, use_attribute_docstrings=True, serialize_by_alias=True):
+class Agent(Node[CompletionCreateParams, MessagesState]):
     """Agent in the agent graph.
 
     Using this when you need to break down complex tasks into specialized sub-tasks and create reusable, composable AI components. All existing agents are list in tools before this one.
@@ -439,13 +65,15 @@ class Agent(BaseModel, use_attribute_docstrings=True, serialize_by_alias=True):
         assistant: "The swarm needs web scraping and API integration expertise. I'll create a WebIntegration agent specialized in BeautifulSoup, requests, and REST API development."
     """
 
-    name: Annotated[str, Field(strict=True, max_length=256, frozen=True)] = "Agent"
+    name: Annotated[
+        str, Field(pattern=r"([A-Za-z][A-Za-z0-9]*(?:_[A-Za-z0-9]+)*)", frozen=True)
+    ]
     """User-friendly name for the display.
-    
-    The name is unique among all sub-agents and their nested sub-sub-agents.
+
+    The name is unique among all nodes, including nested nodes.
     """
 
-    description: str = "You are a helpful AI assistant"
+    description: str | None = None
     """Agent's description for tool generation and documentation.
 
     Here is a template for description.
@@ -460,7 +88,12 @@ class Agent(BaseModel, use_attribute_docstrings=True, serialize_by_alias=True):
     ```
     """
 
-    model: str = "deepseek-reasoner"
+    inputSchema: dict[str, Any] = Field(
+        default_factory=lambda: TypeAdapter(CompletionCreateParams).json_schema()
+    )
+    """Empty inputSchema represent OpenAI chat completions API create parameters."""
+
+    model: str
     """The default model to use for the agent."""
 
     instructions: str | None = None
@@ -469,13 +102,10 @@ class Agent(BaseModel, use_attribute_docstrings=True, serialize_by_alias=True):
     mcp_servers: dict[str, MCPServer] = Field(default_factory=dict, alias="mcpServers")
     """MCP configuration for the agent. Should be compatible with claude code."""
 
-    parameters: Parameters = Field(default_factory=Parameters)
-    """Additional parameters to pass to the chat completion API."""
-
     client: AsyncOpenAI | None = None
     """The client to use for the node"""
 
-    nodes: "set[Agent]" = Field(default_factory=set)
+    nodes: "set[Node]" = Field(default_factory=set)
     """The nodes in the Agent's graph"""
 
     edges: set[Edge] = Field(default_factory=set)
@@ -487,133 +117,51 @@ class Agent(BaseModel, use_attribute_docstrings=True, serialize_by_alias=True):
     _visited: "dict[str, bool]" = PrivateAttr(
         default_factory=lambda: defaultdict(lambda: False)
     )
-    _client_registry: ClientRegistry | None = PrivateAttr(default=None)
+    _mcp_manager: MCPManager = PrivateAttr(default_factory=MCPManager)
 
-    def __hash__(self):
-        """Since name is unique, make this as hash key."""
-        return hash(self.name)
+    @property
+    def agents(self) -> dict[str, "Agent"]:
+        """Return all agents in the graph keyed by their unique name."""
+        return self._collect_agents()
+
+    def _collect_agents(self) -> dict[str, "Agent"]:
+        collected: dict[str, "Agent"] = {}
+
+        def visit(node: "Agent") -> None:
+            if node.name in collected:
+                raise ValueError(f"Duplicated agent name: {node.name}")
+            collected[node.name] = node
+            for child in node.nodes:
+                if isinstance(child, Agent):
+                    visit(child)
+
+        visit(self)
+        return collected
 
     @classmethod
-    def model_validate_md(
-        cls,
-        md_data: str | bytes | bytearray,
-        *,
-        strict: bool | None = None,
-        context: Any | None = None,
-        by_alias: bool | None = None,
-        by_name: bool | None = None,
-    ):
-        """Markdown parsing with tolerant front matter handling.
+    def as_init_tool(cls) -> ChatCompletionFunctionToolParam:
+        """As init tool."""
+        return {
+            "type": "function",
+            "function": {
+                "name": "create_agent",
+                "description": cls.__doc__ or "",
+                "parameters": cls.model_json_schema(),
+            },
+        }
 
-        Supports front matter delimited by any line of three or more dashes,
-        even when the opening and closing delimiter counts differ. Parses the
-        YAML-like key/value pairs manually (one ``key: value`` per line) to avoid
-        issues with special-character escaping, then attaches the remaining markdown
-        as ``instructions``.
-        """
-        if isinstance(md_data, (bytes, bytearray)):
-            md_data = md_data.decode("utf-8")
-        md = MarkdownIt("commonmark", {"breaks": True, "html": True}).use(
-            front_matter_plugin
-        )
-        tokens = md.parse(md_data)
-        if (front_matter_token := tokens[0]).type != "front_matter":
-            raise ValueError("Invalid agent markdown")
-        front_matter = front_matter_token.content
-        _, _, body = md_data.split("---", maxsplit=2)
-        try:
-            return cls.model_validate(
-                _parse_front_matter(front_matter) | {"instructions": body.strip()},
-                strict=strict,
-                context=context,
-                by_alias=by_alias,
-                by_name=by_name,
-            )
-        except Exception as e:
-            raise ValueError("Invalid agent markdown") from e
-
-    def as_agent_md(self) -> str:
-        """Serialize model to markdown with YAML front matter."""
-        data = self.model_dump(include={"name", "description", "model"})
-        content = self.instructions or "You are a helpful AI assistant."
-        front = yaml.safe_dump(data, sort_keys=False)
-        return f"---\n{front}---\n\n{content}"
-
-    def dump_agent_md(self, path: Path):
-        """Serialize all existing agents to target path."""
-        if not path.is_dir():
-            raise TypeError("Can only dump agents to a directory.")
-        for name, agent in self.agents.items():
-            (path / f"{name}.md").write_text(agent.as_agent_md())
-
-    def model_post_init(self, __context: Any) -> None:
-        """Initialize private attributes after validation."""
-        extra = getattr(self, "model_extra", None) or {}
-        registry = None
-        if isinstance(extra, dict):
-            registry = extra.pop("client_registry", None) or extra.pop(
-                "clientRegistry", None
-            )
-        self._client_registry = registry or self._client_registry or ClientRegistry()
-
-    @property
-    def client_registry(self) -> ClientRegistry:
-        """MCP Client registry."""
-        if self._client_registry is None:
-            self._client_registry = ClientRegistry()
-        return self._client_registry
-
-    @client_registry.setter
-    def client_registry(self, value: ClientRegistry) -> None:
-        self._client_registry = value
-
-    async def __aenter__(self) -> "Agent":
-        """Allow usage as an async context manager without extra setup."""
-        return self
-
-    async def __aexit__(
-        self,
-        exc_type: type[BaseException] | None,
-        exc: BaseException | None,
-        tb: Any,
-    ) -> None:
-        """Exit."""
-        """Release MCP client sessions held by this agent hierarchy."""
-        visited: set["Agent"] = set()
-
-        async def _close(agent: "Agent") -> None:
-            if agent in visited:
-                return
-            visited.add(agent)
-            await agent.client_registry.close()
-            agent._client_registry = None
-            for child in agent.nodes:
-                await _close(child)
-
-        await _close(self)
-
-    @property
-    def agents(self) -> "dict[str, Agent]":
-        """Get all agent names in the hierarchy, including self and nested agents."""
-        agents: "dict[str, Agent]" = {}
-
-        def collect_agents(agent: "Agent") -> None:
-            """Recursively collect all agent names."""
-            if agent.name in agents:
-                raise ValueError("Duplicated agent name")
-            agents[agent.name] = agent
-            for subagent in agent.nodes:
-                collect_agents(subagent)
-
-        collect_agents(self)
-
-        return agents
-
-    @model_validator(mode="after")
-    def validate_unique_agent_name(self):
-        """Validate agent names are unique."""
-        self.agents
-        return self
+    def as_call_tool(self) -> ChatCompletionFunctionToolParam:
+        """As call tool."""
+        tool: ChatCompletionFunctionToolParam = {
+            "type": "function",
+            "function": {
+                "name": self.name,
+                "parameters": self.inputSchema,
+            },
+        }
+        if self.description is not None:
+            tool["function"]["description"] = self.description
+        return tool
 
     @field_validator("client", mode="plain")
     def validate_client(cls, v: Any) -> AsyncOpenAI | None:
@@ -663,88 +211,182 @@ class Agent(BaseModel, use_attribute_docstrings=True, serialize_by_alias=True):
             client["default_query"] = v._custom_query
         return client
 
-    @field_validator("parameters", mode="before")
-    def validate_params(cls, v: Any) -> CompletionCreateParamsBase:
-        """Validate completion create parameters, ensuring messages and model are dummy."""
-        if isinstance(v, dict):
-            return v | {"model": "DUMMY", "messages": []}  # type: ignore
-        return v
+    def model_post_init(self, context):
+        """Post."""
+        mcp_manager = (self.model_extra or {}).get("mcp_manager")
+        if isinstance(mcp_manager, MCPManager):
+            self._mcp_manager = mcp_manager
+        # Validate the agent graph immediately so duplicates fail fast
+        self._collect_agents()
 
-    @field_serializer("parameters", mode="plain")
-    def serialize_params(self, v: CompletionCreateParamsBase) -> dict[str, Any]:
-        """Serialize completion create parameters, excluding messages and model."""
-        r = dict(v)
-        r.pop("messages", None)
-        r.pop("model", None)
-        return r
-
-    def extra_tools(
-        self, graph_mode: GraphMode = "locked"
-    ) -> list[ChatCompletionToolParam]:
-        """Extra tools based on operation mode.
+    async def __call__(
+        self,
+        params: CompletionCreateParams | None = None,
+        *,
+        context: dict[str, Any] | None = None,
+        quota_manager: QuotaManager | None = None,
+    ) -> MessagesState:
+        """Run the agent.
 
         Args:
-            graph_mode: Operation mode that affects tool availability:
-                - locked: agent cannot modify the graph
-                - handoff: agent can create edges but not new agents
-                - expand: agent can create new agents and edges
+            params: Dict containing messages and completion settings
+            context: The context variables to pass to the agent
+            quota_manager: The quota manager for tokens and other resources
+            auto_execute_tools: Automatically execute tools or not
 
         """
-        if graph_mode == "locked":
-            return []
-        base_tools: list[ChatCompletionToolParam] = [
-            *[
-                {
-                    "type": "function",
-                    "function": {
-                        "name": agent.name,
-                        "description": agent.description,
-                        "parameters": {"type": "object", "properties": {}},
-                    },
-                }
-                for agent in cast(list[Agent], [self, *self.nodes])
-            ]
-        ]
+        for name, server_params in (
+            (settings.mcp_servers if settings is not None else {}) | self.mcp_servers
+        ).items():
+            await self._mcp_manager.add_server(name, server_params)
+        if params is None:
+            params = {"messages": []}
+        stream = params.get("stream", False)
+        if stream:
+            raise NotImplementedError("Stream mode is not yet supported now.")
+        params = deepcopy(params)
+        messages = params["messages"]
+        init_len = len(messages)
+        if context is None:
+            context = {}
+        if quota_manager is None:
+            quota_manager = QuotaManager(params.get("max_tokens"))  # type: ignore[arg-type]
+        self._visited.clear()
+        self._cleanup_runtime_tools()
+        await self._execute_hooks("on_start", messages, context)
+        try:
+            completion = await self._create_chat_completion(
+                params=params,
+                context=context,
+                quota_manager=quota_manager,
+            )
+            total_tokens = completion.usage.total_tokens if completion.usage else 0
+            await quota_manager.consume(self.name, total_tokens)
+            logger.info(
+                json.dumps(
+                    completion.model_dump(mode="json", exclude_unset=True)
+                    | {"request_id": completion._request_id}
+                )
+            )
 
-        edge_tool: ChatCompletionToolParam = {
-            "type": "function",
-            "function": {
-                "name": "create_edge",
-                "description": Edge.__doc__ or "",
-                "parameters": Edge.model_json_schema(),
-            },
-        }
+            # Extract message for hook processing and tool calls
+            message = completion_to_message(completion)
+            message["name"] = f"{self.name} ({completion.id})"
+            messages.append(message)
 
-        if graph_mode == "handoff":
-            return base_tools + [edge_tool]
+            if (tool_calls := messages[-1].get("tool_calls")) is not None:
+                self._register_tool_calls(tool_calls, messages)
+            self._visited[self.name] = True
+            pending_sources: set[str] = {self.name}
+            while pending_sources:
+                targets: dict[str, Node] = {}
+                for edge in self.edges:
+                    if not self._edge_triggers(edge, pending_sources):
+                        continue
+                    resolved = await self._resolve_edge_target(edge.target, context)
+                    for target in resolved:
+                        targets[target.name] = target
+                if not targets:
+                    break
+                task_entries: list[tuple[Node, asyncio.Task[MessagesState]]] = []
+                async with asyncio.TaskGroup() as tg:
+                    for target in targets.values():
+                        if isinstance(target, Agent):
+                            task = tg.create_task(target({"messages": messages}))
+                        elif isinstance(target, Tool):
+                            task = tg.create_task(
+                                self._run_tool_node(
+                                    target, {"messages": messages}, context
+                                )
+                            )
+                        else:
+                            raise TypeError("Unknown type of Node.")
+                        task_entries.append((target, task))
+                pending_sources = set()
+                for target, task in task_entries:
+                    result = task.result()
+                    messages.extend(result["messages"])
+                    self._visited[target.name] = True
+                    pending_sources.add(target.name)
+            await self._execute_hooks("on_end", messages, context)
+            return {"messages": messages[init_len:]}
+        finally:
+            self._cleanup_runtime_tools()
 
-        # expand mode - include both create_agent and create_edge
-        return base_tools + [
-            {
-                "type": "function",
-                "function": {
-                    "name": "create_agent",
-                    "description": self.__class__.__doc__ or "",
-                    "parameters": self.model_json_schema(),
-                },
-            },
-            edge_tool,
-        ]
+    def _edge_triggers(self, edge: Edge, pending_sources: set[str]) -> bool:
+        """Check whether an edge is ready to fire based on freshly completed sources."""
+        if isinstance(edge.source, tuple):
+            return all(self._visited.get(name, False) for name in edge.source) and any(
+                name in pending_sources for name in edge.source
+            )
+        return edge.source in pending_sources
 
-    def _get_client(self):
-        return self.client or AsyncOpenAI(
-            api_key=settings.OPENAI_API_KEY,
-            base_url=settings.OPENAI_BASE_URL,
+    async def _run_tool_node(
+        self,
+        tool: Tool,
+        state: MessagesState,
+        context: dict[str, Any],
+    ) -> MessagesState:
+        """Execute a tool node with hook notifications."""
+        messages = state["messages"]
+        await self._execute_hooks(
+            "on_tool_start",
+            messages,
+            context,
+            tool_name=tool.name,
         )
+        try:
+            result = await tool(context)
+        except Exception:
+            await self._execute_hooks(
+                "on_tool_end",
+                messages,
+                context,
+                tool_name=tool.name,
+            )
+            raise
+        await self._execute_hooks(
+            "on_tool_end",
+            messages,
+            context,
+            tool_name=tool.name,
+        )
+        return {"messages": [result_to_message(tool.name, result)]}
+
+    def _builtin_tools(self) -> list[ChatCompletionFunctionToolParam]:
+        """Graph management tools available to every agent."""
+        return [
+            *[
+                agent.as_call_tool()
+                for agent in [self, *self.nodes]
+                if isinstance(agent, Agent)
+            ]
+        ] + [
+            Agent.as_init_tool(),
+            Edge.as_tool(),
+        ]
+
+    def _visible_tools(self):
+        hook_names = [
+            getattr(hook, hook_type)
+            for hook in self.hooks
+            for hook_type in get_args(HookType)
+            if getattr(hook, hook_type, None) is not None
+        ]
+        return [
+            tool
+            for tool in self._mcp_manager.tools
+            if tool["function"]["name"] not in hook_names
+        ] + self._builtin_tools()
 
     async def _execute_hooks(
         self,
         hook_type: HookType,
-        messages: list[MessageParam],
+        messages: list[ChatCompletionMessageParam],
         context: dict[str, Any],
         *,
         tool_name: str | None = None,
-        available_tools: list[ChatCompletionToolParam] | None = None,
+        available_tools: list[ChatCompletionFunctionToolParam] | None = None,
         to_agent: "Agent | None" = None,
         chunk: ChatCompletionChunk | None = None,
         completion: ChatCompletion | None = None,
@@ -764,7 +406,7 @@ class Agent(BaseModel, use_attribute_docstrings=True, serialize_by_alias=True):
         """
         for hook in [h for h in self.hooks if getattr(h, hook_type, None) is not None]:
             hook_name: str = getattr(hook, hook_type)
-            hook_tool = self.client_registry.get_tool(hook_name)
+            hook_tool = self._mcp_manager.get_tool(hook_name)
             properties = hook_tool.inputSchema["properties"]
             arguments: dict[str, Any] = {}
             available = {"messages": messages, "context": context}
@@ -773,11 +415,8 @@ class Agent(BaseModel, use_attribute_docstrings=True, serialize_by_alias=True):
             if completion is not None:
                 available["completion"] = completion
             if tool_name is not None:
-                available["tool"] = self.client_registry.get_tool(tool_name)
+                available["tool"] = self._mcp_manager.get_tool(tool_name)
             if to_agent is not None:
-                available["from_agent"] = self.model_dump(
-                    mode="json", exclude_unset=True
-                )
                 available["to_agent"] = to_agent.model_dump(
                     mode="json", exclude_unset=True
                 )
@@ -793,67 +432,12 @@ class Agent(BaseModel, use_attribute_docstrings=True, serialize_by_alias=True):
                 if key in properties:
                     arguments |= {key: value}
             try:
-                result = await self.client_registry.call_tool(hook_name, arguments)
+                result = await self._mcp_manager.call_tool(hook_name, arguments)
                 if result.structuredContent is None:
                     raise ValueError("Hook tool must return structured content")
                 context |= result.structuredContent
             except Exception as e:
                 raise e
-
-    @overload
-    async def _execute_tool_with_hooks(
-        self,
-        tool_call: ChatCompletionMessageToolCallParam,
-        stream: Literal[False],
-        messages: list[MessageParam],
-        context: dict[str, Any],
-    ) -> ChatCompletionToolMessageParam: ...
-
-    @overload
-    async def _execute_tool_with_hooks(
-        self,
-        tool_call: ChatCompletionMessageToolCallParam,
-        stream: Literal[True],
-        messages: list[MessageParam],
-        context: dict[str, Any],
-    ) -> ChatCompletionChunk: ...
-
-    async def _execute_tool_with_hooks(
-        self,
-        tool_call: ChatCompletionMessageToolCallParam,
-        stream: bool,
-        messages: list[MessageParam],
-        context: dict[str, Any],
-    ) -> ChatCompletionToolMessageParam | ChatCompletionChunk:
-        """Execute a tool call with on_tool_start and on_tool_end hooks.
-
-        Args:
-            tool_call: The tool call to execute
-            stream: Whether to stream the response
-            messages: The current messages
-            context: The context variables
-
-        Returns:
-            The result of the tool execution
-
-        """
-        tool_name = tool_call["function"]["name"]
-        await self._execute_hooks(
-            "on_tool_start", messages, context, tool_name=tool_name
-        )
-
-        try:
-            result = await self.client_registry.exec_tool_call(tool_call, stream)  # type: ignore[call-overload]
-            await self._execute_hooks(
-                "on_tool_end", messages, context, tool_name=tool_name
-            )
-            return result
-        except Exception as e:
-            logger.warning(f"Tool execution failed for {tool_name}: {e}")
-            await self._execute_hooks(
-                "on_tool_end", messages, context, tool_name=tool_name
-            )
-            raise
 
     async def _get_system_prompt(
         self,
@@ -881,23 +465,10 @@ class Agent(BaseModel, use_attribute_docstrings=True, serialize_by_alias=True):
             return "\n\n".join(parts)
         return None
 
-    def _visible_tools(self, *, graph_mode: GraphMode, context: dict[str, Any] | None):
-        all_tools = (context or {}).get("tools", self.client_registry.tools)
-        hook_names = [
-            getattr(hook, hook_type)
-            for hook in self.hooks
-            for hook_type in get_args(HookType)
-            if getattr(hook, hook_type, None) is not None
-        ]
-        return [
-            tool for tool in all_tools if tool["function"]["name"] not in hook_names
-        ] + self.extra_tools(graph_mode)
-
     async def _prepare_chat_completion_params(
         self,
-        messages: list[MessageParam],
+        parameters: CompletionCreateParams,
         context: dict[str, Any] | None = None,
-        graph_mode: GraphMode = "locked",
     ) -> CompletionCreateParamsBase:
         """Prepare parameters for chat completion."""
         messages = [
@@ -909,21 +480,17 @@ class Agent(BaseModel, use_attribute_docstrings=True, serialize_by_alias=True):
                     if k not in ("parsed", "reasoning_content")
                 },
             )
-            for m in messages
+            for m in parameters["messages"]
             if not (m.get("role") == "user" and m.get("name") == "approval")
         ]
-        message_slice: str | None = (context or {}).get("message_slice")
-        if message_slice is not None:
-            messages = _apply_message_slice(messages, message_slice)
         system_prompt = await self._get_system_prompt(context)
         if system_prompt is not None:
             messages = [{"role": "system", "content": system_prompt}, *messages]
-        parameters = self.parameters.model_dump(mode="json", exclude_none=True)
-        tools: list[ChatCompletionToolParam] = [*parameters.get("tools", [])]
+        tools: list[ChatCompletionFunctionToolParam] = [*parameters.get("tools", [])]
         existing_tool_names = {
             tool["function"]["name"] for tool in tools if tool["type"] == "function"
         }
-        for tool in self._visible_tools(graph_mode=graph_mode, context=context):
+        for tool in self._visible_tools():
             if (
                 tool["type"] == "function"
                 and tool["function"]["name"] in existing_tool_names
@@ -932,87 +499,27 @@ class Agent(BaseModel, use_attribute_docstrings=True, serialize_by_alias=True):
             tools.append(tool)
             if tool["type"] == "function":
                 existing_tool_names.add(tool["function"]["name"])
-        response_format = cast(ResponseFormat | None, parameters.get("response_format"))
-        if (
-            response_format is not None
-            and response_format["type"] == "json_schema"
-            and (schema := response_format["json_schema"].get("schema")) is not None
-            and self.model in settings.format_fallback_tool_models
-        ):
-            tool_name = (
-                STRUCTURED_OUTPUT_TOOL_PREFIX + response_format["json_schema"]["name"]
-            )
-            if tool_name not in existing_tool_names:
-                tools.append(
-                    {
-                        "type": "function",
-                        "function": {
-                            "name": tool_name,
-                            "description": (
-                                "Return a response that matches the requested schema."
-                            ),
-                            "parameters": schema,
-                        },
-                    }
-                )
-                existing_tool_names.add(tool_name)
-            parameters.pop("response_format", None)
-            if parameters.get("tool_choice") is None:
-                parameters["tool_choice"] = {
-                    "type": "function",
-                    "function": {"name": tool_name},
-                }
         if tools:
             parameters["tools"] = tools
         else:
             parameters.pop("tools", None)
-        parameters |= {
+        return parameters | {
             "messages": messages,
             "model": self.model,
-        }
-        return parameters  # type: ignore
-
-    @overload
-    async def _create_chat_completion(
-        self,
-        *,
-        messages: list[MessageParam],
-        context: dict[str, Any],
-        stream: Literal[True],
-        graph_mode: GraphMode = "locked",
-        quota_manager: QuotaManager,
-    ) -> AsyncGenerator[ChatCompletionChunk, None]: ...
-
-    @overload
-    async def _create_chat_completion(
-        self,
-        *,
-        messages: list[MessageParam],
-        context: dict[str, Any],
-        stream: Literal[False] = False,
-        graph_mode: GraphMode = "locked",
-        quota_manager: QuotaManager,
-    ) -> ChatCompletion: ...
+        }  # type: ignore
 
     async def _create_chat_completion(
         self,
         *,
-        messages: list[MessageParam],
+        params: CompletionCreateParams,
         context: dict[str, Any],
-        stream: bool = False,
-        graph_mode: GraphMode = "locked",
         quota_manager: QuotaManager,
-    ) -> ChatCompletion | AsyncGenerator[ChatCompletionChunk, None]:
+    ) -> ChatCompletion:
         """Get a chat completion for the agent with UUID tracing.
 
         Args:
-            messages: The messages to start the conversation with
+            params: Parameters to create a chat completion
             context: The context variables to pass to the agent
-            stream: Whether to stream the response
-            graph_mode: Operation mode that affects extra_tools availability:
-                - expand: agent can create new agents and edges for handoff
-                - handoff: agent can create edges but not new agents
-                - locked: no extra_tools available
             quota_manager: Quota manager for tokens and other resource.
 
         """
@@ -1020,87 +527,102 @@ class Agent(BaseModel, use_attribute_docstrings=True, serialize_by_alias=True):
         # So we should manually set it for each.
         request_id = str(uuid.uuid4())
         parameters = await self._prepare_chat_completion_params(
-            messages, context, graph_mode
+            params,
+            context,
         )
-        logger.info(
-            json.dumps(parameters | {"stream": stream, "request_id": request_id})
+        logger.info(json.dumps(parameters | {"request_id": request_id}))
+        client = self.client or AsyncOpenAI(
+            api_key=settings.OPENAI_API_KEY,
+            base_url=settings.OPENAI_BASE_URL,
         )
-        client = self._get_client()
+        messages = params["messages"]
         # Execute on_llm_start hook before making the request
         await self._execute_hooks(
             "on_llm_start",
             messages,
             context,
-            available_tools=self._visible_tools(context=context, graph_mode=graph_mode),
+            available_tools=self._visible_tools(),
         )
 
-        if stream:
+        result = await client.chat.completions.create(**parameters)
+        result._request_id = request_id
+        total_tokens = result.usage.total_tokens if result.usage else 0
+        await quota_manager.consume(self.name, total_tokens)
+        # Trigger on_llm_end hook for non‑stream response
+        await self._execute_hooks("on_llm_end", messages, context, completion=result)
+        return result
 
-            async def traced_stream():
-                parameters["stream_options"] = (
-                    parameters.get("stream_options") or {}
-                ) | {"include_usage": True}
-                async for chunk in await client.chat.completions.create(
-                    stream=stream, **parameters
-                ):
-                    chunk._request_id = request_id
-                    yield chunk
-                    if chunk.usage is not None:
-                        await quota_manager.consume(self.name, chunk.usage.total_tokens)
-                # After the stream completes, trigger on_llm_end hook
-                await self._execute_hooks("on_llm_end", messages, context)
-
-            return traced_stream()
-        else:
-            result = await client.chat.completions.create(stream=stream, **parameters)
-            result._request_id = request_id
-            total_tokens = result.usage.total_tokens if result.usage else 0
-            await quota_manager.consume(self.name, total_tokens)
-            # Trigger on_llm_end hook for non‑stream response
-            await self._execute_hooks(
-                "on_llm_end", messages, context, completion=result
-            )
-            return result
-
-    async def _execute_tool_calls(
+    def _register_tool_calls(
         self,
         tool_calls: Iterable[ChatCompletionMessageToolCallUnionParam],
-        messages: list[MessageParam],
-        context: dict[str, Any],
-        stream: bool,
-    ):
-        async with asyncio.TaskGroup() as tg:
-            tasks = []
-            for tool_call in tool_calls:
-                if tool_call["type"] == "custom":
-                    continue
-                match tool_call["function"]["name"]:
-                    case "create_agent":
-                        agent = Agent.model_validate_json(
-                            tool_call["function"]["arguments"]
-                        )
-                        self.nodes.add(agent)
-                    case "create_edge":
-                        edge = Edge.model_validate_json(
-                            tool_call["function"]["arguments"]
-                        )
-                        self.edges.add(edge)
-                    case name if name in [
-                        self.name,
-                        *[agent.name for agent in self.nodes],
-                    ]:
-                        self.edges.add(Edge(source=self.name, target=name))
-                    case _:
-                        task = tg.create_task(
-                            self._execute_tool_with_hooks(  # type: ignore[call-overload]
-                                tool_call, stream, messages, context
-                            )
-                        )
-                        tasks.append(task)
-            for future in asyncio.as_completed(tasks):
-                yield await future
+        messages: list[ChatCompletionMessageParam],
+    ) -> None:
+        """Add tool nodes for pending tool calls."""
+        for tool_call in tool_calls:
+            if tool_call["type"] == "custom":
+                continue
+            name = tool_call["function"]["name"]
+            match name:
+                case "create_agent":
+                    self.nodes.add(
+                        Agent.model_validate_json(tool_call["function"]["arguments"])
+                    )
+                case "create_edge":
+                    self.edges.add(
+                        Edge.model_validate_json(tool_call["function"]["arguments"])
+                    )
+                case known if known in [
+                    self.name,
+                    *[node.name for node in self.nodes if isinstance(node, Agent)],
+                ]:
+                    self.edges.add(Edge(source=self.name, target=known))
+                case _:
+                    if self._tool_call_completed(messages, tool_call["id"]):
+                        continue
+                    tool_node = self._mcp_manager.make_tool_node(name, tool_call["id"])
+                    self.nodes.add(tool_node)
+                    forward = Edge(source=self.name, target=tool_node.name)
+                    backward = Edge(source=tool_node.name, target=self.name)
+                    self.edges.add(forward)
+                    self.edges.add(backward)
 
-    def _get_agent_by_name(self, name: str) -> "Agent":
+    def _tool_call_completed(
+        self,
+        messages: list[ChatCompletionMessageParam],
+        tool_call_id: str,
+    ) -> bool:
+        return any(
+            message.get("tool_call_id") == tool_call_id
+            for message in messages
+            if message["role"] == "tool"
+        )
+
+    def _cleanup_runtime_tools(self) -> None:
+        """Remove transient tool nodes and their edges."""
+        runtime_nodes = [
+            node
+            for node in self.nodes
+            if isinstance(node, Tool) and getattr(node, "tool_call_id", None)
+        ]
+        if not runtime_nodes:
+            return
+        runtime_names = {node.name for node in runtime_nodes}
+        self.nodes = {node for node in self.nodes if node.name not in runtime_names}
+        remaining_edges: set[Edge] = set()
+        for edge in self.edges:
+            sources = (
+                set(edge.source) if isinstance(edge.source, tuple) else {edge.source}
+            )
+            if sources & runtime_names:
+                continue
+            if edge.target in runtime_names:
+                continue
+            remaining_edges.add(edge)
+        self.edges = remaining_edges
+        for name in runtime_names:
+            self._visited.pop(name, None)
+
+    def _get_node_by_name(self, name: str) -> Node:
         """Get agent by name.
 
         Only self & level 1 sub agents would be returned, avoid directly handoff to
@@ -1108,31 +630,31 @@ class Agent(BaseModel, use_attribute_docstrings=True, serialize_by_alias=True):
         """
         if name == self.name:
             return self
-        for agent in self.nodes:
-            if agent.name == name:
-                return agent
-        raise KeyError(f"Agent {name} not exist in nodes")
+        for node in self.nodes:
+            if node.name == name:
+                return node
+        raise KeyError(f"Node {name} not exist in nodes")
 
     async def _resolve_edge_target(
         self, target: str, context: dict[str, Any] | None = None
-    ) -> "set[Agent]":
+    ) -> set[Node]:
         """Resolve edge target, which can be a node name, function name, or CEL expression."""
         # First check if target exists as a node
         try:
-            return {self._get_agent_by_name(target)}
+            return {self._get_node_by_name(target)}
         except KeyError:
             pass
 
         # Then check if target is a function available through this registry
         try:
-            result = await self.client_registry.call_tool(target, context or {})
+            result = await self._mcp_manager.call_tool(target, context or {})
 
             if result.structuredContent is not None:
                 r = result.structuredContent.get("result")
                 if isinstance(r, list) and all(isinstance(item, str) for item in r):
-                    return {self._get_agent_by_name(s) for s in r}
+                    return {self._get_node_by_name(s) for s in r}
                 elif isinstance(r, str):
-                    return {self._get_agent_by_name(r)}
+                    return {self._get_node_by_name(r)}
                 else:
                     raise TypeError(
                         "Conditional edge should return string or list of string only"
@@ -1142,7 +664,7 @@ class Agent(BaseModel, use_attribute_docstrings=True, serialize_by_alias=True):
                     raise ValueError(
                         "Conditional edge should return one text content block only"
                     )
-                return {self._get_agent_by_name(result.content[0].text)}
+                return {self._get_node_by_name(result.content[0].text)}
         except KeyError:
             pass
 
@@ -1150,297 +672,14 @@ class Agent(BaseModel, use_attribute_docstrings=True, serialize_by_alias=True):
         try:
             result = evaluate(target, context)
             if isinstance(result, str):
-                return {self._get_agent_by_name(result)}
+                return {self._get_node_by_name(result)}
             elif isinstance(result, list) and all(
                 isinstance(item, str) for item in result
             ):
-                return {self._get_agent_by_name(s) for s in result}
+                return {self._get_node_by_name(s) for s in result}
             else:
                 raise ValueError(
                     f"CEL expression must return str or list[str], got {type(result)}"
                 )
         except Exception as e:
             raise ValueError(f"Invalid edge target '{target}': {e}")
-
-    async def _run_stream(
-        self,
-        *,
-        messages: list[MessageParam],
-        context: dict[str, Any],
-        graph_mode: GraphMode = "locked",
-        quota_manager: QuotaManager,
-        auto_execute_tools: bool = True,
-    ) -> AsyncGenerator[ChatCompletionChunk, None]:
-        """Run the agent and stream the response.
-
-        Args:
-            messages: The messages to start the conversation with
-            context: The context variables to pass to the agent
-            graph_mode: Operation mode that affects extra_tools availability:
-                - locked: agent cannot modify the graph
-                - handoff: agent can create edges but not new agents
-                - expand: agent can create new agents and edges
-            quota_manager: Quota manager for tokens and other resource.
-            auto_execute_tools: Automatically execute tools or not
-
-        """
-        init_len = len(messages)
-        _messages: dict[str, ChatCompletionMessageParam] = defaultdict(
-            lambda: {"role": "assistant"}
-        )
-        async for chunk in await self._create_chat_completion(
-            messages=messages,
-            context=context,
-            stream=True,
-            graph_mode=graph_mode,
-            quota_manager=quota_manager,
-        ):
-            logger.info(
-                json.dumps(
-                    chunk.model_dump(mode="json", exclude_unset=True)
-                    | {"request_id": chunk._request_id}
-                )
-            )
-            # on_hook must implement here because partial message
-            await self._execute_hooks(
-                "on_chunk",
-                messages
-                + [m for i, m in _messages.items() if i != chunk.id]
-                + [_messages[chunk.id]],
-                context,
-                chunk=chunk,
-            )
-            _merge_chunk(_messages, chunk)
-            yield chunk.model_copy(update={"model": self.name})
-            if len(chunk.choices) > 0 and chunk.choices[0].finish_reason is not None:
-                message = _messages[chunk.id]
-                if "tool_calls" in message:
-                    message["tool_calls"] = list(message["tool_calls"].values())  # type: ignore
-                messages.extend(
-                    _coerce_structured_output_message(
-                        _messages[chunk.id], self.parameters.response_format
-                    )
-                )
-        else:
-            if len(messages) - init_len != len(_messages):
-                raise ValueError("Number of messages does not match number of chunks")
-        latest_message = messages[-1]
-        if not auto_execute_tools:
-            return
-        if (
-            latest_message["role"] == "assistant"
-            and (tool_calls := latest_message.get("tool_calls")) is not None
-        ):
-            async for chunk in self._execute_tool_calls(
-                tool_calls, messages, context, True
-            ):
-                yield chunk
-                messages.append(
-                    {
-                        "role": "tool",
-                        "tool_call_id": chunk.id,
-                        "content": chunk.choices[0].delta.content,
-                    }
-                )
-
-        self._visited[self.name] = True
-        targets = [
-            target
-            for edge in self.edges
-            if edge.source == self.name
-            or (
-                isinstance(edge.source, tuple)
-                and self.name in edge.source
-                and all(self._visited[n] for n in edge.source)
-            )
-            for target in await self._resolve_edge_target(edge.target, context)
-        ]
-        if messages[-1]["role"] == "tool" and len(targets) == 0:
-            targets.append(self)
-        async with asyncio.TaskGroup() as tg:
-            tasks: list[asyncio.Task[AsyncGenerator[ChatCompletionChunk, None]]] = []
-            for target in targets:
-                tasks.append(
-                    tg.create_task(
-                        target.run(
-                            messages=messages,
-                            context=context,
-                            stream=True,
-                            graph_mode=graph_mode,
-                            from_agent=self,
-                            quota_manager=quota_manager,
-                            auto_execute_tools=auto_execute_tools,
-                        )
-                    )
-                )
-        async for chunk in join(*[task.result() for task in tasks]):
-            yield chunk
-
-    @overload
-    async def run(
-        self,
-        *,
-        messages: list[MessageParam],
-        stream: Literal[True],
-        context: dict[str, Any] | None = None,
-        graph_mode: GraphMode = "locked",
-        max_tokens: int | None = None,
-        from_agent: "Agent | None" = None,
-        quota_manager: QuotaManager | None = None,
-        auto_execute_tools: bool = True,
-    ) -> AsyncGenerator[ChatCompletionChunk, None]: ...
-
-    @overload
-    async def run(
-        self,
-        *,
-        messages: list[MessageParam],
-        stream: Literal[False] = False,
-        context: dict[str, Any] | None = None,
-        graph_mode: GraphMode = "locked",
-        max_tokens: int | None = None,
-        from_agent: "Agent | None" = None,
-        quota_manager: QuotaManager | None = None,
-        auto_execute_tools: bool = True,
-    ) -> list[MessageParam]: ...
-
-    async def run(
-        self,
-        *,
-        messages: list[MessageParam],
-        stream: bool = False,
-        context: dict[str, Any] | None = None,
-        graph_mode: GraphMode = "locked",
-        max_tokens: int | None = None,
-        from_agent: "Agent | None" = None,
-        quota_manager: QuotaManager | None = None,
-        auto_execute_tools: bool = True,
-    ) -> list[MessageParam] | AsyncGenerator[ChatCompletionChunk, None]:
-        """Run the agent.
-
-        Args:
-            messages: The messages to start the conversation with
-            stream: Whether to stream the response
-            context: The context variables to pass to the agent
-            graph_mode: Operation mode that affects extra_tools availability:
-                - locked: agent cannot modify the graph
-                - handoff: agent can create edges but not new agents
-                - expand: agent can create new agents and edges
-            max_tokens: The max tokens limit
-            from_agent: The agent handoff from
-            quota_manager: The quota manager for tokens and other resources
-            auto_execute_tools: Automatically execute tools or not
-
-        """
-        for name, server_params in (
-            (settings.mcp_servers if settings is not None else {}) | self.mcp_servers
-        ).items():
-            await self.client_registry.add_server(name, server_params)
-        init_len = len(messages)
-        messages = deepcopy(messages)
-        if context is None:
-            context = {}
-        if quota_manager is None:
-            quota_manager = QuotaManager(max_tokens)
-        if from_agent is not None:
-            await from_agent._execute_hooks(
-                "on_handoff", messages, context, to_agent=self
-            )
-        await self._execute_hooks("on_start", messages, context)
-        if (
-            len(messages) >= 2
-            and (last_message := messages[-1])["role"] == "user"
-            and last_message.get("name") == "approval"
-            and (second_to_last_message := messages[-2])["role"] == "assistant"
-            and (tool_calls := second_to_last_message.get("tool_calls")) is not None
-        ):
-            content = last_message["content"]
-            if not isinstance(content, str):
-                raise TypeError("User approval should be string.")
-            try:
-                approval = TypeAdapter(bool | list[str]).validate_json(content)  # type: ignore
-                if isinstance(approval, list):
-                    tool_calls = [c for c in tool_calls if c["id"] in approval]
-                elif not approval:
-                    tool_calls = []
-            except Exception:
-                raise ValueError("User approval should be a list of tool call ids.")
-            async for exec_msg in self._execute_tool_calls(
-                tool_calls, messages, context, False
-            ):
-                messages.append(exec_msg)
-        if stream:
-            generator = self._run_stream(
-                messages=messages,
-                context=context,
-                graph_mode=graph_mode,
-                quota_manager=quota_manager,
-                auto_execute_tools=auto_execute_tools,
-            )
-            await self._execute_hooks("on_end", messages, context)
-            return generator
-        completion = await self._create_chat_completion(
-            messages=messages,
-            context=context,
-            stream=False,
-            graph_mode=graph_mode,
-            quota_manager=quota_manager,
-        )
-        total_tokens = completion.usage.total_tokens if completion.usage else 0
-        await quota_manager.consume(self.name, total_tokens)
-        logger.info(
-            json.dumps(
-                completion.model_dump(mode="json", exclude_unset=True)
-                | {"request_id": completion._request_id}
-            )
-        )
-
-        # Extract message for hook processing and tool calls
-        message = completion_to_message(completion)
-        message["name"] = f"{self.name} ({completion.id})"
-        messages.extend(
-            _coerce_structured_output_message(
-                message,
-                self.parameters.response_format,
-            )
-        )
-
-        if not auto_execute_tools:
-            return messages[init_len:]
-        if (tool_calls := messages[-1].get("tool_calls")) is not None:
-            async for message in self._execute_tool_calls(
-                tool_calls, messages, context, False
-            ):
-                messages.append(message)
-        self._visited[self.name] = True
-        targets = [
-            target
-            for edge in self.edges
-            if edge.source == self.name
-            or (
-                isinstance(edge.source, tuple)
-                and self.name in edge.source
-                and all(self._visited[n] for n in edge.source)
-            )
-            for target in await self._resolve_edge_target(edge.target, context)
-        ]
-        if messages[-1]["role"] == "tool" and len(targets) == 0:
-            targets.append(self)
-        async with asyncio.TaskGroup() as tg:
-            tasks: list[asyncio.Task[list[MessageParam]]] = []
-            for target in targets:
-                task = tg.create_task(
-                    target.run(
-                        messages=messages,
-                        context=context,
-                        graph_mode=graph_mode,
-                        quota_manager=quota_manager,
-                        from_agent=self,
-                        auto_execute_tools=auto_execute_tools,
-                    )
-                )
-                tasks.append(task)
-        for task in tasks:
-            messages.extend(task.result())
-        await self._execute_hooks("on_end", messages, context)
-        return messages[init_len:]

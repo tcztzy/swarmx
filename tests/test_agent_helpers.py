@@ -1,53 +1,13 @@
 """Unit tests for synchronous helpers in swarmx.agent."""
 
 import json
-from pathlib import Path
 
 import pytest
 from httpx import Timeout
 from openai import AsyncOpenAI
 
 import swarmx.agent as agent_module
-from swarmx.agent import Agent, Edge, _apply_message_slice, _parse_front_matter
-
-
-def test_parse_front_matter_falls_back_to_manual_parsing():
-    raw = "invalid: [unclosed"  # YAML parser will raise
-    parsed = _parse_front_matter(raw)
-    assert parsed == {"invalid": "[unclosed"}
-
-    manual = "name: demo\ndescription: test"
-    parsed_manual = _parse_front_matter(manual)
-    assert parsed_manual == {"name": "demo", "description": "test"}
-
-
-def test_apply_message_slice_invalid_pattern():
-    with pytest.raises(ValueError, match="Invalid message slice"):
-        _apply_message_slice([{"role": "user", "content": "hi"}], "bad:slice")
-
-
-def test_model_validate_md_accepts_bytes_and_detects_invalid():
-    md = b"---\nname: demo\nmodel: test-model\n---\nBody content"
-    agent = Agent.model_validate_md(md)
-    assert agent.instructions == "Body content"
-
-    with pytest.raises(ValueError, match="Invalid agent markdown"):
-        Agent.model_validate_md("no front matter here")
-
-
-def test_as_agent_md_and_dump(tmp_path: Path):
-    agent = Agent(name="demo", description="Demo", model="m", instructions="Hi")
-    md_text = agent.as_agent_md()
-    assert "Demo" in md_text and "Hi" in md_text
-
-    nested = Agent(name="child", model="m")
-    parent = Agent(name="parent", model="m", nodes={nested})
-    parent.dump_agent_md(tmp_path)
-    assert (tmp_path / "parent.md").exists()
-    assert (tmp_path / "child.md").exists()
-
-    with pytest.raises(TypeError):
-        parent.dump_agent_md(tmp_path / "not_a_dir")
+from swarmx.agent import Agent, Edge
 
 
 def test_agents_duplicate_detection():
@@ -85,27 +45,14 @@ def test_validate_client_accepts_dict_and_async_openai():
     assert "api_key" not in serialized
 
 
-def test_validate_parameters_and_serializer():
-    agent = Agent(
-        name="params",
-        model="m",
-        parameters={"temperature": 0.7, "messages": ["ignored"], "model": "ignored"},  # type: ignore
-    )
-    params = agent.parameters.model_dump()
-    assert params["temperature"] == 0.7
-    dumped = agent.model_dump(mode="json")
-    assert "messages" not in dumped["parameters"]
-    assert "model" not in dumped["parameters"]
-
-
 def test_extra_tools_modes():
     agent = Agent(name="tools", model="m")
-    manual = agent.extra_tools("locked")
+    manual = agent._builtin_tools("locked")
     assert manual == []
 
     agent.nodes.add(Agent(name="child", model="m"))
-    semi = agent.extra_tools("handoff")
-    auto = agent.extra_tools("expand")
+    semi = agent._builtin_tools("handoff")
+    auto = agent._builtin_tools("expand")
     assert any(tool["function"]["name"] == "create_edge" for tool in semi)
     assert any(tool["function"]["name"] == "create_agent" for tool in auto)
 
