@@ -2,7 +2,6 @@
 
 import mimetypes
 import os
-import re
 from contextlib import AsyncExitStack
 from dataclasses import dataclass, field
 from datetime import timedelta
@@ -20,8 +19,8 @@ from mcp.types import (
     ImageContent,
     ResourceContents,
     TextResourceContents,
+    Tool,
 )
-from mcp.types import Tool as _Tool
 from openai.types.chat import (
     ChatCompletionContentPartTextParam,
     ChatCompletionFunctionToolParam,
@@ -30,7 +29,6 @@ from openai.types.chat import (
 from pygments.lexers import get_lexer_for_filename, get_lexer_for_mimetype
 from pygments.util import ClassNotFound
 
-from .node import Tool
 from .types import MCPServer
 
 mimetypes.add_type("text/markdown", ".md")
@@ -42,18 +40,18 @@ class MCPManager:
 
     exit_stack: AsyncExitStack = field(default_factory=AsyncExitStack)
     mcp_clients: dict[str, ClientSession] = field(default_factory=dict)
-    _tools: dict[str, list[_Tool]] = field(default_factory=dict)
+    _tools: dict[str, list[Tool]] = field(default_factory=dict)
 
     @property
     def tools(self) -> list[ChatCompletionFunctionToolParam]:
         """Return all tools, both local and MCP."""
         _tools = []
-        for server, tools in self._tools.items():
+        for tools in self._tools.values():
             for tool in tools:
                 _tool = ChatCompletionFunctionToolParam(
                     type="function",
                     function={
-                        "name": f"mcp__{server}__{tool.name}",
+                        "name": tool.name,
                         "parameters": tool.inputSchema,
                     },
                 )
@@ -62,41 +60,17 @@ class MCPManager:
                 _tools.append(_tool)
         return _tools
 
-    def _parse_name(self, name: str) -> tuple[str, _Tool]:
-        if (mo := re.match(r"mcp__(?P<server>[^/]+)__(?P<name>[^/]+)", name)) is None:
-            raise ValueError("Invalid tool name, expected mcp__<server>__<tool>")
-        server_name, tool_name = mo.group("server"), mo.group("name")
-        if server_name not in self.mcp_clients:
-            raise KeyError(f"Server {server_name} not found")
-        for tool in self._tools[server_name]:
-            if tool.name == tool_name:
-                return server_name, tool
-        raise KeyError(f"Tool {tool_name} not found")
+    def _parse_name(self, name: str) -> tuple[str, Tool]:
+        for server_name, tools in self._tools.items():
+            for tool in tools:
+                if tool.name == name:
+                    return server_name, tool
+        raise KeyError()
 
-    def get_tool(self, name: str) -> _Tool:
+    def get_tool(self, name: str) -> Tool:
         """Get Tool by name."""
         _, tool = self._parse_name(name)
         return tool
-
-    def make_tool_node(self, name: str, tool_call_id: str) -> Tool:
-        """Create a graph Tool node bound to this manager."""
-        server_name, tool = self._parse_name(name)
-        payload = tool.model_dump(mode="python")
-        payload["tool_name"] = name
-        payload["tool_call_id"] = tool_call_id
-        payload["name"] = f"{name}__call__{self._sanitize_call_id(tool_call_id)}"
-        payload["mcp_manager"] = self
-        payload.setdefault(
-            "description",
-            f"{tool.description or ''} (from {server_name})".strip(),
-        )
-        return Tool.model_validate(payload)
-
-    @staticmethod
-    def _sanitize_call_id(tool_call_id: str) -> str:
-        """Return a filesystem-safe representation of a tool call id."""
-        safe = re.sub(r"[^A-Za-z0-9_]", "_", tool_call_id)
-        return safe or "call"
 
     async def call_tool(
         self,

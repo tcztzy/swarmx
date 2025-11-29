@@ -24,6 +24,7 @@ from openai.types.chat.completion_create_params import (
     CompletionCreateParamsBase,
 )
 from pydantic import (
+    BaseModel,
     Field,
     PrivateAttr,
     TypeAdapter,
@@ -35,8 +36,9 @@ from . import settings
 from .edge import Edge
 from .hook import Hook, HookType
 from .mcp_manager import MCPManager, result_to_message
-from .node import Node, Tool
+from .node import Node
 from .quota import QuotaManager
+from .tool import Tool
 from .types import CompletionCreateParams, MCPServer, MessagesState
 from .utils import completion_to_message
 
@@ -45,7 +47,7 @@ logging.basicConfig(filename=".swarmx.log", level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
-class Agent(Node[CompletionCreateParams, MessagesState]):
+class Agent[I: CompletionCreateParams](BaseModel, arbitrary_types_allowed=True):
     """Agent in the agent graph.
 
     Using this when you need to break down complex tasks into specialized sub-tasks and create reusable, composable AI components. All existing agents are list in tools before this one.
@@ -88,7 +90,7 @@ class Agent(Node[CompletionCreateParams, MessagesState]):
     ```
     """
 
-    inputSchema: dict[str, Any] = Field(
+    parameters: dict[str, Any] = Field(
         default_factory=lambda: TypeAdapter(CompletionCreateParams).json_schema()
     )
     """Empty inputSchema represent OpenAI chat completions API create parameters."""
@@ -105,7 +107,7 @@ class Agent(Node[CompletionCreateParams, MessagesState]):
     client: AsyncOpenAI | None = None
     """The client to use for the node"""
 
-    nodes: "set[Node]" = Field(default_factory=set)
+    nodes: set[Node] = Field(default_factory=set)
     """The nodes in the Agent's graph"""
 
     edges: set[Edge] = Field(default_factory=set)
@@ -118,6 +120,10 @@ class Agent(Node[CompletionCreateParams, MessagesState]):
         default_factory=lambda: defaultdict(lambda: False)
     )
     _mcp_manager: MCPManager = PrivateAttr(default_factory=MCPManager)
+
+    def __hash__(self):
+        """Agent name is unique among all swarm."""
+        return hash(self.name)
 
     @property
     def agents(self) -> dict[str, "Agent"]:
@@ -156,7 +162,7 @@ class Agent(Node[CompletionCreateParams, MessagesState]):
             "type": "function",
             "function": {
                 "name": self.name,
-                "parameters": self.inputSchema,
+                "parameters": self.parameters,
             },
         }
         if self.description is not None:
@@ -221,7 +227,7 @@ class Agent(Node[CompletionCreateParams, MessagesState]):
 
     async def __call__(
         self,
-        params: CompletionCreateParams | None = None,
+        arguments: I,
         *,
         context: dict[str, Any] | None = None,
         quota_manager: QuotaManager | None = None,
@@ -229,7 +235,7 @@ class Agent(Node[CompletionCreateParams, MessagesState]):
         """Run the agent.
 
         Args:
-            params: Dict containing messages and completion settings
+            arguments: Dict containing messages and completion settings
             context: The context variables to pass to the agent
             quota_manager: The quota manager for tokens and other resources
             auto_execute_tools: Automatically execute tools or not
@@ -239,79 +245,71 @@ class Agent(Node[CompletionCreateParams, MessagesState]):
             (settings.mcp_servers if settings is not None else {}) | self.mcp_servers
         ).items():
             await self._mcp_manager.add_server(name, server_params)
-        if params is None:
-            params = {"messages": []}
-        stream = params.get("stream", False)
+        stream = arguments.get("stream", False)
         if stream:
             raise NotImplementedError("Stream mode is not yet supported now.")
-        params = deepcopy(params)
-        messages = params["messages"]
+        arguments = deepcopy(arguments)
+        messages = arguments["messages"]
         init_len = len(messages)
         if context is None:
             context = {}
         if quota_manager is None:
-            quota_manager = QuotaManager(params.get("max_tokens"))  # type: ignore[arg-type]
+            quota_manager = QuotaManager(arguments.get("max_tokens"))  # type: ignore[arg-type]
         self._visited.clear()
-        self._cleanup_runtime_tools()
         await self._execute_hooks("on_start", messages, context)
-        try:
-            completion = await self._create_chat_completion(
-                params=params,
-                context=context,
-                quota_manager=quota_manager,
+        completion = await self._create_chat_completion(
+            params=arguments,
+            context=context,
+            quota_manager=quota_manager,
+        )
+        total_tokens = completion.usage.total_tokens if completion.usage else 0
+        await quota_manager.consume(self.name, total_tokens)
+        logger.info(
+            json.dumps(
+                completion.model_dump(mode="json", exclude_unset=True)
+                | {"request_id": completion._request_id}
             )
-            total_tokens = completion.usage.total_tokens if completion.usage else 0
-            await quota_manager.consume(self.name, total_tokens)
-            logger.info(
-                json.dumps(
-                    completion.model_dump(mode="json", exclude_unset=True)
-                    | {"request_id": completion._request_id}
-                )
-            )
+        )
 
-            # Extract message for hook processing and tool calls
-            message = completion_to_message(completion)
-            message["name"] = f"{self.name} ({completion.id})"
-            messages.append(message)
+        # Extract message for hook processing and tool calls
+        message = completion_to_message(completion)
+        message["name"] = f"{self.name} ({completion.id})"
+        messages.append(message)
 
-            if (tool_calls := messages[-1].get("tool_calls")) is not None:
-                self._register_tool_calls(tool_calls, messages)
-            self._visited[self.name] = True
-            pending_sources: set[str] = {self.name}
-            while pending_sources:
-                targets: dict[str, Node] = {}
-                for edge in self.edges:
-                    if not self._edge_triggers(edge, pending_sources):
-                        continue
-                    resolved = await self._resolve_edge_target(edge.target, context)
-                    for target in resolved:
-                        targets[target.name] = target
-                if not targets:
-                    break
-                task_entries: list[tuple[Node, asyncio.Task[MessagesState]]] = []
-                async with asyncio.TaskGroup() as tg:
-                    for target in targets.values():
-                        if isinstance(target, Agent):
-                            task = tg.create_task(target({"messages": messages}))
-                        elif isinstance(target, Tool):
-                            task = tg.create_task(
-                                self._run_tool_node(
-                                    target, {"messages": messages}, context
-                                )
-                            )
-                        else:
-                            raise TypeError("Unknown type of Node.")
-                        task_entries.append((target, task))
-                pending_sources = set()
-                for target, task in task_entries:
-                    result = task.result()
-                    messages.extend(result["messages"])
-                    self._visited[target.name] = True
-                    pending_sources.add(target.name)
-            await self._execute_hooks("on_end", messages, context)
-            return {"messages": messages[init_len:]}
-        finally:
-            self._cleanup_runtime_tools()
+        if (tool_calls := messages[-1].get("tool_calls")) is not None:
+            self._register_tool_calls(tool_calls, messages)
+        self._visited[self.name] = True
+        pending_sources: set[str] = {self.name}
+        while pending_sources:
+            targets: dict[str, Node] = {}
+            for edge in self.edges:
+                if not self._edge_triggers(edge, pending_sources):
+                    continue
+                resolved = await self._resolve_edge_target(edge.target, context)
+                for target in resolved:
+                    targets[target.name] = target
+            if not targets:
+                break
+            task_entries: list[tuple[Node, asyncio.Task[MessagesState]]] = []
+            async with asyncio.TaskGroup() as tg:
+                for target in targets.values():
+                    if isinstance(target, Agent):
+                        task = tg.create_task(target({"messages": messages}))
+                    elif isinstance(target, Tool):
+                        task = tg.create_task(
+                            self._run_tool_node(target, {"messages": messages}, context)
+                        )
+                    else:
+                        raise TypeError("Unknown type of Node.")
+                    task_entries.append((target, task))
+            pending_sources = set()
+            for target, task in task_entries:
+                result = task.result()
+                messages.extend(result["messages"])
+                self._visited[target.name] = True
+                pending_sources.add(target.name)
+        await self._execute_hooks("on_end", messages, context)
+        return {"messages": messages[init_len:]}
 
     def _edge_triggers(self, edge: Edge, pending_sources: set[str]) -> bool:
         """Check whether an edge is ready to fire based on freshly completed sources."""
@@ -577,14 +575,7 @@ class Agent(Node[CompletionCreateParams, MessagesState]):
                 ]:
                     self.edges.add(Edge(source=self.name, target=known))
                 case _:
-                    if self._tool_call_completed(messages, tool_call["id"]):
-                        continue
-                    tool_node = self._mcp_manager.make_tool_node(name, tool_call["id"])
-                    self.nodes.add(tool_node)
-                    forward = Edge(source=self.name, target=tool_node.name)
-                    backward = Edge(source=tool_node.name, target=self.name)
-                    self.edges.add(forward)
-                    self.edges.add(backward)
+                    pass
 
     def _tool_call_completed(
         self,
@@ -596,31 +587,6 @@ class Agent(Node[CompletionCreateParams, MessagesState]):
             for message in messages
             if message["role"] == "tool"
         )
-
-    def _cleanup_runtime_tools(self) -> None:
-        """Remove transient tool nodes and their edges."""
-        runtime_nodes = [
-            node
-            for node in self.nodes
-            if isinstance(node, Tool) and getattr(node, "tool_call_id", None)
-        ]
-        if not runtime_nodes:
-            return
-        runtime_names = {node.name for node in runtime_nodes}
-        self.nodes = {node for node in self.nodes if node.name not in runtime_names}
-        remaining_edges: set[Edge] = set()
-        for edge in self.edges:
-            sources = (
-                set(edge.source) if isinstance(edge.source, tuple) else {edge.source}
-            )
-            if sources & runtime_names:
-                continue
-            if edge.target in runtime_names:
-                continue
-            remaining_edges.add(edge)
-        self.edges = remaining_edges
-        for name in runtime_names:
-            self._visited.pop(name, None)
 
     def _get_node_by_name(self, name: str) -> Node:
         """Get agent by name.
