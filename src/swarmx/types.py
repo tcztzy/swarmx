@@ -1,6 +1,6 @@
 """SwarmX types."""
 
-from typing import Any, Literal, Required, TypedDict
+from typing import Any, Literal, TypedDict
 
 from mcp.client.stdio import StdioServerParameters
 from openai.types.chat import (
@@ -32,14 +32,18 @@ class SSEServer(BaseModel):
 MCPServer = StdioServerParameters | SSEServer
 
 
-class CompletionCreateParams(TypedDict, total=False):
+class MessagesState(TypedDict):
+    """Messages state."""
+
+    messages: list[ChatCompletionMessageParam]
+
+
+class CompletionCreateParams(MessagesState, total=False):
     """Parameters for Agent.run method.
 
-    This combines chat completion parameters with SwarmX-specific options.
+    Subclass of MessagesState so that ``messages`` remains a required field,
+    with additional optional chat-completion parameters.
     """
-
-    messages: Required[list[ChatCompletionMessageParam]]
-    """Required. The messages to start the conversation with."""
 
     stream: bool
     """Whether to stream the response."""
@@ -83,9 +87,3 @@ class CompletionCreateParams(TypedDict, total=False):
     """An alternative to sampling with temperature, called nucleus sampling."""
 
     tools: list[ChatCompletionToolParam]
-
-
-class MessagesState(TypedDict):
-    """Messages state."""
-
-    messages: list[ChatCompletionMessageParam]

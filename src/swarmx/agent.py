@@ -35,7 +35,7 @@ from . import settings
 from .edge import Edge
 from .hook import Hook, HookType
 from .mcp_manager import MCPManager, result_to_message
-from .nodes import Node, Tool
+from .node import Node, Tool
 from .quota import QuotaManager
 from .types import CompletionCreateParams, MCPServer, MessagesState
 from .utils import completion_to_message

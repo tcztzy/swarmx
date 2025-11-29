@@ -30,7 +30,7 @@ from openai.types.chat import (
 from pygments.lexers import get_lexer_for_filename, get_lexer_for_mimetype
 from pygments.util import ClassNotFound
 
-from .nodes import Tool
+from .node import Tool
 from .types import MCPServer
 
 mimetypes.add_type("text/markdown", ".md")
