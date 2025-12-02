@@ -36,7 +36,7 @@ class Edge(BaseModel, frozen=True, use_attribute_docstrings=True):
         return {
             "type": "function",
             "function": {
-                "name": "create_edge",
+                "name": cls.__name__,
                 "description": cls.__doc__ or "",
                 "parameters": cls.model_json_schema(),
             },

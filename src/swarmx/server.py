@@ -1,12 +1,13 @@
 """OpenAI-compatible server."""
 
 import json
+from typing import cast
 
 from fastapi import FastAPI, HTTPException
 from openai.types.chat import ChatCompletion, ChatCompletionMessageParam
 from pydantic import BaseModel
 
-from .agent import Agent
+from .swarm import Swarm
 from .utils import get_random_string, now
 from .version import __version__
 
@@ -21,7 +22,7 @@ class ChatCompletionCreateParams(BaseModel):
 
 
 def create_server_app(
-    swarm: Agent,
+    swarm: Swarm,
     *,
     auto_execute_tools: bool = True,
 ) -> FastAPI:
@@ -32,7 +33,6 @@ def create_server_app(
     async def list_models():
         """List available models."""
         # List all agents in the swarm as models
-        agents = swarm.agents
         return {
             "object": "list",
             "data": [
@@ -42,7 +42,7 @@ def create_server_app(
                     "created": now(),
                     "owned_by": "swarmx",
                 }
-                for name in agents
+                for name in swarm
             ],
         }
 
@@ -52,9 +52,13 @@ def create_server_app(
     ):
         """Handle chat completions with streaming support, routing to the requested agent model."""
         # Resolve the target agent based on the model name
-        target_agent = (
-            swarm if params.model == swarm.name else swarm.agents.get(params.model)
-        )
+        if params.model == swarm.name:
+            target_agent: Swarm | None = swarm
+        else:
+            node = swarm.nodes.get(params.model)
+            target_agent = cast(
+                Swarm | None, node[node["type"]] if node is not None else None
+            )
         if target_agent is None:
             raise HTTPException(
                 status_code=404,

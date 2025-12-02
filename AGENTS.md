@@ -18,9 +18,9 @@ Authoritative instructions for coding agents working in this repo. Follow every 
 The codebase follows a standard Python package layout:
 
 - `src/swarmx/` – Core package source code  
-  Files of note: `agent.py`, `cli.py`, `mcp_client.py`, `utils.py`, `types.py`, `hook.py`
+  Files of note: `agent.py`, `cli.py`, `mcp_manager.py`, `utils.py`, `types.py`, `hook.py`
 - `tests/` – Comprehensive pytest suite  
-  Mirrors source modules: `test_agent.py`, `test_cli.py`, `test_mcp_client.py`, `threads/`
+  Mirrors source modules: `test_agent.py`, `test_cli.py`, `test_mcp_manager.py`
 - `docs/`, `examples/` – Narrative documentation and usage patterns
 
 For deeper architectural context, see `README.md` (overview) and `docs/` (detailed guides).
@@ -82,7 +82,7 @@ For deeper architectural context, see `README.md` (overview) and `docs/` (detail
 
 - Environment variables load from `.env`; maintain `.env.example` as the contract.
 - Never commit secrets or credentials.
-- MCP servers require proper authentication; keep configuration in sync with `mcp_client.py`.
+- MCP servers require proper authentication; keep configuration in sync with `mcp_manager.py`.
 
 ## Agent-Specific Instructions
 
@@ -95,8 +95,43 @@ For deeper architectural context, see `README.md` (overview) and `docs/` (detail
 
 **MCP Integration**
 - Configure MCP servers via environment variables before use.
-- Interact through `src/swarmx/mcp_client.py` and adhere to the MCP specification for tool definitions.
+- Interact through `src/swarmx/mcp_manager.py` and adhere to the MCP specification for tool definitions.
 - Validate tool schemas and authentication flows when adding or modifying MCP integrations.
+
+## Graph Architecture
+
+**CRITICAL: Understand these graph structures for correct implementation**
+
+### Swarm Graph (Workflow Definition)
+- **Type**: Directed Acyclic Graph (DAG) implemented as `nx.DiGraph`
+- **Nodes**: Agents with unique names
+- **Edges**: Transitions with conditional routing
+- **Invariant**: Every cycle MUST contain at least one conditional edge that can break the loop
+- **Edge Targets**: Can be:
+  - Direct agent name: `"agent_b"`
+  - CEL expression: `"score > 0.5 ? 'agent_b' : 'agent_c'"`
+  - MCP tool call: Dynamic routing function that evaluates context
+- **Implementation**: Located in `src/swarmx/swarm.py` and `src/swarmx/graph.py`
+
+### Trace Graph (Execution Records)
+- **Type**: Tree structure implemented as `nx.DiGraph`
+- **Nodes**: Execution instances with UUIDs (same agent can appear multiple times with different UUIDs)
+- **Edges**: Actual execution paths taken
+- **Invariant**: NO shared nodes after branching - each execution creates new node instances
+- **Property**: Forms a tree even when the same agent is executed multiple times
+- **Implementation**: Generated during runtime execution, stored in `src/swarmx/graph.py`
+
+### Key Differences
+- **Swarm**: Many-to-many relationships possible, represents ALL potential paths
+- **Trace**: One-to-many only (tree), represents ONE actual execution path
+- **Swarm nodes**: Agent names (reusable)
+- **Trace nodes**: Execution UUIDs (unique per invocation)
+
+### Implementation Notes
+- Both use `nx.DiGraph` base class (NOT `MultiDiGraph` - single edge with dynamic routing)
+- Swarm validation must check for DAG property (cycles with unconditional edges are errors)
+- Trace generation must create new node IDs for each agent invocation
+- Edge conditions in Swarm are evaluated at runtime to produce Trace
 
 ## Related Resources
 

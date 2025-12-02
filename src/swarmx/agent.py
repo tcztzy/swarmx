@@ -1,24 +1,19 @@
 """SwarmX Agent module."""
 
-import asyncio
 import json
 import logging
 import uuid
 import warnings
-from collections import defaultdict
 from copy import deepcopy
-from typing import Annotated, Any, Iterable, cast, get_args
+from typing import Annotated, Any, cast
 
-from cel import evaluate
-from httpx import Timeout
 from jinja2 import Template
-from openai import DEFAULT_MAX_RETRIES, AsyncOpenAI
+from openai import AsyncOpenAI
 from openai.types.chat import (
     ChatCompletion,
     ChatCompletionChunk,
     ChatCompletionFunctionToolParam,
     ChatCompletionMessageParam,
-    ChatCompletionMessageToolCallUnionParam,
 )
 from openai.types.chat.completion_create_params import (
     CompletionCreateParamsBase,
@@ -28,18 +23,14 @@ from pydantic import (
     Field,
     PrivateAttr,
     TypeAdapter,
-    field_serializer,
-    field_validator,
 )
 
 from . import settings
-from .edge import Edge
+from .clients import PydanticAsyncOpenAI
 from .hook import Hook, HookType
-from .mcp_manager import MCPManager, result_to_message
-from .node import Node
+from .mcp_manager import MCPManager
 from .quota import QuotaManager
-from .tool import Tool
-from .types import CompletionCreateParams, MCPServer, MessagesState
+from .types import CompletionCreateParams, MessagesState
 from .utils import completion_to_message
 
 warnings.filterwarnings("ignore", category=UserWarning, module="pydantic")
@@ -47,7 +38,7 @@ logging.basicConfig(filename=".swarmx.log", level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
-class Agent[I: CompletionCreateParams](BaseModel, arbitrary_types_allowed=True):
+class Agent(BaseModel):
     """Agent in the agent graph.
 
     Using this when you need to break down complex tasks into specialized sub-tasks and create reusable, composable AI components. All existing agents are list in tools before this one.
@@ -72,7 +63,7 @@ class Agent[I: CompletionCreateParams](BaseModel, arbitrary_types_allowed=True):
     ]
     """User-friendly name for the display.
 
-    The name is unique among all nodes, including nested nodes.
+    The name is unique among all nodes.
     """
 
     description: str | None = None
@@ -101,48 +92,17 @@ class Agent[I: CompletionCreateParams](BaseModel, arbitrary_types_allowed=True):
     instructions: str | None = None
     """Agent's instructions, could be a Jinja2 template."""
 
-    mcp_servers: dict[str, MCPServer] = Field(default_factory=dict, alias="mcpServers")
-    """MCP configuration for the agent. Should be compatible with claude code."""
-
-    client: AsyncOpenAI | None = None
+    client: PydanticAsyncOpenAI | None = None
     """The client to use for the node"""
-
-    nodes: set[Node] = Field(default_factory=set)
-    """The nodes in the Agent's graph"""
-
-    edges: set[Edge] = Field(default_factory=set)
-    """The edges in the Agent's graph"""
 
     hooks: list[Hook] = Field(default_factory=list)
     """Hooks to execute at various points in the agent lifecycle"""
 
-    _visited: "dict[str, bool]" = PrivateAttr(
-        default_factory=lambda: defaultdict(lambda: False)
-    )
     _mcp_manager: MCPManager = PrivateAttr(default_factory=MCPManager)
 
     def __hash__(self):
         """Agent name is unique among all swarm."""
         return hash(self.name)
-
-    @property
-    def agents(self) -> dict[str, "Agent"]:
-        """Return all agents in the graph keyed by their unique name."""
-        return self._collect_agents()
-
-    def _collect_agents(self) -> dict[str, "Agent"]:
-        collected: dict[str, "Agent"] = {}
-
-        def visit(node: "Agent") -> None:
-            if node.name in collected:
-                raise ValueError(f"Duplicated agent name: {node.name}")
-            collected[node.name] = node
-            for child in node.nodes:
-                if isinstance(child, Agent):
-                    visit(child)
-
-        visit(self)
-        return collected
 
     @classmethod
     def as_init_tool(cls) -> ChatCompletionFunctionToolParam:
@@ -150,7 +110,7 @@ class Agent[I: CompletionCreateParams](BaseModel, arbitrary_types_allowed=True):
         return {
             "type": "function",
             "function": {
-                "name": "create_agent",
+                "name": cls.__name__,
                 "description": cls.__doc__ or "",
                 "parameters": cls.model_json_schema(),
             },
@@ -169,65 +129,9 @@ class Agent[I: CompletionCreateParams](BaseModel, arbitrary_types_allowed=True):
             tool["function"]["description"] = self.description
         return tool
 
-    @field_validator("client", mode="plain")
-    def validate_client(cls, v: Any) -> AsyncOpenAI | None:
-        """Validate the client.
-
-        If it's a dict, we create a new AsyncOpenAI client from it.
-        Otherwise, we assume it's already a valid AsyncOpenAI client.
-
-        """
-        if v is None:
-            return None
-        if isinstance(v, AsyncOpenAI):
-            return v
-        if isinstance(timeout_dict := v.get("timeout"), dict):
-            v["timeout"] = Timeout(**timeout_dict)
-        return AsyncOpenAI(**v)
-
-    @field_serializer("client", mode="plain")
-    def serialize_client(self, v: AsyncOpenAI | None) -> dict[str, Any] | None:
-        """Serialize the client.
-
-        We only serialize the non-default parameters. api_key would not be serialized
-        you can manually set it when deserializing.
-
-        """
-        if v is None:
-            return None
-        client: dict[str, Any] = {}
-        if str(v.base_url) != "https://api.openai.com/v1":
-            client["base_url"] = str(v.base_url)
-        for key in (
-            "organization",
-            "project",
-            "websocket_base_url",
-        ):
-            if (attr := getattr(v, key, None)) is not None:
-                client[key] = attr
-        if isinstance(v.timeout, float | None):
-            client["timeout"] = v.timeout
-        elif isinstance(v.timeout, Timeout):
-            client["timeout"] = v.timeout.as_dict()
-        if v.max_retries != DEFAULT_MAX_RETRIES:
-            client["max_retries"] = v.max_retries
-        if bool(v._custom_headers):
-            client["default_headers"] = v._custom_headers
-        if bool(v._custom_query):
-            client["default_query"] = v._custom_query
-        return client
-
-    def model_post_init(self, context):
-        """Post."""
-        mcp_manager = (self.model_extra or {}).get("mcp_manager")
-        if isinstance(mcp_manager, MCPManager):
-            self._mcp_manager = mcp_manager
-        # Validate the agent graph immediately so duplicates fail fast
-        self._collect_agents()
-
     async def __call__(
         self,
-        arguments: I,
+        arguments: CompletionCreateParams,
         *,
         context: dict[str, Any] | None = None,
         quota_manager: QuotaManager | None = None,
@@ -241,10 +145,6 @@ class Agent[I: CompletionCreateParams](BaseModel, arbitrary_types_allowed=True):
             auto_execute_tools: Automatically execute tools or not
 
         """
-        for name, server_params in (
-            (settings.mcp_servers if settings is not None else {}) | self.mcp_servers
-        ).items():
-            await self._mcp_manager.add_server(name, server_params)
         stream = arguments.get("stream", False)
         if stream:
             raise NotImplementedError("Stream mode is not yet supported now.")
@@ -255,7 +155,6 @@ class Agent[I: CompletionCreateParams](BaseModel, arbitrary_types_allowed=True):
             context = {}
         if quota_manager is None:
             quota_manager = QuotaManager(arguments.get("max_tokens"))  # type: ignore[arg-type]
-        self._visited.clear()
         await self._execute_hooks("on_start", messages, context)
         completion = await self._create_chat_completion(
             params=arguments,
@@ -276,106 +175,7 @@ class Agent[I: CompletionCreateParams](BaseModel, arbitrary_types_allowed=True):
         message["name"] = f"{self.name} ({completion.id})"
         messages.append(message)
 
-        if (tool_calls := messages[-1].get("tool_calls")) is not None:
-            self._register_tool_calls(tool_calls, messages)
-        self._visited[self.name] = True
-        pending_sources: set[str] = {self.name}
-        while pending_sources:
-            targets: dict[str, Node] = {}
-            for edge in self.edges:
-                if not self._edge_triggers(edge, pending_sources):
-                    continue
-                resolved = await self._resolve_edge_target(edge.target, context)
-                for target in resolved:
-                    targets[target.name] = target
-            if not targets:
-                break
-            task_entries: list[tuple[Node, asyncio.Task[MessagesState]]] = []
-            async with asyncio.TaskGroup() as tg:
-                for target in targets.values():
-                    if isinstance(target, Agent):
-                        task = tg.create_task(target({"messages": messages}))
-                    elif isinstance(target, Tool):
-                        task = tg.create_task(
-                            self._run_tool_node(target, {"messages": messages}, context)
-                        )
-                    else:
-                        raise TypeError("Unknown type of Node.")
-                    task_entries.append((target, task))
-            pending_sources = set()
-            for target, task in task_entries:
-                result = task.result()
-                messages.extend(result["messages"])
-                self._visited[target.name] = True
-                pending_sources.add(target.name)
-        await self._execute_hooks("on_end", messages, context)
         return {"messages": messages[init_len:]}
-
-    def _edge_triggers(self, edge: Edge, pending_sources: set[str]) -> bool:
-        """Check whether an edge is ready to fire based on freshly completed sources."""
-        if isinstance(edge.source, tuple):
-            return all(self._visited.get(name, False) for name in edge.source) and any(
-                name in pending_sources for name in edge.source
-            )
-        return edge.source in pending_sources
-
-    async def _run_tool_node(
-        self,
-        tool: Tool,
-        state: MessagesState,
-        context: dict[str, Any],
-    ) -> MessagesState:
-        """Execute a tool node with hook notifications."""
-        messages = state["messages"]
-        await self._execute_hooks(
-            "on_tool_start",
-            messages,
-            context,
-            tool_name=tool.name,
-        )
-        try:
-            result = await tool(context)
-        except Exception:
-            await self._execute_hooks(
-                "on_tool_end",
-                messages,
-                context,
-                tool_name=tool.name,
-            )
-            raise
-        await self._execute_hooks(
-            "on_tool_end",
-            messages,
-            context,
-            tool_name=tool.name,
-        )
-        return {"messages": [result_to_message(tool.name, result)]}
-
-    def _builtin_tools(self) -> list[ChatCompletionFunctionToolParam]:
-        """Graph management tools available to every agent."""
-        return [
-            *[
-                agent.as_call_tool()
-                for agent in [self, *self.nodes]
-                if isinstance(agent, Agent)
-            ]
-        ] + [
-            Agent.as_init_tool(),
-            Edge.as_tool(),
-        ]
-
-    def _visible_tools(self):
-        hook_names = [
-            getattr(hook, hook_type)
-            for hook in self.hooks
-            for hook_type in get_args(HookType)
-            if getattr(hook, hook_type, None) is not None
-        ]
-        return [
-            tool
-            for tool in self._mcp_manager.tools
-            if tool["function"]["name"] not in hook_names
-        ] + self._builtin_tools()
 
     async def _execute_hooks(
         self,
@@ -383,7 +183,6 @@ class Agent[I: CompletionCreateParams](BaseModel, arbitrary_types_allowed=True):
         messages: list[ChatCompletionMessageParam],
         context: dict[str, Any],
         *,
-        tool_name: str | None = None,
         available_tools: list[ChatCompletionFunctionToolParam] | None = None,
         to_agent: "Agent | None" = None,
         chunk: ChatCompletionChunk | None = None,
@@ -395,7 +194,6 @@ class Agent[I: CompletionCreateParams](BaseModel, arbitrary_types_allowed=True):
             hook_type: The type of hook to execute (e.g., 'on_start', 'on_end')
             messages: The current messages to pass to hook tools
             context: The context variables to pass to the hook tools
-            tool_name: The name of the tool being called (for on_tool_start and on_tool_end)
             available_tools: The available tools can be called
             to_agent: The agent being handed off to (for on_handoff)
             chunk: The ChatCompletionChunk object (for on_chunk)
@@ -412,8 +210,6 @@ class Agent[I: CompletionCreateParams](BaseModel, arbitrary_types_allowed=True):
                 available["chunk"] = chunk
             if completion is not None:
                 available["completion"] = completion
-            if tool_name is not None:
-                available["tool"] = self._mcp_manager.get_tool(tool_name)
             if to_agent is not None:
                 available["to_agent"] = to_agent.model_dump(
                     mode="json", exclude_unset=True
@@ -485,18 +281,6 @@ class Agent[I: CompletionCreateParams](BaseModel, arbitrary_types_allowed=True):
         if system_prompt is not None:
             messages = [{"role": "system", "content": system_prompt}, *messages]
         tools: list[ChatCompletionFunctionToolParam] = [*parameters.get("tools", [])]
-        existing_tool_names = {
-            tool["function"]["name"] for tool in tools if tool["type"] == "function"
-        }
-        for tool in self._visible_tools():
-            if (
-                tool["type"] == "function"
-                and tool["function"]["name"] in existing_tool_names
-            ):
-                continue
-            tools.append(tool)
-            if tool["type"] == "function":
-                existing_tool_names.add(tool["function"]["name"])
         if tools:
             parameters["tools"] = tools
         else:
@@ -539,7 +323,6 @@ class Agent[I: CompletionCreateParams](BaseModel, arbitrary_types_allowed=True):
             "on_llm_start",
             messages,
             context,
-            available_tools=self._visible_tools(),
         )
 
         result = await client.chat.completions.create(**parameters)
@@ -549,103 +332,3 @@ class Agent[I: CompletionCreateParams](BaseModel, arbitrary_types_allowed=True):
         # Trigger on_llm_end hook for non‑stream response
         await self._execute_hooks("on_llm_end", messages, context, completion=result)
         return result
-
-    def _register_tool_calls(
-        self,
-        tool_calls: Iterable[ChatCompletionMessageToolCallUnionParam],
-        messages: list[ChatCompletionMessageParam],
-    ) -> None:
-        """Add tool nodes for pending tool calls."""
-        for tool_call in tool_calls:
-            if tool_call["type"] == "custom":
-                continue
-            name = tool_call["function"]["name"]
-            match name:
-                case "create_agent":
-                    self.nodes.add(
-                        Agent.model_validate_json(tool_call["function"]["arguments"])
-                    )
-                case "create_edge":
-                    self.edges.add(
-                        Edge.model_validate_json(tool_call["function"]["arguments"])
-                    )
-                case known if known in [
-                    self.name,
-                    *[node.name for node in self.nodes if isinstance(node, Agent)],
-                ]:
-                    self.edges.add(Edge(source=self.name, target=known))
-                case _:
-                    pass
-
-    def _tool_call_completed(
-        self,
-        messages: list[ChatCompletionMessageParam],
-        tool_call_id: str,
-    ) -> bool:
-        return any(
-            message.get("tool_call_id") == tool_call_id
-            for message in messages
-            if message["role"] == "tool"
-        )
-
-    def _get_node_by_name(self, name: str) -> Node:
-        """Get agent by name.
-
-        Only self & level 1 sub agents would be returned, avoid directly handoff to
-        sub-sub-agent.
-        """
-        if name == self.name:
-            return self
-        for node in self.nodes:
-            if node.name == name:
-                return node
-        raise KeyError(f"Node {name} not exist in nodes")
-
-    async def _resolve_edge_target(
-        self, target: str, context: dict[str, Any] | None = None
-    ) -> set[Node]:
-        """Resolve edge target, which can be a node name, function name, or CEL expression."""
-        # First check if target exists as a node
-        try:
-            return {self._get_node_by_name(target)}
-        except KeyError:
-            pass
-
-        # Then check if target is a function available through this registry
-        try:
-            result = await self._mcp_manager.call_tool(target, context or {})
-
-            if result.structuredContent is not None:
-                r = result.structuredContent.get("result")
-                if isinstance(r, list) and all(isinstance(item, str) for item in r):
-                    return {self._get_node_by_name(s) for s in r}
-                elif isinstance(r, str):
-                    return {self._get_node_by_name(r)}
-                else:
-                    raise TypeError(
-                        "Conditional edge should return string or list of string only"
-                    )
-            else:
-                if len(result.content) != 1 or result.content[0].type != "text":
-                    raise ValueError(
-                        "Conditional edge should return one text content block only"
-                    )
-                return {self._get_node_by_name(result.content[0].text)}
-        except KeyError:
-            pass
-
-        # Finally try to evaluate as CEL expression
-        try:
-            result = evaluate(target, context)
-            if isinstance(result, str):
-                return {self._get_node_by_name(result)}
-            elif isinstance(result, list) and all(
-                isinstance(item, str) for item in result
-            ):
-                return {self._get_node_by_name(s) for s in result}
-            else:
-                raise ValueError(
-                    f"CEL expression must return str or list[str], got {type(result)}"
-                )
-        except Exception as e:
-            raise ValueError(f"Invalid edge target '{target}': {e}")

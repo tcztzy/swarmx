@@ -16,7 +16,7 @@ async def test_execute_hooks_updates_context_via_mcp(hooks_params, model):
         description="Agent with hooks",
         instructions="You are a helpful AI assistant.",
         model=model,
-        hooks=[Hook(on_start="mcp__hooks__record")],
+        hooks=[Hook(on_start="record")],
         mcpServers={"hooks": hooks_params},
     ) as agent:
         context = {"hook_counter": 0}

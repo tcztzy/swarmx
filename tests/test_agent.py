@@ -1,33 +1,66 @@
 import sys
 
 import pytest
+from httpx import Timeout
 from mcp.client.stdio import StdioServerParameters
+from openai import AsyncOpenAI
 
+import swarmx.agent as agent_module
 from swarmx import Agent, settings
 
 pytestmark = pytest.mark.anyio
+
+
+def test_validate_client_accepts_dict_and_async_openai():
+    client_dict = {
+        "api_key": "test",
+        "timeout": {"connect": 1, "read": 2, "write": 2, "pool": 1},
+    }
+    agent = Agent(name="client", model="m", client=client_dict)  # type: ignore
+    assert isinstance(agent.client, AsyncOpenAI)
+    assert isinstance(agent.client.timeout, Timeout)
+
+    agent2 = Agent(
+        name="client2",
+        model="m",
+        client=agent_module.AsyncOpenAI(
+            api_key="key",
+            base_url="https://example.com",
+            max_retries=5,
+            default_headers={"X-Test": "true"},
+            default_query={"mode": "full"},
+        ),
+    )
+    dumped = agent2.model_dump(mode="json")
+    serialized = dumped["client"]
+    assert serialized["base_url"] == "https://example.com"
+    assert serialized["max_retries"] == 5
+    assert serialized["default_headers"] == {"X-Test": "true"}
+    assert serialized["default_query"] == {"mode": "full"}
+    assert "api_key" not in serialized
 
 
 @pytest.fixture
 async def hello_agent(model):
     # disable local AGENTS.md for context length.
     settings.agents_md = []
-    async with Agent(
+    agent = Agent(
         name="hello-agent", instructions="You are a helpful AI assistant.", model=model
-    ) as agent:
-        yield agent
+    )
+    return agent
 
 
 async def test_agent_run(hello_agent: Agent):
     response = await hello_agent({"messages": [{"role": "user", "content": "Hello"}]})
-    assert len(response) >= 1 and response[0]["role"] == "assistant"
+    messages = response["messages"]
+    assert len(messages) >= 1 and messages[0]["role"] == "assistant"
 
 
 @pytest.fixture
 async def hello_agent_with_time(model):
     # disable local AGENTS.md for context length.
     settings.agents_md = []
-    async with Agent(
+    agent = Agent(
         name="hello-agent",
         instructions="You are a helpful AI assistant.",
         model=model,
@@ -36,8 +69,8 @@ async def hello_agent_with_time(model):
                 command=sys.executable, args=["-m", "mcp_server_time"]
             )
         },
-    ) as agent:
-        yield agent
+    )
+    return agent
 
 
 async def test_agent_run_with_mcp_tool_call(hello_agent_with_time: Agent):
@@ -50,7 +83,6 @@ async def test_agent_run_with_mcp_tool_call(hello_agent_with_time: Agent):
                 }
             ]
         },
-        auto_execute_tools=True,
     )
-    message = response[-1]
+    message = response["messages"][-1]
     assert message["role"] == "assistant"

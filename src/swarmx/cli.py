@@ -8,10 +8,12 @@ from typing import Annotated
 import typer
 import uvicorn
 from openai.types.chat.chat_completion_message_param import ChatCompletionMessageParam
+from pydantic import TypeAdapter
 
 from .agent import Agent
 from .mcp_server import create_mcp_server
 from .server import create_server_app
+from .swarm import Swarm
 from .version import __version__
 
 
@@ -130,7 +132,7 @@ def serve(
 
     # Create FastAPI app
     fastapi_app = create_server_app(
-        Agent.model_validate(data), auto_execute_tools=auto_execute_tools
+        TypeAdapter(Swarm).validate_python(data), auto_execute_tools=auto_execute_tools
     )
 
     # Start the server
@@ -154,7 +156,7 @@ def mcp(
         data = {}
     else:
         data = json.loads(file.read_text())
-    create_mcp_server(Agent.model_validate(data)).run()
+    create_mcp_server(TypeAdapter(Swarm).validate_python(data)).run()
 
 
 if __name__ == "__main__":

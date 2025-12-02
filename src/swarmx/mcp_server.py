@@ -8,18 +8,18 @@ from mcp.server.fastmcp import FastMCP
 from openai.types.chat import ChatCompletionMessageParam
 
 from .agent import Agent
+from .swarm import Swarm
 from .types import CompletionCreateParams
 
 
-def create_mcp_server(agent: Agent) -> FastMCP:
+def create_mcp_server(agent: Swarm) -> FastMCP:
     """Return an MCP server that exposes the agent as a callable tool."""
-    server = FastMCP(name=agent.name, instructions=agent.instructions)
+    server = FastMCP(name=agent.name, instructions=agent.description)
 
-    def wrapper(agent: Agent):
+    def wrapper(agent: Swarm | Agent):
         async def call_agent(
             messages: list[ChatCompletionMessageParam],
             context: dict[str, Any] | None = None,
-            auto_execute_tools: bool = True,
             max_tokens: int | None = None,
         ) -> dict:
             state: CompletionCreateParams = {"messages": messages}
@@ -34,10 +34,10 @@ def create_mcp_server(agent: Agent) -> FastMCP:
 
         return call_agent
 
-    for subagent in agent.agents.values():
-        if isinstance(subagent, Agent):
-            server.tool(name=agent.name, description=agent.description)(
-                wrapper(subagent)
-            )
+    server.tool(name=agent.name, description=agent.description)(wrapper(agent))
+    for name, data in agent.nodes(data=True):
+        if data["type"] in ("agent", "swarm"):
+            subagent: Swarm | Agent = data[data["type"]]
+            server.tool(name=name, description=subagent.description)(wrapper(subagent))
 
     return server
