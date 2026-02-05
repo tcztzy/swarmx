@@ -2,12 +2,41 @@ name: ci
 on:
   push:
     branches:
-      - master 
+      - master
+      - main
+  pull_request:
+    branches:
+      - master
       - main
 permissions:
   contents: write
 jobs:
+  quality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+            enable-cache: true
+            cache-dependency-glob: "uv.lock"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version-file: "pyproject.toml"
+
+      - name: Install the project
+        run: uv sync --all-extras --dev
+
+      - name: Lint
+        run: uv run ruff check
+
+      - name: Tests
+        run: uv run pytest
+
   deploy:
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+    needs: quality
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

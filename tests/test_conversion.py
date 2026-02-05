@@ -1,7 +1,13 @@
 import pytest
 from mcp.types import CallToolResult, EmbeddedResource, ImageContent
+from openai.types.chat import ChatCompletionChunk
 
-from swarmx.conversion import _image_to_md, _resource_to_md, result_to_content
+from swarmx.conversion import (
+    _image_to_md,
+    _resource_to_md,
+    result_to_content,
+    stream_to_completion,
+)
 
 pytestmark = pytest.mark.anyio
 
@@ -177,3 +183,162 @@ async def test_image_to_md_and_result_to_content_image():
     result = CallToolResult.model_validate({"content": [image.model_dump()]})
     parts = result_to_content(result)
     assert md in parts[0]["text"]
+
+
+class DummyStream:
+    """Simple async iterable over preset chunks."""
+
+    def __init__(self, chunks):
+        self._iter = iter(chunks)
+
+    def __aiter__(self):
+        return self
+
+    async def __anext__(self):
+        try:
+            return next(self._iter)
+        except StopIteration:
+            raise StopAsyncIteration
+
+
+def _chunk(data: dict) -> ChatCompletionChunk:
+    return ChatCompletionChunk.model_validate(data)
+
+
+async def test_stream_to_chat_completion_basic_aggregation():
+    chunks = [
+        _chunk(
+            {
+                "id": "chatcmpl-1",
+                "choices": [
+                    {
+                        "index": 0,
+                        "delta": {"role": "assistant", "content": "Hello "},
+                        "finish_reason": None,
+                    }
+                ],
+                "created": 1,
+                "model": "gpt-test",
+                "object": "chat.completion.chunk",
+            }
+        ),
+        _chunk(
+            {
+                "id": "chatcmpl-1",
+                "choices": [
+                    {
+                        "index": 0,
+                        "delta": {"content": "world"},
+                        "finish_reason": "stop",
+                    }
+                ],
+                "created": 1,
+                "model": "gpt-test",
+                "object": "chat.completion.chunk",
+                "usage": {
+                    "completion_tokens": 2,
+                    "prompt_tokens": 3,
+                    "total_tokens": 5,
+                },
+            }
+        ),
+    ]
+    seen = []
+
+    async def progress(progress: float, total: float | None, message: str | None):
+        seen.append(message)
+
+    completion = await stream_to_completion(DummyStream(chunks), progress)  # type: ignore
+    assert len(seen) == 2
+    assert completion.id == "chatcmpl-1"
+    assert completion.choices[0].message.content == "Hello world"
+    assert completion.choices[0].finish_reason == "stop"
+    assert completion.usage is not None
+    assert completion.usage.total_tokens == 5
+
+
+async def test_stream_to_chat_completion_function_call_and_tool_calls():
+    chunks = [
+        _chunk(
+            {
+                "id": "chatcmpl-2",
+                "choices": [
+                    {
+                        "index": 0,
+                        "delta": {
+                            "role": "assistant",
+                            "function_call": {"name": "foo", "arguments": "{'a'"},
+                        },
+                        "finish_reason": None,
+                    }
+                ],
+                "created": 2,
+                "model": "gpt-test",
+                "object": "chat.completion.chunk",
+            }
+        ),
+        _chunk(
+            {
+                "id": "chatcmpl-2",
+                "choices": [
+                    {
+                        "index": 0,
+                        "delta": {
+                            "function_call": {"arguments": ":1}"},
+                            "tool_calls": [
+                                {
+                                    "index": 0,
+                                    "id": "call_0",
+                                    "function": {
+                                        "name": "bar",
+                                        "arguments": "{'b':",
+                                    },
+                                    "type": "function",
+                                }
+                            ],
+                        },
+                        "finish_reason": None,
+                    }
+                ],
+                "created": 2,
+                "model": "gpt-test",
+                "object": "chat.completion.chunk",
+            }
+        ),
+        _chunk(
+            {
+                "id": "chatcmpl-2",
+                "choices": [
+                    {
+                        "index": 0,
+                        "delta": {
+                            "tool_calls": [
+                                {
+                                    "index": 0,
+                                    "function": {"arguments": "2}"},
+                                }
+                            ]
+                        },
+                        "finish_reason": "tool_calls",
+                    }
+                ],
+                "created": 2,
+                "model": "gpt-test",
+                "object": "chat.completion.chunk",
+            }
+        ),
+    ]
+    completion = await stream_to_completion(DummyStream(chunks))  # type: ignore
+    choice = completion.choices[0]
+    assert choice.message.function_call is not None
+    assert choice.message.function_call.name == "foo"
+    assert choice.message.function_call.arguments == "{'a':1}"
+    tool_call = choice.message.tool_calls[0]  # type: ignore[index]
+    assert tool_call.function.name == "bar"  # type: ignore[union-attr]
+    assert tool_call.function.arguments == "{'b':2}"  # type: ignore[union-attr]
+    assert choice.finish_reason == "tool_calls"
+
+
+async def test_stream_to_chat_completion_empty_stream():
+    with pytest.raises(ValueError, match="Stream produced no choices"):
+        await stream_to_completion(DummyStream([]))  # type: ignore

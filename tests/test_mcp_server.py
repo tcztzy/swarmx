@@ -11,23 +11,19 @@ async def test_create_mcp_server_exposes_agent_tool(model):
     """Ensure the MCP server registers the agent as a callable tool."""
 
     settings.agents_md = []
-    async with Agent(
+    agent = Agent(
         name="test-agent",
         description="Test agent description",
         instructions="You are a helpful AI assistant.",
-        model=model,
-    ) as agent:
-        server = create_mcp_server(agent)
-        assert server.instructions == agent.instructions
+    )
+    server = create_mcp_server(agent)
+    assert server.instructions == agent.description
 
-        tools = await server.list_tools()
-        assert any(tool.name == agent.name for tool in tools)
+    tools = await server.list_tools()
+    assert any(tool.name == agent.name for tool in tools)
 
-        messages = [{"role": "user", "content": "Hello"}]
-        result = await server._tool_manager.call_tool(  # type: ignore[attr-defined]
-            agent.name,
-            {"messages": messages, "auto": False},
-            context=server.get_context(),
-            convert_result=False,
-        )
-        assert "messages" in result and result["messages"][0]["role"] == "assistant"
+    result = await server._tool_manager.call_tool(  # type: ignore[attr-defined]
+        agent.name,
+        {"messages": [{"role": "user", "content": "Hello"}], "model": model},
+    )
+    assert "messages" in result and result["messages"][0]["role"] == "assistant"

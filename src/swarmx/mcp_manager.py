@@ -26,22 +26,43 @@ class MCPManager:
     @property
     def tools(self) -> list[ChatCompletionFunctionToolParam]:
         """Return all tools, both local and MCP."""
-        _tools = []
-        for tools in self._tools.values():
+        return self.tools_for_openai()
+
+    def tools_for_openai(
+        self,
+        *,
+        prefix: str | None = None,
+        exclude: set[str] | None = None,
+    ) -> list[ChatCompletionFunctionToolParam]:
+        """Return tools formatted for OpenAI, optionally with a name prefix."""
+        openai_tools: list[ChatCompletionFunctionToolParam] = []
+        for server_name, tools in self._tools.items():
             for tool in tools:
-                _tool = ChatCompletionFunctionToolParam(
+                prefixed_name = (
+                    f"{prefix}{server_name}__{tool.name}" if prefix else tool.name
+                )
+                if exclude and (tool.name in exclude or prefixed_name in exclude):
+                    continue
+                tool_param = ChatCompletionFunctionToolParam(
                     type="function",
                     function={
-                        "name": tool.name,
+                        "name": prefixed_name,
                         "parameters": tool.inputSchema,
                     },
                 )
                 if tool.description:
-                    _tool["function"]["description"] = tool.description
-                _tools.append(_tool)
-        return _tools
+                    tool_param["function"]["description"] = tool.description
+                openai_tools.append(tool_param)
+        return openai_tools
 
     def _parse_name(self, name: str) -> tuple[str, Tool]:
+        if name.startswith("mcp__"):
+            parts = name.split("__", 2)
+            if len(parts) == 3:
+                _, server_name, tool_name = parts
+                for tool in self._tools.get(server_name, []):
+                    if tool.name == tool_name:
+                        return server_name, tool
         for server_name, tools in self._tools.items():
             for tool in tools:
                 if tool.name == name:

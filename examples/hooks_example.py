@@ -1,8 +1,7 @@
 """Example demonstrating Hook functionality in SwarmX.
 
 This example shows how to use hooks to execute MCP tools at various points
-in the agent lifecycle. Hook tools can modify both messages and context
-through structured output.
+in the agent lifecycle. Hook tools can merge structured output into context.
 """
 
 import asyncio
@@ -17,11 +16,8 @@ async def main():
     # These tools would need to be available in your MCP server
     logging_hook = Hook(
         on_start="log_agent_start",
+        on_chunk="log_stream_chunk",
         on_end="log_agent_end",
-        on_tool_start="log_tool_start",
-        on_tool_end="log_tool_end",
-        on_subagents_start="log_subagents_start",
-        on_subagents_end="log_subagents_end",
     )
 
     # Create another hook for metrics collection
@@ -58,9 +54,9 @@ async def main():
 
     # Note: To actually run the agent, you would need:
     # 1. MCP servers configured with the hook tools that accept input format:
-    #    {"messages": [...], "context": {...}}
-    # 2. Hook tools that return structured output:
-    #    {"messages": [...], "context": {...}}
+    #    {"messages": [...], "context": {...}, "agent": {...}}
+    # 2. Hook tools that return structured output merged into context:
+    #    {"system_info": {...}}
     # 3. Proper OpenAI API configuration
     #
     # Example hook tool implementation:

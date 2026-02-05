@@ -6,51 +6,9 @@ from collections.abc import AsyncGenerator
 from datetime import datetime
 from typing import TypeVar
 
-from openai.types.chat import (
-    ChatCompletion,
-    ChatCompletionAssistantMessageParam,
-    ChatCompletionMessageFunctionToolCall,
-)
+from pydantic.json_schema import GenerateJsonSchema
 
 T = TypeVar("T")
-
-
-def completion_to_message(
-    completion: ChatCompletion,
-) -> ChatCompletionAssistantMessageParam:
-    """Convert a ChatCompletion object to ChatCompletionAssistantMessageParam.
-
-    Extract the first choice's message and return its dict representation.
-    """
-    if not completion.choices:
-        raise ValueError("ChatCompletion has no choices")
-    choice = completion.choices[0]
-    message = choice.message
-    result: ChatCompletionAssistantMessageParam = {"role": "assistant"}
-    if message.content:
-        result["content"] = choice.message.content
-    if message.tool_calls is not None:
-        result["tool_calls"] = [
-            {
-                "type": "function",
-                "id": tool_call.id,
-                "function": {
-                    "name": tool_call.function.name,
-                    "arguments": tool_call.function.arguments,
-                },
-            }
-            if isinstance(tool_call, ChatCompletionMessageFunctionToolCall)
-            else {
-                "type": "custom",
-                "id": tool_call.id,
-                "custom": {
-                    "name": tool_call.custom.name,
-                    "input": tool_call.custom.input,
-                },
-            }
-            for tool_call in message.tool_calls
-        ]
-    return result
 
 
 def now():
@@ -111,3 +69,15 @@ async def join(*generators: AsyncGenerator[T, None]) -> AsyncGenerator[T, None]:
         raise NotImplementedError(
             "Impossible state: expected all tasks to be exhausted"
         )
+
+
+class GenerateJsonSchemaNoTitles(GenerateJsonSchema):
+    """Generate Json Schema with no titles."""
+
+    def field_title_should_be_set(self, schema) -> bool:
+        """Disable title set."""
+        return False
+
+    def _update_class_schema(self, json_schema, cls, config) -> None:
+        super()._update_class_schema(json_schema, cls, config)
+        json_schema.pop("title", None)

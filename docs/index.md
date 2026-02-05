@@ -81,8 +81,8 @@ uvx swarmx serve --host 0.0.0.0 --port 8000
 
 This provides OpenAI-compatible endpoints:
 
-- `POST /v1/chat/completions` - Chat completions with streaming support
-- `GET /v1/models` - List available models
+- `POST /chat/completions` - Chat completions with streaming support
+- `GET /models` - List available models
 
 Use it with any OpenAI-compatible client:
 
@@ -90,7 +90,7 @@ Use it with any OpenAI-compatible client:
 import openai
 
 client = openai.OpenAI(
-    base_url="http://localhost:8000/v1",
+    base_url="http://localhost:8000",
     api_key="dummy"  # SwarmX doesn't require authentication
 )
 
@@ -102,7 +102,7 @@ response = client.chat.completions.create(
 
 ## Installation
 
-Requires Python 3.11+
+Requires Python 3.12+
 
 ```console
 $ pip install swarmx # or `uv tool install swarmx`
@@ -112,34 +112,34 @@ $ pip install swarmx # or `uv tool install swarmx`
 
 ```python
 import asyncio
-from swarmx import Swarm, Agent
-
-client = Swarm()
-
-def transfer_to_agent_b():
-    return agent_b
-
+from swarmx import Agent, Edge, Swarm
 
 agent_a = Agent(
-    name="Agent A",
+    name="agent_a",
     instructions="You are a helpful agent.",
-    functions=[transfer_to_agent_b],
 )
 
 agent_b = Agent(
-    name="Agent B",
+    name="agent_b",
     model="deepseek-r1:7b",
     instructions="你只能说中文。",  # You can only speak Chinese.
 )
 
+swarm = Swarm(
+    name="demo_swarm",
+    parameters={},
+    nodes={agent_a.name: agent_a, agent_b.name: agent_b},
+    edges=[Edge(source=agent_a.name, target=agent_b.name)],
+    root=agent_a.name,
+)
+
 
 async def main():
-    response = await client.run(
-        agent=agent_a,
-        messages=[{"role": "user", "content": "I want to talk to agent B."}],
+    messages = await swarm(
+        {"messages": [{"role": "user", "content": "I want to talk to agent B."}]},
     )
 
-    print(response.messages[-1]["content"])
+    print(messages[-1]["content"])
 
 
 asyncio.run(main())

@@ -25,10 +25,12 @@ class Edge(BaseModel, frozen=True, use_attribute_docstrings=True):
 
     """
 
-    source: str | tuple[str, ...]
-    """Name of the source node, if is array of string, which means transferring to target need all sources done."""
+    source: str
+    """Name of the source node."""
     target: str
     """Name of the target node, could be agent's name or (tool/common expression language) which returns agent names."""
+    condition: str | None = None
+    """Condition expression denote that this edge should be followed."""
 
     @classmethod
     def as_tool(cls) -> ChatCompletionFunctionToolParam:

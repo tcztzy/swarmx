@@ -1,4 +1,4 @@
-"""SwarmX Hook module."""
+"""Hook module."""
 
 from typing import Literal
 
@@ -22,18 +22,6 @@ class Hook(BaseModel):
     on_handoff: str | None = None
     """Tool name to execute when agent hands off to another agent"""
 
-    on_tool_start: str | None = None
-    """Tool name to execute before any tool call"""
-
-    on_tool_end: str | None = None
-    """Tool name to execute after any tool call"""
-
-    on_llm_start: str | None = None
-    """Tool name to execute before LLM call"""
-
-    on_llm_end: str | None = None
-    """Tool name to execute after LLM call"""
-
     on_chunk: str | None = None
     """Tool name to execute after each stream data chunk"""
 
@@ -42,9 +30,5 @@ HookType = Literal[
     "on_start",
     "on_end",
     "on_handoff",
-    "on_tool_start",
-    "on_tool_end",
-    "on_llm_start",
-    "on_llm_end",
     "on_chunk",
 ]

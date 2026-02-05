@@ -1,16 +1,13 @@
-"""
-This is an example of using SwarmX to generate ideas for research experiments.
+"""Example of using SwarmX to generate research experiment ideas.
 
 Modified from https://github.com/SakanaAI/AI-Scientist
 """
 
-from swarmx import Agent, Swarm
+from swarmx import Agent, Edge, Swarm
 
 reasoning_models = ["deepseek-r1", "deepseek-reasoner", "claude-3.7-sonnet", "qwq"]
 
-idea_generator = Agent(
-    name="Idea Generator",
-    instructions="""{{ task_description }}
+IDEA_GENERATOR_INSTRUCTIONS = """{{ task_description }}
 <experiment.py>
 {{ code }}
 </experiment.py>
@@ -56,12 +53,9 @@ In <JSON>, provide the new idea in JSON format with the following fields:
 Be cautious and realistic on your ratings.
 This JSON will be automatically parsed, so ensure the format is precise.
 You will have {{ num_reflections }} rounds to iterate on the idea, but do not need to use them all.
-""",
-)
+"""
 
-idea_refiner = Agent(
-    name="Idea Refiner",
-    instructions="""Round {{ current_round }}/{{ num_reflections }}.
+IDEA_REFINER_INSTRUCTIONS = """Round {{ current_round }}/{{ num_reflections }}.
 In your thoughts, first carefully consider the quality, novelty, and feasibility of the idea you just created.
 Include any other factors that you think are important in evaluating the idea.
 Ensure the idea is clear and concise, and the JSON is the correct format.
@@ -82,11 +76,29 @@ NEW IDEA JSON:
 ```
 
 If there is nothing to improve, simply repeat the previous JSON EXACTLY {% if model not in reasoning_models %}after the thought {% endif %}and include "I am done" at the end of the thoughts but before the JSON.
-ONLY INCLUDE "I am done" IF YOU ARE MAKING NO MORE CHANGES.""",
+ONLY INCLUDE "I am done" IF YOU ARE MAKING NO MORE CHANGES."""
+
+idea_generator = Agent(
+    name="idea_generator",
+    instructions=IDEA_GENERATOR_INSTRUCTIONS,
 )
 
-idea = Swarm()
-idea.add_node(0, idea_generator)
-for i in range(5):
-    idea.add_node(i + 1, idea_refiner)
-    idea.add_edge(i, i + 1)
+refiners = [
+    Agent(name=f"idea_refiner_{i + 1}", instructions=IDEA_REFINER_INSTRUCTIONS)
+    for i in range(5)
+]
+
+nodes = {idea_generator.name: idea_generator, **{r.name: r for r in refiners}}
+edges: list[Edge] = []
+previous = idea_generator.name
+for refiner in refiners:
+    edges.append(Edge(source=previous, target=refiner.name))
+    previous = refiner.name
+
+idea = Swarm(
+    name="idea_swarm",
+    parameters={},
+    nodes=nodes,
+    edges=edges,
+    root=idea_generator.name,
+)

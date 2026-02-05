@@ -6,10 +6,18 @@ from pathlib import Path
 from typing import Any, AsyncGenerator, Unpack
 from unittest.mock import AsyncMock
 
+import httpx
 import openai
 import pytest
 from mcp.client.stdio import StdioServerParameters
 from openai import AsyncOpenAI, AsyncStream
+from openai._types import (
+    Body,
+    Headers,
+    NotGiven,
+    Query,
+    not_given,
+)
 from openai.types.chat import (
     ChatCompletion,
     ChatCompletionChunk,
@@ -95,7 +103,12 @@ class CachedAsyncOpenAI(AsyncOpenAI):
         create = self.chat.completions.create
 
         async def _create(
-            stream: bool = False, **kw: Unpack[CompletionCreateParamsBase]
+            stream: bool = False,
+            extra_headers: Headers | None = None,
+            extra_query: Query | None = None,
+            extra_body: Body | None = None,
+            timeout: float | httpx.Timeout | None | NotGiven = not_given,
+            **kw: Unpack[CompletionCreateParamsBase],
         ) -> Any:
             # Call the actual API.
             parameters = kw | {"stream": stream}
@@ -111,7 +124,14 @@ class CachedAsyncOpenAI(AsyncOpenAI):
                     return thread.completion
             if stream:
                 # ``response`` is an async generator of chunks.
-                response = await create(stream=stream, **kw)
+                response = await create(
+                    stream=stream,
+                    **kw,
+                    extra_headers=extra_headers,
+                    extra_query=extra_query,
+                    extra_body=extra_body,
+                    timeout=timeout,
+                )
 
                 async def _gen(
                     response: AsyncStream[ChatCompletionChunk],
@@ -126,7 +146,13 @@ class CachedAsyncOpenAI(AsyncOpenAI):
 
                 completion = _gen(response)
             else:
-                completion = await create(stream=stream, **kw)
+                completion = await create(
+                    **kw,
+                    extra_headers=extra_headers,
+                    extra_query=extra_query,
+                    extra_body=extra_body,
+                    timeout=timeout,
+                )
                 thread = Thread(parameters=parameters, completion=completion)
                 with self._threads_path.open(mode="a") as f:
                     f.write(thread.model_dump_json(exclude_unset=True) + "\n")

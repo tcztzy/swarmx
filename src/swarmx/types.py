@@ -1,5 +1,6 @@
 """SwarmX types."""
 
+from collections.abc import Iterable
 from typing import Any, Literal, TypedDict
 
 from mcp.client.stdio import StdioServerParameters
@@ -35,7 +36,7 @@ MCPServer = StdioServerParameters | SSEServer
 class MessagesState(TypedDict):
     """Messages state."""
 
-    messages: list[ChatCompletionMessageParam]
+    messages: Iterable[ChatCompletionMessageParam]
 
 
 class CompletionCreateParams(MessagesState, total=False):

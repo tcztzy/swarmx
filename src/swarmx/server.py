@@ -1,12 +1,14 @@
 """OpenAI-compatible server."""
 
+import asyncio
 import json
-from typing import cast
 
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import StreamingResponse
 from openai.types.chat import ChatCompletion, ChatCompletionMessageParam
 from pydantic import BaseModel
 
+from .node import Node
 from .swarm import Swarm
 from .utils import get_random_string, now
 from .version import __version__
@@ -22,17 +24,23 @@ class ChatCompletionCreateParams(BaseModel):
 
 
 def create_server_app(
-    swarm: Swarm,
-    *,
+    node: Node,
     auto_execute_tools: bool = True,
 ) -> FastAPI:
     """Create FastAPI app with OpenAI-compatible endpoints."""
     app = FastAPI(title="SwarmX API", version=__version__)
+    app.state.auto_execute_tools = auto_execute_tools
+
+    def get_models() -> dict[str, Node]:
+        models: dict[str, Node] = {node.name: node}
+        if isinstance(node, Swarm):
+            models |= node.nodes
+        return models
 
     @app.get("/models")
     async def list_models():
         """List available models."""
-        # List all agents in the swarm as models
+        models = get_models()
         return {
             "object": "list",
             "data": [
@@ -42,7 +50,7 @@ def create_server_app(
                     "created": now(),
                     "owned_by": "swarmx",
                 }
-                for name in swarm
+                for name in sorted(models)
             ],
         }
 
@@ -51,15 +59,8 @@ def create_server_app(
         params: ChatCompletionCreateParams,
     ):
         """Handle chat completions with streaming support, routing to the requested agent model."""
-        # Resolve the target agent based on the model name
-        if params.model == swarm.name:
-            target_agent: Swarm | None = swarm
-        else:
-            node = swarm.nodes.get(params.model)
-            target_agent = cast(
-                Swarm | None, node[node["type"]] if node is not None else None
-            )
-        if target_agent is None:
+        model = get_models().get(params.model)
+        if model is None:
             raise HTTPException(
                 status_code=404,
                 detail=f"Model '{params.model}' not found in swarm agents.",
@@ -67,12 +68,22 @@ def create_server_app(
 
         if not params.stream:
             # Run the target agent synchronously (non‑stream mode) and build an OpenAI‑compatible response
-            messages = await target_agent(
+            state = await model(
                 {
                     "messages": params.messages,
                     "stream": False,
-                    "max_tokens": params.max_tokens,
+                    "auto_execute_tools": app.state.auto_execute_tools,
+                    **(
+                        {"max_tokens": params.max_tokens}
+                        if params.max_tokens is not None
+                        else {}
+                    ),
                 },
+            )
+            messages = (
+                list(state.get("messages", []))
+                if isinstance(state, dict)
+                else list(state)
             )
             return ChatCompletion.model_validate(
                 {
@@ -93,35 +104,65 @@ def create_server_app(
                 }
             )
 
-        # async def generate_stream():
-        #     """Generate streaming response."""
-        #     try:
-        #         async for chunk in await target_agent(
-        #             {
-        #                 "messages": params.messages,
-        #                 "stream": True,
-        #                 "max_tokens": params.max_tokens,
-        #             },
-        #         ):
-        #             yield f"data: {chunk.model_dump_json()}\n\n"
-        #     except Exception as e:
-        #         error_chunk = {
-        #             "id": f"chatcmpl-{get_random_string(10)}",
-        #             "object": "chat.completion.chunk",
-        #             "created": now(),
-        #             "model": params.model,
-        #             "choices": [
-        #                 {
-        #                     "index": 0,
-        #                     "delta": {"content": str(e)},
-        #                     "finish_reason": "stop",
-        #                 }
-        #             ],
-        #         }
-        #         yield f"data: {json.dumps(error_chunk)}\n\n"
-        #     finally:
-        #         yield "data: [DONE]\n\n"
+        async def generate_stream():
+            """Generate streaming response."""
+            queue: asyncio.Queue[str] = asyncio.Queue()
+            task: asyncio.Task | None = None
 
-        # return StreamingResponse(generate_stream())
+            async def on_chunk(
+                progress: float,  # noqa: ARG001
+                total: float | None,  # noqa: ARG001
+                message: str | None,
+            ) -> None:
+                if message is not None:
+                    await queue.put(message)
+
+            try:
+                task = asyncio.create_task(
+                    model(
+                        {
+                            "messages": params.messages,
+                            "stream": True,
+                            "auto_execute_tools": app.state.auto_execute_tools,
+                            **(
+                                {"max_tokens": params.max_tokens}
+                                if params.max_tokens is not None
+                                else {}
+                            ),
+                        },
+                        progress_callable=on_chunk,
+                    )
+                )
+                while not task.done() or not queue.empty():
+                    try:
+                        chunk_json = await asyncio.wait_for(queue.get(), timeout=0.1)
+                    except asyncio.TimeoutError:
+                        continue
+                    yield f"data: {chunk_json}\n\n"
+
+                await task
+            except asyncio.CancelledError:
+                if task is not None:
+                    task.cancel()
+                raise
+            except Exception as e:
+                error_chunk = {
+                    "id": f"chatcmpl-{get_random_string(10)}",
+                    "object": "chat.completion.chunk",
+                    "created": now(),
+                    "model": params.model,
+                    "choices": [
+                        {
+                            "index": 0,
+                            "delta": {"content": str(e)},
+                            "finish_reason": "stop",
+                        }
+                    ],
+                }
+                yield f"data: {json.dumps(error_chunk)}\n\n"
+            finally:
+                yield "data: [DONE]\n\n"
+
+        return StreamingResponse(generate_stream())
 
     return app

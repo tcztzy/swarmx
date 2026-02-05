@@ -7,11 +7,9 @@ SwarmX supports lifecycle hooks that allow you to execute MCP tools at specific 
 A `Hook` is a Pydantic BaseModel that defines which MCP tools to execute at various lifecycle events:
 
 - `on_start`: Executed when the agent begins processing
-- `on_end`: Executed when the agent finishes processing  
-- `on_tool_start`: Executed before any tool call
-- `on_tool_end`: Executed after any tool call
-- `on_subagents_start`: Executed before subagent processing begins
-- `on_subagents_end`: Executed after subagent processing ends
+- `on_end`: Executed when the agent finishes processing
+- `on_handoff`: Reserved for handoff events (not triggered by the current runtime)
+- `on_chunk`: Executed after each streamed chunk
 
 ## Creating Hooks
 
@@ -21,9 +19,8 @@ from swarmx import Hook
 # Create a logging hook
 logging_hook = Hook(
     on_start="log_agent_start",
-    on_end="log_agent_end",
-    on_tool_start="log_tool_start", 
-    on_tool_end="log_tool_end"
+    on_chunk="log_stream_chunk",
+    on_end="log_agent_end"
 )
 
 # Create a metrics hook
@@ -53,16 +50,14 @@ agent = Agent(
 
 Hooks are executed automatically during agent lifecycle:
 
-1. **on_start** - Called at the beginning of `_run()` and `_run_stream()`
-2. **on_tool_start** - Called before executing any tool calls
-3. **on_tool_end** - Called after executing tool calls
-4. **on_subagents_start** - Called before running subagents
-5. **on_subagents_end** - Called after running subagents  
-6. **on_end** - Called at the end of processing
+1. **on_start** - Called at the beginning of processing
+2. **on_chunk** - Called for each streamed chunk
+3. **on_end** - Called at the end of processing
+4. **on_handoff** - Reserved for future handoff events
 
 ## Hook Tool Requirements
 
-Hook tools must be available in your MCP server configuration. The tools receive both the current messages and context as input parameters, and can return modified versions through structured output.
+Hook tools must be available in your MCP server configuration. The tools receive the current messages, context, and agent metadata. Structured output can update context.
 
 ### Input Format
 
@@ -70,21 +65,21 @@ Hook tools receive input in this format:
 ```python
 {
     "messages": [...],  # Current conversation messages
-    "context": {...}    # Agent context (can be None)
+    "context": {...},   # Agent context (can be None)
+    "agent": {...}      # Agent metadata (name)
 }
 ```
 
 ### Output Format
 
-Hook tools can return structured output to modify messages and context:
+Hook tools can return structured output that is merged directly into context:
 ```python
 {
-    "messages": [...],  # Modified messages
-    "context": {...}    # Modified context (can be None)
+    "system_info": {...}  # Added to context
 }
 ```
 
-If no modifications are needed, return the input unchanged.
+If no modifications are needed, return an empty structured output or omit structured output.
 
 ### Example MCP Tools
 
@@ -99,10 +94,7 @@ async def log_agent_start(input_data: dict) -> dict:
     logger.info(f"Agent started with {len(messages)} messages and context: {context}")
 
     # Return unchanged if no modifications needed
-    return {
-        "messages": messages,
-        "context": context
-    }
+    return {}
 
 @server.call_tool()
 async def add_system_context(input_data: dict) -> dict:
@@ -111,14 +103,11 @@ async def add_system_context(input_data: dict) -> dict:
     context = input_data.get("context") or {}
 
     # Modify context
-    context["system_info"] = {
-        "timestamp": datetime.now().isoformat(),
-        "message_count": len(messages)
-    }
-
     return {
-        "messages": messages,
-        "context": context
+        "system_info": {
+            "timestamp": datetime.now().isoformat(),
+            "message_count": len(messages),
+        }
     }
 
 @server.call_tool()
@@ -126,22 +115,13 @@ async def filter_messages(input_data: dict) -> dict:
     """Filter out certain message types."""
     messages = input_data["messages"]
     context = input_data["context"]
-
-    # Filter messages
-    filtered_messages = [
-        msg for msg in messages
-        if msg.get("role") != "system" or "important" in msg.get("content", "")
-    ]
-
-    return {
-        "messages": filtered_messages,
-        "context": context
-    }
+    logger.info("Received %d messages", len(messages))
+    return {}
 ```
 
 ## Error Handling
 
-If a hook tool fails, the error is logged but does not stop agent execution. This ensures that hook failures don't break your main workflow.
+If a hook tool raises, the exception propagates and will stop agent execution. Handle errors inside your hook tools if you want a best-effort behavior.
 
 ## Serialization
 

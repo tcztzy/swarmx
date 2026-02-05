@@ -9,10 +9,10 @@ readme = "README.md"
 license = "MIT"
 dependencies = [
     "common-expression-language>=0.5.3",
-    "fastapi>=0.122.0",
+    "fastapi>=0.123.8",
     "jinja2>=3.1.6",
     "jsonschema>=4.25.1",
-    "mcp>=1.22.0",
+    "mcp>=1.23.1",
     "networkx>=3.6",
     "openai>=2.8.1",
     "pydantic-settings>=2.12.0",
@@ -71,6 +71,7 @@ test = [
 [tool.ruff.lint]
 extend-select = ["D", "F", "I", "T20"]
 ignore = [
+    "D105",  # undocumented-magic-method
     "D203",  # incorrect-blank-line-before-class
     "D213",  # multi-line-summary-second-line
 ]

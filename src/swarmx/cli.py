@@ -8,13 +8,26 @@ from typing import Annotated
 import typer
 import uvicorn
 from openai.types.chat.chat_completion_message_param import ChatCompletionMessageParam
-from pydantic import TypeAdapter
+from pydantic import TypeAdapter, ValidationError
 
 from .agent import Agent
 from .mcp_server import create_mcp_server
 from .server import create_server_app
 from .swarm import Swarm
 from .version import __version__
+
+
+def load_node(data: dict) -> Agent | Swarm:
+    """Load a Swarm config when possible, otherwise fall back to a single Agent."""
+    if data:
+        try:
+            return TypeAdapter(Swarm).validate_python(data)
+        except ValidationError:
+            return Agent.model_validate(data)
+    try:
+        return Agent.model_validate(data)
+    except ValidationError:
+        return Agent(name="Agent")
 
 
 async def amain(
@@ -28,7 +41,7 @@ async def amain(
         data = {}
     else:
         data = json.loads(file.read_text())
-    client: Agent = Agent.model_validate(data)
+    node = load_node(data)
     messages: list[ChatCompletionMessageParam] = []
     while True:
         try:
@@ -39,12 +52,31 @@ async def amain(
                     "content": user_prompt,
                 }
             )
-            for message in await client(
+            if verbose:
+                typer.secho("Request:", err=True, fg="cyan")
+                typer.echo(
+                    json.dumps({"messages": messages}, indent=2, ensure_ascii=False),
+                    err=True,
+                )
+            result = await node(
                 {
                     "messages": messages,
                 }
-            ):
-                ...
+            )
+            response_messages = (
+                list(result.get("messages", []))
+                if isinstance(result, dict)
+                else list(result)
+            )
+            for assistant_message in response_messages:
+                messages.append(assistant_message)
+                content = assistant_message.get("content")
+                if content:
+                    typer.echo(content)
+                else:
+                    typer.echo(
+                        json.dumps(assistant_message, indent=2, ensure_ascii=False)
+                    )
         except KeyboardInterrupt:
             break
         except Exception as e:
@@ -131,9 +163,8 @@ def serve(
         data = json.loads(file.read_text())
 
     # Create FastAPI app
-    fastapi_app = create_server_app(
-        TypeAdapter(Swarm).validate_python(data), auto_execute_tools=auto_execute_tools
-    )
+    node = load_node(data)
+    fastapi_app = create_server_app(node, auto_execute_tools=auto_execute_tools)
 
     # Start the server
     uvicorn.run(fastapi_app, host=host, port=port)
@@ -156,7 +187,7 @@ def mcp(
         data = {}
     else:
         data = json.loads(file.read_text())
-    create_mcp_server(TypeAdapter(Swarm).validate_python(data)).run()
+    create_mcp_server(load_node(data)).run()
 
 
 if __name__ == "__main__":

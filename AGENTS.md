@@ -1,140 +1,71 @@
 # Repository Guidelines
 
-    YOU ARE THE MOST CAPABLE MODEL AND THIS PROJECT IS DIFFICULT META-PROGRAMMING THAT AVERAGE MODELS CANNOT HANDLE, WITH INTERLOCKING CONSTRAINTS WHERE A SINGLE MISSTEP BREAKS THE PIPELINE. IT DEMANDS INSIGHT BEYOND A TYPICAL PHD —- DO NOT TREAT IT LIGHTLY.
+YOU ARE THE MOST CAPABLE MODEL AND THIS PROJECT IS DIFFICULT META-PROGRAMMING THAT AVERAGE MODELS CANNOT HANDLE, WITH INTERLOCKING CONSTRAINTS WHERE A SINGLE MISSTEP BREAKS THE PIPELINE. IT DEMANDS INSIGHT BEYOND A TYPICAL PHD —- DO NOT TREAT IT LIGHTLY.
 
 Authoritative instructions for coding agents working in this repo. Follow every constraint unless the user explicitly overrides it.
 
 ## Quick Start
+- Read the user request twice; note unstated constraints and cross-file impacts.
+- Plan when work is more than trivial and keep it updated; otherwise proceed directly.
+- Inspect relevant files first with read-only commands (`rg`, `ls`, `cat`).
+- Make focused, minimal edits; prefer patch-style changes or targeted scripts.
+- Run only the needed validation via `uv run ...`; summarize results.
+- Craft the final response using the messaging rules below, including verification status and next actions when relevant.
 
-1. Read the user request twice; capture unstated constraints or cross-file impacts.
-2. If the task is multi-step, sketch a plan and revise it as progress is made; otherwise proceed directly.
-3. Inspect relevant files with read-only commands (`rg`, `ls`, `cat`) or equivalent tooling in your environment before editing.
-4. Make focused, minimal changes—prefer patch-style edits or targeted scripts rather than overwriting large sections.
-5. Run only the minimum validation needed (tests, linters) via `uv run ...`. Summarize key results instead of dumping logs.
-6. Craft the final response following the messaging rules below; include verification status and next actions when appropriate.
+## Project Structure & Key Files
+- `src/swarmx/` – Core package (`agent.py`, `cli.py`, `mcp_manager.py`, `utils.py`, `types.py`, `hook.py`).
+- `tests/` – Pytest suite mirroring source (`test_agent.py`, `test_cli.py`, `test_mcp_manager.py`).
+- `docs/`, `examples/` – Narrative docs and usage patterns.
+- See `README.md` and `docs/` for deeper context.
 
-## Project Structure & Module Organization
-
-The codebase follows a standard Python package layout:
-
-- `src/swarmx/` – Core package source code  
-  Files of note: `agent.py`, `cli.py`, `mcp_manager.py`, `utils.py`, `types.py`, `hook.py`
-- `tests/` – Comprehensive pytest suite  
-  Mirrors source modules: `test_agent.py`, `test_cli.py`, `test_mcp_manager.py`
-- `docs/`, `examples/` – Narrative documentation and usage patterns
-
-For deeper architectural context, see `README.md` (overview) and `docs/` (detailed guides).
-
-## Workflow & Execution Guardrails
-
-- **Planning:** Break work into discrete steps when the effort is more than trivial and keep the plan updated as you complete steps.
-- **Edits:** Default to ASCII. Add concise comments only when they clarify complex logic. Never revert user-owned changes.
-- **Testing:** Run targeted checks with `uv run <tool>` only when they add value. Mention if tests were skipped and why.
-- **Environment Constraints:** Stay within the access level provided (filesystem, network, credentials). Seek approval from the maintainer before attempting privileged actions.
-- **Failures:** Surface command failures promptly, include relevant output, and propose alternatives or follow-up actions.
+## Workflow & Guardrails
+- Plan for non-trivial tasks; keep plans current.
+- Default to ASCII. Add concise comments only when they clarify complex logic. Never revert user-owned changes.
+- Use `uv run <tool>` for targeted checks; mention skipped tests and why.
+- Stay within provided access; request approval before privileged actions. Avoid destructive git commands.
+- Surface failures promptly with relevant output and proposed alternatives.
 
 ## Command Reference
-
-- Inspect repo: `ls`, `rg --files`, `rg "<pattern>" <path>`
+- Inspect: `ls`, `rg --files`, `rg "<pattern>" <path>`
 - Format/lint: `uv run ruff check`, `uv run ruff format`
 - Tests: `uv run pytest`, `uv run pytest -xvs`
-- Script execution: `uv run <script>.py`
-- Dependency changes: `uv add <pkg>`, `uv remove <pkg>`, `uv sync`
-- Editing: prefer patch-based tools or scripted transformations to keep changes scoped.
+- Scripts: `uv run <script>.py`
+- Dependencies: `uv add <pkg>`, `uv remove <pkg>`, `uv sync`
+- Editing: prefer patch-based tools or scripted transformations.
 
-## Coding Style & Naming Conventions
-
-- Target Python 3.11+ features, async/await, and type hints throughout.
-- Prefer concise, idiomatic Python; leverage built-ins, comprehensions, and standard library.
+## Coding Style & Naming
+- Target Python 3.12+; use modern generics (`class A[T]: ...`, `def func[P, R](p: P) -> R:`) and type hints throughout.
+- Prefer concise, idiomatic Python; leverage built-ins and comprehensions.
+- Google-style docstrings.
 - Ruff is the source of truth for linting/formatting (configured in `pyproject.toml`).
-- Use Pydantic models defined in `types.py` for validation.
+- Use Pydantic models in `types.py` for validation.
+- Pydantic config belongs in the class signature (e.g., `class Model(BaseModel, extra="allow")`), not `model_config`.
+- Do **not** add `from __future__ import annotations` (or other `__future__` imports); Python 3.12+ already provides the needed behavior, and 3.14 removes the module.
 - Naming: Classes `PascalCase`, functions/variables `snake_case`, constants `UPPER_SNAKE_CASE`.
 
-## Testing Guidelines
-
+## Testing
 - pytest (with pytest-cov) is the framework of record; aim for >90% coverage.
-- Mirror source structure in tests; leverage fixtures and `pytest-asyncio` for async code.
-- Prefer `uv run pytest -xvs` during focused debugging; share only salient failures.
-- Document in the final message whether tests ran, passed, or were intentionally skipped.
+- Mirror source structure; use fixtures and `pytest-asyncio` for async code.
+- Prefer `uv run pytest -xvs` when debugging; share only salient failures.
+- Always note whether tests ran, passed, or were skipped.
 
 ## Communication & Final Messages
+- Tone: concise, collaborative, factual. Reference files with clickable paths (`path/to/file.py:42`).
+- Lead with the outcome, then explain changes by file/section. Use bullets sparingly.
+- Always state verification status (tests/linters run or skipped) and only suggest natural next steps.
+- Do not dump large diffs; describe impact and locations for local inspection.
 
-- Tone: concise, collaborative, factual. Reference files with clickable paths `path/to/file.py:42`.
-- Structure: Lead with the outcome, then expand on changes by file/section. Avoid heavy formatting; use bullets sparingly.
-- Always note verification status (tests/linters run or skipped) and suggest logical next steps only when they exist.
-- Do not dump large diffs; describe the impact and location so the user can inspect locally.
+## Commit & PR Guidelines
+- Commit messages: Keep ≤50 characters, imperative, using KeepAChangelog verbs (`Added`, `Changed`, `Deprecated`, `Removed`, `Fixed`, `Security`). Provide body when needed; never include “generated by LLM”.
+- PRs: Describe changes clearly, link issues, ensure tests pass, update docs when required. Pre-commit hooks run `ruff` and `mypy`.
 
-## Commit & Pull Request Guidelines
-
-**Commit Messages**
-
-- Follow KeepAChangelog verbs (`Added`, `Changed`, `Deprecated`, `Removed`, `Fixed`, `Security`).
-- Keep the subject ≤50 characters; imperative mood only.
-- Provide contextual body when necessary; reference related issues.
-- Never include “generated by LLM” or similar wording.
-
-**Pull Requests**
-
-- Describe changes clearly, link issues, ensure tests pass, and update docs when required.
-- Pre-commit hooks will run `ruff` and `mypy`; no manual invocation needed post-commit.
-
-## Security & Configuration Tips
-
-- Environment variables load from `.env`; maintain `.env.example` as the contract.
+## Security & Configuration
+- Environment variables load from `.env`; keep `.env.example` in sync.
 - Never commit secrets or credentials.
-- MCP servers require proper authentication; keep configuration in sync with `mcp_manager.py`.
-
-## Agent-Specific Instructions
-
-**Design Principles**
-- Build focused, single-purpose agents. Use hooks (`on_llm_start`, `on_handoff`) for custom behavior.
-
-**Workflow Patterns**
-- Use function-based edge transfers for routing between agents.
-- Support dynamic tool selection by exposing capabilities through the `tools` context.
-
-**MCP Integration**
-- Configure MCP servers via environment variables before use.
-- Interact through `src/swarmx/mcp_manager.py` and adhere to the MCP specification for tool definitions.
-- Validate tool schemas and authentication flows when adding or modifying MCP integrations.
-
-## Graph Architecture
-
-**CRITICAL: Understand these graph structures for correct implementation**
-
-### Swarm Graph (Workflow Definition)
-- **Type**: Directed Acyclic Graph (DAG) implemented as `nx.DiGraph`
-- **Nodes**: Agents with unique names
-- **Edges**: Transitions with conditional routing
-- **Invariant**: Every cycle MUST contain at least one conditional edge that can break the loop
-- **Edge Targets**: Can be:
-  - Direct agent name: `"agent_b"`
-  - CEL expression: `"score > 0.5 ? 'agent_b' : 'agent_c'"`
-  - MCP tool call: Dynamic routing function that evaluates context
-- **Implementation**: Located in `src/swarmx/swarm.py` and `src/swarmx/graph.py`
-
-### Trace Graph (Execution Records)
-- **Type**: Tree structure implemented as `nx.DiGraph`
-- **Nodes**: Execution instances with UUIDs (same agent can appear multiple times with different UUIDs)
-- **Edges**: Actual execution paths taken
-- **Invariant**: NO shared nodes after branching - each execution creates new node instances
-- **Property**: Forms a tree even when the same agent is executed multiple times
-- **Implementation**: Generated during runtime execution, stored in `src/swarmx/graph.py`
-
-### Key Differences
-- **Swarm**: Many-to-many relationships possible, represents ALL potential paths
-- **Trace**: One-to-many only (tree), represents ONE actual execution path
-- **Swarm nodes**: Agent names (reusable)
-- **Trace nodes**: Execution UUIDs (unique per invocation)
-
-### Implementation Notes
-- Both use `nx.DiGraph` base class (NOT `MultiDiGraph` - single edge with dynamic routing)
-- Swarm validation must check for DAG property (cycles with unconditional edges are errors)
-- Trace generation must create new node IDs for each agent invocation
-- Edge conditions in Swarm are evaluated at runtime to produce Trace
+- MCP servers require proper auth; keep configuration aligned with `mcp_manager.py`.
+- See `DESIGNS.md` for detailed agent architecture, graph invariants, and MCP integration notes.
 
 ## Related Resources
-
-- `README.md` – High-level project overview and getting started.
-- `docs/` – Extended documentation, tutorials, and reference material.
-- `examples/` – Practical usage scenarios and patterns to mirror or extend.
+- `README.md` – overview and getting started.
+- `docs/` – extended guides and references.
+- `examples/` – practical usage patterns.

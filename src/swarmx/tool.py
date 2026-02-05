@@ -1,33 +1,29 @@
 """Tool module."""
 
 from datetime import timedelta
-from typing import Annotated, Any, Self
+from typing import Any, Self
 
 import jsonschema
 from mcp import ClientSession
 from mcp import Tool as MCPTool
 from mcp.shared.session import ProgressFnT
 from mcp.types import CallToolResult
-from openai.types.shared import FunctionDefinition
-from pydantic import Field, PrivateAttr
+from pydantic import PrivateAttr
+
+from .node import Node
+from .types import MessagesState
 
 
-class Tool(FunctionDefinition):
+class MCPCallToolResultState(MessagesState):
+    """State with CallToolResult."""
+
+    result: CallToolResult
+
+
+class Tool(Node):
     """Tool node."""
 
-    name: Annotated[
-        str,
-        Field(
-            pattern=r"^[A-Za-z][A-Za-z0-9_-]{0,63}$",
-            frozen=True,
-            max_length=64,
-        ),
-    ]
-    returns: dict[str, Any] | None = None
-
-    def __hash__(self):
-        """Tool name is unique among all MCP servers and not conflict with any agent's name."""
-        return hash(self.name)
+    _session: ClientSession | None = PrivateAttr(default=None)
 
     @classmethod
     def from_mcp(cls, mcp_tool: MCPTool) -> Self:
@@ -39,8 +35,6 @@ class Tool(FunctionDefinition):
             returns=mcp_tool.outputSchema,
         )
 
-    _session: ClientSession | None = PrivateAttr(default=None)
-
     def model_post_init(self, __context: Any) -> None:
         """Initialize MCP session reference."""
         if self.model_extra is None:
@@ -51,10 +45,11 @@ class Tool(FunctionDefinition):
     async def __call__(
         self,
         arguments: dict[str, Any] | None = None,
-        read_timeout_seconds: timedelta | None = None,
-        progress_callback: ProgressFnT | None = None,
         *,
+        timeout: float | None = None,
+        progress_callback: ProgressFnT | None = None,
         meta: dict[str, Any] | None = None,
+        **kwargs,
     ) -> CallToolResult:
         """Execute the targeted MCP tool call."""
         if self._session is None:
@@ -62,10 +57,11 @@ class Tool(FunctionDefinition):
                 f"Client session not found, this tool `{self.name}` could not be called."
             )
         jsonschema.validate(arguments, self.parameters or {})
-        return await self._session.call_tool(
-            self.name.split("__", maxsplit=2)[2],
+        result = await self._session.call_tool(
+            self.name,
             arguments,
-            read_timeout_seconds,
+            None if timeout is None else timedelta(seconds=timeout),
             progress_callback,
             meta=meta,
         )
+        return result
