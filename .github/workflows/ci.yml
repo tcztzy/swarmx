@@ -31,6 +31,9 @@ jobs:
       - name: Lint
         run: uv run ruff check
 
+      - name: Type check
+        run: uv run pre-commit run mypy --all-files
+
       - name: Tests
         run: uv run pytest
 

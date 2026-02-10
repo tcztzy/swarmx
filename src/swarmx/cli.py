@@ -14,6 +14,7 @@ from .agent import Agent
 from .mcp_server import create_mcp_server
 from .server import create_server_app
 from .swarm import Swarm
+from .types import CompletionCreateParams
 from .version import __version__
 
 
@@ -58,11 +59,8 @@ async def amain(
                     json.dumps({"messages": messages}, indent=2, ensure_ascii=False),
                     err=True,
                 )
-            result = await node(
-                {
-                    "messages": messages,
-                }
-            )
+            request: CompletionCreateParams = {"messages": messages}
+            result = await node(request)
             response_messages = (
                 list(result.get("messages", []))
                 if isinstance(result, dict)

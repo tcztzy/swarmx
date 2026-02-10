@@ -46,6 +46,12 @@ class CompletionCreateParams(MessagesState, total=False):
     with additional optional chat-completion parameters.
     """
 
+    model: str
+    """Model to use for chat completion."""
+
+    auto_execute_tools: bool
+    """Whether the agent should execute tool calls automatically."""
+
     stream: bool
     """Whether to stream the response."""
 

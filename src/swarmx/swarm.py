@@ -14,7 +14,6 @@ from openai.types.chat import (
     ChatCompletion,
     ChatCompletionFunctionToolParam,
     ChatCompletionMessageParam,
-    CompletionCreateParams,
 )
 from pydantic import (
     Field,
@@ -31,7 +30,7 @@ from .mcp_manager import MCPManager
 from .messages import Messages
 from .node import Node
 from .tool import Tool
-from .types import MCPServer
+from .types import CompletionCreateParams, MCPServer
 from .utils import GenerateJsonSchemaNoTitles
 
 MAX_STEPS = 100
@@ -98,7 +97,7 @@ class Swarm(Node):
     def _rebuild_graphs(self) -> None:
         graph = Graph()
         graph.add_nodes_from(self.nodes.keys())
-        unconditional_graph = nx.DiGraph()
+        unconditional_graph: nx.DiGraph[str] = nx.DiGraph()
         unconditional_graph.add_nodes_from(self.nodes.keys())
         predecessors: dict[str, set[str]] = {name: set() for name in self.nodes}
 
@@ -262,15 +261,15 @@ Use JSON Patch to:
                 node = self.nodes[node_name]
                 match node:
                     case Agent():
-                        result = await node(arguments, context=context)
-                        if isinstance(result, dict) and "messages" in result:
-                            return list(result["messages"])
-                        if isinstance(result, ChatCompletion):
-                            return [completion_to_message(result)]
+                        agent_state = await node(arguments, context=context)
+                        if isinstance(agent_state, dict) and "messages" in agent_state:
+                            return list(agent_state["messages"])
+                        if isinstance(agent_state, ChatCompletion):
+                            return [completion_to_message(agent_state)]
                         raise TypeError("Agent returned unexpected result type.")
                     case Tool():
-                        result = await node()
-                        return [result_to_message("", result)]
+                        tool_result = await node()
+                        return [result_to_message("", tool_result)]
                     case Swarm():
                         return await node(arguments, context=context)
                     case _:

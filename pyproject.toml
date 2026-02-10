@@ -58,7 +58,11 @@ docs = [
     "mkdocstrings[python]>=1.0.0",
 ]
 lint = [
+    "mypy>=1.19.0",
     "ruff>=0.14.7",
+    "types-jsonschema>=4.26.0.20260202",
+    "types-networkx>=3.6.1.20260210",
+    "types-pygments>=2.19.0.20251121",
 ]
 test = [
     "mcp-server-time>=2025.9.25",

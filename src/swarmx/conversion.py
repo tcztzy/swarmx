@@ -1,7 +1,7 @@
 """MCP result conversion utilities."""
 
 import os
-from typing import Any, assert_never
+from typing import Any, assert_never, cast
 
 from mcp.shared.session import ProgressFnT
 from mcp.types import (
@@ -19,6 +19,8 @@ from openai.types.chat import (
     ChatCompletionAssistantMessageParam,
     ChatCompletionChunk,
     ChatCompletionContentPartTextParam,
+    ChatCompletionMessageCustomToolCallParam,
+    ChatCompletionMessageFunctionToolCallParam,
     ChatCompletionToolMessageParam,
 )
 from openai.types.chat.chat_completion_chunk import (
@@ -62,7 +64,8 @@ def _resource_to_md(
                 lexer = get_lexer_for_mimetype(c.mimeType)
             except ClassNotFound:
                 lexer = None
-        return lexer.aliases[0] if lexer else "text"
+        aliases = getattr(lexer, "aliases", None)
+        return aliases[0] if aliases else "text"
 
     match resource.resource:
         case TextResourceContents() as c:
@@ -277,7 +280,14 @@ def completion_to_message(
     if message.content:
         result["content"] = choice.message.content
     if message.tool_calls is not None:
-        result["tool_calls"] = [  # type: ignore
+        tool_calls = [
             tool_call.model_dump(exclude={"index"}) for tool_call in message.tool_calls
         ]
+        result["tool_calls"] = cast(
+            list[
+                ChatCompletionMessageFunctionToolCallParam
+                | ChatCompletionMessageCustomToolCallParam
+            ],
+            tool_calls,
+        )
     return result

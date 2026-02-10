@@ -8,8 +8,14 @@ from jinja2 import Template
 from mcp.shared.session import ProgressFnT
 from mcp.types import CallToolResult
 from openai import NOT_GIVEN, AsyncOpenAI
-from openai.types.chat import ChatCompletion, CompletionCreateParams
-from openai.types.chat.completion_create_params import CompletionCreateParamsBase
+from openai.types.chat import (
+    ChatCompletion,
+    ChatCompletionMessageFunctionToolCall,
+    ChatCompletionMessageParam,
+)
+from openai.types.chat import (
+    CompletionCreateParams as OpenAICompletionCreateParams,
+)
 from pydantic import Field, PrivateAttr, TypeAdapter
 
 from . import settings
@@ -18,10 +24,10 @@ from .conversion import completion_to_message, result_to_message, stream_to_comp
 from .mcp_manager import MCPManager
 from .messages import Messages
 from .node import Node
-from .types import MCPServer, MessagesState
+from .types import CompletionCreateParams, MCPServer, MessagesState
 from .utils import GenerateJsonSchemaNoTitles
 
-PARAMS = TypeAdapter(CompletionCreateParams).json_schema(
+PARAMS = TypeAdapter(OpenAICompletionCreateParams).json_schema(
     schema_generator=GenerateJsonSchemaNoTitles
 )
 RETURNS = ChatCompletion.model_json_schema(schema_generator=GenerateJsonSchemaNoTitles)
@@ -105,7 +111,7 @@ class Agent(Node):
     async def _execute_hook(
         self,
         hook_name: str,
-        messages: list[dict[str, Any]],
+        messages: list[ChatCompletionMessageParam],
         context: dict[str, Any],
     ) -> None:
         result = await self._mcp_manager.call_tool(
@@ -165,7 +171,7 @@ class Agent(Node):
             if hook.on_start:
                 await self._execute_hook(hook.on_start, filtered_messages, context)
 
-        parameters: CompletionCreateParamsBase = dict(arguments)  # type: ignore[arg-type]
+        parameters: dict[str, Any] = dict(arguments)
         parameters["messages"] = completion_messages
         if not parameters.get("model"):
             parameters["model"] = self.model or settings.OPENAI_MODEL
@@ -199,7 +205,7 @@ class Agent(Node):
         conversation = list(parameters["messages"])
         call_parameters = dict(parameters)
         call_parameters.pop("messages", None)
-        responses: list[dict[str, Any]] = []
+        responses: list[ChatCompletionMessageParam] = []
         completion: ChatCompletion | None = None
         remaining_tool_calls = 8
         use_stream = stream
@@ -233,6 +239,8 @@ class Agent(Node):
                     break
                 conversation.append(assistant_message)
                 for tool_call in tool_calls:
+                    if not isinstance(tool_call, ChatCompletionMessageFunctionToolCall):
+                        continue
                     tool_args: dict[str, Any] = {}
                     try:
                         tool_args = json.loads(tool_call.function.arguments)
