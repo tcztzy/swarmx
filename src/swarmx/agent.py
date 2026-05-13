@@ -8,14 +8,7 @@ from jinja2 import Template
 from mcp.shared.session import ProgressFnT
 from mcp.types import CallToolResult
 from openai import NOT_GIVEN, AsyncOpenAI
-from openai.types.chat import (
-    ChatCompletion,
-    ChatCompletionMessageFunctionToolCall,
-    ChatCompletionMessageParam,
-)
-from openai.types.chat import (
-    CompletionCreateParams as OpenAICompletionCreateParams,
-)
+from openai.types.chat import ChatCompletion, CompletionCreateParams
 from pydantic import Field, PrivateAttr, TypeAdapter
 
 from . import settings
@@ -24,10 +17,10 @@ from .conversion import completion_to_message, result_to_message, stream_to_comp
 from .mcp_manager import MCPManager
 from .messages import Messages
 from .node import Node
-from .types import CompletionCreateParams, MCPServer, MessagesState
+from .types import MCPServer, MessagesState
 from .utils import GenerateJsonSchemaNoTitles
 
-PARAMS = TypeAdapter(OpenAICompletionCreateParams).json_schema(
+PARAMS = TypeAdapter(CompletionCreateParams).json_schema(
     schema_generator=GenerateJsonSchemaNoTitles
 )
 RETURNS = ChatCompletion.model_json_schema(schema_generator=GenerateJsonSchemaNoTitles)
@@ -111,7 +104,7 @@ class Agent(Node):
     async def _execute_hook(
         self,
         hook_name: str,
-        messages: list[ChatCompletionMessageParam],
+        messages: list[dict[str, Any]],
         context: dict[str, Any],
     ) -> None:
         result = await self._mcp_manager.call_tool(
@@ -169,10 +162,10 @@ class Agent(Node):
         hook_names = self._hook_tool_names()
         for hook in self.hooks:
             if hook.on_start:
-                await self._execute_hook(hook.on_start, filtered_messages, context)
+                await self._execute_hook(hook.on_start, filtered_messages, context)  # type: ignore[arg-type]
 
         parameters: dict[str, Any] = dict(arguments)
-        parameters["messages"] = completion_messages
+        parameters["messages"] = completion_messages  # type: ignore[typeddict-item]
         if not parameters.get("model"):
             parameters["model"] = self.model or settings.OPENAI_MODEL
         if "tools" not in parameters:
@@ -183,8 +176,8 @@ class Agent(Node):
             if tools:
                 parameters["tools"] = tools
 
-        auto_execute_tools = parameters.pop("auto_execute_tools", True)
-        stream = parameters.pop("stream", False)
+        auto_execute_tools = parameters.pop("auto_execute_tools", True)  # type: ignore[typeddict-item]
+        stream = parameters.pop("stream", False)  # type: ignore[typeddict-item]
         request_id = str(uuid.uuid4())
         client = self.client or AsyncOpenAI(
             api_key=settings.OPENAI_API_KEY,
@@ -200,19 +193,19 @@ class Agent(Node):
                 await progress_callable(progress, total, message)
             for hook in self.hooks:
                 if hook.on_chunk:
-                    await self._execute_hook(hook.on_chunk, filtered_messages, context)
+                    await self._execute_hook(hook.on_chunk, filtered_messages, context)  # type: ignore[arg-type]
 
         conversation = list(parameters["messages"])
         call_parameters = dict(parameters)
         call_parameters.pop("messages", None)
-        responses: list[ChatCompletionMessageParam] = []
+        responses: list[dict[str, Any]] = []
         completion: ChatCompletion | None = None
         remaining_tool_calls = 8
         use_stream = stream
 
         while True:
             if use_stream:
-                _stream = await client.chat.completions.create(
+                _stream = await client.chat.completions.create(  # type: ignore[call-overload]
                     **call_parameters,
                     messages=conversation,
                     stream=True,
@@ -220,7 +213,7 @@ class Agent(Node):
                 )
                 completion = await stream_to_completion(_stream, on_chunk=on_chunk)
             else:
-                completion = await client.chat.completions.create(
+                completion = await client.chat.completions.create(  # type: ignore[call-overload]
                     **call_parameters,
                     messages=conversation,
                     timeout=timeout or NOT_GIVEN,
@@ -235,20 +228,18 @@ class Agent(Node):
                 if messages_graph is not None:
                     messages_graph.append_llm_message(assistant_message, completion)
                 if not auto_execute_tools:
-                    responses.append(assistant_message)
+                    responses.append(assistant_message)  # type: ignore[arg-type]
                     break
                 conversation.append(assistant_message)
                 for tool_call in tool_calls:
-                    if not isinstance(tool_call, ChatCompletionMessageFunctionToolCall):
-                        continue
                     tool_args: dict[str, Any] = {}
                     try:
-                        tool_args = json.loads(tool_call.function.arguments)
+                        tool_args = json.loads(tool_call.function.arguments)  # type: ignore[union-attr]
                     except (json.JSONDecodeError, TypeError):
                         tool_args = {}
                     try:
                         result = await self._mcp_manager.call_tool(
-                            tool_call.function.name,
+                            tool_call.function.name,  # type: ignore[union-attr]
                             tool_args,
                         )
                     except Exception as exc:  # pragma: no cover - defensive
@@ -270,7 +261,7 @@ class Agent(Node):
             assistant_message = completion_to_message(completion)
             if messages_graph is not None:
                 messages_graph.append_llm_message(assistant_message, completion)
-            responses.append(assistant_message)
+            responses.append(assistant_message)  # type: ignore[arg-type]
             break
 
         for hook in self.hooks:
@@ -279,6 +270,6 @@ class Agent(Node):
 
         assert completion is not None
         return {
-            "messages": responses,
+            "messages": responses,  # type: ignore[typeddict-item]
             "completion": completion,
         }

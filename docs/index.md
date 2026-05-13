@@ -12,37 +12,32 @@ An extreme simple framework exploring ergonomic, lightweight multi-agent orchest
 
 ## JSON Format Details
 SwarmX supports importing and exporting workflows in JSON format. The JSON structure includes:
-- `nodes`: List of nodes with their type (`agent` or `swarm`) and associated data
-- `edges`: List of edges connecting nodes, optionally with conditions
+- `nodes`: Map of node names to node definitions (`agent`, `swarm`, or `tool`)
+- `edges`: List of edges connecting nodes, optionally with CEL conditions
 - `mcpServers`: Optional configuration for MCP servers
 
 Example JSON structure:
 ```json
 {
-  "nodes": [
-    {
-      "id": 0,
+  "name": "demo_swarm",
+  "root": "agent_a",
+  "nodes": {
+    "agent_a": {
       "type": "agent",
-      "agent": {
-        "name": "Assistant",
-        "model": "gpt-4o",
-        "instructions": "You are a helpful agent."
-      }
+      "name": "agent_a",
+      "instructions": "You are a helpful agent."
     },
-    {
-      "id": 1,
+    "agent_b": {
       "type": "agent",
-      "agent": {
-        "name": "Specialist",
-        "model": "deepseek-r1:7b",
-        "instructions": "You are a specialist agent."
-      }
+      "name": "agent_b",
+      "model": "deepseek-r1:7b",
+      "instructions": "You are a specialist agent."
     }
-  ],
+  },
   "edges": [
     {
-      "source": 0,
-      "target": 1
+      "source": "agent_a",
+      "target": "agent_b"
     }
   ]
 }
@@ -61,14 +56,14 @@ SwarmX automatically loads environment variables from a `.env` file if present. 
    # Create a .env file in your project directory
    echo "OPENAI_API_KEY=your-api-key" > .env
    echo "OPENAI_BASE_URL=http://localhost:11434/v1" >> .env  # optional
-   uvx swarmx  # Start interactive REPL
+   cargo run -p swarmx-cli  # Start interactive REPL
    ```
 
 2. **Set environment variables manually**:
    ```shell
    export OPENAI_API_KEY="your-api-key"
    # export OPENAI_BASE_URL="http://localhost:11434/v1"  # optional
-   uvx swarmx  # Start interactive REPL
+   cargo run -p swarmx-cli  # Start interactive REPL
    ```
 
 ### API Server
@@ -76,7 +71,7 @@ SwarmX automatically loads environment variables from a `.env` file if present. 
 You can also start SwarmX as an OpenAI-compatible API server:
 
 ```shell
-uvx swarmx serve --host 0.0.0.0 --port 8000
+cargo run -p swarmx-cli -- serve --host 0.0.0.0 --port 8000
 ```
 
 This provides OpenAI-compatible endpoints:
@@ -102,47 +97,45 @@ response = client.chat.completions.create(
 
 ## Installation
 
-Requires Python 3.12+
+Requires Rust 1.85+
 
 ```console
-$ pip install swarmx # or `uv tool install swarmx`
+$ cargo install --path crates/swarmx-cli
+```
+
+Or run directly from source:
+
+```console
+$ cargo run -p swarmx-cli
 ```
 
 ## Usage
 
-```python
-import asyncio
-from swarmx import Agent, Edge, Swarm
+```rust
+use swarmx_core::{Agent, Edge, Swarm, swarm::SwarmNode};
 
-agent_a = Agent(
-    name="agent_a",
-    instructions="You are a helpful agent.",
-)
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+    let agent_a = Agent::new("agent_a")
+        .with_instructions("You are a helpful agent.");
 
-agent_b = Agent(
-    name="agent_b",
-    model="deepseek-r1:7b",
-    instructions="你只能说中文。",  # You can only speak Chinese.
-)
+    let agent_b = Agent::new("agent_b")
+        .with_model("deepseek-r1:7b")
+        .with_instructions("You can only speak Chinese.");
 
-swarm = Swarm(
-    name="demo_swarm",
-    parameters={},
-    nodes={agent_a.name: agent_a, agent_b.name: agent_b},
-    edges=[Edge(source=agent_a.name, target=agent_b.name)],
-    root=agent_a.name,
-)
+    let swarm = Swarm::new("demo_swarm", "agent_a")
+        .with_node(SwarmNode::Agent(agent_a))
+        .with_node(SwarmNode::Agent(agent_b))
+        .with_edge(Edge::new("agent_a", "agent_b"));
 
+    let messages = swarm.execute(
+        serde_json::json!({"messages": [{"role": "user", "content": "I want to talk to agent B."}]}),
+        None,
+    ).await?;
 
-async def main():
-    messages = await swarm(
-        {"messages": [{"role": "user", "content": "I want to talk to agent B."}]},
-    )
-
-    print(messages[-1]["content"])
-
-
-asyncio.run(main())
+    println!("{}", serde_json::to_string_pretty(&messages)?);
+    Ok(())
+}
 ```
 
 ## Architecture

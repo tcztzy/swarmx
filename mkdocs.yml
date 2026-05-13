@@ -23,12 +23,6 @@ plugins:
 - search
 - literate-nav:
     nav_file: SUMMARY.md
-- mkdocstrings:
-    handlers:
-      python:
-        rendering:
-          show_source: true
-          show_root_heading: false
 
 markdown_extensions:
 - admonition
@@ -41,3 +35,5 @@ markdown_extensions:
 
 nav:
 - Home: index.md
+- Server: server.md
+- Hooks: hooks.md

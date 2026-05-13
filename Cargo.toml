@@ -1,0 +1,72 @@
+[workspace]
+members = [
+    "crates/swarmx-core",
+    "crates/swarmx-cli",
+    "crates/swarmx-ui",
+    "apps/desktop",
+]
+resolver = "3"
+
+[workspace.package]
+version = "2.0.0"
+edition = "2024"
+authors = ["Tang Ziya <tcztzy@gmail.com>"]
+license = "MIT"
+repository = "https://github.com/tcztzy/swarmx"
+rust-version = "1.85"
+
+[workspace.dependencies]
+# Core async & runtime
+tokio = { version = "1.44", features = ["full"] }
+tokio-util = "0.7"
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+schemars = "0.8"
+
+# HTTP / Web
+reqwest = { version = "0.12", features = ["json", "stream"] }
+axum = { version = "0.8", features = ["macros"] }
+axum-streams = { version = "0.20", features = ["text"] }
+tower = "0.5"
+tower-http = { version = "0.6", features = ["cors", "trace"] }
+
+# CLI
+clap = { version = "4.5", features = ["derive", "env"] }
+
+# Graph
+petgraph = "0.8"
+
+# Templating
+handlebars = "6.3"
+
+# Validation
+jsonschema = "0.30"
+
+# Expression evaluation
+cel-interpreter = "0.9"
+
+# OpenAI client
+async-openai = "0.28"
+
+# MCP (Model Context Protocol)
+# rmcp = "0.1"  # Rust MCP SDK - enable when stable
+
+# Misc
+uuid = { version = "1.16", features = ["v4", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+rand = "0.9"
+thiserror = "2.0"
+anyhow = "1.0"
+tracing = "0.1"
+tracing-subscriber = "0.3"
+async-recursion = "1.1"
+async-trait = "0.1"
+futures = "0.3"
+bytes = "1.10"
+
+
+[profile.release]
+opt-level = 3
+lto = true

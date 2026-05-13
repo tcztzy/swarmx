@@ -104,10 +104,10 @@ def create_server_app(
                 }
             )
 
-        async def generate_stream():
+        async def generate_stream():  # type: ignore[no-untyped-def]
             """Generate streaming response."""
             queue: asyncio.Queue[str] = asyncio.Queue()
-            task: asyncio.Task | None = None
+            task: asyncio.Task[None] | None = None
 
             async def on_chunk(
                 progress: float,  # noqa: ARG001

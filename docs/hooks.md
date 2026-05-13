@@ -4,7 +4,7 @@ SwarmX supports lifecycle hooks that allow you to execute MCP tools at specific 
 
 ## Hook Overview
 
-A `Hook` is a Pydantic BaseModel that defines which MCP tools to execute at various lifecycle events:
+A `Hook` is a serializable struct that defines which MCP tools to execute at various lifecycle events:
 
 - `on_start`: Executed when the agent begins processing
 - `on_end`: Executed when the agent finishes processing
@@ -62,20 +62,20 @@ Hook tools must be available in your MCP server configuration. The tools receive
 ### Input Format
 
 Hook tools receive input in this format:
-```python
+```json
 {
-    "messages": [...],  # Current conversation messages
-    "context": {...},   # Agent context (can be None)
-    "agent": {...}      # Agent metadata (name)
+    "messages": [...],
+    "context": {...},
+    "agent": {"name": "AgentName"}
 }
 ```
 
 ### Output Format
 
 Hook tools can return structured output that is merged directly into context:
-```python
+```json
 {
-    "system_info": {...}  # Added to context
+    "system_info": {...}
 }
 ```
 
@@ -83,56 +83,50 @@ If no modifications are needed, return an empty structured output or omit struct
 
 ### Example MCP Tools
 
+In your MCP server, implement tools that accept the hook input format:
+
 ```python
-# In your MCP server
+# In your MCP server (Python MCP SDK still commonly used for server implementation)
 @server.call_tool()
 async def log_agent_start(input_data: dict) -> dict:
-    """Log when an agent starts processing."""
     messages = input_data["messages"]
     context = input_data["context"]
-
-    logger.info(f"Agent started with {len(messages)} messages and context: {context}")
-
-    # Return unchanged if no modifications needed
+    logger.info(f"Agent started with {len(messages)} messages")
     return {}
 
 @server.call_tool()
 async def add_system_context(input_data: dict) -> dict:
-    """Add system information to context."""
     messages = input_data["messages"]
     context = input_data.get("context") or {}
-
-    # Modify context
     return {
         "system_info": {
             "timestamp": datetime.now().isoformat(),
             "message_count": len(messages),
         }
     }
-
-@server.call_tool()
-async def filter_messages(input_data: dict) -> dict:
-    """Filter out certain message types."""
-    messages = input_data["messages"]
-    context = input_data["context"]
-    logger.info("Received %d messages", len(messages))
-    return {}
 ```
 
 ## Error Handling
 
-If a hook tool raises, the exception propagates and will stop agent execution. Handle errors inside your hook tools if you want a best-effort behavior.
+If a hook tool returns an error, the error propagates and will stop agent execution. Handle errors inside your hook tools if you want best-effort behavior.
 
 ## Serialization
 
 Hooks are fully serializable since they only store tool names (strings) rather than function references:
 
-```python
-# Serialize
-hook_dict = hook.model_dump()
+```rust
+use swarmx_core::Hook;
 
-# Deserialize  
-restored_hook = Hook.model_validate(hook_dict)
+let hook = Hook {
+    on_start: Some("log_start".to_string()),
+    ..Default::default()
+};
+
+// Serialize
+let json = serde_json::to_string(&hook).unwrap();
+
+// Deserialize
+let restored: Hook = serde_json::from_str(&json).unwrap();
 ```
 
 ## Use Cases
@@ -146,4 +140,4 @@ restored_hook = Hook.model_validate(hook_dict)
 
 ## Example
 
-See `examples/hooks_example.py` for a complete working example.
+See `examples/hooks_example.rs` for a complete working example.

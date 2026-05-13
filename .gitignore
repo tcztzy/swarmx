@@ -129,3 +129,6 @@ requirements.lock
 requirements-dev.lock
 
 .aider*
+
+vendor/
+node_modules/

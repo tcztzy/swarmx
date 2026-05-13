@@ -1,0 +1,76 @@
+# SwarmX Unified Configuration ─────────────────────────────────────────────────
+# Schema version: 1
+# Path: ~/.swarmx/config.toml  (replaces providers.json + instances.json)
+#
+# Design invariants:
+# 1. schema_version MUST increment on every breaking change.
+# 2. API keys are NEVER stored in this file.
+#    Put secrets in ~/.swarmx/.env and reference via ${VAR_NAME} substitution.
+#    At runtime SwarmX resolves vars and injects them into harness-specific config
+#    files (e.g. .claude/settings.local.json, .codex/config.toml).
+# 3. Provider and agent names are stable identifiers; rename with care
+#    (sessions and agent.provider references must be updated).
+# 4. An agent's provider MUST exist in [providers].
+# 5. All paths support ~ expansion.
+
+schema_version = 1
+
+# ── Providers ───────────────────────────────────────────────────────────────────
+# Key = provider name (stable identifier used by agent.provider).
+
+[providers.anthropic]
+label = "Anthropic"
+# One of: anthropic, responses, chat_completions, etc. (see provider implementations).
+kind = "anthropic"
+
+# Optional. Override the default API base URL.
+# base_url = "https://api.anthropic.com/v1"
+
+[providers.openai]
+label = "OpenAI"
+kind = "responses"
+
+# ── Provider env injection ──────────────────────────────────────────────────────
+# Each provider can define env vars that get injected into the harness runtime.
+# ${VAR_NAME} references are resolved against ~/.swarmx/.env at launch.
+#
+# Claude Code harness reads env from .claude/settings.local.json.
+# Codex harness reads env from .codex/config.toml.
+# SwarmX writes the resolved env block into the appropriate file before spawning.
+
+[providers.deepseek]
+label = "DeepSeek"
+kind = "anthropic"
+
+[providers.deepseek.env]
+ANTHROPIC_BASE_URL = "https://api.deepseek.com/anthropic"
+ANTHROPIC_AUTH_TOKEN = "${DEEPSEEK_API_KEY}"
+ANTHROPIC_MODEL = "deepseek-v4-pro[1m]"
+ANTHROPIC_DEFAULT_OPUS_MODEL = "deepseek-v4-pro[1m]"
+ANTHROPIC_DEFAULT_SONNET_MODEL = "deepseek-v4-pro[1m]"
+ANTHROPIC_DEFAULT_HAIKU_MODEL = "deepseek-v4-flash"
+CLAUDE_CODE_SUBAGENT_MODEL = "deepseek-v4-flash"
+CLAUDE_CODE_EFFORT_LEVEL = "max"
+
+[agents.deepseek-claude]
+label = "DeepSeek in Claude Code"
+harness = "claude-code"
+provider = "deepseek"
+
+[agents.claude-code]
+# Optional human-friendly label
+label = "Claude Code"
+# Harness runtime. Must be compatible with the provider's kind.
+#   claude-code → anthropic
+#   codex       → responses
+#   opencode    → various (provider-specific)
+#   hermes      → various (provider-specific)
+#   openclaw    → various (provider-specific)
+harness = "claude-code"
+
+# Must reference a key in [providers].
+provider = "anthropic"
+
+[agents.codex]
+harness = "codex"
+provider = "openai"

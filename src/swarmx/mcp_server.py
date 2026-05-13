@@ -8,7 +8,6 @@ from openai.types.chat import ChatCompletionMessageParam
 
 from .agent import Agent
 from .swarm import Swarm
-from .types import CompletionCreateParams
 
 
 def _sanitize_tool_fn_name(name: str) -> str:
@@ -22,17 +21,17 @@ def _wrap_agent_tool(agent: Swarm | Agent) -> Callable[..., Awaitable[dict[str, 
         stream: bool = False,
         max_tokens: int | None = None,
     ) -> dict[str, Any]:
-        arguments: CompletionCreateParams = {"messages": messages}
+        arguments: dict[str, Any] = {"messages": messages}
         if model is not None:
             arguments["model"] = model
         if stream:
             arguments["stream"] = stream
         if max_tokens is not None:
             arguments["max_tokens"] = max_tokens
-        result = await agent(arguments)
+        result = await agent(arguments)  # type: ignore[arg-type]
         if isinstance(result, list):
-            return {"messages": result}
-        return dict(result)
+            return {"messages": result}  # type: ignore[return-value]
+        return result  # type: ignore[return-value]
 
     run_agent.__name__ = _sanitize_tool_fn_name(agent.name) or "agent_tool"
     return run_agent

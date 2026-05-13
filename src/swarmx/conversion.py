@@ -1,7 +1,7 @@
 """MCP result conversion utilities."""
 
 import os
-from typing import Any, assert_never, cast
+from typing import Any, assert_never
 
 from mcp.shared.session import ProgressFnT
 from mcp.types import (
@@ -19,8 +19,6 @@ from openai.types.chat import (
     ChatCompletionAssistantMessageParam,
     ChatCompletionChunk,
     ChatCompletionContentPartTextParam,
-    ChatCompletionMessageCustomToolCallParam,
-    ChatCompletionMessageFunctionToolCallParam,
     ChatCompletionToolMessageParam,
 )
 from openai.types.chat.chat_completion_chunk import (
@@ -64,8 +62,11 @@ def _resource_to_md(
                 lexer = get_lexer_for_mimetype(c.mimeType)
             except ClassNotFound:
                 lexer = None
-        aliases = getattr(lexer, "aliases", None)
-        return aliases[0] if aliases else "text"
+        if lexer is None:
+            return "text"
+        if hasattr(lexer, "aliases"):
+            return lexer.aliases[0]
+        return getattr(lexer, "name", "text")
 
     match resource.resource:
         case TextResourceContents() as c:
@@ -280,14 +281,8 @@ def completion_to_message(
     if message.content:
         result["content"] = choice.message.content
     if message.tool_calls is not None:
-        tool_calls = [
-            tool_call.model_dump(exclude={"index"}) for tool_call in message.tool_calls
+        result["tool_calls"] = [  # type: ignore[assignment]
+            tool_call.model_dump(exclude={"index"})
+            for tool_call in message.tool_calls  # type: ignore[misc]
         ]
-        result["tool_calls"] = cast(
-            list[
-                ChatCompletionMessageFunctionToolCallParam
-                | ChatCompletionMessageCustomToolCallParam
-            ],
-            tool_calls,
-        )
     return result

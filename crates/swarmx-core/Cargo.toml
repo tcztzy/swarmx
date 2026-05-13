@@ -1,0 +1,42 @@
+[package]
+name = "swarmx-core"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Core library for SwarmX multi-agent orchestration framework"
+
+[dependencies]
+tokio = { workspace = true }
+tokio-util = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+schemars = { workspace = true }
+reqwest = { workspace = true }
+axum = { workspace = true }
+axum-streams = { workspace = true }
+tower = { workspace = true }
+tower-http = { workspace = true }
+petgraph = { workspace = true }
+handlebars = { workspace = true }
+jsonschema = { workspace = true }
+cel-interpreter = { workspace = true }
+async-openai = { workspace = true }
+agent-client-protocol = "0.11.1"
+agent-client-protocol-tokio = "0.11.1"
+uuid = { workspace = true }
+chrono = { workspace = true }
+rand = { workspace = true }
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+async-recursion = { workspace = true }
+async-trait = { workspace = true }
+futures = { workspace = true }
+bytes = { workspace = true }
+
+[dev-dependencies]
+tokio-test = "0.4"
