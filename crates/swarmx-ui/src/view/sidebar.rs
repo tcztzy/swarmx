@@ -3,8 +3,8 @@ use iced::{Alignment, Color, Element, Length, Shadow, Vector};
 use iced_shadcn::{
     ButtonProps, ButtonRadius, ButtonSize, ButtonVariant, ContextMenuContentSize, ContextMenuEntry,
     ContextMenuItem, ContextMenuItemProps, ContextMenuProps, DropdownMenuCheckboxItem,
-    DropdownMenuContentSize, DropdownMenuEntry, DropdownMenuProps, Theme, button, button_content,
-    context_menu, dropdown_menu, icon_button,
+    DropdownMenuContentSize, DropdownMenuEntry, DropdownMenuItem, DropdownMenuItemProps,
+    DropdownMenuProps, Theme, button, button_content, context_menu, dropdown_menu, icon_button,
 };
 use lucide_icons::Icon as LucideIcon;
 
@@ -266,8 +266,8 @@ fn view_search_input<'a>(
         filter_trigger,
         build_filter_entries(grouping, sort_by),
         DropdownMenuProps::new()
-            .size(DropdownMenuContentSize::Size2)
-            .width(220),
+            .size(DropdownMenuContentSize::Size1)
+            .width(200),
         t,
     );
 
@@ -293,7 +293,7 @@ fn build_filter_entries<'a>(
     sort_by: SessionSortBy,
 ) -> Vec<DropdownMenuEntry<'a, crate::app::Message>> {
     vec![
-        DropdownMenuEntry::Label("Organize".into()),
+        menu_section_label("Organize"),
         checked_menu_entry(
             SessionGrouping::Project.organize_label(),
             grouping == SessionGrouping::Project,
@@ -315,7 +315,7 @@ fn build_filter_entries<'a>(
             crate::app::Message::FilterChanged(FilterChange::Grouping(SessionGrouping::None)),
         ),
         DropdownMenuEntry::Separator,
-        DropdownMenuEntry::Label("Sort by".into()),
+        menu_section_label("Sort by"),
         checked_menu_entry(
             "Created",
             sort_by == SessionSortBy::Created,
@@ -334,12 +334,22 @@ fn build_filter_entries<'a>(
     ]
 }
 
+fn menu_section_label<'a>(label: &'static str) -> DropdownMenuEntry<'a, crate::app::Message> {
+    DropdownMenuEntry::Item(
+        DropdownMenuItem::new(label, None)
+            .props(DropdownMenuItemProps::new().disabled(true).inset(true)),
+    )
+}
+
 fn checked_menu_entry<'a>(
     label: &'static str,
     checked: bool,
     message: crate::app::Message,
 ) -> DropdownMenuEntry<'a, crate::app::Message> {
-    DropdownMenuEntry::CheckboxItem(DropdownMenuCheckboxItem::new(label, checked, Some(message)))
+    DropdownMenuEntry::CheckboxItem(
+        DropdownMenuCheckboxItem::new(label, checked, Some(message))
+            .props(DropdownMenuItemProps::new().inset(true)),
+    )
 }
 
 fn project_name(working_dir: &str) -> String {
