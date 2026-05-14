@@ -6,7 +6,9 @@
 use crate::{hook::Hook, mcp::McpServer};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::collections::BTreeMap;
 use std::collections::HashMap;
+use std::path::PathBuf;
 
 /// How to reach the ACP agent process.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -38,6 +40,53 @@ impl AgentBackend {
     }
 }
 
+/// Process context for an ACP backend command.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentProcessOptions {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub current_dir: Option<PathBuf>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub env: BTreeMap<String, String>,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub clear_env: bool,
+}
+
+impl AgentProcessOptions {
+    pub fn is_default(&self) -> bool {
+        self.current_dir.is_none() && self.env.is_empty() && !self.clear_env
+    }
+}
+
+fn is_false(value: &bool) -> bool {
+    !*value
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub(crate) struct AcpCommand {
+    program: String,
+    args: Vec<String>,
+    process: AgentProcessOptions,
+}
+
+impl AcpCommand {
+    fn new(program: &str, args: &[&str]) -> Self {
+        Self {
+            program: program.to_string(),
+            args: args.iter().map(|arg| (*arg).to_string()).collect(),
+            process: AgentProcessOptions::default(),
+        }
+    }
+
+    pub(crate) fn display_name(&self) -> String {
+        if self.args.is_empty() {
+            self.program.clone()
+        } else {
+            format!("{} {}", self.program, self.args.join(" "))
+        }
+    }
+}
+
 /// Agent in the agent graph.
 ///
 /// Delegates LLM execution to an ACP agent via stdio.
@@ -65,6 +114,8 @@ pub struct Agent {
     /// ACP agent backend — how to reach the agent process.
     #[serde(default)]
     pub backend: AgentBackend,
+    #[serde(default, skip_serializing_if = "AgentProcessOptions::is_default")]
+    pub process: AgentProcessOptions,
 }
 
 impl Agent {
@@ -80,6 +131,7 @@ impl Agent {
             mcp_servers: HashMap::new(),
             hooks: Vec::new(),
             backend: AgentBackend::default(),
+            process: AgentProcessOptions::default(),
         }
     }
 
@@ -95,6 +147,11 @@ impl Agent {
 
     pub fn with_backend(mut self, backend: AgentBackend) -> Self {
         self.backend = backend;
+        self
+    }
+
+    pub fn with_process(mut self, process: AgentProcessOptions) -> Self {
+        self.process = process;
         self
     }
 
@@ -128,6 +185,15 @@ impl Agent {
             "parameters": self.parameters,
         })
     }
+
+    pub(crate) fn acp_command(&self) -> AcpCommand {
+        let (program, args) = self.backend.command();
+        AcpCommand {
+            program: program.to_string(),
+            args: args.iter().map(|arg| (*arg).to_string()).collect(),
+            process: self.process.clone(),
+        }
+    }
 }
 
 impl Agent {
@@ -148,8 +214,8 @@ impl Agent {
         arguments: Value,
         _context: Option<HashMap<String, Value>>,
     ) -> anyhow::Result<Value> {
-        let (program, args) = self.backend.command();
-        delegate_via_acp(program, &args, arguments, &self.to_swarm_config(), None).await
+        let command = self.acp_command();
+        delegate_via_acp(&command, arguments, &self.to_swarm_config(), None).await
     }
 
     /// Call this agent on an existing session (multi-turn).
@@ -159,10 +225,9 @@ impl Agent {
         session_id: &str,
         _context: Option<HashMap<String, Value>>,
     ) -> anyhow::Result<Value> {
-        let (program, args) = self.backend.command();
+        let command = self.acp_command();
         delegate_via_acp(
-            program,
-            &args,
+            &command,
             arguments,
             &self.to_swarm_config(),
             Some(session_id),
@@ -175,8 +240,8 @@ impl Agent {
         &self,
         cwd: Option<&std::path::Path>,
     ) -> anyhow::Result<agent_client_protocol::schema::ListSessionsResponse> {
-        let (program, args) = self.backend.command();
-        acp_session_list(program, &args, cwd).await
+        let command = self.acp_command();
+        acp_session_list_with_command(&command, cwd).await
     }
 
     /// Load and replay a session's conversation history.
@@ -188,14 +253,14 @@ impl Agent {
         agent_client_protocol::schema::LoadSessionResponse,
         Vec<serde_json::Value>,
     )> {
-        let (program, args) = self.backend.command();
-        acp_session_load_with_messages(program, &args, session_id, cwd).await
+        let command = self.acp_command();
+        acp_session_load_with_messages_with_command(&command, session_id, cwd).await
     }
 
     /// Create a new session on this agent's backend.
     pub async fn new_session(&self, cwd: &std::path::Path) -> anyhow::Result<String> {
-        let (program, args) = self.backend.command();
-        acp_session_new(program, &args, cwd).await
+        let command = self.acp_command();
+        acp_session_new_with_command(&command, cwd).await
     }
 }
 
@@ -207,9 +272,16 @@ impl Drop for ChildGuard {
     }
 }
 
-fn spawn_acp_child(program: &str, args: &[&str]) -> anyhow::Result<ChildGuard> {
-    let mut cmd = tokio::process::Command::new(program);
-    cmd.args(args.iter().copied());
+fn spawn_acp_child(command: &AcpCommand) -> anyhow::Result<ChildGuard> {
+    let mut cmd = tokio::process::Command::new(&command.program);
+    cmd.args(&command.args);
+    if command.process.clear_env {
+        cmd.env_clear();
+    }
+    if let Some(current_dir) = &command.process.current_dir {
+        cmd.current_dir(current_dir);
+    }
+    cmd.envs(&command.process.env);
     cmd.stdin(std::process::Stdio::piped());
     cmd.stdout(std::process::Stdio::piped());
     cmd.stderr(std::process::Stdio::inherit());
@@ -235,7 +307,7 @@ fn take_child_io(
 /// Shared helper: spawn child, init ACP, run closure, kill child.
 /// Each call is a fresh connection — suitable for stateless queries
 /// like listing/loading sessions.
-async fn connect_and_call<F, Fut, T>(program: &str, args: &[&str], f: F) -> anyhow::Result<T>
+async fn connect_and_call<F, Fut, T>(command: &AcpCommand, f: F) -> anyhow::Result<T>
 where
     F: FnOnce(agent_client_protocol::ConnectionTo<agent_client_protocol::Agent>) -> Fut,
     Fut: std::future::Future<Output = Result<T, agent_client_protocol::Error>>,
@@ -244,7 +316,7 @@ where
     use agent_client_protocol::schema::{InitializeRequest, ProtocolVersion};
     use tokio_util::compat::{TokioAsyncReadCompatExt, TokioAsyncWriteCompatExt};
 
-    let mut child = spawn_acp_child(program, args)?;
+    let mut child = spawn_acp_child(command)?;
     let (stdin, stdout) = take_child_io(&mut child)?;
     let transport = agent_client_protocol::ByteStreams::new(stdin.compat_write(), stdout.compat());
 
@@ -285,8 +357,7 @@ fn extract_user_text(arguments: &Value) -> String {
 /// If `session_id` is Some, reuses the existing session (multi-turn).
 /// Otherwise creates a new session (one-shot, killed after response).
 pub(crate) async fn delegate_via_acp(
-    program: &str,
-    args: &[&str],
+    command: &AcpCommand,
     arguments: Value,
     swarm_config: &Value,
     session_id: Option<&str>,
@@ -303,7 +374,7 @@ pub(crate) async fn delegate_via_acp(
 
     let user_text = extract_user_text(&arguments);
 
-    let mut child = spawn_acp_child(program, args)?;
+    let mut child = spawn_acp_child(command)?;
     let (stdin, stdout) = take_child_io(&mut child)?;
     let transport = agent_client_protocol::ByteStreams::new(stdin.compat_write(), stdout.compat());
 
@@ -435,8 +506,16 @@ pub async fn acp_session_new(
     args: &[&str],
     cwd: &std::path::Path,
 ) -> anyhow::Result<String> {
+    let command = AcpCommand::new(program, args);
+    acp_session_new_with_command(&command, cwd).await
+}
+
+async fn acp_session_new_with_command(
+    command: &AcpCommand,
+    cwd: &std::path::Path,
+) -> anyhow::Result<String> {
     let cwd = cwd.to_path_buf();
-    connect_and_call(program, args, |conn| async move {
+    connect_and_call(command, |conn| async move {
         let resp: agent_client_protocol::schema::NewSessionResponse = conn
             .send_request(agent_client_protocol::schema::NewSessionRequest::new(cwd))
             .block_task()
@@ -452,6 +531,14 @@ pub async fn acp_session_list(
     args: &[&str],
     cwd: Option<&std::path::Path>,
 ) -> anyhow::Result<agent_client_protocol::schema::ListSessionsResponse> {
+    let command = AcpCommand::new(program, args);
+    acp_session_list_with_command(&command, cwd).await
+}
+
+pub(crate) async fn acp_session_list_with_command(
+    command: &AcpCommand,
+    cwd: Option<&std::path::Path>,
+) -> anyhow::Result<agent_client_protocol::schema::ListSessionsResponse> {
     use agent_client_protocol::schema::ListSessionsRequest;
     let mut req = ListSessionsRequest::new();
     if let Some(cwd) = cwd {
@@ -460,7 +547,7 @@ pub async fn acp_session_list(
     let req_json = serde_json::to_value(&req)?;
     tracing::debug!(?req_json, "session/list request");
 
-    connect_and_call(program, args, |conn| async move {
+    connect_and_call(command, |conn| async move {
         conn.send_request(req).block_task().await
     })
     .await
@@ -477,11 +564,20 @@ pub async fn acp_session_load(
     session_id: &str,
     cwd: &std::path::Path,
 ) -> anyhow::Result<agent_client_protocol::schema::LoadSessionResponse> {
+    let command = AcpCommand::new(program, args);
+    acp_session_load_with_command(&command, session_id, cwd).await
+}
+
+async fn acp_session_load_with_command(
+    command: &AcpCommand,
+    session_id: &str,
+    cwd: &std::path::Path,
+) -> anyhow::Result<agent_client_protocol::schema::LoadSessionResponse> {
     use agent_client_protocol::schema::SessionId;
     let sid = SessionId::from(session_id.to_string());
     let cwd = cwd.to_path_buf();
 
-    connect_and_call(program, args, |conn| async move {
+    connect_and_call(command, |conn| async move {
         // Build request manually so mcpServers is always present.
         let req =
             agent_client_protocol::schema::LoadSessionRequest::new(sid, cwd).mcp_servers(vec![]);
@@ -501,6 +597,18 @@ pub async fn acp_session_load_with_messages(
     agent_client_protocol::schema::LoadSessionResponse,
     Vec<serde_json::Value>,
 )> {
+    let command = AcpCommand::new(program, args);
+    acp_session_load_with_messages_with_command(&command, session_id, cwd).await
+}
+
+async fn acp_session_load_with_messages_with_command(
+    command: &AcpCommand,
+    session_id: &str,
+    cwd: &std::path::Path,
+) -> anyhow::Result<(
+    agent_client_protocol::schema::LoadSessionResponse,
+    Vec<serde_json::Value>,
+)> {
     use agent_client_protocol::Client;
     use agent_client_protocol::schema::{
         InitializeRequest, LoadSessionRequest, ProtocolVersion, SessionId, SessionNotification,
@@ -512,7 +620,7 @@ pub async fn acp_session_load_with_messages(
     let sid = SessionId::from(session_id.to_string());
     let cwd = cwd.to_path_buf();
 
-    let mut child = spawn_acp_child(program, args)?;
+    let mut child = spawn_acp_child(command)?;
     let (stdin, stdout) = take_child_io(&mut child)?;
     let transport = agent_client_protocol::ByteStreams::new(stdin.compat_write(), stdout.compat());
 

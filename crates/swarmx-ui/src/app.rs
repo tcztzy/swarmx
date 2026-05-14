@@ -1,6 +1,6 @@
 use iced::{Element, Task};
 use iced_shadcn::Theme;
-use swarmx_core::{Agent, AgentBackend, Swarm, swarm::SwarmNode};
+use swarmx_core::{Agent, AgentBackend, AgentProcessOptions, Swarm, swarm::SwarmNode};
 
 use lucide_icons;
 use std::collections::HashSet;
@@ -219,7 +219,10 @@ fn build_agent(inst: &AgentInstance, provider: &ModelProvider) -> Agent {
                 .get_args()
                 .map(|a| a.to_string_lossy().into_owned())
                 .collect();
-            Agent::new(&inst.id).with_backend(AgentBackend::Custom { program, args })
+            let process = process_options_from_command(&cmd, true);
+            Agent::new(&inst.id)
+                .with_backend(AgentBackend::Custom { program, args })
+                .with_process(process)
         }
     }
 }
@@ -230,6 +233,29 @@ fn build_runtime_agent(runtime: AgentRuntime) -> Agent {
         program: program.to_string(),
         args: args.into_iter().map(ToString::to_string).collect(),
     })
+}
+
+fn process_options_from_command(
+    cmd: &std::process::Command,
+    clear_env: bool,
+) -> AgentProcessOptions {
+    let env = cmd
+        .get_envs()
+        .filter_map(|(key, value)| {
+            value.map(|value| {
+                (
+                    key.to_string_lossy().into_owned(),
+                    value.to_string_lossy().into_owned(),
+                )
+            })
+        })
+        .collect();
+
+    AgentProcessOptions {
+        current_dir: cmd.get_current_dir().map(std::path::Path::to_path_buf),
+        env,
+        clear_env,
+    }
 }
 
 fn runtime_for_harness(harness: Harness) -> Option<AgentRuntime> {
@@ -1982,6 +2008,7 @@ impl App {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::instance::ProviderKind;
 
     fn tool_calls_json(arguments: serde_json::Value) -> String {
         serde_json::json!([serde_json::json!([
@@ -2034,5 +2061,45 @@ mod tests {
         });
 
         assert_eq!(hermes_session_cwd(&row), std::path::PathBuf::new());
+    }
+
+    #[test]
+    fn build_agent_preserves_configured_acp_process_context() {
+        let provider = ModelProvider {
+            id: "openai".into(),
+            label: "OpenAI".into(),
+            kind: ProviderKind::OpenAIResponses,
+            base_url: None,
+            api_key_ref: None,
+            default_model: "gpt-4.1".into(),
+            available_models: vec!["gpt-4.1".into()],
+        };
+        let inst = AgentInstance {
+            id: "codex-1".into(),
+            label: "Codex".into(),
+            harness: Harness::Codex,
+            provider_id: "openai".into(),
+            model: "gpt-4.1".into(),
+            instructions: None,
+            config_dir: "/tmp/swarmx-codex-config".into(),
+            icon_override: None,
+            default_cwd: Some("/tmp/swarmx-work".into()),
+        };
+
+        let agent = build_agent(&inst, &provider);
+
+        assert!(agent.process.clear_env);
+        assert_eq!(
+            agent.process.current_dir.as_deref(),
+            Some(std::path::Path::new("/tmp/swarmx-work"))
+        );
+        assert_eq!(
+            agent.process.env.get("CODEX_CONFIG_DIR"),
+            Some(&"/tmp/swarmx-codex-config".to_string())
+        );
+        assert_eq!(
+            agent.process.env.get("OPENAI_RESPONSES_MODEL"),
+            Some(&"gpt-4.1".to_string())
+        );
     }
 }

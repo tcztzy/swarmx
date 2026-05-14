@@ -317,16 +317,14 @@ impl Swarm {
         cwd: Option<&std::path::Path>,
     ) -> anyhow::Result<Vec<(String, Vec<agent_client_protocol::schema::SessionInfo>)>> {
         use std::collections::hash_map::Entry;
-        // Map: (program, args joined) -> Vec<agent_name>
-        let mut backend_agents: std::collections::HashMap<(String, String), Vec<String>> =
+        // Map: backend process command -> Vec<agent_name>
+        let mut backend_agents: std::collections::HashMap<crate::agent::AcpCommand, Vec<String>> =
             std::collections::HashMap::new();
 
         for (name, node) in &self.nodes {
             if let crate::swarm::SwarmNode::Agent(agent) = node {
-                let (program, args) = agent.backend.command();
-                let args_key = args.join(",");
                 backend_agents
-                    .entry((program.to_string(), args_key))
+                    .entry(agent.acp_command())
                     .or_default()
                     .push(name.clone());
             }
@@ -334,27 +332,19 @@ impl Swarm {
 
         // Also check the queen agent if present
         if let Some(ref queen) = self.queen {
-            let (program, args) = queen.backend.command();
-            let args_key = args.join(",");
-            if let Entry::Vacant(e) = backend_agents.entry((program.to_string(), args_key)) {
+            if let Entry::Vacant(e) = backend_agents.entry(queen.acp_command()) {
                 e.insert(vec![queen.name.clone()]);
             }
         }
 
         let mut results = Vec::new();
-        for ((program, args_key), agent_names) in &backend_agents {
-            let args: Vec<&str> = if args_key.is_empty() {
-                vec![]
-            } else {
-                args_key.split(',').collect()
-            };
-
-            let list_resp = match crate::agent::acp_session_list(program, &args, cwd).await {
+        for (command, agent_names) in &backend_agents {
+            let list_resp = match crate::agent::acp_session_list_with_command(command, cwd).await {
                 Ok(resp) => resp,
                 Err(e) => {
                     tracing::warn!(
                         "Failed to list sessions for backend {} (agents: {:?}): {}",
-                        program,
+                        command.display_name(),
                         agent_names,
                         e
                     );

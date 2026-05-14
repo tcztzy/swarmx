@@ -12,8 +12,8 @@ pub mod tool;
 pub mod utils;
 
 pub use agent::{
-    Agent, AgentBackend, acp_session_list, acp_session_load, acp_session_load_with_messages,
-    acp_session_new,
+    Agent, AgentBackend, AgentProcessOptions, acp_session_list, acp_session_load,
+    acp_session_load_with_messages, acp_session_new,
 };
 pub use edge::Edge;
 pub use hook::Hook;
