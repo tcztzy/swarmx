@@ -310,7 +310,7 @@ fn view_tool_activity_group_does_not_panic() {
         tool_activity_item(&edit_tool_call_msg(), ToolStatus::Done).unwrap(),
         ToolActivityItem::new(ToolActivityKind::Hook, "PostToolUse hook".into()),
     ];
-    let _ = view_tool_activity_group(items, ToolStatus::Done, &t, &th);
+    let _ = view_tool_activity_group(0, items, ToolStatus::Done, false, &t, &th);
 }
 
 // ── tool result ────────────────────────────────────────────────────────────

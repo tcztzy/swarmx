@@ -30,9 +30,11 @@ pub fn main_view(app: &App) -> Element<'_, Message> {
         &app.sidebar_search,
         &app.group_collapsed,
         app.renaming_session,
+        app.renaming_remote_session.as_ref(),
         &app.rename_buffer,
         &app.instances,
         &app.remote_sessions,
+        &app.remote_title_overrides,
         &app.tokens,
         t,
     );

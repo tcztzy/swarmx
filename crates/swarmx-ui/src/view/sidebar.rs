@@ -9,7 +9,10 @@ use iced_shadcn::{
 use lucide_icons::Icon as LucideIcon;
 
 use crate::app::FilterChange;
-use crate::data::{AgentIcon, RemoteAgentSessions, RemoteSessionSource, Session};
+use crate::data::{
+    AgentIcon, RemoteAgentSessions, RemoteSessionSource, RemoteSessionTitleTarget, Session,
+    remote_session_title_key,
+};
 use crate::environment::{AgentRuntime, RemoteAgentRef};
 use crate::instance::AgentInstance;
 use crate::persistence::{SessionGrouping, SessionSortBy};
@@ -44,6 +47,7 @@ struct SidebarSessionEntry {
     agent_runtime: Option<AgentRuntime>,
     working_dir: String,
     title: Option<String>,
+    remote_title_target: Option<RemoteSessionTitleTarget>,
     first_message: Option<String>,
     created_at: String,
     updated_at: String,
@@ -142,13 +146,16 @@ pub fn view<'a>(
     search_query: &'a str,
     collapsed_groups: &'a std::collections::HashSet<String>,
     renaming_session: Option<usize>,
+    renaming_remote_session: Option<&'a RemoteSessionTitleTarget>,
     rename_buffer: &'a str,
     instances: &'a [AgentInstance],
     remote_sessions: &'a [RemoteAgentSessions],
+    remote_title_overrides: &'a std::collections::HashMap<String, String>,
     tokens: &'a DesignTokens,
     t: &'a Theme,
 ) -> Element<'a, crate::app::Message> {
-    let session_entries = collect_session_entries(sessions, remote_sessions);
+    let session_entries =
+        collect_session_entries(sessions, remote_sessions, remote_title_overrides);
     let header = view_header(tokens, t);
     let search = view_search_input(search_query, grouping, sort_by, tokens, t);
 
@@ -165,6 +172,7 @@ pub fn view<'a>(
         search_query,
         collapsed_groups,
         renaming_session,
+        renaming_remote_session,
         rename_buffer,
         instances,
         tokens,
@@ -478,6 +486,7 @@ fn session_icon_bytes<T: SessionEntryData>(
 fn collect_session_entries(
     sessions: &[Session],
     remote_sessions: &[RemoteAgentSessions],
+    remote_title_overrides: &std::collections::HashMap<String, String>,
 ) -> Vec<SidebarSessionEntry> {
     let mut entries: Vec<SidebarSessionEntry> = sessions
         .iter()
@@ -490,6 +499,7 @@ fn collect_session_entries(
             agent_runtime: s.agent_runtime,
             working_dir: s.working_dir.clone(),
             title: s.title.clone(),
+            remote_title_target: None,
             first_message: s.messages.first().map(|m| m.content.clone()),
             created_at: s.created_at.clone(),
             updated_at: s.updated_at.clone(),
@@ -502,12 +512,30 @@ fn collect_session_entries(
     for agent_sessions in remote_sessions {
         for session in &agent_sessions.sessions {
             let cwd = session.cwd.display().to_string();
-            let title = remote_session_title(session.title.as_deref(), &cwd);
             let updated_at = session.updated_at.clone().unwrap_or_default();
             let session_id = session.session_id.to_string();
+            let key = remote_session_title_key(
+                &agent_sessions.agent_ref,
+                agent_sessions.source,
+                &session_id,
+            );
+            let title = remote_title_overrides
+                .get(&key)
+                .or_else(|| remote_title_overrides.get(&session_id))
+                .cloned()
+                .unwrap_or_else(|| remote_session_title(session.title.as_deref(), &cwd));
             let (agent_instance_id, agent_runtime) = match &agent_sessions.agent_ref {
                 RemoteAgentRef::Instance(instance_id) => (instance_id.clone(), None),
                 RemoteAgentRef::Runtime(runtime) => (runtime.id().to_string(), Some(*runtime)),
+            };
+            let remote_title_target = RemoteSessionTitleTarget {
+                key,
+                agent_instance_id: agent_instance_id.clone(),
+                agent_runtime,
+                source: agent_sessions.source,
+                session_id: session_id.clone(),
+                cwd: cwd.clone(),
+                updated_at: updated_at.clone(),
             };
             entries.push(SidebarSessionEntry {
                 session_id: session_id.clone(),
@@ -516,6 +544,7 @@ fn collect_session_entries(
                 agent_runtime,
                 working_dir: cwd.clone(),
                 title: Some(title),
+                remote_title_target: Some(remote_title_target),
                 first_message: None,
                 created_at: updated_at.clone(),
                 updated_at,
@@ -728,6 +757,7 @@ fn view_groups<'a>(
     search_query: &str,
     collapsed_groups: &'a std::collections::HashSet<String>,
     renaming_session: Option<usize>,
+    renaming_remote_session: Option<&'a RemoteSessionTitleTarget>,
     rename_buffer: &'a str,
     instances: &'a [AgentInstance],
     tokens: &'a DesignTokens,
@@ -804,6 +834,7 @@ fn view_groups<'a>(
                 active_index,
                 grouping,
                 renaming_session,
+                renaming_remote_session,
                 rename_buffer,
                 instances,
                 tokens,
@@ -966,6 +997,13 @@ fn build_session_menu_entries<'a>(
         SessionAction::LoadRemote { .. } => None,
     };
     let local_only = local_index.is_none();
+    let rename_message = match &session.action {
+        SessionAction::Select(index) => Some(crate::app::Message::StartRenameSession(*index)),
+        SessionAction::LoadRemote { .. } => session.remote_title_target.clone().map(|target| {
+            crate::app::Message::StartRenameRemoteSession(target, session_display_title(session))
+        }),
+    };
+    let rename_disabled = rename_message.is_none();
     let pin_label = if session.pinned {
         "Unpin chat"
     } else {
@@ -985,11 +1023,7 @@ fn build_session_menu_entries<'a>(
             local_index.map(crate::app::Message::TogglePinSession),
             local_only,
         ),
-        session_menu_item(
-            "Rename chat",
-            local_index.map(crate::app::Message::StartRenameSession),
-            local_only,
-        ),
+        session_menu_item("Rename chat", rename_message, rename_disabled),
         session_menu_item(
             "Archive chat",
             local_index.map(crate::app::Message::ArchiveSession),
@@ -1051,6 +1085,7 @@ struct SessionItemContext<'a> {
     active_index: Option<usize>,
     grouping: SessionGrouping,
     renaming_session: Option<usize>,
+    renaming_remote_session: Option<&'a RemoteSessionTitleTarget>,
     rename_buffer: &'a str,
     instances: &'a [AgentInstance],
     tokens: &'a DesignTokens,
@@ -1066,6 +1101,7 @@ fn view_session_item<'a>(
         active_index,
         grouping,
         renaming_session,
+        renaming_remote_session,
         rename_buffer,
         instances,
         tokens,
@@ -1150,8 +1186,14 @@ fn view_session_item<'a>(
         } => crate::app::Message::LoadRemoteSession(agent_ref, source, session_id, cwd),
     };
 
-    let is_renaming =
+    let is_renaming_local =
         matches!(&session.action, SessionAction::Select(index) if renaming_session == Some(*index));
+    let is_renaming_remote = session
+        .remote_title_target
+        .as_ref()
+        .zip(renaming_remote_session)
+        .is_some_and(|(entry, active)| entry.key == active.key);
+    let is_renaming = is_renaming_local || is_renaming_remote;
     let title_control: Element<_> = if is_renaming {
         text_input("Session title", rename_buffer)
             .on_input(crate::app::Message::SessionRenameChanged)

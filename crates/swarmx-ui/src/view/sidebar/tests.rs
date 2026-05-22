@@ -1,4 +1,4 @@
-use crate::data::{RemoteAgentSessions, RemoteSessionSource, Session};
+use crate::data::{RemoteAgentSessions, RemoteSessionSource, Session, remote_session_title_key};
 use crate::environment::{AgentRuntime, RemoteAgentRef};
 use crate::harness::Harness;
 use crate::instance::AgentInstance;
@@ -101,6 +101,7 @@ fn sidebar_entry(title: &str, cwd: &str, updated_at: &str) -> SidebarSessionEntr
         agent_runtime: None,
         working_dir: cwd.to_string(),
         title: Some(title.to_string()),
+        remote_title_target: None,
         first_message: None,
         created_at: updated_at.to_string(),
         updated_at: updated_at.to_string(),
@@ -144,7 +145,7 @@ fn collect_session_entries_omits_archived_local_sessions() {
     let mut archived = make_session("s2", "inst-1", "/b");
     visible.title = Some("visible".into());
     archived.archived = true;
-    let entries = collect_session_entries(&[visible, archived], &[]);
+    let entries = collect_session_entries(&[visible, archived], &[], &Default::default());
     assert_eq!(entries.len(), 1);
     assert_eq!(entries[0].session_id, "s1");
 }
@@ -162,7 +163,7 @@ fn collect_session_entries_keeps_discovered_runtime_source() {
         ],
     };
 
-    let entries = collect_session_entries(&[], &[remote]);
+    let entries = collect_session_entries(&[], &[remote], &Default::default());
 
     assert_eq!(entries.len(), 1);
     assert_eq!(entries[0].agent_runtime, Some(AgentRuntime::CodexAcp));
@@ -176,6 +177,51 @@ fn collect_session_entries_keeps_discovered_runtime_source() {
             cwd: "/work/swarmx".into(),
         }
     );
+}
+
+#[test]
+fn collect_session_entries_prefers_persisted_remote_title() {
+    let agent_ref = RemoteAgentRef::Runtime(AgentRuntime::CodexAcp);
+    let remote = RemoteAgentSessions {
+        agent_name: "Codex".into(),
+        agent_ref: agent_ref.clone(),
+        source: RemoteSessionSource::Acp,
+        sessions: vec![
+            agent_client_protocol::schema::SessionInfo::new("codex-session", "/work/swarmx")
+                .title("ACP preview")
+                .updated_at("123"),
+        ],
+    };
+    let mut titles = std::collections::HashMap::new();
+    titles.insert(
+        remote_session_title_key(&agent_ref, RemoteSessionSource::Acp, "codex-session"),
+        "Local title".to_string(),
+    );
+
+    let entries = collect_session_entries(&[], &[remote], &titles);
+
+    assert_eq!(entries[0].title.as_deref(), Some("Local title"));
+    assert!(entries[0].remote_title_target.is_some());
+}
+
+#[test]
+fn collect_session_entries_uses_session_id_title_override() {
+    let remote = RemoteAgentSessions {
+        agent_name: "Codex".into(),
+        agent_ref: RemoteAgentRef::Runtime(AgentRuntime::CodexAcp),
+        source: RemoteSessionSource::Acp,
+        sessions: vec![
+            agent_client_protocol::schema::SessionInfo::new("codex-session", "/work/swarmx")
+                .title("ACP preview")
+                .updated_at("123"),
+        ],
+    };
+    let mut titles = std::collections::HashMap::new();
+    titles.insert("codex-session".to_string(), "File title".to_string());
+
+    let entries = collect_session_entries(&[], &[remote], &titles);
+
+    assert_eq!(entries[0].title.as_deref(), Some("File title"));
 }
 
 #[test]
@@ -194,7 +240,7 @@ fn collect_session_entries_preserves_unknown_hermes_native_cwd() {
         ],
     };
 
-    let entries = collect_session_entries(&[], &[remote]);
+    let entries = collect_session_entries(&[], &[remote], &Default::default());
 
     assert_eq!(entries.len(), 1);
     assert_eq!(entries[0].working_dir, "");
@@ -312,6 +358,7 @@ fn group_indices_harness_uses_discovered_runtime_label() {
         agent_runtime: Some(AgentRuntime::CodexAcp),
         working_dir: "/work/swarmx".to_string(),
         title: Some("Codex task".to_string()),
+        remote_title_target: None,
         first_message: None,
         created_at: "100".to_string(),
         updated_at: "100".to_string(),

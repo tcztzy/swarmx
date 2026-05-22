@@ -386,34 +386,30 @@ fn view_status_badge<'a>(
     status: ToolStatus,
     tokens: &'a DesignTokens,
     t: &'a Theme,
-) -> Element<'a, Message> {
+) -> Option<Element<'a, Message>> {
     match status {
         ToolStatus::Running => {
             let sp = spinner(iced_shadcn::Spinner::new(t).size(iced_shadcn::SpinnerSize::Size1));
-            row![
-                sp,
-                Space::new().width(4.0),
-                text("running")
-                    .size(tokens.text_xs.size)
-                    .color(t.palette.muted_foreground),
-            ]
-            .align_y(Alignment::Center)
-            .into()
+            Some(
+                row![
+                    sp,
+                    Space::new().width(4.0),
+                    text("running")
+                        .size(tokens.text_xs.size)
+                        .color(t.palette.muted_foreground),
+                ]
+                .align_y(Alignment::Center)
+                .into(),
+            )
         }
-        ToolStatus::Done => badge(
-            "done",
-            BadgeProps::new()
-                .variant(BadgeVariant::Default)
-                .size(BadgeSize::Size1),
-            t,
-        ),
-        ToolStatus::Error => badge(
+        ToolStatus::Done => None,
+        ToolStatus::Error => Some(badge(
             "error",
             BadgeProps::new()
                 .variant(BadgeVariant::Destructive)
                 .size(BadgeSize::Size1),
             t,
-        ),
+        )),
     }
 }
 
@@ -764,25 +760,29 @@ fn sentence_case(value: &str) -> String {
 }
 
 pub fn view_tool_activity_group<'a>(
+    idx: usize,
     items: Vec<ToolActivityItem>,
     status: ToolStatus,
+    is_open: bool,
     tokens: &'a DesignTokens,
     t: &'a Theme,
 ) -> Element<'a, Message> {
     let summary = tool_activity_summary(&items);
-    let trigger = row![
-        chevron_icon(true, 12.0).color(t.palette.muted_foreground),
+    let mut trigger = row![
+        chevron_icon(is_open, 12.0).color(t.palette.muted_foreground),
         Space::new().width(6.0),
         lucide_icon(LucideIcon::FolderSearch, 14.0).color(t.palette.muted_foreground),
         Space::new().width(8.0),
         text(summary)
             .size(tokens.text_sm.size)
             .color(t.palette.muted_foreground),
-        Space::new().width(8.0),
-        view_status_badge(status, tokens, t),
-        Space::new().width(Length::Fill),
     ]
     .align_y(Alignment::Center);
+
+    if let Some(status_badge) = view_status_badge(status, tokens, t) {
+        trigger = trigger.push(Space::new().width(8.0)).push(status_badge);
+    }
+    trigger = trigger.push(Space::new().width(Length::Fill));
 
     let detail_rows: Vec<Element<'a, Message>> = items
         .into_iter()
@@ -800,10 +800,10 @@ pub fn view_tool_activity_group<'a>(
         .width(Length::Fill);
 
     collapsible(
-        true,
+        is_open,
         trigger,
         details,
-        None::<fn(bool) -> Message>,
+        Some(move |new_open| Message::SetToolOpen(idx, new_open)),
         CollapsibleContentProps::new(),
         CollapsibleProps::new().compact(true),
         t,
@@ -893,20 +893,19 @@ pub fn view_tool_call_msg<'a>(
             .into()
     };
 
-    container(
-        row![
-            lucide_icon(LucideIcon::Wrench, 12.0).color(t.palette.muted_foreground),
-            Space::new().width(6.0),
-            label,
-            Space::new().width(8.0),
-            view_status_badge(status, tokens, t),
-            Space::new().width(Length::Fill),
-        ]
-        .align_y(Alignment::Center),
-    )
-    .padding([2, 0])
-    .width(Length::Fill)
-    .into()
+    let mut body = row![
+        lucide_icon(LucideIcon::Wrench, 12.0).color(t.palette.muted_foreground),
+        Space::new().width(6.0),
+        label,
+    ]
+    .align_y(Alignment::Center);
+
+    if let Some(status_badge) = view_status_badge(status, tokens, t) {
+        body = body.push(Space::new().width(8.0)).push(status_badge);
+    }
+    body = body.push(Space::new().width(Length::Fill));
+
+    container(body).padding([2, 0]).width(Length::Fill).into()
 }
 
 /// Tool result: collapsible monospace code block, default collapsed.

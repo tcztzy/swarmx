@@ -3,9 +3,12 @@ use iced_shadcn::Theme;
 use swarmx_core::{Agent, AgentBackend, AgentProcessOptions, Swarm, swarm::SwarmNode};
 
 use lucide_icons;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
-use crate::data::{LoadSessionMeta, RemoteAgentSessions, RemoteSessionSource, Session};
+use crate::data::{
+    LoadSessionMeta, RemoteAgentSessions, RemoteSessionSource, RemoteSessionTitleTarget, Session,
+    remote_session_title_key,
+};
 use crate::environment::{
     self, AgentRuntime, AgentRuntimeStatus, DepStatus, RemoteAgentRef, RuntimeDep,
 };
@@ -66,6 +69,7 @@ pub struct App {
     pub sidebar_search: String,
     pub group_collapsed: HashSet<String>,
     pub renaming_session: Option<usize>,
+    pub renaming_remote_session: Option<RemoteSessionTitleTarget>,
     pub rename_buffer: String,
     // Current surface
     pub surface: Surface,
@@ -80,11 +84,14 @@ pub struct App {
     pub agent_statuses: Vec<AgentRuntimeStatus>,
     /// Sessions fetched from ACP agents via session/list.
     pub remote_sessions: Vec<RemoteAgentSessions>,
+    pub remote_title_overrides: HashMap<String, String>,
     pub pending_launch_session_id: Option<String>,
     // Markdown render cache: session_id -> parsed Content per agent message
     pub md_cache: std::collections::HashMap<String, Vec<iced::widget::markdown::Content>>,
     // SWR cache for session list (60s TTL)
     pub session_cache: SWRCache<String, Vec<Session>>,
+    /// SWR cache for local remote-session title overrides (60s TTL).
+    pub remote_title_cache: SWRCache<String, HashMap<String, String>>,
     /// SWR cache for session message content (300s TTL). Key = session_id.
     pub message_cache: SWRCache<String, Vec<ChatMessage>>,
     /// Indices of expanded thinking sections in the active session.
@@ -122,6 +129,7 @@ pub enum Message {
     DeleteSession(usize),
     TogglePinSession(usize),
     StartRenameSession(usize),
+    StartRenameRemoteSession(RemoteSessionTitleTarget, String),
     SessionRenameChanged(String),
     CommitSessionRename,
     CancelSessionRename,
@@ -344,6 +352,9 @@ impl Default for App {
         let project_filter = app_settings.project_filter.clone();
         let mut session_cache = SWRCache::new(60);
         session_cache.set("local".to_string(), sessions.clone());
+        let remote_title_overrides = load_remote_title_overrides();
+        let mut remote_title_cache = SWRCache::new(60);
+        update_remote_title_cache(&mut remote_title_cache, &remote_title_overrides);
         Self {
             theme: theme_preference.shadcn_theme(),
             theme_preference,
@@ -361,6 +372,7 @@ impl Default for App {
             sidebar_search: String::new(),
             group_collapsed: HashSet::new(),
             renaming_session: None,
+            renaming_remote_session: None,
             rename_buffer: String::new(),
             surface: Surface::Welcome,
             input: String::new(),
@@ -370,9 +382,11 @@ impl Default for App {
             env_installing: None,
             agent_statuses,
             remote_sessions: Vec::new(),
+            remote_title_overrides,
             pending_launch_session_id: None,
             md_cache,
             session_cache,
+            remote_title_cache,
             message_cache: SWRCache::new(300),
             thinking_expanded,
             tool_expanded,
@@ -426,6 +440,192 @@ fn sessions_dir() -> std::path::PathBuf {
 
 fn session_path(session_id: &str) -> std::path::PathBuf {
     sessions_dir().join(format!("{}.json", session_id))
+}
+
+const REMOTE_TITLE_CACHE_KEY: &str = "remote_titles";
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+struct RemoteSessionTitleRecord {
+    #[serde(default)]
+    id: String,
+    #[serde(default)]
+    key: String,
+    #[serde(default)]
+    agent_instance_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    agent_runtime: Option<AgentRuntime>,
+    #[serde(default)]
+    source: RemoteSessionSource,
+    #[serde(default)]
+    session_id: String,
+    #[serde(default)]
+    cwd: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    title: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    updated_at: Option<String>,
+}
+
+impl Default for RemoteSessionTitleRecord {
+    fn default() -> Self {
+        Self {
+            id: String::new(),
+            key: String::new(),
+            agent_instance_id: String::new(),
+            agent_runtime: None,
+            source: RemoteSessionSource::Acp,
+            session_id: String::new(),
+            cwd: String::new(),
+            title: None,
+            updated_at: None,
+        }
+    }
+}
+
+fn load_remote_title_overrides() -> HashMap<String, String> {
+    let dir = sessions_dir();
+    let _ = std::fs::create_dir_all(&dir);
+    let mut titles = HashMap::new();
+
+    let Ok(entries) = std::fs::read_dir(&dir) else {
+        return titles;
+    };
+
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if !path.extension().is_some_and(|ext| ext == "json") {
+            continue;
+        }
+        let file_stem = path
+            .file_stem()
+            .and_then(|name| name.to_str())
+            .unwrap_or_default()
+            .to_string();
+
+        let Ok(data) = std::fs::read_to_string(path) else {
+            continue;
+        };
+        let Ok(value) = serde_json::from_str::<serde_json::Value>(&data) else {
+            continue;
+        };
+        let Some(title) = json_string_field(&value, "title").map(|title| title.trim().to_string())
+        else {
+            continue;
+        };
+        if title.is_empty() {
+            continue;
+        }
+
+        if let Some(key) = json_string_field(&value, "key").filter(|key| !key.is_empty()) {
+            titles.insert(key.to_string(), title.clone());
+        }
+        if let Some(session_id) =
+            json_string_field(&value, "session_id").filter(|session_id| !session_id.is_empty())
+        {
+            titles.insert(session_id.to_string(), title.clone());
+        }
+        if let Some(acp_session_id) =
+            json_string_field(&value, "acp_session_id").filter(|session_id| !session_id.is_empty())
+        {
+            titles.insert(acp_session_id.to_string(), title.clone());
+        }
+        if !file_stem.is_empty() {
+            titles.insert(file_stem, title);
+        }
+    }
+
+    titles
+}
+
+fn json_string_field<'a>(value: &'a serde_json::Value, field: &str) -> Option<&'a str> {
+    value.get(field).and_then(|value| value.as_str())
+}
+
+fn write_remote_title_override(
+    target: &RemoteSessionTitleTarget,
+    title: &str,
+) -> Result<Option<String>, String> {
+    let title = title.trim();
+    let path = session_path(&target.session_id);
+    let existing = std::fs::read_to_string(&path)
+        .ok()
+        .and_then(|data| serde_json::from_str::<serde_json::Value>(&data).ok());
+
+    if let Some(value) = existing.clone()
+        && let Ok(mut session) = serde_json::from_value::<Session>(value)
+    {
+        session.title = (!title.is_empty()).then(|| title.to_string());
+        let value = serde_json::to_value(session)
+            .map_err(|e| format!("Failed to serialize session title: {e}"))?;
+        write_json_value(&path, &value)?;
+        return Ok((!title.is_empty()).then(|| title.to_string()));
+    }
+
+    if title.is_empty() {
+        if let Some(mut value) = existing {
+            if let Some(object) = value.as_object_mut() {
+                object.remove("title");
+                if should_remove_remote_title_file(object) {
+                    std::fs::remove_file(&path)
+                        .or_else(|e| {
+                            if e.kind() == std::io::ErrorKind::NotFound {
+                                Ok(())
+                            } else {
+                                Err(e)
+                            }
+                        })
+                        .map_err(|e| format!("Failed to clear remote session title: {e}"))?;
+                } else {
+                    write_json_value(&path, &value)?;
+                }
+            }
+        }
+        return Ok(None);
+    }
+
+    let record = serde_json::to_value(RemoteSessionTitleRecord {
+        id: target.session_id.clone(),
+        key: target.key.clone(),
+        agent_instance_id: target.agent_instance_id.clone(),
+        agent_runtime: target.agent_runtime,
+        source: target.source,
+        session_id: target.session_id.clone(),
+        cwd: target.cwd.clone(),
+        title: Some(title.to_string()),
+        updated_at: (!target.updated_at.is_empty()).then(|| target.updated_at.clone()),
+    })
+    .map_err(|e| format!("Failed to serialize remote session title: {e}"))?;
+    let value = match existing {
+        Some(serde_json::Value::Object(mut object)) => {
+            if let serde_json::Value::Object(record_object) = record {
+                for (key, value) in record_object {
+                    if !value.is_null() {
+                        object.insert(key, value);
+                    }
+                }
+            }
+            serde_json::Value::Object(object)
+        }
+        _ => record,
+    };
+    write_json_value(&path, &value)?;
+    Ok(Some(title.to_string()))
+}
+
+fn should_remove_remote_title_file(object: &serde_json::Map<String, serde_json::Value>) -> bool {
+    object.is_empty()
+        || (object.contains_key("key")
+            && object.contains_key("session_id")
+            && !object.contains_key("messages"))
+}
+
+fn write_json_value(path: &std::path::Path, value: &serde_json::Value) -> Result<(), String> {
+    std::fs::create_dir_all(sessions_dir())
+        .map_err(|e| format!("Failed to create sessions directory: {e}"))?;
+    let data = serde_json::to_string_pretty(value)
+        .map_err(|e| format!("Failed to serialize remote session title: {e}"))?;
+    std::fs::write(path, data).map_err(|e| format!("Failed to save remote session title: {e}"))?;
+    Ok(())
 }
 
 fn load_sessions(instances: &[AgentInstance]) -> Vec<Session> {
@@ -531,6 +731,13 @@ fn update_session_cache(cache: &mut SWRCache<String, Vec<Session>>, sessions: &[
     let mut sorted = sessions.to_vec();
     sorted.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
     cache.set("local".to_string(), sorted);
+}
+
+fn update_remote_title_cache(
+    cache: &mut SWRCache<String, HashMap<String, String>>,
+    titles: &HashMap<String, String>,
+) {
+    cache.set(REMOTE_TITLE_CACHE_KEY.to_string(), titles.clone());
 }
 
 /// Convert an ACP session message (serde_json::Value) to a ChatMessage.
@@ -1080,6 +1287,7 @@ impl App {
                 self.surface = Surface::Conversation;
                 self.error = None;
                 save_session(&mut self.sessions[0]);
+                update_session_cache(&mut self.session_cache, &self.sessions);
                 Task::none()
             }
             Message::CreateSession(ref instance_id) => {
@@ -1107,6 +1315,7 @@ impl App {
                     self.surface = Surface::Conversation;
                     self.error = None;
                     self.renaming_session = None;
+                    self.renaming_remote_session = None;
                     self.rename_buffer.clear();
                     self.thinking_expanded.clear();
                     self.tool_expanded.clear();
@@ -1149,8 +1358,15 @@ impl App {
             Message::StartRenameSession(i) => {
                 if let Some(session) = self.sessions.get(i) {
                     self.renaming_session = Some(i);
+                    self.renaming_remote_session = None;
                     self.rename_buffer = session_title_for_edit(session);
                 }
+                Task::none()
+            }
+            Message::StartRenameRemoteSession(target, current_title) => {
+                self.renaming_session = None;
+                self.renaming_remote_session = Some(target);
+                self.rename_buffer = current_title;
                 Task::none()
             }
             Message::SessionRenameChanged(value) => {
@@ -1158,10 +1374,10 @@ impl App {
                 Task::none()
             }
             Message::CommitSessionRename => {
+                let title = self.rename_buffer.trim();
                 if let Some(i) = self.renaming_session.take()
                     && let Some(session) = self.sessions.get_mut(i)
                 {
-                    let title = self.rename_buffer.trim();
                     session.title = if title.is_empty() {
                         None
                     } else {
@@ -1169,12 +1385,37 @@ impl App {
                     };
                     write_session(session);
                     update_session_cache(&mut self.session_cache, &self.sessions);
+                } else if let Some(target) = self.renaming_remote_session.take() {
+                    match write_remote_title_override(&target, title) {
+                        Ok(Some(title)) => {
+                            self.remote_title_overrides
+                                .insert(target.key.clone(), title.clone());
+                            self.remote_title_overrides
+                                .insert(target.session_id.clone(), title);
+                            update_remote_title_cache(
+                                &mut self.remote_title_cache,
+                                &self.remote_title_overrides,
+                            );
+                        }
+                        Ok(None) => {
+                            self.remote_title_overrides.remove(&target.key);
+                            self.remote_title_overrides.remove(&target.session_id);
+                            update_remote_title_cache(
+                                &mut self.remote_title_cache,
+                                &self.remote_title_overrides,
+                            );
+                        }
+                        Err(e) => {
+                            self.error = Some(e);
+                        }
+                    }
                 }
                 self.rename_buffer.clear();
                 Task::none()
             }
             Message::CancelSessionRename => {
                 self.renaming_session = None;
+                self.renaming_remote_session = None;
                 self.rename_buffer.clear();
                 Task::none()
             }
@@ -1738,6 +1979,11 @@ impl App {
             Message::AgentSessionsResult(result) => {
                 match result {
                     Ok(mut sessions) => {
+                        self.remote_title_overrides = load_remote_title_overrides();
+                        update_remote_title_cache(
+                            &mut self.remote_title_cache,
+                            &self.remote_title_overrides,
+                        );
                         let loaded_ids: std::collections::HashSet<String> = self
                             .sessions
                             .iter()
@@ -1789,6 +2035,11 @@ impl App {
                 let agent_ref1 = agent_ref.clone();
                 let agent_ref2 = agent_ref.clone();
                 let session_id2 = session_id.clone();
+                let title_override = self
+                    .remote_title_overrides
+                    .get(&remote_session_title_key(agent_ref, source, &session_id))
+                    .or_else(|| self.remote_title_overrides.get(&session_id))
+                    .cloned();
                 Task::perform(
                     async move {
                         let (agent, agent_instance_id, agent_runtime) = match &agent_ref1 {
@@ -1822,18 +2073,20 @@ impl App {
                                     .filter_map(convert_acp_message)
                                     .collect()
                             };
-                        let title = chat_msgs
-                            .iter()
-                            .find(|m| m.is_user)
-                            .map(|m| {
-                                let t: String = m.content.chars().take(40).collect();
-                                if m.content.chars().count() > 40 {
-                                    format!("{t}...")
-                                } else {
-                                    t
-                                }
-                            })
-                            .unwrap_or_default();
+                        let title = title_override.unwrap_or_else(|| {
+                            chat_msgs
+                                .iter()
+                                .find(|m| m.is_user)
+                                .map(|m| {
+                                    let t: String = m.content.chars().take(40).collect();
+                                    if m.content.chars().count() > 40 {
+                                        format!("{t}...")
+                                    } else {
+                                        t
+                                    }
+                                })
+                                .unwrap_or_default()
+                        });
                         Ok((
                             LoadSessionMeta {
                                 session_id,

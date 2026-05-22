@@ -105,10 +105,48 @@ impl AgentIcon {
 // ── Remote Sessions (ACP) ───────────────────────────────────────────────────
 
 /// Sessions from a single ACP agent, using native ACP SessionInfo types.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum RemoteSessionSource {
     Acp,
     HermesNative,
+}
+
+impl RemoteSessionSource {
+    pub fn id(self) -> &'static str {
+        match self {
+            Self::Acp => "acp",
+            Self::HermesNative => "hermes_native",
+        }
+    }
+}
+
+impl Default for RemoteSessionSource {
+    fn default() -> Self {
+        Self::Acp
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RemoteSessionTitleTarget {
+    pub key: String,
+    pub agent_instance_id: String,
+    pub agent_runtime: Option<AgentRuntime>,
+    pub source: RemoteSessionSource,
+    pub session_id: String,
+    pub cwd: String,
+    pub updated_at: String,
+}
+
+pub fn remote_session_title_key(
+    agent_ref: &RemoteAgentRef,
+    source: RemoteSessionSource,
+    session_id: &str,
+) -> String {
+    let agent = match agent_ref {
+        RemoteAgentRef::Instance(instance_id) => format!("instance:{instance_id}"),
+        RemoteAgentRef::Runtime(runtime) => format!("runtime:{}", runtime.id()),
+    };
+    format!("{}:{}:{session_id}", agent, source.id())
 }
 
 /// Sessions from a single remote agent.

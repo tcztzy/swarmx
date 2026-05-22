@@ -43,7 +43,7 @@ pub fn view<'a>(
     loading: bool,
     error: Option<&'a str>,
     thinking_expanded: &'a HashSet<usize>,
-    _tool_expanded: &'a HashSet<usize>,
+    tool_expanded: &'a HashSet<usize>,
     tokens: &'a DesignTokens,
     t: &'a Theme,
 ) -> Element<'a, crate::app::Message> {
@@ -64,6 +64,7 @@ pub fn view<'a>(
                 error,
                 instance,
                 thinking_expanded,
+                tool_expanded,
                 tokens,
                 t,
             },
@@ -221,6 +222,7 @@ struct MessageListContext<'a> {
     error: Option<&'a str>,
     instance: Option<&'a AgentInstance>,
     thinking_expanded: &'a HashSet<usize>,
+    tool_expanded: &'a HashSet<usize>,
     tokens: &'a DesignTokens,
     t: &'a Theme,
 }
@@ -235,6 +237,7 @@ fn view_message_list<'a>(
         error,
         instance,
         thinking_expanded,
+        tool_expanded,
         tokens,
         t,
     } = ctx;
@@ -283,6 +286,7 @@ fn view_message_list<'a>(
             i += 1;
             view_user_msg(msg, tokens, t)
         } else if is_tool_activity_message(msg) {
+            let group_idx = i;
             let mut items = Vec::new();
             let mut status = ToolStatus::Done;
 
@@ -303,7 +307,8 @@ fn view_message_list<'a>(
                 i += 1;
             }
 
-            view_tool_activity_group(items, status, tokens, t)
+            let is_open = tool_expanded.contains(&group_idx);
+            view_tool_activity_group(group_idx, items, status, is_open, tokens, t)
         } else {
             let result: Element<'_, crate::app::Message> = match msg.kind {
                 MessageKind::Thinking => {
