@@ -30,6 +30,22 @@ It covers visual language, layout, interaction states, message rendering, respon
 6. Keep controls code-native and interactive.
 7. Do not hide agent/tool execution behind generic chat bubbles.
 
+## Behavior Invariants
+
+| id | Rule |
+| --- | --- |
+| V1 | Every visible session row is actionable. Clicking a session loads its latest available conversation into the runtime transcript. |
+| V2 | Session detail loading uses one cache path for local and ACP sessions. Local sessions may auto-preload; ACP sessions preload only on user intent such as hover, focus, or click. |
+| V3 | A preloaded session detail must be reused on click without an immediate duplicate load request. Failed preloads must not poison the cache. |
+| V4 | Conversational message content (`message` and `thinking`) renders through safe Markdown with raw HTML escaped, and inline/fenced code uses monospace code styling. Tool call/result content remains literal text. |
+
+## Bug Log
+
+| id | date | cause | fix |
+| --- | --- | --- | --- |
+| B1 | 2026-06-11 | ACP session rows were disabled and the renderer only loaded local session files by id. | V1, V2, V3 |
+| B2 | 2026-06-11 | Conversational messages were rendered as plain text, so Markdown code spans stayed visible as backtick text in the sans body font. | V4 |
+
 ## Visual Tokens
 
 ### Color
@@ -102,7 +118,7 @@ The sidebar contains:
 4. Grouped session list.
 5. Inline session discovery errors.
 
-Session rows use icon, title, and metadata. Local sessions are selectable; external ACP sessions may be visible but disabled until load behavior is implemented.
+Session rows use icon, title, and metadata. All visible local and ACP sessions are selectable; hover/focus may preload detail so click-to-open feels immediate.
 
 ### Runtime Header
 
@@ -126,6 +142,13 @@ Messages render as an event stream:
 - System/error: danger semantic card.
 
 Do not render all message kinds as identical chat bubbles.
+
+Conversational message content supports safe Markdown for common authoring syntax:
+
+- Inline code and fenced code blocks render with the mono stack.
+- Lists, links, blockquotes, and GFM tables render inside the event card without changing the app shell layout.
+- Raw HTML is not interpreted as HTML.
+- Tool call/result content remains literal output text and is not Markdown-rendered.
 
 ### Composer
 

@@ -20,6 +20,8 @@ export {
   listGroupedSessions,
   groupDiscoveredSessions,
   acpSessionToDiscovered,
+  acpLoadedSessionToSessionData,
+  loadDiscoveredSession,
 } from "./session-discovery.js";
 export type {
   DiscoveredSession,

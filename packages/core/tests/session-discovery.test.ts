@@ -1,6 +1,10 @@
 import type { SessionInfo } from "@agentclientprotocol/sdk";
 import { describe, expect, it } from "vitest";
-import { acpSessionToDiscovered, groupDiscoveredSessions } from "../src/session-discovery.js";
+import {
+  acpSessionToDiscovered,
+  groupDiscoveredSessions,
+  loadDiscoveredSession,
+} from "../src/session-discovery.js";
 import type { DiscoveredSession } from "../src/session-discovery.js";
 
 describe("Session discovery", () => {
@@ -62,6 +66,51 @@ describe("Session discovery", () => {
       harnessId: "codex",
       harnessLabel: "Codex",
       source: "acp",
+    });
+  });
+
+  it("loads ACP sessions as renderer session data", async () => {
+    const loaded = await loadDiscoveredSession(
+      {
+        id: "codex-session",
+        title: "Fix tests",
+        cwd: "/Users/test/swarmx",
+        updatedAt: "2026-01-04T00:00:00Z",
+        harnessId: "codex",
+        harnessLabel: "Codex",
+        source: "acp",
+      },
+      {
+        createClient: () => ({
+          loadSession: async (opts, sessionId, cwd) => {
+            expect(opts.command).toBe("bun");
+            expect(opts.args).toContain("@agentclientprotocol/codex-acp");
+            expect(sessionId).toBe("codex-session");
+            expect(cwd).toBe("/Users/test/swarmx");
+            return {
+              messages: [
+                { role: "user", kind: "message", content: "hello" },
+                { role: "assistant", kind: "message", content: "hi", agent: "codex" },
+              ],
+            };
+          },
+          stderrOutput: () => "",
+          kill: () => undefined,
+        }),
+      },
+    );
+
+    expect(loaded).toMatchObject({
+      id: "codex-session",
+      title: "Fix tests",
+      acpSessionId: "codex-session",
+      agentName: "Codex",
+      harness: "codex",
+      messages: [
+        { role: "user", kind: "message", content: "hello" },
+        { role: "assistant", kind: "message", content: "hi", agent: "codex" },
+      ],
+      updatedAt: "2026-01-04T00:00:00Z",
     });
   });
 });

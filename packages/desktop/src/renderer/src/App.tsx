@@ -20,9 +20,10 @@ import {
   XCircle,
 } from "lucide-react";
 import type React from "react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import useSWR from "swr";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import useSWR, { useSWRConfig } from "swr";
 import type { SwarmxAPI } from "../../preload/index.js";
+import { MessageContent } from "./message-content.js";
 
 interface MessageChunk {
   role: string;
@@ -96,6 +97,7 @@ const api = window.swarmxAPI;
 const LOCAL_SESSIONS_KEY = "sessions:local";
 const GROUPED_SESSIONS_KEY = "sessions:grouped";
 const SESSION_DEDUPING_INTERVAL_MS = 10_000;
+const LOCAL_SESSION_PRELOAD_LIMIT = 24;
 
 const HARNESSES: HarnessOption[] = [
   { id: "swarmx", label: "SwarmX", icon: Workflow },
@@ -109,11 +111,19 @@ const HARNESSES: HarnessOption[] = [
 export function App() {
   const [sessionGroupMode, setSessionGroupMode] = useState<SessionGroupMode>("harness");
   const [currentSession, setCurrentSession] = useState<SessionData | null>(null);
+  const [selectedDiscoveredSession, setSelectedDiscoveredSession] =
+    useState<DiscoveredSession | null>(null);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [selectedHarness, setSelectedHarness] = useState("swarmx");
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const chatRef = useRef<HTMLDivElement>(null);
+  const preloadedSessionKeys = useRef(new Set<string>());
+  const scrollStateRef = useRef<{ sessionId: string | null; messageCount: number }>({
+    sessionId: null,
+    messageCount: 0,
+  });
+  const { mutate: mutateSessionDetail } = useSWRConfig();
   const messageCount = currentSession?.messages.length ?? 0;
 
   const {
@@ -162,18 +172,92 @@ export function App() {
     () => mergeLocalSessionsIntoGroups(sessionGroups, sessions, sessionGroupMode),
     [sessionGroups, sessions, sessionGroupMode],
   );
+  const selectedSessionKey = selectedDiscoveredSession
+    ? sessionDetailKey(selectedDiscoveredSession)
+    : null;
+  const {
+    data: selectedSessionData,
+    error: selectedSessionError,
+    isLoading: selectedSessionLoading,
+  } = useSWR<SessionData | null>(
+    selectedSessionKey,
+    () =>
+      selectedDiscoveredSession
+        ? loadDiscoveredSessionDetail(selectedDiscoveredSession)
+        : Promise.resolve(null),
+    {
+      keepPreviousData: false,
+      revalidateIfStale: false,
+      revalidateOnFocus: false,
+      revalidateOnReconnect: false,
+    },
+  );
+  const visibleSessionErrors = useMemo(() => {
+    if (!selectedSessionError) return sessionErrors;
+    return [
+      ...sessionErrors,
+      {
+        harnessId: "session-load",
+        harnessLabel: "Session Load",
+        message: errorMessage(selectedSessionError),
+      },
+    ];
+  }, [selectedSessionError, sessionErrors]);
   const runTitle = currentSession?.title || "SwarmX";
   const runSubtitle = currentSession
     ? `${currentSession.agentName} on ${harnessLabel(currentSession.harness)}`
     : `${activeHarness.label} ready`;
 
+  const prefetchSession = useCallback(
+    (session: DiscoveredSession) => {
+      const cacheId = sessionCacheId(session);
+      if (preloadedSessionKeys.current.has(cacheId)) return;
+      preloadedSessionKeys.current.add(cacheId);
+      void loadDiscoveredSessionDetail(session)
+        .then((data) => {
+          if (data) {
+            void mutateSessionDetail(sessionDetailKey(session), data, {
+              populateCache: true,
+              revalidate: false,
+            });
+          }
+        })
+        .catch(() => {
+          preloadedSessionKeys.current.delete(cacheId);
+        });
+    },
+    [mutateSessionDetail],
+  );
+
   useEffect(() => {
-    if (messageCount === 0) return;
-    chatRef.current?.scrollTo({
-      top: chatRef.current.scrollHeight,
-      behavior: "smooth",
+    for (const session of preloadSessionCandidates(displayGroups)) {
+      prefetchSession(session);
+    }
+  }, [displayGroups, prefetchSession]);
+
+  useEffect(() => {
+    if (!selectedSessionData) return;
+    setCurrentSession(selectedSessionData);
+    setSelectedHarness(selectedSessionData.harness);
+  }, [selectedSessionData]);
+
+  useLayoutEffect(() => {
+    const chat = chatRef.current;
+    const sessionId = currentSession?.id ?? null;
+    const previous = scrollStateRef.current;
+
+    scrollStateRef.current = { sessionId, messageCount };
+
+    if (!chat || messageCount === 0) return;
+
+    const sessionChanged = sessionId !== previous.sessionId;
+    const messageAdded = sessionId !== null && messageCount > previous.messageCount;
+
+    chat.scrollTo({
+      top: chat.scrollHeight,
+      behavior: sessionChanged || !messageAdded ? "auto" : "smooth",
     });
-  }, [messageCount]);
+  }, [currentSession?.id, messageCount]);
 
   const newSession = useCallback(async () => {
     const session = await api.createSession({
@@ -185,9 +269,8 @@ export function App() {
     setCurrentSession(session);
   }, [mutateLocalSessions, selectedHarness]);
 
-  const selectSession = useCallback(async (id: string) => {
-    const session = (await api.loadSession(id)) as SessionData | null;
-    if (session) setCurrentSession(session);
+  const selectSession = useCallback((session: DiscoveredSession) => {
+    setSelectedDiscoveredSession(session);
   }, []);
 
   const deleteCurrentSession = useCallback(async () => {
@@ -334,23 +417,36 @@ export function App() {
               <div className="session-group__items">
                 {group.sessions.map((session) => {
                   const isLocal = session.source === "local";
-                  const isActive = isLocal && currentSession?.id === session.id;
+                  const isActive =
+                    currentSession?.id === session.id &&
+                    currentSession.harness === session.harnessId;
+                  const isPending =
+                    selectedSessionLoading &&
+                    selectedDiscoveredSession !== null &&
+                    sessionCacheId(selectedDiscoveredSession) === sessionCacheId(session);
                   return (
                     <button
                       type="button"
                       key={`${session.source}:${session.harnessId}:${session.id}`}
-                      disabled={!isLocal}
+                      onFocus={() => prefetchSession(session)}
+                      onPointerEnter={() => prefetchSession(session)}
                       onClick={() => {
-                        if (isLocal) void selectSession(session.id);
+                        selectSession(session);
                       }}
                       className={cx(
                         "session-item",
                         isActive && "is-active",
-                        !isLocal && "is-disabled",
+                        isPending && "is-loading",
                       )}
                     >
                       <span className="session-item__icon">
-                        {isLocal ? <Clock3 aria-hidden="true" /> : <GitBranch aria-hidden="true" />}
+                        {isPending ? (
+                          <Loader2 aria-hidden="true" />
+                        ) : isLocal ? (
+                          <Clock3 aria-hidden="true" />
+                        ) : (
+                          <GitBranch aria-hidden="true" />
+                        )}
                       </span>
                       <span className="session-item__body">
                         <span className="session-item__title">{session.title || "Untitled"}</span>
@@ -364,7 +460,7 @@ export function App() {
               </div>
             </section>
           ))}
-          {sessionErrors.map((error) => (
+          {visibleSessionErrors.map((error) => (
             <div key={error.harnessId} className="session-error">
               <XCircle aria-hidden="true" />
               <span>
@@ -398,16 +494,18 @@ export function App() {
           </div>
 
           <div className="runtime__actions">
-            <Badge tone={loading ? "active" : "neutral"}>
-              {loading ? (
+            <Badge tone={loading || selectedSessionLoading ? "active" : "neutral"}>
+              {loading || selectedSessionLoading ? (
                 <Loader2 data-icon="inline-start" aria-hidden="true" />
               ) : (
                 <Play data-icon="inline-start" aria-hidden="true" />
               )}
-              {loading ? "Running" : "Ready"}
+              {selectedSessionLoading ? "Loading" : loading ? "Running" : "Ready"}
             </Badge>
             <Badge tone="neutral">{messageCount} events</Badge>
-            {sessionErrors.length > 0 && <Badge tone="danger">{sessionErrors.length} alerts</Badge>}
+            {visibleSessionErrors.length > 0 && (
+              <Badge tone="danger">{visibleSessionErrors.length} alerts</Badge>
+            )}
             {currentSession && (
               <Button variant="ghost" size="icon" onClick={deleteCurrentSession} title="Delete run">
                 <Trash2 data-icon aria-hidden="true" />
@@ -515,7 +613,9 @@ function RunEvent({ msg }: { msg: MessageChunk }) {
           </div>
         )}
         {msg.swarmEvent && <div className="run-event__event">{msg.swarmEvent}</div>}
-        <div className="run-event__content">{msg.content}</div>
+        <div className="run-event__content">
+          <MessageContent kind={msg.kind} content={msg.content} />
+        </div>
       </div>
     </article>
   );
@@ -597,6 +697,30 @@ function buildSessionErrors(
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function loadDiscoveredSessionDetail(session: DiscoveredSession): Promise<SessionData | null> {
+  return api.loadDiscoveredSession(session) as Promise<SessionData | null>;
+}
+
+function sessionDetailKey(
+  session: DiscoveredSession,
+): readonly ["session:detail", string, string, string, string] {
+  return ["session:detail", session.source, session.harnessId, session.id, session.cwd];
+}
+
+function sessionCacheId(session: DiscoveredSession): string {
+  return sessionDetailKey(session).join("\u001f");
+}
+
+function flattenSessions(groups: SessionGroup[]): DiscoveredSession[] {
+  return groups.flatMap((group) => group.sessions);
+}
+
+function preloadSessionCandidates(groups: SessionGroup[]): DiscoveredSession[] {
+  return flattenSessions(groups)
+    .filter((session) => session.source === "local")
+    .slice(0, LOCAL_SESSION_PRELOAD_LIMIT);
 }
 
 function mergeLocalSessionsIntoGroups(

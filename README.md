@@ -1,6 +1,10 @@
 # SwarmX
 
-A lightweight, stateless multi-agent orchestration framework with a TypeScript core and Electron desktop app.
+A lightweight, stateless multi-agent orchestration framework with a TypeScript core, CLI, ACP server, and a user-friendly Electron desktop interface.
+
+SwarmX now includes a polished desktop UI for browsing local and ACP sessions, switching harnesses, sending messages, and reading Markdown-rich agent output in one place.
+
+![SwarmX desktop interface](docs/assets/swarmx-desktop.png)
 
 ## Architecture
 
@@ -11,28 +15,45 @@ This workspace contains:
 - **`packages/acp-server/`** — Agent Client Protocol server
 - **`packages/desktop/`** — Electron desktop application with React 19 UI
 
-## Quick Start
+## How to Install
 
 ### Prerequisites
 
 - Node.js >= 20
 - pnpm >= 9
 
-### Install & Build
+If pnpm is not already available, enable it through Corepack:
 
 ```shell
+corepack enable
+```
+
+### Install from Source
+
+```shell
+git clone <your-swarmx-repo-url>
+cd swarmx
 pnpm install
 pnpm build
 ```
 
 ### Configuration
 
-Set your OpenAI-compatible API credentials via environment variables:
+SwarmX uses OpenAI-compatible provider settings. Export credentials in your shell before running the CLI, server, or desktop app:
 
 ```shell
 export OPENAI_API_KEY="sk-..."
 export OPENAI_BASE_URL="https://api.openai.com/v1"  # optional
 export OPENAI_MODEL="gpt-4o"                         # optional, default: gpt-4o
+```
+
+For local OpenAI-compatible servers, start from the example file and adjust it for your provider:
+
+```shell
+cp .env.example .env
+set -a
+source .env
+set +a
 ```
 
 Or configure per agent via the `client` field:
@@ -44,7 +65,17 @@ new Agent({
 })
 ```
 
-### CLI
+### Run the Desktop App
+
+Launch the user-friendly Electron interface:
+
+```shell
+pnpm --filter @swarmx/desktop dev
+```
+
+The desktop app gives you a session sidebar, harness selector, Markdown/image rendering, and a focused composer for running agents without leaving the UI.
+
+### Run the CLI
 
 ```shell
 pnpm --filter @swarmx/cli swarmx
@@ -54,12 +85,6 @@ Start the OpenAI-compatible API server:
 
 ```shell
 pnpm --filter @swarmx/cli swarmx serve --host 0.0.0.0 --port 8000
-```
-
-### Desktop App
-
-```shell
-pnpm --filter @swarmx/desktop dev
 ```
 
 ## Core Concepts

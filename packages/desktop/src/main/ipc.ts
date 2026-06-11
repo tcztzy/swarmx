@@ -1,3 +1,6 @@
+import { readFile, stat } from "node:fs/promises";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   Agent,
   Swarm,
@@ -7,17 +10,21 @@ import {
   getHarness,
   listGroupedSessions,
   listSessions,
+  loadDiscoveredSession,
   loadSession,
   saveSession,
 } from "@swarmx/core";
 import type {
   AgentConfig,
+  DiscoveredSession,
   ListGroupedSessionsOptions,
   MessageChunk,
   SessionData,
   SwarmConfig,
 } from "@swarmx/core";
 import { type IpcMainInvokeEvent, ipcMain } from "electron";
+
+const MAX_INLINE_IMAGE_BYTES = 25 * 1024 * 1024;
 
 export function registerIpcHandlers(): void {
   ipcMain.handle(
@@ -110,6 +117,12 @@ export function registerIpcHandlers(): void {
       listGroupedSessions(params ?? {}),
   );
 
+  ipcMain.handle(
+    "session:loadDiscovered",
+    (_event: IpcMainInvokeEvent, session: DiscoveredSession): Promise<SessionData | null> =>
+      loadDiscoveredSession(session),
+  );
+
   ipcMain.handle("session:delete", (_event: IpcMainInvokeEvent, id: string): boolean =>
     deleteSession(id),
   );
@@ -119,4 +132,89 @@ export function registerIpcHandlers(): void {
     (_event: IpcMainInvokeEvent, params: { id: string; messages: MessageChunk[] }): boolean =>
       appendMessages(params.id, params.messages),
   );
+
+  ipcMain.handle(
+    "asset:imageDataUrl",
+    async (_event: IpcMainInvokeEvent, source: string): Promise<string | null> =>
+      loadImageDataUrl(source),
+  );
+}
+
+async function loadImageDataUrl(source: string): Promise<string | null> {
+  try {
+    const filePath = localFilePathFromSource(source);
+    if (!filePath) return null;
+
+    const fileStat = await stat(filePath);
+    if (!fileStat.isFile() || fileStat.size > MAX_INLINE_IMAGE_BYTES) return null;
+
+    const bytes = await readFile(filePath);
+    if (bytes.byteLength > MAX_INLINE_IMAGE_BYTES) return null;
+
+    const mimeType = detectImageMimeType(bytes);
+    if (!mimeType) return null;
+
+    return `data:${mimeType};base64,${bytes.toString("base64")}`;
+  } catch {
+    return null;
+  }
+}
+
+function localFilePathFromSource(source: string): string | null {
+  const trimmed = source.trim();
+  if (!trimmed) return null;
+
+  if (trimmed.startsWith("file://")) {
+    try {
+      return fileURLToPath(trimmed);
+    } catch {
+      return null;
+    }
+  }
+
+  const decoded = safeDecodeUri(trimmed);
+  return path.isAbsolute(decoded) ? decoded : null;
+}
+
+function safeDecodeUri(value: string): string {
+  try {
+    return decodeURI(value);
+  } catch {
+    return value;
+  }
+}
+
+function detectImageMimeType(bytes: Buffer): string | null {
+  if (
+    bytes.length >= 8 &&
+    bytes[0] === 0x89 &&
+    bytes[1] === 0x50 &&
+    bytes[2] === 0x4e &&
+    bytes[3] === 0x47 &&
+    bytes[4] === 0x0d &&
+    bytes[5] === 0x0a &&
+    bytes[6] === 0x1a &&
+    bytes[7] === 0x0a
+  ) {
+    return "image/png";
+  }
+
+  if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) {
+    return "image/jpeg";
+  }
+
+  const gifHeader = bytes.subarray(0, 6).toString("ascii");
+  if (gifHeader === "GIF87a" || gifHeader === "GIF89a") {
+    return "image/gif";
+  }
+
+  if (
+    bytes.length >= 12 &&
+    bytes.subarray(0, 4).toString("ascii") === "RIFF" &&
+    bytes.subarray(8, 12).toString("ascii") === "WEBP"
+  ) {
+    return "image/webp";
+  }
+
+  return null;
 }

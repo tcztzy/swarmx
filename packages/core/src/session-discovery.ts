@@ -1,8 +1,8 @@
 import type { SessionInfo as AcpSessionInfo } from "@agentclientprotocol/sdk";
 import { AcpClient, type AcpClientOptions } from "./acp.js";
 import { HARNESSES } from "./harness.js";
-import { listSessions as listLocalSessions } from "./session.js";
-import type { SessionData } from "./types.js";
+import { listSessions as listLocalSessions, loadSession as loadLocalSession } from "./session.js";
+import { type MessageChunk, type SessionData, SessionDataSchema } from "./types.js";
 
 export type SessionGroupMode = "project" | "harness";
 export type DiscoveredSessionSource = "local" | "acp";
@@ -40,6 +40,21 @@ export interface ListGroupedSessionsOptions {
   cwd?: string;
   harnessIds?: string[];
   timeoutMs?: number;
+}
+
+export interface LoadDiscoveredSessionOptions {
+  createClient?: () => AcpSessionLoader;
+  timeoutMs?: number;
+}
+
+interface AcpSessionLoader {
+  loadSession(
+    opts: AcpClientOptions,
+    sessionId: string,
+    cwd: string,
+  ): Promise<{ messages: MessageChunk[] }>;
+  stderrOutput(): string;
+  kill(): void;
 }
 
 const DEFAULT_ACP_SESSION_HARNESSES = ["claude_code", "codex"] as const;
@@ -133,6 +148,62 @@ export function acpSessionToDiscovered(
     harnessLabel: harness?.label ?? harnessId,
     source: "acp",
   };
+}
+
+export async function loadDiscoveredSession(
+  session: DiscoveredSession,
+  options: LoadDiscoveredSessionOptions = {},
+): Promise<SessionData | null> {
+  if (session.source === "local") {
+    return loadLocalSession(session.id);
+  }
+
+  const harness = HARNESSES[session.harnessId];
+  if (!harness) {
+    throw new Error(`Unknown harness: ${session.harnessId}`);
+  }
+  if (harness.backend.type !== "custom") {
+    throw new Error(`Harness does not support ACP session loading: ${session.harnessId}`);
+  }
+
+  const client = options.createClient?.() ?? new AcpClient();
+  const cwd = session.cwd.trim() || process.cwd();
+  const opts: AcpClientOptions = {
+    command: harness.backend.program,
+    args: harness.backend.args ?? [],
+    cwd,
+  };
+
+  try {
+    const loaded = await withTimeout(
+      client.loadSession(opts, session.id, cwd),
+      options.timeoutMs ?? DEFAULT_SESSION_TIMEOUT_MS,
+      `${harness.label} session loading timed out`,
+    );
+    return acpLoadedSessionToSessionData(session, loaded.messages);
+  } catch (err) {
+    throw new Error(acpErrorMessage(err, client.stderrOutput()));
+  } finally {
+    client.kill();
+  }
+}
+
+export function acpLoadedSessionToSessionData(
+  session: DiscoveredSession,
+  messages: MessageChunk[],
+): SessionData {
+  const updatedAt = session.updatedAt ?? new Date().toISOString();
+
+  return SessionDataSchema.parse({
+    id: session.id,
+    title: session.title || session.id,
+    acpSessionId: session.id,
+    agentName: session.harnessLabel || session.harnessId,
+    harness: session.harnessId,
+    messages,
+    createdAt: updatedAt,
+    updatedAt,
+  });
 }
 
 function localSessionToDiscovered(session: SessionData): DiscoveredSession {

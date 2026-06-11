@@ -7,11 +7,14 @@
     "dev": "electron-vite dev",
     "build": "electron-vite build",
     "preview": "electron-vite preview",
-    "start": "electron ."
+    "start": "electron .",
+    "test": "vitest run"
   },
   "dependencies": {
     "@swarmx/core": "workspace:*",
     "lucide-react": "^1.17.0",
+    "react-markdown": "^10.1.0",
+    "remark-gfm": "^4.0.1",
     "swr": "^2.4.1"
   },
   "devDependencies": {

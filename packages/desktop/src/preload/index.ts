@@ -19,6 +19,16 @@ const api = {
 
   loadSession: (id: string) => ipcRenderer.invoke("session:load", id),
 
+  loadDiscoveredSession: (session: {
+    id: string;
+    title: string;
+    cwd: string;
+    updatedAt?: string;
+    harnessId: string;
+    harnessLabel: string;
+    source: "local" | "acp";
+  }) => ipcRenderer.invoke("session:loadDiscovered", session),
+
   listSessions: () => ipcRenderer.invoke("session:list"),
 
   listGroupedSessions: (params?: {
@@ -31,6 +41,9 @@ const api = {
 
   appendMessages: (params: { id: string; messages: unknown[] }) =>
     ipcRenderer.invoke("session:appendMessages", params),
+
+  loadImageDataUrl: (source: string) =>
+    ipcRenderer.invoke("asset:imageDataUrl", source) as Promise<string | null>,
 };
 
 contextBridge.exposeInMainWorld("swarmxAPI", api);
