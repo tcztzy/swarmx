@@ -132,3 +132,8 @@ requirements-dev.lock
 
 vendor/
 node_modules/
+
+# TypeScript / Electron
+packages/*/dist/
+packages/desktop/out/
+*.tsbuildinfo

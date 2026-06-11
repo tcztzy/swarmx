@@ -7,7 +7,7 @@ Supplemental guidance for coding agents. Use this alongside `AGENTS.md` for deep
 - **Hooks:** Implement cross-cutting behavior with `on_start`, `on_end`, `on_handoff`, or `on_chunk` hooks rather than embedding ad hoc logic in core flows.
 - **Routing:** Use edge-based transfers for routing between agents; keep routing logic explicit via CEL expressions on edges.
 - **Tools:** Expose tool capabilities explicitly so routing and orchestration can select them dynamically.
-- **MCP integration:** Configure MCP servers via environment variables before use; interact through `crates/swarmx-core/src/mcp.rs`. Validate tool schemas and authentication flows when adding or modifying MCP integrations.
+- **MCP integration:** Configure MCP servers via environment variables before use; interact through `packages/core/src/mcp.ts`. Validate tool schemas and authentication flows when adding or modifying MCP integrations.
 
 ## Graph Architecture
 - **Swarm Graph (workflow definition):**
@@ -36,64 +36,47 @@ Supplemental guidance for coding agents. Use this alongside `AGENTS.md` for deep
     - Only swarms' queen can see the `Messages` graph and handle with it in **Context Engineering** ways (such as Retrieve/Compress/Isolated/Remember)
     - The framework uses the Messages DAG to track which agent/tool produced which message, on which branch, with which raw completion/result, providing an execution trace over the conversation itself.
 
-## UI Architecture (swarmx-ui)
+## UI Architecture (desktop)
 
 ### Technology Stack
 
-The desktop GUI uses a pure Rust stack targeting native rendering:
+The desktop GUI uses Electron with React 19 for the renderer:
 
-| Layer | Crate | Version | Role |
-|-------|-------|---------|------|
-| GUI framework | `iced` | 0.14 | Cross-platform native GUI (wgpu + tiny-skia fallback) |
-| Widget library | `iced-shadcn` | 0.5 | shadcn-inspired components (Button, Card, Input, Badge, Collapsible, ScrollArea, Spinner, Tooltip, etc.) |
-| Icons | `lucide-icons` | 0.575 | 850+ icons via `Icon` enum + embedded font |
-| ACP transport | `agent-client-protocol` | 0.11.1 | Rust SDK for Agent Client Protocol (SACP types + tokio) |
-| File dialogs | `rfd` | 0.15 | Native file/folder picker dialogs |
+| Layer | Technology | Version | Role |
+|-------|------------|---------|------|
+| Shell | Electron | 33 | Cross-platform desktop shell |
+| Renderer | React | 19 | UI framework (functional components + hooks) |
+| Build | electron-vite | — | Build toolchain for Electron |
+| Validation | zod | 3.24 | Schema validation |
+| ACP transport | @agentclientprotocol/sdk | 0.22 | TypeScript SDK for Agent Client Protocol |
+| Lint/Format | Biome | 1.9 | Linter + formatter |
 
-### Architecture Pattern: MVU (Model-View-Update)
+### Architecture: Main / Preload / Renderer
 
-Iced enforces strict unidirectional data flow, same pattern as Elm/The Elm Architecture:
+Electron security model with `contextIsolation: true`, `nodeIntegration: false`:
 
 ```
-┌──────────────────────────────────────────────────────┐
-│ App (State)                                          │
-│ ├── agents, sessions, active_session                 │
-│ ├── input, loading, error, theme                     │
-│ ├── thinking_expanded, tool_expanded (HashSets)      │
-│ └── md_cache (HashMap<session_id, Vec<Content>>)     │
-└───────────┬──────────────────────────┬───────────────┘
-            │                          │
-            ▼                          ▼
-    ┌───────────┐              ┌────────────┐
-    │ update()  │◄─────────────│  Message   │
-    │ returns   │   enum       │  (events)  │
-    │ Task<Msg> │              └────────────┘
-    └─────┬─────┘                     ▲
-          │                           │
-          ▼                           │
-    ┌───────────┐              ┌────────────┐
-    │  view()   │──────────────│  on_press  │
-    │ returns   │   user taps  │  callbacks │
-    │ Element   │              └────────────┘
-    └───────────┘
+┌──────────────────────────────────────────────┐
+│ Main Process (Node.js)                       │
+│ ├── IPC handlers (swarm.execute, sessions)   │
+│ └── BrowserWindow management                 │
+└──────────────┬───────────────────────────────┘
+               │ contextBridge
+               ▼
+┌──────────────────────────────────────────────┐
+│ Preload (contextBridge API)                  │
+│ └── window.swarmxAPI { sendMessage, ... }   │
+└──────────────┬───────────────────────────────┘
+               │
+               ▼
+┌──────────────────────────────────────────────┐
+│ Renderer (React 19 SPA)                      │
+│ ├── App component (state management)         │
+│ ├── Sidebar (session list, harness selector) │
+│ ├── ChatArea (message bubbles, input)        │
+│ └── Settings (providers, instances)          │
+└──────────────────────────────────────────────┘
 ```
-
-### Component Patterns
-
-**Props builder pattern** — all iced-shadcn components use:
-```rust
-ComponentProps::new()
-    .variant(ComponentVariant::Xxx)
-    .size(ComponentSize::Xxx)
-    .optional_setting(value)
-```
-
-**Theme injection** — every component function takes `&Theme` as the last arg:
-```rust
-button("Label", Some(msg), ButtonProps::new().variant(v).size(s), &app.theme)
-```
-
-**Collapsible state** — tracked in `HashSet<usize>` in App state, toggled via Message enum. This keeps expanded/collapsed state in the model, consistent with MVU.
 
 ### Message Data Model
 
@@ -110,31 +93,31 @@ Five message types for rendering agent responses:
 ### Session Persistence
 
 Sessions stored as individual JSON files: `~/.swarmx/sessions/{id}.json`
-Each file is a serialized `Session` struct with:
-- Full message history (`Vec<ChatMessage>`)
+Each file is a serialized `Session` with:
+- Full message history (`ChatMessage[]`)
 - Agent metadata (label, command line, backend index)
 - ACP session ID for resume support
 - Created/updated timestamps
 
 Legacy `~/.swarmx/sessions.json` (single file) is auto-migrated on startup.
 
-### ACP Integration in GUI
+### ACP Integration in Desktop
 
-The GUI acts as an **ACP client** — it starts agents as subprocesses and communicates via JSON-RPC 2.0 over stdio:
+The desktop app acts as an **ACP client** — it starts agents as subprocesses and communicates via JSON-RPC 2.0 over stdio:
 
-1. App startup: scan for available agents (bun, opencode, hermes, openclaw) via `environment.rs`
+1. App startup: scan for available agents (bun, opencode, hermes, openclaw) via `core/src/harness.ts`
 2. Session creation: run agent process, send `initialize` + `session/new`
-3. User prompt: send `session/prompt` with full message history
-4. Response handling: parse `session/update` notifications, map `kind` field to `ChatMessage` variant
-5. Error handling: catch transport errors, display in `t.palette.destructive` color
+3. User prompt: IPC handler calls `swarm.execute()`, which spawns ACP subprocess
+4. Response handling: parse `session/update` notifications, map `kind` field to message variant
+5. Error handling: catch transport errors, surface in UI
 
 ### Agent Runtime Detection
 
-`environment.rs` scans the system for agent dependencies:
+`core/src/harness.ts` defines known agent backends:
+- **SwarmX** — native TypeScript engine with OpenAI SDK, no subprocess needed
 - **Bun** (for Claude Code, Codex ACP adapters) — checked via `bun --version`
 - **OpenCode** — checked via `opencode --version`
 - **Hermes** — checked via `hermes --version`
 - **OpenClaw** — checked via `openclaw --version`
-- **Python** (for SwarmX backend) — checked via `python3 --version`
 
 Missing deps show an install banner. After installation, agent registry is rebuilt to include newly available agents.

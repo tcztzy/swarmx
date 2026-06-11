@@ -1,0 +1,21 @@
+{
+  "name": "@swarmx/acp-server",
+  "version": "3.0.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "bin": {
+    "swarmx-acp-server": "./dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch"
+  },
+  "dependencies": {
+    "@swarmx/core": "workspace:*",
+    "@agentclientprotocol/sdk": "^0.22.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.0",
+    "@types/node": "^22.0.0"
+  }
+}

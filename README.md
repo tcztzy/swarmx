@@ -1,55 +1,65 @@
-# SwarmX (Rust Rewrite)
+# SwarmX
 
-A lightweight, stateless multi-agent orchestration framework rewritten in Rust.
+A lightweight, stateless multi-agent orchestration framework with a TypeScript core and Electron desktop app.
 
 ## Architecture
 
 This workspace contains:
 
-- **`crates/swarmx-core`** — Core library with agents, swarms, MCP tools, messages graph, and OpenAI-compatible server
-- **`crates/swarmx-cli`** — Command-line interface (`swarmx` binary)
-- **`apps/tauri`** — Desktop application built with Tauri
-- **`apps/web`** — Web application built with Leptos
+- **`packages/core/`** — Core library with agents, swarms, MCP tools, session persistence, and OpenAI-compatible server
+- **`packages/cli/`** — Command-line interface (`swarmx` binary)
+- **`packages/acp-server/`** — Agent Client Protocol server
+- **`packages/desktop/`** — Electron desktop application with React 19 UI
 
 ## Quick Start
 
 ### Prerequisites
 
-- Rust 1.85+
-- (Optional) `cargo-tauri` for desktop app development
+- Node.js >= 20
+- pnpm >= 9
 
-### Environment Variables
-
-Create a `.env` file in the project root:
+### Install & Build
 
 ```shell
-OPENAI_API_KEY=your-api-key
-OPENAI_BASE_URL=https://api.openai.com/v1  # optional
-OPENAI_MODEL=gpt-4o                        # optional
+pnpm install
+pnpm build
+```
+
+### Configuration
+
+Set your OpenAI-compatible API credentials via environment variables:
+
+```shell
+export OPENAI_API_KEY="sk-..."
+export OPENAI_BASE_URL="https://api.openai.com/v1"  # optional
+export OPENAI_MODEL="gpt-4o"                         # optional, default: gpt-4o
+```
+
+Or configure per agent via the `client` field:
+
+```typescript
+new Agent({
+  name: "my-agent",
+  client: { apiKey: "sk-...", baseUrl: "https://api.openai.com/v1" },
+})
 ```
 
 ### CLI
 
 ```shell
-cargo run -p swarmx-cli
+pnpm --filter @swarmx/cli swarmx
 ```
 
 Start the OpenAI-compatible API server:
 
 ```shell
-cargo run -p swarmx-cli -- serve --host 0.0.0.0 --port 8000
+pnpm --filter @swarmx/cli swarmx serve --host 0.0.0.0 --port 8000
 ```
 
-### Desktop App (Tauri)
+### Desktop App
 
 ```shell
-cargo tauri dev
-```
-
-### Web App (Leptos)
-
-```shell
-cargo run -p swarmx-web
+pnpm --filter @swarmx/desktop dev
 ```
 
 ## Core Concepts
@@ -68,58 +78,56 @@ cargo run -p swarmx-web
 
 ### Usage Example
 
-```rust
-use swarmx_core::{Agent, Edge, Swarm};
+```typescript
+import { Agent, Edge, Swarm, SwarmNode } from "@swarmx/core";
 
-let agent_a = Agent::new("agent_a")
-    .with_instructions("You are a helpful agent.");
+const agentA = new Agent({
+  name: "agent_a",
+  instructions: "You are a helpful agent.",
+  model: "gpt-4o",
+});
 
-let agent_b = Agent::new("agent_b")
-    .with_model("deepseek-r1:7b")
-    .with_instructions("You can only speak Chinese.");
+const agentB = new Agent({
+  name: "agent_b",
+  model: "deepseek-r1:7b",
+  instructions: "You can only speak Chinese.",
+});
 
-let swarm = Swarm::new("demo_swarm", "agent_a")
-    .with_node(SwarmNode::Agent(agent_a))
-    .with_node(SwarmNode::Agent(agent_b))
-    .with_edge(Edge::new("agent_a", "agent_b"));
+const swarm = new Swarm({
+  name: "demo",
+  root: "agent_a",
+  nodes: {
+    agent_a: { kind: "agent", agent: { name: "agent_a", model: "gpt-4o", instructions: "You are helpful." } },
+    agent_b: { kind: "agent", agent: { name: "agent_b", model: "deepseek", instructions: "Speak Chinese." } },
+  },
+  edges: [{ source: "agent_a", target: "agent_b" }],
+});
 
-let result = swarm.execute(
-    serde_json::json!({"messages": [{"role": "user", "content": "I want to talk to agent B."}]}),
-    None,
-).await?;
+const result = await swarm.execute({
+  messages: [{ role: "user", content: "I want to talk to agent B." }],
+});
 ```
 
 ## Project Structure
 
 ```
 swarmx/
-├── Cargo.toml                  # Workspace definition
-├── crates/
-│   ├── swarmx-core/            # Core orchestration library
-│   │   ├── src/
-│   │   │   ├── agent.rs        # Agent node
-│   │   │   ├── swarm.rs        # Swarm orchestrator
-│   │   │   ├── edge.rs         # Graph edges
-│   │   │   ├── node.rs         # Node trait
-│   │   │   ├── messages.rs     # Message graph
-│   │   │   ├── mcp.rs          # MCP manager
-│   │   │   ├── server.rs       # Axum OpenAI-compatible server
-│   │   │   └── ...
-│   │   └── Cargo.toml
-│   └── swarmx-cli/             # CLI binary
-│       └── src/main.rs
-├── apps/
-│   ├── tauri/                  # Desktop app
-│   │   └── src-tauri/
-│   └── web/                    # Leptos web app
-│       └── src/
-└── python-legacy/              # Original Python codebase (archived)
+├── package.json                # Workspace root
+├── packages/
+│   ├── core/                   # Core orchestration library
+│   ├── cli/                    # CLI binary (Commander)
+│   ├── acp-server/             # ACP server implementation
+│   └── desktop/                # Electron desktop app
+│       ├── src/main/           # Main process + IPC
+│       ├── src/preload/        # Context bridge API
+│       └── src/renderer/       # React 19 SPA
+└── docs/                       # Documentation
 ```
 
 ## Testing
 
 ```shell
-cargo test -p swarmx-core
+pnpm test
 ```
 
 ## License
