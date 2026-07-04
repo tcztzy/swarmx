@@ -1,8 +1,12 @@
+import { randomUUID } from "node:crypto";
 import { Agent } from "./agent.js";
 import { Edge } from "./edge.js";
 import { Hook } from "./hook.js";
 import { Tool } from "./tool.js";
 import {
+  type EvalRunResult,
+  EvalRunResultSchema,
+  type EvalTraceEvent,
   type McpServerConfig,
   type MessageChunk,
   type SwarmConfig,
@@ -12,6 +16,12 @@ import {
 } from "./types.js";
 
 const MAX_STEPS = 100;
+
+interface EvalTraceCollector {
+  runId: string;
+  events: EvalTraceEvent[];
+  nextStep: number;
+}
 
 export class SwarmNode {
   kind: "agent" | "tool" | "swarm";
@@ -141,6 +151,41 @@ export class Swarm {
     arguments_: Record<string, unknown>,
     context?: Record<string, unknown>,
   ): Promise<MessageChunk[]> {
+    return this.executeInternal(arguments_, context);
+  }
+
+  async executeForEval(
+    arguments_: Record<string, unknown>,
+    context?: Record<string, unknown>,
+  ): Promise<EvalRunResult> {
+    const trace: EvalTraceCollector = {
+      runId: randomUUID(),
+      events: [],
+      nextStep: 1,
+    };
+    let messages: MessageChunk[] = [];
+    let error: string | null = null;
+
+    try {
+      messages = await this.executeInternal(arguments_, context, trace);
+    } catch (err) {
+      error = errorMessage(err);
+    }
+
+    return EvalRunResultSchema.parse({
+      output: messagesToEvalOutput(messages),
+      messages,
+      trace: [...trace.events].sort((a, b) => a.step - b.step),
+      error,
+      metrics: buildEvalMetrics(messages, trace.events),
+    });
+  }
+
+  private async executeInternal(
+    arguments_: Record<string, unknown>,
+    context?: Record<string, unknown>,
+    trace?: EvalTraceCollector,
+  ): Promise<MessageChunk[]> {
     const ctx = { ...(context ?? {}) };
     const newMessages: MessageChunk[] = [];
 
@@ -162,7 +207,7 @@ export class Swarm {
       const node = this.nodes.get(nodeName);
       if (!node) throw new Error(`Node "${nodeName}" not found`);
 
-      const nodeMessages = await this.runNode(node, arguments_, ctx);
+      const nodeMessages = await this.runNode(nodeName, node, arguments_, ctx, trace);
       visited.add(nodeName);
 
       if (nodeMessages.length > 0) {
@@ -195,9 +240,58 @@ export class Swarm {
   }
 
   private async runNode(
+    nodeName: string,
     node: SwarmNode,
     arguments_: Record<string, unknown>,
     context: Record<string, unknown>,
+    trace?: EvalTraceCollector,
+  ): Promise<MessageChunk[]> {
+    const startedAt = new Date().toISOString();
+    const step = trace?.nextStep ?? 0;
+    if (trace) {
+      trace.nextStep++;
+    }
+
+    try {
+      const messages = await this.runNodeUnchecked(node, arguments_, context, trace);
+      if (trace) {
+        trace.events.push({
+          runId: trace.runId,
+          swarm: this.name,
+          node: nodeName,
+          kind: node.kind,
+          step,
+          startedAt,
+          endedAt: new Date().toISOString(),
+          status: "completed",
+          messageCount: messages.length,
+        });
+      }
+      return messages;
+    } catch (err) {
+      if (trace) {
+        trace.events.push({
+          runId: trace.runId,
+          swarm: this.name,
+          node: nodeName,
+          kind: node.kind,
+          step,
+          startedAt,
+          endedAt: new Date().toISOString(),
+          status: "failed",
+          messageCount: 0,
+          error: errorMessage(err),
+        });
+      }
+      throw err;
+    }
+  }
+
+  private async runNodeUnchecked(
+    node: SwarmNode,
+    arguments_: Record<string, unknown>,
+    context: Record<string, unknown>,
+    trace?: EvalTraceCollector,
   ): Promise<MessageChunk[]> {
     switch (node.kind) {
       case "agent": {
@@ -219,7 +313,7 @@ export class Swarm {
       }
       case "swarm": {
         if (!node.swarm) return [];
-        return node.swarm.execute(arguments_, context);
+        return node.swarm.executeInternal(arguments_, context, trace);
       }
     }
   }
@@ -276,6 +370,36 @@ function isSubset(set: Set<string>, superset: Set<string>): boolean {
     if (!superset.has(item)) return false;
   }
   return true;
+}
+
+function messagesToEvalOutput(messages: MessageChunk[]): string {
+  const assistantMessages = messages.filter(
+    (message) => message.kind === "message" && message.role === "assistant",
+  );
+  const source =
+    assistantMessages.length > 0
+      ? assistantMessages
+      : messages.filter((message) => message.kind === "message");
+  return source
+    .map((message) => message.content)
+    .filter(Boolean)
+    .join("\n");
+}
+
+function buildEvalMetrics(
+  messages: MessageChunk[],
+  trace: EvalTraceEvent[],
+): EvalRunResult["metrics"] {
+  return {
+    steps: trace.length,
+    messages: messages.length,
+    toolCalls: messages.filter((message) => message.kind === "tool_call").length,
+    toolResults: messages.filter((message) => message.kind === "tool_result").length,
+  };
+}
+
+function errorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
 }
 
 interface SessionInfo {

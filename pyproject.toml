@@ -1,0 +1,14 @@
+[project]
+name = "swarmx-monorepo"
+version = "3.0.0"
+description = "Python tooling for SwarmX evals."
+requires-python = ">=3.11"
+dependencies = []
+
+[dependency-groups]
+inspect = [
+  "inspect-ai>=0.3",
+]
+
+[tool.uv]
+package = false

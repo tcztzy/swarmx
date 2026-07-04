@@ -2,11 +2,15 @@
 
 ## Status
 
-Accepted baseline for the Electron desktop renderer.
+Accepted baseline for the Electron desktop renderer. Updated 2026-06-17 with the
+Liquid Runtime visual language.
 
 ## Goal
 
-Define the SwarmX desktop UI as a Codex-like agent runtime surface: dense, calm, operational, and optimized for inspecting long-running agent sessions.
+Define the SwarmX desktop UI as a Codex-like agent runtime surface: dense, calm,
+operational, and optimized for inspecting long-running agent sessions. The current
+visual direction is Liquid Runtime: a modern dark command center with restrained
+frosted-glass material, rounded controls, subtle depth, and natural transitions.
 
 ## Scope
 
@@ -19,6 +23,15 @@ It covers visual language, layout, interaction states, message rendering, respon
 - Primary product metaphor: Codex app runtime screen.
 - Component language: shadcn/ui-style composition, neutral tokens, small radii, visible focus states, semantic variants.
 - Icon language: lucide-style line icons with consistent optical weight.
+- Material direction: Apple Liquid Glass uses translucent, adaptive layers that
+  bring focus to content and navigation without breaking familiarity
+  (https://www.apple.com/newsroom/2025/06/apple-introduces-a-delightful-and-elegant-new-software-design/).
+- Practical desktop material: Fluent Acrylic uses translucency, blur, tint, and
+  texture for depth, but should avoid stacked acrylic panes and protect legibility
+  (https://learn.microsoft.com/en-us/windows/apps/design/style/acrylic).
+- Motion reference: Material 3 Expressive validates motion, shape, color, and
+  containment when they clarify hierarchy and user journeys, not when they replace
+  familiar patterns (https://design.google/library/expressive-material-design-google-research).
 
 ## Core Principles
 
@@ -26,9 +39,14 @@ It covers visual language, layout, interaction states, message rendering, respon
 2. The first screen must be usable immediately: session rail, runtime transcript, and composer are all visible.
 3. Preserve information density without visual noise.
 4. Prefer structural hierarchy over decorative treatment.
-5. Use neutral color tokens; avoid one-note accent palettes and decorative gradients.
+5. Use neutral color tokens with limited cool accents; avoid one-note accent
+   palettes and decorative gradients.
 6. Keep controls code-native and interactive.
 7. Do not hide agent/tool execution behind generic chat bubbles.
+8. Glass is a functional layer for chrome, controls, and event surfaces. It must
+   increase depth and focus without reducing transcript readability.
+9. Motion should make state changes feel responsive and continuous. It must stay
+   short, interruptible, and compatible with `prefers-reduced-motion`.
 
 ## Behavior Invariants
 
@@ -38,6 +56,8 @@ It covers visual language, layout, interaction states, message rendering, respon
 | V2 | Session detail loading uses one cache path for local and ACP sessions. Local sessions may auto-preload; ACP sessions preload only on user intent such as hover, focus, or click. |
 | V3 | A preloaded session detail must be reused on click without an immediate duplicate load request. Failed preloads must not poison the cache. |
 | V4 | Conversational message content (`message` and `thinking`) renders through safe Markdown with raw HTML escaped, and inline/fenced code uses monospace code styling. Tool call/result content remains literal text. |
+| V5 | Glass material must preserve text contrast and must degrade to solid neutral surfaces when blur, transparency, or motion are unavailable or reduced. |
+| V6 | Visual transitions must be functional, short, and natural: hover, selection, sidebar collapse, loading, composer focus, and event entry may animate; continuous decorative motion is forbidden. |
 
 ## Bug Log
 
@@ -50,31 +70,41 @@ It covers visual language, layout, interaction states, message rendering, respon
 
 ### Color
 
-Use dark neutral tokens as the default desktop theme:
+Use dark neutral tokens as the default desktop theme. Liquid Runtime adds
+translucent material tokens on top of the existing graphite base:
 
 | Token | Value | Use |
 | --- | --- | --- |
-| `--background` | `#09090b` | App root and runtime canvas |
-| `--foreground` | `#f4f4f5` | Primary text |
-| `--card` | `#101013` | Panels, composer, neutral event blocks |
-| `--card-hover` | `#1b1b20` | Hover and selected surfaces |
-| `--muted` | `#a1a1aa` | Secondary text and icons |
-| `--muted-foreground` | `#71717a` | Tertiary text and metadata |
-| `--border` | `#27272a` | Primary borders |
-| `--border-subtle` | `#1f1f23` | Dividers and low-emphasis borders |
-| `--input` | `#151519` | Inputs and select controls |
+| `--background` | `#07080b` | App root and runtime canvas |
+| `--foreground` | `#f6f7fb` | Primary text |
+| `--card` | `rgba(18, 20, 26, 0.78)` | Panels, composer, neutral event blocks |
+| `--card-strong` | `rgba(24, 27, 35, 0.9)` | Higher-emphasis glass surfaces |
+| `--card-hover` | `rgba(38, 42, 54, 0.72)` | Hover and selected surfaces |
+| `--muted` | `#b1b7c3` | Secondary text and icons |
+| `--muted-foreground` | `#77808f` | Tertiary text and metadata |
+| `--border` | `rgba(180, 193, 214, 0.18)` | Primary glass borders |
+| `--border-subtle` | `rgba(180, 193, 214, 0.11)` | Dividers and low-emphasis borders |
+| `--input` | `rgba(12, 14, 19, 0.72)` | Inputs and select controls |
 | `--primary` | `#f4f4f5` | Primary button surface |
 | `--primary-foreground` | `#09090b` | Primary button text |
+| `--accent` | `#95e9ff` | Sparse focus/highlight edge only |
 | `--danger` | `#f87171` | Errors and destructive status |
 | `--success` | `#34d399` | Active/running/success status |
+| `--glass-blur` | `22px` | Standard backdrop blur |
+| `--glass-noise-opacity` | `0.035` | Subtle material grain |
+| `--glass-highlight` | `rgba(255, 255, 255, 0.12)` | Inset edge highlight |
 
-Accent colors are semantic only. Do not introduce purple, blue, beige, orange, or decorative color systems unless a future spec explicitly changes the theme.
+Accent colors are semantic or edge-only. Do not introduce purple, blue, beige,
+orange, or decorative color systems unless a future spec explicitly changes the
+theme. A small cyan highlight is allowed for focus rings, active edges, and
+selected glass surfaces, but it must not dominate the screen.
 
 ### Shape
 
-- Default radius: `8px`.
-- Compact inner radius: `6px` or `7px`.
-- Large surface radius: `10px` to `12px`.
+- Default radius: `10px`.
+- Compact inner radius: `8px`.
+- Large glass surface radius: `14px`.
+- Docked composer radius: `16px`.
 - Avoid pill shapes except for status badges.
 
 ### Typography
@@ -93,15 +123,23 @@ Accent colors are semantic only. Do not introduce purple, blue, beige, orange, o
 ### Motion
 
 - Motion is functional only.
-- Sidebar collapse: short opacity/translate transition.
+- Default transition: `180ms` to `220ms` using `cubic-bezier(0.2, 0.8, 0.2, 1)`.
+- Hover and press states may use `translateY(-1px)`, border/highlight changes,
+  and soft shadow changes.
+- Sidebar collapse: opacity, grid width, and translate transition.
+- Composer focus: border, highlight, and shadow transition.
+- Event entry: subtle opacity/translate transition only when new content appears.
 - Loading icons may spin.
+- Honor `prefers-reduced-motion: reduce` by removing transforms, smooth scroll,
+  and non-essential animation.
 - Avoid animated backgrounds, decorative pulses, or ornamental motion.
 
 ## Layout
 
 ### App Shell
 
-The desktop app is a two-column grid:
+The desktop app is a two-column grid with a deep graphite runtime base and glass
+chrome layered above it:
 
 1. Left sidebar: fixed session rail, default width `288px`.
 2. Runtime: flexible main surface with header, transcript, and composer.
@@ -118,7 +156,10 @@ The sidebar contains:
 4. Grouped session list.
 5. Inline session discovery errors.
 
-Session rows use icon, title, and metadata. All visible local and ACP sessions are selectable; hover/focus may preload detail so click-to-open feels immediate.
+Session rows use icon, title, and metadata. All visible local and ACP sessions are
+selectable; hover/focus may preload detail so click-to-open feels immediate.
+The sidebar uses a translucent in-app material with solid fallback. It should
+feel like persistent app chrome, not a floating card.
 
 ### Runtime Header
 
@@ -128,6 +169,8 @@ The header is a compact command/status bar:
 - Right: running/ready badge, event count, alerts, destructive action when applicable.
 - Height target: `58px` on desktop.
 - It should feel like app chrome, not a page hero.
+- It uses frosted material and a low-contrast bottom edge so the transcript can
+  scroll beneath the chrome without losing context.
 
 ### Transcript
 
@@ -142,6 +185,8 @@ Messages render as an event stream:
 - System/error: danger semantic card.
 
 Do not render all message kinds as identical chat bubbles.
+Cards may use glass material, but message text sits on a sufficiently tinted
+surface. User messages remain the brightest event surface for fast scanning.
 
 Conversational message content supports safe Markdown for common authoring syntax:
 
@@ -156,7 +201,7 @@ The composer is docked at the bottom of the runtime:
 
 - Width matches transcript max width.
 - Contains textarea, harness context, and Send button.
-- Uses a bordered elevated surface.
+- Uses a bordered elevated glass surface with visible focus treatment.
 - Must remain fully visible on desktop and mobile viewports.
 
 ## Components
@@ -176,7 +221,9 @@ Button sizes:
 - `md`: normal action.
 - `icon`: square icon-only actions.
 
-Buttons with icons use icon+text for clear commands and icon-only for chrome actions. Icon-only buttons must have accessible labels or titles.
+Buttons with icons use icon+text for clear commands and icon-only for chrome
+actions. Icon-only buttons must have accessible labels or titles. Hover and
+press states use natural material changes rather than large color shifts.
 
 ### Badges
 
@@ -194,7 +241,9 @@ Harness selection is a compact select shell with leading icon. It must not look 
 
 ### Segmented Controls
 
-Use segmented controls for 2-option mode switches such as Harness/Project grouping. Active state is a contained dark surface, not a colorful accent.
+Use segmented controls for 2-option mode switches such as Harness/Project
+grouping. Active state is a contained glass surface with a subtle active edge,
+not a colorful accent fill.
 
 ### Empty State
 
@@ -238,11 +287,16 @@ It must not become a landing page or explanatory marketing block.
 - Tabs/segmented controls expose tab roles and selected state.
 - Focus styles use tokenized ring/border treatment.
 - Text contrast must remain readable in dark mode.
+- Glass and blur effects must have solid-color fallbacks.
+- Motion-heavy effects must be reduced under `prefers-reduced-motion`.
 
 ## Forbidden Patterns
 
 - Marketing hero sections.
 - Decorative blobs, orbs, bokeh, or ornamental gradients.
+- Full-screen novelty glass that makes content harder to read.
+- Multiple adjacent transparent panes that create noisy seams.
+- Continuous decorative motion or animated backgrounds.
 - Large rounded cards inside other cards.
 - Browser-default controls.
 - Identical rendering for messages, tool calls, and thinking states.
@@ -260,6 +314,10 @@ It must not become a landing page or explanatory marketing block.
 3. Prefer existing React/Electron/Vite conventions over adding a new styling runtime.
 4. Full Tailwind/shadcn initialization is optional; shadcn-style source composition and tokens are sufficient unless a future task explicitly migrates the build pipeline.
 5. Do not change IPC, preload API, session persistence, or agent execution as part of visual-only changes.
+6. Implement glass as CSS material tokens and reusable surface patterns; do not
+   add image assets or screenshot-based UI to simulate the effect.
+7. Keep all new animation CSS behind tokenized timing/easing and reduced-motion
+   fallbacks.
 
 ## Verification Checklist
 
@@ -274,12 +332,17 @@ For any future desktop UI change:
    - Header status visible.
    - Transcript readable.
    - Composer fully visible.
+   - Glass surfaces preserve contrast.
+   - Hover, selected, and focus states transition naturally.
 6. Verify narrow viewport:
    - Sidebar collapsed.
    - Header not overlapping.
    - Transcript content scrolls.
    - Composer and Send button remain inside viewport.
+   - Rounded controls do not clip or overflow.
 7. Check browser/dev console for warnings and errors.
+8. Check reduced-motion behavior by confirming non-essential transforms and
+   smooth scrolling are disabled.
 
 ## Current Baseline Files
 

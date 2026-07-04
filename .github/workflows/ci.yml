@@ -1,4 +1,5 @@
 name: ci
+
 on:
   push:
     branches:
@@ -8,65 +9,31 @@ on:
     branches:
       - master
       - main
+
 permissions:
-  contents: write
+  contents: read
+
 jobs:
   quality:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Install uv
-        uses: astral-sh/setup-uv@v5
+
+      - uses: actions/setup-node@v4
         with:
-            enable-cache: true
-            cache-dependency-glob: "uv.lock"
+          node-version: 22
 
-      - uses: actions/setup-python@v5
-        with:
-          python-version-file: "pyproject.toml"
+      - name: Enable Corepack
+        run: corepack enable
 
-      - name: Install the project
-        run: uv sync --all-extras --dev
-
-      - name: Lint
-        run: uv run ruff check
-
-      - name: Type check
-        run: uv run pre-commit run mypy --all-files
-
-      - name: Tests
-        run: uv run pytest
-
-  deploy:
-    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
-    needs: quality
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Configure Git Credentials
-        run: |
-          git config user.name github-actions[bot]
-          git config user.email github-actions[bot]@users.noreply.github.com
+      - name: Install Node dependencies
+        run: pnpm install --frozen-lockfile
 
       - name: Install uv
         uses: astral-sh/setup-uv@v5
         with:
-            enable-cache: true
-            cache-dependency-glob: "uv.lock"
+          enable-cache: true
+          cache-dependency-glob: uv.lock
 
-      - uses: actions/setup-python@v5
-        with:
-          python-version-file: "pyproject.toml"
-
-      - name: Install the project
-        run: uv sync --all-extras --dev
-
-      - run: echo "cache_id=$(date --utc '+%V')" >> $GITHUB_ENV 
-      - uses: actions/cache@v4
-        with:
-          key: mkdocs-material-${{ env.cache_id }}
-          path: .cache 
-          restore-keys: |
-            mkdocs-material-
-
-      - run: uv run mkdocs gh-deploy --force
+      - name: Run CI checks
+        run: pnpm run ci

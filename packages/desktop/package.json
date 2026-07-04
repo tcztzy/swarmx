@@ -3,6 +3,13 @@
   "version": "3.0.0",
   "type": "module",
   "main": "./out/main/index.js",
+  "exports": {
+    ".": "./out/main/index.js",
+    "./renderer": {
+      "types": "./src/renderer/src/App.tsx",
+      "default": "./src/renderer/src/App.tsx"
+    }
+  },
   "scripts": {
     "dev": "electron-vite dev",
     "build": "electron-vite build",
@@ -12,18 +19,25 @@
   },
   "dependencies": {
     "@swarmx/core": "workspace:*",
+    "katex": "^0.17.0",
     "lucide-react": "^1.17.0",
     "react-markdown": "^10.1.0",
+    "rehype-katex": "^7.0.1",
     "remark-gfm": "^4.0.1",
+    "remark-math": "^6.0.0",
+    "shiki": "^4.3.1",
     "swr": "^2.4.1"
   },
   "devDependencies": {
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.1",
     "@types/node": "^22.0.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "@vitejs/plugin-react": "^4.0.0",
     "electron": "^33.0.0",
     "electron-vite": "^5.0.0",
+    "jsdom": "^29.1.1",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "typescript": "^5.7.0"

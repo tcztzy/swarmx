@@ -1,7 +1,7 @@
 import OpenAI from "openai";
 import { describe, expect, it } from "vitest";
 import { Agent, HookRef } from "../src/agent.js";
-import type { AgentConfig } from "../src/types.js";
+import type { AgentConfig, MessageChunk } from "../src/types.js";
 
 describe("Agent", () => {
   it("constructs with minimal config", () => {
@@ -97,6 +97,108 @@ describe("Agent", () => {
     } finally {
       process.env.OPENAI_MODEL = previousModel;
     }
+  });
+
+  it("echo backend returns the latest user message without a model call", async () => {
+    const agent = new Agent({ name: "test", backend: { type: "echo" } });
+
+    const result = await agent.call({
+      messages: [
+        { role: "system", content: "ignore" },
+        { role: "user", content: "first" },
+        { role: "assistant", content: "middle" },
+        { role: "user", content: "last" },
+      ],
+    });
+
+    expect(result.messages).toEqual([
+      {
+        role: "assistant",
+        content: "last",
+        kind: "message",
+        agent: "test",
+      },
+    ]);
+  });
+
+  it("custom backend delegates prompts to the ACP client", async () => {
+    let seen:
+      | {
+          opts: {
+            command: string;
+            args: string[];
+            cwd?: string;
+            env?: Record<string, string>;
+            clearEnv?: boolean;
+          };
+          prompt: string;
+        }
+      | undefined;
+    const streamed: MessageChunk[] = [];
+    const agent = new Agent(
+      {
+        name: "codex_agent",
+        instructions: "Plan with evidence.",
+        backend: { type: "custom", program: "codex", args: ["acp"] },
+        process: {
+          currentDir: "/tmp/project",
+          env: { OPENAI_MODEL: "gpt-5" },
+          clearEnv: true,
+        },
+      },
+      {
+        createAcpClient: () => ({
+          async prompt(opts, prompt, _swarmConfig, _sessionId, onChunk) {
+            seen = { opts, prompt };
+            const chunk: MessageChunk = {
+              role: "assistant",
+              content: "working",
+              kind: "thinking",
+              agent: "codex_agent",
+            };
+            onChunk?.(chunk);
+            return {
+              messages: [
+                {
+                  role: "assistant",
+                  content: "done",
+                  kind: "message",
+                  agent: "codex_agent",
+                },
+              ],
+            };
+          },
+        }),
+      },
+    );
+
+    const result = await agent.callStream(
+      {
+        messages: [
+          { role: "user", content: "first request" },
+          { role: "assistant", content: "middle" },
+          { role: "user", content: "latest request" },
+        ],
+      },
+      (chunk) => streamed.push(chunk),
+    );
+
+    expect(seen).toEqual({
+      opts: {
+        command: "codex",
+        args: ["acp"],
+        cwd: "/tmp/project",
+        env: { OPENAI_MODEL: "gpt-5" },
+        clearEnv: true,
+      },
+      prompt: "Agent instructions:\nPlan with evidence.\n\nUser request:\nlatest request",
+    });
+    expect(streamed).toEqual([
+      { role: "assistant", content: "working", kind: "thinking", agent: "codex_agent" },
+    ]);
+    expect(result.messages).toEqual([
+      { role: "assistant", content: "done", kind: "message", agent: "codex_agent" },
+    ]);
   });
 });
 

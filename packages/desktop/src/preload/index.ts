@@ -5,6 +5,7 @@ const api = {
     harnessId: string;
     userText: string;
     agentConfig?: unknown;
+    agentComposition?: unknown;
     swarmConfig?: unknown;
     sessionId?: string;
   }) => ipcRenderer.invoke("agent:send", params),
@@ -41,6 +42,10 @@ const api = {
 
   appendMessages: (params: { id: string; messages: unknown[] }) =>
     ipcRenderer.invoke("session:appendMessages", params),
+
+  importN8nWorkflow: (source: string) => ipcRenderer.invoke("workflow:importN8n", { source }),
+
+  listExtensions: () => ipcRenderer.invoke("extension:list"),
 
   loadImageDataUrl: (source: string) =>
     ipcRenderer.invoke("asset:imageDataUrl", source) as Promise<string | null>,

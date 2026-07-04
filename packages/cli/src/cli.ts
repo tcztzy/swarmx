@@ -4,6 +4,7 @@ import { createInterface } from "node:readline";
 import { Agent, HARNESSES, Swarm, createServer, getHarness, listSessions } from "@swarmx/core";
 import type { AgentConfig, MessageChunk, SwarmConfig } from "@swarmx/core";
 import { Command } from "commander";
+import { type EvalRunOptions, errorEvalResult, formatEvalResult, runEval } from "./eval-run.js";
 
 const program = new Command();
 
@@ -58,47 +59,82 @@ program
   });
 
 program
+  .command("eval-run [message]")
+  .description("Run a SwarmX eval sample and print a structured JSON result")
+  .option("-c, --config <path>", "Path to swarm config JSON")
+  .option("--input-json <json>", "Structured eval arguments JSON object")
+  .option("--input-file <path>", "Path to structured eval arguments JSON object")
+  .option("--pretty", "Pretty-print JSON output", false)
+  .action(async (message: string | undefined, opts: EvalRunOptions) => {
+    try {
+      const result = await runEval(message, opts);
+      process.stdout.write(formatEvalResult(result, opts.pretty));
+    } catch (err) {
+      process.stdout.write(formatEvalResult(errorEvalResult(err), opts.pretty));
+      process.exitCode = 1;
+    }
+  });
+
+program
   .command("serve")
   .description("Start OpenAI-compatible HTTP server")
   .option("-p, --port <port>", "Port to listen on", "3000")
   .option("-c, --config <path>", "Path to swarm config JSON")
   .option("--host <host>", "Host to bind", "127.0.0.1")
-  .action(async (opts: { port?: string; config?: string; host?: string }) => {
-    try {
-      let swarm: Swarm;
+  .option("--api-token <token>", "Bearer token required for server requests")
+  .option("--allowed-origin <origin...>", "Browser origin allowed to call the server")
+  .option("--allow-null-origin", "Allow trusted desktop bridge requests with Origin: null", false)
+  .action(
+    async (opts: {
+      port?: string;
+      config?: string;
+      host?: string;
+      apiToken?: string;
+      allowedOrigin?: string[];
+      allowNullOrigin?: boolean;
+    }) => {
+      try {
+        let swarm: Swarm;
 
-      if (opts.config) {
-        const config = JSON.parse(readFileSync(opts.config, "utf-8")) as SwarmConfig;
-        swarm = new Swarm(config);
-      } else {
-        swarm = new Swarm({
-          name: "default",
-          root: "agent",
-          nodes: {
-            agent: {
-              kind: "agent",
+        if (opts.config) {
+          const config = JSON.parse(readFileSync(opts.config, "utf-8")) as SwarmConfig;
+          swarm = new Swarm(config);
+        } else {
+          swarm = new Swarm({
+            name: "default",
+            root: "agent",
+            nodes: {
               agent: {
-                name: "agent",
-                instructions: "You are a helpful assistant.",
+                kind: "agent",
+                agent: {
+                  name: "agent",
+                  instructions: "You are a helpful assistant.",
+                },
               },
             },
-          },
-          edges: [],
-        });
-      }
+            edges: [],
+          });
+        }
 
-      const port = Number.parseInt(opts.port ?? "3000", 10);
-      const server = createServer(swarm, { port, host: opts.host });
-      console.log(`SwarmX server listening on http://${opts.host ?? "127.0.0.1"}:${port}`);
-      console.log("Endpoints:");
-      console.log("  GET  /models");
-      console.log("  POST /chat/completions");
-      console.log("  GET  /sessions");
-    } catch (err) {
-      console.error("Error:", err instanceof Error ? err.message : err);
-      process.exit(1);
-    }
-  });
+        const port = Number.parseInt(opts.port ?? "3000", 10);
+        const server = createServer(swarm, {
+          port,
+          host: opts.host,
+          apiToken: opts.apiToken,
+          allowedOrigins: opts.allowedOrigin,
+          allowNullOrigin: opts.allowNullOrigin,
+        });
+        console.log(`SwarmX server listening on http://${opts.host ?? "127.0.0.1"}:${port}`);
+        console.log("Endpoints:");
+        console.log("  GET  /models");
+        console.log("  POST /chat/completions");
+        console.log("  GET  /sessions");
+      } catch (err) {
+        console.error("Error:", err instanceof Error ? err.message : err);
+        process.exit(1);
+      }
+    },
+  );
 
 program
   .command("sessions")

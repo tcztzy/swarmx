@@ -36,6 +36,7 @@ export default defineConfig({
     resolve: {
       alias: {
         "@": resolve(__dirname, "src/renderer/src"),
+        "@swarmx/core/rendering": resolve(__dirname, "../core/src/rendering.ts"),
       },
     },
   },

@@ -2,21 +2,28 @@ import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
-  Agent,
   Swarm,
   appendMessages,
   createSession,
   deleteSession,
   getHarness,
+  importN8nWorkflow,
   listGroupedSessions,
   listSessions,
   loadDiscoveredSession,
+  loadExtensionInventory,
   loadSession,
+  resolveAgentComposition,
+  resolveAgentCompositionPlan,
+  resolveAgentCompositionRuntimeEnv,
   saveSession,
 } from "@swarmx/core";
 import type {
+  AgentComposition,
+  AgentCompositionPlan,
   AgentConfig,
   DiscoveredSession,
+  ExtensionInventory,
   ListGroupedSessionsOptions,
   MessageChunk,
   SessionData,
@@ -35,32 +42,31 @@ export function registerIpcHandlers(): void {
         harnessId: string;
         userText: string;
         agentConfig?: AgentConfig;
+        agentComposition?: AgentComposition;
         swarmConfig?: SwarmConfig;
         sessionId?: string;
       },
     ) => {
       try {
-        const harness = getHarness(params.harnessId);
-        if (!harness) throw new Error(`Unknown harness: ${params.harnessId}`);
-
         let swarm: Swarm;
 
         if (params.swarmConfig) {
           swarm = new Swarm(params.swarmConfig);
+        } else if (params.agentComposition) {
+          const inventory = await loadExtensionInventory();
+          const agentConfig = resolveAgentComposition(params.agentComposition, inventory);
+          const runtimeEnv = resolveAgentCompositionRuntimeEnv(params.agentComposition, inventory);
+          swarm = singleAgentSwarm(withRuntimeEnv(agentConfig, runtimeEnv));
         } else if (params.agentConfig) {
-          const agent = new Agent({
+          const harness = getHarness(params.harnessId);
+          if (!harness) throw new Error(`Unknown harness: ${params.harnessId}`);
+          swarm = singleAgentSwarm({
             ...params.agentConfig,
             backend: harness.backend,
           });
-          swarm = new Swarm({
-            name: agent.name,
-            root: agent.name,
-            nodes: {
-              [agent.name]: { kind: "agent", agent: params.agentConfig },
-            },
-            edges: [],
-          });
         } else {
+          const harness = getHarness(params.harnessId);
+          if (!harness) throw new Error(`Unknown harness: ${params.harnessId}`);
           swarm = new Swarm({
             name: "default",
             root: "agent",
@@ -133,11 +139,76 @@ export function registerIpcHandlers(): void {
       appendMessages(params.id, params.messages),
   );
 
+  ipcMain.handle("workflow:importN8n", (_event: IpcMainInvokeEvent, params: { source: string }) => {
+    try {
+      const result = importN8nWorkflow(params.source);
+      return {
+        success: true,
+        config: result.config,
+        warnings: result.warnings,
+        nodeMap: result.nodeMap,
+      };
+    } catch (err) {
+      return {
+        success: false,
+        error: err instanceof Error ? err.message : String(err),
+      };
+    }
+  });
+
+  ipcMain.handle("extension:list", async () => {
+    const inventory = await loadExtensionInventory();
+    return extensionInventoryWithPlans(inventory);
+  });
+
   ipcMain.handle(
     "asset:imageDataUrl",
     async (_event: IpcMainInvokeEvent, source: string): Promise<string | null> =>
       loadImageDataUrl(source),
   );
+}
+
+function singleAgentSwarm(agentConfig: AgentConfig): Swarm {
+  return new Swarm({
+    name: agentConfig.name,
+    root: agentConfig.name,
+    nodes: {
+      [agentConfig.name]: { kind: "agent", agent: agentConfig },
+    },
+    edges: [],
+  });
+}
+
+function withRuntimeEnv(agentConfig: AgentConfig, runtimeEnv: Record<string, string>): AgentConfig {
+  if (Object.keys(runtimeEnv).length === 0) return agentConfig;
+  return {
+    ...agentConfig,
+    process: {
+      ...agentConfig.process,
+      env: {
+        ...(agentConfig.process?.env ?? {}),
+        ...runtimeEnv,
+      },
+    },
+  };
+}
+
+function extensionInventoryWithPlans(
+  inventory: ExtensionInventory,
+): ExtensionInventory & { agentPlans: AgentCompositionPlan[] } {
+  return {
+    ...inventory,
+    agentPlans: inventory.agents.map((agent) =>
+      resolveAgentCompositionPlan(
+        {
+          id: `desktop-${agent.id}`,
+          agentProfileId: agent.id,
+          host: "local",
+        },
+        inventory,
+      ),
+    ),
+  };
 }
 
 async function loadImageDataUrl(source: string): Promise<string | null> {

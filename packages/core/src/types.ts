@@ -32,6 +32,7 @@ export const HookConfigSchema = z.object({
 
 export const AgentBackendSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("swarmx") }),
+  z.object({ type: z.literal("echo") }),
   z.object({ type: z.literal("claude_code") }),
   z.object({
     type: z.literal("custom"),
@@ -135,6 +136,34 @@ export const MessageChunkSchema = z.object({
   toolName: z.string().optional(),
 });
 
+// ── Eval output ─────────────────────────────────────────────────────────────
+
+export const EvalTraceEventSchema = z.object({
+  runId: z.string(),
+  swarm: z.string(),
+  node: z.string(),
+  kind: z.enum(["agent", "tool", "swarm"]),
+  step: z.number().int().positive(),
+  startedAt: z.string(),
+  endedAt: z.string(),
+  status: z.enum(["completed", "failed"]),
+  messageCount: z.number().int().nonnegative(),
+  error: z.string().optional(),
+});
+
+export const EvalRunResultSchema = z.object({
+  output: z.string(),
+  messages: z.array(MessageChunkSchema),
+  trace: z.array(EvalTraceEventSchema),
+  error: z.string().nullable(),
+  metrics: z.object({
+    steps: z.number().int().nonnegative(),
+    messages: z.number().int().nonnegative(),
+    toolCalls: z.number().int().nonnegative(),
+    toolResults: z.number().int().nonnegative(),
+  }),
+});
+
 // ── Session ──────────────────────────────────────────────────────────────────
 
 export const SessionDataSchema = z.object({
@@ -162,4 +191,6 @@ export type SwarmConfig = z.infer<typeof SwarmConfigSchema>;
 export type EdgeConfig = z.infer<typeof EdgeConfigSchema>;
 export type ChatMessage = z.infer<typeof ChatMessageSchema>;
 export type MessageChunk = z.infer<typeof MessageChunkSchema>;
+export type EvalTraceEvent = z.infer<typeof EvalTraceEventSchema>;
+export type EvalRunResult = z.infer<typeof EvalRunResultSchema>;
 export type SessionData = z.infer<typeof SessionDataSchema>;

@@ -4,22 +4,30 @@ import type { Swarm } from "./swarm.js";
 export interface ServerOptions {
   port?: number;
   host?: string;
+  apiToken?: string;
+  allowedOrigins?: string[];
+  allowNullOrigin?: boolean;
 }
 
 export function createServer(swarm: Swarm, opts: ServerOptions = {}): http.Server {
   const port = opts.port ?? 3000;
   const host = opts.host ?? "127.0.0.1";
+  const boundary = resolveServerBoundary(opts, host);
 
   const server = http.createServer(async (req, res) => {
-    res.setHeader("Access-Control-Allow-Origin", "*");
     res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
     res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    res.setHeader("Vary", "Origin");
+
+    if (!applyOriginPolicy(req, res, boundary)) return;
 
     if (req.method === "OPTIONS") {
       res.writeHead(204);
       res.end();
       return;
     }
+
+    if (!applyAuthPolicy(req, res, boundary)) return;
 
     const url = new URL(req.url ?? "/", `http://${host}:${port}`);
 
@@ -63,6 +71,86 @@ export function createServer(swarm: Swarm, opts: ServerOptions = {}): http.Serve
 
   server.listen(port, host);
   return server;
+}
+
+interface ServerBoundary {
+  requiresAuth: boolean;
+  apiToken?: string;
+  allowedOrigins: Set<string>;
+  allowNullOrigin: boolean;
+}
+
+function resolveServerBoundary(opts: ServerOptions, host: string): ServerBoundary {
+  if (!isLoopbackHost(host) && !opts.apiToken) {
+    throw new Error("Non-loopback SwarmX server bindings require opts.apiToken.");
+  }
+  if (opts.allowedOrigins?.includes("*")) {
+    throw new Error(
+      "SwarmX server allowedOrigins must be explicit; wildcard origins are rejected.",
+    );
+  }
+
+  return {
+    requiresAuth: !!opts.apiToken,
+    apiToken: opts.apiToken,
+    allowedOrigins: new Set(opts.allowedOrigins ?? []),
+    allowNullOrigin: opts.allowNullOrigin ?? false,
+  };
+}
+
+function applyOriginPolicy(
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+  boundary: ServerBoundary,
+): boolean {
+  const origin = req.headers.origin;
+  if (!origin) return true;
+
+  if (origin === "null") {
+    if (boundary.allowNullOrigin) {
+      res.setHeader("Access-Control-Allow-Origin", "null");
+      return true;
+    }
+    writeJson(res, 403, { error: "Origin not allowed" });
+    return false;
+  }
+
+  if (boundary.allowedOrigins.has(origin)) {
+    res.setHeader("Access-Control-Allow-Origin", origin);
+    return true;
+  }
+
+  writeJson(res, 403, { error: "Origin not allowed" });
+  return false;
+}
+
+function applyAuthPolicy(
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+  boundary: ServerBoundary,
+): boolean {
+  if (!boundary.requiresAuth) return true;
+
+  const authorization = req.headers.authorization;
+  if (authorization === `Bearer ${boundary.apiToken}`) return true;
+
+  writeJson(res, 401, { error: "Unauthorized" });
+  return false;
+}
+
+function writeJson(res: http.ServerResponse, statusCode: number, body: unknown): void {
+  res.writeHead(statusCode, { "Content-Type": "application/json" });
+  res.end(JSON.stringify(body));
+}
+
+function isLoopbackHost(host: string): boolean {
+  const normalized = host.toLowerCase().replace(/^\[(.*)\]$/, "$1");
+  return (
+    normalized === "localhost" ||
+    normalized === "::1" ||
+    normalized === "0:0:0:0:0:0:0:1" ||
+    normalized.startsWith("127.")
+  );
 }
 
 // ── SSE streaming ───────────────────────────────────────────────────────────

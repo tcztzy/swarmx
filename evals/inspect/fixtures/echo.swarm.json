@@ -1,0 +1,14 @@
+{
+  "name": "echo_smoke",
+  "root": "echo_agent",
+  "nodes": {
+    "echo_agent": {
+      "kind": "agent",
+      "agent": {
+        "name": "echo_agent",
+        "backend": { "type": "echo" }
+      }
+    }
+  },
+  "edges": []
+}

@@ -1,4 +1,5 @@
 import OpenAI from "openai";
+import { AcpClient } from "./acp.js";
 import { McpManager } from "./mcp.js";
 import {
   appendMessages,
@@ -7,7 +8,13 @@ import {
   loadSession as loadSessionFile,
   saveSession,
 } from "./session.js";
-import type { AgentConfig, McpServerConfig, MessageChunk } from "./types.js";
+import type {
+  AgentBackend,
+  AgentConfig,
+  McpServerConfig,
+  MessageChunk,
+  ProcessOptions,
+} from "./types.js";
 import { AgentConfigSchema } from "./types.js";
 
 interface SessionInfo {
@@ -19,12 +26,28 @@ interface SessionInfo {
   updated_at?: string;
 }
 
-export type AgentBackend =
-  | { type: "swarmx" }
-  | { type: "claude_code" }
-  | { type: "custom"; program: string; args?: string[] };
-
 type ChatMsg = OpenAI.Chat.Completions.ChatCompletionMessageParam;
+
+interface AgentRuntimeOptions {
+  createAcpClient?: () => AcpPromptClient;
+}
+
+interface AcpPromptClient {
+  prompt(
+    opts: {
+      command: string;
+      args: string[];
+      cwd?: string;
+      env?: Record<string, string>;
+      clearEnv?: boolean;
+    },
+    userText: string,
+    swarmConfig?: unknown,
+    sessionId?: string,
+    onChunk?: (chunk: MessageChunk) => void,
+  ): Promise<{ messages: MessageChunk[] }>;
+  stderrOutput?(): string;
+}
 
 export class Agent {
   name: string;
@@ -36,9 +59,12 @@ export class Agent {
   client: OpenAI;
   mcpServers: Map<string, McpServerConfig>;
   hooks: HookRef[];
+  backend: AgentBackend;
+  processOptions?: ProcessOptions;
   private mcp: McpManager | null = null;
+  private createAcpClient: () => AcpPromptClient;
 
-  constructor(config: AgentConfig) {
+  constructor(config: AgentConfig, options: AgentRuntimeOptions = {}) {
     const parsed = AgentConfigSchema.parse(config);
     this.name = parsed.name;
     this.description = parsed.description;
@@ -48,6 +74,9 @@ export class Agent {
     this.returns = parsed.returns;
     this.mcpServers = new Map(parsed.mcpServers ? Object.entries(parsed.mcpServers) : []);
     this.hooks = (parsed.hooks ?? []).map((h) => new HookRef(h));
+    this.backend = parsed.backend ?? { type: "swarmx" };
+    this.processOptions = parsed.process;
+    this.createAcpClient = options.createAcpClient ?? (() => new AcpClient());
 
     const clientConfig = (parsed.client ?? {}) as Record<string, unknown>;
     this.client = new OpenAI({
@@ -81,6 +110,13 @@ export class Agent {
     arguments_: Record<string, unknown>,
     _context?: Record<string, unknown>,
   ): Promise<{ messages: MessageChunk[] }> {
+    if (this.backend.type === "echo") {
+      return { messages: [this.echoMessage(arguments_)] };
+    }
+    if (this.backend.type === "custom") {
+      return this.callAcp(arguments_);
+    }
+
     await this.ensureMcpConnected();
 
     const messages = this.buildMessages(arguments_);
@@ -180,6 +216,15 @@ export class Agent {
     arguments_: Record<string, unknown>,
     onChunk: (chunk: MessageChunk) => void,
   ): Promise<{ messages: MessageChunk[] }> {
+    if (this.backend.type === "echo") {
+      const message = this.echoMessage(arguments_);
+      onChunk(message);
+      return { messages: [message] };
+    }
+    if (this.backend.type === "custom") {
+      return this.callAcp(arguments_, onChunk);
+    }
+
     await this.ensureMcpConnected();
 
     const messages = this.buildMessages(arguments_);
@@ -431,6 +476,75 @@ export class Agent {
 
     return msgs;
   }
+
+  private echoMessage(arguments_: Record<string, unknown>): MessageChunk {
+    return {
+      role: "assistant",
+      content: latestUserContent(arguments_),
+      kind: "message",
+      agent: this.name,
+    };
+  }
+
+  private async callAcp(
+    arguments_: Record<string, unknown>,
+    onChunk?: (chunk: MessageChunk) => void,
+  ): Promise<{ messages: MessageChunk[] }> {
+    if (this.backend.type !== "custom") {
+      throw new Error(`Agent "${this.name}" backend is not an ACP custom backend.`);
+    }
+
+    const client = this.createAcpClient();
+    try {
+      const result = await client.prompt(
+        {
+          command: this.backend.program,
+          args: this.backend.args ?? [],
+          cwd: this.processOptions?.currentDir,
+          env: this.processOptions?.env,
+          clearEnv: this.processOptions?.clearEnv,
+        },
+        this.buildAcpPrompt(arguments_),
+        undefined,
+        undefined,
+        onChunk,
+      );
+      return { messages: result.messages };
+    } catch (error) {
+      const stderr = client.stderrOutput?.();
+      const detail = stderr ? ` Stderr: ${stderr}` : "";
+      throw new Error(
+        `ACP backend failed for agent "${this.name}": ${errorMessage(error)}.${detail}`,
+      );
+    }
+  }
+
+  private buildAcpPrompt(arguments_: Record<string, unknown>): string {
+    const request = latestUserContent(arguments_);
+    if (!this.instructions.trim()) return request;
+    return `Agent instructions:\n${this.instructions.trim()}\n\nUser request:\n${request}`;
+  }
+}
+
+function latestUserContent(arguments_: Record<string, unknown>): string {
+  const raw = arguments_.messages as
+    | Array<{
+        role: string;
+        content: string | null;
+      }>
+    | undefined;
+
+  for (const message of [...(raw ?? [])].reverse()) {
+    if (message.role === "user") {
+      return message.content ?? "";
+    }
+  }
+
+  return "";
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 // ── HookRef ──────────────────────────────────────────────────────────────────

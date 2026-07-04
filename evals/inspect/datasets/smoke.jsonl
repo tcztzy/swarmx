@@ -1,0 +1,2 @@
+{"id":"echo-contract","input":"deterministic answer","target":"deterministic answer","config":"evals/inspect/fixtures/echo.swarm.json","expect_output_contains":"deterministic answer","expected_nodes":["echo_agent"],"expected_steps":1,"expected_tool_calls":0}
+{"id":"missing-root-contract","input":"hello from Inspect","target":"","expect_error_contains":"Root node","expected_steps":0}

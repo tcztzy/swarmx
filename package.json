@@ -5,10 +5,13 @@
   "description": "SwarmX multi-agent orchestration — Electron + Node.js edition",
   "scripts": {
     "build": "pnpm -r build",
+    "ci": "pnpm test && pnpm -r build && uv sync --group inspect && pnpm test:inspect",
     "dev": "pnpm -r dev",
+    "eval:inspect": "uv run --group inspect inspect eval evals/inspect/tasks.py@swarmx_smoke --model none",
     "lint": "biome check .",
     "format": "biome format --write .",
     "test": "vitest run",
+    "test:inspect": "uv run --group inspect python -m unittest discover -s evals/inspect -p '*_test.py' && pnpm eval:inspect",
     "test:watch": "vitest"
   },
   "devDependencies": {

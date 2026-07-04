@@ -8,6 +8,46 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./rendering": {
+      "types": "./dist/rendering.d.ts",
+      "import": "./dist/rendering.js"
+    },
+    "./telemetry": {
+      "types": "./dist/telemetry.d.ts",
+      "import": "./dist/telemetry.js"
+    },
+    "./dependencies": {
+      "types": "./dist/dependencies.d.ts",
+      "import": "./dist/dependencies.js"
+    },
+    "./conversation": {
+      "types": "./dist/conversation.d.ts",
+      "import": "./dist/conversation.js"
+    },
+    "./providers": {
+      "types": "./dist/providers.d.ts",
+      "import": "./dist/providers.js"
+    },
+    "./harness-management": {
+      "types": "./dist/harness-management.d.ts",
+      "import": "./dist/harness-management.js"
+    },
+    "./agent-profiles": {
+      "types": "./dist/agent-profiles.d.ts",
+      "import": "./dist/agent-profiles.js"
+    },
+    "./desktop-settings": {
+      "types": "./dist/desktop-settings.d.ts",
+      "import": "./dist/desktop-settings.js"
+    },
+    "./secrets": {
+      "types": "./dist/secrets.d.ts",
+      "import": "./dist/secrets.js"
+    },
+    "./actions": {
+      "types": "./dist/actions.d.ts",
+      "import": "./dist/actions.js"
     }
   },
   "scripts": {
@@ -21,6 +61,7 @@
     "cel-js": "^0.8.0",
     "openai": "^6.39.0",
     "uuid": "^11.0.0",
+    "yaml": "^2.9.0",
     "zod": "^3.24.0"
   },
   "devDependencies": {
