@@ -119,8 +119,8 @@ describe("MessageContent", () => {
 
     await waitFor(() => {
       expect(writeText).toHaveBeenCalledWith("const token = `literal`;\n");
+      expect(screen.getByRole("button", { name: "Code copied" })).toBeTruthy();
     });
-    expect(screen.getByRole("button", { name: "Code copied" })).toBeTruthy();
   });
 
   it("enhances known-language code blocks with offline highlighting after fallback render", async () => {

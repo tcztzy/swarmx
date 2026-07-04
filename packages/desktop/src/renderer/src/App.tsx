@@ -36,7 +36,6 @@ import {
 import type React from "react";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import useSWR, { useSWRConfig } from "swr";
-import type { SwarmxAPI } from "../../preload/index.js";
 import { MessageContent } from "./message-content.js";
 
 interface MessageChunk {
@@ -441,6 +440,36 @@ interface AgentCompositionPayload {
   id: string;
   agentProfileId: string;
   host?: "local" | "server";
+}
+
+interface SwarmxAPI {
+  sendMessage(params: {
+    harnessId: string;
+    userText: string;
+    agentConfig?: unknown;
+    agentComposition?: unknown;
+    swarmConfig?: unknown;
+    sessionId?: string;
+  }): Promise<{ success: boolean; messages?: unknown; error?: string }>;
+  createSession(params: {
+    agentName: string;
+    harness: string;
+    model?: string;
+  }): Promise<SessionData>;
+  saveSession(session: SessionData): Promise<void>;
+  loadSession(id: string): Promise<SessionData | null>;
+  loadDiscoveredSession(session: DiscoveredSession): Promise<SessionData | null>;
+  listSessions(): Promise<SessionData[]>;
+  listGroupedSessions(params?: {
+    mode?: "project" | "harness";
+    cwd?: string;
+    harnessIds?: string[];
+  }): Promise<GroupedSessionsResult>;
+  deleteSession(id: string): Promise<boolean>;
+  appendMessages(params: { id: string; messages: unknown[] }): Promise<boolean>;
+  importN8nWorkflow(source: string): Promise<N8nImportResponse>;
+  listExtensions(): Promise<ExtensionCapabilityInventory>;
+  loadImageDataUrl(source: string): Promise<string | null>;
 }
 
 interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {

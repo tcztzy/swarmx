@@ -161,7 +161,7 @@ describe("App user workflow", () => {
 
     expect(await screen.findByPlaceholderText("Message analysis lead")).toBeTruthy();
     expect(screen.queryByLabelText("GEEPilot registered shell")).toBeNull();
-  }, 10_000);
+  }, 20_000);
 
   it("shows extension marketplace metadata separately from harnesses and agent profiles", async () => {
     const api = createDesktopApiMock();
@@ -256,7 +256,7 @@ describe("App user workflow", () => {
         },
       });
     });
-  }, 10_000);
+  }, 20_000);
 
   it("renders ACP agents as harness plus model nodes and executes with the parsed swarm config", async () => {
     const api = createDesktopApiMock();

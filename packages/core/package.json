@@ -1,9 +1,15 @@
 {
   "name": "@swarmx/core",
   "version": "3.0.0",
+  "description": "Core SwarmX multi-agent runtime and platform contracts.",
+  "license": "MIT",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
+  "files": ["dist"],
+  "publishConfig": {
+    "access": "public"
+  },
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",

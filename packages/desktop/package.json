@@ -1,18 +1,25 @@
 {
   "name": "@swarmx/desktop",
   "version": "3.0.0",
+  "description": "Electron desktop host and reusable renderer shell for SwarmX.",
+  "license": "MIT",
   "type": "module",
   "main": "./out/main/index.js",
+  "files": ["out", "dist/renderer", "src/renderer/src/assets/styles.css"],
+  "publishConfig": {
+    "access": "public"
+  },
   "exports": {
     ".": "./out/main/index.js",
     "./renderer": {
-      "types": "./src/renderer/src/App.tsx",
-      "default": "./src/renderer/src/App.tsx"
-    }
+      "types": "./dist/renderer/App.d.ts",
+      "import": "./dist/renderer/App.js"
+    },
+    "./styles.css": "./src/renderer/src/assets/styles.css"
   },
   "scripts": {
     "dev": "electron-vite dev",
-    "build": "electron-vite build",
+    "build": "electron-vite build && tsc -p tsconfig.renderer-lib.json",
     "preview": "electron-vite preview",
     "start": "electron .",
     "test": "vitest run"
@@ -27,6 +34,10 @@
     "remark-math": "^6.0.0",
     "shiki": "^4.3.1",
     "swr": "^2.4.1"
+  },
+  "peerDependencies": {
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
   },
   "devDependencies": {
     "@testing-library/react": "^16.3.2",

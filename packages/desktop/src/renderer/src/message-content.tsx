@@ -22,8 +22,11 @@ interface MessageContentProps {
 
 const MARKDOWN_KINDS = new Set<MessageContentKind>(["message", "thinking"]);
 const imageSourceCache = new Map<string, Promise<string | null> | string | null>();
-const mathRemarkPlugins = [remarkGfm, remarkMath];
-const mathRehypePlugins = [[rehypeKatex, { strict: false, throwOnError: false, trust: false }]];
+type ReactMarkdownProps = React.ComponentProps<typeof ReactMarkdown>;
+const mathRemarkPlugins: ReactMarkdownProps["remarkPlugins"] = [remarkGfm, remarkMath];
+const mathRehypePlugins: ReactMarkdownProps["rehypePlugins"] = [
+  [rehypeKatex, { strict: false, throwOnError: false, trust: false }],
+];
 const markdownComponents = {
   code: MarkdownCode,
   img: MarkdownImage,

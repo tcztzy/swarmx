@@ -1,0 +1,17 @@
+{
+  "extends": "./tsconfig.web.json",
+  "compilerOptions": {
+    "declaration": true,
+    "declarationMap": true,
+    "emitDeclarationOnly": false,
+    "noEmit": false,
+    "outDir": "dist/renderer",
+    "rootDir": "src/renderer/src",
+    "sourceMap": true
+  },
+  "include": [
+    "src/renderer/src/App.tsx",
+    "src/renderer/src/code-highlighter.ts",
+    "src/renderer/src/message-content.tsx"
+  ]
+}

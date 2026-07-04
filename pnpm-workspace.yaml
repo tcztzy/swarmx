@@ -1,2 +1,12 @@
 packages:
   - "packages/*"
+
+allowBuilds:
+  "@biomejs/biome": true
+  electron: true
+  esbuild: true
+
+onlyBuiltDependencies:
+  - "@biomejs/biome"
+  - electron
+  - esbuild

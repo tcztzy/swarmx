@@ -1,8 +1,15 @@
 {
   "name": "@swarmx/acp-server",
   "version": "3.0.0",
+  "description": "ACP server adapter for SwarmX.",
+  "license": "MIT",
   "type": "module",
   "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": ["dist"],
+  "publishConfig": {
+    "access": "public"
+  },
   "bin": {
     "swarmx-acp-server": "./dist/cli.js"
   },
