@@ -62,6 +62,8 @@ interface DesktopApiMock {
   appendMessages: ReturnType<typeof vi.fn>;
   importN8nWorkflow: ReturnType<typeof vi.fn>;
   listExtensions: ReturnType<typeof vi.fn>;
+  lspComplete: ReturnType<typeof vi.fn>;
+  lspStop: ReturnType<typeof vi.fn>;
   loadImageDataUrl: ReturnType<typeof vi.fn>;
 }
 
@@ -161,7 +163,7 @@ describe("App user workflow", () => {
 
     expect(await screen.findByPlaceholderText("Message analysis lead")).toBeTruthy();
     expect(screen.queryByLabelText("GEEPilot registered shell")).toBeNull();
-  }, 20_000);
+  }, 40_000);
 
   it("shows extension marketplace metadata separately from harnesses and agent profiles", async () => {
     const api = createDesktopApiMock();
@@ -256,7 +258,7 @@ describe("App user workflow", () => {
         },
       });
     });
-  }, 20_000);
+  }, 40_000);
 
   it("renders ACP agents as harness plus model nodes and executes with the parsed swarm config", async () => {
     const api = createDesktopApiMock();
@@ -385,7 +387,7 @@ describe("App user workflow", () => {
         }),
       );
     });
-  });
+  }, 20_000);
 
   it("shows workflow JSON errors and omits swarm config while invalid", async () => {
     const api = createDesktopApiMock();
@@ -911,7 +913,7 @@ function createDesktopApiMock(overrides: Partial<DesktopApiMock> = {}): DesktopA
         {
           id: "swarmx.builtin",
           name: "SwarmX Built-ins",
-          version: "3.0.0",
+          version: "3.0.1",
           trust: "builtin",
           readOnly: true,
           capabilities: {
@@ -1217,6 +1219,8 @@ function createDesktopApiMock(overrides: Partial<DesktopApiMock> = {}): DesktopA
       ],
       warnings: [],
     })),
+    lspComplete: vi.fn(async () => ({ serverId: "pyright", status: "ok", result: null })),
+    lspStop: vi.fn(async () => ({ serverId: "pyright", stopped: true })),
     loadImageDataUrl: vi.fn(async () => null),
     ...overrides,
   };

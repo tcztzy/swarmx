@@ -7,6 +7,7 @@ export { McpManager } from "./mcp.js";
 export { QuotaManager } from "./quota.js";
 export { AcpClient } from "./acp.js";
 export type { AcpClientOptions, AcpPromptResult, MessageChunk as AcpMessageChunk } from "./acp.js";
+export { SWARMX_VERSION } from "./version.js";
 export {
   createSession,
   saveSession,
@@ -610,8 +611,11 @@ export {
   UiContributionKindSchema,
   UiContributionPlacementSchema,
   UiContributionSchema,
+  SWARMX_LOCAL_FILES_LSP_ID,
+  SWARMX_SKILLS_LSP_ID,
   builtInExtensionBundle,
   createExtensionInventory,
+  executeAgentComposition,
   extensionRootsFromEnv,
   loadExtensionInventory,
   parseExtensionBundle,
@@ -642,6 +646,7 @@ export type {
   ExtensionInventory,
   ExtensionLoadWarning,
   ExtensionSource,
+  ExecuteAgentCompositionOptions,
   HarnessCapability,
   HookCapability,
   LoadExtensionInventoryOptions,

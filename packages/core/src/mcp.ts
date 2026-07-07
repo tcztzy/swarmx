@@ -1,6 +1,7 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import type { McpServerConfig } from "./types.js";
+import { SWARMX_VERSION } from "./version.js";
 
 interface McpTool {
   name: string;
@@ -29,7 +30,7 @@ export class McpManager {
       );
     }
 
-    const client = new Client({ name: "swarmx", version: "3.0.0" }, { capabilities: {} });
+    const client = new Client({ name: "swarmx", version: SWARMX_VERSION }, { capabilities: {} });
 
     await client.connect(transport);
     this.clients.set(name, client);

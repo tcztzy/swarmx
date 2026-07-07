@@ -3,7 +3,11 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
+  SWARMX_LOCAL_FILES_LSP_ID,
+  SWARMX_SKILLS_LSP_ID,
+  builtInExtensionBundle,
   createExtensionInventory,
+  executeAgentComposition,
   loadExtensionInventory,
   parseAgentCompositionPlan,
   parseExtensionBundle,
@@ -403,6 +407,92 @@ describe("extension inventory", () => {
         },
       }),
     ).toThrow(/inline executable\/render field/);
+  });
+
+  it("accepts LSP command string, args, and language id metadata", () => {
+    const bundle = parseExtensionBundle({
+      schemaVersion: 1,
+      id: "geepilot",
+      name: "GEEPilot",
+      version: "0.1.0",
+      capabilities: {
+        lspServers: [
+          {
+            id: "geepilot-reference-lsp",
+            name: "GEEPilot Reference LSP",
+            command: "geepilot-reference-lsp",
+            args: ["--stdio"],
+            languages: ["markdown"],
+            languageIds: ["markdown", "plaintext"],
+            cwd: ".",
+            readOnly: true,
+          },
+        ],
+      },
+    });
+
+    expect(bundle.capabilities.lspServers).toEqual([
+      expect.objectContaining({
+        id: "geepilot-reference-lsp",
+        command: "geepilot-reference-lsp",
+        args: ["--stdio"],
+        languages: ["markdown"],
+        languageIds: ["markdown", "plaintext"],
+        cwd: ".",
+        readOnly: true,
+      }),
+    ]);
+  });
+
+  it("declares the built-in local file LSP capability as passive metadata", () => {
+    const bundle = builtInExtensionBundle();
+
+    expect(bundle.capabilities.lspServers).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: SWARMX_LOCAL_FILES_LSP_ID,
+          name: "SwarmX Local Files",
+          languageIds: ["markdown", "plaintext"],
+          scope: "project",
+          readOnly: true,
+        }),
+      ]),
+    );
+    expect(
+      bundle.capabilities.lspServers.find((server) => server.id === SWARMX_LOCAL_FILES_LSP_ID)
+        ?.command,
+    ).toBeUndefined();
+  });
+
+  it("declares the built-in skill LSP capability as passive metadata", () => {
+    const bundle = builtInExtensionBundle();
+
+    expect(bundle.capabilities.lspServers).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: SWARMX_SKILLS_LSP_ID,
+          name: "SwarmX Skills",
+          languageIds: ["markdown", "plaintext"],
+          scope: "project",
+          readOnly: true,
+        }),
+      ]),
+    );
+    expect(
+      bundle.capabilities.lspServers.find((server) => server.id === SWARMX_SKILLS_LSP_ID)?.command,
+    ).toBeUndefined();
+  });
+
+  it("declares built-in LSP capabilities without commands", () => {
+    const bundle = builtInExtensionBundle();
+
+    expect(bundle.capabilities.lspServers.map((server) => server.id)).toEqual([
+      SWARMX_LOCAL_FILES_LSP_ID,
+      SWARMX_SKILLS_LSP_ID,
+    ]);
+    expect(bundle.capabilities.lspServers.every((server) => server.command === undefined)).toBe(
+      true,
+    );
   });
 
   it("validates host skill exposure without owning downstream skill logic", () => {
@@ -940,5 +1030,67 @@ describe("extension inventory", () => {
         { env: {} },
       ),
     ).toThrow(/requires env secret "ANTHROPIC_API_KEY"/);
+  });
+
+  it("executes an agent composition through a single-agent Swarm without leaking runtime secrets", async () => {
+    const bundle = parseExtensionBundle({
+      schemaVersion: 1,
+      id: "runtime",
+      name: "Runtime",
+      version: "1.0.0",
+      capabilities: {
+        providers: [
+          {
+            id: "openai-prod",
+            label: "OpenAI Prod",
+            kind: "openai_responses",
+            model: "gpt-5",
+            secretRef: { source: "env", key: "OPENAI_API_KEY" },
+          },
+        ],
+        harnesses: [
+          {
+            id: "echo",
+            label: "Echo",
+            compatibleProviders: ["openai_responses"],
+            backend: { type: "echo" },
+          },
+        ],
+        agents: [
+          {
+            id: "analysis-lead",
+            name: "analysis lead",
+            instructions: "Plan analysis work.",
+            harnessId: "echo",
+            providerProfileId: "openai-prod",
+          },
+        ],
+      },
+    });
+    const inventory = createExtensionInventory([bundle]);
+
+    const messages = await executeAgentComposition(
+      { id: "run-analysis", agentProfileId: "analysis-lead" },
+      [{ role: "user", content: "Review dataset evidence." }],
+      { inventory, env: { OPENAI_API_KEY: "sk-runtime" } },
+    );
+
+    expect(messages).toEqual([
+      {
+        role: "assistant",
+        content: "Review dataset evidence.",
+        kind: "message",
+        agent: "analysis_lead",
+      },
+    ]);
+    expect(JSON.stringify(messages)).not.toContain("sk-runtime");
+
+    await expect(
+      executeAgentComposition(
+        { id: "bad-run", harnessId: "missing", model: "gpt-5" },
+        [{ role: "user", content: "hello" }],
+        { inventory },
+      ),
+    ).rejects.toThrow(/Agent composition "bad-run" is blocked/);
   });
 });

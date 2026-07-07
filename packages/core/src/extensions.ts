@@ -5,8 +5,17 @@ import { AgentDefinitionSourceSchema } from "./agent-profiles.js";
 import { ContextPacketModeSchema, ContextStrategySchema } from "./context.js";
 import { HARNESSES, providerEnvVars } from "./harness.js";
 import type { ModelProvider } from "./harness.js";
+import { Swarm } from "./swarm.js";
 import { AgentBackendSchema, McpServerConfigSchema } from "./types.js";
-import type { AgentBackend, AgentConfig, McpServerConfig } from "./types.js";
+import type {
+  AgentBackend,
+  AgentConfig,
+  ChatMessage,
+  McpServerConfig,
+  MessageChunk,
+  SwarmConfig,
+} from "./types.js";
+import { SWARMX_VERSION } from "./version.js";
 
 const MANIFEST_FILENAMES = new Set([
   "extension.json",
@@ -14,6 +23,9 @@ const MANIFEST_FILENAMES = new Set([
   "swarmx.extension.json",
   "swarmx-extension.json",
 ]);
+
+export const SWARMX_LOCAL_FILES_LSP_ID = "swarmx.local-files";
+export const SWARMX_SKILLS_LSP_ID = "swarmx.skills";
 
 const ALLOWED_SECRET_REFERENCE_KEYS = new Set([
   "secretref",
@@ -340,7 +352,10 @@ export const LspCapabilitySchema = z
     name: z.string().min(1).optional(),
     description: z.string().optional(),
     languages: z.array(z.string().min(1)).default([]),
-    command: z.array(z.string().min(1)).optional(),
+    languageIds: z.array(z.string().min(1)).default([]),
+    command: z.union([z.array(z.string().min(1)), z.string().min(1)]).optional(),
+    args: z.array(z.string().min(1)).default([]),
+    cwd: z.string().min(1).optional(),
     scope: z.enum(["project", "user", "system", "server", "plugin"]).optional(),
     readOnly: z.boolean().optional(),
     provenance: z.string().optional(),
@@ -800,6 +815,13 @@ export interface LoadExtensionInventoryOptions {
 
 export interface ResolveAgentRuntimeEnvOptions {
   env?: NodeJS.ProcessEnv;
+}
+
+export interface ExecuteAgentCompositionOptions {
+  inventory?: ExtensionInventory;
+  inventoryOptions?: LoadExtensionInventoryOptions;
+  env?: NodeJS.ProcessEnv;
+  context?: Record<string, unknown>;
 }
 
 export interface ValidateSkillHostCompatibilityOptions {
@@ -1301,6 +1323,22 @@ export function resolveAgentCompositionRuntimeEnv(
   return providerEnvVars(modelProvider);
 }
 
+export async function executeAgentComposition(
+  compositionInput: unknown,
+  messages: ChatMessage[],
+  options: ExecuteAgentCompositionOptions = {},
+): Promise<MessageChunk[]> {
+  const inventory = options.inventory ?? (await loadExtensionInventory(options.inventoryOptions));
+  const agentConfig = resolveAgentComposition(compositionInput, inventory);
+  const runtimeEnv = resolveAgentCompositionRuntimeEnv(compositionInput, inventory, {
+    env: options.env,
+  });
+  const swarm = new Swarm(
+    singleAgentSwarmConfig(agentConfigWithRuntimeEnv(agentConfig, runtimeEnv)),
+  );
+  return swarm.execute({ messages }, options.context);
+}
+
 export function builtInExtensionBundle(): ExtensionBundle {
   const harnesses = Object.entries(HARNESSES).map(([id, harness]) => ({
     id,
@@ -1321,7 +1359,7 @@ export function builtInExtensionBundle(): ExtensionBundle {
     schemaVersion: 1,
     id: "swarmx.builtin",
     name: "SwarmX Built-ins",
-    version: "3.0.0",
+    version: SWARMX_VERSION,
     trust: "builtin",
     readOnly: true,
     source: { type: "builtin" },
@@ -1335,7 +1373,30 @@ export function builtInExtensionBundle(): ExtensionBundle {
       appConnectors: [],
       uiContributions: [],
       commands: [],
-      lspServers: [],
+      lspServers: [
+        {
+          id: SWARMX_LOCAL_FILES_LSP_ID,
+          name: "SwarmX Local Files",
+          description: "Workspace-local file path completions for @file: references.",
+          languages: ["markdown", "plaintext"],
+          languageIds: ["markdown", "plaintext"],
+          args: [],
+          scope: "project",
+          readOnly: true,
+          provenance: "swarmx.builtin",
+        },
+        {
+          id: SWARMX_SKILLS_LSP_ID,
+          name: "SwarmX Skills",
+          description: "Extension inventory skill completions for $ references.",
+          languages: ["markdown", "plaintext"],
+          languageIds: ["markdown", "plaintext"],
+          args: [],
+          scope: "project",
+          readOnly: true,
+          provenance: "swarmx.builtin",
+        },
+      ],
       hooks: [],
       monitors: [],
       outputStyles: [],
@@ -1812,6 +1873,34 @@ function assertProviderCompatible(
       `Provider profile "${provider.id}" (${provider.kind}) is not compatible with harness "${harness.id}".`,
     );
   }
+}
+
+function singleAgentSwarmConfig(agentConfig: AgentConfig): SwarmConfig {
+  return {
+    name: agentConfig.name,
+    root: agentConfig.name,
+    nodes: {
+      [agentConfig.name]: { kind: "agent", agent: agentConfig },
+    },
+    edges: [],
+  };
+}
+
+function agentConfigWithRuntimeEnv(
+  agentConfig: AgentConfig,
+  runtimeEnv: Record<string, string>,
+): AgentConfig {
+  if (Object.keys(runtimeEnv).length === 0) return agentConfig;
+  return {
+    ...agentConfig,
+    process: {
+      ...agentConfig.process,
+      env: {
+        ...(agentConfig.process?.env ?? {}),
+        ...runtimeEnv,
+      },
+    },
+  };
 }
 
 function providerSecretValue(

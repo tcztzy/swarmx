@@ -47,6 +47,20 @@ const api = {
 
   listExtensions: () => ipcRenderer.invoke("extension:list"),
 
+  lspComplete: (params: {
+    serverId: string;
+    workspaceRoot: string;
+    text: string;
+    position: { line: number; character: number };
+    documentUri?: string;
+    languageId?: string;
+    triggerCharacter?: string;
+    timeoutMs?: number;
+  }) => ipcRenderer.invoke("lsp:complete", params),
+
+  lspStop: (params: { serverId: string; workspaceRoot?: string }) =>
+    ipcRenderer.invoke("lsp:stop", params),
+
   loadImageDataUrl: (source: string) =>
     ipcRenderer.invoke("asset:imageDataUrl", source) as Promise<string | null>,
 };

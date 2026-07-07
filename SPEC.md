@@ -36,6 +36,10 @@ G32: Downstream agent products can depend on SwarmX desktop run timelines for re
 G33: Downstream agent products can depend on SwarmX for generic autonomous agent-stage trace contracts: agent-run records, workflow-decision records, runtime event projection, and workflow-state linking without product-specific worker code.
 G34: Downstream agent products can depend on SwarmX for generic telemetry ingest contracts: ingest config, bearer-token gate, schema-version allowlist, accepted-record shape, and injected append handling without product-specific analytics.
 G35: Downstream desktop products can depend on SwarmX desktop as a GUI host by explicitly registering safe React components for declared `uiContributions`, requiring only product config plus a component registry for customization.
+G36: Downstream desktop products can call a stable SwarmX core helper to execute an extension-provided agent composition without copying SwarmX desktop IPC internals.
+G37: Downstream desktop products can depend on SwarmX desktop for explicit LSP completion hosting from extension-declared stdio language servers without product-specific process bridges.
+G38: Downstream desktop products can depend on SwarmX for generic local workspace file completions as a product-neutral reference source.
+G39: Downstream desktop products can depend on SwarmX for generic skill completions from extension inventory as a product-neutral `$` reference source.
 
 ## §C
 C1: Reuse existing `SwarmConfig`; no second workflow DSL.
@@ -114,6 +118,14 @@ C73: Telemetry ingest contracts are side-effect free except through caller-injec
 C74: Telemetry ingest records and decisions must preserve event ids and timestamps while rejecting unsupported schema versions, missing/invalid ingest bearer tokens when configured, inline secret fields, and default raw-content payloads.
 C75: GUI component customization is host-owned code. Extension manifests may name `componentRef` values, but SwarmX must render executable UI only when the embedding desktop explicitly registers a matching React component.
 C76: Registered GUI contribution components receive sanitized contribution and inventory metadata plus explicit host callbacks; they must not be loaded from manifest strings, inline HTML, inline scripts, remote URLs, iframes, or webviews.
+C77: Agent composition execution helpers may run SwarmX agents, but they must keep extension inventory loading, composition resolution, runtime env injection, and single-agent Swarm construction inside SwarmX rather than downstream product bridges.
+C78: Agent composition execution helpers must not persist provider secrets, host login state, raw env snapshots, or downstream product session state.
+C79: LSP hosting is an explicit desktop action. Extension inventory loading and rendering remain passive and must not start LSP processes.
+C80: LSP completion requests provide workspace root, document text, document URI, language id, and position; SwarmX does not infer domain references or read arbitrary document files for completion.
+C81: LSP server declarations may use either `command: string[]` or `command: string` with `args`, but runtime host startup must not persist inline secrets or accept manifest inline env secrets.
+C82: LSP host behavior is generic process and JSON-RPC lifecycle code; product-specific completion sources such as data references, identifier registries, bibliography keys, or domain task routing remain downstream language-server logic.
+C83: SwarmX local file completions are workspace-bound directory metadata. They do not inspect file contents, dereference remote URLs, resolve biological identifiers, index bibliography keys, or enumerate downstream skill catalogs.
+C84: SwarmX skill completions are extension-inventory metadata. They do not execute skills, read skill files, enforce downstream governance gates, or infer product-specific task routing.
 
 ## §I
 I1: `packages/core/src/types.ts` `SwarmConfigSchema`.
@@ -225,6 +237,18 @@ I106: `packages/desktop/src/renderer/src/App.test.tsx` registered GUI contributi
 I107: `packages/desktop/src/renderer/src/assets/styles.css` registered GUI contribution navigation and workspace styles.
 I108: `docs/index.md` downstream GUI host customization documentation.
 I109: `packages/desktop/package.json` renderer host subpath export.
+I110: `packages/core/src/extensions.ts` `executeAgentComposition`.
+I111: `packages/core/tests/extensions.test.ts` agent composition execution helper tests.
+I112: `packages/core/src/extensions.ts` LSP capability command and language metadata schema.
+I113: `packages/core/tests/extensions.test.ts` LSP capability schema compatibility tests.
+I114: `packages/desktop/src/main/lsp-host.ts` explicit stdio LSP process host.
+I115: `packages/desktop/src/main/ipc.ts` `lsp:complete` and `lsp:stop`.
+I116: `packages/desktop/src/preload/index.ts` `window.swarmxAPI.lspComplete` and `window.swarmxAPI.lspStop`.
+I117: `packages/desktop/src/main/lsp-host.test.ts` LSP host lifecycle tests.
+I118: `packages/core/src/extensions.ts` built-in `swarmx.local-files` LSP capability metadata.
+I119: `packages/desktop/src/main/lsp-host.ts` built-in workspace local file completion provider.
+I120: `packages/core/src/extensions.ts` built-in `swarmx.skills` LSP capability metadata.
+I121: `packages/desktop/src/main/lsp-host.ts` built-in skill completion provider.
 
 ## §V
 V1: Workflow JSON source of truth is `SwarmConfig`; UI preview, run badges, and send payload derive from parsed JSON.
@@ -411,6 +435,19 @@ V181: Desktop exports a product-configurable App factory so downstream products 
 V182: Registered GUI contribution navigation is driven by extension inventory metadata and appears only for contributions with a matching host-registered component.
 V183: Selecting a registered GUI contribution renders the registered component with contribution, inventory, and explicit host callbacks while preserving existing Workflow, Extensions, chat, and agent-selection flows.
 V184: Unregistered GUI contributions remain passive inventory rows and are not navigable, mounted, fetched, evaluated, or executed from manifest metadata.
+V185: `executeAgentComposition` resolves the selected composition against caller-supplied or loaded extension inventory, injects request-scoped runtime env into the resolved agent process only, builds a single-agent Swarm, and returns the resulting message chunks.
+V186: `executeAgentComposition` rejects blocked compositions through the existing plan readiness checks and does not copy provider secret values into returned messages, plans, agent parameters, or inventory records.
+V187: Extension LSP capability parsing accepts both array commands and string-plus-args commands, preserves `languages`, and accepts `languageIds` for host-specific language id declarations.
+V188: A desktop LSP completion request starts or reuses only the requested declared stdio LSP server, initializes it with the supplied workspace root, and does not run from extension inventory loading or read-only rendering.
+V189: LSP completion sends caller-supplied document text through `textDocument/didOpen`, forwards `textDocument/completion` with the requested position and trigger context, and returns the server completion result unchanged.
+V190: `lsp:stop` explicitly shuts down and removes managed LSP server sessions by server id and optional workspace root without mutating extension manifests.
+V191: LSP host requests reject unknown servers, missing commands, invalid workspaces, failed processes, and timed-out JSON-RPC requests with actionable errors while keeping stderr limited.
+V192: The built-in extension inventory exposes a read-only `swarmx.local-files` LSP capability for local file references without starting a process during inventory loading.
+V193: `swarmx.local-files` completion returns LSP completion items for `@file:` workspace-relative paths from caller-supplied text and position, including directory entries, without recursively scanning the workspace.
+V194: `swarmx.local-files` rejects or returns no completions for absolute paths, parent-directory traversal, missing directories, and non-`@` reference tokens so completions remain bounded to the workspace root.
+V195: The built-in extension inventory exposes a read-only `swarmx.skills` LSP capability for `$` skill references without starting a process during inventory loading.
+V196: `swarmx.skills` completion returns LSP completion items from `inventory.skills` for caller-supplied `$` tokens, preserving skill ids, names, paths, canonical paths, governance refs, and read-only metadata as passive item data.
+V197: `swarmx.skills` returns no completions for non-`$` tokens and must not read skill files, execute skills, apply gate policy, or mutate inventory.
 
 ## §T
 |id|status|task|cites|
@@ -511,6 +548,10 @@ V184: Unregistered GUI contributions remain passive inventory rows and are not n
 |T94|x|add desktop product config, registered GUI contribution component host, and renderer tests|V181,V182,V183,V184,I105,I106|
 |T95|x|style and document downstream GUI host customization path|V181,V182,V183,V184,I107,I108,I109|
 |T96|x|run targeted renderer validation, desktop build, full tests, build, lint, and diff checks|V181,V182,V183,V184,I105,I106,I107,I108,I109|
+|T97|x|add stable core `executeAgentComposition` helper for downstream desktop hosts|V185,V186,I110,I111|
+|T98|x|add explicit desktop LSP host lifecycle and schema compatibility|V187,V188,V189,V190,V191,I112,I113,I114,I115,I116,I117|
+|T99|x|add built-in local workspace file completions through LSP API|V192,V193,V194,I118,I119,I117|
+|T100|x|add built-in extension skill completions through LSP API|V195,V196,V197,I120,I121,I117|
 
 ## §B
 |id|date|cause|fix|

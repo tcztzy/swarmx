@@ -6,6 +6,7 @@ import {
   appendMessages,
   createSession,
   deleteSession,
+  executeAgentComposition,
   getHarness,
   importN8nWorkflow,
   listGroupedSessions,
@@ -13,9 +14,7 @@ import {
   loadDiscoveredSession,
   loadExtensionInventory,
   loadSession,
-  resolveAgentComposition,
   resolveAgentCompositionPlan,
-  resolveAgentCompositionRuntimeEnv,
   saveSession,
 } from "@swarmx/core";
 import type {
@@ -30,8 +29,10 @@ import type {
   SwarmConfig,
 } from "@swarmx/core";
 import { type IpcMainInvokeEvent, ipcMain } from "electron";
+import { type LspCompletionRequest, LspHost, type LspStopRequest } from "./lsp-host.js";
 
 const MAX_INLINE_IMAGE_BYTES = 25 * 1024 * 1024;
+const lspHost = new LspHost();
 
 export function registerIpcHandlers(): void {
   ipcMain.handle(
@@ -53,10 +54,10 @@ export function registerIpcHandlers(): void {
         if (params.swarmConfig) {
           swarm = new Swarm(params.swarmConfig);
         } else if (params.agentComposition) {
-          const inventory = await loadExtensionInventory();
-          const agentConfig = resolveAgentComposition(params.agentComposition, inventory);
-          const runtimeEnv = resolveAgentCompositionRuntimeEnv(params.agentComposition, inventory);
-          swarm = singleAgentSwarm(withRuntimeEnv(agentConfig, runtimeEnv));
+          const messages = await executeAgentComposition(params.agentComposition, [
+            { role: "user", content: params.userText },
+          ]);
+          return { success: true, messages };
         } else if (params.agentConfig) {
           const harness = getHarness(params.harnessId);
           if (!harness) throw new Error(`Unknown harness: ${params.harnessId}`);
@@ -162,6 +163,18 @@ export function registerIpcHandlers(): void {
   });
 
   ipcMain.handle(
+    "lsp:complete",
+    async (_event: IpcMainInvokeEvent, params: LspCompletionRequest) => {
+      const inventory = await loadExtensionInventory();
+      return lspHost.complete(inventory, params);
+    },
+  );
+
+  ipcMain.handle("lsp:stop", (_event: IpcMainInvokeEvent, params: LspStopRequest) =>
+    lspHost.stop(params),
+  );
+
+  ipcMain.handle(
     "asset:imageDataUrl",
     async (_event: IpcMainInvokeEvent, source: string): Promise<string | null> =>
       loadImageDataUrl(source),
@@ -177,20 +190,6 @@ function singleAgentSwarm(agentConfig: AgentConfig): Swarm {
     },
     edges: [],
   });
-}
-
-function withRuntimeEnv(agentConfig: AgentConfig, runtimeEnv: Record<string, string>): AgentConfig {
-  if (Object.keys(runtimeEnv).length === 0) return agentConfig;
-  return {
-    ...agentConfig,
-    process: {
-      ...agentConfig.process,
-      env: {
-        ...(agentConfig.process?.env ?? {}),
-        ...runtimeEnv,
-      },
-    },
-  };
 }
 
 function extensionInventoryWithPlans(

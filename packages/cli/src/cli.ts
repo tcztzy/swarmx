@@ -1,14 +1,22 @@
 #!/usr/bin/env node
 import { readFileSync } from "node:fs";
 import { createInterface } from "node:readline";
-import { Agent, HARNESSES, Swarm, createServer, getHarness, listSessions } from "@swarmx/core";
+import {
+  Agent,
+  HARNESSES,
+  SWARMX_VERSION,
+  Swarm,
+  createServer,
+  getHarness,
+  listSessions,
+} from "@swarmx/core";
 import type { AgentConfig, MessageChunk, SwarmConfig } from "@swarmx/core";
 import { Command } from "commander";
 import { type EvalRunOptions, errorEvalResult, formatEvalResult, runEval } from "./eval-run.js";
 
 const program = new Command();
 
-program.name("swarmx").description("SwarmX multi-agent orchestration CLI").version("3.0.0");
+program.name("swarmx").description("SwarmX multi-agent orchestration CLI").version(SWARMX_VERSION);
 
 program
   .command("send <message>")

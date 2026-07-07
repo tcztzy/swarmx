@@ -14,6 +14,7 @@ import type {
   SessionNotification,
   SessionUpdate,
 } from "@agentclientprotocol/sdk";
+import { SWARMX_VERSION } from "./version.js";
 
 let _acp: typeof import("@agentclientprotocol/sdk") | null = null;
 
@@ -129,7 +130,7 @@ export class AcpClient {
       await connection.initialize({
         protocolVersion: acp.PROTOCOL_VERSION,
         clientCapabilities: {},
-        clientInfo: { name: "swarmx", title: "SwarmX", version: "3.0.0" },
+        clientInfo: { name: "swarmx", title: "SwarmX", version: SWARMX_VERSION },
       });
 
       let sid: string;
@@ -180,7 +181,7 @@ export class AcpClient {
       await connection.initialize({
         protocolVersion: acp.PROTOCOL_VERSION,
         clientCapabilities: {},
-        clientInfo: { name: "swarmx", title: "SwarmX", version: "3.0.0" },
+        clientInfo: { name: "swarmx", title: "SwarmX", version: SWARMX_VERSION },
       });
 
       const req: ListSessionsRequest = cwd ? { cwd } : {};
@@ -212,7 +213,7 @@ export class AcpClient {
       await connection.initialize({
         protocolVersion: acp.PROTOCOL_VERSION,
         clientCapabilities: {},
-        clientInfo: { name: "swarmx", title: "SwarmX", version: "3.0.0" },
+        clientInfo: { name: "swarmx", title: "SwarmX", version: SWARMX_VERSION },
       });
 
       const req: LoadSessionRequest = {
@@ -235,7 +236,7 @@ export class AcpClient {
       await connection.initialize({
         protocolVersion: acp.PROTOCOL_VERSION,
         clientCapabilities: {},
-        clientInfo: { name: "swarmx", title: "SwarmX", version: "3.0.0" },
+        clientInfo: { name: "swarmx", title: "SwarmX", version: SWARMX_VERSION },
       });
 
       const req: NewSessionRequest = { cwd, mcpServers: [] };

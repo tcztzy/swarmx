@@ -355,7 +355,10 @@ interface ExtensionLspSummary {
   id: string;
   name?: string;
   languages?: string[];
-  command?: string[];
+  languageIds?: string[];
+  command?: string[] | string;
+  args?: string[];
+  cwd?: string;
   scope?: string;
 }
 
@@ -469,6 +472,20 @@ interface SwarmxAPI {
   appendMessages(params: { id: string; messages: unknown[] }): Promise<boolean>;
   importN8nWorkflow(source: string): Promise<N8nImportResponse>;
   listExtensions(): Promise<ExtensionCapabilityInventory>;
+  lspComplete(params: {
+    serverId: string;
+    workspaceRoot: string;
+    text: string;
+    position: { line: number; character: number };
+    documentUri?: string;
+    languageId?: string;
+    triggerCharacter?: string;
+    timeoutMs?: number;
+  }): Promise<{ serverId: string; status: "ok"; result: unknown }>;
+  lspStop(params: { serverId: string; workspaceRoot?: string }): Promise<{
+    serverId: string;
+    stopped: boolean;
+  }>;
   loadImageDataUrl(source: string): Promise<string | null>;
 }
 
@@ -3023,7 +3040,11 @@ function extensionComponentRows(
       kind: "LSP",
       title: item.name ?? item.id,
       detail: item.scope,
-      chips: [...(item.languages ?? []), ...(item.command ? [item.command.join(" ")] : [])],
+      chips: [
+        ...(item.languages ?? []),
+        ...(item.languageIds ?? []),
+        ...formatExtensionCommand(item.command, item.args),
+      ],
     })),
     ...(inventory.hooks ?? []).map((item) => ({
       id: item.id,
@@ -3077,6 +3098,15 @@ function extensionComponentRows(
       chips: item.secretRefs?.length ? [`${item.secretRefs.length} secret refs`] : [],
     })),
   ];
+}
+
+function formatExtensionCommand(
+  command: string[] | string | undefined,
+  args: string[] | undefined,
+): string[] {
+  if (Array.isArray(command)) return [command.join(" ")];
+  if (command) return [[command, ...(args ?? [])].join(" ")];
+  return [];
 }
 
 function extensionUiContributionChips(contribution: ExtensionUiContributionSummary): string[] {

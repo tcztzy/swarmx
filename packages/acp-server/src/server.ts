@@ -27,6 +27,7 @@ import {
   ndJsonStream,
 } from "@agentclientprotocol/sdk";
 import {
+  SWARMX_VERSION,
   Swarm,
   appendMessages,
   createSession,
@@ -65,7 +66,7 @@ export class SwarmXAgent implements AcpAgent {
       agentInfo: {
         name: "swarmx",
         title: "SwarmX Agent Engine",
-        version: "3.0.0",
+        version: SWARMX_VERSION,
       },
       authMethods: [],
     };
