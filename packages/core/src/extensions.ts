@@ -3,8 +3,8 @@ import path from "node:path";
 import { z } from "zod";
 import { AgentDefinitionSourceSchema } from "./agent-profiles.js";
 import { ContextPacketModeSchema, ContextStrategySchema } from "./context.js";
-import { HARNESSES, providerEnvVars } from "./harness.js";
-import type { ModelProvider } from "./harness.js";
+import { HARNESSES } from "./harness.js";
+import { buildProviderRuntimeEnv } from "./providers.js";
 import { Swarm } from "./swarm.js";
 import { AgentBackendSchema, McpServerConfigSchema } from "./types.js";
 import type {
@@ -68,6 +68,20 @@ export const ProviderKindSchema = z.enum([
   "openai_responses",
   "ollama",
 ]);
+
+export const ProviderApiCompatibilityModeSchema = z.enum(["auto", "native", "bridge"]);
+
+export const ProviderApiCompatibilitySchema = z.preprocess(
+  normalizeProviderApiCompatibilityInput,
+  z
+    .object({
+      mode: ProviderApiCompatibilityModeSchema.default("auto"),
+      baseUrl: z.string().min(1).optional(),
+      targetKind: ProviderKindSchema.optional(),
+    })
+    .passthrough()
+    .superRefine(addInlineSecretIssues),
+);
 
 export const MarketplaceHostSchema = z.enum([
   "codex",
@@ -163,23 +177,27 @@ export const McpCapabilitySchema = z
   })
   .passthrough();
 
-export const ProviderProfileSchema = z
-  .object({
-    id: z.string().min(1),
-    label: z.string().min(1),
-    kind: ProviderKindSchema,
-    model: z.string().min(1).optional(),
-    baseUrl: z.string().min(1).optional(),
-    secretRef: z
-      .object({
-        source: z.enum(["env", "local_keychain", "server_keychain", "prompt"]),
-        key: z.string().min(1),
-      })
-      .optional(),
-    enabled: z.boolean().optional(),
-    readOnly: z.boolean().optional(),
-  })
-  .passthrough();
+export const ProviderProfileSchema = z.preprocess(
+  normalizeProviderProfileInput,
+  z
+    .object({
+      id: z.string().min(1),
+      label: z.string().min(1),
+      kind: ProviderKindSchema,
+      model: z.string().min(1).optional(),
+      baseUrl: z.string().min(1).optional(),
+      apiCompatibility: ProviderApiCompatibilitySchema.default({}),
+      secretRef: z
+        .object({
+          source: z.enum(["env", "local_keychain", "server_keychain", "prompt"]),
+          key: z.string().min(1),
+        })
+        .optional(),
+      enabled: z.boolean().optional(),
+      readOnly: z.boolean().optional(),
+    })
+    .passthrough(),
+);
 
 export const HarnessCapabilitySchema = z
   .object({
@@ -742,6 +760,7 @@ export type SkillHostCompatibilityIssue = z.infer<typeof SkillHostCompatibilityI
 export type SkillCapability = z.infer<typeof SkillCapabilitySchema>;
 export type McpCapability = z.infer<typeof McpCapabilitySchema>;
 export type ProviderProfile = z.infer<typeof ProviderProfileSchema>;
+export type ProviderApiCompatibility = z.infer<typeof ProviderApiCompatibilitySchema>;
 export type HarnessCapability = z.infer<typeof HarnessCapabilitySchema>;
 export type AgentProfile = z.infer<typeof AgentProfileSchema>;
 export type AppConnectorCapability = z.infer<typeof AppConnectorCapabilitySchema>;
@@ -1314,13 +1333,22 @@ export function resolveAgentCompositionRuntimeEnv(
 
   const secret = providerSecretValue(provider, options.env ?? process.env);
   const model = resolvedModel(composition.model, profile?.model, provider.model) ?? "";
-  const modelProvider: ModelProvider = {
-    kind: provider.kind,
-    model,
-    baseUrl: provider.baseUrl,
-    apiKey: secret,
-  };
-  return providerEnvVars(modelProvider);
+  return buildProviderRuntimeEnv(
+    {
+      id: provider.id,
+      label: provider.label,
+      kind: provider.kind,
+      model,
+      baseUrl: provider.baseUrl,
+      apiCompatibility: provider.apiCompatibility,
+      secretRef: provider.secretRef,
+    },
+    {
+      secretValue: secret,
+      targetKind: providerTargetKindForHarness(harness, provider),
+      compatibleProviderKinds: harness.compatibleProviders,
+    },
+  ).env;
 }
 
 export async function executeAgentComposition(
@@ -1474,6 +1502,61 @@ function assertNoInlineSecrets(value: unknown, trail: string[] = []): void {
       throw new Error(`Extension manifest must not contain inline secret field "${key}".`);
     }
     assertNoInlineSecrets(child, [...trail, key]);
+  }
+}
+
+function normalizeProviderProfileInput(input: unknown): unknown {
+  if (!input || typeof input !== "object" || Array.isArray(input)) return input;
+  const { api_compatibility, apiBridge, api_bridge, bridge, translator, translation, ...rest } =
+    input as Record<string, unknown>;
+
+  return {
+    ...rest,
+    apiCompatibility:
+      rest.apiCompatibility ??
+      api_compatibility ??
+      apiBridge ??
+      api_bridge ??
+      bridge ??
+      translation ??
+      translator,
+  };
+}
+
+function normalizeProviderApiCompatibilityInput(input: unknown): unknown {
+  if (typeof input === "string" || typeof input === "boolean") {
+    return { mode: normalizeProviderApiCompatibilityMode(input) };
+  }
+  if (!input || typeof input !== "object" || Array.isArray(input)) return input;
+  const { downstream_kind, target_kind, base_url, kind, translator, enabled, ...rest } =
+    input as Record<string, unknown>;
+
+  return {
+    ...rest,
+    mode:
+      rest.mode ??
+      normalizeProviderApiCompatibilityMode(
+        kind ?? translator ?? (enabled === false ? "native" : undefined),
+      ),
+    targetKind: rest.targetKind ?? target_kind ?? downstream_kind,
+    baseUrl: rest.baseUrl ?? base_url,
+  };
+}
+
+function normalizeProviderApiCompatibilityMode(input: unknown): unknown {
+  if (input === true) return "bridge";
+  if (input === false) return "native";
+  if (typeof input !== "string") return input;
+  switch (input) {
+    case "yallm":
+    case "translated":
+    case "translation":
+      return "bridge";
+    case "off":
+    case "disabled":
+      return "native";
+    default:
+      return input;
   }
 }
 
@@ -1692,10 +1775,7 @@ function providerCompatibilityRequirement(
   harness: HarnessCapability,
   provider: ProviderProfile,
 ): AgentCompositionRequirement | undefined {
-  if (
-    harness.compatibleProviders.length === 0 ||
-    harness.compatibleProviders.includes(provider.kind)
-  ) {
+  if (providerTargetKindForHarness(harness, provider)) {
     return undefined;
   }
   return {
@@ -1868,11 +1948,23 @@ function assertProviderCompatible(
   provider: ProviderProfile | undefined,
 ): void {
   if (!provider || harness.compatibleProviders.length === 0) return;
-  if (!harness.compatibleProviders.includes(provider.kind)) {
+  if (!providerTargetKindForHarness(harness, provider)) {
     throw new Error(
       `Provider profile "${provider.id}" (${provider.kind}) is not compatible with harness "${harness.id}".`,
     );
   }
+}
+
+function providerTargetKindForHarness(
+  harness: HarnessCapability,
+  provider: ProviderProfile,
+): z.infer<typeof ProviderKindSchema> | undefined {
+  if (harness.compatibleProviders.length === 0) return provider.kind;
+  if (harness.compatibleProviders.includes(provider.kind)) return provider.kind;
+  if (provider.apiCompatibility.mode === "native") return undefined;
+  const configured = provider.apiCompatibility.targetKind;
+  if (configured && harness.compatibleProviders.includes(configured)) return configured;
+  return harness.compatibleProviders[0];
 }
 
 function singleAgentSwarmConfig(agentConfig: AgentConfig): SwarmConfig {

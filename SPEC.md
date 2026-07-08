@@ -14,7 +14,7 @@ G10: Downstream agent products can depend on SwarmX for an optional server bound
 G11: Downstream agent products can depend on SwarmX for generic managed dependency contracts: dependency classes, manifest validation, detection results, install receipts, and side-effect-free install planning.
 G12: Downstream agent products can depend on SwarmX extension inventory for marketplace source and plugin catalog metadata that supports extensible GUI management without product-specific registry code.
 G13: Downstream agent products can depend on SwarmX for generic append-only conversation ledger contracts: local session index records, rollout events, JSONL serialization, and deterministic replay.
-G14: Downstream agent products can depend on SwarmX for generic provider profile contracts: profile metadata, secret references, secret statuses, direct prompt requests, selection resolution, and request-scoped runtime env construction.
+G14: Downstream agent products can depend on SwarmX for generic provider profile contracts: profile metadata, API compatibility metadata, secret references, secret statuses, direct prompt requests, selection resolution, and request-scoped runtime env construction.
 G15: Downstream agent products can depend on SwarmX for generic harness management contracts: discovery records, selector resolution, named agent aliases, and invocation metadata.
 G16: Downstream agent products can depend on SwarmX desktop rendering for safe conversational Markdown, blocked-by-default remote media, preload-mediated local images, and stable labeled code blocks.
 G17: Downstream agent products can depend on SwarmX for generic explicit-user-action contracts: action intents, risk classification, confirmations, dependency-plan action mapping, and secret-safe records.
@@ -56,7 +56,7 @@ C11: GEEPilot-specific LSF/HPC, biosecurity, memory-claim semantics, benchmark, 
 C12: Extension discovery is passive metadata loading. Installing software, enabling hooks, starting MCP servers, or mutating compositions requires a future explicit user action surface.
 C13: Extension manifests must not persist inline provider keys, bearer tokens, passwords, private keys, credentials, or deployment secrets; only secret references are metadata.
 C14: Desktop extension inventory uses preload IPC only and must remain compatible with Electron isolation.
-C15: Provider profile secret injection is execution-scoped. Persisted extension metadata and resolved agent metadata keep only profile ids and secret references, while child-process env receives resolved secret values only at invocation time.
+C15: Provider profile secret injection is execution-scoped. Persisted extension metadata and resolved agent metadata keep only profile ids, API compatibility metadata, and secret references, while child-process env receives resolved secret values only at invocation time.
 C16: Generic autonomy primitives are side-effect free core contracts. They do not install wakeups, start daemons, execute commands, submit remote jobs, mutate specs, or promote downstream claims.
 C17: GEEPilot-specific daemon ownership, issue intake policy, LSF/HPC adapters, biosecurity routing, benchmark execution, paper updates, memory-claim admission, and data-analysis interpretation remain downstream code.
 C18: Runtime records, DAGs, validator manifests, and evidence packets must not persist inline provider keys, bearer tokens, passwords, private keys, credentials, or deployment secrets.
@@ -316,7 +316,7 @@ V62: Provider profile primitives expose exported zod schemas and TypeScript type
 V63: Provider profile parsing accepts downstream snake_case fields and extension-style `label`/`model` aliases while normalizing them to camelCase metadata.
 V64: Provider profile metadata, secret status records, provider selections, and direct prompt requests reject inline secret-looking fields, while secret status records also reject returned secret values.
 V65: Provider profile resolution fails on unknown, ambiguous, or missing selections instead of silently falling back to a default provider.
-V66: Provider runtime env construction resolves harness-specific model overrides, requires an explicit runtime secret value when a profile has a secret reference, and keeps that secret out of persisted profile metadata.
+V66: Provider runtime env construction resolves harness-specific model overrides, supports API compatibility bridging for cross-API provider/harness selections, requires an explicit runtime secret value when a profile has a secret reference, and keeps that secret out of persisted profile metadata.
 V67: The provider API is exposed through `@swarmx/core/providers`, a browser-safe subpath that does not bundle Node-only core modules.
 V68: Harness management primitives expose exported zod schemas and TypeScript types for adapter availability, host scope, discovery records, agent aliases, selector resolution, invocation status, and invocation metadata.
 V69: Harness selector resolution strips leading `@adapter`, `@adapter:provider`, and named-agent selectors from delegated prompts while returning canonical selectors and selected adapter/provider/profile metadata.

@@ -166,6 +166,8 @@ export type {
 } from "./conversation.js";
 export {
   ProviderKindSchema as ProviderProfileKindSchema,
+  ProviderApiCompatibilityModeSchema,
+  ProviderApiCompatibilitySchema,
   ProviderProfileMetadataSchema,
   ProviderPromptRequestSchema,
   ProviderRuntimeEnvSchema,
@@ -184,6 +186,8 @@ export {
 } from "./providers.js";
 export type {
   BuildProviderRuntimeEnvOptions,
+  ProviderApiCompatibility,
+  ProviderApiCompatibilityMode,
   ProviderKind as ProviderProfileKind,
   ProviderProfileMetadata,
   ProviderPromptRequest,
@@ -600,6 +604,8 @@ export {
   PluginAssetCapabilitySchema,
   PluginCatalogEntrySchema,
   PluginSettingCapabilitySchema,
+  ProviderApiCompatibilityModeSchema as ExtensionProviderApiCompatibilityModeSchema,
+  ProviderApiCompatibilitySchema as ExtensionProviderApiCompatibilitySchema,
   ProviderKindSchema,
   ProviderProfileSchema,
   SkillHostCompatibilityIssueLevelSchema,

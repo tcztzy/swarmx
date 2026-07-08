@@ -972,7 +972,7 @@ describe("extension inventory", () => {
     ).toThrow(/Record must not contain inline secret field/);
   });
 
-  it("fails runtime provider resolution without compatible harness or env secret", () => {
+  it("fails runtime provider resolution when API bridge is disabled or env secret is missing", () => {
     const bundle = parseExtensionBundle({
       schemaVersion: 1,
       id: "providers",
@@ -985,6 +985,7 @@ describe("extension inventory", () => {
             label: "Anthropic Prod",
             kind: "anthropic",
             model: "claude-sonnet",
+            apiCompatibility: { mode: "native" },
             secretRef: { source: "env", key: "ANTHROPIC_API_KEY" },
           },
         ],
@@ -1030,6 +1031,65 @@ describe("extension inventory", () => {
         { env: {} },
       ),
     ).toThrow(/requires env secret "ANTHROPIC_API_KEY"/);
+  });
+
+  it("resolves API bridge automatically for harness-incompatible providers", () => {
+    const bundle = parseExtensionBundle({
+      schemaVersion: 1,
+      id: "bridged-providers",
+      name: "Bridged Providers",
+      version: "1.0.0",
+      capabilities: {
+        providers: [
+          {
+            id: "anthropic-prod",
+            label: "Anthropic Prod",
+            kind: "anthropic",
+            model: "claude-sonnet",
+            baseUrl: "https://api.anthropic.com",
+            secretRef: { source: "env", key: "ANTHROPIC_API_KEY" },
+          },
+        ],
+        harnesses: [
+          {
+            id: "codex-only",
+            label: "Codex Only",
+            compatibleProviders: ["openai_responses"],
+            backend: { type: "custom", program: "codex", args: ["acp"] },
+          },
+        ],
+        agents: [
+          {
+            id: "codex-with-anthropic",
+            name: "codex with anthropic",
+            harnessId: "codex-only",
+            providerProfileId: "anthropic-prod",
+          },
+        ],
+      },
+    });
+    const inventory = createExtensionInventory([bundle]);
+
+    const plan = resolveAgentCompositionPlan(
+      { id: "bridged", agentProfileId: "codex-with-anthropic" },
+      inventory,
+    );
+    expect(plan.status).toBe("ready");
+
+    expect(
+      resolveAgentCompositionRuntimeEnv(
+        { id: "bridged", agentProfileId: "codex-with-anthropic" },
+        inventory,
+        { env: { ANTHROPIC_API_KEY: "sk-ant-runtime" } },
+      ),
+    ).toMatchObject({
+      YALLM_DEFAULT_PROVIDER: "anthropic",
+      ANTHROPIC_API_KEY: "sk-ant-runtime",
+      ANTHROPIC_BASE_URL: "https://api.anthropic.com",
+      OPENAI_API_KEY: "sk-swarmx-bridge",
+      OPENAI_BASE_URL: "http://127.0.0.1:4000/v1",
+      OPENAI_MODEL: "anthropic:claude-sonnet",
+    });
   });
 
   it("executes an agent composition through a single-agent Swarm without leaking runtime secrets", async () => {

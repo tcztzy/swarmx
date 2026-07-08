@@ -152,6 +152,47 @@ describe("provider profile primitives", () => {
     expect(JSON.stringify(profile)).not.toContain("sk-runtime");
   });
 
+  it("builds API bridge runtime env for cross-harness provider use", () => {
+    const profile = parseProviderProfileMetadata({
+      id: "anthropic-prod",
+      label: "Anthropic Prod",
+      kind: "anthropic",
+      model: "claude-sonnet",
+      baseUrl: "https://api.anthropic.com",
+      secretRef: {
+        source: "env",
+        key: "ANTHROPIC_API_KEY",
+      },
+    });
+
+    const runtime = buildProviderRuntimeEnv(profile, {
+      compatibleProviderKinds: ["openai_responses"],
+      bridgeBaseUrl: "http://127.0.0.1:4100/v1",
+      secretValue: "sk-ant-runtime",
+    });
+
+    expect(runtime).toMatchObject({
+      profileId: "anthropic-prod",
+      kind: "anthropic",
+      targetKind: "openai_responses",
+      model: "claude-sonnet",
+      apiCompatibility: {
+        mode: "auto",
+        baseUrl: "http://127.0.0.1:4100/v1",
+      },
+      bridgeEnabled: true,
+      env: {
+        YALLM_DEFAULT_PROVIDER: "anthropic",
+        ANTHROPIC_API_KEY: "sk-ant-runtime",
+        ANTHROPIC_BASE_URL: "https://api.anthropic.com",
+        OPENAI_API_KEY: "sk-swarmx-bridge",
+        OPENAI_BASE_URL: "http://127.0.0.1:4100/v1",
+        OPENAI_MODEL: "anthropic:claude-sonnet",
+      },
+    });
+    expect(JSON.stringify(profile)).not.toContain("sk-ant-runtime");
+  });
+
   it("supports direct provider prompt metadata without requiring a harness", () => {
     expect(
       parseProviderPromptRequest({
