@@ -22,6 +22,19 @@ This workspace contains:
 - Node.js >= 20
 - pnpm >= 9
 
+### Install the CLI from npm
+
+```shell
+npm install -g swarmx
+swarmx --help
+```
+
+You can also run it without a global install:
+
+```shell
+npx swarmx --help
+```
+
 If pnpm is not already available, enable it through Corepack:
 
 ```shell

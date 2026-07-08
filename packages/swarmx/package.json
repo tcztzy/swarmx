@@ -1,0 +1,20 @@
+{
+  "name": "swarmx",
+  "version": "3.0.1",
+  "description": "SwarmX multi-agent orchestration CLI.",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "swarmx": "./bin/swarmx.js"
+  },
+  "files": ["bin"],
+  "publishConfig": {
+    "access": "public"
+  },
+  "dependencies": {
+    "@swarmx/cli": "workspace:*"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

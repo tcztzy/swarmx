@@ -157,6 +157,12 @@ importers:
         specifier: ^5.7.0
         version: 5.9.3
 
+  packages/swarmx:
+    dependencies:
+      '@swarmx/cli':
+        specifier: workspace:*
+        version: link:../cli
+
 packages:
 
   '@agentclientprotocol/sdk@0.22.1':
