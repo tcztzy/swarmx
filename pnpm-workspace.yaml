@@ -5,8 +5,10 @@ allowBuilds:
   "@biomejs/biome": true
   electron: true
   esbuild: true
+  node-pty: true
 
 onlyBuiltDependencies:
   - "@biomejs/biome"
   - electron
   - esbuild
+  - node-pty
