@@ -10,7 +10,9 @@ export type DiscoveredSessionSource = "local" | "acp";
 export interface DiscoveredSession {
   id: string;
   title: string;
+  projectId?: string;
   cwd: string;
+  pinned?: boolean;
   updatedAt?: string;
   harnessId: string;
   harnessLabel: string;
@@ -159,7 +161,7 @@ export async function loadDiscoveredSession(
   }
 
   const harness = HARNESSES[session.harnessId];
-  if (!harness) {
+  if (!harness || harness.enabled === false) {
     throw new Error(`Unknown harness: ${session.harnessId}`);
   }
   if (harness.backend.type !== "custom") {
@@ -175,7 +177,7 @@ export async function loadDiscoveredSession(
   };
 
   try {
-    const loaded = await withTimeout(
+    const loaded = await withTimeout<{ messages: MessageChunk[] }>(
       client.loadSession(opts, session.id, cwd),
       options.timeoutMs ?? DEFAULT_SESSION_TIMEOUT_MS,
       `${harness.label} session loading timed out`,
@@ -197,6 +199,8 @@ export function acpLoadedSessionToSessionData(
   return SessionDataSchema.parse({
     id: session.id,
     title: session.title || session.id,
+    ...(session.projectId ? { projectId: session.projectId } : {}),
+    ...(session.cwd ? { cwd: session.cwd } : {}),
     acpSessionId: session.id,
     agentName: session.harnessLabel || session.harnessId,
     harness: session.harnessId,
@@ -212,7 +216,9 @@ function localSessionToDiscovered(session: SessionData): DiscoveredSession {
   return {
     id: session.id,
     title: session.title || "Untitled",
-    cwd: "",
+    ...(session.projectId ? { projectId: session.projectId } : {}),
+    cwd: session.cwd ?? "",
+    pinned: session.pinned,
     updatedAt: session.updatedAt,
     harnessId: session.harness,
     harnessLabel: harness?.label ?? session.harness,
@@ -225,7 +231,7 @@ async function listAcpHarnessSessions(
   options: { cwd?: string; timeoutMs: number },
 ): Promise<{ sessions: DiscoveredSession[]; error?: SessionDiscoveryError }> {
   const harness = HARNESSES[harnessId];
-  if (!harness) {
+  if (!harness || harness.enabled === false) {
     return {
       sessions: [],
       error: { harnessId, harnessLabel: harnessId, message: `Unknown harness: ${harnessId}` },
@@ -286,7 +292,11 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string)
 }
 
 function sortSessions(sessions: DiscoveredSession[]): DiscoveredSession[] {
-  return [...sessions].sort((a, b) => timestamp(b.updatedAt) - timestamp(a.updatedAt));
+  return [...sessions].sort(
+    (a, b) =>
+      Number(Boolean(b.pinned)) - Number(Boolean(a.pinned)) ||
+      timestamp(b.updatedAt) - timestamp(a.updatedAt),
+  );
 }
 
 function timestamp(value?: string): number {

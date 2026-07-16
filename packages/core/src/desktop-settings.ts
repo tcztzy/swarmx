@@ -1,5 +1,11 @@
 import { z } from "zod";
 import { AgentProfileMetadataSchema } from "./agent-profiles.js";
+import {
+  ExtensionCandidateSchema,
+  ExtensionMarketplaceSourceSchema,
+  InstalledExtensionSchema,
+} from "./extension-management.js";
+import { ModelSchema, ModelSupplySchema } from "./model-capabilities.js";
 import { ProviderProfileMetadataSchema } from "./providers.js";
 
 const REDACTED_VALUE = "[redacted]";
@@ -60,11 +66,20 @@ export const DesktopExtensionSettingsSchema = z
     enabledPluginIds: z.array(z.string().min(1)).default([]),
     disabledPluginIds: z.array(z.string().min(1)).default([]),
     trustedSourceIds: z.array(z.string().min(1)).default([]),
+    marketplaceSources: z.array(ExtensionMarketplaceSourceSchema).default([]),
+    marketplaceCandidates: z.array(ExtensionCandidateSchema).default([]),
+    installed: z.array(InstalledExtensionSchema).default([]),
+    skillEvolutionEnabled: z.boolean().default(false),
+    skillPromotionGate: z.enum(["human", "policy"]).default("human"),
   })
   .passthrough()
   .superRefine(addSecretIssues);
 
-export const DesktopSettingsDocumentSchema = z.preprocess(
+export const DesktopSettingsDocumentSchema: z.ZodType<
+  DesktopSettingsDocument,
+  z.ZodTypeDef,
+  unknown
+> = z.preprocess(
   normalizeDesktopSettingsDocumentInput,
   z
     .object({
@@ -72,6 +87,8 @@ export const DesktopSettingsDocumentSchema = z.preprocess(
       desktop: DesktopRootConfigSchema.default({}),
       server: DesktopServerSettingsSchema.default({}),
       ui: DesktopUiStateSchema.default({}),
+      models: z.array(ModelSchema).default([]),
+      modelSupplies: z.array(ModelSupplySchema).default([]),
       providers: z.array(ProviderProfileMetadataSchema).default([]),
       agents: z.array(AgentProfileMetadataSchema).default([]),
       extensions: DesktopExtensionSettingsSchema.default({}),
@@ -154,7 +171,18 @@ export type DesktopRootConfig = z.infer<typeof DesktopRootConfigSchema>;
 export type DesktopServerSettings = z.infer<typeof DesktopServerSettingsSchema>;
 export type DesktopUiState = z.infer<typeof DesktopUiStateSchema>;
 export type DesktopExtensionSettings = z.infer<typeof DesktopExtensionSettingsSchema>;
-export type DesktopSettingsDocument = z.infer<typeof DesktopSettingsDocumentSchema>;
+export interface DesktopSettingsDocument {
+  schemaVersion: 1;
+  desktop: DesktopRootConfig;
+  server: DesktopServerSettings;
+  ui: DesktopUiState;
+  models: Array<z.infer<typeof ModelSchema>>;
+  modelSupplies: Array<z.infer<typeof ModelSupplySchema>>;
+  providers: Array<z.infer<typeof ProviderProfileMetadataSchema>>;
+  agents: Array<z.infer<typeof AgentProfileMetadataSchema>>;
+  extensions: DesktopExtensionSettings;
+  [key: string]: unknown;
+}
 export type DesktopRootSource = z.infer<typeof DesktopRootSourceSchema>;
 export type ServerDataRootSource = z.infer<typeof ServerDataRootSourceSchema>;
 export type ResolvedDesktopRoot = z.infer<typeof ResolvedDesktopRootSchema>;
@@ -197,6 +225,8 @@ export function createDefaultDesktopSettings(
     desktop: {},
     server: {},
     ui: {},
+    models: [],
+    modelSupplies: [],
     providers: [],
     agents: [],
     extensions: {},

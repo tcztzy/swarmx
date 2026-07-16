@@ -74,6 +74,15 @@ describe("LspHost", () => {
         }),
       }),
     ]);
+
+    const bareResponse = await host.complete(inventory, {
+      serverId: SWARMX_SKILLS_LSP_ID,
+      workspaceRoot: root,
+      text: "Use $",
+      position: { line: 0, character: 5 },
+      triggerCharacter: "$",
+    });
+    expect(completionItems(bareResponse.result)).toHaveLength(2);
   });
 
   it("returns no skill completions outside $ tokens", async () => {
@@ -104,7 +113,7 @@ describe("LspHost", () => {
     });
   });
 
-  it("returns built-in local file completions for @file references", async () => {
+  it("treats a non-empty bare @ token as a local file reference", async () => {
     const root = await tempRoot();
     await mkdir(path.join(root, "src"));
     await writeFile(path.join(root, "README.md"), "# test\n", "utf8");
@@ -122,7 +131,7 @@ describe("LspHost", () => {
 
     expect(completionItems(directoryResponse.result)).toEqual([
       expect.objectContaining({
-        label: "@file:src/",
+        label: "@src/",
         kind: 19,
         detail: "Workspace folder",
       }),
@@ -131,14 +140,14 @@ describe("LspHost", () => {
     const fileResponse = await host.complete(inventory, {
       serverId: SWARMX_LOCAL_FILES_LSP_ID,
       workspaceRoot: root,
-      text: "Open @file:src/",
-      position: { line: 0, character: 15 },
+      text: "Open @src/",
+      position: { line: 0, character: 10 },
       triggerCharacter: "/",
     });
 
     expect(completionItems(fileResponse.result)).toEqual([
       expect.objectContaining({
-        label: "@file:src/App.tsx",
+        label: "@src/App.tsx",
         kind: 17,
         detail: "Workspace file",
       }),
@@ -148,6 +157,43 @@ describe("LspHost", () => {
     ).resolves.toEqual({
       serverId: SWARMX_LOCAL_FILES_LSP_ID,
       stopped: false,
+    });
+  });
+
+  it("rejects scheme-qualified local file references", async () => {
+    const root = await tempRoot();
+    await mkdir(path.join(root, "src"));
+    const inventory = createExtensionInventory([builtInExtensionBundle()]);
+    const host = new LspHost();
+
+    await expect(
+      host.complete(inventory, {
+        serverId: SWARMX_LOCAL_FILES_LSP_ID,
+        workspaceRoot: root,
+        text: "Open @file:src/",
+        position: { line: 0, character: 15 },
+      }),
+    ).resolves.toMatchObject({
+      result: { items: [] },
+    });
+  });
+
+  it("does not list workspace files for a bare @ token", async () => {
+    const root = await tempRoot();
+    await writeFile(path.join(root, "README.md"), "# test\n", "utf8");
+    const inventory = createExtensionInventory([builtInExtensionBundle()]);
+    const host = new LspHost();
+
+    await expect(
+      host.complete(inventory, {
+        serverId: SWARMX_LOCAL_FILES_LSP_ID,
+        workspaceRoot: root,
+        text: "Open @",
+        position: { line: 0, character: 6 },
+        triggerCharacter: "@",
+      }),
+    ).resolves.toMatchObject({
+      result: { items: [] },
     });
   });
 

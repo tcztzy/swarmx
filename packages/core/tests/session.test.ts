@@ -4,11 +4,13 @@ import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   appendMessages,
+  archiveProjectSessions,
   createSession,
   deleteSession,
   listSessions,
   loadSession,
   saveSession,
+  setSessionPinned,
 } from "../src/session.js";
 import type { MessageChunk } from "../src/types.js";
 
@@ -32,7 +34,22 @@ describe("Session", () => {
     expect(session.harness).toBe("swarmx");
     expect(session.model).toBe("gpt-4");
     expect(session.messages).toEqual([]);
+    expect(session.pinned).toBe(false);
     expect(session.createdAt).toBeTruthy();
+  });
+
+  it("persists project identity and working directory", () => {
+    const session = createSession("agent", "swarmx", "gpt-4", {
+      projectId: "project-1",
+      cwd: "/workspace/project-1",
+    });
+    savedIds.push(session.id);
+    saveSession(session);
+
+    expect(loadSession(session.id)).toMatchObject({
+      projectId: "project-1",
+      cwd: "/workspace/project-1",
+    });
   });
 
   it("saves and loads a session", () => {
@@ -59,6 +76,46 @@ describe("Session", () => {
     const ids = all.map((s) => s.id);
     expect(ids).toContain(s1.id);
     expect(ids).toContain(s2.id);
+  });
+
+  it("persists pin state and lists pinned sessions first", () => {
+    const olderPinned = createSession("pinned", "swarmx");
+    const newerUnpinned = createSession("recent", "swarmx");
+    savedIds.push(olderPinned.id, newerUnpinned.id);
+    olderPinned.updatedAt = "2026-01-01T00:00:00.000Z";
+    newerUnpinned.updatedAt = "2026-01-02T00:00:00.000Z";
+    saveSession(olderPinned);
+    saveSession(newerUnpinned);
+
+    expect(setSessionPinned(olderPinned.id, true)).toMatchObject({ pinned: true });
+    expect(loadSession(olderPinned.id)?.pinned).toBe(true);
+    expect(listSessions().filter((session) => savedIds.includes(session.id))[0]?.id).toBe(
+      olderPinned.id,
+    );
+  });
+
+  it("archives every task in a project without deleting its persisted history", () => {
+    const projectSession = createSession("a", "swarmx", undefined, {
+      projectId: "project-archive",
+      cwd: "/workspace/archive",
+    });
+    const otherSession = createSession("b", "swarmx", undefined, {
+      projectId: "project-other",
+      cwd: "/workspace/other",
+    });
+    savedIds.push(projectSession.id, otherSession.id);
+    saveSession(projectSession);
+    saveSession(otherSession);
+
+    expect(
+      archiveProjectSessions({ projectId: "project-archive", cwd: "/workspace/archive" }),
+    ).toBe(1);
+    expect(listSessions().map((session) => session.id)).not.toContain(projectSession.id);
+    expect(listSessions().map((session) => session.id)).toContain(otherSession.id);
+    expect(loadSession(projectSession.id)?.archivedAt).toBeTruthy();
+    expect(listSessions({ includeArchived: true }).map((session) => session.id)).toContain(
+      projectSession.id,
+    );
   });
 
   it("deletes a session", () => {

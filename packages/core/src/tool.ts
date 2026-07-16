@@ -24,9 +24,13 @@ export class Tool {
     context?: Record<string, unknown>,
   ): Promise<Record<string, unknown>> {
     const manager = new McpManager();
-    for (const [name, params] of this.mcpServers) {
-      await manager.addServer(name, params);
+    try {
+      for (const [name, params] of this.mcpServers) {
+        await manager.addServer(name, params);
+      }
+      return await manager.callTool(this.name, arguments_, context);
+    } finally {
+      await manager.close();
     }
-    return manager.callTool(this.name, arguments_, context);
   }
 }

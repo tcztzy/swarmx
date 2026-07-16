@@ -1,4 +1,5 @@
 import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
+import type { Dirent } from "node:fs";
 import { readdir, stat } from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -481,7 +482,7 @@ async function completeLocalFiles(
   const listing = localFileListingPath(workspaceRoot, context.pathPrefix);
   if (!listing) return { isIncomplete: false, items: [] };
 
-  let entries: Awaited<ReturnType<typeof readdir>>;
+  let entries: Dirent<string>[];
   try {
     entries = await readdir(listing.directoryPath, { withFileTypes: true });
   } catch {
@@ -500,7 +501,7 @@ async function completeLocalFiles(
     .map((entry) => {
       const relativePath = joinPosixPath(listing.relativeDirectory, entry.name);
       const pathText = entry.isDirectory() ? `${relativePath}/` : relativePath;
-      const insertText = `@file:${pathText}`;
+      const insertText = `@${pathText}`;
       return {
         label: insertText,
         kind: entry.isDirectory() ? FOLDER_COMPLETION_ITEM_KIND : FILE_COMPLETION_ITEM_KIND,
@@ -519,6 +520,7 @@ async function completeLocalFiles(
           kind: "local_file",
           path: pathText,
           workspaceRoot,
+          syntax: "file",
         },
       };
     });
@@ -602,10 +604,10 @@ function localFileCompletionContext(
   if (!context) return null;
 
   const rawPrefix = context.query;
-  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(rawPrefix)) return null;
-  const pathPrefix = rawPrefix.startsWith("file:") ? rawPrefix.slice("file:".length) : rawPrefix;
+  if (!rawPrefix) return null;
+  if (/^[a-z][a-z0-9+.-]*:/i.test(rawPrefix)) return null;
   return {
-    pathPrefix,
+    pathPrefix: rawPrefix,
     rangeStart: context.rangeStart,
   };
 }

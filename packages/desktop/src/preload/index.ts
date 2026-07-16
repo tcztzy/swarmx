@@ -1,70 +1,39 @@
-import { contextBridge, ipcRenderer } from "electron";
+import { listProjects } from "@swarmx/core/project";
+import { type IpcRendererEvent, contextBridge, ipcRenderer } from "electron";
+import { createSwarmxDesktopApi } from "./api.js";
 
-const api = {
-  sendMessage: (params: {
-    harnessId: string;
-    userText: string;
-    agentConfig?: unknown;
-    agentComposition?: unknown;
-    swarmConfig?: unknown;
-    sessionId?: string;
-  }) => ipcRenderer.invoke("agent:send", params),
+let initialProjects: ReturnType<typeof listProjects> | undefined;
+try {
+  initialProjects = listProjects();
+} catch {
+  initialProjects = undefined;
+}
 
-  createSession: (params: {
-    agentName: string;
-    harness: string;
-    model?: string;
-  }) => ipcRenderer.invoke("session:create", params),
-
-  saveSession: (session: unknown) => ipcRenderer.invoke("session:save", session),
-
-  loadSession: (id: string) => ipcRenderer.invoke("session:load", id),
-
-  loadDiscoveredSession: (session: {
-    id: string;
-    title: string;
-    cwd: string;
-    updatedAt?: string;
-    harnessId: string;
-    harnessLabel: string;
-    source: "local" | "acp";
-  }) => ipcRenderer.invoke("session:loadDiscovered", session),
-
-  listSessions: () => ipcRenderer.invoke("session:list"),
-
-  listGroupedSessions: (params?: {
-    mode?: "project" | "harness";
-    cwd?: string;
-    harnessIds?: string[];
-  }) => ipcRenderer.invoke("session:listGrouped", params ?? {}),
-
-  deleteSession: (id: string) => ipcRenderer.invoke("session:delete", id),
-
-  appendMessages: (params: { id: string; messages: unknown[] }) =>
-    ipcRenderer.invoke("session:appendMessages", params),
-
-  importN8nWorkflow: (source: string) => ipcRenderer.invoke("workflow:importN8n", { source }),
-
-  listExtensions: () => ipcRenderer.invoke("extension:list"),
-
-  lspComplete: (params: {
-    serverId: string;
-    workspaceRoot: string;
-    text: string;
-    position: { line: number; character: number };
-    documentUri?: string;
-    languageId?: string;
-    triggerCharacter?: string;
-    timeoutMs?: number;
-  }) => ipcRenderer.invoke("lsp:complete", params),
-
-  lspStop: (params: { serverId: string; workspaceRoot?: string }) =>
-    ipcRenderer.invoke("lsp:stop", params),
-
-  loadImageDataUrl: (source: string) =>
-    ipcRenderer.invoke("asset:imageDataUrl", source) as Promise<string | null>,
-};
+const api = createSwarmxDesktopApi(
+  (channel, ...args) => ipcRenderer.invoke(channel, ...args),
+  (channel, listener) => {
+    const wrapped = (_event: IpcRendererEvent, value: unknown) => listener(value);
+    ipcRenderer.on(channel, wrapped);
+    return () => ipcRenderer.removeListener(channel, wrapped);
+  },
+  initialProjects ? { initialProjects } : {},
+);
 
 contextBridge.exposeInMainWorld("swarmxAPI", api);
 
-export type SwarmxAPI = typeof api;
+export type {
+  DesktopAgentChunkEvent,
+  DesktopAgentMessageChunk,
+  DesktopBrowserBounds,
+  DesktopBrowserState,
+  DesktopBootstrapData,
+  DesktopIpcInvoke,
+  DesktopIpcSubscribe,
+  DesktopProjectData,
+  DesktopTerminalDataEvent,
+  DesktopTerminalExitEvent,
+  DesktopUpdatePhase,
+  DesktopUpdateState,
+  SwarmxAPI,
+  SwarmxDesktopApi,
+} from "./api.js";

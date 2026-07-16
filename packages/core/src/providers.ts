@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { ModelApiModeSchema, ModelApiSchema } from "./model-api.js";
 
 const REDACTED_VALUE = "[redacted]";
 
@@ -20,12 +21,13 @@ const ALLOWED_SECRET_REFERENCE_KEYS = new Set([
 const FORBIDDEN_SECRET_KEY_PATTERN =
   /(api[_-]?key|access[_-]?token|bearer|password|passwd|secret|credential|private[_-]?key|smtp[_-]?password|telemetry[_-]?token|ingest[_-]?token|cluster[_-]?password|remote[_-]?compute[_-]?password)/i;
 
-export const ProviderKindSchema = z.enum([
-  "anthropic",
-  "openai_chat",
-  "openai_responses",
-  "ollama",
-]);
+export const ProviderApiSchema = ModelApiSchema;
+/** @deprecated Provider kind is an API supply label, never a Model owner. */
+export const ProviderKindSchema = ProviderApiSchema;
+export const ProviderAuthModeSchema = z.enum(["api_key", "auth_token"]);
+export const ProviderApiEntrypointsSchema = z
+  .record(ProviderApiSchema, z.string().min(1))
+  .default({});
 
 export const ProviderApiCompatibilityModeSchema = z.enum(["auto", "native", "bridge"]);
 
@@ -35,7 +37,7 @@ export const ProviderApiCompatibilitySchema = z.preprocess(
     .object({
       mode: ProviderApiCompatibilityModeSchema.default("auto"),
       baseUrl: z.string().min(1).optional(),
-      targetKind: ProviderKindSchema.optional(),
+      targetApi: ProviderApiSchema.optional(),
     })
     .passthrough()
     .superRefine(addSecretIssues),
@@ -72,12 +74,11 @@ export const ProviderProfileMetadataSchema = z.preprocess(
       presetId: z.string().min(1).optional(),
       displayName: z.string().min(1),
       description: z.string().optional(),
-      kind: ProviderKindSchema,
-      defaultModel: z.string().min(1).optional(),
+      kind: ProviderApiSchema,
+      apiMode: ModelApiModeSchema.optional(),
       baseUrl: z.string().min(1).optional(),
-      isDefault: z.boolean().default(false),
-      harnessModelOverrides: z.record(z.string().min(1), z.string().min(1)).default({}),
-      apiCompatibility: ProviderApiCompatibilitySchema.default({}),
+      apiEntrypoints: ProviderApiEntrypointsSchema,
+      authMode: ProviderAuthModeSchema.default("api_key"),
       secretRef: ProviderSecretRefSchema.optional(),
       readOnly: z.boolean().optional(),
       metadata: z.record(z.string(), z.unknown()).default({}),
@@ -106,9 +107,7 @@ export const ProviderSelectionSchema = z.preprocess(
   z
     .object({
       profileId: z.string().min(1).optional(),
-      kind: ProviderKindSchema.optional(),
-      model: z.string().min(1).optional(),
-      harnessId: z.string().min(1).optional(),
+      kind: ProviderApiSchema.optional(),
       source: ProviderSelectionSourceSchema.default("direct_prompt"),
     })
     .passthrough()
@@ -122,7 +121,8 @@ export const ProviderPromptRequestSchema = z.preprocess(
       requestId: z.string().min(1).optional(),
       profileId: z.string().min(1),
       userText: z.string().min(1),
-      model: z.string().min(1).optional(),
+      modelId: z.string().min(1),
+      runtimeModel: z.string().min(1).optional(),
       contextPacketId: z.string().min(1).optional(),
       parameters: z.record(z.string(), z.unknown()).default({}),
       metadata: z.record(z.string(), z.unknown()).default({}),
@@ -133,10 +133,14 @@ export const ProviderPromptRequestSchema = z.preprocess(
 
 export const ProviderRuntimeEnvSchema = z.object({
   profileId: z.string().min(1),
-  kind: ProviderKindSchema,
-  targetKind: ProviderKindSchema.optional(),
-  model: z.string().min(1),
+  kind: ProviderApiSchema,
+  apiMode: ModelApiModeSchema,
+  authMode: ProviderAuthModeSchema,
+  targetApi: ProviderApiSchema.optional(),
+  modelId: z.string().min(1),
+  runtimeModel: z.string().min(1),
   baseUrl: z.string().min(1).optional(),
+  apiEntrypoints: ProviderApiEntrypointsSchema,
   apiCompatibility: ProviderApiCompatibilitySchema.default({}),
   bridgeEnabled: z.boolean().default(false),
   secretRef: ProviderSecretRefSchema.optional(),
@@ -146,6 +150,9 @@ export const ProviderRuntimeEnvSchema = z.object({
 });
 
 export type ProviderKind = z.infer<typeof ProviderKindSchema>;
+export type ProviderApi = z.infer<typeof ProviderApiSchema>;
+export type ProviderAuthMode = z.infer<typeof ProviderAuthModeSchema>;
+export type ProviderApiEntrypoints = z.infer<typeof ProviderApiEntrypointsSchema>;
 export type ProviderApiCompatibilityMode = z.infer<typeof ProviderApiCompatibilityModeSchema>;
 export type ProviderApiCompatibility = z.infer<typeof ProviderApiCompatibilitySchema>;
 export type ProviderSecretSource = z.infer<typeof ProviderSecretSourceSchema>;
@@ -158,11 +165,11 @@ export type ProviderPromptRequest = z.infer<typeof ProviderPromptRequestSchema>;
 export type ProviderRuntimeEnv = z.infer<typeof ProviderRuntimeEnvSchema>;
 
 export interface BuildProviderRuntimeEnvOptions {
+  modelId: string;
+  runtimeModel?: string;
   secretValue?: string;
-  model?: string;
-  harnessId?: string;
-  targetKind?: ProviderKind;
-  compatibleProviderKinds?: ProviderKind[];
+  targetApi?: ProviderApi;
+  apiCompatibility?: ProviderApiCompatibility;
   apiCompatibilityMode?: ProviderApiCompatibilityMode;
   bridgeBaseUrl?: string;
   downstreamSecretValue?: string;
@@ -199,11 +206,6 @@ export function resolveProviderProfile(
   const candidates = selection.kind
     ? profiles.filter((profile) => profile.kind === selection.kind)
     : profiles;
-  const defaults = candidates.filter((profile) => profile.isDefault);
-  if (defaults.length === 1) return defaults[0] as ProviderProfileMetadata;
-  if (defaults.length > 1) {
-    throw new Error("Ambiguous default provider profile selection.");
-  }
   if (candidates.length === 1) return candidates[0] as ProviderProfileMetadata;
   if (candidates.length === 0) {
     throw new Error(
@@ -215,31 +217,13 @@ export function resolveProviderProfile(
   throw new Error("Provider profile selection must be explicit.");
 }
 
-export function providerModelForSelection(
-  profileInput: unknown,
-  selectionInput: unknown = {},
-): string {
-  const profile = ProviderProfileMetadataSchema.parse(profileInput);
-  const selection = ProviderSelectionSchema.parse(selectionInput);
-  const harnessOverride = selection.harnessId
-    ? profile.harnessModelOverrides[selection.harnessId]
-    : undefined;
-  const model = selection.model ?? harnessOverride ?? profile.defaultModel;
-  if (!model) {
-    throw new Error(`Provider profile "${profile.id}" must resolve a model.`);
-  }
-  return model;
-}
-
 export function buildProviderRuntimeEnv(
   profileInput: unknown,
-  options: BuildProviderRuntimeEnvOptions = {},
+  options: BuildProviderRuntimeEnvOptions,
 ): ProviderRuntimeEnv {
   const profile = ProviderProfileMetadataSchema.parse(profileInput);
-  const model = providerModelForSelection(profile, {
-    model: options.model,
-    harnessId: options.harnessId,
-  });
+  const modelId = options.modelId;
+  const runtimeModel = options.runtimeModel ?? modelId;
   const requiresSecret = !!profile.secretRef;
 
   if (requiresSecret && !options.secretValue) {
@@ -247,35 +231,57 @@ export function buildProviderRuntimeEnv(
   }
 
   const apiCompatibility = ProviderApiCompatibilitySchema.parse({
-    ...profile.apiCompatibility,
-    mode: options.apiCompatibilityMode ?? profile.apiCompatibility.mode,
-    baseUrl: options.bridgeBaseUrl ?? profile.apiCompatibility.baseUrl,
+    ...options.apiCompatibility,
+    mode: options.apiCompatibilityMode ?? options.apiCompatibility?.mode,
+    baseUrl: options.bridgeBaseUrl ?? options.apiCompatibility?.baseUrl,
   });
-  const targetKind = resolveRuntimeTargetKind(profile.kind, apiCompatibility, options);
-  const bridgeEnabled = shouldUseProviderBridge(profile.kind, targetKind, apiCompatibility);
+  const targetApi = options.targetApi ?? apiCompatibility.targetApi ?? profile.kind;
+  const apiMode = profile.apiMode ?? "standard";
+  const nativeBaseUrl = profile.apiEntrypoints[targetApi];
+  const nativeTargetAvailable = targetApi === profile.kind || nativeBaseUrl !== undefined;
+  const runtimeBaseUrl = nativeBaseUrl ?? profile.baseUrl;
+  const bridgeEnabled = shouldUseProviderBridge(
+    profile.kind,
+    targetApi,
+    apiCompatibility,
+    nativeTargetAvailable,
+  );
+  if (apiMode === "codex_responses" && targetApi !== "openai_responses") {
+    throw new Error("codex_responses mode requires the openai_responses API protocol.");
+  }
+  if (apiMode === "codex_responses" && bridgeEnabled) {
+    throw new Error("codex_responses mode does not support a protocol bridge.");
+  }
   const env = bridgeEnabled
     ? providerBridgeEnvVars({
         upstreamKind: profile.kind,
-        targetKind,
-        model,
+        upstreamAuthMode: profile.authMode,
+        targetApi,
+        model: runtimeModel,
         upstreamApiKey: options.secretValue,
         upstreamBaseUrl: profile.baseUrl,
         bridgeBaseUrl: apiCompatibility.baseUrl,
         downstreamSecretValue: options.downstreamSecretValue,
       })
     : providerEnvVars({
-        kind: profile.kind,
-        model,
-        baseUrl: profile.baseUrl,
+        kind: targetApi,
+        apiMode,
+        authMode: profile.authMode,
+        model: runtimeModel,
+        baseUrl: runtimeBaseUrl,
         apiKey: options.secretValue,
       });
 
   return ProviderRuntimeEnvSchema.parse({
     profileId: profile.id,
     kind: profile.kind,
-    targetKind,
-    model,
-    baseUrl: profile.baseUrl,
+    apiMode,
+    authMode: profile.authMode,
+    targetApi,
+    modelId,
+    runtimeModel,
+    baseUrl: runtimeBaseUrl,
+    apiEntrypoints: profile.apiEntrypoints,
     apiCompatibility,
     bridgeEnabled,
     secretRef: profile.secretRef,
@@ -287,7 +293,8 @@ export function buildProviderRuntimeEnv(
 
 function providerBridgeEnvVars(provider: {
   upstreamKind: ProviderKind;
-  targetKind: ProviderKind;
+  upstreamAuthMode: ProviderAuthMode;
+  targetApi: ProviderApi;
   model: string;
   upstreamApiKey?: string;
   upstreamBaseUrl?: string;
@@ -299,7 +306,7 @@ function providerBridgeEnvVars(provider: {
   return {
     ...bridgeUpstreamEnvVars(provider),
     ...bridgeDownstreamEnvVars({
-      targetKind: provider.targetKind,
+      targetApi: provider.targetApi,
       model,
       rootBaseUrl,
       downstreamSecretValue: provider.downstreamSecretValue,
@@ -309,24 +316,40 @@ function providerBridgeEnvVars(provider: {
 
 export function providerEnvVars(provider: {
   kind: ProviderKind;
+  apiMode?: "standard" | "codex_responses";
+  authMode?: ProviderAuthMode;
   model: string;
   apiKey?: string;
   baseUrl?: string;
 }): Record<string, string> {
   const env: Record<string, string> = {};
-  if (provider.model) env.OPENAI_MODEL = provider.model;
 
   switch (provider.kind) {
     case "anthropic":
-      if (provider.apiKey) env.ANTHROPIC_API_KEY = provider.apiKey;
+      env.ANTHROPIC_MODEL = provider.model;
+      if (provider.apiKey) {
+        if (provider.authMode === "auth_token") {
+          env.ANTHROPIC_AUTH_TOKEN = provider.apiKey;
+        } else {
+          env.ANTHROPIC_API_KEY = provider.apiKey;
+        }
+      }
       if (provider.baseUrl) env.ANTHROPIC_BASE_URL = provider.baseUrl;
       break;
     case "openai_chat":
     case "openai_responses":
-      if (provider.apiKey) env.OPENAI_API_KEY = provider.apiKey;
-      if (provider.baseUrl) env.OPENAI_BASE_URL = provider.baseUrl;
+      env.OPENAI_MODEL = provider.model;
+      if (provider.apiMode === "codex_responses") {
+        env.SWARMX_API_MODE = "codex_responses";
+        if (provider.apiKey) env.CODEX_ACCESS_TOKEN = provider.apiKey;
+        if (provider.baseUrl) env.CODEX_BASE_URL = provider.baseUrl;
+      } else {
+        if (provider.apiKey) env.OPENAI_API_KEY = provider.apiKey;
+        if (provider.baseUrl) env.OPENAI_BASE_URL = provider.baseUrl;
+      }
       break;
     case "ollama":
+      env.OLLAMA_MODEL = provider.model;
       if (provider.baseUrl) env.OLLAMA_HOST = provider.baseUrl;
       break;
   }
@@ -334,33 +357,20 @@ export function providerEnvVars(provider: {
   return env;
 }
 
-function resolveRuntimeTargetKind(
-  providerKind: ProviderKind,
-  apiCompatibility: ProviderApiCompatibility,
-  options: BuildProviderRuntimeEnvOptions,
-): ProviderKind {
-  if (options.targetKind) return options.targetKind;
-  if (apiCompatibility.targetKind) return apiCompatibility.targetKind;
-  const compatibleProviderKinds = options.compatibleProviderKinds ?? [];
-  if (compatibleProviderKinds.includes(providerKind)) return providerKind;
-  if (apiCompatibility.mode !== "native" && compatibleProviderKinds.length > 0) {
-    return compatibleProviderKinds[0] as ProviderKind;
-  }
-  return providerKind;
-}
-
 function shouldUseProviderBridge(
-  providerKind: ProviderKind,
-  targetKind: ProviderKind,
+  providerApi: ProviderApi,
+  targetApi: ProviderApi,
   apiCompatibility: ProviderApiCompatibility,
+  nativeTargetAvailable = providerApi === targetApi,
 ): boolean {
   if (apiCompatibility.mode === "native") return false;
   if (apiCompatibility.mode === "bridge") return true;
-  return providerKind !== targetKind;
+  return !nativeTargetAvailable;
 }
 
 function bridgeUpstreamEnvVars(provider: {
   upstreamKind: ProviderKind;
+  upstreamAuthMode: ProviderAuthMode;
   upstreamApiKey?: string;
   upstreamBaseUrl?: string;
 }): Record<string, string> {
@@ -370,7 +380,13 @@ function bridgeUpstreamEnvVars(provider: {
 
   switch (provider.upstreamKind) {
     case "anthropic":
-      if (provider.upstreamApiKey) env.ANTHROPIC_API_KEY = provider.upstreamApiKey;
+      if (provider.upstreamApiKey) {
+        if (provider.upstreamAuthMode === "auth_token") {
+          env.ANTHROPIC_AUTH_TOKEN = provider.upstreamApiKey;
+        } else {
+          env.ANTHROPIC_API_KEY = provider.upstreamApiKey;
+        }
+      }
       if (provider.upstreamBaseUrl) env.ANTHROPIC_BASE_URL = provider.upstreamBaseUrl;
       break;
     case "openai_chat":
@@ -387,13 +403,13 @@ function bridgeUpstreamEnvVars(provider: {
 }
 
 function bridgeDownstreamEnvVars(provider: {
-  targetKind: ProviderKind;
+  targetApi: ProviderApi;
   model: string;
   rootBaseUrl: string;
   downstreamSecretValue?: string;
 }): Record<string, string> {
   const downstreamSecretValue = provider.downstreamSecretValue ?? "sk-swarmx-bridge";
-  switch (provider.targetKind) {
+  switch (provider.targetApi) {
     case "anthropic":
       return {
         ANTHROPIC_AUTH_TOKEN: downstreamSecretValue,
@@ -435,23 +451,17 @@ function normalizeBridgeRootBaseUrl(baseUrl: string | undefined): string {
 
 function normalizeProviderProfileInput(input: unknown): unknown {
   if (!isObjectRecord(input)) return input;
+  assertNoProviderOwnedModelFields(input);
   const {
     preset_id,
     display_name,
-    default_model,
     base_url,
-    is_default,
-    harness_model_overrides,
-    api_compatibility,
-    apiBridge,
-    api_bridge,
-    bridge,
-    translator,
-    translation,
+    api_entrypoints,
+    api_mode,
+    auth_mode,
     secret_ref,
     label,
     name,
-    model,
     ...rest
   } = input;
 
@@ -459,18 +469,10 @@ function normalizeProviderProfileInput(input: unknown): unknown {
     ...rest,
     presetId: rest.presetId ?? preset_id,
     displayName: rest.displayName ?? display_name ?? label ?? name,
-    defaultModel: rest.defaultModel ?? default_model ?? model,
     baseUrl: rest.baseUrl ?? base_url,
-    isDefault: rest.isDefault ?? is_default,
-    harnessModelOverrides: rest.harnessModelOverrides ?? harness_model_overrides,
-    apiCompatibility:
-      rest.apiCompatibility ??
-      api_compatibility ??
-      apiBridge ??
-      api_bridge ??
-      bridge ??
-      translation ??
-      translator,
+    apiEntrypoints: rest.apiEntrypoints ?? api_entrypoints,
+    apiMode: rest.apiMode ?? api_mode,
+    authMode: rest.authMode ?? auth_mode,
     secretRef: rest.secretRef ?? secret_ref,
   };
 }
@@ -480,7 +482,8 @@ function normalizeProviderApiCompatibilityInput(input: unknown): unknown {
     return { mode: normalizeProviderApiCompatibilityMode(input) };
   }
   if (!isObjectRecord(input)) return input;
-  const { downstream_kind, target_kind, base_url, kind, translator, enabled, ...rest } = input;
+  const { downstream_kind, target_kind, target_api, base_url, kind, translator, enabled, ...rest } =
+    input;
   return {
     ...rest,
     mode:
@@ -488,7 +491,7 @@ function normalizeProviderApiCompatibilityInput(input: unknown): unknown {
       normalizeProviderApiCompatibilityMode(
         kind ?? translator ?? (enabled === false ? "native" : undefined),
       ),
-    targetKind: rest.targetKind ?? target_kind ?? downstream_kind,
+    targetApi: rest.targetApi ?? target_api ?? rest.targetKind ?? target_kind ?? downstream_kind,
     baseUrl: rest.baseUrl ?? base_url,
   };
 }
@@ -522,24 +525,57 @@ function normalizeProviderSecretStatusInput(input: unknown): unknown {
 
 function normalizeProviderSelectionInput(input: unknown): unknown {
   if (!isObjectRecord(input)) return input;
-  const { profile_id, harness_id, ...rest } = input;
+  const { profile_id, ...rest } = input;
   return {
     ...rest,
     profileId: rest.profileId ?? profile_id,
-    harnessId: rest.harnessId ?? harness_id,
   };
 }
 
 function normalizeProviderPromptInput(input: unknown): unknown {
   if (!isObjectRecord(input)) return input;
-  const { request_id, profile_id, user_text, context_packet_id, ...rest } = input;
+  const {
+    request_id,
+    profile_id,
+    user_text,
+    context_packet_id,
+    model_id,
+    runtime_model,
+    model,
+    ...rest
+  } = input;
   return {
     ...rest,
     requestId: rest.requestId ?? request_id,
     profileId: rest.profileId ?? profile_id,
     userText: rest.userText ?? user_text,
+    modelId: rest.modelId ?? model_id ?? model,
+    runtimeModel: rest.runtimeModel ?? runtime_model,
     contextPacketId: rest.contextPacketId ?? context_packet_id,
   };
+}
+
+function assertNoProviderOwnedModelFields(input: Record<string, unknown>): void {
+  const forbidden = new Set([
+    "model",
+    "models",
+    "defaultmodel",
+    "harnessmodeloverrides",
+    "isdefault",
+    "providerproduct",
+    "apicompatibility",
+    "apibridge",
+    "bridge",
+    "translator",
+    "translation",
+  ]);
+  for (const key of Object.keys(input)) {
+    if (forbidden.has(key.toLowerCase().replace(/[^a-z0-9]/g, ""))) {
+      throw new Error(
+        `Provider profile field "${key}" is invalid; Models and route compatibility belong to Model/ModelSupply.`,
+      );
+    }
+  }
 }
 
 function addSecretStatusIssues(status: unknown, ctx: z.RefinementCtx): void {

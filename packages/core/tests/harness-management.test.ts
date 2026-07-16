@@ -28,47 +28,48 @@ describe("harness management primitives", () => {
     });
   });
 
-  it("resolves bare and provider-suffixed harness selectors", () => {
-    expect(resolveHarnessSelector("@codex Plan the run", { knownAdapters: ["codex"] })).toEqual({
+  it("resolves bare and Model-suffixed harness selectors", () => {
+    expect(resolveHarnessSelector("@codex Plan the run", { knownHarnesses: ["codex"] })).toEqual({
       matched: true,
-      source: "bare_adapter",
+      source: "bare_harness",
       selector: "@codex",
       canonicalSelector: "@codex",
-      adapterId: "codex",
+      harnessId: "codex",
       prompt: "Plan the run",
     });
 
     expect(
-      resolveHarnessSelector("@claude:deepseek Inspect the repo", {
-        knownAdapters: ["codex", "claude"],
+      resolveHarnessSelector("@claude:claude-sonnet-4-6 Inspect the repo", {
+        knownHarnesses: ["codex", "claude"],
       }),
     ).toMatchObject({
       matched: true,
-      source: "adapter_provider",
-      selector: "@claude:deepseek",
-      canonicalSelector: "@claude:deepseek",
-      adapterId: "claude",
-      providerProfileId: "deepseek",
+      source: "harness_model",
+      selector: "@claude:claude-sonnet-4-6",
+      canonicalSelector: "@claude:claude-sonnet-4-6",
+      harnessId: "claude",
+      modelId: "claude-sonnet-4-6",
       prompt: "Inspect the repo",
     });
 
-    expect(resolveHarnessSelector("No selector", { knownAdapters: ["codex"] })).toEqual({
+    expect(resolveHarnessSelector("No selector", { knownHarnesses: ["codex"] })).toEqual({
       matched: false,
       source: "none",
       prompt: "No selector",
     });
   });
 
-  it("resolves named agent aliases to canonical adapter/provider selectors", () => {
+  it("resolves named agent aliases to canonical Harness-Model selectors", () => {
     expect(
       resolveHarnessSelector("@deepseek Analyze results", {
-        knownAdapters: ["codex", "claude"],
+        knownHarnesses: ["codex", "claude"],
         agentAliases: [
           {
             alias: "deepseek",
             agentProfileId: "analysis-lead",
-            adapterId: "claude",
-            providerProfileId: "deepseek",
+            harnessId: "claude",
+            modelId: "deepseek-v4-pro",
+            modelSupplyId: "deepseek-cloud",
           },
         ],
       }),
@@ -76,9 +77,10 @@ describe("harness management primitives", () => {
       matched: true,
       source: "agent_alias",
       selector: "@deepseek",
-      canonicalSelector: "@claude:deepseek",
-      adapterId: "claude",
-      providerProfileId: "deepseek",
+      canonicalSelector: "@claude:deepseek-v4-pro",
+      harnessId: "claude",
+      modelId: "deepseek-v4-pro",
+      modelSupplyId: "deepseek-cloud",
       agentProfileId: "analysis-lead",
       prompt: "Analyze results",
     });
@@ -87,54 +89,57 @@ describe("harness management primitives", () => {
   it("fails unknown and ambiguous selectors instead of falling back", () => {
     expect(() =>
       resolveHarnessSelector("@unknown Do work", {
-        knownAdapters: ["codex"],
+        knownHarnesses: ["codex"],
       }),
     ).toThrow(/Unknown harness or agent selector/);
 
     expect(() =>
       resolveHarnessSelector("@opencode:model Do work", {
-        knownAdapters: ["codex"],
+        knownHarnesses: ["codex"],
       }),
-    ).toThrow(/Unknown harness adapter/);
+    ).toThrow(/Unknown harness/);
 
     expect(() =>
       resolveHarnessSelector("@analysis Do work", {
-        knownAdapters: ["codex", "claude"],
+        knownHarnesses: ["codex", "claude"],
         agentAliases: [
-          { alias: "analysis", adapterId: "codex" },
-          { alias: "analysis", adapterId: "claude" },
+          { alias: "analysis", harnessId: "codex", modelId: "gpt-5" },
+          { alias: "analysis", harnessId: "claude", modelId: "claude-sonnet-4-6" },
         ],
       }),
     ).toThrow(/Ambiguous agent selector/);
   });
 
-  it("validates invocation metadata without storing provider secrets", () => {
+  it("validates Harness-Model invocation metadata without Provider identity", () => {
     expect(
       parseHarnessInvocationMetadata({
         invocationId: "hinv_1",
         sessionId: "conv_1",
         triggerMessageId: "msg_1",
         contextPacketId: "ctx_1",
-        adapterId: "claude",
-        providerProfileId: "deepseek",
+        harnessId: "claude",
+        modelId: "deepseek-v4-pro",
+        modelSupplyId: "deepseek-cloud",
         agentProfileId: "analysis-lead",
-        canonicalSelector: "@claude:deepseek",
+        canonicalSelector: "@claude:deepseek-v4-pro",
         externalSessionRef: "claude-session-1",
         status: "completed",
         startedAt: "2026-07-03T00:00:00.000Z",
         endedAt: "2026-07-03T00:01:00.000Z",
       }),
     ).toMatchObject({
-      adapterId: "claude",
-      providerProfileId: "deepseek",
-      canonicalSelector: "@claude:deepseek",
+      harnessId: "claude",
+      modelId: "deepseek-v4-pro",
+      modelSupplyId: "deepseek-cloud",
+      canonicalSelector: "@claude:deepseek-v4-pro",
       status: "completed",
     });
 
     expect(() =>
       parseHarnessInvocationMetadata({
         invocationId: "hinv_secret",
-        adapterId: "codex",
+        harnessId: "codex",
+        modelId: "gpt-5",
         status: "started",
         metadata: {
           apiKey: "sk-test",
@@ -152,5 +157,15 @@ describe("harness management primitives", () => {
         },
       }),
     ).not.toThrow();
+
+    expect(() =>
+      parseHarnessInvocationMetadata({
+        invocationId: "hinv_legacy_provider",
+        harnessId: "claude",
+        modelId: "deepseek-v4-pro",
+        providerProfileId: "deepseek",
+        status: "started",
+      }),
+    ).toThrow(/providerProfileId.*invalid/);
   });
 });

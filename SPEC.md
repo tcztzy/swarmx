@@ -14,11 +14,11 @@ G10: Downstream agent products can depend on SwarmX for an optional server bound
 G11: Downstream agent products can depend on SwarmX for generic managed dependency contracts: dependency classes, manifest validation, detection results, install receipts, and side-effect-free install planning.
 G12: Downstream agent products can depend on SwarmX extension inventory for marketplace source and plugin catalog metadata that supports extensible GUI management without product-specific registry code.
 G13: Downstream agent products can depend on SwarmX for generic append-only conversation ledger contracts: local session index records, rollout events, JSONL serialization, and deterministic replay.
-G14: Downstream agent products can depend on SwarmX for generic provider profile contracts: profile metadata, API compatibility metadata, secret references, secret statuses, direct prompt requests, selection resolution, and request-scoped runtime env construction.
+G14: Downstream agent products can depend on SwarmX for generic provider-supply contracts: connection metadata, API compatibility metadata, secret references, secret statuses, direct prompt requests, explicit supply resolution, and request-scoped runtime env construction without treating providers as model owners.
 G15: Downstream agent products can depend on SwarmX for generic harness management contracts: discovery records, selector resolution, named agent aliases, and invocation metadata.
 G16: Downstream agent products can depend on SwarmX desktop rendering for safe conversational Markdown, blocked-by-default remote media, preload-mediated local images, and stable labeled code blocks.
 G17: Downstream agent products can depend on SwarmX for generic explicit-user-action contracts: action intents, risk classification, confirmations, dependency-plan action mapping, and secret-safe records.
-G18: Downstream agent products can depend on SwarmX for generic agent profile definition contracts: Claude-compatible Markdown frontmatter parsing, GEEPilot-scoped metadata preservation, profile metadata conversion, and host projection.
+G18: Downstream agent products can depend on SwarmX for generic agent profile definition contracts: Claude Code Markdown and Codex TOML parsing, GEEPilot-scoped metadata preservation, profile metadata conversion, and native host projection.
 G19: Downstream agent products can depend on SwarmX extension inventory and desktop GUI to passively surface agent profile definition and policy metadata for inspection before execution.
 G20: Downstream agent products can depend on SwarmX for generic local desktop settings primitives: settings document shape, desktop root resolution, locale registry and selection, UI state metadata, and secret-safe provider/agent profile persistence.
 G21: Downstream agent products can depend on SwarmX extension inventory for passive plugin component metadata beyond skills and MCPs: commands, LSP servers, hooks, monitors, output styles, settings, assets, permissions, and auth policy.
@@ -40,6 +40,23 @@ G36: Downstream desktop products can call a stable SwarmX core helper to execute
 G37: Downstream desktop products can depend on SwarmX desktop for explicit LSP completion hosting from extension-declared stdio language servers without product-specific process bridges.
 G38: Downstream desktop products can depend on SwarmX for generic local workspace file completions as a product-neutral reference source.
 G39: Downstream desktop products can depend on SwarmX for generic skill completions from extension inventory as a product-neutral `$` reference source.
+G40: Desktop users can run external ACP harnesses through a protected container runtime, preferring Apple Container on supported macOS, with host setup hidden behind explicit one-click confirmation.
+G41: CLI and desktop users can diagnose runtime health and explicitly repair fixable harness issues without a permanent Setup destination.
+G42: Desktop and downstream products can select and execute agents across the supported `Harness x Model` capability matrix, with Model as an independent primary entity and Provider as an optional many-to-many supply label.
+G43: Desktop users can populate the Model catalog from configured Provider APIs, refresh it on demand, and persist manually declared Models without making Provider part of Model or Agent identity.
+G44: Desktop users can configure Provider connections with a Base URL and API key or auth token through a dedicated Settings surface, with settings and encrypted auth state updated together.
+G45: Desktop users can reach Provider settings and release updates from a persistent Codex-style lower-left account area, with usage integrated into the Provider workspace instead of duplicated in account navigation.
+G46: Desktop users can inspect supported Provider balances and rate-limit windows beside each Provider connection, plus supported local tool-account quota such as Codex 5-hour and weekly windows, without exposing credentials to the renderer.
+G47: Desktop users can manage every configured and supported local Provider in one quota matrix, including multi-protocol Providers and New API account/token summaries, with independent refresh and no duplicated shared balance.
+G48: Desktop users manage Extensions, reusable Custom Agents, Harness software health, and shared Runtime dependencies from dedicated Settings surfaces without permanent diagnostic chrome in the conversation sidebar.
+G49: Desktop users can compose a reproducible Harness from Software, Extension-provided Skills, MCP servers, project context, and delivery/permission policy, then pair that Harness with a Model as a Custom Agent with deterministic agent/model-specific Skill variants and explicit context cost.
+G50: Desktop users can refresh marketplace sources, install and update plugins, preserve local Skill evolution overlays, evaluate candidates for a target Agent/Model, and roll back active revisions through explicit audited actions.
+G51: Desktop users can inspect project-scoped and user-scoped Codex and Claude Code Agent definitions through the same read-only Agent profile inventory without copying, activating, or rewriting native files.
+G52: A desktop task bound to a Project can identify that Project and inspect its contained text files through bounded read-only tools before answering repository questions.
+G53: Desktop task history exposes comprehensible work timing plus automatic, editable, pinnable, and deletable local task titles.
+G54: A direct SwarmX task bound to a Project can inspect, edit, and validate that repository through host-provided coding tools with safety boundaries comparable to Claude Code and Codex.
+G55: Expanded Worked reasoning reads as part of the conversation body instead of as a nested card.
+G56: A running desktop task exposes its live reasoning, commentary, tool calls, and tool results, then collapses that work and leaves only the final answer visible when execution ends.
 
 ## §C
 C1: Reuse existing `SwarmConfig`; no second workflow DSL.
@@ -49,11 +66,11 @@ C4: UI must stay useful at desktop and narrow widths; no overlapping text/contro
 C5: Default single-agent path must still work when no workflow JSON is active.
 C6: `FORMAT.md` missing in repo; this SPEC uses required §G/§C/§I/§V/§T/§B shape without extra local encoding rules.
 C7: In the desktop workflow surface, "agent" means ACP agent identity: model plus harness/backend. Tool use is configured inside an agent, not represented as the default agent node identity.
-C8: Harness identity is not a short label. It is a reproducible runtime descriptor: software name/version, MCP set, skill set, and project context files.
+C8: Harness identity is not a short label. It is a reproducible composition descriptor: Software name/version, selected Skill bindings and resolved variants, selected MCP servers, project context files, delivery capabilities, and permission policy.
 C9: n8n import is structural. It preserves workflow topology, node metadata, parameters, and credential references, but does not import credential secrets or execute native n8n node implementations.
 C10: n8n import must output `SwarmConfig`; no persisted n8n DSL or alternate runtime graph.
 C11: GEEPilot-specific LSF/HPC, biosecurity, memory-claim semantics, benchmark, paper, and data-analysis workflows remain downstream plugin/domain code, not SwarmX core logic.
-C12: Extension discovery is passive metadata loading. Installing software, enabling hooks, starting MCP servers, or mutating compositions requires a future explicit user action surface.
+C12: Extension discovery is passive metadata loading. Installing or updating software, changing trust, enabling hooks, starting MCP servers, mutating Agent bindings, or promoting evolved Skills requires a separate explicit Settings action with confirmation and an audit receipt.
 C13: Extension manifests must not persist inline provider keys, bearer tokens, passwords, private keys, credentials, or deployment secrets; only secret references are metadata.
 C14: Desktop extension inventory uses preload IPC only and must remain compatible with Electron isolation.
 C15: Provider profile secret injection is execution-scoped. Persisted extension metadata and resolved agent metadata keep only profile ids, API compatibility metadata, and secret references, while child-process env receives resolved secret values only at invocation time.
@@ -72,7 +89,7 @@ C27: Browser CORS must not use wildcard origins. Desktop `Origin: null` is trust
 C28: Generic managed dependency primitives are side-effect free core contracts. They do not inspect PATH, download artifacts, extract archives, run package managers, open installers, mutate managed roots, or write receipts.
 C29: GEEPilot-specific `uv` and npm bootstrap, managed `ripgrep` installation, archive extraction, atomic replacement, Tuqiao installer flow, harness vendor installer commands, data-root resolution, and receipt writes remain downstream code.
 C30: Dependency manifests, detection results, install plans, and receipts must not persist inline provider keys, bearer tokens, passwords, private keys, credentials, remote-compute passwords, or URLs with embedded credentials.
-C31: Marketplace source and plugin catalog inventory is passive metadata. It does not install, update, uninstall, enable, or disable host plugins; it does not activate hooks, start MCP servers, execute bundled software, or change trust state.
+C31: Marketplace source and plugin catalog inventory remains passive metadata. A host-owned Extension manager may install, update, uninstall, enable, disable, or roll back plugins only after an explicit validated action; inventory loading itself never activates hooks, starts MCP servers, executes bundled software, or changes trust.
 C32: Desktop extension UI must keep marketplace sources, plugin catalog entries, plugin bundles, executable harnesses, agent profiles, providers, skills, MCP servers, and app connectors visually separate.
 C33: Generic conversation ledger primitives are side-effect free core contracts. They do not read or write files, choose concrete desktop roots, compress context, call providers, mutate runtime memory, write Wiki drafts, or decide downstream knowledge admission.
 C34: Conversation index records, rollout events, and replay payloads must not persist inline provider keys, bearer tokens, passwords, private keys, credentials, telemetry tokens, SMTP passwords, cluster passwords, or remote-compute passwords.
@@ -103,7 +120,7 @@ C58: Generic deterministic autonomy runtime contracts are side-effect free core 
 C59: Runtime trigger records, transition decisions, validator gate decisions, and replay records must not persist inline provider keys, bearer tokens, passwords, private keys, credentials, telemetry tokens, SMTP passwords, cluster passwords, remote-compute passwords, private deployment URLs, copied host login state, raw issue bodies, raw terminal output, raw validator output, or raw data-analysis outputs.
 C60: Generic engineering lifecycle governance contracts are side-effect free core contracts. They do not create issue tickets, write proposal ledgers, accept specs, edit specs, merge patches, run validators, invoke agents, request approvals, write reports, close work items, or decide biosecurity policy.
 C61: Lifecycle intake, proposal, discussion, approval, validation, and transition records must not persist inline provider keys, bearer tokens, passwords, private keys, credentials, telemetry tokens, SMTP passwords, cluster passwords, remote-compute passwords, private deployment URLs, copied host login state, or request-only secrets.
-C62: Generic skill host-compatibility metadata is passive extension inventory. SwarmX does not implement downstream skill behavior, fork skill trees per host, enforce biosecurity routing, install host plugins, mutate marketplace manifests, claim executable adapter support, or depend on `.mcp.json` or runtime-local memory roots.
+C62: Generic Skill host-compatibility and variant metadata is passive extension inventory. SwarmX may resolve versioned Agent/Model-specific variants and record optimizer-neutral evolution lineage, but it does not implement downstream Skill behavior, silently rewrite upstream or active revisions, enforce domain routing, or claim executable adapter support without a declared delivery path.
 C63: Skill capability records, host exposure records, and compatibility issue records must not persist inline provider keys, bearer tokens, passwords, private keys, credentials, telemetry tokens, SMTP passwords, cluster passwords, remote-compute passwords, private deployment URLs, copied host login state, or request-only secrets.
 C64: Desktop math rendering is presentation-only derived state. It does not change canonical message text, execute scripts, fetch remote assets, evaluate formulas semantically, or decide downstream scientific interpretation.
 C65: Math rendering must stay inside the message layout on desktop and narrow widths; invalid formulas and parser failures must degrade locally without hiding surrounding message content.
@@ -126,6 +143,61 @@ C81: LSP server declarations may use either `command: string[]` or `command: str
 C82: LSP host behavior is generic process and JSON-RPC lifecycle code; product-specific completion sources such as data references, identifier registries, bibliography keys, or domain task routing remain downstream language-server logic.
 C83: SwarmX local file completions are workspace-bound directory metadata. They do not inspect file contents, dereference remote URLs, resolve biological identifiers, index bibliography keys, or enumerate downstream skill catalogs.
 C84: SwarmX skill completions are extension-inventory metadata. They do not execute skills, read skill files, enforce downstream governance gates, or infer product-specific task routing.
+C85: Container runtime detection, installer execution, system-service startup, image pulls, and harness process wrapping are desktop host behavior; core contracts remain side-effect free.
+C86: On macOS, Apple Container is preferred over Docker and requires Apple silicon plus a supported macOS version; Docker and native fallback must not be assumed or silently preferred.
+C87: Host container installation or service mutation requires an explicit user-confirmed setup action, may surface OS administrator prompts, and must not require copying commands into a terminal.
+C88: External built-in ACP harness execution should prefer protected container mode when a supported container backend is ready, and should block with setup guidance when protection is required but unavailable.
+C89: Containerized harness launches pass only the request-scoped env needed by the harness, avoid raw env snapshots in logs/UI, mount the workspace deliberately, and keep ephemeral containers removable.
+C90: Doctor inspection is read-only by default; no installer, service mutation, PATH write, or privileged action runs without an explicit fix request.
+C91: Doctor repairs expose a plan first and require explicit confirmation before downloads, installers, service mutation, or administrator prompts.
+C92: Hermes diagnosis prefers the existing `~/.hermes/hermes-agent` checkout and must not clone, fetch, pull, or update that repository.
+C93: Desktop slash commands use preload IPC, keep the chat context visible, and open diagnostics on demand instead of adding a permanent Setup navigation destination.
+C94: Harness registry entries are optional capabilities by default; registration alone never makes a harness required for global environment health or repair.
+C95: Model is an independent primary entity. Provider is only a supply label connected to Model through an explicit many-to-many relation.
+C96: Provider metadata must not own model catalogs, select default models, carry harness-specific model overrides, participate in harness compatibility, or determine model identity or ownership.
+C97: Agent identity is the resolved `harnessId:modelId` pair. Harness/Model compatibility uses that pair; Skill/MCP selection and variant resolution are part of the resolved Harness recipe, while optional ModelSupply remains request-routing metadata and never becomes Agent identity.
+C98: External harness model selection is request scoped. SwarmX must not mutate a harness vendor's global configuration file to switch a model.
+C99: Provider discovery uses connection/API metadata and secret references only; every response is normalized into independent Model records plus internal ModelSupply links.
+C100: Provider network discovery is desktop host behavior, bounded by timeout, and failure-isolated; it must not make extension loading side-effectful or delete the last successful cache.
+C101: Manual Model and Provider connection settings never persist inline secret values; user-managed Provider credentials use encrypted local references, while an env reference is resolved only when an explicit extension Provider declares its exact key.
+C102: Model catalog management lives inside the Model secondary surface and must not add Provider or Supply to the three primary Agent-picker choices.
+C103: Manual Models require explicit stable id, runtime model id, and API protocol; their source/provenance is metadata, not identity or compatibility authority.
+C104: User-managed Provider settings contain connection/auth-mode metadata only; they cannot own Models, set default Models, override Harness Models, or participate in compatibility and identity.
+C105: User-entered Provider secrets must use Electron safe storage encryption with no plaintext fallback; desktop settings persist only a `local_keychain` secret reference.
+C106: Provider auth mode is explicit: API key and auth token select the documented discovery header and request-scoped runtime variable without copying secrets into inventory, plans, logs, errors, or renderer responses.
+C107: Provider management lives in the dedicated Settings surface and must not add Provider or Supply to the three primary Agent-picker choices.
+C108: Removing a user Provider removes its settings record, encrypted auth entry, and discovery cache without deleting an independent Model supplied elsewhere.
+C109: The expanded desktop sidebar ends with a persistent anonymous-user trigger; its popover contains exactly one `Settings` action until real identity/auth features exist.
+C110: Provider create/update/remove and credential entry must not appear inside the Agent Picker; the Model secondary surface keeps only Model catalog refresh/manual Model controls and Model selection.
+C111: Update UI is absent until a newer stable `@swarmx/desktop` version is verified from the npm registry; when available it is integrated into the anonymous-user row instead of occupying a separate sidebar line.
+C112: Usage inside the Provider workspace is an honest view of configured Provider connections and explicitly linked local tool accounts; it must not invent quota, billing, account, or Provider ownership data when a supported source is unavailable.
+C113: Automatic npm update is supported only when the running Electron default app can relaunch a versioned npm app directory; signed/packaged hosts and reusable embedded hosts stay hidden instead of mutating their application bundle or dependency tree.
+C114: Update metadata and tarballs come only from the canonical npm registry over HTTPS; tarball integrity is verified before installation, package lifecycle scripts are disabled, and the running app directory is never overwritten in place.
+C115: Version checking is read-only and silent on network/no-update failures; download/install starts only after an explicit click, publishes bounded progress, remains retryable on failure, and relaunches only after the installed package version is verified.
+C116: Provider usage requests execute only in the Electron main process against adapter-owned exact official HTTPS endpoints or a same-origin New API endpoint explicitly selected on a user-managed Provider; credentials are limited to id-bound user-managed keychain entries, resolved in memory, and never selected from ambient env or extension metadata. Redirects are refused, time and response size are bounded, and raw payloads, headers, tokens, and vendor error bodies never cross IPC.
+C117: Codex subscription usage is read only through the installed official `codex app-server` `account/rateLimits/read` method and maps declared 300-minute and 10,080-minute windows; SwarmX must not parse Codex auth files or call private web-session endpoints.
+C118: Claude Code, Gemini, OpenCode Go/Zen, and any other source without a credential-compatible official usage interface remain explicitly unsupported; SwarmX must not scrape consoles, collect browser cookies, or reuse private OAuth/session endpoints to fabricate support.
+C119: Balance and quota data is presentation metadata only. It never changes Provider/Model ownership, Agent identity, ModelSupply routing, compatibility, or execution selection.
+C120: Desktop never scans ambient environment variables to create Provider connections or initiate Provider discovery. Env secrets are eligible only when an explicit extension Provider declares the exact reference; user-managed connections require encrypted Settings storage.
+C121: Core native Agent codecs are side-effect free. Desktop native Agent discovery is read-only and bounded to the active workspace's `.codex/agents` and `.claude/agents` directories plus the corresponding user directories.
+C122: Native `inherit` or omitted Model settings remain unresolved profile metadata until an explicit SwarmX Harness x Model composition supplies a Model; discovery must not bind them to an ambient or guessed default.
+C123: Native Agent precedence is deterministic within each host: project definitions override same-name user definitions, while Codex and Claude Code definitions with the same name remain distinct profiles.
+C124: Unknown native Agent fields, hooks, inline MCP definitions, and host policy remain inert round-trip metadata. Discovery does not start hooks, MCP servers, skills, subprocesses, or Agent sessions.
+C125: Custom Agent Model selection reuses the Composer's Harness-compatible routed Model inventory, Provider grouping, and canonical display order; selecting a Provider route persists its internal ModelSupply id without changing Agent identity.
+C126: Persisted Project metadata remains host-owned: Core and Preload may read the local registry before Renderer mount, while the isolated Renderer receives only a validated snapshot and never direct filesystem access.
+C127: Project-aware model tools are host-injected, bounded, and rooted at the session `cwd`; traversal, absolute paths, escaping symlinks, binary file mutation, and unbounded repository dumps remain rejected.
+C128: A Project-bound prompt identifies the active Project and instructs the Agent to inspect relevant files, but file contents cross the model boundary only through explicit bounded tool calls.
+C129: Automatic task naming runs only for a placeholder title, uses the configured cheap title Model route, returns one sanitized short line, and never blocks or replaces a successful primary response when naming fails.
+C130: Manual rename and pin state belong to local Session persistence. ACP-discovered sessions stay read-only unless their Harness exposes an explicit mutation capability.
+C131: Session deletion remains an explicit destructive action with confirmation; a context-menu dismissal never deletes data.
+C132: Work timing is persisted presentation metadata derived from request start/end timestamps; rendering does not fabricate provider execution telemetry.
+C133: Existing Project files require a complete prior read and an unchanged content digest before host-provided write or edit operations may replace them; writes are bounded UTF-8 and atomically renamed so stale model context never silently overwrites concurrent user changes.
+C134: Host-provided Shell execution starts in the active Project, has a bounded command, duration, and captured output, propagates request cancellation to the whole process group, and never inherits Provider credentials or arbitrary ambient environment variables.
+C135: On supported macOS hosts, direct SwarmX Shell execution uses Seatbelt to deny network access and filesystem writes outside the canonical Project and a private request temporary directory. If that sandbox cannot be established, execution fails closed instead of running an unrestricted shell.
+C136: Host coding tools are injected only into direct SwarmX compositions. Claude Code and Codex ACP Harnesses retain their native tool and permission systems and are never given duplicate host tools.
+C137: Tool descriptions and Project context make read-before-edit, relative paths, exact text replacement, bounded Shell use, and post-change validation explicit; the Renderer never receives direct filesystem or process capability.
+C138: A compact Thought/Reasoning event inside Worked uses the same unboxed Markdown content treatment, font size, line height, and foreground hierarchy as assistant body text; tool calls and tool results may retain structured trace containers.
+C139: Live agent chunks cross Electron isolation only through a request-id-scoped Preload subscription; the Renderer cannot mix concurrent requests, and persisted history is replaced by the runtime's consolidated terminal result instead of storing raw token deltas.
 
 ## §I
 I1: `packages/core/src/types.ts` `SwarmConfigSchema`.
@@ -249,40 +321,115 @@ I118: `packages/core/src/extensions.ts` built-in `swarmx.local-files` LSP capabi
 I119: `packages/desktop/src/main/lsp-host.ts` built-in workspace local file completion provider.
 I120: `packages/core/src/extensions.ts` built-in `swarmx.skills` LSP capability metadata.
 I121: `packages/desktop/src/main/lsp-host.ts` built-in skill completion provider.
+I122: `packages/desktop/src/main/harness-environment.ts` container runtime detection, Apple Container setup, and protected backend wrapping.
+I123: `packages/desktop/src/main/ipc.ts` desktop harness environment IPC and protected harness send path.
+I124: `packages/desktop/src/preload/index.ts` renderer-safe harness environment APIs.
+I125: `packages/desktop/src/renderer/src/App.tsx` runtime setup and protected-mode UI.
+I126: `packages/desktop/src/main/harness-environment.test.ts` container runtime setup and backend wrapping tests.
+I127: `packages/desktop/src/renderer/src/App.test.tsx` protected-mode setup UI tests.
+I128: `docs/index.md` and `DESIGNS.md` desktop containerized harness documentation.
+I129: `packages/runtime/src/harness-environment.ts` shared host runtime detection, setup, and protected backend service.
+I130: `packages/runtime/src/doctor.ts` shared doctor report, repair plan, and confirmed fix service.
+I131: `packages/runtime/src/doctor.test.ts` doctor inspection, planning, confirmation, repair, and Hermes-local tests.
+I132: `packages/cli/src/doctor.ts` and `packages/cli/src/cli.ts` `swarmx doctor` command surface.
+I133: `packages/desktop/src/main/ipc.ts` and `packages/desktop/src/preload/api.ts` doctor IPC surface.
+I134: `packages/desktop/src/renderer/src/App.tsx` and `App.test.tsx` slash command and on-demand doctor panel.
+I135: `packages/core/src/model-capabilities.ts` standalone Model, many-to-many ModelSupply, and `Harness x Model` capability resolution contracts.
+I136: `packages/core/src/harness.ts` harness API compatibility and request-scoped model-control metadata.
+I137: `packages/core/src/providers.ts` provider supply routing and request-scoped runtime environment construction without provider-owned model state.
+I138: `packages/core/src/acp.ts` stable ACP session configuration option negotiation for model and reasoning effort.
+I139: `packages/core/src/extensions.ts` model, model-supply, and `Harness x Model` composition inventory.
+I140: `packages/runtime/src/harness-environment.ts` protected-runtime model bootstrap environment and host bridge translation.
+I141: `packages/desktop/src/renderer/src/App.tsx` and `App.test.tsx` three-choice `Harness x Model` Agent picker with internal supply routing.
+I142: `packages/core/tests/model-capabilities.test.ts`, `providers.test.ts`, `acp.test.ts`, `harness.test.ts`, and `extensions.test.ts` matrix and launch behavior tests.
+I143: `docs/index.md` and `DESIGNS.md` standalone Model and harness model-control documentation.
+I144: `packages/desktop/src/main/model-catalog.ts` provider discovery, manual settings, cache, merge, and persistence service.
+I145: `packages/desktop/src/main/model-catalog.test.ts` discovery, merge, persistence, timeout, cache, and secret-safety tests.
+I146: `packages/desktop/src/main/ipc.ts` and `packages/desktop/src/preload/api.ts` renderer-safe Model catalog IPC.
+I147: `packages/desktop/src/renderer/src/App.tsx` and `App.test.tsx` Model refresh and manual-entry surface inside the three-choice Agent picker.
+I148: `packages/core/src/extensions.ts` internal deterministic ModelSupply resolution for compositions that omit user-facing supply selection.
+I149: `docs/index.md`, `README.md`, and `DESIGNS.md` dynamic Model catalog documentation.
+I150: `packages/core/src/providers.ts`, `extensions.ts`, and provider tests explicit auth-mode and in-memory runtime secret override contracts.
+I151: `packages/desktop/src/main/provider-auth.ts` and `.test.ts` encrypted Provider secret persistence abstraction.
+I152: `packages/desktop/src/main/model-catalog.ts` and `.test.ts` user Provider settings CRUD, auth readiness, discovery, cache, and runtime-secret resolution.
+I153: `packages/desktop/src/main/ipc.ts`, `packages/desktop/src/preload/api.ts`, and preload tests Provider-management IPC and safe-storage adapter.
+I154: `packages/desktop/src/renderer/src/App.tsx`, `App.test.tsx`, and styles single-action lower-left Settings menu plus integrated Provider-management and Usage workspace.
+I155: `docs/index.md`, `README.md`, and `DESIGNS.md` Provider connection and encrypted-auth documentation.
+I156: `packages/desktop/src/main/updater.ts`, `index.ts`, and updater tests npm metadata check, integrity-verified download, versioned install, and Electron relaunch service.
+I157: `packages/desktop/src/main/ipc.ts`, `packages/desktop/src/preload/api.ts`, preload tests, and renderer update state/progress IPC.
+I158: `packages/desktop/src/renderer/src/App.tsx`, `App.test.tsx`, styles, docs, and rendered QA for the Codex-style account-row update control.
+I159: `packages/desktop/src/main/provider-usage.ts` and `.test.ts` fixed-origin Provider balance/quota adapters, bounded response parsing, secret-safe failure isolation, and Codex app-server rate-limit bridge.
+I160: `packages/desktop/src/main/ipc.ts`, `packages/desktop/src/preload/api.ts`, and preload tests renderer-safe Provider Usage refresh IPC.
+I161: `packages/desktop/src/renderer/src/App.tsx`, `App.test.tsx`, styles, `README.md`, `DESIGNS.md`, and `docs/index.md` Provider-adjacent balance/quota presentation and support matrix.
+I162: `packages/desktop/src/main/model-catalog.ts`, catalog tests, renderer Provider cards/tests, and Provider docs canonical vendor naming plus credential-source presentation.
+I163: `packages/desktop/src/main/model-catalog.ts`, `provider-usage.ts`, their tests, renderer fixtures, and desktop docs removal of ambient-environment Provider synthesis.
+I164: `packages/core/src/providers.ts`, `extensions.ts`, `packages/desktop/src/main/model-catalog.ts`, and their tests Provider-native multi-entrypoint routing with one secret reference.
+I165: `packages/desktop/src/main/provider-usage.ts`, IPC/preload surfaces, and tests targeted Provider refresh plus secret-safe New API account/token summaries.
+I166: `packages/desktop/src/renderer/src/App.tsx`, styles, local brand assets, renderer tests, and `design-qa.md` unified Provider usage matrix.
+I167: `packages/core/src/agent.ts`, `types.ts`, `harness.ts`, `extensions.ts`, and their tests SwarmX native Anthropic, OpenAI Responses, OpenAI Chat, and bridge-fallback execution.
+I168: `packages/desktop/src/main/model-catalog.ts`, `provider-usage.ts`, and catalog tests legacy Provider normalization, Codex app-server model discovery, per-Provider cache metadata, New API group preservation, and stable display labels.
+I169: `packages/core/src/model-capabilities.ts`, `extensions.ts`, renderer Agent picker files, and their tests Provider/group model presentation, internal ModelSupply route selection, and provider-advertised reasoning metadata.
+I170: `packages/core/src/skill-variants.ts`, browser-safe exports, and tests logical Skill variants, Agent bindings, delivery metadata, deterministic resolution, context cost, lineage, evaluation, promotion, and rollback contracts.
+I171: `packages/core/src/extension-management.ts`, browser-safe exports, and tests marketplace source state, plugin revision/action plans, install/update receipts, trust changes, immutable upstream provenance, and rollback contracts.
+I172: `packages/desktop/src/main/settings-store.ts`, `custom-agents.ts`, `extension-manager.ts`, and tests shared atomic Settings persistence plus host-owned Custom Agent and Extension actions.
+I173: `packages/desktop/src/main/ipc.ts`, `packages/desktop/src/preload/api.ts`, and preload tests renderer-safe Custom Agent, Extension management, and Runtime Settings IPC.
+I174: `packages/desktop/src/renderer/src/App.tsx`, `App.test.tsx`, and styles Settings navigation plus Extensions, Custom Agents, and Runtime workspaces and removal of the conversation-sidebar Doctor status control.
+I175: `packages/runtime/src/harness-environment.ts`, desktop Harness environment adapters, and tests separation of Harness software health from shared Runtime dependency health.
+I176: `README.md`, `DESIGNS.md`, `docs/index.md`, and `design-qa.md` Custom Agent, Extension lifecycle, Runtime, Skill variant/evolution, trust, and migration documentation.
+I177: `packages/runtime/src/harness-environment.ts`, `packages/core/src/harness.ts`, desktop Runtime IPC/UI, and tests Node.js baseline detection, npm-distributed Harness setup, semantic-version normalization, and embedded Doctor interaction.
+I178: `packages/core/src/agent-profiles.ts`, `packages/core/package.json`, and exports dual Claude Code Markdown/Codex TOML definition codecs and normalized native metadata.
+I179: `packages/core/tests/agent-profiles.test.ts` dual-format parsing, projection, round-trip, inheritance, and secret-safety tests.
+I180: `packages/desktop/src/main/custom-agents.ts` read-only native Agent directory discovery and deterministic precedence.
+I181: `packages/desktop/src/main/custom-agents.test.ts` native discovery, warning isolation, precedence, and no-persistence tests.
+I182: `packages/desktop/src/main/ipc.ts`, `packages/desktop/src/renderer/src/App.tsx`, and renderer tests native Agent inventory merge and source presentation.
+I183: `README.md`, `DESIGNS.md`, `docs/index.md`, and `docs/extensions-custom-agents.md` native Agent compatibility and execution-boundary documentation.
+I184: `packages/desktop/src/renderer/src/App.tsx` and `App.test.tsx` shared Composer/Custom Agent routed Model option resolution, Provider grouping, ordering, and selection tests.
+I185: `packages/core/src/project.ts`, session persistence/discovery, desktop project IPC/preload, workspace tools, renderer sidebar, and focused tests project registry plus project-bound task execution.
+I186: `@swarmx/core/project`, `packages/desktop/src/preload/api.ts`, and `packages/desktop/src/renderer/src/App.tsx` synchronous persisted-Project bootstrap snapshot.
+I187: `packages/core/src/agent.ts`, `mcp.ts`, `extensions.ts`, and tests host-injected local tool execution for single-Agent compositions.
+I188: `packages/desktop/src/main/workspace-tools.ts`, `ipc.ts`, and tests Project identity plus bounded workspace list/read tools for native SwarmX sessions.
+I189: `packages/core/src/types.ts`, `session.ts`, and `session-discovery.ts` persisted message timing and local Session pin/title state.
+I190: `packages/desktop/src/main/session-title.ts`, `ipc.ts`, preload API, and tests cheap-model automatic title generation plus local Session mutations.
+I191: `packages/desktop/src/renderer/src/App.tsx`, tests, and styles compact Worked disclosure, elapsed time, rename dialog, and task context menu.
+I192: `packages/desktop/src/main/workspace-tools.ts` and focused tests Project-rooted read, atomic write, exact edit, content-digest concurrency protection, and direct SwarmX tool registration.
+I193: `packages/desktop/src/main/workspace-shell.ts`, request cancellation, IPC composition wiring, and focused tests sandboxed Project Shell execution.
+I194: `packages/desktop/src/renderer/src/App.tsx`, `App.test.tsx`, and `assets/styles.css` unboxed Worked reasoning flow.
+I195: `packages/core/src/swarm.ts`, `extensions.ts`, and `native-model.ts` request-scoped streaming propagation and Responses output reconstruction.
+I196: `packages/desktop/src/main/ipc.ts`, Preload API, Renderer, and tests `agent:chunk` live-run lifecycle.
 
 ## §V
 V1: Workflow JSON source of truth is `SwarmConfig`; UI preview, run badges, and send payload derive from parsed JSON.
-V2: Invalid workflow JSON never sends `swarmConfig`; UI shows actionable parse/shape error.
+V2: When `Use workflow` is enabled, invalid workflow JSON blocks the entire send request instead of falling back to a manual Agent; UI shows an actionable parse/shape error.
 V3: Valid workflow JSON renders node cards and edge list from `nodes` and `edges`.
 V4: Sending a message with valid workflow JSON includes the exact parsed `swarmConfig` in `sendMessage`.
 V5: Sending without active workflow JSON keeps old `{ harnessId, userText }` payload shape.
 V6: Docs examples validate against actual `SwarmConfigSchema`; no stale `type` node shape.
 V7: Default workflow nodes render and serialize ACP agent identity: every default `kind: "agent"` node shows model and harness/backend, and no default node is presented as a standalone tool.
-V8: Default workflow agent nodes render and serialize fine-grained harness descriptors, including software version, MCPs, skills, and project files; different software versions must not collapse to the same harness identity.
+V8: Default workflow agent nodes render and serialize fine-grained Harness descriptors, including Software version, selected Skills and resolved variants, selected MCP servers, delivery/permission policy, and project files; different recipes or Software versions must not collapse to the same Harness revision.
 V9: n8n workflow JSON with `nodes` and `connections` converts into valid `SwarmConfig` with unique sanitized node ids, a derived root, and matching edges.
 V10: n8n import preserves each node's n8n name, type, type version, position, parameters, disabled state, notes, and credential references under `parameters.n8n`, without credential secret values.
 V11: Invalid n8n JSON returns an actionable import error and must not replace the current workflow JSON.
 V12: Desktop import uses preload IPC, replaces the workflow editor JSON with the converted `SwarmConfig`, enables the workflow, and shows import warnings.
 V13: n8n connections to missing nodes and cycle-forming connections are reported as warnings; cycle-forming edges are made non-executable so SwarmX keeps a valid DAG.
-V14: Extension bundles model software, skills, MCP servers, provider profiles, harnesses, agent profiles, and app connectors without requiring downstream code to fork SwarmX schemas.
+V14: Extension bundles model software, standalone models, many-to-many model supplies, skills, MCP servers, provider profiles, harnesses, agent profiles, and app connectors without requiring downstream code to fork SwarmX schemas.
 V15: Extension inventory loads built-in SwarmX harnesses plus path manifests from `SWARMX_EXTENSION_PATHS` or `SWARMX_EXTENSION_ROOTS`, reporting manifest errors as warnings instead of crashing the GUI.
-V16: Agent composition resolution fails on missing or ambiguous agent profiles, harnesses, MCP servers, provider profiles, or model selections; it must not silently fall back to defaults.
+V16: Agent composition resolution fails on missing or ambiguous agent profiles, harnesses, MCP servers, models, or explicitly requested model supplies; it must not silently fall back to defaults.
 V17: Extension manifests and resolved agent configs do not copy inline secret values. Secret references may identify where a caller should request or inject a secret later.
-V18: Desktop Extensions view separates plugin bundles, executable harnesses, agent profiles, provider profiles, skills, MCP servers, and app connectors.
+V18: Settings > Extensions separates marketplace sources, plugin packages, executable Harness software, Agent profiles, Provider profiles, Skills, MCP servers, and app connectors; Skills and MCP servers never share one undifferentiated lifecycle state.
 V19: Selecting an extension agent profile in the desktop GUI sends an `agentComposition` payload that the main process resolves against the extension inventory; unknown extension harness ids must not be forced through the built-in harness registry.
 V20: `AgentBackendSchema` custom backends execute through the ACP client with the resolved command, args, process cwd/env, agent instructions, and latest user request; they must not silently fall back to the native OpenAI call path.
-V21: Extension provider profiles inject scoped runtime env only when explicitly selected through an agent profile or composition. Missing secret env vars, unsupported secret sources, or provider/harness incompatibility fail before execution.
+V21: Explicit model supplies inject scoped provider runtime env only for the selected request. Missing secret env vars, unsupported secret sources, or a supply that does not link the selected model and provider fail before execution; provider metadata never decides harness compatibility.
 V22: Autonomy work items, runtime events, command DAGs, validator manifests, and evidence packets have exported zod schemas and TypeScript types with stable prefixes for portable ledger state.
 V23: Autonomy runtime replay is deterministic: duplicate idempotency keys apply once, valid state transitions advance work items, and invalid transitions record rejection events without moving state.
 V24: Command DAG validation rejects missing dependencies, duplicate node ids, cycle-forming dependencies, and nodes that declare neither a command nor an internal operation.
 V25: Evidence packets expose reusable provenance fields for workspace, inputs, commands, parameters, environment, artifacts, validation, limitations, observations, conclusions, confidence, and follow-up without embedding downstream scientific interpretation policy.
 V26: Autonomy runtime records reject inline secret-looking fields while allowing secret references as metadata.
-V27: Context object, packet, summary checkpoint, and invocation context metadata have exported zod schemas and TypeScript types for downstream delegation and resumption.
+V27: Context object, packet, summary checkpoint, and invocation context metadata have exported zod schemas and TypeScript types for downstream delegation and resumption; invocation identity is Harness x Model with optional ModelSupply routing and no Provider identity.
 V28: Context strategy resolution is deterministic: `auto` resolves to `checkpoint_tail` when a usable checkpoint exists and to `microcompact` otherwise.
 V29: Context packet construction preserves the delegated request, records included/dropped/truncated object ids and included message ids, and computes prompt byte count plus SHA-256 from the rendered prompt.
 V30: Context packet validation rejects stale prompt byte counts or prompt hashes.
 V31: Context records reject inline secret-looking fields while allowing secret references as metadata.
-V32: Normalized render events expose stable ids, kind, status, source, parent references, title, summary, sanitized input/output, artifact references, raw payload references, and provenance without branching by host adapter.
+V32: Normalized render events expose stable ids, kind, status, source, parent references, title, summary, sanitized input/output, artifact references, raw payload references, and provenance without branching by host adapter; Agent provenance uses Harness x Model and optional ModelSupply rather than Provider identity.
 V33: Message chunks map deterministically into normalized render events, including running tool calls, succeeded or failed tool results, completed assistant/thinking messages, and stable `rne_` ids.
 V34: Render payload sanitization redacts secret-looking fields in tool inputs, tool outputs, artifacts, and provenance before GUI display.
 V35: Desktop run events render tool-call and tool-result content from normalized sanitized payloads rather than raw host output.
@@ -305,22 +452,22 @@ V51: The dependency API is exposed through `@swarmx/core/dependencies`, a browse
 V52: Extension inventory schemas expose marketplace source metadata with host, kind, path/url/package, enabled state, trust, read-only state, and plugin catalog metadata with source id, bundle id, host compatibility, install/update state, component counts, and runnable-harness flag.
 V53: Extension inventory loading aggregates marketplace sources and plugin catalog entries from extension bundles while preserving existing bundle, harness, provider, agent, skill, MCP, and connector aggregation.
 V54: Desktop Extensions view renders marketplace sources and plugin catalog entries in sections separate from plugin bundles, executable harnesses, agent profiles, providers, skills, MCP servers, and app connectors.
-V55: Marketplace/catalog rendering remains read-only and must not expose implicit install, update, enable, hook activation, MCP startup, software execution, or trust-changing actions.
+V55: Marketplace/catalog rendering remains read-only by itself. Install, update, enable, disable, rollback, hook activation, MCP startup, software execution, and trust changes are separate explicit Extension-manager actions with validated intent, confirmation when risk changes, and an audit receipt.
 V56: Conversation ledger primitives expose exported zod schemas and TypeScript types for context strategy, storage refs, session index records, artifact refs, rollout event types, rollout events, and replay state.
 V57: Conversation event creation is deterministic when an event id is not supplied, using stable `cev_` ids derived from event content.
 V58: Conversation JSONL helpers serialize stable event lines, parse append-only rollout logs, ignore blank lines, and include the failing line number in parse errors.
 V59: Conversation replay reconstructs session index state and message arrays from ordered events, applies title/archive/lifecycle updates, and records missing-session or duplicate-session events as rejected rather than mutating state.
 V60: Conversation records reject inline secret-looking structured fields while allowing secret references as metadata.
 V61: The conversation API is exposed through `@swarmx/core/conversation`, a browser-safe subpath that does not bundle Node-only core modules.
-V62: Provider profile primitives expose exported zod schemas and TypeScript types for provider kind, secret source, secret reference, profile metadata, secret status, provider selection, direct provider prompt request, and runtime env.
-V63: Provider profile parsing accepts downstream snake_case fields and extension-style `label`/`model` aliases while normalizing them to camelCase metadata.
+V62: Provider supply primitives expose exported zod schemas and TypeScript types for API kind, secret source, secret reference, connection profile metadata, secret status, explicit provider selection, direct provider prompt request, and request-scoped runtime env.
+V63: Provider profile parsing accepts downstream snake_case connection fields and `label` aliases while rejecting provider-owned `model`, `models`, `defaultModel`, `default_model`, and harness model override fields.
 V64: Provider profile metadata, secret status records, provider selections, and direct prompt requests reject inline secret-looking fields, while secret status records also reject returned secret values.
-V65: Provider profile resolution fails on unknown, ambiguous, or missing selections instead of silently falling back to a default provider.
-V66: Provider runtime env construction resolves harness-specific model overrides, supports API compatibility bridging for cross-API provider/harness selections, requires an explicit runtime secret value when a profile has a secret reference, and keeps that secret out of persisted profile metadata.
+V65: Provider profile and model-supply resolution fail on unknown, ambiguous, unlinked, or missing explicit selections instead of silently falling back to a default provider or supply.
+V66: Provider runtime env construction uses the explicitly selected Model and ModelSupply, supports declared API bridging, requires an explicit runtime secret value when a profile has a secret reference, and keeps secrets and model ownership out of persisted provider metadata.
 V67: The provider API is exposed through `@swarmx/core/providers`, a browser-safe subpath that does not bundle Node-only core modules.
 V68: Harness management primitives expose exported zod schemas and TypeScript types for adapter availability, host scope, discovery records, agent aliases, selector resolution, invocation status, and invocation metadata.
-V69: Harness selector resolution strips leading `@adapter`, `@adapter:provider`, and named-agent selectors from delegated prompts while returning canonical selectors and selected adapter/provider/profile metadata.
-V70: Unknown harness selectors, unknown adapter-provider selectors, and ambiguous named-agent aliases fail instead of falling back to a default harness.
+V69: Harness selector resolution strips leading `@harness`, `@harness:model`, and named-agent selectors from delegated prompts while returning canonical selectors plus selected Harness, Model, optional ModelSupply, and profile metadata; Provider is never selector or Agent identity.
+V70: Unknown harness selectors, unknown Harness-Model selectors, and ambiguous named-agent aliases fail instead of falling back to a default harness or model.
 V71: Harness discovery records and invocation metadata reject inline secret-looking fields while allowing secret references as metadata.
 V72: The harness management API is exposed through `@swarmx/core/harness-management`, a browser-safe subpath that does not bundle Node-only core modules.
 V73: Conversational message rendering escapes raw HTML while preserving Markdown inline code and GFM rendering.
@@ -335,11 +482,11 @@ V81: Dependency install plans map to side-effect-free action intents: managed in
 V82: The action intent API is exposed through `@swarmx/core/actions`, a browser-safe subpath that does not bundle Node-only core modules.
 V83: Agent profile definition primitives expose exported zod schemas and TypeScript types for Claude-compatible frontmatter, GEEPilot-scoped frontmatter metadata, definition documents, definition sources, and agent profile metadata.
 V84: Agent definition Markdown parsing preserves the body prompt, parses YAML frontmatter, accepts Claude-compatible fields, keeps unknown frontmatter fields as inert metadata, and rejects malformed or non-object frontmatter.
-V85: Agent profile conversion maps definition frontmatter into separate profile metadata for harness id, provider profile id, selector aliases, model, skills, tools, permission-like fields, source provenance, read-only state, and instructions without collapsing profiles into harnesses or providers.
+V85: Agent profile conversion maps definition frontmatter into separate profile metadata for harness id, model id, optional model-supply id, selector aliases, skills, tools, permission-like fields, source provenance, read-only state, and instructions without collapsing profiles into harnesses, models, or providers.
 V86: Agent definition and profile records reject inline secret-looking fields while allowing secret references and source references as metadata.
 V87: Claude Code projection omits GEEPilot-only frontmatter while preserving host-compatible fields and the Markdown body.
 V88: The agent profile definition API is exposed through `@swarmx/core/agent-profiles`, a browser-safe subpath that does not bundle Node-only core modules.
-V89: Extension agent profiles expose typed definition and policy metadata for tools, disallowed tools, permission mode, turn budget, memory, effort, background, isolation, color, and definition source while preserving existing harness/provider/model fields.
+V89: Extension agent profiles expose typed definition and policy metadata for tools, disallowed tools, permission mode, turn budget, memory, effort, background, isolation, color, and definition source while preserving `Harness x Model` identity and optional model-supply routing metadata.
 V90: Agent composition resolution records extension profile policy and definition metadata in traceable parameters without enforcing host-specific policy or starting tools, hooks, MCP servers, or profile enablement.
 V91: Desktop extension inventory renders agent profile policy metadata separately from harness, provider, skill, MCP, marketplace, and plugin catalog sections as passive inspection chips.
 V92: Desktop settings primitives expose exported zod schemas and TypeScript types for settings documents, desktop root config, UI state, locale resources, locale registries, provider profile metadata arrays, and agent profile metadata arrays.
@@ -361,11 +508,11 @@ V107: Secret reference policy rejects persistent storage for request-only secret
 V108: Secret metadata rejects inline secret-looking fields outside the explicit vault/write `value` fields while allowing secret references as metadata.
 V109: The secrets API is exposed through `@swarmx/core/secrets`, a browser-safe subpath that does not bundle Node-only core modules.
 V110: Agent composition preflight exposes exported zod schemas and TypeScript types for stable status values, readiness requirements, selected capability refs, context policy summary, permission policy summary, visual metadata, and resolved execution plans.
-V111: Composition plan resolution is side-effect free and reports agent id, display name, canonical selector, host, harness id, provider profile id, resolved model, behavior definition source, enabled plugin ids, selected skills, selected MCP servers, context, permissions, visual metadata, health status, and requirements without spawning ACP, starting MCP, reading secrets, calling providers, or mutating settings.
-V112: Composition plan resolution marks missing, disabled, ambiguous, unavailable, or unsupported required components as `blocked` or `draft`, and execution resolution must continue to fail before invocation instead of silently replacing missing harnesses, providers, models, plugins, skills, MCP servers, or context strategies.
+V111: Composition plan resolution is side-effect free and reports agent id, display name, canonical selector, host, harness id, model id, optional model-supply id, behavior definition source, enabled plugin ids, selected skills, selected MCP servers, context, permissions, visual metadata, health status, and requirements without spawning ACP, starting MCP, reading secrets, calling providers, or mutating settings.
+V112: Composition plan resolution marks missing, disabled, ambiguous, unavailable, or unsupported required components as `blocked` or `draft`, and execution resolution must continue to fail before invocation instead of silently replacing missing harnesses, models, explicitly selected supplies, plugins, skills, MCP servers, or context strategies.
 V113: Selected skill and MCP refs in composition plans preserve source plugin ids when known; unknown selected skills, unknown MCP servers, disabled plugin sources, or missing plugin ids are visible as requirements rather than hidden behind an opaque agent name.
 V114: Agent composition inputs, plans, and plan requirement records reject inline secret-looking fields while allowing secret references as metadata.
-V115: Desktop `extension:list` returns read-only composition plans for extension agent profiles, and the Extensions view renders readiness, canonical selector, harness, provider/model, selected skill/MCP provenance, plugin count, permission/context summaries, and blocked requirements before selection.
+V115: Desktop `extension:list` returns read-only composition plans for extension agent profiles, and the Extensions view renders readiness, canonical selector, `Harness x Model` identity, optional supply label, selected skill/MCP provenance, plugin count, permission/context summaries, and blocked requirements before selection.
 V116: Desktop Extensions rendering must not make blocked or disabled composition plans invokable from the read-only inventory view.
 V117: Scheduler/reporting primitives expose exported zod schemas and TypeScript types for schedule state, schedule triggers, feedback actions, feedback records, report metadata, artifact dashboard metadata, wakeup controller state, daemon-run metadata, and circuit-breaker decisions.
 V118: Schedule helpers deterministically decide when reports or wakeups are due from explicit timestamps and cadence, including the default 24-hour report cadence and default 60-second live-dashboard refresh interval, without reading clocks or writing files.
@@ -422,7 +569,7 @@ V168: Terminal presentations show command, working directory, status, duration, 
 V169: File, diff, test/check, MCP, automation, and generated-media presentations show only passive metadata and sanitized excerpts; file paths, artifact refs, screenshots, and media refs are not opened or fetched.
 V170: Specialized trace presentation fallback remains the generic sanitized input/output card when a payload is unrecognized or missing required shape.
 V171: Specialized trace blocks stay within the message width through wrapped field rows and internal scrolling for excerpt blocks.
-V172: Agent-run records expose stable `agt_` ids, work/run refs, workflow kind/stage, role, adapter/profile refs, status, timestamps, artifact/evidence refs, compact summaries, and result/error refs without embedding raw transcript content.
+V172: Agent-run records expose stable `agt_` ids, work/run refs, workflow kind/stage, role, Harness x Model identity, optional ModelSupply/adapter/profile refs, status, timestamps, artifact/evidence refs, compact summaries, and result/error refs without Provider identity or raw transcript content.
 V173: Workflow-decision records expose stable `dec_` ids, work/run refs, workflow kind, current/next stage, decision status, decision kind, linked agent-run/evidence ids, reason, and optional next workflow state without mutating work items by themselves.
 V174: Agent-run and workflow-decision helpers can project sanitized runtime events with deterministic ids and event types that downstream ledgers can append while keeping canonical records caller-owned.
 V175: Agent-run and workflow-decision records reject inline secret-looking and raw-output fields while allowing explicit refs to caller-owned artifacts.
@@ -443,11 +590,169 @@ V189: LSP completion sends caller-supplied document text through `textDocument/d
 V190: `lsp:stop` explicitly shuts down and removes managed LSP server sessions by server id and optional workspace root without mutating extension manifests.
 V191: LSP host requests reject unknown servers, missing commands, invalid workspaces, failed processes, and timed-out JSON-RPC requests with actionable errors while keeping stderr limited.
 V192: The built-in extension inventory exposes a read-only `swarmx.local-files` LSP capability for local file references without starting a process during inventory loading.
-V193: `swarmx.local-files` completion returns LSP completion items for `@file:` workspace-relative paths from caller-supplied text and position, including directory entries, without recursively scanning the workspace.
-V194: `swarmx.local-files` rejects or returns no completions for absolute paths, parent-directory traversal, missing directories, and non-`@` reference tokens so completions remain bounded to the workspace root.
+V193: `swarmx.local-files` completion returns LSP completion items for bare `@` workspace-relative paths from caller-supplied text and position, including directory entries, without recursively scanning the workspace.
+V194: `swarmx.local-files` rejects or returns no completions for scheme-qualified references, absolute paths, parent-directory traversal, missing directories, and non-`@` reference tokens so completions remain bounded to the workspace root.
 V195: The built-in extension inventory exposes a read-only `swarmx.skills` LSP capability for `$` skill references without starting a process during inventory loading.
 V196: `swarmx.skills` completion returns LSP completion items from `inventory.skills` for caller-supplied `$` tokens, preserving skill ids, names, paths, canonical paths, governance refs, and read-only metadata as passive item data.
 V197: `swarmx.skills` returns no completions for non-`$` tokens and must not read skill files, execute skills, apply gate policy, or mutate inventory.
+V198: Desktop harness environment status reports container backend support, installed CLI state, service readiness, setup availability, and the selected protection mode separately from harness CLI requirements.
+V199: Apple Container setup verifies Apple silicon and supported macOS before installation, runs only from an explicit setup request, starts `container system start` after install or detection, and redetects status afterward.
+V200: Protected ACP harness wrapping preserves stdin/stdout ACP transport, cwd, minimal environment, deliberate workspace mount, resource limits, and removable ephemeral container semantics without logging secret values.
+V201: When protected mode is required and no container backend is ready, desktop blocks external ACP harness sends before spawning and returns setup-oriented state instead of silently falling back to native execution.
+V202: Runtime diagnosis UI shows protected-mode status, unsupported reasons, and confirmed repair controls without terminal copy/paste instructions and remains stable at desktop and narrow widths.
+V203: Tests cover Apple Container detection/setup, unsupported platform handling, protected backend wrapping, blocked protected sends, and renderer setup controls.
+V204: Agent-picker primary panel height and anchor depend only on its three primary rows: Harness, Model, and Effort. Their secondary panels stay out of primary layout flow, own max-height, and scroll independently.
+V205: Desktop Vitest resolves the core model-capability subpath from current workspace source, so core capability changes cannot be masked by stale package build output.
+V206: Agent-picker Escape closes from trigger, primary, or secondary focus and restores focus to the trigger; ArrowDown opens from the trigger into the primary menu.
+V207: A shared host runtime doctor returns stable health, issue, repair-action, and underlying environment-status records for all harnesses or one explicit harness filter.
+V208: Doctor inspection calls environment detection only and never runs setup, installers, service starts, PATH writes, repository operations, or privileged actions.
+V209: Doctor repair plans are deterministic, deduplicate actions, label safe/install/admin risk, and keep unsupported issues inside the explicit diagnostic scope visible without inventing a fix.
+V210: Doctor fix executes no action until confirmation is explicit, then applies only planned requests, captures bounded logs, and redetects health afterward.
+V211: Hermes detection includes `~/.hermes/hermes-agent` and its local virtual environment before offering installation; doctor never clones, fetches, pulls, or updates Hermes.
+V212: `swarmx doctor` supports human and JSON reports, harness filtering, stable exit status, and an explicit `--fix` flow that previews and confirms mutations.
+V213: Desktop `/doctor` opens a read-only environment panel, `/doctor --fix` opens a repair confirmation state, and `/setup` opens the same panel in first-run setup mode without sending a chat message.
+V214: Desktop removes permanent Setup navigation, keeps a clickable runtime health indicator, preserves chat/composer context while diagnostics are open, and remains stable at narrow widths.
+V215: Tests cover read-only inspection, confirmation gating, post-fix redetection, local Hermes preference, CLI formatting/options, slash dispatch, and transient panel behavior.
+V216: Full-App renderer integration tests declare a bounded timeout above Vitest's unit-test default, so workspace-wide test concurrency does not turn module-load cost into a false product failure.
+V217: Unfiltered environment status and Doctor treat missing, failed, or unsupported optional harnesses as availability metadata only: global health remains ready, issue/repair counts stay zero, and CLI exit status stays successful.
+V218: An explicit harness filter, the selected desktop harness, or an active workflow dependency scopes diagnosis to that harness; unmet runtime or protection requirements then remain actionable and can block execution until repaired.
+V219: No-argument setup or Doctor fix never installs optional harnesses or container support; installation requires an explicit harness, requirement, or container selection plus normal confirmation.
+V220: Desktop runtime health does not count every unavailable registry entry, and the global Doctor panel renders optional harness availability neutrally while keeping chat and explicit scoped repair behavior intact.
+V221: On macOS, sidebar navigation keeps a traffic-light-safe inset in both expanded and collapsed states; moving Open sidebar, Back, and Forward into the main title bar must not overlap native window controls.
+V222: Model records have stable ids, labels, runtime model ids, supported API protocols, and model capabilities independently of any provider profile; model ids remain stable when supply providers change.
+V223: ModelSupply records link one model id and one provider profile id, allow multiple providers per model and multiple models per provider, and may carry only route-specific runtime model and bridge metadata.
+V224: Harness compatibility is resolved exclusively from harness model-control/API metadata and Model capability metadata; Provider never filters, grants, or denies a `Harness x Model` pair.
+V225: Resolved agent identity is the stable pair `harnessId:modelId`; reasoning effort is the only user-facing execution option, while supply and bridge routing remain internal and never create a different model or agent identity.
+V226: Harness model-control metadata distinguishes direct API selection, ACP session configuration, and unsupported external selection; omission preserves the harness default, while an explicit unsupported model request fails visibly.
+V227: ACP launch applies a requested model through stable session `configOptions` first, refreshes returned options, then applies reasoning effort; legacy model negotiation is used only when the harness exposes no stable model option.
+V228: Claude Code, Codex, OpenCode, and Hermes receive model choice through their supported request-scoped launch/session mechanisms; SwarmX never edits global vendor configuration, and a harness without a supported control surface remains an explicit matrix gap.
+V229: Protected container launches forward only allowlisted request-scoped model/bootstrap variables and translate loopback yallm bridge URLs to the host bridge without changing Model identity or supply membership.
+V230: Desktop exposes exactly three primary choices: Harness, Model, and Effort. The Model menu may show one `Harness x Model` identity under each usable Provider route, but choosing a routed item carries its internal ModelSupply id without adding a Provider/Supply primary row or changing Agent identity.
+V231: Tests cover standalone model parsing, internal many-to-many supplies, provider-independent harness compatibility, stable and legacy ACP model negotiation, fixed Harness-Model launch routes, protected host bridging, three-row picker identity, and explicit unsupported gaps.
+V232: Desktop Harness selection keeps disabled or `modelControl: unsupported` Harnesses visible but natively disabled with an actionable reason; pointer and keyboard interaction cannot make them active. OpenClaw remains disabled until its model-switching control is configured.
+V233: Composer never renders a Supply primary row or supply-selection menu. Supply inventory may remain visible in advanced extension diagnostics, but ordinary users never choose a Provider or ModelSupply.
+V234: The built-in `claude_code:deepseek-v4-pro` route resolves runtime model `deepseek-v4-pro[1m]`, requires `DEEPSEEK_API_KEY`, and injects the fixed DeepSeek Anthropic endpoint, Opus/Sonnet/Haiku aliases, flash sub-Agent model, and selected Claude Code effort without persisting or exposing the secret.
+V235: Desktop catalog uses extension declarations, manual settings, and last-successful Provider discovery as list sources. The built-in registry only enriches matching ids with API/capability metadata and cannot display an undiscovered Model by itself; all sources merge by stable Model id without Provider-derived identity.
+V236: Provider discovery supports OpenAI-compatible `data[].id`, Anthropic Models API pagination, and Ollama `models[].name`; each discovered item becomes an independent Model and an internal ModelSupply to the discovering connection.
+V237: Desktop catalog discovery uses only user-managed Settings connections or explicit extension Provider profiles; ambient OpenAI, Anthropic, DeepSeek, and Ollama env variables never synthesize built-in Provider profiles.
+V238: Manual Model add/remove persists through a secret-safe desktop settings document, validates id/runtime/API fields, and does not require or create a Provider.
+V239: Model secondary UI starts with cached/manual inventory, refreshes Provider APIs only after explicit `Refresh Models`, reports bounded per-Provider failures without clearing usable Models, and keeps exactly Harness, Model, Effort as primary choices.
+V240: Desktop execution resolves against the same augmented catalog shown to the user. If composition omits ModelSupply, core may choose one enabled matching supply deterministically for runtime routing, without changing Harness compatibility or Agent identity.
+V241: Tests cover provider response parsing, env-ref authorization, pagination, timeout/failure cache preservation, manual persistence, stable-id merge, internal supply resolution, renderer refresh/manual entry, three-row identity, and execution inventory reuse.
+V242: Settings exposes user Provider create/update/remove with display name, API protocol, Base URL, auth mode, and secret; save validates and persists the connection without querying its Models API or requiring manual ModelSupply input.
+V243: Provider secret persistence encrypts with Electron `safeStorage`, writes only ciphertext to a mode-`0600` auth document, refuses writes when encryption is unavailable, and never returns secret values through IPC.
+V244: Anthropic API-key mode sends `x-api-key` for discovery and injects `ANTHROPIC_API_KEY` at execution; auth-token mode sends `Authorization: Bearer` and injects `ANTHROPIC_AUTH_TOKEN`. OpenAI-compatible credentials remain bearer discovery/runtime credentials.
+V245: Desktop settings persist Provider id/display name/API/Base URL/auth mode and a `local_keychain` secret reference only; no API key or auth token value appears in settings, cache, inventory, plans, errors, or UI responses.
+V246: Catalog readiness, Provider refresh, and Agent execution resolve encrypted secrets in the main process and pass them to core only as request-scoped in-memory overrides; missing/unreadable secrets block with an actionable non-secret error.
+V247: Removing a user Provider deletes its settings row, encrypted auth entry, and Provider-specific discovery cache while stable Models from manual, extension, or another Provider source remain.
+V248: Provider management remains inside Settings; the Agent picker still has exactly Harness, Model, and Effort as primary rows, contains no Provider configuration control, and manual sends still omit Provider/ModelSupply.
+V249: Tests cover encrypted-at-rest auth CRUD, unavailable-encryption refusal, settings redaction, API-key/auth-token headers and runtime env, Provider CRUD/refresh/removal, execution secret override, renderer form behavior, and three-row identity.
+V250: Provider runtime readiness exposed through ExtensionInventory is explicitly schema-typed as optional boolean/string metadata so desktop readiness checks never depend on passthrough `unknown` values.
+V251: Expanded sidebar renders a persistent `Anonymous user` trigger anchored below scrollable sessions; click/keyboard opens a Codex-style popover with exactly one `Settings` action, supports Escape/outside-click dismissal, and preserves the trigger at narrow supported desktop heights.
+V252: `Settings` opens the dedicated Provider workspace; its add/edit/remove/model-refresh/usage-refresh interactions reuse safe IPC, place supported balance/quota data beside the corresponding connection, and never return secrets to renderer responses.
+V253: The sidebar has no persistent `Check for updates` row. When and only when npm reports a newer stable `@swarmx/desktop`, the anonymous-user row shows a Codex-style circular update icon that expands to `Update` on hover/focus.
+V254: Renderer and preload/main tests cover the one-action account menu, dismissal, Settings navigation, Provider form relocation, absence from Agent Picker, integrated Provider usage, and hidden/available/downloading/installing/restarting update states.
+V255: Desktop checks the canonical npm latest endpoint at startup and on a bounded interval, compares stable semantic versions, ignores same/older/prerelease-invalid metadata, and keeps the update control hidden when unsupported, offline, or current.
+V256: Clicking an available update publishes integer download progress in the same account-row control, then shows installing and restarting states without adding another sidebar row or changing the one-action account popover.
+V257: Update download accepts only the canonical HTTPS npm tarball, verifies its declared SHA-512 integrity, installs into a versioned SwarmX update root through `npm install --ignore-scripts`, and verifies the installed `@swarmx/desktop` version before launch.
+V258: A verified update relaunches the current Electron default-app executable with the new versioned app path and exits the old process; packaged or embedded hosts never receive an unsafe relaunch target.
+V259: Tests cover semantic version gating, silent check failure, integrity rejection, progress publication, safe npm arguments, installed-version verification, IPC subscription, Codex hover/progress UI, retry behavior, and relaunch handoff.
+V260: Provider Usage supports documented DeepSeek and regional Moonshot/Kimi balance responses, preserves all returned currencies as decimal strings, and renders total plus granted/voucher and topped-up/cash amounts beside the matching Provider.
+V261: Provider Usage supports the official-client Kimi Code, Z.AI/GLM Coding Plan, and MiniMax Token Plan endpoints with body-level error checks and normalized 5-hour/weekly windows; MiniMax preserves model-specific rows, count-derived percentages, weekly boosts up to the official display ceiling, and unlimited status, while undocumented response drift fails closed per Provider.
+V262: Codex Usage initializes the installed official app-server over stdio, reads `account/rateLimits/read`, maps 300-minute and 10,080-minute windows to 5-hour and weekly remaining percentages, and may show returned plan, credits, and reset credits.
+V263: OpenAI API-key, Anthropic/Claude Code, Google Gemini, and OpenCode Go/Zen cards state why automatic quota lookup is unavailable instead of using API keys as subscription credentials or accessing private browser/OAuth state.
+V264: Every automatically selected Provider Usage adapter chooses an exact allowlisted host and fixed endpoint; an explicitly selected New API adapter may use only the configured credential-free HTTPS origin plus `/api/usage/token/`. No adapter rewrites credentials across origins; all refuse embedded URL credentials and redirects, send the documented authorization form, stream no more than the bounded response size, and sanitize all failure output.
+V265: Provider Usage accepts only a `local_keychain` reference whose key and Provider id both occur in the desktop-managed Provider set, excludes ambient Provider credentials from requests and the Codex subprocess environment, and returns only normalized status, meter, plan, reset, and display metadata through IPC.
+V266: Tests cover DeepSeek multi-currency balance, Moonshot regional balance, Kimi Code relative resets, Z.AI regional routing/body status, current MiniMax model rows/boost/unlimited semantics, Codex window mapping and real subprocess framing, lookalike-host and credential-alias refusal, HTTP/body/stream failure isolation, secret redaction, mutation refresh, preload IPC, and Provider-adjacent renderer output.
+V267: The account popover has no separate Usage action after Usage is integrated into Providers; Settings is the sole navigation action and opens the Provider workspace with usage refreshed there.
+V268: OpenAI, Anthropic, DeepSeek, Ollama, and other connections appear as peer Providers only when explicitly configured through Settings or an extension; Provider identity never derives from ambient environment state.
+V269: Tests verify the single Settings menu action, absence of Usage navigation, explicitly configured OpenAI/DeepSeek peer cards, and Settings/Extension source presentation without environment-generated cards.
+V270: Refreshing or listing the desktop catalog with an empty Provider inventory and known ambient Provider variables performs zero Provider network requests and returns zero Provider connections, supplies, or discovered Models.
+V271: The Provider form exposes a separate `Usage API` selection with `Automatic` and `New API`; the explicit choice persists as secret-free user Provider metadata, round-trips through preload/main inventory, and never changes the Provider's Model API protocol.
+V272: `New API` usage sends the Provider's id-bound local credential as Bearer auth only to the configured HTTPS origin at `/api/usage/token/`, normalizes finite and unlimited API-key quota, and otherwise fails closed without exposing request or response secrets.
+V273: Settings renders one responsive Provider matrix with Codex as an OpenAI Provider peer; every row reserves aligned 5-hour, 7-day, combined credit/balance, resets, updated, and actions positions, and unavailable values remain explicit instead of collapsing the grid.
+V274: Credit and balance share one column. The primary total remains visible, while granted, topped-up, voucher, cash, used, raw quota, and additional-currency detail is available through a keyboard-focusable hover popup instead of duplicated inline text.
+V275: Provider identity uses bundled real vendor assets selected by canonical origin/adapter: OpenAI for Codex/OpenAI, DeepSeek for `api.deepseek.com`, Packy for `packyapi.com`, and the New API mark as the fallback for other explicit New API Providers; runtime rendering performs no remote image fetch.
+V276: Global usage refresh remains available, and every Provider row independently refreshes only its own usage source, retains other rows and the last successful row data while loading/failing, and exposes its own timestamp.
+V277: One DeepSeek Provider may declare both `https://api.deepseek.com/anthropic` and `https://api.deepseek.com` entrypoints behind one secret reference. Anthropic is the default/preferred native route; an explicit `openai_chat` target uses the Chat Completions entrypoint directly without duplicating the Provider or invoking a protocol bridge.
+V278: An explicit New API Provider may additionally store one encrypted account access token plus non-secret user id separately from its primary API token. Account refresh calls only the configured HTTPS origin's `/api/status`, `/api/user/self`, and bounded paginated `/api/token/`, returns masked token metadata and one account balance, never returns credentials, and never sums per-token quota into the account wallet.
+V279: Tests cover matrix alignment/copy, Codex peer rendering, local vendor icon selection, accessible balance detail, targeted refresh merge, New API account secret isolation/pagination, and DeepSeek shared-secret dual-entrypoint preference/override.
+V280: If Provider settings persistence fails after primary and account credentials change, rollback serially restores both encrypted entries so whole-document auth stores cannot lose one credential through concurrent rewrites.
+V281: Provider credential controls keep stable explicit accessible names when conditional helper or security copy is rendered, so assistive input labels do not change with explanatory text.
+V282: Desktop boot, Renderer remount, and Provider create/update read the last-successful Model catalog from the main-process disk cache without calling Provider Models APIs; Provider discovery runs only from explicit `Refresh Models`, and a failed refresh retains the usable cached catalog.
+V283: The built-in SwarmX direct Harness accepts `anthropic`, `openai_responses`, and `openai_chat` Models, carries the resolved API protocol into request-scoped Agent configuration, and executes each protocol through its native Messages, Responses, or Chat Completions request shape with MCP tool continuation, reasoning output, streaming, and cancellation support.
+V284: Provider execution uses a matching native Provider kind or declared `apiEntrypoints[targetApi]` directly. yallm bridging is used only when the selected ModelSupply explicitly requires bridging or auto routing has no native target; native-capable requests are never converted merely to normalize APIs.
+V285: Tests cover SwarmX compatibility and explicit protocol propagation, native Anthropic and OpenAI Responses request/tool/stream behavior, native multi-entrypoint routing without yallm variables, and bridge fallback without changing Model or Agent identity.
+V286: Catalog listing and refresh canonicalize persisted exact-origin DeepSeek Providers even when they predate multi-entrypoint support: Anthropic remains preferred, Chat remains available, and model discovery targets the official origin `/models` endpoint without requiring the user to re-save credentials.
+V287: The disk catalog remains partitioned by Provider and stores each successful Provider's models plus route/group metadata. Startup, menu entry, and Provider create/update read it without model-network calls; only explicit model refresh replaces successful entries, and one Provider failure retains its own previous entry without blocking others.
+V288: The Model menu renders `Provider -> optional group -> Model`, using New API/OpenAI-compatible `owned_by` as optional group metadata. Search spans Provider, group, label, id, and API; duplicate model ids from different Providers remain independently selectable while resolving to the same stable `harnessId:modelId` Agent identity.
+V289: A routed Model selection sends the chosen internal ModelSupply id through trusted composition metadata. Core validates that supply against the selected model and uses its native Provider protocol preference; ordinary UI still has no fourth Provider or Supply primary control.
+V290: Provider-discovered models receive deterministic human-readable labels for known vendor/name patterns, including `claude-fable-5` -> `Fable 5`, `gpt-5.6-sol` -> `GPT 5.6 Sol`, and `deepseek-v4-pro` -> `DeepSeek V4 Pro`; the canonical known label wins over punctuation-only Provider variants, while an explicit Provider label is preserved for unmatched ids.
+V291: Codex catalog refresh uses the installed official `codex app-server` `model/list` method and preserves its display name plus supported/default reasoning efforts. It never reads `auth.json`, calls a refresh-token endpoint, or treats a Codex refresh token as an OpenAI API key; Codex-managed routes appear only for Harnesses that can execute them.
+V292: Effort choices come from a verified built-in capability or Provider/app-server-advertised metadata and map through the selected native API. Unknown models without either source remain explicit rather than receiving fabricated effort support.
+V293: Tests cover legacy DeepSeek migration, independent cache retention, Codex app-server framing/failure isolation, Provider/group hierarchy, duplicate routed selection, human labels/fallback, and advertised effort propagation.
+V294: Expanded main sidebar contains no top-level Extensions entry and no Doctor/runtime status control above conversations. Settings navigation contains Providers, Extensions, Custom Agents, and Runtime, preserves Back to app/search behavior, keyboard focus, and supported narrow widths.
+V295: Custom Agent CRUD persists a stable id, display name, reproducible Harness recipe/revision, Model id, optional routed ModelSupply id, effort, instructions, and enabled/read-only state; the Harness recipe contains Software, logical Skill bindings, MCP ids, project context, delivery, and permission policy, while read-only extension Agent profiles remain inspectable but cannot be overwritten.
+V296: Custom Agent composition shows one Harness recipe builder containing Software, Skills, MCP servers, project context, delivery, and permissions, plus one separate Model choice. Saving a changed Harness recipe produces a new immutable recipe revision while the Custom Agent keeps its stable profile id and resolves identity from the active `harnessId:modelId` pair.
+V297: A logical Skill has a stable namespaced id and one or more uniquely identified immutable variants. Legacy single-path Skills normalize to a default variant without breaking existing manifests or `skills: string[]` Agent profiles.
+V298: Harness Skill bindings support `off`, `auto`, and `required` plus an optional pinned variant. Resolution order is pinned variant, exact Custom Agent profile, exact Model, Model family/capability, Harness Software, then default; a same-priority tie blocks instead of using last-writer-wins.
+V299: Resolved Harness and Agent composition plans record logical Skill id, resolved variant id/version/digest, selection reason, delivery mode, context-token estimate, source plugin, and MCP delivery. `required` without a compatible variant or delivery blocks execution; `off` contributes nothing to the Harness revision.
+V300: Harness software version, path, protection mode, readiness, and repair actions appear within Custom Agent configuration for the selected Harness. Settings > Runtime presents Node.js as the standalone baseline runtime, a separate inventory of Harness tools, and container-runtime requirements; Bun is neither a baseline dependency nor a requirement of Claude Code or Codex.
+V301: `/doctor`, `/setup`, and on-demand repair APIs remain supported, but the complete Doctor status, diagnostics, and confirmed repair flow are built into Settings > Runtime instead of requiring a separate panel or permanent conversation navigation. Settings surfaces refresh after successful setup/fix and preserve explicit confirmation for install/admin actions.
+V302: One main-process atomic Settings store owns Provider, Model, Custom Agent, Extension, source, active-revision, and binding persistence so concurrent feature services cannot overwrite unrelated sections; settings and IPC responses remain secret-safe.
+V303: Extension action state distinguishes available, installed, enabled, running, update-available, blocked, diverged, conflict, and pinned. The UI never presents declaration, installation, enablement, or execution as equivalent.
+V304: Upstream revisions record canonical source, version/ref, content digest, optional signature, and provenance. Updates stage and validate before atomic activation, preserve the previous active revision on failure, never overwrite local overlays, and support rollback.
+V305: Skill evolution produces immutable candidate and evaluation records bound to target Agent, Model fingerprint, baseline revision, dataset digest, optimizer id/version/config digest, quality/safety/failure/latency/context-cost metrics, and a promotion verdict. Candidates may be generated and evaluated automatically but cannot silently replace upstream or active revisions.
+V306: Promotion requires an explicit policy or human gate after target-model held-out evaluation; rejection, quarantine, canary, and rollback preserve lineage. Active runs use a resolved immutable snapshot and are unaffected by later updates or promotions.
+V307: Tests cover legacy Skill migration, deterministic variant selection/conflict, secret rejection, Custom Agent CRUD, atomic cross-section persistence, Extension action validation/rollback, Settings navigation, Harness/Runtime separation, Doctor-control removal, responsive layout, and unchanged Provider/Agent-picker behavior.
+V308: Completion tests derive valid cursor positions from their document fixtures and assert suggestion-surface state within the suggestion surface, so document text cannot be mistaken for a completion item and bounds validation is exercised intentionally.
+V309: Built-in Claude Code and Codex ACP launchers use the Node.js ecosystem (`npx`) on the host and in protected containers; Runtime detection and setup never install or require Bun for either Harness.
+V310: Runtime lists SwarmX, Claude Code, Codex, OpenCode, Hermes, and OpenClaw as Doctor-style Harness rows with tool identity/path on the left and a semver button or explicit Install action on the right. Activating a version button reruns only that Harness version check.
+V311: Node.js, Harness CLI, and container version detection stores and renders only the semantic-version token from version output; banners, product names, build metadata outside the token, and unrelated output never appear as the displayed version.
+V312: Runtime's embedded Doctor shares the existing read-only inspect and explicitly confirmed fix APIs, shows health and actionable diagnostics inline, and refreshes both environment and Doctor state after setup or repair.
+V313: Tests cover Node.js-only baseline runtime presentation, Node/npm-based ACP launchers, Claude Code and Codex tool rows, Hermes/banner semver normalization, per-Harness version refresh, embedded Doctor diagnostics, and the absence of an Open Doctor detour.
+V314: Agent definition contracts identify `claude_code` Markdown and `codex` TOML formats while preserving source host, scope, path, read-only state, and native unknown fields without changing existing Claude-compatible APIs.
+V315: Codex TOML parsing requires `name`, `description`, and `developer_instructions`; maps `model`, `model_reasoning_effort`, `sandbox_mode`, `nickname_candidates`, `mcp_servers`, and `skills.config` into normalized profile metadata; and preserves other supported config keys as inert native metadata.
+V316: Claude Code and Codex projections preserve their native prompt/config shape and unknown safe fields, omit SwarmX/GEEPilot-only metadata, and round-trip known fields without converting host-specific policy semantics into another host's fields.
+V317: Desktop native Agent discovery reads only bounded `.claude/agents/*.md` and `.codex/agents/*.toml` locations, isolates malformed-file failures as warnings, namespaces cross-host ids, and applies project-over-user precedence per host and Agent name.
+V318: Discovered native profiles are read-only, use their native Harness id, preserve omitted/`inherit` Model state as unresolved, and cannot become execution-ready until the normal Harness x Model composition preflight succeeds.
+V319: Desktop inventory and Custom Agents Settings present native definitions separately from persisted Custom Agents and Extension profiles; listing never writes settings or native files and never activates hooks, MCP servers, skills, or Agent sessions.
+V320: Dual-format definitions, normalized profiles, discovery warnings, and projections reject inline secret-looking fields while allowing explicit secret references as inert metadata.
+V321: Settings > Custom Agents renders Model choices as `Provider -> optional group -> Model`, uses the same descending GPT version and `sol > terra > luna` order plus `mythos > fable > opus > sonnet > haiku` then descending Claude version order as the Composer, filters by the selected Harness Software, and saves the selected route's ModelSupply id while keeping Provider/Supply out of Agent identity.
+V322: Project registration persists and compares canonical filesystem realpaths, so macOS `/var` and `/private/var` aliases or symlinked roots cannot create duplicate project identities; project tests assert the canonical path rather than the caller's unresolved spelling.
+V323: Tests that exercise the user-level Project registry must remove every registered fixture in `finally` cleanup, including when an assertion fails, so validation cannot leave synthetic Projects in the user's Desktop state.
+V324: Project registry tests scope ordering and membership assertions to the fixture ids they created and never assume the user's persistent registry is otherwise empty.
+V325: Renderer assets copied from Vite's public directory use document-relative URLs, so development HTTP origins and packaged `file:` renderer origins resolve the same icon files without root-filesystem requests.
+V326: The Projects heading overflow is a collection-level organization menu only, with `By project`/`In one list` and `Priority`/`Last updated`/`Manual order` radio choices; it never dispatches actions against the active Project.
+V327: Each rendered Project row owns its own overflow target and exposes `Pin project`, `Reveal in Finder`, `Rename project`, `Archive tasks`, and `Remove` for that exact Project, independently of the Projects heading menu.
+V328: Renderer tests that need a Project row wait for asynchronous Project discovery before interacting with its row-level controls instead of assuming the SWR response committed synchronously.
+V329: Interactive Project hover details render as a labeled native nonmodal `dialog`, preserving keyboard-reachable pin control semantics without remapping a generic container to the dialog role.
+V330: Renderer tests submit text-field workflows with deterministic value-change and form-submit events when per-character timing is not the behavior under test, so suite load cannot drop characters or create false product failures.
+V331: Desktop Preload reads the validated persisted Project registry before Renderer mount, exposes it as an immutable bootstrap snapshot, and the Project sidebar renders that snapshot on its first frame without a startup `project:list` request or `Loading projects` placeholder; later Project mutations keep using isolated IPC and cache updates.
+V332: A session-controlled Harness appears in the executable Harness x Model matrix only when the Model declares a fixed runtime id for that Harness adapter or a selected ModelSupply explicitly names that adapter and provides its runtime model id; API compatibility or `modelCompatibility: any` alone never fabricates an executable cell.
+V333: A Custom Agent Harness preserves its stable custom Harness identity while carrying the built-in Software adapter id separately; matrix routing, request-scoped model bootstrap, runtime aliases, and protected-container selection use the adapter id rather than silently treating the custom id as a new adapter.
+V334: Claude Code catalog supplies name that Harness only for runtime model ids proven to exist in the pinned ACP session configuration; the fixed DeepSeek V4 Pro route advertises `deepseek-v4-pro[1m]` through the same stable session model option that ACP selects, while an Anthropic-compatible catalog entry alone never creates a Claude Code cell.
+V335: `swarmx send --harness <id> --model <runtime-id>` serializes the selected backend and model into the executed Swarm node, adds request-scoped harness bootstrap environment, and rejects unknown or unsupported Harnesses instead of constructing and discarding an Agent.
+V336: Protected Codex ACP reuses only a private official Codex `auth.json` through an exact read-only container file volume, honors `CODEX_HOME`, and continues to support `CODEX_API_KEY`/`OPENAI_API_KEY`; it never forwards `CODEX_ACCESS_TOKEN`, which the pinned adapter does not consume.
+V337: Codex App Server catalog Models remain available to direct SwarmX execution, but a catalog supply names the pinned Codex ACP Harness only when its runtime model id is also present in that adapter's proven session configuration; catalog/adapter drift never fabricates a Codex cell.
+V338: Direct SwarmX execution in `codex_responses` mode always uses and fully consumes a streaming Responses request, even when its caller did not supply a chunk callback, because the ChatGPT Codex subscription endpoint rejects unary Responses requests.
+V339: A direct SwarmX composition with a validated Project `cwd` receives the active Project identity plus `workspace_list_directory` and `workspace_read_file` tools; repository questions inspect relevant contained files instead of claiming that no Project context exists.
+V340: Host-injected workspace tools reuse the same root containment, traversal, symlink, UTF-8, file-size, and directory-entry limits as the desktop Workspace surface, and no tool is injected when the task has no validated `cwd`.
+V341: Every completed desktop request decorates its returned work/final chunks with one request start, end, and elapsed duration, persists that metadata across reload, and renders `Worked for <duration>` whenever work details exist.
+V342: Expanded Worked content uses compact semantic reasoning/tool rows, avoids raw normalized Agent identifiers as the primary label, and never animates a completed reasoning indicator.
+V343: The first successful user request in a placeholder-titled local Session asks `gpt-5.4-mini` for a concise title, sanitizes it to one nonempty line of at most 60 characters, persists it, and leaves the primary response intact on title failure.
+V344: Double-clicking a writable local task or choosing Rename opens a centered rename dialog with selected current text; Save persists the trimmed title, while Cancel/Escape leaves it unchanged and a manual title is never replaced by automatic naming.
+V345: Right-clicking a local sidebar task opens a keyboard-accessible menu with Pin/Unpin, Rename, and Delete; pinned tasks persist and sort before unpinned siblings, Delete requires confirmation, and ACP tasks expose no unsupported mutation actions.
+V346: A direct SwarmX composition with a validated Project `cwd` receives `workspace_list_directory`, `workspace_read_file`, `workspace_write_file`, `workspace_edit_file`, and `workspace_shell`; a task without a validated `cwd`, or an ACP Claude Code/Codex task, receives none of these host tools.
+V347: A complete `workspace_read_file` result includes a content digest. Creating a new contained UTF-8 file succeeds atomically, while replacing an existing file without reading it first or after an external modification fails with an actionable stale-content error.
+V348: `workspace_edit_file` replaces one unique exact match by default, supports an explicit replace-all mode, rejects missing or ambiguous matches, and shares write size, root containment, symlink, and optimistic-concurrency protections.
+V349: `workspace_shell` executes from the canonical Project root, returns exit code, stdout, stderr, duration, timeout, and truncation metadata, enforces command/time/output limits, and terminates the process group on timeout or request cancellation.
+V350: On macOS, the Shell sandbox permits Project writes needed by builds and tests but denies network access, writes through an escaping symlink, writes elsewhere on the host, and access to Provider secret environment variables; a missing or unsupported sandbox fails closed.
+V351: Focused tests cover tool registration, Project prompts, file creation/replacement/edit races, traversal and symlink escapes, Shell cwd/output/timeout/cancellation/environment isolation, and direct-SwarmX-only runtime injection; desktop tests and builds remain green.
+V352: Expanding Worked renders each Thought/Reasoning message directly as Markdown body content with no `run-event__card`, header/meta row, border, background, or inset padding, while structured tool events remain distinguishable.
+V353: A running desktop turn starts with Worked expanded, merges request-scoped streaming Thought and assistant-text deltas in order, renders commentary plus tool calls/results inside the open work region, and automatically collapses all work when the terminal result or error arrives while keeping the final assistant/system summary visible.
+V354: Streaming OpenAI Responses reconstructs missing completed output items from `response.output_item.done`, executes every recovered function call, emits its tool call/result, submits the matching `function_call_output`, and continues until a final assistant message instead of accepting a reasoning-only terminal result.
+V355: Compact Thought rendering removes one full-message `**...**` wrapper commonly emitted by reasoning summaries without suppressing ordinary inline Markdown, and a successful direct desktop Agent composition without a final assistant message is surfaced as an explicit failure rather than silently ending.
 
 ## §T
 |id|status|task|cites|
@@ -552,6 +857,78 @@ V197: `swarmx.skills` returns no completions for non-`$` tokens and must not rea
 |T98|x|add explicit desktop LSP host lifecycle and schema compatibility|V187,V188,V189,V190,V191,I112,I113,I114,I115,I116,I117|
 |T99|x|add built-in local workspace file completions through LSP API|V192,V193,V194,I118,I119,I117|
 |T100|x|add built-in extension skill completions through LSP API|V195,V196,V197,I120,I121,I117|
+|T101|x|add desktop Apple Container detection, setup, and protected backend wrapper|V198,V199,V200,V203,I122,I126|
+|T102|x|wire protected harness send path and renderer host-repair UI|V198,V201,V202,V203,I123,I124,I125,I127|
+|T103|x|document containerized harness policy and run targeted validation|V198,V199,V200,V201,V202,V203,I128|
+|T104|x|decouple Agent-picker secondary panel height and scrolling from primary panel layout|V204|
+|T105|x|keep desktop model-capability tests source-fresh across workspace packages|V205|
+|T106|x|make Agent-picker keyboard open/close focus behavior complete|V206|
+|T107|x|extract shared host runtime doctor service and tests|V207,V208,V209,V210,V211,V215,I129,I130,I131|
+|T108|x|add `swarmx doctor` human/JSON/check/fix command and tests|V208,V209,V210,V212,V215,I130,I132|
+|T109|x|replace permanent Setup navigation with `/setup`, `/doctor`, and on-demand doctor panel|V208,V210,V213,V214,V215,I133,I134|
+|T110|x|document doctor policy and run full validation|V207,V208,V209,V210,V211,V212,V213,V214,V215,V216,I128|
+|T111|~|make registered harnesses optional until explicitly selected or required|V217,V218,V219,V220,I129,I130,I131,I132,I134|
+|T112|x|replace provider-owned model semantics with standalone Model and many-to-many ModelSupply contracts|V69,V222,V223,V224,V225,I135,I136,I137,I139,I142|
+|T113|x|implement stable ACP model/effort negotiation and request-scoped external harness model controls|V226,V227,V228,I136,I138,I142|
+|T114|x|forward model bootstrap variables and yallm host bridging through protected runtime launches|V228,V229,I137,I140,I142|
+|T115|x|render and send the provider-independent `Harness x Model` matrix in desktop composition flows|V224,V225,V230,I139,I141,I142|
+|T116|x|document standalone Model semantics and run targeted plus full validation|V222,V223,V224,V225,V226,V227,V228,V229,V230,V231,I143|
+|T117|x|disable unconfigured Harness options without hiding capability gaps|V226,V232,I141|
+|T118|x|add fixed Harness-Model runtime routes and Claude Code DeepSeek env injection|V225,V228,V229,V234,I136,I139,I140,I142|
+|T119|x|reduce desktop Agent picker to Harness, Model, and Effort|V204,V225,V230,V233,I141,I142|
+|T120|x|document fixed internal routing and run full validation|V230,V231,V233,V234,I143|
+|T121|x|add dynamic Model catalog service, provider discovery adapters, cache, and manual persistence|V235,V236,V237,V238,V241,I144,I145|
+|T122|x|add Model catalog IPC and three-row renderer management surface|V238,V239,V241,I146,I147|
+|T123|x|reuse augmented catalog for execution and resolve internal ModelSupply deterministically|V225,V224,V240,V241,I148,I146|
+|T124|x|document dynamic Model sources and run full validation|V235,V236,V237,V238,V239,V240,V241,I149|
+|T125|x|add Provider auth-mode schemas and request-scoped runtime secret overrides|V244,V245,V246,V249,I150|
+|T126|x|add encrypted Provider auth store and catalog Provider CRUD|V242,V243,V245,V246,V247,V249,I151,I152|
+|T127|x|wire Provider management IPC, Settings UI, refresh, and execution secrets|V242,V246,V247,V248,V249,I153,I154|
+|T128|x|document Provider configuration and run full validation|V242,V243,V244,V245,V246,V247,V248,V249,I155|
+|T129|x|restore lower-left account/update area and move Provider CRUD into Settings|V242,V248,V251,V252,V253,V254,I153,I154,I156|
+|T130|x|update Settings docs, run rendered design QA, and complete full validation|V242,V248,V251,V252,V253,V254,I155|
+|T131|x|implement npm update check, verified download, versioned install, and relaunch service|V255,V257,V258,V259,I156|
+|T132|x|replace the update row with Codex account-row available/hover/progress states and IPC|V253,V254,V256,V259,I157,I158|
+|T133|x|update updater docs, run rendered reference QA, and complete full validation|V253,V255,V256,V257,V258,V259,I158|
+|T134|x|integrate secure Provider balance/quota adapters and Codex account limits into the Provider workspace|V252,V260,V261,V262,V263,V264,V265,V266,I159,I160,I161|
+|T135|x|document the Provider Usage support boundary and complete validation|V260,V261,V262,V263,V264,V265,V266,I161|
+|T136|x|remove duplicate Usage navigation and separate Provider identity from environment provenance|V251,V252,V254,V256,V267,V268,V269,I154,I162|
+|T137|~|remove ambient-environment Provider synthesis from Desktop|V237,V265,V268,V269,V270,I163|
+|T138|x|add explicit New API Provider usage selection, adapter, tests, and live Packy verification|V264,V265,V271,V272,I153,I154,I159,I160|
+|T139|x|build unified Provider quota matrix, account summaries, and native DeepSeek dual entrypoints|V243,V245,V252,V264,V265,V267,V268,V270,V271,V272,V273,V274,V275,V276,V277,V278,V279,V280,V281,I151,I152,I153,I154,I159,I160,I161,I162,I163,I164,I165,I166|
+|T140|~|persist Model catalog across restarts without automatic Provider discovery|V235,V239,V241,V242,V282,I144,I145,I146,I147|
+|T141|~|add native Anthropic and OpenAI Responses execution to the SwarmX Harness with yallm fallback only|V224,V225,V229,V230,V240,V244,V277,V283,V284,V285,I135,I136,I137,I139,I140,I142,I164,I167|
+|T142|~|group and persist routed Provider model catalogs with safe Codex discovery and effort metadata|V222,V223,V225,V230,V233,V235,V239,V240,V277,V282,V286,V287,V288,V289,V290,V291,V292,V293,I144,I145,I146,I147,I148,I164,I168,I169|
+|T143|x|add logical Skill variant, binding, delivery, evolution, and deterministic resolver contracts with legacy migration tests|V297,V298,V299,V305,V306,V307,I170|
+|T144|x|add Extension marketplace/update/action/receipt/rollback contracts and host manager tests|V303,V304,V305,V306,V307,I171,I172|
+|T145|x|extract shared atomic Settings store and implement secret-safe Custom Agent persistence plus IPC|V295,V296,V302,V307,I172,I173|
+|T146|x|move Extension management into Settings and add explicit source/plugin lifecycle actions|V18,V55,V294,V303,V304,V307,I171,I173,I174|
+|T147|x|build Custom Agents Settings Harness recipe UI with Software health, Skills, MCPs, project context, permissions, Model, and context cost|V295,V296,V298,V299,V300,V307,I170,I173,I174,I175|
+|T148|x|build shared Runtime Settings, remove sidebar Doctor status, and keep slash-command/on-demand repair flows|V294,V300,V301,V307,I173,I174,I175|
+|T149|x|document manifest migration, Custom Agents, Extension update/evolution, Runtime placement, trust, and rollback|V297,V303,V304,V305,V306,I176|
+|T150|x|run targeted tests, full tests, builds, lint, and rendered Settings QA|V294,V295,V296,V297,V298,V299,V300,V301,V302,V303,V304,V305,V306,V307,V308,I170,I171,I172,I173,I174,I175,I176|
+|T151|x|replace Bun requirements and ACP launchers with the Node.js/npm ecosystem across host and protected execution|V300,V309,V313,I177|
+|T152|x|rebuild Runtime around Node.js, Harness tool rows, semver refresh, and embedded Doctor diagnostics|V301,V310,V311,V312,V313,I174,I175,I177|
+|T153|x|update tests and documentation, run full validation, and perform rendered Runtime QA|V300,V301,V309,V310,V311,V312,V313,I176,I177|
+|T154|x|add dual Claude Code Markdown and Codex TOML Agent codecs, normalized metadata, projections, and tests|V314,V315,V316,V318,V320,I178,I179|
+|T155|x|discover native Agent files read-only, merge them into desktop inventory, and render source groups with tests|V317,V318,V319,V320,I180,I181,I182|
+|T156|x|document native Agent compatibility and run targeted plus full validation|V314,V315,V316,V317,V318,V319,V320,I183|
+|T157|x|reuse Composer Provider grouping, routed selection, and canonical Model order in Custom Agents|V288,V289,V290,V295,V296,V321,I169,I174,I184|
+|T158|x|separate collection-level Project organization from per-Project actions and verify both menu flows|V326,V327,V328|
+|T159|x|bootstrap persisted Projects before Renderer mount and remove the Project loading transition|V331,I185,I186|
+|T160|x|backprop and repair the executable Harness x Model matrix, adapter identity, protected auth bridge, and CLI model switching|V332,V333,V334,V335,V336,V337,I123,I135,I136,I138,I139,I140,I141,I142|
+|T161|x|backprop and repair direct Codex subscription conversation execution|V338,I135,I136,I139|
+|T162|x|inject bounded Project identity and workspace tools into direct SwarmX compositions|V339,V340,I187,I188|
+|T163|x|persist request timing and rebuild Worked disclosure presentation|V341,V342,I189,I191|
+|T164|x|add cheap-model automatic title generation and local Session mutation IPC|V343,V344,V345,I189,I190|
+|T165|x|add centered rename dialog, double-click rename, and task context menu with pin/delete|V344,V345,I191|
+|T166|x|run targeted/full validation and rendered desktop QA for Project-aware task lifecycle|V339,V340,V341,V342,V343,V344,V345,I187,I188,I189,I190,I191|
+|T167|x|backprop the missing direct SwarmX coding-tool contract and implement atomic Project write/edit with stale-content protection|V346,V347,V348,I192|
+|T168|x|implement fail-closed sandboxed Project Shell execution with limits, environment isolation, timeout, and cancellation|V349,V350,I193|
+|T169|x|wire the complete coding tool set only into direct SwarmX compositions and update Project instructions|V346,V351,I192,I193|
+|T170|x|run targeted/full validation and restart the desktop development Main process|V347,V348,V349,V350,V351,I192,I193|
+|T171|x|render Worked Thought as unboxed conversation body content and verify the disclosure flow|V352,I194|
+|T172|x|backprop and repair live desktop work streaming, Responses tool-call continuation, terminal collapse, and Thought emphasis|V353,V354,V355,I195,I196|
 
 ## §B
 |id|date|cause|fix|
@@ -559,3 +936,61 @@ V197: `swarmx.skills` returns no completions for non-`$` tokens and must not rea
 |B1|2026-06-17|renderer tests used per-char input and hit 5s suite timeout|use deterministic input change in tests|
 |B2|2026-06-19|workflow UI modeled generic agent/tool nodes instead of ACP agent identity|V7|
 |B3|2026-06-19|workflow UI collapsed harness to backend label and lost software version/MCP/skills/project context|V8|
+|B4|2026-07-11|secondary options shared parent grid height and stretched primary Agent menu|V204|
+|B5|2026-07-11|desktop Vitest loaded stale core model-capability dist after a core source change|V205|
+|B6|2026-07-11|Escape listener existed only inside the menu while pointer-open focus stayed on trigger|V206|
+|B7|2026-07-11|root Vitest concurrency made full-App dynamic import exceed the 5s unit-test default|V216|
+|B8|2026-07-11|filtered Doctor JSON inherited global environment readiness and contradicted its healthy report|V207|
+|B9|2026-07-11|environment and Doctor treated the full harness registry as a required install set|V217,V218,V219,V220|
+|B10|2026-07-12|collapsed sidebar moved navigation into a main title bar without the macOS traffic-light inset|V221|
+|B11|2026-07-12|partial standalone-Model migration left consumers importing removed provider-owned harness fields|V224,V226|
+|B12|2026-07-12|legacy tests and fixtures still embedded models in Provider records or re-registered an existing standalone Model id|V222,V223,V231|
+|B13|2026-07-12|new agent-identity test expected a hyphenated runtime name although AgentConfig names normalize separators to underscores|V225|
+|B14|2026-07-12|desktop picker still projected provider-owned model fields after the core matrix became Harness x Model|V230|
+|B15|2026-07-12|renderer mock inventories still used legacy Harness and Provider-owned Model fields, leaving the new matrix empty|V230,V231|
+|B16|2026-07-12|enabled invalid workflow JSON fell through to the newly available manual Harness x Model composition|V2|
+|B17|2026-07-12|new Harness x Model render-provenance fixture omitted the normalized event's required summary|V32|
+|B18|2026-07-12|matrix migration edits were build-correct but had not yet been normalized by the repository Biome formatter|V231|
+|B19|2026-07-12|OpenClaw remained selectable in the desktop Harness menu despite its unsupported model-control state|V232|
+|B20|2026-07-12|Composer exposed ModelSupply as a fourth primary choice even though Harness-Model routing is SwarmX-owned infrastructure|V233,V234|
+|B21|2026-07-12|ad hoc desktop `tsconfig.node.json` verification included preload under a main-only rootDir and failed before checking task code|use the package build or dedicated main/preload library tsconfigs|
+|B22|2026-07-12|Model catalog status used `div role=status` instead of the available semantic element|render status with native `output`|
+|B23|2026-07-12|Provider readiness was accepted only as passthrough data, so desktop library type-checking saw `runtimeNote` as `unknown`|V250|
+|B24|2026-07-12|Provider update lookup reread an optional input property inside a callback after a guard, which TypeScript could not narrow|normalize the optional id once before lookup|
+|B25|2026-07-12|new Model catalog imports were format-correct but not in Biome's semantic import order|apply Biome import organization before final lint|
+|B26|2026-07-12|React sidebar migration carried sessions/navigation but dropped the old fixed Settings footer and left complex Provider configuration inside Agent Picker|V251,V252,V248|
+|B27|2026-07-12|Usage integration retained duplicate account navigation and encoded credential provenance in canonical Provider labels|V267,V268,V269|
+|B28|2026-07-13|desktop catalog startup scanned ambient Provider variables and synthesized network-active connections without explicit user configuration|V270|
+|B29|2026-07-13|resetting a Provider Usage API emitted an own `usageAdapter: undefined` property because runtime mapping always materialized the optional field|V271|
+|B30|2026-07-13|credential rollback mutated a whole-document auth store concurrently and could overwrite one restored entry|V280|
+|B31|2026-07-13|conditional helper copy was nested inside a Provider field label and silently changed the control's accessible name|V281|
+|B32|2026-07-13|persisted DeepSeek records created before native dual-entrypoint canonicalization bypassed save-time normalization and attempted model discovery below `/anthropic`|V286|
+|B33|2026-07-13|the Agent picker collapsed catalog routes into one protocol-only model row, hiding Provider provenance and preventing an intentional Provider route from reaching composition|V288,V289|
+|B34|2026-07-14|completion tests queried document text as if it were popup state and supplied a cursor beyond the fixture line while claiming to test a URI scheme|V308|
+|B35|2026-07-14|merging cached marketplace candidates with manifest catalog entries inferred a narrow union that hid optional catalog display fields|project both sources to `ExtensionPluginCatalogEntrySummary` before deduplication|
+|B36|2026-07-14|Claude Code and Codex ACP launchers were modeled as Bun-dependent even though the supported adapters run in the Node.js/npm ecosystem|V309|
+|B37|2026-07-14|Runtime mixed baseline dependencies with selected Harness CLI requirements, so Claude Code and Codex were absent from the tool inventory|V300,V310|
+|B38|2026-07-14|generic requirement detection displayed the first raw version-output line, leaking the Hermes banner and container build text into the version column|V311|
+|B39|2026-07-14|Runtime linked to Doctor as a separate transient panel instead of owning the environment diagnosis and repair workflow|V301,V312|
+|B40|2026-07-15|new Project tests compared unresolved macOS temp paths even though the registry correctly canonicalized them through realpath|V322|
+|B41|2026-07-15|the desktop Project picker test cleaned its user-level registry fixture only after assertions, so an earlier failure left a synthetic Project in the real sidebar|V323|
+|B42|2026-07-15|the Project pin-order test compared the entire user-level registry against two fixture ids and failed when a real Project was already registered|V324|
+|B43|2026-07-15|Model and Provider icons used root-relative public paths, which became `file:///harness-icons/...` and failed in the packaged Electron renderer|V325|
+|B44|2026-07-15|the Projects heading overflow reused the active Project action menu, conflating collection organization with per-Project commands|V326,V327|
+|B45|2026-07-15|the new row-level Project menu test queried controls before asynchronous Project discovery rendered the row|V328|
+|B46|2026-07-16|the interactive Project hover card remapped an `aside` to `role=dialog` instead of using the available semantic element|V329|
+|B47|2026-07-16|the full renderer suite's load caused per-character rename input simulation to drop its first character, repeating the timing failure class recorded in B1|V330|
+|B48|2026-07-16|two full-App integration tests still used per-character text simulation and Vitest's 5s unit-test timeout, so concurrent desktop-suite load produced false timeouts|V216,V330|
+|B49|2026-07-16|the Renderer asynchronously re-fetched an already persisted Project registry and blocked the sidebar behind a redundant loading placeholder|V331|
+|B50|2026-07-16|session Harness compatibility treated `any` as every registered Model, while custom Harness ids bypassed built-in bootstrap/protection and CLI send discarded the selected Agent|V332,V333,V335|
+|B51|2026-07-16|provider protocol compatibility was mistaken for a pinned Claude ACP session route, and protected Codex attempted to forward a token variable the adapter never reads instead of reusing its official authentication state|V334,V336|
+|B52|2026-07-16|Codex App Server and pinned Codex ACP advertised different model sets, but one catalog supply named both SwarmX and Codex without proving the adapter route|V337|
+|B53|2026-07-16|direct `codex_responses` used the generic unary SDK path when desktop execution supplied no chunk callback, while the ChatGPT Codex endpoint accepts only streaming Responses requests|V338|
+|B54|2026-07-16|the long-running Electron development Main process predated the V338 core rebuild and retained the externalized `@swarmx/core` module in Node's process cache, so Renderer reloads still executed the old unary request path|restart the desktop Main process after core runtime changes|
+|B55|2026-07-16|Project selection supplied only a subprocess `cwd`, while the direct native SwarmX Model had neither Project identity nor filesystem tools|V339,V340|
+|B56|2026-07-16|desktop response chunks were persisted without request timing metadata, so Worked could not derive elapsed time after completion or reload|V341,V342|
+|B57|2026-07-16|new local Sessions kept the placeholder title and exposed no title-generation or rename mutation path|V343,V344|
+|B58|2026-07-16|sidebar Session rows were plain navigation buttons without local pin state or a task action context menu|V345|
+|B59|2026-07-16|Project capability was implemented as read-only context inspection, so the direct SwarmX Harness lacked the write, edit, and Shell primitives expected from a coding agent|V346,V347,V348,V349,V350|
+|B60|2026-07-16|compact Worked reasoning reused the generic run-event card and header treatment, creating a redundant nested frame unlike normal assistant text|V352|
+|B61|2026-07-16|desktop composition execution exposed no chunk IPC and mounted Worked closed, while streaming Responses ignored `response.output_item.done` and trusted an incomplete reasoning-only `response.completed.output`, so the Project tool call disappeared and the turn ended without a final answer|V353,V354,V355|

@@ -1,59 +1,133 @@
-# OpenAI-compatible Server
+# OpenAI-Compatible Server
 
-`swarmx-core::server` provides an Axum application exposing OpenAI-compatible endpoints:
+SwarmX exposes an optional Node.js HTTP server through `createServer()` from
+`@swarmx/core` and the `swarmx serve` CLI command.
 
-- **GET /models** – lists all agents in the swarm as models.
-- **POST /chat/completions** – handles chat requests with optional streaming.
+The server provides:
 
-## Streaming semantics
+- `GET /models` - lists agent nodes in the configured swarm as OpenAI-style models.
+- `GET /sessions` - lists local SwarmX sessions.
+- `POST /chat/completions` - accepts OpenAI-compatible chat completion requests with optional SSE streaming.
 
-The server forwards chunk payloads emitted by the underlying agent stream. Important points:
+## Boundary Rules
 
-1. **Per-request stream** – each request creates its own independent stream.
-2. **Chunk ordering** – chunks are yielded to the client in the order they are produced by the agent.
-3. **Termination** – the stream always ends with `data: [DONE]`, even if an error occurs (an error chunk is emitted first).
+The server is local-first by default:
 
-## Usage example
+- It binds to `127.0.0.1` unless a host is provided.
+- Non-loopback hosts such as `0.0.0.0` require an API token before the server starts.
+- Browser `Origin` headers are rejected unless explicitly allowlisted.
+- Wildcard origins are rejected.
+- `Origin: null` is rejected unless trusted desktop bridge mode is explicitly enabled.
+- When an API token is configured, requests must include `Authorization: Bearer <token>`.
 
-Start the server via CLI:
+## Start From The CLI
 
-```bash
-cargo run -p swarmx-cli -- serve --host 0.0.0.0 --port 8000
+Start a loopback server:
+
+```shell
+swarmx serve --port 8000
 ```
 
-Or embed the server in your own application:
+Start a non-loopback server with explicit bearer auth:
 
-```rust
-use std::sync::Arc;
-use swarmx_core::{Swarm, server::create_server_app};
-
-let swarm = Arc::new(Swarm::new("my_swarm", "root"));
-let app = create_server_app(swarm, true);
-
-let listener = tokio::net::TcpListener::bind("0.0.0.0:8000").await?;
-axum::serve(listener, app).await?;
+```shell
+swarmx serve \
+  --host 0.0.0.0 \
+  --port 8000 \
+  --api-token "$SWARMX_API_TOKEN" \
+  --allowed-origin "http://localhost:5173"
 ```
 
-Connect with any OpenAI-compatible client:
+Use `--config <path>` to load a `SwarmConfig` JSON file instead of the default
+single-agent swarm.
+
+## Embed In TypeScript
+
+```ts
+import { Agent, Swarm, createServer } from "@swarmx/core";
+
+const agent = new Agent({
+  name: "agent",
+  instructions: "You are a helpful assistant.",
+  model: "gpt-4o",
+});
+
+const swarm = new Swarm({
+  name: "default",
+  root: "agent",
+  nodes: {
+    agent: {
+      kind: "agent",
+      agent: {
+        name: agent.name,
+        instructions: agent.instructions,
+        model: agent.model,
+      },
+    },
+  },
+  edges: [],
+});
+
+createServer(swarm, {
+  host: "127.0.0.1",
+  port: 8000,
+});
+```
+
+`createServer()` starts listening immediately and returns the underlying
+`http.Server` instance so callers can close it or attach lifecycle handling.
+
+## Use With An OpenAI-Compatible Client
 
 ```python
-import openai
-client = openai.OpenAI(base_url="http://localhost:8000", api_key="dummy")
-resp = client.chat.completions.create(
-    model="gpt-4o",
-    messages=[{"role": "user", "content": "Hello!"}],
-    stream=True,
+from openai import OpenAI
+
+client = OpenAI(
+    base_url="http://127.0.0.1:8000",
+    api_key="dummy",
 )
-for chunk in resp:
-    print(chunk.choices[0].delta.content, end="")
+
+response = client.chat.completions.create(
+    model="agent",
+    messages=[{"role": "user", "content": "Hello!"}],
+)
+
+print(response.choices[0].message.content)
 ```
 
-The above script will print the assistant's reply as it arrives, respecting the ordering guarantees described.
+For a bearer-protected server, pass the token as the OpenAI client API key:
 
-## Server State
+```python
+client = OpenAI(
+    base_url="http://127.0.0.1:8000",
+    api_key="your-swarmx-api-token",
+)
+```
 
-The server holds an `AppState` containing:
-- `swarm: Arc<Swarm>` – the swarm to route requests through
-- `auto_execute_tools: bool` – whether to auto-execute tool calls
+## Streaming Semantics
 
-Each request is routed to the model name specified in the request; if the model matches a node in the swarm, that node handles the completion.
+When `stream: true` is supplied, SwarmX responds with Server-Sent Events:
+
+1. Each request creates an independent stream.
+2. Message chunks are yielded in the order produced by the root agent or swarm.
+3. The stream ends with `data: [DONE]`.
+4. If an error occurs after streaming starts, an error event is emitted before
+   `data: [DONE]`.
+
+## Request Shape
+
+The chat endpoint accepts the subset used by SwarmX:
+
+```json
+{
+  "model": "agent",
+  "messages": [
+    { "role": "user", "content": "Hello!" }
+  ],
+  "stream": false
+}
+```
+
+The non-streaming response joins emitted SwarmX message chunks into one
+assistant message. The streaming response emits OpenAI-style
+`chat.completion.chunk` events for message chunks.

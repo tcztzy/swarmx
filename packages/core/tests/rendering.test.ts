@@ -66,6 +66,40 @@ describe("normalized render events", () => {
     expect(JSON.stringify(event)).not.toContain('secret"}');
   });
 
+  it("keeps Agent provenance on Harness x Model identity", () => {
+    expect(
+      parseNormalizedRenderEvent({
+        eventId: "rne_agent_identity",
+        kind: "message",
+        status: "completed",
+        source: "test",
+        title: "Agent message",
+        summary: "Agent message",
+        provenance: {
+          harnessId: "codex",
+          modelId: "gpt-5",
+          modelSupplyId: "openai-gpt-5",
+        },
+      }).provenance,
+    ).toMatchObject({ harnessId: "codex", modelId: "gpt-5" });
+
+    expect(() =>
+      parseNormalizedRenderEvent({
+        eventId: "rne_legacy_provider_identity",
+        kind: "message",
+        status: "completed",
+        source: "test",
+        title: "Agent message",
+        summary: "Agent message",
+        provenance: {
+          harnessId: "codex",
+          modelId: "gpt-5",
+          providerProfileId: "openai",
+        },
+      }),
+    ).toThrow(/providerProfileId.*invalid/);
+  });
+
   it("carries caller-supplied artifact refs without copying unsafe metadata", () => {
     const event = normalizeMessageChunk(
       {

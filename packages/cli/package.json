@@ -1,6 +1,6 @@
 {
   "name": "@swarmx/cli",
-  "version": "3.0.1",
+  "version": "3.1.0",
   "description": "Command-line interface for SwarmX workflows and evaluations.",
   "license": "MIT",
   "type": "module",
@@ -15,15 +15,18 @@
   },
   "scripts": {
     "build": "tsc",
-    "dev": "tsc --watch"
+    "dev": "tsc --watch",
+    "test": "vitest run"
   },
   "dependencies": {
     "@swarmx/core": "workspace:*",
+    "@swarmx/runtime": "workspace:*",
     "commander": "^13.0.0",
     "chalk": "^5.4.0"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
-    "typescript": "^5.7.0"
+    "typescript": "^5.7.0",
+    "vitest": "^3.0.0"
   }
 }

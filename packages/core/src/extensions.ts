@@ -3,8 +3,24 @@ import path from "node:path";
 import { z } from "zod";
 import { AgentDefinitionSourceSchema } from "./agent-profiles.js";
 import { ContextPacketModeSchema, ContextStrategySchema } from "./context.js";
-import { HARNESSES } from "./harness.js";
-import { buildProviderRuntimeEnv } from "./providers.js";
+import { HARNESSES, harnessModelRuntimeEnv, harnessModelRuntimeModel } from "./harness.js";
+import type { LocalMcpTool } from "./mcp.js";
+import { ModelApiModeSchema, ModelApiSchema } from "./model-api.js";
+import {
+  ModelSchema as IndependentModelSchema,
+  MODELS,
+  ModelSupplySchema,
+  modelCapabilityRegistry,
+  normalizeModelReasoningEffort,
+  resolveHarnessModelInventory,
+  resolveModelReasoningCapability,
+} from "./model-capabilities.js";
+import type { Model, ModelSupply } from "./model-capabilities.js";
+import {
+  ProviderApiEntrypointsSchema,
+  ProviderAuthModeSchema,
+  buildProviderRuntimeEnv,
+} from "./providers.js";
 import { Swarm } from "./swarm.js";
 import { AgentBackendSchema, McpServerConfigSchema } from "./types.js";
 import type {
@@ -62,12 +78,7 @@ const FORBIDDEN_INLINE_UI_PAYLOAD_KEYS = new Set([
   "webview",
 ]);
 
-export const ProviderKindSchema = z.enum([
-  "anthropic",
-  "openai_chat",
-  "openai_responses",
-  "ollama",
-]);
+export const ProviderKindSchema = ModelApiSchema;
 
 export const ProviderApiCompatibilityModeSchema = z.enum(["auto", "native", "bridge"]);
 
@@ -77,7 +88,7 @@ export const ProviderApiCompatibilitySchema = z.preprocess(
     .object({
       mode: ProviderApiCompatibilityModeSchema.default("auto"),
       baseUrl: z.string().min(1).optional(),
-      targetKind: ProviderKindSchema.optional(),
+      targetApi: ModelApiSchema.optional(),
     })
     .passthrough()
     .superRefine(addInlineSecretIssues),
@@ -184,27 +195,37 @@ export const ProviderProfileSchema = z.preprocess(
       id: z.string().min(1),
       label: z.string().min(1),
       kind: ProviderKindSchema,
-      model: z.string().min(1).optional(),
+      apiMode: ModelApiModeSchema.optional(),
       baseUrl: z.string().min(1).optional(),
-      apiCompatibility: ProviderApiCompatibilitySchema.default({}),
+      apiEntrypoints: ProviderApiEntrypointsSchema,
+      authMode: ProviderAuthModeSchema.default("api_key"),
       secretRef: z
         .object({
           source: z.enum(["env", "local_keychain", "server_keychain", "prompt"]),
           key: z.string().min(1),
         })
         .optional(),
+      runtimeReady: z.boolean().optional(),
+      runtimeNote: z.string().optional(),
       enabled: z.boolean().optional(),
       readOnly: z.boolean().optional(),
     })
     .passthrough(),
 );
 
+export const ModelProfileSchema = IndependentModelSchema;
+export const ModelSupplyCapabilitySchema = ModelSupplySchema;
+
 export const HarnessCapabilitySchema = z
   .object({
     id: z.string().min(1),
+    runtimeHarnessId: z.string().min(1).optional(),
     label: z.string().min(1),
     icon: z.string().min(1).optional(),
-    compatibleProviders: z.array(ProviderKindSchema).default([]),
+    modelControl: z.enum(["direct", "session", "unsupported"]),
+    modelCompatibility: z.enum(["declared_apis", "any"]),
+    supportedModelApis: z.array(ModelApiSchema).default([]),
+    requiresExplicitModelRoute: z.boolean().default(false),
     passthroughEnv: z.array(z.string()).default([]),
     backend: AgentBackendSchema,
     software: SoftwareCapabilitySchema.optional(),
@@ -260,13 +281,16 @@ export const AgentProfileSchema = z
     aliases: z.array(z.string().min(1)).default([]),
     instructions: z.string().optional(),
     harnessId: z.string().min(1).optional(),
-    providerProfileId: z.string().min(1).optional(),
-    model: z.string().min(1).optional(),
+    modelId: z.string().min(1).optional(),
+    nativeModel: z.string().min(1).optional(),
+    modelSupplyId: z.string().min(1).optional(),
     skills: z.array(z.string()).default([]),
     mcpServers: z.array(z.string()).default([]),
     tools: z.array(z.string()).default([]),
     disallowedTools: z.array(z.string()).default([]),
     permissionMode: z.string().min(1).optional(),
+    sandboxMode: z.string().min(1).optional(),
+    nicknameCandidates: z.array(z.string().min(1)).default([]),
     maxTurns: z.number().int().positive().optional(),
     memory: z.string().min(1).optional(),
     effort: z.string().min(1).optional(),
@@ -371,6 +395,11 @@ export const LspCapabilitySchema = z
     description: z.string().optional(),
     languages: z.array(z.string().min(1)).default([]),
     languageIds: z.array(z.string().min(1)).default([]),
+    /**
+     * Mention token prefixes that should be routed to this server by a host
+     * composer.
+     */
+    mentionPrefixes: z.array(z.string().min(1)).default([]),
     command: z.union([z.array(z.string().min(1)), z.string().min(1)]).optional(),
     args: z.array(z.string().min(1)).default([]),
     cwd: z.string().min(1).optional(),
@@ -565,6 +594,8 @@ export const ExtensionBundleSchema = z
         software: z.array(SoftwareCapabilitySchema).default([]),
         skills: z.array(SkillCapabilitySchema).default([]),
         mcpServers: z.array(McpCapabilitySchema).default([]),
+        models: z.array(ModelProfileSchema).default([]),
+        modelSupplies: z.array(ModelSupplyCapabilitySchema).default([]),
         providers: z.array(ProviderProfileSchema).default([]),
         harnesses: z.array(HarnessCapabilitySchema).default([]),
         agents: z.array(AgentProfileSchema).default([]),
@@ -596,8 +627,9 @@ export const AgentCompositionSchema = z
     enabled: z.boolean().optional(),
     agentProfileId: z.string().min(1).optional(),
     harnessId: z.string().min(1).optional(),
-    providerProfileId: z.string().min(1).optional(),
-    model: z.string().min(1).optional(),
+    modelId: z.string().min(1).optional(),
+    modelSupplyId: z.string().min(1).optional(),
+    effort: z.string().min(1).optional(),
     skills: z.array(z.string()).default([]),
     mcpServers: z.array(z.string()).default([]),
     pluginIds: z.array(z.string()).default([]),
@@ -626,6 +658,7 @@ export const AgentCompositionHealthStatusSchema = z.enum(["ready", "blocked"]);
 export const AgentCompositionRequirementKindSchema = z.enum([
   "agent_profile",
   "harness",
+  "model_supply",
   "provider_profile",
   "model",
   "plugin",
@@ -686,6 +719,8 @@ export const AgentCompositionDefinitionSummarySchema = z
     path: z.string().min(1).optional(),
     pluginId: z.string().min(1).optional(),
     label: z.string().min(1).optional(),
+    host: z.enum(["claude_code", "codex", "swarmx", "custom"]).optional(),
+    format: z.enum(["claude_code", "codex"]).optional(),
     readOnly: z.boolean().optional(),
   })
   .passthrough()
@@ -732,10 +767,11 @@ export const AgentCompositionPlanSchema = z
     healthStatus: AgentCompositionHealthStatusSchema,
     harnessId: z.string().min(1).optional(),
     harnessLabel: z.string().min(1).optional(),
-    providerProfileId: z.string().min(1).optional(),
-    providerLabel: z.string().min(1).optional(),
-    providerKind: ProviderKindSchema.optional(),
-    model: z.string().min(1).optional(),
+    modelId: z.string().min(1).optional(),
+    runtimeModel: z.string().min(1).optional(),
+    modelSupplyId: z.string().min(1).optional(),
+    supplyLabel: z.string().min(1).optional(),
+    effort: z.string().min(1).optional(),
     definition: AgentCompositionDefinitionSummarySchema,
     pluginIds: z.array(z.string().min(1)).default([]),
     skills: z.array(AgentCompositionCapabilityRefSchema).default([]),
@@ -759,6 +795,8 @@ export type SkillHostCompatibilityIssueLevel = z.infer<
 export type SkillHostCompatibilityIssue = z.infer<typeof SkillHostCompatibilityIssueSchema>;
 export type SkillCapability = z.infer<typeof SkillCapabilitySchema>;
 export type McpCapability = z.infer<typeof McpCapabilitySchema>;
+export type ModelProfile = z.infer<typeof ModelProfileSchema>;
+export type ModelSupplyCapability = z.infer<typeof ModelSupplyCapabilitySchema>;
 export type ProviderProfile = z.infer<typeof ProviderProfileSchema>;
 export type ProviderApiCompatibility = z.infer<typeof ProviderApiCompatibilitySchema>;
 export type HarnessCapability = z.infer<typeof HarnessCapabilitySchema>;
@@ -808,6 +846,8 @@ export interface ExtensionInventory {
   software: SoftwareCapability[];
   skills: SkillCapability[];
   mcpServers: McpCapability[];
+  models: ModelProfile[];
+  modelSupplies: ModelSupplyCapability[];
   providers: ProviderProfile[];
   harnesses: HarnessCapability[];
   agents: AgentProfile[];
@@ -834,13 +874,18 @@ export interface LoadExtensionInventoryOptions {
 
 export interface ResolveAgentRuntimeEnvOptions {
   env?: NodeJS.ProcessEnv;
+  providerSecrets?: Readonly<Record<string, string>>;
 }
 
 export interface ExecuteAgentCompositionOptions {
   inventory?: ExtensionInventory;
   inventoryOptions?: LoadExtensionInventoryOptions;
   env?: NodeJS.ProcessEnv;
+  providerSecrets?: Readonly<Record<string, string>>;
   context?: Record<string, unknown>;
+  cwd?: string;
+  localTools?: readonly LocalMcpTool[];
+  onChunk?: (chunk: MessageChunk) => void;
 }
 
 export interface ValidateSkillHostCompatibilityOptions {
@@ -867,6 +912,8 @@ export function createExtensionInventory(
     software: bundles.flatMap((bundle) => bundle.capabilities.software),
     skills: bundles.flatMap((bundle) => bundle.capabilities.skills),
     mcpServers: bundles.flatMap((bundle) => bundle.capabilities.mcpServers),
+    models: bundles.flatMap((bundle) => bundle.capabilities.models),
+    modelSupplies: bundles.flatMap((bundle) => bundle.capabilities.modelSupplies),
     providers: bundles.flatMap((bundle) => bundle.capabilities.providers),
     harnesses: bundles.flatMap((bundle) => bundle.capabilities.harnesses),
     agents: bundles.flatMap((bundle) => bundle.capabilities.agents),
@@ -1098,40 +1145,99 @@ export function resolveAgentCompositionPlan(
   requirements.push(harnessResolution.requirement);
   const harness = harnessResolution.item;
 
-  const providerProfileId = composition.providerProfileId ?? profile?.providerProfileId;
-  const providerResolution = providerProfileId
-    ? resolveForPlan(inventory.providers, providerProfileId, "provider profile", "provider_profile")
+  const modelId = composition.modelId ?? profile?.modelId;
+  const modelResolution = modelId
+    ? resolveForPlan(inventory.models, modelId, "model", "model")
+    : missingRequirement<ModelProfile>(
+        "model",
+        `Agent composition "${composition.id}" must resolve one Model.`,
+      );
+  requirements.push(modelResolution.requirement);
+  const model = modelResolution.item;
+  const requestedModelSupplyId = composition.modelSupplyId ?? profile?.modelSupplyId;
+  const modelSupplyId =
+    requestedModelSupplyId ??
+    (model ? selectInternalModelSupply(inventory, model.id, harness?.id)?.id : undefined);
+  const supplyResolution = modelSupplyId
+    ? resolveForPlan(inventory.modelSupplies, modelSupplyId, "model supply", "model_supply")
+    : undefined;
+  if (supplyResolution) requirements.push(supplyResolution.requirement);
+  const supply = supplyResolution?.item;
+  if (supply && model && supply.modelId !== model.id) {
+    requirements.push({
+      kind: "model_supply",
+      status: "blocked",
+      id: supply.id,
+      message: `Model supply "${supply.id}" does not supply Model "${model.id}".`,
+    });
+  }
+  if (supply && harness && !modelSupplySupportsHarness(supply, harness)) {
+    requirements.push({
+      kind: "model_supply",
+      status: "unsupported",
+      id: supply.id,
+      message: `Model supply "${supply.id}" cannot execute through Harness "${harness.id}".`,
+    });
+  }
+  const providerResolution = supply
+    ? resolveForPlan(
+        inventory.providers,
+        supply.providerProfileId,
+        "provider profile",
+        "provider_profile",
+      )
     : undefined;
   if (providerResolution) requirements.push(providerResolution.requirement);
   const provider = providerResolution?.item;
-  if (harness && provider) {
-    const compatibility = providerCompatibilityRequirement(harness, provider);
-    if (compatibility) requirements.push(compatibility);
-  }
   if (provider?.secretRef) {
     requirements.push({
       kind: "secret",
       status: "unknown",
       id: `${provider.secretRef.source}:${provider.secretRef.key}`,
-      message: `Provider profile "${provider.id}" requires a ${provider.secretRef.source} secret at invocation time.`,
+      message: `Model supply "${supply?.id}" requires a ${provider.secretRef.source} secret at invocation time.`,
     });
   }
 
-  const model = resolvedModel(composition.model, profile?.model, provider?.model);
-  requirements.push(
-    model
-      ? {
-          kind: "model",
-          status: "ok",
-          id: model,
-          message: `Resolved model "${model}".`,
-        }
-      : {
-          kind: "model",
-          status: "missing",
-          message: `Agent composition "${composition.id}" must resolve one model.`,
-        },
-  );
+  const resolvedMatrixModel =
+    harness && model
+      ? resolveHarnessModelInventory({
+          harnessId: harness.id,
+          models: [model],
+          supplies: supply ? [supply] : [],
+          providers: provider ? [provider] : [],
+          harnesses: [harness],
+        })[0]
+      : undefined;
+  if (harness && model && !resolvedMatrixModel) {
+    requirements.push({
+      kind: "model",
+      status: "unsupported",
+      id: model.id,
+      message: `Harness "${harness.id}" cannot select Model "${model.id}".`,
+    });
+  }
+  const effort =
+    harness && model && resolvedMatrixModel
+      ? normalizeModelReasoningEffort(
+          {
+            harnessId: harness.id,
+            modelId: model.id,
+            apiProtocol: resolvedMatrixModel.apiProtocol,
+            effort: composition.effort ?? profile?.effort,
+          },
+          modelRouteCapabilityRegistry(model, supply),
+        )
+      : undefined;
+  const baseRuntimeModel =
+    supply?.runtimeModel ?? resolvedMatrixModel?.runtimeModel ?? model?.runtimeModel;
+  const adapterId = harness ? runtimeHarnessId(harness) : undefined;
+  const runtimeModel =
+    harness && model && baseRuntimeModel && adapterId && HARNESSES[adapterId]
+      ? harnessModelRuntimeModel(adapterId, {
+          modelId: model.id,
+          runtimeModel: baseRuntimeModel,
+        })
+      : baseRuntimeModel;
 
   const skillResults = selectedSkills.map((id) =>
     resolveCapabilityRefForPlan("skill", id, inventory.skills, inventory),
@@ -1184,7 +1290,10 @@ export function resolveAgentCompositionPlan(
 
   return AgentCompositionPlanSchema.parse({
     id: composition.id,
-    agentId: profile?.id ?? composition.agentProfileId ?? composition.id,
+    agentId:
+      (harness?.id ?? harnessId) && modelId
+        ? `${harness?.id ?? harnessId}:${modelId}`
+        : (profile?.id ?? composition.agentProfileId ?? composition.id),
     agentProfileId: profile?.id,
     displayName,
     canonicalSelector: toCanonicalSelector(
@@ -1199,10 +1308,11 @@ export function resolveAgentCompositionPlan(
     healthStatus: status === "ready" ? "ready" : "blocked",
     harnessId: harness?.id ?? harnessId,
     harnessLabel: harness?.label,
-    providerProfileId: provider?.id ?? providerProfileId,
-    providerLabel: provider?.label,
-    providerKind: provider?.kind,
-    model,
+    modelId: model?.id ?? modelId,
+    runtimeModel,
+    modelSupplyId: supply?.id ?? modelSupplyId,
+    supplyLabel: provider?.label ?? supply?.id,
+    effort,
     definition,
     pluginIds,
     skills: skillResults.map((result) => result.ref),
@@ -1233,13 +1343,47 @@ export function resolveAgentComposition(
   }
   const harness = resolveById(inventory.harnesses, harnessId, "harness");
 
-  const providerProfileId = composition.providerProfileId ?? profile?.providerProfileId;
-  const provider = resolveOptionalById(inventory.providers, providerProfileId, "provider profile");
-  assertProviderCompatible(harness, provider);
-  const model = resolvedModel(composition.model, profile?.model, provider?.model);
-  if (!model) {
-    throw new Error(`Agent composition "${composition.id}" must resolve one model.`);
+  const modelId = composition.modelId ?? profile?.modelId;
+  if (!modelId) throw new Error(`Agent composition "${composition.id}" must resolve one Model.`);
+  const model = resolveById(inventory.models, modelId, "model");
+  const supply = resolveOptionalById(inventory.modelSupplies, plan.modelSupplyId, "model supply");
+  if (supply && supply.modelId !== model.id) {
+    throw new Error(`Model supply "${supply.id}" does not supply Model "${model.id}".`);
   }
+  const provider = supply
+    ? resolveById(inventory.providers, supply.providerProfileId, "provider profile")
+    : undefined;
+  const matrixModel = resolveHarnessModelInventory({
+    harnessId: harness.id,
+    models: [model],
+    supplies: supply ? [supply] : [],
+    providers: provider ? [provider] : [],
+    harnesses: [harness],
+  })[0];
+  if (!matrixModel) {
+    throw new Error(`Harness "${harness.id}" cannot select Model "${model.id}".`);
+  }
+  const reasoning = matrixModel.reasoning;
+  const reasoningRegistry = modelRouteCapabilityRegistry(model, supply);
+  const effort = reasoning
+    ? normalizeModelReasoningEffort(
+        {
+          harnessId: harness.id,
+          modelId: model.id,
+          apiProtocol: matrixModel.apiProtocol,
+          effort: composition.effort ?? profile?.effort,
+        },
+        reasoningRegistry,
+      )
+    : undefined;
+  const adapterId = runtimeHarnessId(harness);
+  const baseRuntimeModel = supply?.runtimeModel ?? matrixModel.runtimeModel;
+  const runtimeModel = HARNESSES[adapterId]
+    ? harnessModelRuntimeModel(adapterId, {
+        modelId: model.id,
+        runtimeModel: baseRuntimeModel,
+      })
+    : baseRuntimeModel;
 
   const pluginSelections = composition.plugins ?? [];
   const selectedSkills = uniqueStrings([
@@ -1258,29 +1402,37 @@ export function resolveAgentComposition(
     return servers;
   }, {});
 
-  const name = toAgentConfigName(
-    composition.displayName ??
-      composition.name ??
-      profile?.displayName ??
-      profile?.name ??
-      composition.id,
-  );
+  const name = toAgentConfigName(`${harness.id}-${model.id}`);
   const pluginIds = plan.pluginIds;
 
   return {
     name,
     description: composition.description ?? profile?.description,
-    model,
+    model: runtimeModel,
     instructions: profile?.instructions ?? "",
     backend: harness.backend as AgentBackend,
+    client: adapterId === "swarmx" ? { apiProtocol: matrixModel.apiProtocol } : undefined,
     mcpServers: Object.keys(mcpServers).length > 0 ? mcpServers : undefined,
     parameters: {
+      ...(reasoning && effort
+        ? {
+            reasoning: {
+              capabilityId: reasoning.capabilityId,
+              control: reasoning.reasoningControl,
+              effort,
+              supportedEfforts: reasoning.supportedEfforts,
+              parameterMapping: reasoning.parameterMapping,
+              source: reasoning.source,
+            },
+          }
+        : {}),
       extension: {
         compositionId: composition.id,
         agentProfileId: profile?.id,
         canonicalSelector: plan.canonicalSelector,
         harnessId: harness.id,
-        providerProfileId: provider?.id,
+        modelId: model.id,
+        modelSupplyId: supply?.id,
         host: composition.host,
         pluginIds,
         skills: selectedSkills,
@@ -1295,9 +1447,12 @@ export function resolveAgentComposition(
               tools: profile.tools,
               disallowedTools: profile.disallowedTools,
               permissionMode: profile.permissionMode,
+              sandboxMode: profile.sandboxMode,
+              nicknameCandidates: profile.nicknameCandidates,
+              nativeModel: profile.nativeModel,
               maxTurns: profile.maxTurns,
               memory: profile.memory,
-              effort: profile.effort,
+              ...(effort ? { effort } : {}),
               background: profile.background,
               isolation: profile.isolation,
               color: profile.color,
@@ -1326,29 +1481,66 @@ export function resolveAgentCompositionRuntimeEnv(
   const harnessId = composition.harnessId ?? profile?.harnessId;
   if (!harnessId) return {};
   const harness = resolveById(inventory.harnesses, harnessId, "harness");
-  const providerProfileId = composition.providerProfileId ?? profile?.providerProfileId;
-  const provider = resolveOptionalById(inventory.providers, providerProfileId, "provider profile");
-  if (!provider) return {};
-  assertProviderCompatible(harness, provider);
-
-  const secret = providerSecretValue(provider, options.env ?? process.env);
-  const model = resolvedModel(composition.model, profile?.model, provider.model) ?? "";
-  return buildProviderRuntimeEnv(
+  const sourceEnv = options.env ?? process.env;
+  const passthroughEnv = selectRuntimeEnv(sourceEnv, harness.passthroughEnv);
+  const modelId = composition.modelId ?? profile?.modelId;
+  if (!modelId) return passthroughEnv;
+  const model = resolveById(inventory.models, modelId, "model");
+  const supply = resolveOptionalById(inventory.modelSupplies, plan.modelSupplyId, "model supply");
+  const adapterId = runtimeHarnessId(harness);
+  const matrixModel = resolveHarnessModelInventory({
+    harnessId: harness.id,
+    models: [model],
+    supplies: supply ? [supply] : [],
+    providers: supply
+      ? [resolveById(inventory.providers, supply.providerProfileId, "provider profile")]
+      : [],
+    harnesses: [harness],
+  })[0];
+  if (!matrixModel) {
+    throw new Error(`Harness "${harness.id}" cannot select Model "${model.id}".`);
+  }
+  const baseRuntimeModel = supply?.runtimeModel ?? matrixModel.runtimeModel;
+  const runtimeModel = HARNESSES[adapterId]
+    ? harnessModelRuntimeModel(adapterId, {
+        modelId: model.id,
+        runtimeModel: baseRuntimeModel,
+      })
+    : baseRuntimeModel;
+  const harnessEnv = HARNESSES[adapterId]
+    ? harnessModelRuntimeEnv(adapterId, {
+        modelId: model.id,
+        runtimeModel,
+        effort: plan.effort,
+        env: sourceEnv,
+      })
+    : {};
+  if (!supply) return { ...passthroughEnv, ...harnessEnv };
+  if (supply.modelId !== model.id) {
+    throw new Error(`Model supply "${supply.id}" does not supply Model "${model.id}".`);
+  }
+  const provider = resolveById(inventory.providers, supply.providerProfileId, "provider profile");
+  const secret = providerSecretValue(provider, sourceEnv, options.providerSecrets);
+  const providerEnv = buildProviderRuntimeEnv(
     {
       id: provider.id,
       label: provider.label,
       kind: provider.kind,
-      model,
+      apiMode: provider.apiMode,
       baseUrl: provider.baseUrl,
-      apiCompatibility: provider.apiCompatibility,
+      apiEntrypoints: provider.apiEntrypoints,
+      authMode: provider.authMode,
       secretRef: provider.secretRef,
     },
     {
+      modelId: model.id,
+      runtimeModel,
       secretValue: secret,
-      targetKind: providerTargetKindForHarness(harness, provider),
-      compatibleProviderKinds: harness.compatibleProviders,
+      targetApi: matrixModel.apiProtocol,
+      apiCompatibility: supply.apiCompatibility,
     },
   ).env;
+  return { ...passthroughEnv, ...providerEnv, ...harnessEnv };
 }
 
 export async function executeAgentComposition(
@@ -1360,21 +1552,28 @@ export async function executeAgentComposition(
   const agentConfig = resolveAgentComposition(compositionInput, inventory);
   const runtimeEnv = resolveAgentCompositionRuntimeEnv(compositionInput, inventory, {
     env: options.env,
+    providerSecrets: options.providerSecrets,
   });
   const swarm = new Swarm(
-    singleAgentSwarmConfig(agentConfigWithRuntimeEnv(agentConfig, runtimeEnv)),
+    singleAgentSwarmConfig(agentConfigWithRuntimeEnv(agentConfig, runtimeEnv, options.cwd)),
+    { agent: { localTools: options.localTools } },
   );
-  return swarm.execute({ messages }, options.context);
+  return swarm.execute({ messages }, options.context, options.onChunk);
 }
 
 export function builtInExtensionBundle(): ExtensionBundle {
   const harnesses = Object.entries(HARNESSES).map(([id, harness]) => ({
     id,
+    runtimeHarnessId: id,
     label: harness.label,
     icon: harness.icon,
-    compatibleProviders: harness.compatibleProviders,
+    modelControl: harness.modelControl,
+    modelCompatibility: harness.modelCompatibility,
+    supportedModelApis: harness.supportedModelApis,
+    requiresExplicitModelRoute: harness.requiresExplicitModelRoute ?? false,
     passthroughEnv: harness.passthroughEnv,
     backend: harness.backend,
+    enabled: harness.enabled,
     software: softwareFromBackend(id, harness.backend),
     mcps: [],
     skills: [],
@@ -1395,6 +1594,8 @@ export function builtInExtensionBundle(): ExtensionBundle {
       software: [],
       skills: [],
       mcpServers: [],
+      models: MODELS.map((model) => ({ ...model, catalogSource: "builtin" })),
+      modelSupplies: [],
       providers: [],
       harnesses,
       agents: [],
@@ -1405,9 +1606,10 @@ export function builtInExtensionBundle(): ExtensionBundle {
         {
           id: SWARMX_LOCAL_FILES_LSP_ID,
           name: "SwarmX Local Files",
-          description: "Workspace-local file path completions for @file: references.",
+          description: "Workspace-local file path completions for @ references.",
           languages: ["markdown", "plaintext"],
           languageIds: ["markdown", "plaintext"],
+          mentionPrefixes: ["@"],
           args: [],
           scope: "project",
           readOnly: true,
@@ -1419,6 +1621,7 @@ export function builtInExtensionBundle(): ExtensionBundle {
           description: "Extension inventory skill completions for $ references.",
           languages: ["markdown", "plaintext"],
           languageIds: ["markdown", "plaintext"],
+          mentionPrefixes: ["$"],
           args: [],
           scope: "project",
           readOnly: true,
@@ -1507,20 +1710,50 @@ function assertNoInlineSecrets(value: unknown, trail: string[] = []): void {
 
 function normalizeProviderProfileInput(input: unknown): unknown {
   if (!input || typeof input !== "object" || Array.isArray(input)) return input;
-  const { api_compatibility, apiBridge, api_bridge, bridge, translator, translation, ...rest } =
-    input as Record<string, unknown>;
+  const record = input as Record<string, unknown>;
+  assertNoProviderOwnedModelFields(record);
+  const {
+    display_name,
+    base_url,
+    api_entrypoints,
+    api_mode,
+    auth_mode,
+    secret_ref,
+    name,
+    ...rest
+  } = record;
 
   return {
     ...rest,
-    apiCompatibility:
-      rest.apiCompatibility ??
-      api_compatibility ??
-      apiBridge ??
-      api_bridge ??
-      bridge ??
-      translation ??
-      translator,
+    label: rest.label ?? rest.displayName ?? display_name ?? name,
+    baseUrl: rest.baseUrl ?? base_url,
+    apiEntrypoints: rest.apiEntrypoints ?? api_entrypoints,
+    apiMode: rest.apiMode ?? api_mode,
+    authMode: rest.authMode ?? auth_mode,
+    secretRef: rest.secretRef ?? secret_ref,
   };
+}
+
+function assertNoProviderOwnedModelFields(input: Record<string, unknown>): void {
+  const forbidden = new Set([
+    "model",
+    "models",
+    "defaultmodel",
+    "harnessmodeloverrides",
+    "providerproduct",
+    "apicompatibility",
+    "apibridge",
+    "bridge",
+    "translator",
+    "translation",
+  ]);
+  for (const key of Object.keys(input)) {
+    if (forbidden.has(key.toLowerCase().replace(/[^a-z0-9]/g, ""))) {
+      throw new Error(
+        `Provider profile field "${key}" is invalid; Models and route compatibility belong to Model/ModelSupply.`,
+      );
+    }
+  }
 }
 
 function normalizeProviderApiCompatibilityInput(input: unknown): unknown {
@@ -1528,7 +1761,7 @@ function normalizeProviderApiCompatibilityInput(input: unknown): unknown {
     return { mode: normalizeProviderApiCompatibilityMode(input) };
   }
   if (!input || typeof input !== "object" || Array.isArray(input)) return input;
-  const { downstream_kind, target_kind, base_url, kind, translator, enabled, ...rest } =
+  const { downstream_kind, target_kind, target_api, base_url, kind, translator, enabled, ...rest } =
     input as Record<string, unknown>;
 
   return {
@@ -1538,7 +1771,7 @@ function normalizeProviderApiCompatibilityInput(input: unknown): unknown {
       normalizeProviderApiCompatibilityMode(
         kind ?? translator ?? (enabled === false ? "native" : undefined),
       ),
-    targetKind: rest.targetKind ?? target_kind ?? downstream_kind,
+    targetApi: rest.targetApi ?? target_api ?? rest.targetKind ?? target_kind ?? downstream_kind,
     baseUrl: rest.baseUrl ?? base_url,
   };
 }
@@ -1771,25 +2004,6 @@ function pluginRequirementForPlan(
   };
 }
 
-function providerCompatibilityRequirement(
-  harness: HarnessCapability,
-  provider: ProviderProfile,
-): AgentCompositionRequirement | undefined {
-  if (providerTargetKindForHarness(harness, provider)) {
-    return undefined;
-  }
-  return {
-    kind: "provider_profile",
-    status: "blocked",
-    id: provider.id,
-    message: `Provider profile "${provider.id}" (${provider.kind}) is not compatible with harness "${harness.id}".`,
-  };
-}
-
-function resolvedModel(...values: Array<string | undefined>): string | undefined {
-  return values.find((value) => value && value !== "inherit");
-}
-
 function contextSummaryForPlan(
   composition: AgentComposition,
   profile: AgentProfile | undefined,
@@ -1866,6 +2080,8 @@ function definitionSummaryForPlan(
       path: definition.path,
       pluginId: definition.pluginId,
       label: definition.label,
+      host: definition.host,
+      format: definition.format,
       readOnly: definition.readOnly,
     });
   }
@@ -1928,6 +2144,52 @@ function assertPlanReadyForExecution(plan: AgentCompositionPlan): void {
   );
 }
 
+/** Select hidden runtime routing only; Provider never changes Model compatibility or identity. */
+function selectInternalModelSupply(
+  inventory: ExtensionInventory,
+  modelId: string,
+  harnessId?: string,
+): ModelSupplyCapability | undefined {
+  const harness = harnessId
+    ? inventory.harnesses.find((candidate) => candidate.id === harnessId)
+    : undefined;
+  const candidates = inventory.modelSupplies.filter(
+    (supply) =>
+      supply.modelId === modelId &&
+      supply.enabled !== false &&
+      (!harness || modelSupplySupportsHarness(supply, harness)),
+  );
+  const providerRank = (supply: ModelSupplyCapability): number => {
+    const matches = inventory.providers.filter(
+      (provider) => provider.id === supply.providerProfileId,
+    );
+    if (matches.length !== 1) return 4;
+    const provider = matches[0];
+    if (provider.enabled === false) return 3;
+    const runtimeReady = (provider as { runtimeReady?: unknown }).runtimeReady;
+    if (runtimeReady === true) return 0;
+    if (runtimeReady === false) return 2;
+    return 1;
+  };
+  return [...candidates].sort(
+    (left, right) => providerRank(left) - providerRank(right) || left.id.localeCompare(right.id),
+  )[0];
+}
+
+function modelRouteCapabilityRegistry(
+  model: ModelProfile,
+  supply: ModelSupplyCapability | undefined,
+) {
+  return modelCapabilityRegistry([
+    supply?.reasoningCapabilities.length
+      ? {
+          ...model,
+          reasoningCapabilities: [...model.reasoningCapabilities, ...supply.reasoningCapabilities],
+        }
+      : model,
+  ]);
+}
+
 function resolveById<T extends { id: string }>(items: T[], id: string, label: string): T {
   const matches = items.filter((item) => item.id === id);
   if (matches.length === 1) return matches[0];
@@ -1941,30 +2203,6 @@ function resolveOptionalById<T extends { id: string }>(
   label: string,
 ): T | undefined {
   return id ? resolveById(items, id, label) : undefined;
-}
-
-function assertProviderCompatible(
-  harness: HarnessCapability,
-  provider: ProviderProfile | undefined,
-): void {
-  if (!provider || harness.compatibleProviders.length === 0) return;
-  if (!providerTargetKindForHarness(harness, provider)) {
-    throw new Error(
-      `Provider profile "${provider.id}" (${provider.kind}) is not compatible with harness "${harness.id}".`,
-    );
-  }
-}
-
-function providerTargetKindForHarness(
-  harness: HarnessCapability,
-  provider: ProviderProfile,
-): z.infer<typeof ProviderKindSchema> | undefined {
-  if (harness.compatibleProviders.length === 0) return provider.kind;
-  if (harness.compatibleProviders.includes(provider.kind)) return provider.kind;
-  if (provider.apiCompatibility.mode === "native") return undefined;
-  const configured = provider.apiCompatibility.targetKind;
-  if (configured && harness.compatibleProviders.includes(configured)) return configured;
-  return harness.compatibleProviders[0];
 }
 
 function singleAgentSwarmConfig(agentConfig: AgentConfig): SwarmConfig {
@@ -1981,12 +2219,14 @@ function singleAgentSwarmConfig(agentConfig: AgentConfig): SwarmConfig {
 function agentConfigWithRuntimeEnv(
   agentConfig: AgentConfig,
   runtimeEnv: Record<string, string>,
+  cwd?: string,
 ): AgentConfig {
-  if (Object.keys(runtimeEnv).length === 0) return agentConfig;
   return {
     ...agentConfig,
     process: {
       ...agentConfig.process,
+      ...(cwd ? { currentDir: cwd } : {}),
+      clearEnv: true,
       env: {
         ...(agentConfig.process?.env ?? {}),
         ...runtimeEnv,
@@ -1995,12 +2235,27 @@ function agentConfigWithRuntimeEnv(
   };
 }
 
+function selectRuntimeEnv(
+  source: NodeJS.ProcessEnv,
+  allowedKeys: readonly string[],
+): Record<string, string> {
+  const selected: Record<string, string> = {};
+  for (const key of allowedKeys) {
+    const value = source[key];
+    if (value !== undefined) selected[key] = value;
+  }
+  return selected;
+}
+
 function providerSecretValue(
   provider: ProviderProfile,
   env: NodeJS.ProcessEnv,
+  providerSecrets: Readonly<Record<string, string>> | undefined,
 ): string | undefined {
   const ref = provider.secretRef;
   if (!ref) return undefined;
+  const override = providerSecrets?.[provider.id];
+  if (override) return override;
   if (ref.source !== "env") {
     throw new Error(
       `Provider profile "${provider.id}" uses unsupported secret source "${ref.source}" in this runtime.`,
@@ -2060,11 +2315,28 @@ function toCanonicalSelector(value: string): string {
 
 function harnessDescriptor(harness: HarnessCapability): Record<string, unknown> {
   return {
+    runtimeHarnessId: harness.runtimeHarnessId,
     software: harness.software,
     mcps: harness.mcps,
     skills: harness.skills,
     projectFiles: harness.projectFiles,
   };
+}
+
+function runtimeHarnessId(harness: HarnessCapability): string {
+  return harness.runtimeHarnessId ?? harness.id;
+}
+
+function modelSupplySupportsHarness(
+  supply: ModelSupplyCapability,
+  harness: HarnessCapability,
+): boolean {
+  if (harness.modelControl === "direct") return true;
+  const adapterId = runtimeHarnessId(harness);
+  if (harness.requiresExplicitModelRoute) {
+    return Boolean(supply.runtimeModel) && supply.harnessIds?.includes(adapterId) === true;
+  }
+  return !supply.harnessIds || supply.harnessIds.includes(adapterId);
 }
 
 function softwareFromBackend(id: string, backend: AgentBackend): SoftwareCapability {

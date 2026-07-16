@@ -28,6 +28,18 @@ describe("Session discovery", () => {
     expect(groups[0].sessions.map((session) => session.id)).toEqual(["codex-2", "codex-1"]);
   });
 
+  it("sorts pinned local sessions before more recent sessions", () => {
+    const groups = groupDiscoveredSessions(
+      [
+        discovered({ id: "recent", updatedAt: "2026-01-03T00:00:00Z" }),
+        discovered({ id: "pinned", pinned: true, updatedAt: "2026-01-01T00:00:00Z" }),
+      ],
+      "harness",
+    );
+
+    expect(groups[0]?.sessions.map((session) => session.id)).toEqual(["pinned", "recent"]);
+  });
+
   it("groups sessions by project working directory", () => {
     const groups = groupDiscoveredSessions(
       [
@@ -83,8 +95,8 @@ describe("Session discovery", () => {
       {
         createClient: () => ({
           loadSession: async (opts, sessionId, cwd) => {
-            expect(opts.command).toBe("bun");
-            expect(opts.args).toContain("@agentclientprotocol/codex-acp");
+            expect(opts.command).toBe("npx");
+            expect(opts.args).toContain("@agentclientprotocol/codex-acp@1.1.2");
             expect(sessionId).toBe("codex-session");
             expect(cwd).toBe("/Users/test/swarmx");
             return {
@@ -104,6 +116,7 @@ describe("Session discovery", () => {
       id: "codex-session",
       title: "Fix tests",
       acpSessionId: "codex-session",
+      cwd: "/Users/test/swarmx",
       agentName: "Codex",
       harness: "codex",
       messages: [

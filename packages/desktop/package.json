@@ -1,16 +1,33 @@
 {
   "name": "@swarmx/desktop",
-  "version": "3.0.1",
+  "version": "3.1.0",
   "description": "Electron desktop host and reusable renderer shell for SwarmX.",
   "license": "MIT",
   "type": "module",
   "main": "./out/main/index.js",
-  "files": ["out", "dist/renderer", "src/renderer/src/assets/styles.css"],
+  "files": [
+    "out",
+    "dist/main",
+    "dist/preload",
+    "dist/renderer",
+    "src/renderer/src/assets/styles.css",
+    "LICENSE",
+    "THIRD_PARTY_NOTICES.md",
+    "third_party_licenses"
+  ],
   "publishConfig": {
     "access": "public"
   },
   "exports": {
     ".": "./out/main/index.js",
+    "./main": {
+      "types": "./dist/main/library.d.ts",
+      "import": "./out/main/library.js"
+    },
+    "./preload": {
+      "types": "./dist/preload/api.d.ts",
+      "import": "./out/preload/api.mjs"
+    },
     "./renderer": {
       "types": "./dist/renderer/App.d.ts",
       "import": "./dist/renderer/App.js"
@@ -19,21 +36,26 @@
   },
   "scripts": {
     "dev": "electron-vite dev",
-    "build": "electron-vite build && tsc -p tsconfig.renderer-lib.json",
+    "build": "electron-vite build && tsc -p tsconfig.renderer-lib.json && tsc -p tsconfig.main-lib.json && tsc -p tsconfig.preload-lib.json",
     "preview": "electron-vite preview",
     "start": "electron .",
     "test": "vitest run"
   },
   "dependencies": {
     "@swarmx/core": "workspace:*",
+    "@swarmx/runtime": "workspace:*",
+    "@xterm/addon-fit": "^0.11.0",
+    "@xterm/xterm": "^6.0.0",
     "katex": "^0.17.0",
     "lucide-react": "^1.17.0",
+    "node-pty": "^1.1.0",
     "react-markdown": "^10.1.0",
     "rehype-katex": "^7.0.1",
     "remark-gfm": "^4.0.1",
     "remark-math": "^6.0.0",
     "shiki": "^4.3.1",
-    "swr": "^2.4.1"
+    "swr": "^2.4.1",
+    "zod": "^3.24.0"
   },
   "peerDependencies": {
     "react": "^19.0.0",

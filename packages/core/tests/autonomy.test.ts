@@ -321,9 +321,11 @@ describe("autonomy runtime primitives", () => {
       stage: "triage",
       role: "agent.bug-reviewer",
       status: "succeeded",
+      harnessId: "codex",
+      modelId: "gpt-5",
+      modelSupplyId: "openai-gpt-5",
       adapter: "codex",
       agentProfileId: "analysis-lead",
-      providerProfileId: "openai-default",
       startedAt: timestamp,
       endedAt: "2026-07-03T00:01:00.000Z",
       durationMs: 60_000,
@@ -334,6 +336,7 @@ describe("autonomy runtime primitives", () => {
       resultRef: "autonomy/agent-runs/2026/07/03/agt_review_1.json",
     });
     expect(agentRun.agentRunId).toBe("agt_review_1");
+    expect(agentRun).toMatchObject({ harnessId: "codex", modelId: "gpt-5" });
     expect(agentRun.outputRefs).toEqual([
       { kind: "artifact", id: "run-log", title: "agent summary" },
     ]);

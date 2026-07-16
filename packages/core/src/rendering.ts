@@ -84,13 +84,13 @@ export const RenderProvenanceSchema = z
     mcpServer: z.string().min(1).optional(),
     marketplace: z.string().min(1).optional(),
     harnessId: z.string().min(1).optional(),
-    providerProfileId: z.string().min(1).optional(),
-    model: z.string().min(1).optional(),
+    modelId: z.string().min(1).optional(),
+    modelSupplyId: z.string().min(1).optional(),
     agent: z.string().min(1).optional(),
     externalSessionRef: z.string().min(1).optional(),
   })
   .passthrough()
-  .superRefine(addSecretIssues);
+  .superRefine(addAgentProvenanceIssues);
 
 export const NormalizedRenderEventSchema = z
   .object({
@@ -268,6 +268,20 @@ function addSecretIssues(value: unknown, ctx: z.RefinementCtx): void {
       path: issue.path,
       message: `Render events must not contain inline secret field "${issue.key}".`,
     });
+  }
+}
+
+function addAgentProvenanceIssues(value: unknown, ctx: z.RefinementCtx): void {
+  addSecretIssues(value, ctx);
+  if (!isObjectRecord(value)) return;
+  for (const key of ["providerProfileId", "provider_profile_id", "model"]) {
+    if (key in value) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: [key],
+        message: `Agent provenance must use harnessId plus modelId; field "${key}" is invalid.`,
+      });
+    }
   }
 }
 

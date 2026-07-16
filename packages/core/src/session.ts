@@ -13,7 +13,17 @@ function ensureSessionsDir(): string {
   return SESSIONS_DIR;
 }
 
-export function createSession(agentName: string, harness: string, model?: string): SessionData {
+export interface SessionProjectContext {
+  projectId?: string;
+  cwd?: string;
+}
+
+export function createSession(
+  agentName: string,
+  harness: string,
+  model?: string,
+  project: SessionProjectContext = {},
+): SessionData {
   ensureSessionsDir();
   const id = uuidv4();
   const now = new Date().toISOString();
@@ -23,6 +33,8 @@ export function createSession(agentName: string, harness: string, model?: string
     agentName,
     harness,
     model,
+    ...(project.projectId ? { projectId: project.projectId } : {}),
+    ...(project.cwd ? { cwd: project.cwd } : {}),
     messages: [],
     createdAt: now,
     updatedAt: now,
@@ -49,7 +61,11 @@ export function loadSession(id: string): SessionData | null {
   }
 }
 
-export function listSessions(): SessionData[] {
+export interface ListSessionsOptions {
+  includeArchived?: boolean;
+}
+
+export function listSessions(options: ListSessionsOptions = {}): SessionData[] {
   ensureSessionsDir();
   const sessions: SessionData[] = [];
   try {
@@ -59,7 +75,9 @@ export function listSessions(): SessionData[] {
       try {
         const data = fs.readFileSync(filePath, "utf-8");
         const parsed = SessionDataSchema.safeParse(JSON.parse(data));
-        if (parsed.success) sessions.push(parsed.data);
+        if (parsed.success && (options.includeArchived || !parsed.data.archivedAt)) {
+          sessions.push(parsed.data);
+        }
       } catch {
         // skip corrupt files
       }
@@ -67,8 +85,25 @@ export function listSessions(): SessionData[] {
   } catch {
     // directory doesn't exist
   }
-  sessions.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+  sessions.sort(
+    (a, b) =>
+      Number(b.pinned) - Number(a.pinned) ||
+      new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime(),
+  );
   return sessions;
+}
+
+export function archiveProjectSessions(project: SessionProjectContext): number {
+  if (!project.projectId && !project.cwd) return 0;
+  const archivedAt = new Date().toISOString();
+  let archived = 0;
+  for (const session of listSessions({ includeArchived: true })) {
+    if (session.archivedAt || !belongsToProject(session, project)) continue;
+    session.archivedAt = archivedAt;
+    saveSession(session);
+    archived += 1;
+  }
+  return archived;
 }
 
 export function deleteSession(id: string): boolean {
@@ -87,10 +122,24 @@ export function updateSessionTitle(id: string, title: string): boolean {
   return true;
 }
 
+export function setSessionPinned(id: string, pinned: boolean): SessionData | null {
+  const session = loadSession(id);
+  if (!session) return null;
+  session.pinned = pinned;
+  saveSession(session);
+  return session;
+}
+
 export function appendMessages(id: string, messages: MessageChunk[]): boolean {
   const session = loadSession(id);
   if (!session) return false;
   session.messages.push(...messages);
   saveSession(session);
   return true;
+}
+
+function belongsToProject(session: SessionData, project: SessionProjectContext): boolean {
+  if (project.projectId && session.projectId === project.projectId) return true;
+  if (!project.cwd || !session.cwd) return false;
+  return path.resolve(session.cwd) === path.resolve(project.cwd);
 }

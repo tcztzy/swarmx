@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { Agent } from "./agent.js";
+import { Agent, type AgentRuntimeOptions } from "./agent.js";
 import { Edge } from "./edge.js";
 import { Hook } from "./hook.js";
 import { Tool } from "./tool.js";
@@ -17,6 +17,10 @@ import {
 
 const MAX_STEPS = 100;
 
+export interface SwarmRuntimeOptions {
+  agent?: AgentRuntimeOptions;
+}
+
 interface EvalTraceCollector {
   runId: string;
   events: EvalTraceEvent[];
@@ -29,15 +33,15 @@ export class SwarmNode {
   tool?: Tool;
   swarm?: Swarm;
 
-  constructor(config: SwarmNodeConfig) {
+  constructor(config: SwarmNodeConfig, options: SwarmRuntimeOptions = {}) {
     const parsed = SwarmNodeConfigSchema.parse(config);
     this.kind = parsed.kind;
     if (parsed.kind === "agent") {
-      this.agent = new Agent(parsed.agent);
+      this.agent = new Agent(parsed.agent, options.agent);
     } else if (parsed.kind === "tool") {
       this.tool = new Tool(parsed.tool);
     } else {
-      this.swarm = new Swarm(parsed.swarm);
+      this.swarm = new Swarm(parsed.swarm, options);
     }
   }
 
@@ -61,15 +65,17 @@ export class Swarm {
   root: string;
   hooks: Hook[];
 
-  constructor(config: SwarmConfig) {
+  constructor(config: SwarmConfig, options: SwarmRuntimeOptions = {}) {
     const parsed = SwarmConfigSchema.parse(config);
     this.name = parsed.name;
     this.description = parsed.description;
     this.parameters = parsed.parameters ?? {};
     this.returns = parsed.returns;
     this.mcpServers = new Map(parsed.mcpServers ? Object.entries(parsed.mcpServers) : []);
-    this.queen = parsed.queen ? new Agent(parsed.queen) : undefined;
-    this.nodes = new Map(Object.entries(parsed.nodes).map(([k, v]) => [k, new SwarmNode(v)]));
+    this.queen = parsed.queen ? new Agent(parsed.queen, options.agent) : undefined;
+    this.nodes = new Map(
+      Object.entries(parsed.nodes).map(([k, v]) => [k, new SwarmNode(v, options)]),
+    );
     this.edges = (parsed.edges ?? []).map((e) => new Edge(e));
     this.root = parsed.root;
     this.hooks = (parsed.hooks ?? []).map((h) => new Hook(h));
@@ -150,8 +156,9 @@ export class Swarm {
   async execute(
     arguments_: Record<string, unknown>,
     context?: Record<string, unknown>,
+    onChunk?: (chunk: MessageChunk) => void,
   ): Promise<MessageChunk[]> {
-    return this.executeInternal(arguments_, context);
+    return this.executeInternal(arguments_, context, undefined, onChunk);
   }
 
   async executeForEval(
@@ -185,6 +192,7 @@ export class Swarm {
     arguments_: Record<string, unknown>,
     context?: Record<string, unknown>,
     trace?: EvalTraceCollector,
+    onChunk?: (chunk: MessageChunk) => void,
   ): Promise<MessageChunk[]> {
     const ctx = { ...(context ?? {}) };
     const newMessages: MessageChunk[] = [];
@@ -207,7 +215,7 @@ export class Swarm {
       const node = this.nodes.get(nodeName);
       if (!node) throw new Error(`Node "${nodeName}" not found`);
 
-      const nodeMessages = await this.runNode(nodeName, node, arguments_, ctx, trace);
+      const nodeMessages = await this.runNode(nodeName, node, arguments_, ctx, trace, onChunk);
       visited.add(nodeName);
 
       if (nodeMessages.length > 0) {
@@ -245,6 +253,7 @@ export class Swarm {
     arguments_: Record<string, unknown>,
     context: Record<string, unknown>,
     trace?: EvalTraceCollector,
+    onChunk?: (chunk: MessageChunk) => void,
   ): Promise<MessageChunk[]> {
     const startedAt = new Date().toISOString();
     const step = trace?.nextStep ?? 0;
@@ -253,7 +262,7 @@ export class Swarm {
     }
 
     try {
-      const messages = await this.runNodeUnchecked(node, arguments_, context, trace);
+      const messages = await this.runNodeUnchecked(node, arguments_, context, trace, onChunk);
       if (trace) {
         trace.events.push({
           runId: trace.runId,
@@ -292,11 +301,14 @@ export class Swarm {
     arguments_: Record<string, unknown>,
     context: Record<string, unknown>,
     trace?: EvalTraceCollector,
+    onChunk?: (chunk: MessageChunk) => void,
   ): Promise<MessageChunk[]> {
     switch (node.kind) {
       case "agent": {
         if (!node.agent) return [];
-        const result = await node.agent.call(arguments_, context);
+        const result = onChunk
+          ? await node.agent.callStream(arguments_, onChunk)
+          : await node.agent.call(arguments_, context);
         const messages = result.messages as MessageChunk[] | undefined;
         return messages ?? [];
       }
@@ -313,7 +325,7 @@ export class Swarm {
       }
       case "swarm": {
         if (!node.swarm) return [];
-        return node.swarm.executeInternal(arguments_, context, trace);
+        return node.swarm.executeInternal(arguments_, context, trace, onChunk);
       }
     }
   }

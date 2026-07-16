@@ -61,16 +61,15 @@ export const ContextObjectSchema = z
   .passthrough()
   .superRefine(addSecretIssues);
 
-export const ContextProviderMetadataSchema = z
+export const ContextModelRuntimeMetadataSchema = z
   .object({
-    providerId: z.string().min(1).optional(),
-    displayName: z.string().min(1).optional(),
+    modelId: z.string().min(1),
+    modelSupplyId: z.string().min(1).optional(),
+    runtimeModel: z.string().min(1).optional(),
     apiType: z.string().min(1).optional(),
-    model: z.string().min(1).optional(),
-    baseUrl: z.string().min(1).optional(),
   })
   .passthrough()
-  .superRefine(addSecretIssues);
+  .superRefine(addAgentIdentityIssues);
 
 export const ContextPacketMetadataSchema = z
   .object({
@@ -127,7 +126,7 @@ export const SummaryCheckpointSchema = z
     source: z.string().min(1),
     requestedStrategy: ContextStrategySchema,
     resolvedStrategy: ResolvedContextStrategySchema,
-    provider: ContextProviderMetadataSchema.optional(),
+    modelRuntime: ContextModelRuntimeMetadataSchema.optional(),
     coveredMessageIds: z.array(z.string().min(1)).default([]),
     includedMessageIds: z.array(z.string().min(1)).default([]),
     compressionPromptBytes: z.number().int().nonnegative(),
@@ -135,26 +134,29 @@ export const SummaryCheckpointSchema = z
     summary: z.string(),
   })
   .passthrough()
-  .superRefine(addSecretIssues);
+  .superRefine(addAgentIdentityIssues);
 
 export const AgentInvocationContextMetadataSchema = z
   .object({
     triggerMessageId: z.string().min(1).optional(),
-    adapterId: z.string().min(1),
-    providerProfileId: z.string().min(1).optional(),
+    harnessId: z.string().min(1),
+    modelId: z.string().min(1),
+    modelSupplyId: z.string().min(1).optional(),
+    adapterId: z.string().min(1).optional(),
     contextStrategy: ResolvedContextStrategySchema,
     packet: ContextPacketMetadataSchema,
     externalSessionRef: z.string().min(1).optional(),
     trajectorySummary: z.string().optional(),
   })
   .passthrough()
-  .superRefine(addSecretIssues);
+  .superRefine(addAgentIdentityIssues);
 
 export type ContextStrategy = z.infer<typeof ContextStrategySchema>;
 export type ResolvedContextStrategy = z.infer<typeof ResolvedContextStrategySchema>;
 export type ContextPacketMode = z.infer<typeof ContextPacketModeSchema>;
 export type ContextObjectKind = z.infer<typeof ContextObjectKindSchema>;
 export type ContextObject = z.infer<typeof ContextObjectSchema>;
+export type ContextModelRuntimeMetadata = z.infer<typeof ContextModelRuntimeMetadataSchema>;
 export type ContextPacketMetadata = z.infer<typeof ContextPacketMetadataSchema>;
 export type ContextPacket = z.infer<typeof ContextPacketSchema>;
 export type SummaryCheckpoint = z.infer<typeof SummaryCheckpointSchema>;
@@ -309,6 +311,20 @@ function addSecretIssues(value: unknown, ctx: z.RefinementCtx): void {
       path: issue.path,
       message: `Context records must not contain inline secret field "${issue.key}".`,
     });
+  }
+}
+
+function addAgentIdentityIssues(value: unknown, ctx: z.RefinementCtx): void {
+  addSecretIssues(value, ctx);
+  if (!isObjectRecord(value)) return;
+  for (const key of ["provider", "providerId", "providerProfileId", "model"]) {
+    if (key in value) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: [key],
+        message: `Context Agent identity must use modelId and optional modelSupplyId; field "${key}" is invalid.`,
+      });
+    }
   }
 }
 

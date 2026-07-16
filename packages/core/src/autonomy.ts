@@ -371,10 +371,11 @@ export const AutonomyAgentRunRecordSchema = z
     stage: z.string().min(1),
     role: z.string().min(1),
     status: AutonomyAgentRunStatusSchema,
+    harnessId: z.string().min(1),
+    modelId: z.string().min(1),
+    modelSupplyId: z.string().min(1).optional(),
     adapter: z.string().min(1).optional(),
     agentProfileId: z.string().min(1).optional(),
-    providerProfileId: z.string().min(1).optional(),
-    model: z.string().min(1).optional(),
     startedAt: z.string().min(1).optional(),
     endedAt: z.string().min(1).optional(),
     durationMs: z.number().int().nonnegative().optional(),
@@ -389,7 +390,7 @@ export const AutonomyAgentRunRecordSchema = z
     metadata: z.record(z.string(), z.unknown()).optional(),
   })
   .passthrough()
-  .superRefine(addRuntimeRecordIssues);
+  .superRefine(addAgentRunIdentityIssues);
 
 export const AutonomyWorkflowDecisionRecordSchema = z
   .object({
@@ -2114,6 +2115,20 @@ function addRuntimeRecordIssues(value: unknown, ctx: z.RefinementCtx): void {
       path: issue.path,
       message: `Runtime records must not contain raw content field "${issue.key}".`,
     });
+  }
+}
+
+function addAgentRunIdentityIssues(value: unknown, ctx: z.RefinementCtx): void {
+  addRuntimeRecordIssues(value, ctx);
+  if (!isObjectRecord(value)) return;
+  for (const key of ["providerProfileId", "provider_profile_id", "model"]) {
+    if (key in value) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: [key],
+        message: `Agent-run identity must use harnessId plus modelId; field "${key}" is invalid.`,
+      });
+    }
   }
 }
 

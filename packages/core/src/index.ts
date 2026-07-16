@@ -1,22 +1,48 @@
 export { Agent, HookRef } from "./agent.js";
 export { Swarm, SwarmNode } from "./swarm.js";
+export type { AgentRuntimeOptions } from "./agent.js";
+export type { SwarmRuntimeOptions } from "./swarm.js";
 export { Edge } from "./edge.js";
 export { Hook } from "./hook.js";
 export { Tool } from "./tool.js";
 export { McpManager } from "./mcp.js";
+export type { LocalMcpTool } from "./mcp.js";
 export { QuotaManager } from "./quota.js";
-export { AcpClient } from "./acp.js";
+export {
+  AcpClient,
+  RequestCancelledError,
+  cancelAcpRequest,
+  currentRequestSignal,
+  findSessionConfigSelect,
+  findSessionConfigValue,
+  throwIfCurrentRequestCancelled,
+  withAcpRequest,
+} from "./acp.js";
 export type { AcpClientOptions, AcpPromptResult, MessageChunk as AcpMessageChunk } from "./acp.js";
+export { MessageRenderMetadataSchema } from "./types.js";
 export { SWARMX_VERSION } from "./version.js";
 export {
   createSession,
   saveSession,
   loadSession,
   listSessions,
+  archiveProjectSessions,
   deleteSession,
+  setSessionPinned,
   updateSessionTitle,
   appendMessages,
 } from "./session.js";
+export {
+  ProjectDataSchema,
+  dismissProject,
+  listProjects,
+  registerDefaultProject,
+  registerProject,
+  removeProject,
+  renameProject,
+  setProjectPinned,
+} from "./project.js";
+export type { ProjectData } from "./project.js";
 export {
   listGroupedSessions,
   groupDiscoveredSessions,
@@ -34,13 +60,21 @@ export type {
   SessionGroupMode,
 } from "./session-discovery.js";
 export { createServer } from "./server.js";
-export { getHarness, getHarnessList, HARNESSES } from "./harness.js";
+export {
+  getHarness,
+  getHarnessList,
+  harnessModelRuntimeEnv,
+  harnessModelRuntimeModel,
+  HARNESSES,
+} from "./harness.js";
 export type {
   HarnessConfig,
-  ProviderKind,
-  ModelProvider,
+  HarnessModelLaunchOptions,
+  HarnessModelCompatibility,
+  HarnessModelControl,
 } from "./harness.js";
-export { providerEnvVars } from "./harness.js";
+export { ModelApiModeSchema, ModelApiSchema } from "./model-api.js";
+export type { ModelApi, ModelApiMode } from "./model-api.js";
 export { importN8nWorkflow, N8nImportError } from "./n8n.js";
 export type { N8nImportResult } from "./n8n.js";
 export {
@@ -165,6 +199,9 @@ export type {
   CreateConversationEventInput,
 } from "./conversation.js";
 export {
+  ProviderApiSchema,
+  ProviderApiEntrypointsSchema,
+  ProviderAuthModeSchema,
   ProviderKindSchema as ProviderProfileKindSchema,
   ProviderApiCompatibilityModeSchema,
   ProviderApiCompatibilitySchema,
@@ -181,11 +218,13 @@ export {
   parseProviderPromptRequest,
   parseProviderSecretStatus,
   providerEnvVars as providerProfileEnvVars,
-  providerModelForSelection,
   resolveProviderProfile,
 } from "./providers.js";
 export type {
   BuildProviderRuntimeEnvOptions,
+  ProviderApi,
+  ProviderApiEntrypoints,
+  ProviderAuthMode,
   ProviderApiCompatibility,
   ProviderApiCompatibilityMode,
   ProviderKind as ProviderProfileKind,
@@ -198,6 +237,50 @@ export type {
   ProviderSelection,
   ProviderSelectionSource,
 } from "./providers.js";
+export {
+  MODEL_CAPABILITIES,
+  MODELS,
+  ModelCapabilityLookupSchema,
+  ModelCapabilitySchema,
+  ModelCapabilitySourceSchema,
+  ModelHarnessInventoryEntrySchema,
+  ModelProviderLabelSchema,
+  ModelReasoningControlSchema,
+  ModelReasoningParameterMappingSchema,
+  ModelReasoningSelectionSchema,
+  ModelSchema,
+  ModelSupplyApiCompatibilitySchema,
+  ModelSupplySchema,
+  ResolvedHarnessModelSchema,
+  ResolvedModelSupplySchema,
+  ResolvedModelReasoningCapabilitySchema,
+  findModelCapability,
+  isHarnessModelCompatible,
+  modelReasoningRequestParameters,
+  normalizeModelReasoningEffort,
+  parseModel,
+  parseModelCapability,
+  parseModelSupply,
+  resolveHarnessModelInventory,
+  resolveModelReasoningCapability,
+} from "./model-capabilities.js";
+export type {
+  Model,
+  ModelCapability,
+  ModelCapabilityLookup,
+  ModelCapabilitySource,
+  ModelHarnessInventoryEntry,
+  ModelProviderLabel,
+  ModelReasoningControl,
+  ModelReasoningParameterMapping,
+  ModelReasoningSelection,
+  ModelSupply,
+  ModelSupplyApiCompatibility,
+  ResolveHarnessModelInventoryOptions,
+  ResolvedHarnessModel,
+  ResolvedModelSupply,
+  ResolvedModelReasoningCapability,
+} from "./model-capabilities.js";
 export {
   HarnessAgentAliasSchema,
   HarnessAvailabilitySchema,
@@ -224,24 +307,32 @@ export type {
 } from "./harness-management.js";
 export {
   AgentDefinitionDocumentSchema,
+  AgentDefinitionFormatSchema,
   AgentDefinitionFrontmatterSchema,
   AgentDefinitionGeepilotMetadataSchema,
+  AgentDefinitionHostSchema,
   AgentDefinitionSourceSchema,
   AgentProfileMetadataSchema,
   createAgentProfileFromDefinition,
+  parseCodexAgentDefinitionToml,
   parseAgentDefinitionMarkdown,
+  parseNativeAgentDefinition,
   parseAgentProfileMetadata,
   projectAgentDefinitionForClaudeCode,
+  projectAgentDefinitionForCodex,
   serializeAgentDefinitionMarkdown,
 } from "./agent-profiles.js";
 export type {
   AgentDefinitionDocument,
+  AgentDefinitionFormat,
   AgentDefinitionFrontmatter,
   AgentDefinitionGeepilotMetadata,
+  AgentDefinitionHost,
   AgentDefinitionSource,
   AgentProfileMetadata,
   CreateAgentProfileFromDefinitionOptions,
   ParseAgentDefinitionOptions,
+  ParseNativeAgentDefinitionOptions,
 } from "./agent-profiles.js";
 export {
   DesktopExtensionSettingsSchema,
@@ -355,7 +446,7 @@ export {
   ContextPacketMetadataSchema,
   ContextPacketModeSchema,
   ContextPacketSchema,
-  ContextProviderMetadataSchema,
+  ContextModelRuntimeMetadataSchema,
   ContextStrategySchema,
   ResolvedContextStrategySchema,
   SummaryCheckpointSchema,
@@ -372,6 +463,7 @@ export type {
   BuildContextPacketOptions,
   ContextObject,
   ContextObjectKind,
+  ContextModelRuntimeMetadata,
   ContextPacket,
   ContextPacketMetadata,
   ContextPacketMode,
@@ -631,6 +723,72 @@ export {
   resolveAgentCompositionRuntimeEnv,
   validateSkillHostCompatibility,
 } from "./extensions.js";
+export {
+  HarnessDeliveryPolicySchema,
+  HarnessPermissionPolicySchema,
+  HarnessProjectContextSchema,
+  HarnessRecipeSchema,
+  HarnessSkillBindingSchema,
+  LogicalSkillSchema,
+  ResolvedSkillBindingSchema,
+  SkillBindingModeSchema,
+  SkillDeliveryModeSchema,
+  SkillDeliverySchema,
+  SkillEvaluationMetricsSchema,
+  SkillEvaluationRunSchema,
+  SkillEvolutionCandidateSchema,
+  SkillPromotionDecisionSchema,
+  SkillResolutionContextSchema,
+  SkillVariantLineageSchema,
+  SkillVariantSchema,
+  SkillVariantSourceSchema,
+  SkillVariantStatusSchema,
+  SkillVariantTargetSchema,
+  evaluateSkillCandidate,
+  normalizeLogicalSkill,
+  resolveHarnessSkillBinding,
+} from "./skill-variants.js";
+export {
+  ExtensionActionKindSchema,
+  ExtensionActionPlanSchema,
+  ExtensionActionReceiptSchema,
+  ExtensionActionRequestSchema,
+  ExtensionCandidateSchema,
+  ExtensionInstallStateSchema,
+  ExtensionLifecycleManager,
+  ExtensionMarketplaceCatalogSchema,
+  ExtensionMarketplaceSourceSchema,
+  ExtensionRevisionSchema,
+  ExtensionTrustSchema,
+  InstalledExtensionSchema,
+  planExtensionAction,
+} from "./extension-management.js";
+export type {
+  ExtensionActionPlan,
+  ExtensionActionReceipt,
+  ExtensionActionRequest,
+  ExtensionCandidate,
+  ExtensionMarketplaceCatalog,
+  ExtensionMarketplaceSource,
+  ExtensionRevision,
+  InstalledExtension,
+} from "./extension-management.js";
+export type {
+  HarnessDeliveryPolicy,
+  HarnessPermissionPolicy,
+  HarnessProjectContext,
+  HarnessRecipe,
+  HarnessSkillBinding,
+  LogicalSkill,
+  ResolvedSkillBinding,
+  SkillBindingMode,
+  SkillDeliveryMode,
+  SkillEvaluationRun,
+  SkillEvolutionCandidate,
+  SkillPromotionDecision,
+  SkillResolutionContext,
+  SkillVariant,
+} from "./skill-variants.js";
 export type {
   AgentComposition,
   AgentCompositionCapabilityRef,

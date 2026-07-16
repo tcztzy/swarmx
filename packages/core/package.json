@@ -1,6 +1,6 @@
 {
   "name": "@swarmx/core",
-  "version": "3.0.1",
+  "version": "3.1.0",
   "description": "Core SwarmX multi-agent runtime and platform contracts.",
   "license": "MIT",
   "type": "module",
@@ -35,6 +35,10 @@
       "types": "./dist/providers.d.ts",
       "import": "./dist/providers.js"
     },
+    "./model-capabilities": {
+      "types": "./dist/model-capabilities.d.ts",
+      "import": "./dist/model-capabilities.js"
+    },
     "./harness-management": {
       "types": "./dist/harness-management.d.ts",
       "import": "./dist/harness-management.js"
@@ -54,6 +58,18 @@
     "./actions": {
       "types": "./dist/actions.d.ts",
       "import": "./dist/actions.js"
+    },
+    "./skill-variants": {
+      "types": "./dist/skill-variants.d.ts",
+      "import": "./dist/skill-variants.js"
+    },
+    "./extension-management": {
+      "types": "./dist/extension-management.d.ts",
+      "import": "./dist/extension-management.js"
+    },
+    "./project": {
+      "types": "./dist/project.d.ts",
+      "import": "./dist/project.js"
     }
   },
   "scripts": {
@@ -63,9 +79,11 @@
   },
   "dependencies": {
     "@agentclientprotocol/sdk": "^0.22.0",
+    "@anthropic-ai/sdk": "^0.111.0",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "cel-js": "^0.8.0",
     "openai": "^6.39.0",
+    "smol-toml": "^1.7.0",
     "uuid": "^11.0.0",
     "yaml": "^2.9.0",
     "zod": "^3.24.0"

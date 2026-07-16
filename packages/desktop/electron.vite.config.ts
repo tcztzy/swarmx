@@ -9,6 +9,7 @@ export default defineConfig({
       rollupOptions: {
         input: {
           index: resolve(__dirname, "src/main/index.ts"),
+          library: resolve(__dirname, "src/main/library.ts"),
         },
       },
     },
@@ -18,6 +19,7 @@ export default defineConfig({
     build: {
       rollupOptions: {
         input: {
+          api: resolve(__dirname, "src/preload/api.ts"),
           index: resolve(__dirname, "src/preload/index.ts"),
         },
       },

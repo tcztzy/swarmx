@@ -33,8 +33,8 @@ export const HarnessHostScopeSchema = z.enum(["local", "server", "remote", "cust
 
 export const HarnessSelectorSourceSchema = z.enum([
   "none",
-  "bare_adapter",
-  "adapter_provider",
+  "bare_harness",
+  "harness_model",
   "agent_alias",
 ]);
 
@@ -61,11 +61,12 @@ export const HarnessAgentAliasSchema = z
   .object({
     alias: z.string().min(1),
     agentProfileId: z.string().min(1).optional(),
-    adapterId: z.string().min(1),
-    providerProfileId: z.string().min(1).optional(),
+    harnessId: z.string().min(1),
+    modelId: z.string().min(1),
+    modelSupplyId: z.string().min(1).optional(),
   })
   .passthrough()
-  .superRefine(addSecretIssues);
+  .superRefine(addHarnessIdentityIssues);
 
 export const HarnessSelectorResolutionSchema = z
   .object({
@@ -73,13 +74,14 @@ export const HarnessSelectorResolutionSchema = z
     source: HarnessSelectorSourceSchema,
     selector: z.string().min(1).optional(),
     canonicalSelector: z.string().min(1).optional(),
-    adapterId: z.string().min(1).optional(),
-    providerProfileId: z.string().min(1).optional(),
+    harnessId: z.string().min(1).optional(),
+    modelId: z.string().min(1).optional(),
+    modelSupplyId: z.string().min(1).optional(),
     agentProfileId: z.string().min(1).optional(),
     prompt: z.string(),
   })
   .passthrough()
-  .superRefine(addSecretIssues);
+  .superRefine(addHarnessIdentityIssues);
 
 export const HarnessInvocationMetadataSchema = z
   .object({
@@ -87,8 +89,9 @@ export const HarnessInvocationMetadataSchema = z
     sessionId: z.string().min(1).optional(),
     triggerMessageId: z.string().min(1).optional(),
     contextPacketId: z.string().min(1).optional(),
-    adapterId: z.string().min(1),
-    providerProfileId: z.string().min(1).optional(),
+    harnessId: z.string().min(1),
+    modelId: z.string().min(1),
+    modelSupplyId: z.string().min(1).optional(),
     agentProfileId: z.string().min(1).optional(),
     canonicalSelector: z.string().min(1).optional(),
     externalSessionRef: z.string().min(1).optional(),
@@ -99,7 +102,7 @@ export const HarnessInvocationMetadataSchema = z
     metadata: z.record(z.string(), z.unknown()).default({}),
   })
   .passthrough()
-  .superRefine(addSecretIssues);
+  .superRefine(addHarnessIdentityIssues);
 
 export type HarnessAvailability = z.infer<typeof HarnessAvailabilitySchema>;
 export type HarnessHostScope = z.infer<typeof HarnessHostScopeSchema>;
@@ -111,7 +114,7 @@ export type HarnessSelectorResolution = z.infer<typeof HarnessSelectorResolution
 export type HarnessInvocationMetadata = z.infer<typeof HarnessInvocationMetadataSchema>;
 
 export interface ResolveHarnessSelectorOptions {
-  knownAdapters?: string[];
+  knownHarnesses?: string[];
   agentAliases?: HarnessAgentAlias[];
 }
 
@@ -140,22 +143,22 @@ export function resolveHarnessSelector(
   const id = match[1] as string;
   const suffix = match[2];
   const prompt = input.slice(match[0].length);
-  const knownAdapters = new Set(options.knownAdapters ?? []);
+  const knownHarnesses = new Set(options.knownHarnesses ?? []);
 
-  if (knownAdapters.has(id)) {
+  if (knownHarnesses.has(id)) {
     return HarnessSelectorResolutionSchema.parse({
       matched: true,
-      source: suffix ? "adapter_provider" : "bare_adapter",
+      source: suffix ? "harness_model" : "bare_harness",
       selector,
       canonicalSelector: suffix ? `@${id}:${suffix}` : `@${id}`,
-      adapterId: id,
-      providerProfileId: suffix,
+      harnessId: id,
+      modelId: suffix,
       prompt,
     });
   }
 
   if (suffix) {
-    throw new Error(`Unknown harness adapter "${id}".`);
+    throw new Error(`Unknown harness "${id}".`);
   }
 
   const aliases = (options.agentAliases ?? [])
@@ -170,17 +173,37 @@ export function resolveHarnessSelector(
       matched: true,
       source: "agent_alias",
       selector,
-      canonicalSelector: alias.providerProfileId
-        ? `@${alias.adapterId}:${alias.providerProfileId}`
-        : `@${alias.adapterId}`,
-      adapterId: alias.adapterId,
-      providerProfileId: alias.providerProfileId,
+      canonicalSelector: `@${alias.harnessId}:${alias.modelId}`,
+      harnessId: alias.harnessId,
+      modelId: alias.modelId,
+      modelSupplyId: alias.modelSupplyId,
       agentProfileId: alias.agentProfileId,
       prompt,
     });
   }
 
   throw new Error(`Unknown harness or agent selector "@${id}".`);
+}
+
+function addHarnessIdentityIssues(value: unknown, ctx: z.RefinementCtx): void {
+  addSecretIssues(value, ctx);
+  if (!isObjectRecord(value)) return;
+  for (const key of ["providerProfileId", "provider_profile_id", "adapterId", "adapter_id"]) {
+    if (key in value) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: [key],
+        message: `Harness Agent identity must use harnessId plus modelId; field "${key}" is invalid.`,
+      });
+    }
+  }
+  if (value.modelSupplyId && !value.modelId) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["modelSupplyId"],
+      message: "A ModelSupply selection requires a Model id.",
+    });
+  }
 }
 
 function addSecretIssues(value: unknown, ctx: z.RefinementCtx): void {

@@ -127,6 +127,21 @@ export const ChatMessageSchema = z.object({
   content: z.string(),
 });
 
+export const MessageRenderMetadataSchema = z
+  .object({
+    durationMs: z.number().int().nonnegative().optional(),
+    endedAt: z.string().min(1).optional(),
+    invocationId: z.string().min(1).optional(),
+    parentMessageId: z.string().min(1).optional(),
+    rawPayloadRef: z.string().min(1).optional(),
+    source: z.string().min(1).optional(),
+    startedAt: z.string().min(1).optional(),
+    status: z
+      .enum(["queued", "running", "succeeded", "failed", "canceled", "skipped", "completed"])
+      .optional(),
+  })
+  .passthrough();
+
 export const MessageChunkSchema = z.object({
   role: z.string(),
   content: z.string(),
@@ -134,6 +149,7 @@ export const MessageChunkSchema = z.object({
   agent: z.string().optional(),
   swarmEvent: z.string().optional(),
   toolName: z.string().optional(),
+  render: MessageRenderMetadataSchema.optional(),
 });
 
 // ── Eval output ─────────────────────────────────────────────────────────────
@@ -170,10 +186,14 @@ export const SessionDataSchema = z.object({
   id: z.string(),
   title: z.string(),
   acpSessionId: z.string().optional(),
+  projectId: z.string().optional(),
+  cwd: z.string().optional(),
   agentName: z.string(),
   harness: z.string(),
   model: z.string().optional(),
+  pinned: z.boolean().default(false),
   messages: z.array(MessageChunkSchema),
+  archivedAt: z.string().optional(),
   createdAt: z.string(),
   updatedAt: z.string(),
 });
@@ -190,6 +210,7 @@ export type SwarmNodeConfig = z.infer<typeof SwarmNodeConfigSchema>;
 export type SwarmConfig = z.infer<typeof SwarmConfigSchema>;
 export type EdgeConfig = z.infer<typeof EdgeConfigSchema>;
 export type ChatMessage = z.infer<typeof ChatMessageSchema>;
+export type MessageRenderMetadata = z.infer<typeof MessageRenderMetadataSchema>;
 export type MessageChunk = z.infer<typeof MessageChunkSchema>;
 export type EvalTraceEvent = z.infer<typeof EvalTraceEventSchema>;
 export type EvalRunResult = z.infer<typeof EvalRunResultSchema>;

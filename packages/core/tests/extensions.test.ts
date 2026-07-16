@@ -1,7 +1,7 @@
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, expectTypeOf, it } from "vitest";
 import {
   SWARMX_LOCAL_FILES_LSP_ID,
   SWARMX_SKILLS_LSP_ID,
@@ -25,6 +25,55 @@ afterEach(async () => {
 });
 
 describe("extension inventory", () => {
+  it("V250 preserves typed Provider runtime readiness metadata", () => {
+    const inventory = createExtensionInventory([
+      parseExtensionBundle({
+        id: "typed-provider-readiness",
+        name: "Typed Provider readiness",
+        version: "1.0.0",
+        capabilities: {
+          providers: [
+            {
+              id: "typed-provider",
+              label: "Typed Provider",
+              kind: "anthropic",
+              runtimeReady: false,
+              runtimeNote: "Credential is not configured.",
+            },
+          ],
+        },
+      }),
+    ]);
+    const provider = inventory.providers[0];
+
+    expectTypeOf(provider?.runtimeReady).toEqualTypeOf<boolean | undefined>();
+    expectTypeOf(provider?.runtimeNote).toEqualTypeOf<string | undefined>();
+    expect(provider).toMatchObject({
+      runtimeReady: false,
+      runtimeNote: "Credential is not configured.",
+    });
+  });
+
+  it("normalizes codex_responses mode in extension Provider profiles", () => {
+    const bundle = parseExtensionBundle({
+      id: "codex-responses-provider",
+      name: "Codex Responses Provider",
+      version: "1.0.0",
+      capabilities: {
+        providers: [
+          {
+            id: "codex-subscription",
+            label: "Codex subscription",
+            kind: "openai_responses",
+            api_mode: "codex_responses",
+          },
+        ],
+      },
+    });
+
+    expect(bundle.capabilities.providers[0]?.apiMode).toBe("codex_responses");
+  });
+
   it("loads built-in harnesses and path manifests into one inventory", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "swarmx-extension-"));
     tempRoots.push(root);
@@ -86,7 +135,9 @@ describe("extension inventory", () => {
             {
               id: "geepilot-codex",
               label: "GEEPilot Codex",
-              compatibleProviders: ["openai_responses"],
+              modelControl: "session",
+              modelCompatibility: "any",
+              supportedModelApis: ["openai_responses"],
               backend: {
                 type: "custom",
                 program: "bun",
@@ -103,7 +154,7 @@ describe("extension inventory", () => {
               id: "analysis-lead",
               name: "analysis lead",
               harnessId: "geepilot-codex",
-              model: "gpt-5",
+              modelId: "gpt-5",
               skills: ["geepilot.memory"],
               mcpServers: ["geepilot.filesystem"],
             },
@@ -418,12 +469,13 @@ describe("extension inventory", () => {
       capabilities: {
         lspServers: [
           {
-            id: "geepilot-reference-lsp",
-            name: "GEEPilot Reference LSP",
-            command: "geepilot-reference-lsp",
+            id: "reference-lsp",
+            name: "Reference LSP",
+            command: "reference-lsp",
             args: ["--stdio"],
             languages: ["markdown"],
             languageIds: ["markdown", "plaintext"],
+            mentionPrefixes: ["@"],
             cwd: ".",
             readOnly: true,
           },
@@ -433,11 +485,12 @@ describe("extension inventory", () => {
 
     expect(bundle.capabilities.lspServers).toEqual([
       expect.objectContaining({
-        id: "geepilot-reference-lsp",
-        command: "geepilot-reference-lsp",
+        id: "reference-lsp",
+        command: "reference-lsp",
         args: ["--stdio"],
         languages: ["markdown"],
         languageIds: ["markdown", "plaintext"],
+        mentionPrefixes: ["@"],
         cwd: ".",
         readOnly: true,
       }),
@@ -453,6 +506,7 @@ describe("extension inventory", () => {
           id: SWARMX_LOCAL_FILES_LSP_ID,
           name: "SwarmX Local Files",
           languageIds: ["markdown", "plaintext"],
+          mentionPrefixes: ["@"],
           scope: "project",
           readOnly: true,
         }),
@@ -473,6 +527,7 @@ describe("extension inventory", () => {
           id: SWARMX_SKILLS_LSP_ID,
           name: "SwarmX Skills",
           languageIds: ["markdown", "plaintext"],
+          mentionPrefixes: ["$"],
           scope: "project",
           readOnly: true,
         }),
@@ -627,13 +682,27 @@ describe("extension inventory", () => {
       name: "GEEPilot",
       version: "0.1.0",
       capabilities: {
+        models: [
+          {
+            id: "gpt-5",
+            label: "GPT-5",
+            runtimeModel: "gpt-5",
+            apiProtocols: ["openai_responses"],
+          },
+        ],
         providers: [
           {
             id: "openai-prod",
             label: "OpenAI Prod",
             kind: "openai_responses",
-            model: "gpt-5",
             secretRef: { source: "env", key: "OPENAI_API_KEY" },
+          },
+        ],
+        modelSupplies: [
+          {
+            id: "gpt-5-openai-prod",
+            modelId: "gpt-5",
+            providerProfileId: "openai-prod",
           },
         ],
         skills: [
@@ -650,7 +719,9 @@ describe("extension inventory", () => {
           {
             id: "codex-acp",
             label: "Codex ACP",
-            compatibleProviders: ["openai_responses"],
+            modelControl: "session",
+            modelCompatibility: "any",
+            supportedModelApis: ["openai_responses"],
             backend: {
               type: "custom",
               program: "bun",
@@ -665,7 +736,8 @@ describe("extension inventory", () => {
             name: "analysis lead",
             instructions: "Plan analysis work and cite evidence.",
             harnessId: "codex-acp",
-            providerProfileId: "openai-prod",
+            modelId: "gpt-5",
+            modelSupplyId: "gpt-5-openai-prod",
             skills: ["memory"],
             mcpServers: ["project-fs"],
             tools: ["Read", "Grep"],
@@ -700,7 +772,7 @@ describe("extension inventory", () => {
 
     expect(plan).toMatchObject({
       id: "run-analysis",
-      agentId: "analysis-lead",
+      agentId: "codex-acp:gpt-5",
       agentProfileId: "analysis-lead",
       displayName: "analysis lead",
       canonicalSelector: "@analysis-lead",
@@ -709,9 +781,9 @@ describe("extension inventory", () => {
       healthStatus: "ready",
       harnessId: "codex-acp",
       harnessLabel: "Codex ACP",
-      providerProfileId: "openai-prod",
-      providerKind: "openai_responses",
-      model: "gpt-5",
+      modelId: "gpt-5",
+      runtimeModel: "gpt-5",
+      modelSupplyId: "gpt-5-openai-prod",
       definition: {
         source: "plugin",
         pluginId: "geepilot",
@@ -762,7 +834,7 @@ describe("extension inventory", () => {
     );
 
     expect(agent).toMatchObject({
-      name: "analysis_lead",
+      name: "codex_acp_gpt_5",
       model: "gpt-5",
       instructions: "Plan analysis work and cite evidence.",
       backend: {
@@ -778,7 +850,8 @@ describe("extension inventory", () => {
           compositionId: "run-analysis",
           agentProfileId: "analysis-lead",
           harnessId: "codex-acp",
-          providerProfileId: "openai-prod",
+          modelId: "gpt-5",
+          modelSupplyId: "gpt-5-openai-prod",
           host: "local",
           skills: ["memory", "paper-review"],
           mcpServers: ["project-fs"],
@@ -788,7 +861,6 @@ describe("extension inventory", () => {
             permissionMode: "plan",
             maxTurns: 6,
             memory: "readonly",
-            effort: "high",
             background: false,
             isolation: "workspace",
             color: "blue",
@@ -823,7 +895,7 @@ describe("extension inventory", () => {
     const inventory = createExtensionInventory([]);
 
     const missingHarnessPlan = resolveAgentCompositionPlan(
-      { id: "broken", harnessId: "missing", model: "gpt-5" },
+      { id: "broken", harnessId: "missing", modelId: "gpt-5" },
       inventory,
     );
     expect(missingHarnessPlan).toMatchObject({
@@ -831,11 +903,11 @@ describe("extension inventory", () => {
       healthStatus: "blocked",
       requirements: expect.arrayContaining([
         expect.objectContaining({ kind: "harness", status: "missing", id: "missing" }),
-        expect.objectContaining({ kind: "model", status: "ok", id: "gpt-5" }),
+        expect.objectContaining({ kind: "model", status: "missing", id: "gpt-5" }),
       ]),
     });
     expect(() =>
-      resolveAgentComposition({ id: "broken", harnessId: "missing", model: "gpt-5" }, inventory),
+      resolveAgentComposition({ id: "broken", harnessId: "missing", modelId: "gpt-5" }, inventory),
     ).toThrow(/Unknown harness id "missing"/);
 
     const bundle = parseExtensionBundle({
@@ -844,7 +916,16 @@ describe("extension inventory", () => {
       name: "Minimal",
       version: "1.0.0",
       capabilities: {
-        harnesses: [{ id: "echo", label: "Echo", backend: { type: "echo" } }],
+        harnesses: [
+          {
+            id: "echo",
+            label: "Echo",
+            modelControl: "direct",
+            modelCompatibility: "declared_apis",
+            supportedModelApis: ["openai_chat"],
+            backend: { type: "echo" },
+          },
+        ],
       },
     });
 
@@ -853,7 +934,313 @@ describe("extension inventory", () => {
         { id: "missing-model", harnessId: "echo" },
         createExtensionInventory([bundle]),
       ),
-    ).toThrow(/must resolve one model/);
+    ).toThrow(/must resolve one Model/);
+  });
+
+  it("V332 requires an explicit Model route for a session-controlled Harness", () => {
+    const bundle = parseExtensionBundle({
+      schemaVersion: 1,
+      id: "gateway-harness",
+      name: "Gateway Harness",
+      version: "1.0.0",
+      capabilities: {
+        models: [
+          {
+            id: "gateway-model",
+            runtimeModel: "gateway-model",
+            apiProtocols: ["openai_chat"],
+          },
+        ],
+        providers: [
+          {
+            id: "gateway-provider",
+            label: "Gateway Provider",
+            kind: "openai_chat",
+          },
+        ],
+        modelSupplies: [
+          {
+            id: "gateway-route",
+            modelId: "gateway-model",
+            providerProfileId: "gateway-provider",
+            runtimeModel: "gateway/runtime-model",
+            harnessIds: ["gateway"],
+          },
+        ],
+        harnesses: [
+          {
+            id: "gateway",
+            label: "Gateway",
+            modelControl: "session",
+            modelCompatibility: "any",
+            requiresExplicitModelRoute: true,
+            supportedModelApis: [],
+            backend: { type: "custom", program: "gateway", args: ["acp"] },
+          },
+        ],
+      },
+    });
+    const inventory = createExtensionInventory([bundle]);
+
+    expect(
+      resolveAgentCompositionPlan(
+        { id: "gateway-run", harnessId: "gateway", modelId: "gateway-model" },
+        inventory,
+      ),
+    ).toMatchObject({
+      status: "ready",
+      modelId: "gateway-model",
+      runtimeModel: "gateway/runtime-model",
+      requirements: expect.arrayContaining([
+        expect.objectContaining({ kind: "model", status: "ok", id: "gateway-model" }),
+      ]),
+    });
+    expect(
+      resolveAgentComposition(
+        { id: "gateway-run", harnessId: "gateway", modelId: "gateway-model" },
+        inventory,
+      ),
+    ).toMatchObject({
+      model: "gateway/runtime-model",
+      backend: { type: "custom", program: "gateway", args: ["acp"] },
+    });
+    expect(
+      resolveAgentCompositionPlan(
+        { id: "bad-model-run", harnessId: "gateway", modelId: "invented-model" },
+        inventory,
+      ),
+    ).toMatchObject({
+      status: "blocked",
+      requirements: expect.arrayContaining([
+        expect.objectContaining({ kind: "model", status: "missing", id: "invented-model" }),
+      ]),
+    });
+  });
+
+  it("resolves Claude Code x DeepSeek through the fixed internal route", () => {
+    const inventory = createExtensionInventory([builtInExtensionBundle()]);
+    const composition = {
+      id: "claude-deepseek",
+      harnessId: "claude_code",
+      modelId: "deepseek-v4-pro",
+      effort: "max",
+    };
+
+    expect(resolveAgentCompositionPlan(composition, inventory)).toMatchObject({
+      status: "ready",
+      agentId: "claude_code:deepseek-v4-pro",
+      modelId: "deepseek-v4-pro",
+      runtimeModel: "deepseek-v4-pro[1m]",
+      effort: "max",
+    });
+    expect(resolveAgentComposition(composition, inventory)).toMatchObject({
+      name: "claude_code_deepseek_v4_pro",
+      model: "deepseek-v4-pro[1m]",
+    });
+    expect(
+      resolveAgentCompositionRuntimeEnv(composition, inventory, {
+        env: { DEEPSEEK_API_KEY: "sk-deepseek-runtime" },
+      }),
+    ).toEqual({
+      ANTHROPIC_BASE_URL: "https://api.deepseek.com/anthropic",
+      ANTHROPIC_AUTH_TOKEN: "sk-deepseek-runtime",
+      ANTHROPIC_MODEL: "deepseek-v4-pro[1m]",
+      ANTHROPIC_DEFAULT_OPUS_MODEL: "deepseek-v4-pro[1m]",
+      ANTHROPIC_DEFAULT_SONNET_MODEL: "deepseek-v4-pro[1m]",
+      ANTHROPIC_DEFAULT_HAIKU_MODEL: "deepseek-v4-flash",
+      CLAUDE_CODE_SUBAGENT_MODEL: "deepseek-v4-flash",
+      CLAUDE_CODE_EFFORT_LEVEL: "max",
+      CLAUDE_MODEL_CONFIG: '{"availableModels":["deepseek-v4-pro[1m]"]}',
+    });
+    expect(() => resolveAgentCompositionRuntimeEnv(composition, inventory, { env: {} })).toThrow(
+      /requires env secret "DEEPSEEK_API_KEY"/,
+    );
+  });
+
+  it("V333 keeps custom Harness identity while reusing its Software adapter", () => {
+    const customHarness = parseExtensionBundle({
+      id: "custom-claude-harness",
+      name: "Custom Claude Harness",
+      version: "1.0.0",
+      capabilities: {
+        harnesses: [
+          {
+            id: "researcher-harness",
+            runtimeHarnessId: "claude_code",
+            label: "Researcher Harness",
+            modelControl: "session",
+            modelCompatibility: "any",
+            requiresExplicitModelRoute: true,
+            supportedModelApis: [],
+            backend: { type: "custom", program: "npx", args: ["claude-acp"] },
+          },
+        ],
+      },
+    });
+    const inventory = createExtensionInventory([builtInExtensionBundle(), customHarness]);
+    const composition = {
+      id: "custom-claude-deepseek",
+      harnessId: "researcher-harness",
+      modelId: "deepseek-v4-pro",
+      effort: "max",
+    };
+
+    expect(resolveAgentCompositionPlan(composition, inventory)).toMatchObject({
+      status: "ready",
+      agentId: "researcher-harness:deepseek-v4-pro",
+      runtimeModel: "deepseek-v4-pro[1m]",
+    });
+    expect(resolveAgentComposition(composition, inventory)).toMatchObject({
+      name: "researcher_harness_deepseek_v4_pro",
+      model: "deepseek-v4-pro[1m]",
+    });
+    expect(
+      resolveAgentCompositionRuntimeEnv(composition, inventory, {
+        env: { DEEPSEEK_API_KEY: "sk-deepseek-runtime" },
+      }),
+    ).toMatchObject({
+      ANTHROPIC_MODEL: "deepseek-v4-pro[1m]",
+      CLAUDE_MODEL_CONFIG: '{"availableModels":["deepseek-v4-pro[1m]"]}',
+    });
+  });
+
+  it("chooses a ready internal ModelSupply without changing Harness x Model identity", () => {
+    const bundle = parseExtensionBundle({
+      schemaVersion: 1,
+      id: "dynamic-catalog",
+      name: "Dynamic Catalog",
+      version: "1.0.0",
+      capabilities: {
+        models: [
+          {
+            id: "remote-model",
+            runtimeModel: "remote-model",
+            apiProtocols: ["openai_chat"],
+          },
+        ],
+        providers: [
+          {
+            id: "provider-unavailable",
+            label: "Unavailable",
+            kind: "openai_chat",
+            secretRef: { source: "env", key: "MISSING_REMOTE_KEY" },
+            runtimeReady: false,
+          },
+          {
+            id: "provider-ready",
+            label: "Ready",
+            kind: "openai_chat",
+            secretRef: { source: "env", key: "READY_REMOTE_KEY" },
+            runtimeReady: true,
+          },
+        ],
+        modelSupplies: [
+          {
+            id: "remote-via-unavailable",
+            modelId: "remote-model",
+            providerProfileId: "provider-unavailable",
+            runtimeModel: "unavailable/remote-model",
+          },
+          {
+            id: "remote-via-ready",
+            modelId: "remote-model",
+            providerProfileId: "provider-ready",
+            runtimeModel: "ready/remote-model",
+          },
+        ],
+      },
+    });
+    const inventory = createExtensionInventory([builtInExtensionBundle(), bundle]);
+    const composition = {
+      id: "automatic-supply",
+      harnessId: "swarmx",
+      modelId: "remote-model",
+    };
+
+    expect(resolveAgentCompositionPlan(composition, inventory)).toMatchObject({
+      status: "ready",
+      agentId: "swarmx:remote-model",
+      modelId: "remote-model",
+      modelSupplyId: "remote-via-ready",
+      runtimeModel: "ready/remote-model",
+    });
+    expect(resolveAgentComposition(composition, inventory)).toMatchObject({
+      name: "swarmx_remote_model",
+      model: "ready/remote-model",
+      parameters: {
+        extension: {
+          harnessId: "swarmx",
+          modelId: "remote-model",
+          modelSupplyId: "remote-via-ready",
+        },
+      },
+    });
+    expect(
+      resolveAgentCompositionRuntimeEnv(composition, inventory, {
+        env: { READY_REMOTE_KEY: "sk-ready-runtime" },
+      }),
+    ).toMatchObject({
+      OPENAI_MODEL: "ready/remote-model",
+      OPENAI_API_KEY: "sk-ready-runtime",
+    });
+  });
+
+  it("uses request-scoped Provider secret overrides for local keychain references", () => {
+    const bundle = parseExtensionBundle({
+      schemaVersion: 1,
+      id: "keychain-provider",
+      name: "Keychain Provider",
+      version: "1.0.0",
+      capabilities: {
+        models: [
+          {
+            id: "claude-private",
+            runtimeModel: "claude-private",
+            apiProtocols: ["anthropic"],
+          },
+        ],
+        providers: [
+          {
+            id: "anthropic-private",
+            label: "Anthropic Private",
+            kind: "anthropic",
+            baseUrl: "https://anthropic.internal",
+            authMode: "auth_token",
+            secretRef: { source: "local_keychain", key: "anthropic-private" },
+            runtimeReady: true,
+          },
+        ],
+        modelSupplies: [
+          {
+            id: "claude-private-route",
+            modelId: "claude-private",
+            providerProfileId: "anthropic-private",
+            runtimeModel: "claude-private",
+            harnessIds: ["claude_code"],
+          },
+        ],
+      },
+    });
+    const inventory = createExtensionInventory([builtInExtensionBundle(), bundle]);
+    const composition = {
+      id: "private-token",
+      harnessId: "claude_code",
+      modelId: "claude-private",
+    };
+
+    expect(() => resolveAgentCompositionRuntimeEnv(composition, inventory, { env: {} })).toThrow(
+      /unsupported secret source "local_keychain"/,
+    );
+    expect(
+      resolveAgentCompositionRuntimeEnv(composition, inventory, {
+        env: {},
+        providerSecrets: { "anthropic-private": "private-auth-token" },
+      }),
+    ).toMatchObject({
+      ANTHROPIC_AUTH_TOKEN: "private-auth-token",
+      ANTHROPIC_BASE_URL: "https://anthropic.internal",
+      ANTHROPIC_MODEL: "claude-private",
+    });
   });
 
   it("blocks compositions with unknown skills, disabled profiles, or unsupported context", () => {
@@ -863,7 +1250,17 @@ describe("extension inventory", () => {
       name: "Strict",
       version: "1.0.0",
       capabilities: {
-        harnesses: [{ id: "echo", label: "Echo", backend: { type: "echo" } }],
+        models: [{ id: "gpt-5", runtimeModel: "gpt-5", apiProtocols: ["openai_chat"] }],
+        harnesses: [
+          {
+            id: "echo",
+            label: "Echo",
+            modelControl: "direct",
+            modelCompatibility: "declared_apis",
+            supportedModelApis: ["openai_chat"],
+            backend: { type: "echo" },
+          },
+        ],
         skills: [{ id: "known-skill", name: "Known Skill" }],
         agents: [
           {
@@ -871,7 +1268,7 @@ describe("extension inventory", () => {
             name: "disabled agent",
             enabled: false,
             harnessId: "echo",
-            model: "gpt-5",
+            modelId: "gpt-5",
           },
         ],
       },
@@ -879,7 +1276,7 @@ describe("extension inventory", () => {
     const inventory = createExtensionInventory([bundle]);
 
     const missingSkillPlan = resolveAgentCompositionPlan(
-      { id: "bad-skill", harnessId: "echo", model: "gpt-5", skills: ["missing-skill"] },
+      { id: "bad-skill", harnessId: "echo", modelId: "gpt-5", skills: ["missing-skill"] },
       inventory,
     );
     expect(missingSkillPlan).toMatchObject({
@@ -896,7 +1293,12 @@ describe("extension inventory", () => {
     });
     expect(() =>
       resolveAgentComposition(
-        { id: "bad-skill", harnessId: "echo", model: "gpt-5", skills: ["missing-skill"] },
+        {
+          id: "bad-skill",
+          harnessId: "echo",
+          modelId: "gpt-5",
+          skills: ["missing-skill"],
+        },
         inventory,
       ),
     ).toThrow(/Unknown skill id "missing-skill"/);
@@ -920,7 +1322,7 @@ describe("extension inventory", () => {
       {
         id: "unsupported-context",
         harnessId: "echo",
-        model: "gpt-5",
+        modelId: "gpt-5",
         context: { mode: "thread_packet", strategy: "raw_full_history" },
       },
       inventory,
@@ -945,14 +1347,23 @@ describe("extension inventory", () => {
       name: "Minimal",
       version: "1.0.0",
       capabilities: {
-        harnesses: [{ id: "echo", label: "Echo", backend: { type: "echo" } }],
+        harnesses: [
+          {
+            id: "echo",
+            label: "Echo",
+            modelControl: "direct",
+            modelCompatibility: "declared_apis",
+            supportedModelApis: ["openai_chat"],
+            backend: { type: "echo" },
+          },
+        ],
       },
     });
     const inventory = createExtensionInventory([bundle]);
 
     expect(() =>
       resolveAgentCompositionPlan(
-        { id: "bad-secret", harnessId: "echo", model: "gpt-5", apiKey: "sk-test" },
+        { id: "bad-secret", harnessId: "echo", modelId: "gpt-5", apiKey: "sk-test" },
         inventory,
       ),
     ).toThrow(/inline secret field "apiKey"/);
@@ -972,58 +1383,77 @@ describe("extension inventory", () => {
     ).toThrow(/Record must not contain inline secret field/);
   });
 
-  it("fails runtime provider resolution when API bridge is disabled or env secret is missing", () => {
+  it("keeps Provider out of compatibility and fails only when a selected supply secret is missing", () => {
     const bundle = parseExtensionBundle({
       schemaVersion: 1,
       id: "providers",
       name: "Providers",
       version: "1.0.0",
       capabilities: {
+        models: [
+          {
+            id: "claude-sonnet",
+            runtimeModel: "claude-sonnet",
+            apiProtocols: ["anthropic"],
+          },
+        ],
         providers: [
           {
             id: "anthropic-prod",
             label: "Anthropic Prod",
             kind: "anthropic",
-            model: "claude-sonnet",
-            apiCompatibility: { mode: "native" },
             secretRef: { source: "env", key: "ANTHROPIC_API_KEY" },
+          },
+        ],
+        modelSupplies: [
+          {
+            id: "claude-anthropic",
+            modelId: "claude-sonnet",
+            providerProfileId: "anthropic-prod",
+            apiCompatibility: { mode: "native" },
           },
         ],
         harnesses: [
           {
             id: "codex-only",
             label: "Codex Only",
-            compatibleProviders: ["openai_responses"],
+            modelControl: "session",
+            modelCompatibility: "any",
+            supportedModelApis: ["openai_responses"],
             backend: { type: "custom", program: "codex", args: ["acp"] },
           },
           {
             id: "claude",
             label: "Claude",
-            compatibleProviders: ["anthropic"],
+            modelControl: "session",
+            modelCompatibility: "any",
+            supportedModelApis: ["anthropic"],
             backend: { type: "custom", program: "claude", args: ["acp"] },
           },
         ],
         agents: [
           {
-            id: "bad-provider",
-            name: "bad provider",
+            id: "codex-claude",
+            name: "codex claude",
             harnessId: "codex-only",
-            providerProfileId: "anthropic-prod",
+            modelId: "claude-sonnet",
+            modelSupplyId: "claude-anthropic",
           },
           {
             id: "missing-secret",
             name: "missing secret",
             harnessId: "claude",
-            providerProfileId: "anthropic-prod",
+            modelId: "claude-sonnet",
+            modelSupplyId: "claude-anthropic",
           },
         ],
       },
     });
     const inventory = createExtensionInventory([bundle]);
 
-    expect(() =>
-      resolveAgentComposition({ id: "bad", agentProfileId: "bad-provider" }, inventory),
-    ).toThrow(/not compatible/);
+    expect(
+      resolveAgentCompositionPlan({ id: "codex", agentProfileId: "codex-claude" }, inventory),
+    ).toMatchObject({ status: "ready", agentId: "codex-only:claude-sonnet" });
     expect(() =>
       resolveAgentCompositionRuntimeEnv(
         { id: "missing-secret", agentProfileId: "missing-secret" },
@@ -1033,28 +1463,44 @@ describe("extension inventory", () => {
     ).toThrow(/requires env secret "ANTHROPIC_API_KEY"/);
   });
 
-  it("resolves API bridge automatically for harness-incompatible providers", () => {
+  it("resolves yallm bridge routing from ModelSupply metadata", () => {
     const bundle = parseExtensionBundle({
       schemaVersion: 1,
       id: "bridged-providers",
       name: "Bridged Providers",
       version: "1.0.0",
       capabilities: {
+        models: [
+          {
+            id: "claude-sonnet",
+            runtimeModel: "claude-sonnet",
+            apiProtocols: ["anthropic", "openai_responses"],
+          },
+        ],
         providers: [
           {
             id: "anthropic-prod",
             label: "Anthropic Prod",
             kind: "anthropic",
-            model: "claude-sonnet",
             baseUrl: "https://api.anthropic.com",
             secretRef: { source: "env", key: "ANTHROPIC_API_KEY" },
+          },
+        ],
+        modelSupplies: [
+          {
+            id: "claude-via-yallm",
+            modelId: "claude-sonnet",
+            providerProfileId: "anthropic-prod",
+            apiCompatibility: { mode: "bridge", targetApi: "openai_responses" },
           },
         ],
         harnesses: [
           {
             id: "codex-only",
             label: "Codex Only",
-            compatibleProviders: ["openai_responses"],
+            modelControl: "direct",
+            modelCompatibility: "declared_apis",
+            supportedModelApis: ["openai_responses"],
             backend: { type: "custom", program: "codex", args: ["acp"] },
           },
         ],
@@ -1063,7 +1509,8 @@ describe("extension inventory", () => {
             id: "codex-with-anthropic",
             name: "codex with anthropic",
             harnessId: "codex-only",
-            providerProfileId: "anthropic-prod",
+            modelId: "claude-sonnet",
+            modelSupplyId: "claude-via-yallm",
           },
         ],
       },
@@ -1099,20 +1546,35 @@ describe("extension inventory", () => {
       name: "Runtime",
       version: "1.0.0",
       capabilities: {
+        models: [
+          {
+            id: "gpt-5",
+            runtimeModel: "gpt-5",
+            apiProtocols: ["openai_responses"],
+          },
+        ],
         providers: [
           {
             id: "openai-prod",
             label: "OpenAI Prod",
             kind: "openai_responses",
-            model: "gpt-5",
             secretRef: { source: "env", key: "OPENAI_API_KEY" },
+          },
+        ],
+        modelSupplies: [
+          {
+            id: "gpt-5-openai",
+            modelId: "gpt-5",
+            providerProfileId: "openai-prod",
           },
         ],
         harnesses: [
           {
             id: "echo",
             label: "Echo",
-            compatibleProviders: ["openai_responses"],
+            modelControl: "direct",
+            modelCompatibility: "declared_apis",
+            supportedModelApis: ["openai_responses"],
             backend: { type: "echo" },
           },
         ],
@@ -1122,17 +1584,23 @@ describe("extension inventory", () => {
             name: "analysis lead",
             instructions: "Plan analysis work.",
             harnessId: "echo",
-            providerProfileId: "openai-prod",
+            modelId: "gpt-5",
+            modelSupplyId: "gpt-5-openai",
           },
         ],
       },
     });
     const inventory = createExtensionInventory([bundle]);
 
+    const streamed: Array<{ kind: string; content: string }> = [];
     const messages = await executeAgentComposition(
       { id: "run-analysis", agentProfileId: "analysis-lead" },
       [{ role: "user", content: "Review dataset evidence." }],
-      { inventory, env: { OPENAI_API_KEY: "sk-runtime" } },
+      {
+        inventory,
+        env: { OPENAI_API_KEY: "sk-runtime" },
+        onChunk: (chunk) => streamed.push(chunk),
+      },
     );
 
     expect(messages).toEqual([
@@ -1140,14 +1608,15 @@ describe("extension inventory", () => {
         role: "assistant",
         content: "Review dataset evidence.",
         kind: "message",
-        agent: "analysis_lead",
+        agent: "echo_gpt_5",
       },
     ]);
+    expect(streamed).toEqual(messages);
     expect(JSON.stringify(messages)).not.toContain("sk-runtime");
 
     await expect(
       executeAgentComposition(
-        { id: "bad-run", harnessId: "missing", model: "gpt-5" },
+        { id: "bad-run", harnessId: "missing", modelId: "gpt-5" },
         [{ role: "user", content: "hello" }],
         { inventory },
       ),

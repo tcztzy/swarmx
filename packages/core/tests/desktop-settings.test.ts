@@ -41,13 +41,26 @@ describe("desktop settings primitives", () => {
         locale: "zh-CN",
         theme: "dark",
       },
+      models: [
+        {
+          id: "deepseek-reasoner",
+          runtimeModel: "deepseek-reasoner",
+          apiProtocols: ["openai_responses"],
+        },
+      ],
       providers: [
         {
           id: "deepseek",
           display_name: "DeepSeek",
           kind: "openai_responses",
-          model: "deepseek-reasoner",
           secret_ref: { source: "env", key: "DEEPSEEK_API_KEY" },
+        },
+      ],
+      modelSupplies: [
+        {
+          id: "deepseek-reasoner-api",
+          model_id: "deepseek-reasoner",
+          provider_profile_id: "deepseek",
         },
       ],
       agents: [
@@ -56,8 +69,8 @@ describe("desktop settings primitives", () => {
           name: "Reviewer",
           aliases: ["@reviewer"],
           harnessId: "claude",
-          providerProfileId: "deepseek",
-          model: "inherit",
+          modelId: "deepseek-reasoner",
+          modelSupplyId: "deepseek-reasoner-api",
         },
       ],
       extensions: {
@@ -80,7 +93,6 @@ describe("desktop settings primitives", () => {
         {
           id: "deepseek",
           displayName: "DeepSeek",
-          defaultModel: "deepseek-reasoner",
           secretRef: { source: "env", key: "DEEPSEEK_API_KEY" },
         },
       ],
@@ -90,7 +102,8 @@ describe("desktop settings primitives", () => {
           name: "Reviewer",
           aliases: ["@reviewer"],
           harnessId: "claude",
-          providerProfileId: "deepseek",
+          modelId: "deepseek-reasoner",
+          modelSupplyId: "deepseek-reasoner-api",
         },
       ],
       extensions: {

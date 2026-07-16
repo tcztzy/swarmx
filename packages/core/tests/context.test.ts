@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildContextPacket,
   contextPromptSha256,
+  parseAgentInvocationContextMetadata,
   parseContextPacket,
   parseSummaryCheckpoint,
   resolveContextStrategy,
@@ -136,12 +137,16 @@ describe("context packet primitives", () => {
       source: "provider",
       requestedStrategy: "auto",
       resolvedStrategy: "microcompact",
-      provider: { providerId: "openai-prod", model: "gpt-5" },
+      modelRuntime: {
+        modelId: "gpt-5",
+        modelSupplyId: "openai-prod-gpt-5",
+        runtimeModel: "gpt-5",
+      },
       compressionPromptBytes: Buffer.byteLength(compressionPrompt, "utf8"),
       compressionPromptSha256: contextPromptSha256(compressionPrompt),
       summary: "Checkpoint summary.",
     });
-    expect(checkpoint.provider?.model).toBe("gpt-5");
+    expect(checkpoint.modelRuntime?.modelId).toBe("gpt-5");
 
     expect(() =>
       parseSummaryCheckpoint({
@@ -151,7 +156,7 @@ describe("context packet primitives", () => {
         source: "provider",
         requestedStrategy: "auto",
         resolvedStrategy: "microcompact",
-        provider: { apiKey: "sk-test" },
+        modelRuntime: { modelId: "gpt-5", apiKey: "sk-test" },
         compressionPromptBytes: 0,
         compressionPromptSha256: "0".repeat(64),
         summary: "Bad checkpoint.",
@@ -177,5 +182,44 @@ describe("context packet primitives", () => {
         prompt: "not empty",
       }),
     ).toThrow(/promptBytes/);
+  });
+
+  it("records Agent invocation identity as Harness x Model", () => {
+    expect(
+      parseAgentInvocationContextMetadata({
+        harnessId: "codex",
+        modelId: "gpt-5",
+        modelSupplyId: "openai-gpt-5",
+        adapterId: "codex-acp",
+        contextStrategy: "microcompact",
+        packet: {
+          packetId: "ctxp_agent",
+          mode: "thread_packet",
+          conversationId: "conv_1",
+          requestedStrategy: "microcompact",
+          resolvedStrategy: "microcompact",
+          promptBytes: 0,
+          promptSha256: "0".repeat(64),
+        },
+      }),
+    ).toMatchObject({ harnessId: "codex", modelId: "gpt-5" });
+
+    expect(() =>
+      parseAgentInvocationContextMetadata({
+        harnessId: "codex",
+        modelId: "gpt-5",
+        providerProfileId: "openai",
+        contextStrategy: "microcompact",
+        packet: {
+          packetId: "ctxp_legacy",
+          mode: "thread_packet",
+          conversationId: "conv_1",
+          requestedStrategy: "microcompact",
+          resolvedStrategy: "microcompact",
+          promptBytes: 0,
+          promptSha256: "0".repeat(64),
+        },
+      }),
+    ).toThrow(/providerProfileId.*invalid/);
   });
 });

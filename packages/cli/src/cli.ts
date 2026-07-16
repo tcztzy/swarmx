@@ -1,70 +1,77 @@
 #!/usr/bin/env node
 import { readFileSync } from "node:fs";
 import { createInterface } from "node:readline";
-import {
-  Agent,
-  HARNESSES,
-  SWARMX_VERSION,
-  Swarm,
-  createServer,
-  getHarness,
-  listSessions,
-} from "@swarmx/core";
+import { HARNESSES, SWARMX_VERSION, Swarm, createServer, listSessions } from "@swarmx/core";
 import type { AgentConfig, MessageChunk, SwarmConfig } from "@swarmx/core";
 import { Command } from "commander";
+import { runDoctorCommand } from "./doctor.js";
 import { type EvalRunOptions, errorEvalResult, formatEvalResult, runEval } from "./eval-run.js";
+import { createSendSwarmConfig } from "./send-config.js";
 
 const program = new Command();
 
 program.name("swarmx").description("SwarmX multi-agent orchestration CLI").version(SWARMX_VERSION);
 
 program
+  .command("doctor")
+  .description("Check SwarmX runtime health and optionally repair fixable issues")
+  .option("--harness <id>", "Check only one harness")
+  .option("--json", "Print a structured JSON report", false)
+  .option("--fix", "Preview and apply the repair plan after confirmation", false)
+  .option("-y, --yes", "Confirm the displayed repair plan non-interactively", false)
+  .action(async (opts: { harness?: string; json?: boolean; fix?: boolean; yes?: boolean }) => {
+    try {
+      process.exitCode = await runDoctorCommand(opts);
+    } catch (err) {
+      console.error("Error:", err instanceof Error ? err.message : err);
+      process.exitCode = 2;
+    }
+  });
+
+program
   .command("send <message>")
   .description("Send a one-shot prompt to a SwarmX agent")
   .option("-c, --config <path>", "Path to swarm config JSON")
   .option("-h, --harness <name>", "Harness to use (swarmx, claude_code, opencode, etc.)", "swarmx")
-  .action(async (message: string, opts: { config?: string; harness?: string }) => {
-    try {
-      let swarm: Swarm;
+  .option("-m, --model <runtime-id>", "Request-scoped model/runtime id")
+  .option("-e, --effort <level>", "Request-scoped reasoning effort")
+  .action(
+    async (
+      message: string,
+      opts: { config?: string; harness?: string; model?: string; effort?: string },
+    ) => {
+      try {
+        let swarm: Swarm;
 
-      if (opts.config) {
-        const config = JSON.parse(readFileSync(opts.config, "utf-8")) as SwarmConfig;
-        swarm = new Swarm(config);
-      } else {
-        const harness = getHarness(opts.harness ?? "swarmx");
-        const agent = new Agent({
-          name: "agent",
-          instructions: "You are a helpful assistant.",
-          backend: harness?.backend,
-        });
-        swarm = new Swarm({
-          name: "default",
-          root: "agent",
-          nodes: {
-            agent: {
-              kind: "agent",
-              agent: { name: "agent", instructions: "You are a helpful assistant." },
-            },
-          },
-          edges: [],
-        });
-      }
-
-      const result = await swarm.execute({
-        messages: [{ role: "user", content: message }],
-      });
-
-      for (const msg of result) {
-        if (msg.content) {
-          process.stdout.write(msg.content);
+        if (opts.config) {
+          const config = JSON.parse(readFileSync(opts.config, "utf-8")) as SwarmConfig;
+          swarm = new Swarm(config);
+        } else {
+          swarm = new Swarm(
+            createSendSwarmConfig({
+              harnessId: opts.harness ?? "swarmx",
+              model: opts.model,
+              effort: opts.effort,
+            }),
+          );
         }
+
+        const result = await swarm.execute({
+          messages: [{ role: "user", content: message }],
+        });
+
+        for (const msg of result) {
+          if (msg.content) {
+            process.stdout.write(msg.content);
+          }
+        }
+        process.stdout.write("\n");
+      } catch (err) {
+        console.error("Error:", err instanceof Error ? err.message : err);
+        process.exit(1);
       }
-      process.stdout.write("\n");
-    } catch (err) {
-      console.error("Error:", err instanceof Error ? err.message : err);
-      process.exit(1);
-    }
-  });
+    },
+  );
 
 program
   .command("eval-run [message]")
@@ -166,7 +173,12 @@ program
   .action(() => {
     for (const [id, h] of Object.entries(HARNESSES)) {
       console.log(`${id}: ${h.label}`);
-      console.log(`  Compatible: ${h.compatibleProviders.join(", ")}`);
+      console.log(`  Model control: ${h.modelControl}`);
+      console.log(
+        `  Compatible model APIs: ${
+          h.modelCompatibility === "any" ? "any" : h.supportedModelApis.join(", ") || "none"
+        }`,
+      );
       console.log();
     }
   });
