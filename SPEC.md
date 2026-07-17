@@ -1089,7 +1089,7 @@ V442: The 3.1.1 commit is released only after full lint, tests, builds, package 
 |T195|.|implement Windows-native sandboxed Claude PowerShell parity|C157,V374,V423,V440,I203,I207|
 |T196|.|implement concurrent Claude teammate SendMessage mailboxes and lifecycle|C157,V374,V423,V440,I203,I207|
 |T197|.|implement persisted resumable Claude Workflow VM parity|C157,V374,V423,V440,I203,I207|
-|T198|~|clean, version, verify, publish, and verify SwarmX 3.1.1|G60,C161,V440,V441,V442,I207,I218|
+|T198|x|clean, version, verify, publish, and verify SwarmX 3.1.1|G60,C161,V440,V441,V442,I207,I218|
 
 ## §B
 |id|date|cause|fix|
