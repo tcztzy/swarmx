@@ -120,7 +120,7 @@ describe("ClaudeSessionRuntime", () => {
     ).rejects.toThrow(/next year/i);
     for (let index = 0; index < 50; index++) {
       await runtime.createCron({
-        cron: "0 0 1 1 *",
+        cron: "* * * * *",
         prompt: `job ${index}`,
         recurring: true,
         durable: false,
@@ -128,7 +128,7 @@ describe("ClaudeSessionRuntime", () => {
     }
     await expect(
       runtime.createCron({
-        cron: "0 0 1 1 *",
+        cron: "* * * * *",
         prompt: "job 51",
         recurring: true,
         durable: false,
