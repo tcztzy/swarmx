@@ -2,6 +2,8 @@ import OpenAI from "openai";
 import { describe, expect, it, vi } from "vitest";
 import { RequestCancelledError, cancelAcpRequest, withAcpRequest } from "../src/acp.js";
 import { Agent, HookRef } from "../src/agent.js";
+import { McpManager, localToolResult } from "../src/mcp.js";
+import type { McpConnectionResult } from "../src/mcp.js";
 import type { AgentConfig, MessageChunk } from "../src/types.js";
 
 describe("Agent", () => {
@@ -298,7 +300,7 @@ describe("Agent", () => {
     await expect(run).rejects.toBeInstanceOf(RequestCancelledError);
   });
 
-  it("V283 executes OpenAI Responses natively with reasoning and MCP continuation", async () => {
+  it("V283/V369 executes OpenAI Responses with legacy MCP-result normalization", async () => {
     const agent = new Agent({
       name: "responses_agent",
       model: "gpt-5",
@@ -474,12 +476,95 @@ describe("Agent", () => {
     );
   });
 
-  it("V354 recovers a streamed Project tool call omitted from response.completed", async () => {
-    const readProjectFile = vi.fn().mockResolvedValue({
-      path: "README.md",
-      content: "# Streamed Project",
-      truncated: false,
+  it("V358 continues OpenAI Responses freeform custom tool calls", async () => {
+    const applyPatch = vi
+      .fn()
+      .mockResolvedValue({ operations: [{ type: "add", path: "new.txt" }] });
+    const agent = new Agent(
+      {
+        name: "codex_custom_tool_agent",
+        model: "gpt-5.4",
+        client: { apiProtocol: "openai_responses" },
+      },
+      {
+        localTools: [
+          {
+            kind: "text",
+            name: "apply_patch",
+            description: "Apply a Codex patch.",
+            format: {
+              type: "grammar",
+              syntax: "lark",
+              definition: 'start: "*** Begin Patch"',
+            },
+            call: applyPatch,
+          },
+        ],
+      },
+    );
+    const patch = "*** Begin Patch\n*** Add File: new.txt\n+new\n*** End Patch\n";
+    const create = vi
+      .fn()
+      .mockResolvedValueOnce({
+        id: "resp_custom_tool",
+        status: "completed",
+        error: null,
+        output: [
+          {
+            id: "ctc_apply_patch",
+            type: "custom_tool_call",
+            call_id: "call_apply_patch",
+            name: "apply_patch",
+            input: patch,
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        id: "resp_custom_answer",
+        status: "completed",
+        error: null,
+        output: [
+          {
+            id: "msg_custom_answer",
+            type: "message",
+            role: "assistant",
+            status: "completed",
+            content: [{ type: "output_text", text: "Patch applied.", annotations: [] }],
+          },
+        ],
+      });
+    Object.defineProperty(agent.client.responses, "create", { value: create });
+
+    const result = await agent.call({ messages: [{ role: "user", content: "Create new.txt" }] });
+
+    expect(create.mock.calls[0]?.[0]?.tools).toContainEqual({
+      type: "custom",
+      name: "apply_patch",
+      description: "Apply a Codex patch.",
+      format: {
+        type: "grammar",
+        syntax: "lark",
+        definition: 'start: "*** Begin Patch"',
+      },
     });
+    expect(applyPatch).toHaveBeenCalledWith(patch);
+    expect(create.mock.calls[1]?.[0]?.input).toContainEqual({
+      type: "custom_tool_call_output",
+      call_id: "call_apply_patch",
+      output: expect.stringContaining("new.txt"),
+    });
+    expect(result.messages).toContainEqual(
+      expect.objectContaining({ kind: "message", content: "Patch applied." }),
+    );
+  });
+
+  it("V354 recovers a streamed Project tool call omitted from response.completed", async () => {
+    const readProjectFile = vi.fn().mockResolvedValue(
+      localToolResult("# Streamed Project", {
+        type: "text",
+        file: { filePath: "README.md", content: "# Streamed Project" },
+      }),
+    );
     const agent = new Agent(
       {
         name: "streamed_project_agent",
@@ -609,7 +694,15 @@ describe("Agent", () => {
       expect.arrayContaining([
         expect.objectContaining({ kind: "thinking", content: "**Inspecting README**" }),
         expect.objectContaining({ kind: "tool_call", toolName: "workspace_read_file" }),
-        expect.objectContaining({ kind: "tool_result", toolName: "workspace_read_file" }),
+        expect.objectContaining({
+          kind: "tool_result",
+          toolName: "workspace_read_file",
+          content: "# Streamed Project",
+          structuredContent: {
+            type: "text",
+            file: { filePath: "README.md", content: "# Streamed Project" },
+          },
+        }),
         expect.objectContaining({ kind: "message", content: "This is the streamed Project." }),
       ]),
     );
@@ -789,7 +882,9 @@ describe("Agent", () => {
         },
       },
     });
-    const callTool = vi.fn().mockResolvedValue({ forecast: "cloudy" });
+    const callTool = vi
+      .fn()
+      .mockResolvedValue(localToolResult("cloudy model text", { forecast: "cloudy" }));
     installMockMcp(agent, callTool);
     const create = vi
       .fn()
@@ -853,7 +948,7 @@ describe("Agent", () => {
             {
               type: "tool_result",
               tool_use_id: "toolu_1",
-              content: '{"forecast":"cloudy"}',
+              content: "cloudy model text",
             },
           ],
         },
@@ -864,6 +959,12 @@ describe("Agent", () => {
       expect.arrayContaining([
         expect.objectContaining({ kind: "thinking", content: "Use the weather tool." }),
         expect.objectContaining({ kind: "tool_call", toolName: "weather" }),
+        expect.objectContaining({
+          kind: "tool_result",
+          toolName: "weather",
+          content: "cloudy model text",
+          structuredContent: { forecast: "cloudy" },
+        }),
         expect.objectContaining({ kind: "message", content: "It is cloudy." }),
       ]),
     );
@@ -981,6 +1082,242 @@ describe("Agent", () => {
   });
 
   it.each(["anthropic", "openai_responses"] as const)(
+    "V400 refreshes native %s tools after ToolSearch activates a deferred schema",
+    async (apiProtocol) => {
+      const agent = new Agent({
+        name: `${apiProtocol}_dynamic_tools`,
+        model: apiProtocol === "anthropic" ? "claude-sonnet-4-6" : "gpt-5",
+        client: { apiProtocol },
+        process: {
+          env:
+            apiProtocol === "anthropic"
+              ? { ANTHROPIC_API_KEY: "scoped-key" }
+              : { OPENAI_API_KEY: "scoped-key" },
+        },
+      });
+      const toolSearch = nativeFunctionTool("ToolSearch");
+      const deferred = nativeFunctionTool("mcp__github__list_issues");
+      let activated = false;
+      const callTool = vi.fn(async (name: string) => {
+        if (name !== "ToolSearch") throw new Error(`Unexpected tool call: ${name}`);
+        activated = true;
+        return localToolResult("Loaded deferred tools: mcp__github__list_issues", {
+          matches: ["mcp__github__list_issues"],
+          query: "issues",
+          total_deferred_tools: 1,
+        });
+      });
+      Object.defineProperty(agent, "mcp", {
+        configurable: true,
+        writable: true,
+        value: {
+          toolsForOpenai: () => [toolSearch, ...(activated ? [deferred] : [])],
+          toolsForNative: () => [toolSearch, ...(activated ? [deferred] : [])],
+          callTool,
+          close: vi.fn().mockResolvedValue(undefined),
+        },
+      });
+
+      const create =
+        apiProtocol === "anthropic"
+          ? vi
+              .fn()
+              .mockResolvedValueOnce({
+                id: "msg_search",
+                type: "message",
+                role: "assistant",
+                model: "claude-sonnet-4-6",
+                stop_reason: "tool_use",
+                stop_sequence: null,
+                usage: {},
+                content: [
+                  {
+                    type: "tool_use",
+                    id: "toolu_search",
+                    name: "ToolSearch",
+                    input: { query: "issues" },
+                  },
+                ],
+              })
+              .mockResolvedValueOnce({
+                id: "msg_done",
+                type: "message",
+                role: "assistant",
+                model: "claude-sonnet-4-6",
+                stop_reason: "end_turn",
+                stop_sequence: null,
+                usage: {},
+                content: [{ type: "text", text: "done" }],
+              })
+          : vi
+              .fn()
+              .mockResolvedValueOnce({
+                id: "resp_search",
+                status: "completed",
+                error: null,
+                output: [
+                  {
+                    id: "fc_search",
+                    type: "function_call",
+                    call_id: "call_search",
+                    name: "ToolSearch",
+                    arguments: '{"query":"issues"}',
+                    status: "completed",
+                  },
+                ],
+              })
+              .mockResolvedValueOnce({
+                id: "resp_done",
+                status: "completed",
+                error: null,
+                output: [
+                  {
+                    id: "msg_done",
+                    type: "message",
+                    role: "assistant",
+                    status: "completed",
+                    content: [{ type: "output_text", text: "done", annotations: [] }],
+                  },
+                ],
+              });
+      if (apiProtocol === "anthropic") {
+        Object.defineProperty(agent.anthropicClient.messages, "create", { value: create });
+      } else {
+        Object.defineProperty(agent.client.responses, "create", { value: create });
+      }
+
+      await agent.call({ messages: [{ role: "user", content: "List issues" }] });
+
+      const firstNames = create.mock.calls[0]?.[0]?.tools.map(
+        (tool: { name: string }) => tool.name,
+      );
+      const secondNames = create.mock.calls[1]?.[0]?.tools.map(
+        (tool: { name: string }) => tool.name,
+      );
+      expect(firstNames).toEqual(["ToolSearch"]);
+      expect(secondNames).toEqual(["ToolSearch", "mcp__github__list_issues"]);
+      expect(callTool).toHaveBeenCalledWith("ToolSearch", { query: "issues" });
+    },
+  );
+
+  it("V400 refreshes OpenAI Chat tools after ToolSearch activates a deferred schema", async () => {
+    const agent = new Agent({
+      name: "chat_dynamic_tools",
+      model: "claude-sonnet-4-6",
+      process: { env: { OPENAI_API_KEY: "scoped-key" } },
+    });
+    const toolSearch = nativeFunctionTool("ToolSearch");
+    const deferred = nativeFunctionTool("mcp__github__list_issues");
+    let activated = false;
+    const callTool = vi.fn(async () => {
+      activated = true;
+      return localToolResult("Loaded deferred tools: mcp__github__list_issues", {
+        matches: ["mcp__github__list_issues"],
+        query: "issues",
+        total_deferred_tools: 1,
+      });
+    });
+    Object.defineProperty(agent, "mcp", {
+      configurable: true,
+      writable: true,
+      value: {
+        toolsForOpenai: () => [toolSearch, ...(activated ? [deferred] : [])],
+        toolsForNative: () => [toolSearch, ...(activated ? [deferred] : [])],
+        callTool,
+        close: vi.fn().mockResolvedValue(undefined),
+      },
+    });
+    const create = vi
+      .fn()
+      .mockResolvedValueOnce({
+        choices: [
+          {
+            message: {
+              role: "assistant",
+              content: null,
+              tool_calls: [
+                {
+                  id: "call_search",
+                  type: "function",
+                  function: { name: "ToolSearch", arguments: '{"query":"issues"}' },
+                },
+              ],
+            },
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        choices: [{ message: { role: "assistant", content: "done" } }],
+      });
+    Object.defineProperty(agent.client.chat.completions, "create", { value: create });
+
+    await agent.call({ messages: [{ role: "user", content: "List issues" }] });
+
+    const firstNames = create.mock.calls[0]?.[0]?.tools.map(
+      (tool: { function: { name: string } }) => tool.function.name,
+    );
+    const secondNames = create.mock.calls[1]?.[0]?.tools.map(
+      (tool: { function: { name: string } }) => tool.function.name,
+    );
+    expect(firstNames).toEqual(["ToolSearch"]);
+    expect(secondNames).toEqual(["ToolSearch", "mcp__github__list_issues"]);
+  });
+
+  it("V396 does not block a Claude profile's first model request on pending MCP startup", async () => {
+    const connectServer = vi.fn(
+      (_name: string, _config: unknown, signal: AbortSignal) =>
+        new Promise<McpConnectionResult>((_resolve, reject) => {
+          signal.addEventListener("abort", () => reject(signal.reason), { once: true });
+        }),
+    );
+    const manager = new McpManager({ connectServer });
+    const agent = new Agent(
+      {
+        name: "claude_pending_mcp",
+        model: "claude-sonnet-4-6",
+        client: { apiProtocol: "openai_responses" },
+        process: { env: { OPENAI_API_KEY: "scoped-key" } },
+        mcpServers: { slow: { type: "stdio", command: "unused" } },
+      },
+      {
+        createMcpManager: () => manager,
+        localTools: [
+          {
+            name: "Bash",
+            inputSchema: { type: "object" },
+            call: async () => ({ ok: true }),
+          },
+        ],
+      },
+    );
+    const create = vi.fn().mockResolvedValue({
+      id: "resp_done",
+      status: "completed",
+      error: null,
+      output: [
+        {
+          id: "msg_done",
+          type: "message",
+          role: "assistant",
+          status: "completed",
+          content: [{ type: "output_text", text: "done", annotations: [] }],
+        },
+      ],
+    });
+    Object.defineProperty(agent.client.responses, "create", { value: create });
+
+    await agent.call({ messages: [{ role: "user", content: "Continue without MCP" }] });
+
+    expect(connectServer).toHaveBeenCalledTimes(1);
+    expect(create).toHaveBeenCalledTimes(1);
+    expect(create.mock.calls[0]?.[0]?.tools.map((tool: { name: string }) => tool.name)).toEqual([
+      "Bash",
+      "ToolSearch",
+      "WaitForMcpServers",
+    ]);
+  });
+
+  it.each(["anthropic", "openai_responses"] as const)(
     "V283 passes request cancellation to native %s calls",
     async (apiProtocol) => {
       const agent = new Agent({
@@ -1028,6 +1365,10 @@ describe("Agent", () => {
 
   it("preserves provider reasoning content across tool-call continuation", async () => {
     const agent = new Agent({ name: "deepseek_agent", model: "deepseek-v4-pro" });
+    const callTool = vi
+      .fn()
+      .mockResolvedValue(localToolResult("chat model text", { result: "structured" }));
+    installMockMcp(agent, callTool);
     const create = vi
       .fn()
       .mockResolvedValueOnce({
@@ -1041,7 +1382,7 @@ describe("Agent", () => {
                 {
                   id: "tool-1",
                   type: "function",
-                  function: { name: "lookup", arguments: "{}" },
+                  function: { name: "weather", arguments: "{}" },
                 },
               ],
             },
@@ -1067,30 +1408,44 @@ describe("Agent", () => {
           reasoning_content: "verified reasoning state",
           tool_calls: expect.any(Array),
         }),
+        expect.objectContaining({ role: "tool", content: "chat model text" }),
+      ]),
+    );
+    expect(result.messages).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "tool_result",
+          content: "chat model text",
+          structuredContent: { result: "structured" },
+        }),
       ]),
     );
   });
 });
 
 function installMockMcp(agent: Agent, callTool: ReturnType<typeof vi.fn>): void {
+  const tool = nativeFunctionTool("weather", "Weather lookup");
   Object.defineProperty(agent, "mcp", {
     configurable: true,
     writable: true,
     value: {
-      toolsForOpenai: () => [
-        {
-          type: "function",
-          function: {
-            name: "weather",
-            description: "Weather lookup",
-            parameters: { type: "object" },
-          },
-        },
-      ],
+      toolsForOpenai: () => [tool],
+      toolsForNative: () => [tool],
       callTool,
       close: vi.fn().mockResolvedValue(undefined),
     },
   });
+}
+
+function nativeFunctionTool(name: string, description = name) {
+  return {
+    type: "function" as const,
+    function: {
+      name,
+      description,
+      parameters: { type: "object" },
+    },
+  };
 }
 
 function fakeJwt(claims: Record<string, unknown>): string {

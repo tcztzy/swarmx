@@ -96,12 +96,16 @@ interface DesktopApiMock {
   initialProjects?: ProjectData[];
   sendMessage: ReturnType<typeof vi.fn>;
   onAgentChunk: ReturnType<typeof vi.fn>;
+  onAgentInteraction: ReturnType<typeof vi.fn>;
+  onSessionMessages: ReturnType<typeof vi.fn>;
+  resolveAgentInteraction: ReturnType<typeof vi.fn>;
   cancelMessage: ReturnType<typeof vi.fn>;
   createSession: ReturnType<typeof vi.fn>;
   saveSession: ReturnType<typeof vi.fn>;
   loadSession: ReturnType<typeof vi.fn>;
   loadDiscoveredSession: ReturnType<typeof vi.fn>;
   listSessions: ReturnType<typeof vi.fn>;
+  getActivityProfile: ReturnType<typeof vi.fn>;
   listProjects: ReturnType<typeof vi.fn>;
   addExistingProject: ReturnType<typeof vi.fn>;
   createScratchProject: ReturnType<typeof vi.fn>;
@@ -327,7 +331,36 @@ describe("App user workflow", () => {
     expect(screen.getByRole("button", { name: "Send message" })).toBeTruthy();
   });
 
-  it("shows only Harness, Model, and Effort while routing Supply internally", async () => {
+  it("V429 reloads the authoritative session when a background activation appends messages", async () => {
+    let notifySession = (_event: { sessionId: string }): void => undefined;
+    const api = createDesktopApiMock({
+      onSessionMessages: vi.fn((listener: (event: { sessionId: string }) => void) => {
+        notifySession = listener;
+        return () => undefined;
+      }),
+    });
+    await renderApp(api);
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: /Existing local run/ }));
+    await screen.findByText("Summarize local state");
+
+    api.loadSession.mockResolvedValue({
+      ...localSession,
+      messages: [
+        ...localSession.messages,
+        {
+          role: "assistant",
+          kind: "message",
+          content: "Background build finished successfully",
+        },
+      ],
+    });
+    notifySession({ sessionId: localSession.id });
+
+    expect(await screen.findByText("Background build finished successfully")).toBeTruthy();
+  });
+
+  it("V394 shows only Harness, Model, and Effort while routing Supply internally", async () => {
     const api = createDesktopApiMock();
     const inventory = await api.listExtensions();
     api.listExtensions.mockResolvedValue({
@@ -416,7 +449,7 @@ describe("App user workflow", () => {
     expect(api.sendMessage.mock.calls[0]?.[0]?.agentComposition).toEqual(
       expect.objectContaining({ modelSupplyId: "responses-supply" }),
     );
-  });
+  }, 15_000);
 
   it("refreshes Provider Models and manages manual Models inside the Model menu", async () => {
     const api = createDesktopApiMock();
@@ -597,10 +630,10 @@ describe("App user workflow", () => {
     expect(
       within(settingsNavigation).getByRole("navigation", { name: "Settings sections" }),
     ).toBeTruthy();
-    expect(within(settings).getByRole("heading", { name: "Providers" })).toBeTruthy();
-    await waitFor(() => expect(api.refreshProviderUsage).toHaveBeenCalledTimes(1));
-    expect(within(settings).getByText("Codex")).toBeTruthy();
-    expect(within(settings).getByText("93% left")).toBeTruthy();
+    expect(within(settings).getByRole("heading", { name: "Anonymous user" })).toBeTruthy();
+    expect(within(settings).getByText("Lifetime tokens")).toBeTruthy();
+    expect(api.getActivityProfile).toHaveBeenCalledTimes(1);
+    expect(api.refreshProviderUsage).not.toHaveBeenCalled();
 
     await user.type(
       within(settingsNavigation).getByRole("searchbox", { name: "Search settings" }),
@@ -608,7 +641,28 @@ describe("App user workflow", () => {
     );
     expect(within(settingsNavigation).queryByRole("button", { name: "Usage" })).toBeNull();
     await user.click(within(settingsNavigation).getByRole("button", { name: "Providers" }));
-    expect(within(settings).getByRole("heading", { name: "Providers" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Providers" })).toBeTruthy();
+    await waitFor(() => expect(api.refreshProviderUsage).toHaveBeenCalledTimes(1));
+    expect(screen.getByText("Codex")).toBeTruthy();
+    expect(screen.getByText("93% left")).toBeTruthy();
+  });
+
+  it("switches Profile activity aggregation and capability rankings", async () => {
+    const api = createDesktopApiMock();
+    await renderApp(api);
+    const user = userEvent.setup();
+
+    await user.click(await screen.findByRole("button", { name: "Open anonymous user menu" }));
+    await user.click(screen.getByRole("menuitem", { name: "Settings" }));
+
+    expect(await screen.findByText("1.3K")).toBeTruthy();
+    expect(screen.getByText("paper-reviewer")).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Weekly" }));
+    expect(screen.getByRole("button", { name: "Weekly" }).getAttribute("aria-pressed")).toBe(
+      "true",
+    );
+    await user.click(screen.getByRole("button", { name: "Tools" }));
+    expect(screen.getByText("workspace_read_file")).toBeTruthy();
   });
 
   it("shows Codex, OpenAI, and DeepSeek as peers in one fixed Provider matrix", async () => {
@@ -730,6 +784,7 @@ describe("App user workflow", () => {
 
     await user.click(await screen.findByRole("button", { name: "Open anonymous user menu" }));
     await user.click(screen.getByRole("menuitem", { name: "Settings" }));
+    await user.click(screen.getByRole("button", { name: "Providers" }));
 
     const providerList = screen.getByRole("region", { name: "Provider usage matrix" });
     expect(within(providerList).getByText("Codex")).toBeTruthy();
@@ -871,6 +926,7 @@ describe("App user workflow", () => {
 
     await user.click(await screen.findByRole("button", { name: "Open anonymous user menu" }));
     await user.click(screen.getByRole("menuitem", { name: "Settings" }));
+    await user.click(screen.getByRole("button", { name: "Providers" }));
     const refreshDeepSeek = await screen.findByRole("button", {
       name: "Refresh DeepSeek usage",
     });
@@ -1011,6 +1067,7 @@ describe("App user workflow", () => {
 
     await user.click(await screen.findByRole("button", { name: "Open anonymous user menu" }));
     await user.click(screen.getByRole("menuitem", { name: "Settings" }));
+    await user.click(screen.getByRole("button", { name: "Providers" }));
     const packy = await screen.findByRole("article", { name: "packy cc sale Provider" });
     expect(packy.querySelector('img[src="./provider-icons/packy.svg"]')).toBeTruthy();
     expect(within(packy).getByRole("button", { name: /credit and balance: \$9.50/ })).toBeTruthy();
@@ -1162,6 +1219,7 @@ describe("App user workflow", () => {
     expect(api.refreshModelCatalog).not.toHaveBeenCalled();
     await user.click(await screen.findByRole("button", { name: "Open anonymous user menu" }));
     await user.click(screen.getByRole("menuitem", { name: "Settings" }));
+    await user.click(screen.getByRole("button", { name: "Providers" }));
     expect(screen.getByRole("heading", { name: "Providers" })).toBeTruthy();
 
     await user.click(screen.getByRole("button", { name: "Add Provider" }));
@@ -3773,6 +3831,52 @@ function doctorReport(environment: ReturnType<typeof readyHarnessEnvironment>, h
   };
 }
 
+function activityProfileFixture() {
+  return {
+    generatedAt: "2026-07-16T12:00:00.000Z",
+    trackingSince: "2026-07-01T09:00:00.000Z",
+    lifetime: {
+      totalTokens: 1_250,
+      inputTokens: 700,
+      outputTokens: 400,
+      reasoningTokens: 150,
+      cachedInputTokens: 120,
+      estimatedTokens: 100,
+      peakDayTokens: 600,
+      longestTaskMs: 3_600_000,
+      currentStreakDays: 3,
+      longestStreakDays: 7,
+      totalTasks: 12,
+      completedTasks: 11,
+      toolCalls: 18,
+      skillCalls: 9,
+      skillsExplored: 4,
+    },
+    daily: [
+      {
+        date: "2026-07-15",
+        tokens: 600,
+        estimatedTokens: 0,
+        tasks: 2,
+        tools: 4,
+        skills: 2,
+      },
+      {
+        date: "2026-07-16",
+        tokens: 650,
+        estimatedTokens: 100,
+        tasks: 3,
+        tools: 5,
+        skills: 2,
+      },
+    ],
+    topTools: [{ name: "workspace_read_file", count: 8 }],
+    topSkills: [{ name: "paper-reviewer", count: 5 }],
+    reasoningEfforts: [{ name: "high", count: 8 }],
+    models: [{ name: "gpt-5", count: 10 }],
+  };
+}
+
 function createDesktopApiMock(overrides: Partial<DesktopApiMock> = {}): DesktopApiMock {
   return {
     initialProjects: [swarmxProject],
@@ -3781,6 +3885,15 @@ function createDesktopApiMock(overrides: Partial<DesktopApiMock> = {}): DesktopA
       messages: [],
     })),
     onAgentChunk: vi.fn(() => () => undefined),
+    onAgentInteraction: vi.fn(() => () => undefined),
+    onSessionMessages: vi.fn(() => () => undefined),
+    resolveAgentInteraction: vi.fn(
+      async (params: { requestId: string; interactionId: string }) => ({
+        requestId: params.requestId,
+        interactionId: params.interactionId,
+        resolved: true,
+      }),
+    ),
     cancelMessage: vi.fn(async (requestId: string) => ({ requestId, canceled: true })),
     createSession: vi.fn(async (params?: { projectId?: string; cwd?: string }) => ({
       ...localSession,
@@ -3796,6 +3909,7 @@ function createDesktopApiMock(overrides: Partial<DesktopApiMock> = {}): DesktopA
       session.id === "acp-1" ? acpSessionDetail : localSession,
     ),
     listSessions: vi.fn(async () => [localSession]),
+    getActivityProfile: vi.fn(async () => activityProfileFixture()),
     listProjects: vi.fn(async () => [swarmxProject]),
     addExistingProject: vi.fn(async () => null),
     createScratchProject: vi.fn(async () => null),

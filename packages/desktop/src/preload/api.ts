@@ -43,6 +43,42 @@ export interface DesktopAgentChunkEvent {
   chunk: DesktopAgentMessageChunk;
 }
 
+export interface DesktopSessionMessagesEvent {
+  sessionId: string;
+}
+
+export interface DesktopAgentQuestionOption {
+  label: string;
+  description: string;
+  preview?: string;
+}
+
+export interface DesktopAgentQuestion {
+  question: string;
+  header: string;
+  options: DesktopAgentQuestionOption[];
+  multiSelect: boolean;
+}
+
+export type DesktopAgentInteractionEvent =
+  | {
+      kind: "questions";
+      requestId: string;
+      interactionId: string;
+      questions: DesktopAgentQuestion[];
+    }
+  | {
+      kind: "plan_approval";
+      requestId: string;
+      interactionId: string;
+      plan: string;
+      filePath: string;
+    };
+
+export type DesktopAgentInteractionResponse =
+  | { kind: "questions"; answers: Record<string, string> }
+  | { kind: "plan_approval"; approved: boolean; feedback?: string };
+
 export interface DesktopBrowserBounds {
   x: number;
   y: number;
@@ -91,6 +127,7 @@ export function createSwarmxDesktopApi(
     ...(initialProjects ? { initialProjects } : {}),
     sendMessage: (params: {
       requestId: string;
+      sessionId?: string;
       harnessId: string;
       userText: string;
       agentComposition?: unknown;
@@ -100,6 +137,18 @@ export function createSwarmxDesktopApi(
 
     onAgentChunk: (listener: (event: DesktopAgentChunkEvent) => void) =>
       subscribe("agent:chunk", (value) => listener(value as DesktopAgentChunkEvent)),
+
+    onAgentInteraction: (listener: (event: DesktopAgentInteractionEvent) => void) =>
+      subscribe("agent:interaction", (value) => listener(value as DesktopAgentInteractionEvent)),
+
+    onSessionMessages: (listener: (event: DesktopSessionMessagesEvent) => void) =>
+      subscribe("session:messages", (value) => listener(value as DesktopSessionMessagesEvent)),
+
+    resolveAgentInteraction: (params: {
+      requestId: string;
+      interactionId: string;
+      response: DesktopAgentInteractionResponse;
+    }) => invoke("agent:resolveInteraction", params),
 
     cancelMessage: (requestId: string) => invoke("agent:cancel", { requestId }),
 
@@ -128,6 +177,8 @@ export function createSwarmxDesktopApi(
     }) => invoke("session:loadDiscovered", session),
 
     listSessions: () => invoke("session:list"),
+
+    getActivityProfile: () => invoke("activity:profile"),
 
     listProjects: () => invoke("project:list"),
 

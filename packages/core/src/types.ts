@@ -149,7 +149,19 @@ export const MessageChunkSchema = z.object({
   agent: z.string().optional(),
   swarmEvent: z.string().optional(),
   toolName: z.string().optional(),
+  structuredContent: z.unknown().optional(),
   render: MessageRenderMetadataSchema.optional(),
+});
+
+export const ModelTokenUsageSchema = z.object({
+  inputTokens: z.number().int().nonnegative().default(0),
+  outputTokens: z.number().int().nonnegative().default(0),
+  reasoningTokens: z.number().int().nonnegative().default(0),
+  cachedInputTokens: z.number().int().nonnegative().default(0),
+  totalTokens: z.number().int().nonnegative(),
+  estimated: z.boolean().default(false),
+  model: z.string().min(1).optional(),
+  provider: z.string().min(1).optional(),
 });
 
 // ── Eval output ─────────────────────────────────────────────────────────────
@@ -212,6 +224,7 @@ export type EdgeConfig = z.infer<typeof EdgeConfigSchema>;
 export type ChatMessage = z.infer<typeof ChatMessageSchema>;
 export type MessageRenderMetadata = z.infer<typeof MessageRenderMetadataSchema>;
 export type MessageChunk = z.infer<typeof MessageChunkSchema>;
+export type ModelTokenUsage = z.infer<typeof ModelTokenUsageSchema>;
 export type EvalTraceEvent = z.infer<typeof EvalTraceEventSchema>;
 export type EvalRunResult = z.infer<typeof EvalRunResultSchema>;
 export type SessionData = z.infer<typeof SessionDataSchema>;

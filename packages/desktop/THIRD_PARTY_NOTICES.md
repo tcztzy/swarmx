@@ -56,6 +56,18 @@ copied into this renderer.
 
 Source: <https://github.com/openclaw/openclaw/tree/fab69517b3d4ab4e94ec16f7744f2966769ee611>
 
+## OpenAI Codex apply_patch grammar
+
+The Project `apply_patch` custom tool includes the Lark grammar from OpenAI
+Codex CLI tag `rust-v0.144.4`, path
+`codex-rs/core/src/tools/handlers/apply_patch.lark`.
+
+Source: <https://github.com/openai/codex/blob/rust-v0.144.4/codex-rs/core/src/tools/handlers/apply_patch.lark>
+
+Copyright OpenAI. License: Apache License 2.0. The complete Apache License 2.0
+text is already included at
+`third_party_licenses/ACP_REGISTRY_APACHE-2.0.txt`.
+
 ## Provider product marks
 
 The Provider matrix bundles the following official product marks so runtime

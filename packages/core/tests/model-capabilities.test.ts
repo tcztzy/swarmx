@@ -403,6 +403,7 @@ describe("agent composition identity", () => {
       agentId: "swarmx:gpt-5",
       modelId: "gpt-5",
       runtimeModel: "gpt-5",
+      apiProtocol: "openai_chat",
       modelSupplyId: "gpt-5-openai",
       effort: "high",
     });

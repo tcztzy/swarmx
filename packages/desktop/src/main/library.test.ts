@@ -3,11 +3,13 @@ import { mkdtemp, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import {
+  ActivityStore,
   builtInExtensionBundle,
   createExtensionInventory,
   parseExtensionBundle,
   removeProject,
 } from "@swarmx/core";
+import type { SessionData } from "@swarmx/core";
 import { describe, expect, it, vi } from "vitest";
 
 const electron = vi.hoisted(() => ({
@@ -40,6 +42,7 @@ const desktopIpc = await import("./ipc.js");
 describe("desktop main library entry", () => {
   it("exports host integration without registering handlers on import", () => {
     expect(desktopMain.registerIpcHandlers).toBeTypeOf("function");
+    expect(desktopMain.AgentInteractionBroker).toBeTypeOf("function");
     expect(desktopMain.DesktopRequestRegistry).toBeTypeOf("function");
     expect(desktopMain.HarnessEnvironmentService).toBeTypeOf("function");
     expect(desktopMain.HarnessDoctor).toBeTypeOf("function");
@@ -109,6 +112,52 @@ describe("desktop main library entry", () => {
     });
   });
 
+  it("records failed tasks and estimated token usage for the Profile summary", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "swarmx-desktop-activity-"));
+    const activityStore = new ActivityStore({ filePath: path.join(root, "activity.jsonl") });
+
+    try {
+      desktopMain.registerIpcHandlers({ activityStore });
+      const sendRegistration = [...electron.handle.mock.calls]
+        .reverse()
+        .find(([channel]) => channel === "agent:send");
+      const profileRegistration = [...electron.handle.mock.calls]
+        .reverse()
+        .find(([channel]) => channel === "activity:profile");
+      const sendHandler = sendRegistration?.[1];
+      const profileHandler = profileRegistration?.[1];
+      if (typeof sendHandler !== "function" || typeof profileHandler !== "function") {
+        throw new Error("Activity IPC handlers were not registered");
+      }
+      const sender = new EventEmitter();
+      Object.assign(sender, { id: 41 });
+
+      await expect(
+        sendHandler(
+          { sender },
+          {
+            requestId: "profile-failed-task",
+            sessionId: "profile-session",
+            harnessId: "swarmx",
+            userText: "Record this failed request",
+          },
+        ),
+      ).resolves.toMatchObject({ success: false });
+
+      expect(profileHandler()).toMatchObject({
+        lifetime: {
+          totalTasks: 1,
+          completedTasks: 0,
+          totalTokens: expect.any(Number),
+          estimatedTokens: expect.any(Number),
+        },
+      });
+      expect(profileHandler().lifetime.estimatedTokens).toBeGreaterThan(0);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("V346 resolves host coding tools from the runtime Harness adapter", () => {
     expect(
       desktopIpc.compositionRuntimeHarnessId(
@@ -129,6 +178,24 @@ describe("desktop main library entry", () => {
         { harnessId: "custom-codex-harness" },
       ),
     ).toBe("codex");
+  });
+
+  it("V429 replays only persisted conversational messages into session activations", () => {
+    const session = {
+      messages: [
+        { role: "user", content: "question", kind: "message" },
+        { role: "assistant", content: "private reasoning", kind: "thinking" },
+        { role: "assistant", content: "answer", kind: "message" },
+        { role: "assistant", content: "{}", kind: "tool_call", toolName: "Read" },
+        { role: "system", content: "scheduled event", kind: "message" },
+      ],
+    } as SessionData;
+
+    expect(desktopIpc.sessionChatMessages(session)).toEqual([
+      { role: "user", content: "question" },
+      { role: "assistant", content: "answer" },
+      { role: "system", content: "scheduled event" },
+    ]);
   });
 
   it("V353/V355 scopes streamed chunks and rejects a reasoning-only terminal result", () => {

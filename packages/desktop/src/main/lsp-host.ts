@@ -1,14 +1,15 @@
 import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
 import type { Dirent } from "node:fs";
-import { readdir, stat } from "node:fs/promises";
+import { readFile, readdir, realpath, stat } from "node:fs/promises";
 import path from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import {
   type ExtensionInventory,
   type LspCapability,
   SWARMX_LOCAL_FILES_LSP_ID,
   SWARMX_SKILLS_LSP_ID,
   type SkillCapability,
+  currentRequestSignal,
 } from "@swarmx/core";
 
 const DEFAULT_LSP_TIMEOUT_MS = 15_000;
@@ -17,6 +18,7 @@ const EXIT_TIMEOUT_MS = 1_000;
 const STDERR_LIMIT_BYTES = 8 * 1024;
 const LOCAL_FILE_COMPLETION_LIMIT = 100;
 const SKILL_COMPLETION_LIMIT = 100;
+const LSP_DOCUMENT_LIMIT_BYTES = 4 * 1024 * 1024;
 const FILE_COMPLETION_ITEM_KIND = 17;
 const FOLDER_COMPLETION_ITEM_KIND = 19;
 const SKILL_COMPLETION_ITEM_KIND = 18;
@@ -53,6 +55,33 @@ export interface LspStopResponse {
   stopped: boolean;
 }
 
+export type ClaudeLspOperation =
+  | "goToDefinition"
+  | "findReferences"
+  | "hover"
+  | "documentSymbol"
+  | "workspaceSymbol"
+  | "goToImplementation"
+  | "prepareCallHierarchy"
+  | "incomingCalls"
+  | "outgoingCalls";
+
+export interface ClaudeLspRequest {
+  operation: ClaudeLspOperation;
+  filePath: string;
+  line: number;
+  character: number;
+  query?: string;
+}
+
+export interface ClaudeLspResponse {
+  operation: ClaudeLspOperation;
+  result: string;
+  filePath: string;
+  resultCount?: number;
+  fileCount?: number;
+}
+
 interface LspCommand {
   program: string;
   args: string[];
@@ -75,10 +104,15 @@ interface PendingRequest {
   resolve: (value: unknown) => void;
   reject: (reason: Error) => void;
   timeout: ReturnType<typeof setTimeout>;
+  cleanup: () => void;
 }
 
 export class LspHost {
   private readonly sessions = new Map<string, LspSession>();
+
+  supportsClaudeOperations(inventory: ExtensionInventory): boolean {
+    return inventory.lspServers.some(isCommandBackedLspServer);
+  }
 
   async complete(
     inventory: ExtensionInventory,
@@ -102,6 +136,28 @@ export class LspHost {
 
     const result = await session.complete(request);
     return { serverId: server.id, status: "ok", result };
+  }
+
+  async operate(
+    inventory: ExtensionInventory,
+    workspaceRoot: string,
+    request: ClaudeLspRequest,
+  ): Promise<ClaudeLspResponse> {
+    validateClaudeLspRequest(request);
+    const root = await normalizeWorkspaceRoot(workspaceRoot);
+    const file = await readContainedLspFile(root, request.filePath);
+    const server = resolveLspServerForFile(inventory, file.path);
+    const key = sessionKey(server.id, root);
+    const existing = this.sessions.get(key);
+    const session = existing?.isAlive() ? existing : this.startSession(server, root, key);
+    const raw = await session.operate(
+      request,
+      file.path,
+      file.text,
+      languageIdForPath(file.path),
+      currentRequestSignal(),
+    );
+    return claudeLspResponse(request, raw, root);
   }
 
   async stop(request: LspStopRequest): Promise<LspStopResponse> {
@@ -172,24 +228,7 @@ class LspSession {
       this.server.languageIds?.[0] ??
       this.server.languages?.[0] ??
       "plaintext";
-    this.version += 1;
-
-    if (this.openDocuments.has(uri)) {
-      this.connection.sendNotification("textDocument/didChange", {
-        textDocument: { uri, version: this.version },
-        contentChanges: [{ text: request.text }],
-      });
-    } else {
-      this.connection.sendNotification("textDocument/didOpen", {
-        textDocument: {
-          uri,
-          languageId,
-          version: this.version,
-          text: request.text,
-        },
-      });
-      this.openDocuments.add(uri);
-    }
+    this.syncDocument(uri, request.text, languageId);
 
     const context = request.triggerCharacter
       ? { triggerKind: 2, triggerCharacter: request.triggerCharacter }
@@ -203,6 +242,84 @@ class LspSession {
         context,
       },
       timeoutMs,
+    );
+  }
+
+  async operate(
+    request: ClaudeLspRequest,
+    filePath: string,
+    text: string,
+    languageId: string,
+    signal?: AbortSignal,
+  ): Promise<unknown> {
+    const timeoutMs = DEFAULT_LSP_TIMEOUT_MS;
+    await this.initialize(timeoutMs, signal);
+    const uri = pathToFileURL(filePath).href;
+    this.syncDocument(uri, text, languageId);
+    const position = { line: request.line - 1, character: request.character - 1 };
+    const textDocument = { uri };
+    const positionParams = { textDocument, position };
+
+    if (request.operation === "workspaceSymbol") {
+      return this.connection.sendRequest(
+        "workspace/symbol",
+        { query: request.query },
+        timeoutMs,
+        signal,
+      );
+    }
+    if (request.operation === "documentSymbol") {
+      return this.connection.sendRequest(
+        "textDocument/documentSymbol",
+        { textDocument },
+        timeoutMs,
+        signal,
+      );
+    }
+    if (request.operation === "findReferences") {
+      return this.connection.sendRequest(
+        "textDocument/references",
+        { ...positionParams, context: { includeDeclaration: true } },
+        timeoutMs,
+        signal,
+      );
+    }
+    if (request.operation === "goToDefinition") {
+      return this.connection.sendRequest(
+        "textDocument/definition",
+        positionParams,
+        timeoutMs,
+        signal,
+      );
+    }
+    if (request.operation === "goToImplementation") {
+      return this.connection.sendRequest(
+        "textDocument/implementation",
+        positionParams,
+        timeoutMs,
+        signal,
+      );
+    }
+    if (request.operation === "hover") {
+      return this.connection.sendRequest("textDocument/hover", positionParams, timeoutMs, signal);
+    }
+
+    const prepared = await this.connection.sendRequest(
+      "textDocument/prepareCallHierarchy",
+      positionParams,
+      timeoutMs,
+      signal,
+    );
+    if (request.operation === "prepareCallHierarchy") return prepared;
+    const item = Array.isArray(prepared) ? prepared[0] : prepared;
+    if (!item) return [];
+    return this.connection.sendRequest(
+      request.operation === "incomingCalls"
+        ? "callHierarchy/incomingCalls"
+        : "callHierarchy/outgoingCalls",
+      { item },
+      timeoutMs,
+      signal,
     );
   }
 
@@ -223,7 +340,22 @@ class LspSession {
     }
   }
 
-  private async initialize(timeoutMs: number): Promise<void> {
+  private syncDocument(uri: string, text: string, languageId: string): void {
+    this.version += 1;
+    if (this.openDocuments.has(uri)) {
+      this.connection.sendNotification("textDocument/didChange", {
+        textDocument: { uri, version: this.version },
+        contentChanges: [{ text }],
+      });
+      return;
+    }
+    this.connection.sendNotification("textDocument/didOpen", {
+      textDocument: { uri, languageId, version: this.version, text },
+    });
+    this.openDocuments.add(uri);
+  }
+
+  private async initialize(timeoutMs: number, signal?: AbortSignal): Promise<void> {
     if (this.initialized) return;
     const workspaceUri = pathToFileURL(this.workspaceRoot).href;
     await this.connection.sendRequest(
@@ -257,6 +389,7 @@ class LspSession {
         },
       },
       timeoutMs,
+      signal,
     );
     this.connection.sendNotification("initialized", {});
     this.initialized = true;
@@ -301,22 +434,39 @@ class JsonRpcConnection {
     return !this.closed && this.child.exitCode === null && !this.child.killed;
   }
 
-  sendRequest(method: string, params: unknown, timeoutMs: number): Promise<unknown> {
+  sendRequest(
+    method: string,
+    params: unknown,
+    timeoutMs: number,
+    signal?: AbortSignal,
+  ): Promise<unknown> {
     if (!this.isAlive()) {
       return Promise.reject(new Error(`LSP server "${this.serverId}" is not running.`));
+    }
+    if (signal?.aborted) {
+      return Promise.reject(lspAbortReason(signal));
     }
 
     const id = this.nextId++;
     return new Promise((resolve, reject) => {
+      const cleanup = (): void => signal?.removeEventListener("abort", abort);
       const timeout = setTimeout(() => {
         this.pending.delete(id);
+        cleanup();
         reject(
           new Error(
             `LSP request "${method}" to server "${this.serverId}" timed out after ${timeoutMs} ms.${this.stderrSummary()}`,
           ),
         );
       }, timeoutMs);
-      this.pending.set(id, { method, resolve, reject, timeout });
+      const abort = (): void => {
+        if (!this.pending.delete(id)) return;
+        clearTimeout(timeout);
+        cleanup();
+        reject(lspAbortReason(signal));
+      };
+      this.pending.set(id, { method, resolve, reject, timeout, cleanup });
+      signal?.addEventListener("abort", abort, { once: true });
       this.send({ jsonrpc: "2.0", id, method, params });
     });
   }
@@ -391,6 +541,7 @@ class JsonRpcConnection {
     if (!pending) return;
 
     clearTimeout(pending.timeout);
+    pending.cleanup();
     this.pending.delete(message.id ?? null);
     if (message.error) {
       pending.reject(
@@ -430,6 +581,7 @@ class JsonRpcConnection {
     this.closed = true;
     for (const pending of this.pending.values()) {
       clearTimeout(pending.timeout);
+      pending.cleanup();
       pending.reject(reason);
     }
     this.pending.clear();
@@ -713,6 +865,299 @@ function positionAtOffset(text: string, targetOffset: number): LspTextPosition {
   return { line, character: targetOffset - lineStart };
 }
 
+const CLAUDE_LSP_OPERATIONS = new Set<ClaudeLspOperation>([
+  "goToDefinition",
+  "findReferences",
+  "hover",
+  "documentSymbol",
+  "workspaceSymbol",
+  "goToImplementation",
+  "prepareCallHierarchy",
+  "incomingCalls",
+  "outgoingCalls",
+]);
+
+function validateClaudeLspRequest(request: ClaudeLspRequest): void {
+  if (!CLAUDE_LSP_OPERATIONS.has(request.operation)) {
+    throw new Error(`Unsupported LSP operation: ${String(request.operation)}.`);
+  }
+  if (!request.filePath?.trim()) throw new Error("LSP requires filePath.");
+  if (!Number.isInteger(request.line) || request.line < 1) {
+    throw new Error("LSP line must be a positive one-based integer.");
+  }
+  if (!Number.isInteger(request.character) || request.character < 1) {
+    throw new Error("LSP character must be a positive one-based integer.");
+  }
+  if (
+    request.operation === "workspaceSymbol" &&
+    (typeof request.query !== "string" || !request.query.trim())
+  ) {
+    throw new Error("LSP workspaceSymbol requires a non-empty query.");
+  }
+}
+
+async function readContainedLspFile(
+  workspaceRoot: string,
+  requestedPath: string,
+): Promise<{ path: string; text: string }> {
+  const resolved = path.isAbsolute(requestedPath)
+    ? path.resolve(requestedPath)
+    : path.resolve(workspaceRoot, requestedPath);
+  const canonical = await realpath(resolved);
+  const relative = path.relative(workspaceRoot, canonical);
+  if (relative.startsWith("..") || path.isAbsolute(relative)) {
+    throw new Error(`LSP file escapes the Project: ${requestedPath}`);
+  }
+  const fileStat = await stat(canonical);
+  if (!fileStat.isFile()) throw new Error(`LSP file must be a regular file: ${requestedPath}`);
+  if (fileStat.size > LSP_DOCUMENT_LIMIT_BYTES) {
+    throw new Error(
+      `LSP file exceeds the ${LSP_DOCUMENT_LIMIT_BYTES}-byte read limit: ${requestedPath}`,
+    );
+  }
+  const bytes = await readFile(canonical);
+  let text: string;
+  try {
+    text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+  } catch {
+    throw new Error(`LSP file must contain valid UTF-8 text: ${requestedPath}`);
+  }
+  return { path: canonical, text };
+}
+
+function isCommandBackedLspServer(server: LspCapability): boolean {
+  return server.command !== undefined;
+}
+
+function resolveLspServerForFile(inventory: ExtensionInventory, filePath: string): LspCapability {
+  const candidates = inventory.lspServers.filter(isCommandBackedLspServer);
+  const extension = path.extname(filePath).toLowerCase();
+  const languageId = languageIdForPath(filePath);
+  const matches = candidates.filter((server) =>
+    lspServerMatchesFile(server, extension, languageId),
+  );
+  if (matches.length === 1) return matches[0];
+  if (matches.length === 0) {
+    throw new Error(
+      `No configured LSP server supports ${extension || "this file type"} (${languageId}).`,
+    );
+  }
+  throw new Error(
+    `Multiple configured LSP servers support ${extension || filePath}: ${matches
+      .map((server) => server.id)
+      .join(", ")}.`,
+  );
+}
+
+function lspServerMatchesFile(
+  server: LspCapability,
+  extension: string,
+  languageId: string,
+): boolean {
+  const record = server as LspCapability & {
+    extensionToLanguage?: Record<string, string>;
+    extensions?: string[];
+  };
+  const declaredExtensionLanguage = record.extensionToLanguage?.[extension];
+  if (declaredExtensionLanguage) return declaredExtensionLanguage.toLowerCase() === languageId;
+  if (record.extensions?.some((item) => normalizeExtension(item) === extension)) return true;
+  const languages = [...server.languages, ...server.languageIds].map((item) => item.toLowerCase());
+  if (languages.length === 0) return true;
+  return languages.includes(languageId) || languages.includes(extension.slice(1));
+}
+
+function normalizeExtension(value: string): string {
+  const normalized = value.trim().toLowerCase();
+  return normalized.startsWith(".") ? normalized : `.${normalized}`;
+}
+
+function languageIdForPath(filePath: string): string {
+  const extension = path.extname(filePath).toLowerCase();
+  return (
+    {
+      ".c": "c",
+      ".cc": "cpp",
+      ".cpp": "cpp",
+      ".cs": "csharp",
+      ".css": "css",
+      ".go": "go",
+      ".html": "html",
+      ".java": "java",
+      ".js": "javascript",
+      ".jsx": "javascriptreact",
+      ".json": "json",
+      ".lua": "lua",
+      ".md": "markdown",
+      ".php": "php",
+      ".py": "python",
+      ".rb": "ruby",
+      ".rs": "rust",
+      ".sh": "shellscript",
+      ".swift": "swift",
+      ".toml": "toml",
+      ".ts": "typescript",
+      ".tsx": "typescriptreact",
+      ".txt": "plaintext",
+      ".vue": "vue",
+      ".yaml": "yaml",
+      ".yml": "yaml",
+    }[extension] ??
+    (extension.slice(1) || "plaintext")
+  );
+}
+
+function claudeLspResponse(
+  request: ClaudeLspRequest,
+  raw: unknown,
+  workspaceRoot: string,
+): ClaudeLspResponse {
+  const metrics = lspResultMetrics(request.operation, raw);
+  return {
+    operation: request.operation,
+    result: formatClaudeLspResult(request.operation, raw, workspaceRoot),
+    filePath: request.filePath,
+    ...(metrics.resultCount === undefined ? {} : { resultCount: metrics.resultCount }),
+    ...(metrics.fileCount === undefined ? {} : { fileCount: metrics.fileCount }),
+  };
+}
+
+function lspResultMetrics(
+  operation: ClaudeLspOperation,
+  raw: unknown,
+): { resultCount?: number; fileCount?: number } {
+  if (operation === "hover") {
+    return raw == null ? { resultCount: 0, fileCount: 0 } : { resultCount: 1, fileCount: 1 };
+  }
+  const values = Array.isArray(raw) ? raw : raw == null ? [] : [raw];
+  if (operation === "documentSymbol") {
+    return { resultCount: countDocumentSymbols(values), fileCount: values.length > 0 ? 1 : 0 };
+  }
+  const uris = values.flatMap((value) => lspResultUris(operation, value));
+  return { resultCount: values.length, fileCount: new Set(uris).size };
+}
+
+function countDocumentSymbols(values: unknown[]): number {
+  let count = 0;
+  const visit = (value: unknown): void => {
+    if (!isRecord(value)) return;
+    count += 1;
+    if (Array.isArray(value.children)) for (const child of value.children) visit(child);
+  };
+  for (const value of values) visit(value);
+  return count;
+}
+
+function lspResultUris(operation: ClaudeLspOperation, value: unknown): string[] {
+  if (!isRecord(value)) return [];
+  if (operation === "incomingCalls")
+    return isRecord(value.from) ? stringValues(value.from.uri) : [];
+  if (operation === "outgoingCalls") return isRecord(value.to) ? stringValues(value.to.uri) : [];
+  if (operation === "workspaceSymbol") {
+    return isRecord(value.location) ? stringValues(value.location.uri) : [];
+  }
+  return stringValues(
+    value.uri ?? value.targetUri ?? (isRecord(value.location) ? value.location.uri : undefined),
+  );
+}
+
+function stringValues(value: unknown): string[] {
+  return typeof value === "string" && value ? [value] : [];
+}
+
+function formatClaudeLspResult(
+  operation: ClaudeLspOperation,
+  raw: unknown,
+  workspaceRoot: string,
+): string {
+  if (raw == null || (Array.isArray(raw) && raw.length === 0)) {
+    return `No results found for ${operation}.`;
+  }
+  if (operation === "hover") return formatHover(raw);
+  const values = Array.isArray(raw) ? raw : [raw];
+  return values
+    .map((value) => formatLspValue(operation, value, workspaceRoot))
+    .filter(Boolean)
+    .join("\n");
+}
+
+function formatHover(raw: unknown): string {
+  if (!isRecord(raw)) return stringifyLspValue(raw);
+  const contents = raw.contents;
+  if (typeof contents === "string") return contents;
+  if (isRecord(contents) && typeof contents.value === "string") return contents.value;
+  if (Array.isArray(contents)) {
+    return contents
+      .map((item) =>
+        typeof item === "string"
+          ? item
+          : isRecord(item) && typeof item.value === "string"
+            ? item.value
+            : stringifyLspValue(item),
+      )
+      .join("\n");
+  }
+  return stringifyLspValue(raw);
+}
+
+function formatLspValue(
+  operation: ClaudeLspOperation,
+  value: unknown,
+  workspaceRoot: string,
+): string {
+  if (!isRecord(value)) return stringifyLspValue(value);
+  const endpoint =
+    operation === "incomingCalls" ? value.from : operation === "outgoingCalls" ? value.to : value;
+  const record = isRecord(endpoint) ? endpoint : value;
+  const name = typeof record.name === "string" ? `${record.name} - ` : "";
+  const location = isRecord(record.location) ? record.location : record;
+  const uri =
+    typeof location.uri === "string"
+      ? location.uri
+      : typeof location.targetUri === "string"
+        ? location.targetUri
+        : undefined;
+  const range = isRecord(location.range)
+    ? location.range
+    : isRecord(location.targetRange)
+      ? location.targetRange
+      : isRecord(record.selectionRange)
+        ? record.selectionRange
+        : undefined;
+  if (!uri) return `${name}${stringifyLspValue(value)}`;
+  return `${name}${displayLspUri(uri, workspaceRoot)}${formatLspRange(range)}`;
+}
+
+function displayLspUri(uri: string, workspaceRoot: string): string {
+  if (!uri.startsWith("file://")) return uri;
+  try {
+    const filePath = fileURLToPath(uri);
+    const relative = path.relative(workspaceRoot, filePath);
+    return relative.startsWith("..") || path.isAbsolute(relative) ? filePath : relative || ".";
+  } catch {
+    return uri;
+  }
+}
+
+function formatLspRange(value: unknown): string {
+  if (!isRecord(value) || !isRecord(value.start)) return "";
+  const line = typeof value.start.line === "number" ? value.start.line + 1 : undefined;
+  const character =
+    typeof value.start.character === "number" ? value.start.character + 1 : undefined;
+  return line === undefined ? "" : `:${line}${character === undefined ? "" : `:${character}`}`;
+}
+
+function stringifyLspValue(value: unknown): string {
+  return typeof value === "string" ? value : (JSON.stringify(value) ?? String(value));
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function lspAbortReason(signal?: AbortSignal): Error {
+  return signal?.reason instanceof Error ? signal.reason : new Error("LSP request cancelled.");
+}
+
 async function normalizeWorkspaceRoot(workspaceRoot: string): Promise<string> {
   if (!workspaceRoot?.trim()) {
     throw new Error("LSP request requires workspaceRoot.");
@@ -722,7 +1167,7 @@ async function normalizeWorkspaceRoot(workspaceRoot: string): Promise<string> {
   if (!workspaceStat.isDirectory()) {
     throw new Error(`LSP workspaceRoot must be a directory: ${resolved}`);
   }
-  return resolved;
+  return realpath(resolved);
 }
 
 function validateCompletionRequest(request: LspCompletionRequest): void {

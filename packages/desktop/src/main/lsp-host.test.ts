@@ -1,12 +1,15 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import {
+  RequestCancelledError,
   SWARMX_LOCAL_FILES_LSP_ID,
   SWARMX_SKILLS_LSP_ID,
   builtInExtensionBundle,
+  cancelAcpRequest,
   createExtensionInventory,
   parseExtensionBundle,
+  withAcpRequest,
 } from "@swarmx/core";
 import { afterEach, describe, expect, it } from "vitest";
 import { LspHost } from "./lsp-host.js";
@@ -49,6 +52,7 @@ describe("LspHost", () => {
       }),
     ]);
     const host = new LspHost();
+    expect(host.supportsClaudeOperations(inventory)).toBe(false);
 
     const response = await host.complete(inventory, {
       serverId: SWARMX_SKILLS_LSP_ID,
@@ -334,7 +338,196 @@ describe("LspHost", () => {
       }),
     ).rejects.toThrow(/does not declare a command/);
   });
+
+  it("V402-V404 performs Claude LSP operations with one-based positions and exact output", async () => {
+    const root = await tempRoot();
+    const sourcePath = path.join(root, "source.txt");
+    await writeFile(sourcePath, "function target() {}\ntarget();\n", "utf8");
+    const serverScript = await writeFakeLspServer(root);
+    const inventory = lspInventory(serverScript, "plaintext-lsp", ["plaintext"]);
+    const host = new LspHost();
+
+    try {
+      expect(host.supportsClaudeOperations(inventory)).toBe(true);
+      await expect(
+        host.operate(inventory, root, {
+          operation: "goToDefinition",
+          filePath: "source.txt",
+          line: 2,
+          character: 3,
+        }),
+      ).resolves.toEqual({
+        operation: "goToDefinition",
+        result: "source.txt:2:3",
+        filePath: "source.txt",
+        resultCount: 1,
+        fileCount: 1,
+      });
+
+      await expect(
+        host.operate(inventory, root, {
+          operation: "documentSymbol",
+          filePath: "source.txt",
+          line: 1,
+          character: 1,
+        }),
+      ).resolves.toMatchObject({
+        operation: "documentSymbol",
+        result: expect.stringContaining("target - source.txt:1:1"),
+        resultCount: 2,
+        fileCount: 1,
+      });
+      await expect(
+        host.operate(inventory, root, {
+          operation: "workspaceSymbol",
+          filePath: "source.txt",
+          line: 1,
+          character: 1,
+          query: "target",
+        }),
+      ).resolves.toMatchObject({
+        result: expect.stringContaining("target - source.txt:1:1"),
+        resultCount: 1,
+        fileCount: 1,
+      });
+    } finally {
+      await host.stop({ serverId: "plaintext-lsp", workspaceRoot: root });
+    }
+  });
+
+  it("V404 executes two-step incoming and outgoing call hierarchy requests", async () => {
+    const root = await tempRoot();
+    await writeFile(path.join(root, "source.txt"), "target();\n", "utf8");
+    const serverScript = await writeFakeLspServer(root);
+    const inventory = lspInventory(serverScript, "call-lsp", ["plaintext"]);
+    const host = new LspHost();
+
+    try {
+      await expect(
+        host.operate(inventory, root, {
+          operation: "incomingCalls",
+          filePath: "source.txt",
+          line: 1,
+          character: 1,
+        }),
+      ).resolves.toMatchObject({
+        result: expect.stringContaining("caller - source.txt:2:1"),
+        resultCount: 1,
+        fileCount: 1,
+      });
+      await expect(
+        host.operate(inventory, root, {
+          operation: "outgoingCalls",
+          filePath: "source.txt",
+          line: 1,
+          character: 1,
+        }),
+      ).resolves.toMatchObject({
+        result: expect.stringContaining("callee - source.txt:3:1"),
+        resultCount: 1,
+        fileCount: 1,
+      });
+    } finally {
+      await host.stop({ serverId: "call-lsp", workspaceRoot: root });
+    }
+  });
+
+  it("V403 rejects Project escapes and missing or ambiguous file-language routing", async () => {
+    const root = await tempRoot();
+    const outside = await tempRoot();
+    await writeFile(path.join(root, "source.txt"), "inside\n", "utf8");
+    await writeFile(path.join(outside, "outside.txt"), "outside\n", "utf8");
+    await symlink(path.join(outside, "outside.txt"), path.join(root, "escape.txt"));
+    const serverScript = await writeFakeLspServer(root);
+    const one = lspInventory(serverScript, "one", ["plaintext"]);
+    const ambiguous = createExtensionInventory([
+      ...lspBundles(serverScript, [
+        ["one", ["plaintext"]],
+        ["two", ["plaintext"]],
+      ]),
+    ]);
+    const host = new LspHost();
+
+    await expect(
+      host.operate(one, root, {
+        operation: "hover",
+        filePath: "escape.txt",
+        line: 1,
+        character: 1,
+      }),
+    ).rejects.toThrow(/escapes the Project/);
+    await expect(
+      host.operate(ambiguous, root, {
+        operation: "hover",
+        filePath: "source.txt",
+        line: 1,
+        character: 1,
+      }),
+    ).rejects.toThrow(/Multiple configured LSP servers.*one, two/);
+    await expect(
+      host.operate(lspInventory(serverScript, "python", ["python"]), root, {
+        operation: "hover",
+        filePath: "source.txt",
+        line: 1,
+        character: 1,
+      }),
+    ).rejects.toThrow(/No configured LSP server supports/);
+  });
+
+  it("V404 cancels an in-flight LSP request and keeps the session reusable", async () => {
+    const root = await tempRoot();
+    await writeFile(path.join(root, "source.txt"), "target();\n", "utf8");
+    const serverScript = await writeFakeLspServer(root);
+    const inventory = lspInventory(serverScript, "cancel-lsp", ["plaintext"]);
+    const host = new LspHost();
+    const requestId = "claude-lsp-cancel";
+
+    try {
+      const run = withAcpRequest(requestId, () =>
+        host.operate(inventory, root, {
+          operation: "workspaceSymbol",
+          filePath: "source.txt",
+          line: 1,
+          character: 1,
+          query: "hang",
+        }),
+      );
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      await expect(cancelAcpRequest(requestId)).resolves.toBe(true);
+      await expect(run).rejects.toBeInstanceOf(RequestCancelledError);
+
+      await expect(
+        host.operate(inventory, root, {
+          operation: "workspaceSymbol",
+          filePath: "source.txt",
+          line: 1,
+          character: 1,
+          query: "target",
+        }),
+      ).resolves.toMatchObject({ resultCount: 1 });
+    } finally {
+      await host.stop({ serverId: "cancel-lsp", workspaceRoot: root });
+    }
+  });
 });
+
+function lspInventory(serverScript: string, id: string, languages: string[]) {
+  return createExtensionInventory([...lspBundles(serverScript, [[id, languages]])]);
+}
+
+function lspBundles(serverScript: string, entries: Array<[string, string[]]>) {
+  return entries.map(([id, languages]) =>
+    parseExtensionBundle({
+      schemaVersion: 1,
+      id: `test-${id}`,
+      name: id,
+      version: "1.0.0",
+      capabilities: {
+        lspServers: [{ id, command: [process.execPath, serverScript], languages }],
+      },
+    }),
+  );
+}
 
 async function tempRoot(): Promise<string> {
   const root = await mkdtemp(path.join(tmpdir(), "swarmx-lsp-"));
@@ -433,6 +626,86 @@ function handleMessage(message) {
           }
         ]
       }
+    });
+    return;
+  }
+  const uri = message.params?.textDocument?.uri;
+  const range = (line, character) => ({
+    start: { line, character },
+    end: { line, character: character + 1 }
+  });
+  if (message.method === "textDocument/definition") {
+    send({ jsonrpc: "2.0", id: message.id, result: [{ uri, range: range(1, 2) }] });
+    return;
+  }
+  if (message.method === "textDocument/references") {
+    send({
+      jsonrpc: "2.0",
+      id: message.id,
+      result: [{ uri, range: range(0, 0) }, { uri, range: range(1, 0) }]
+    });
+    return;
+  }
+  if (message.method === "textDocument/hover") {
+    send({
+      jsonrpc: "2.0",
+      id: message.id,
+      result: { contents: { kind: "markdown", value: "target(): void" } }
+    });
+    return;
+  }
+  if (message.method === "textDocument/documentSymbol") {
+    send({
+      jsonrpc: "2.0",
+      id: message.id,
+      result: [{
+        name: "target",
+        kind: 12,
+        range: range(0, 0),
+        selectionRange: range(0, 0),
+        uri,
+        children: [{ name: "local", kind: 13, range: range(0, 9), selectionRange: range(0, 9) }]
+      }]
+    });
+    return;
+  }
+  if (message.method === "workspace/symbol") {
+    if (message.params.query === "hang") return;
+    const firstUri = documents.keys().next().value;
+    send({
+      jsonrpc: "2.0",
+      id: message.id,
+      result: [{ name: message.params.query, kind: 12, location: { uri: firstUri, range: range(0, 0) } }]
+    });
+    return;
+  }
+  if (message.method === "textDocument/implementation") {
+    send({ jsonrpc: "2.0", id: message.id, result: [{ uri, range: range(0, 0) }] });
+    return;
+  }
+  if (message.method === "textDocument/prepareCallHierarchy") {
+    send({
+      jsonrpc: "2.0",
+      id: message.id,
+      result: [{ name: "target", kind: 12, uri, range: range(0, 0), selectionRange: range(0, 0) }]
+    });
+    return;
+  }
+  if (message.method === "callHierarchy/incomingCalls") {
+    const item = message.params.item;
+    send({
+      jsonrpc: "2.0",
+      id: message.id,
+      result: [{ from: { ...item, name: "caller", range: range(1, 0), selectionRange: range(1, 0) }, fromRanges: [range(0, 0)] }]
+    });
+    return;
+  }
+  if (message.method === "callHierarchy/outgoingCalls") {
+    const item = message.params.item;
+    send({
+      jsonrpc: "2.0",
+      id: message.id,
+      result: [{ to: { ...item, name: "callee", range: range(2, 0), selectionRange: range(2, 0) }, fromRanges: [range(0, 0)] }]
     });
     return;
   }

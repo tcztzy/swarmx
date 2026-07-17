@@ -1,10 +1,8 @@
 import { randomUUID } from "node:crypto";
-import { constants, chmodSync, statSync } from "node:fs";
-import { createRequire } from "node:module";
 import os from "node:os";
-import path from "node:path";
 import type { IDisposable, IPty } from "node-pty";
 import * as pty from "node-pty";
+import { ensurePtySpawnHelperExecutable } from "./pty-runtime.js";
 
 const DEFAULT_COLUMNS = 80;
 const DEFAULT_ROWS = 24;
@@ -141,25 +139,6 @@ export class TerminalHost {
     session.dataSubscription.dispose();
     session.exitSubscription.dispose();
     session.process.kill();
-  }
-}
-
-function ensurePtySpawnHelperExecutable(platform: NodeJS.Platform): void {
-  if (platform === "win32") return;
-  const require = createRequire(import.meta.url);
-  const packageRoot = path.resolve(path.dirname(require.resolve("node-pty")), "..");
-  const candidates = [
-    path.join(packageRoot, "prebuilds", `${platform}-${process.arch}`, "spawn-helper"),
-    path.join(packageRoot, "build", "Release", "spawn-helper"),
-  ];
-  for (const candidate of candidates) {
-    try {
-      const mode = statSync(candidate).mode;
-      if ((mode & constants.S_IXUSR) === 0) chmodSync(candidate, mode | constants.S_IXUSR);
-      return;
-    } catch {
-      // The active node-pty distribution may use the other known helper location.
-    }
   }
 }
 

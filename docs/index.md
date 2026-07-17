@@ -138,6 +138,12 @@ through the ACP client using the manifest-declared command, args, cwd, and
 environment, so extension-provided Codex or Claude profiles do not silently fall
 back to the native OpenAI path.
 
+Direct Project-bound agents use model-trained tool profiles rather than a
+SwarmX-specific file-tool vocabulary. See
+[Model-trained tool compatibility](./native-tool-compatibility.md) for the
+Claude Code/Codex schemas, protocol behavior, security boundary, and upgrade
+audit checklist.
+
 Provider profiles are connection metadata. When a trusted extension profile or
 fixed core route binds a ModelSupply, the main process follows it to its
 Provider, resolves its `env` or desktop `local_keychain` `secretRef` immediately

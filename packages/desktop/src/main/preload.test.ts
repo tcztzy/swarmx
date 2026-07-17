@@ -83,6 +83,56 @@ describe("preload API", () => {
     expect(electron.removeListener).toHaveBeenCalledWith("agent:chunk", wrapped);
   });
 
+  it("V429 exposes authoritative background session refresh events", () => {
+    const listener = vi.fn();
+    const unsubscribe = exposedApi().onSessionMessages(listener);
+    const registration = electron.on.mock.calls.find(([channel]) => channel === "session:messages");
+    const wrapped = registration?.[1];
+    const event = { sessionId: "session-background" };
+
+    expect(typeof wrapped).toBe("function");
+    wrapped?.({}, event);
+    expect(listener).toHaveBeenCalledWith(event);
+    unsubscribe();
+    expect(electron.removeListener).toHaveBeenCalledWith("session:messages", wrapped);
+  });
+
+  it("V386-V387 bridges interactive tool events and scoped resolutions", async () => {
+    const listener = vi.fn();
+    const unsubscribe = exposedApi().onAgentInteraction(listener);
+    const registration = electron.on.mock.calls.find(
+      ([channel]) => channel === "agent:interaction",
+    );
+    const wrapped = registration?.[1];
+    const interaction = {
+      kind: "questions",
+      requestId: "interactive-request",
+      interactionId: "interaction-1",
+      questions: [],
+    };
+    wrapped?.({}, interaction);
+    expect(listener).toHaveBeenCalledWith(interaction);
+
+    electron.invoke.mockResolvedValue({
+      requestId: "interactive-request",
+      interactionId: "interaction-1",
+      resolved: true,
+    });
+    await exposedApi().resolveAgentInteraction({
+      requestId: "interactive-request",
+      interactionId: "interaction-1",
+      response: { kind: "questions", answers: { "Which runtime?": "Node" } },
+    });
+    expect(electron.invoke).toHaveBeenCalledWith("agent:resolveInteraction", {
+      requestId: "interactive-request",
+      interactionId: "interaction-1",
+      response: { kind: "questions", answers: { "Which runtime?": "Node" } },
+    });
+
+    unsubscribe();
+    expect(electron.removeListener).toHaveBeenCalledWith("agent:interaction", wrapped);
+  });
+
   it("routes cancellation through the dedicated read-only API", async () => {
     electron.invoke.mockResolvedValue({ requestId: "request-to-stop", canceled: true });
 
@@ -102,6 +152,15 @@ describe("preload API", () => {
     await expect(api.listGroupedSessions({ mode: "project" })).resolves.toEqual(["session"]);
     expect(Object.isFrozen(api)).toBe(true);
     expect(invoke).toHaveBeenCalledWith("session:listGrouped", { mode: "project" });
+  });
+
+  it("exposes the privacy-safe local activity summary", async () => {
+    electron.invoke.mockResolvedValue({ lifetime: { totalTokens: 42 } });
+
+    await expect(exposedApi().getActivityProfile()).resolves.toEqual({
+      lifetime: { totalTokens: 42 },
+    });
+    expect(electron.invoke).toHaveBeenCalledWith("activity:profile");
   });
 
   it("bridges local task rename, pin, delete, and generated titles", async () => {
@@ -390,6 +449,7 @@ function exposedApi(): {
   deleteSession(id: string): Promise<unknown>;
   workspaceRoot(): Promise<unknown>;
   listProjects(): Promise<unknown>;
+  getActivityProfile(): Promise<unknown>;
   addExistingProject(): Promise<unknown>;
   createScratchProject(): Promise<unknown>;
   getWorkspaceReview(cwd?: string): Promise<unknown>;

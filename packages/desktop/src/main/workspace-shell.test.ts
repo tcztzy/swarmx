@@ -76,6 +76,24 @@ describe("WorkspaceShell", () => {
   );
 
   it.runIf(process.platform === "darwin")(
+    "V359 accepts contained Codex workdirs and rejects escaping ones",
+    async () => {
+      const parent = await temporaryDirectory();
+      const root = path.join(parent, "workspace");
+      const nested = path.join(root, "nested");
+      await mkdir(root);
+      await mkdir(nested);
+      const shell = new WorkspaceShell(root);
+      const resolvedNested = await realpathForTest(nested);
+
+      await expect(shell.run("pwd", { workdir: nested })).resolves.toMatchObject({
+        cwd: resolvedNested,
+      });
+      await expect(shell.run("pwd", { workdir: "../" })).rejects.toThrow(/escapes/i);
+    },
+  );
+
+  it.runIf(process.platform === "darwin")(
     "V350 denies loopback network connections",
     async () => {
       const root = await temporaryDirectory();
@@ -107,7 +125,7 @@ describe("WorkspaceShell", () => {
   );
 
   it.runIf(process.platform === "darwin")(
-    "V349 terminates timed-out and cancelled process groups",
+    "V349-V383 terminates timed-out and cancelled process groups",
     async () => {
       const root = await temporaryDirectory();
       const shell = new WorkspaceShell(root, { timeoutMs: 50 });
@@ -122,6 +140,17 @@ describe("WorkspaceShell", () => {
       await delay(50);
       await expect(cancelAcpRequest(requestId)).resolves.toBe(true);
       await expect(running).rejects.toBeInstanceOf(RequestCancelledError);
+
+      const fallbackRequestId = `workspace-shell-fallback-${Date.now()}`;
+      const fallback = withAcpRequest(fallbackRequestId, () =>
+        new WorkspaceShell(root, { backgroundTimeoutMs: 5_000 }).runWithBackgroundFallback(
+          "sleep 5",
+          5_000,
+        ),
+      );
+      await delay(50);
+      await expect(cancelAcpRequest(fallbackRequestId)).resolves.toBe(true);
+      await expect(fallback).rejects.toBeInstanceOf(RequestCancelledError);
     },
   );
 
@@ -144,6 +173,171 @@ describe("WorkspaceShell", () => {
     await expect(tool.call({ command: "" })).rejects.toThrow(/non-empty shell command/i);
     await expect(tool.call({ command: "pwd", timeoutMs: 0 })).rejects.toThrow(/positive integer/i);
   });
+
+  it.runIf(process.platform === "darwin")(
+    "V365-V367 starts, waits for, and stops background process groups",
+    async () => {
+      const root = await temporaryDirectory();
+      const shell = new WorkspaceShell(root, { backgroundTimeoutMs: 20_000 });
+      try {
+        const stdout: string[] = [];
+        const exits: string[] = [];
+        const started = await shell.startBackground("printf start; sleep 0.1; printf end", {
+          onStdout: (chunk) => stdout.push(chunk),
+          onExit: (snapshot) => exits.push(snapshot.status),
+        });
+        expect(started).toMatchObject({ status: "running", sessionId: expect.any(Number) });
+
+        const completed = await shell.taskOutput(started.sessionId, {
+          block: true,
+          timeoutMs: 10_000,
+        });
+        expect(completed).toMatchObject({
+          status: "completed",
+          exitCode: 0,
+          stdout: "startend",
+        });
+        expect(stdout.join("")).toBe("startend");
+        expect(exits).toEqual(["completed"]);
+
+        const longRunning = await shell.startBackground("sleep 5; printf late > late.txt");
+        const stopped = await shell.stop(longRunning.sessionId);
+        expect(stopped.status).toBe("stopped");
+        await delay(700);
+        await expect(readFile(path.join(root, "late.txt"), "utf8")).rejects.toMatchObject({
+          code: "ENOENT",
+        });
+
+        await shell.startBackground("sleep 0.2; printf leaked > after-close.txt");
+        await shell.close();
+        await delay(400);
+        await expect(readFile(path.join(root, "after-close.txt"), "utf8")).rejects.toMatchObject({
+          code: "ENOENT",
+        });
+      } finally {
+        await shell.close();
+      }
+    },
+    30_000,
+  );
+
+  it.runIf(process.platform === "darwin")(
+    "V366-V393 yields a Codex session and accepts pipe-backed stdin",
+    async () => {
+      const root = await temporaryDirectory();
+      const shell = new WorkspaceShell(root, { backgroundTimeoutMs: 5_000 });
+      try {
+        const started = await shell.exec('read -r answer; printf "got:%s" "$answer"', {
+          yieldTimeMs: 250,
+        });
+        expect(started).toMatchObject({
+          sessionId: expect.any(Number),
+          status: "running",
+          output: "",
+        });
+
+        let completed = await shell.writeStdin(started.sessionId as number, "hello\n", {
+          yieldTimeMs: 2_000,
+        });
+        for (let attempt = 0; completed.status === "running" && attempt < 4; attempt += 1) {
+          if (completed.sessionId === undefined) break;
+          completed = await shell.writeStdin(completed.sessionId, "", { yieldTimeMs: 1_000 });
+        }
+        expect(completed).toMatchObject({
+          status: "completed",
+          exitCode: 0,
+          output: "got:hello",
+        });
+        expect(completed.sessionId).toBeUndefined();
+      } finally {
+        await shell.close();
+      }
+    },
+    10_000,
+  );
+
+  it.runIf(process.platform === "darwin")(
+    "V371-V373-V392 allocates a sandboxed real PTY and accepts terminal input and Ctrl-C",
+    async () => {
+      const parent = await temporaryDirectory();
+      const root = path.join(parent, "workspace");
+      await mkdir(root);
+      const shell = new WorkspaceShell(root, { backgroundTimeoutMs: 10_000 });
+      try {
+        await expect(shell.run('test -t 0 || printf "pipe:%s" "$TERM"')).resolves.toMatchObject({
+          stdout: "pipe:dumb",
+          stderr: "",
+        });
+
+        let started = await shell.exec(
+          'test -t 0 && stty -echo && printf "tty:%s:ready" "$TERM"; IFS= read -r value; printf ":got:%s" "$value"',
+          { tty: true, yieldTimeMs: 1_000 },
+        );
+        for (let attempt = 0; !started.output.includes(":ready") && attempt < 4; attempt += 1) {
+          if (started.status !== "running" || started.sessionId === undefined) break;
+          started = await shell.writeStdin(started.sessionId, "", { yieldTimeMs: 1_000 });
+        }
+        expect(started).toMatchObject({
+          status: "running",
+          sessionId: expect.any(Number),
+          output: "tty:xterm-256color:ready",
+        });
+
+        const completed = await shell.writeStdin(started.sessionId as number, "hello\r", {
+          yieldTimeMs: 2_000,
+        });
+        expect(completed).toMatchObject({
+          status: "completed",
+          exitCode: 0,
+          output: ":got:hello",
+        });
+
+        let interrupted = await shell.exec(
+          "trap 'printf ctrl-c; exit 130' INT; printf ready; sleep 10",
+          { tty: true, yieldTimeMs: 500 },
+        );
+        for (let attempt = 0; !interrupted.output.includes("ready") && attempt < 4; attempt += 1) {
+          if (interrupted.status !== "running" || interrupted.sessionId === undefined) break;
+          interrupted = await shell.writeStdin(interrupted.sessionId, "", { yieldTimeMs: 1_000 });
+        }
+        expect(interrupted).toMatchObject({
+          status: "running",
+          sessionId: expect.any(Number),
+          output: "ready",
+        });
+        const afterInterrupt = await shell.writeStdin(interrupted.sessionId as number, "\u0003", {
+          yieldTimeMs: 2_000,
+        });
+        expect(afterInterrupt.status).not.toBe("running");
+        expect(afterInterrupt.output).toContain("ctrl-c");
+
+        const timedOut = await shell.run("sleep 5", { tty: true, timeoutMs: 50 });
+        expect(timedOut).toMatchObject({ timedOut: true, stderr: "" });
+        expect(timedOut.durationMs).toBeLessThan(2_000);
+
+        const denied = await shell.run("printf blocked > ../blocked.txt", { tty: true });
+        expect(denied.stdout).toMatch(/operation not permitted/i);
+        expect(denied.stderr).toBe("");
+        await expect(readFile(path.join(parent, "blocked.txt"), "utf8")).rejects.toMatchObject({
+          code: "ENOENT",
+        });
+
+        const closing = await shell.exec("sleep 0.5; printf leaked > after-pty-close.txt", {
+          tty: true,
+          yieldTimeMs: 250,
+        });
+        expect(closing.status).toBe("running");
+        await shell.close();
+        await delay(700);
+        await expect(
+          readFile(path.join(root, "after-pty-close.txt"), "utf8"),
+        ).rejects.toMatchObject({ code: "ENOENT" });
+      } finally {
+        await shell.close();
+      }
+    },
+    20_000,
+  );
 });
 
 async function temporaryDirectory(): Promise<string> {

@@ -54,6 +54,7 @@ export type {
   LspTextPosition,
 } from "./lsp-host.js";
 export { DesktopRequestRegistry } from "./request-registry.js";
+export { AgentInteractionBroker } from "./agent-interactions.js";
 export type { RequestOwner } from "./request-registry.js";
 export { TerminalHost } from "./terminal-host.js";
 export type {

@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { StringDecoder } from "node:string_decoder";
-import type { ExtensionInventory, ProviderProfile } from "@swarmx/core";
+import { type ExtensionInventory, type ProviderProfile, SWARMX_VERSION } from "@swarmx/core";
 import { z } from "zod";
 import type { ProviderAuthStore } from "./provider-auth.js";
 import { newApiAccountCredentialKey } from "./provider-auth.js";
@@ -1428,7 +1428,7 @@ export async function queryCodexAppServerRequest(
         id: 1,
         method: "initialize",
         params: {
-          clientInfo: { name: "swarmx", title: "SwarmX", version: "3.1.0" },
+          clientInfo: { name: "swarmx", title: "SwarmX", version: SWARMX_VERSION },
           capabilities: null,
         },
       })}\n`,

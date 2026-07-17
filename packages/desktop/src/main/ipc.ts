@@ -1,7 +1,9 @@
 import { mkdir, readFile, stat } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+  ActivityStore,
   RequestCancelledError,
   Swarm,
   appendMessages,
@@ -9,6 +11,7 @@ import {
   createSession,
   deleteSession,
   dismissProject,
+  estimateModelTokenUsage,
   executeAgentComposition,
   getHarness,
   importN8nWorkflow,
@@ -18,6 +21,7 @@ import {
   loadDiscoveredSession,
   loadExtensionInventory,
   loadSession,
+  mergeModelTokenUsage,
   registerDefaultProject,
   registerProject,
   renameProject,
@@ -28,20 +32,32 @@ import {
   updateSessionTitle,
 } from "@swarmx/core";
 import type {
+  ActivityEventInput,
   AgentBackend,
   AgentComposition,
   AgentCompositionPlan,
   AgentConfig,
+  ChatMessage,
   DiscoveredSession,
   ExtensionInventory,
   ListGroupedSessionsOptions,
   MessageChunk,
+  ModelTokenUsage,
   ProjectData,
   SessionData,
   SwarmConfig,
 } from "@swarmx/core";
 import { type IpcMainInvokeEvent, dialog, ipcMain, safeStorage, shell } from "electron";
+import {
+  AgentInteractionBroker,
+  type DesktopAgentInteractionResolution,
+} from "./agent-interactions.js";
 import { type BrowserBounds, BrowserHost } from "./browser-host.js";
+import { ClaudeChildAgentHost } from "./child-agent-host.js";
+import {
+  type ClaudeSessionRuntime,
+  ClaudeSessionRuntimeRegistry,
+} from "./claude-session-runtime.js";
 import { CodexAccessTokenResolver } from "./codex-auth.js";
 import { CustomAgentService } from "./custom-agents.js";
 import { DesktopExtensionManager } from "./extension-manager.js";
@@ -80,9 +96,11 @@ import {
   createDisabledDesktopUpdateService,
 } from "./updater.js";
 import {
+  type WorkspaceAgentToolOptions,
   WorkspaceTools,
   projectAgentContextMessage,
   workspaceAgentTools,
+  workspaceToolProfile,
 } from "./workspace-tools.js";
 
 const MAX_INLINE_IMAGE_BYTES = 25 * 1024 * 1024;
@@ -90,6 +108,8 @@ const lspHost = new LspHost();
 const harnessEnvironment = new HarnessEnvironmentService();
 const harnessDoctor = new HarnessDoctor(harnessEnvironment);
 const agentRequests = new DesktopRequestRegistry();
+const agentInteractions = new AgentInteractionBroker();
+const claudeSessionRuntimes = new ClaudeSessionRuntimeRegistry();
 const browserHost = new BrowserHost();
 const terminalHost = new TerminalHost();
 const interactiveOwnerIds = new Set<number>();
@@ -114,10 +134,16 @@ const modelCatalog = new ModelCatalogService({
 const customAgents = new CustomAgentService(desktopSettingsStore);
 const extensionManager = new DesktopExtensionManager(desktopSettingsStore);
 const providerUsage = new ProviderUsageService({ authStore: providerAuthStore });
+const desktopActivity = new ActivityStore(
+  process.env.NODE_ENV === "test"
+    ? { filePath: path.join(tmpdir(), `swarmx-activity-test-${process.pid}.jsonl`) }
+    : {},
+);
 
 export interface RegisterIpcHandlersOptions {
   updateService?: DesktopUpdateServiceLike;
   broadcastUpdateState?: (state: DesktopUpdateState) => void;
+  activityStore?: ActivityStore;
 }
 
 export interface AgentChunkSender {
@@ -134,6 +160,42 @@ export function agentChunkPublisher(
   };
 }
 
+export function sessionChatMessages(session: SessionData | null): ChatMessage[] {
+  if (!session) return [];
+  return session.messages.flatMap((message): ChatMessage[] => {
+    if (message.kind !== "message") return [];
+    if (!isChatRole(message.role)) return [];
+    return [{ role: message.role, content: message.content }];
+  });
+}
+
+function isChatRole(role: string): role is ChatMessage["role"] {
+  return role === "user" || role === "assistant" || role === "system" || role === "tool";
+}
+
+function timedMessages(
+  messages: readonly MessageChunk[],
+  startedAtMs: number,
+  endedAtMs = Date.now(),
+): MessageChunk[] {
+  const startedAt = new Date(startedAtMs).toISOString();
+  const endedAt = new Date(endedAtMs).toISOString();
+  const durationMs = Math.max(1, endedAtMs - startedAtMs);
+  return messages.map((message) => ({
+    ...message,
+    render: {
+      ...(message.render ?? {}),
+      startedAt: message.render?.startedAt ?? startedAt,
+      endedAt: message.render?.endedAt ?? endedAt,
+      durationMs: message.render?.durationMs ?? durationMs,
+    },
+  }));
+}
+
+function publishSessionMessages(sender: AgentChunkSender, sessionId: string): void {
+  if (!sender.isDestroyed()) sender.send("session:messages", { sessionId });
+}
+
 export function assertFinalAssistantMessage(messages: readonly MessageChunk[]): void {
   if (
     !messages.some(
@@ -144,6 +206,52 @@ export function assertFinalAssistantMessage(messages: readonly MessageChunk[]): 
     )
   ) {
     throw new Error("Agent run ended without a final assistant response.");
+  }
+}
+
+interface ActivityOutcomeInput {
+  taskId: string;
+  sessionId?: string;
+  harnessId?: string;
+  modelId?: string;
+  reasoningEffort?: string;
+  status: "completed" | "failed" | "canceled";
+  startedAt: number;
+  userText: string;
+  messages: readonly MessageChunk[];
+  tokenUsages: readonly ModelTokenUsage[];
+}
+
+function recordActivityOutcome(store: ActivityStore, input: ActivityOutcomeInput): void {
+  const durationMs = Math.max(0, Date.now() - input.startedAt);
+  const metadata = {
+    taskId: input.taskId,
+    sessionId: input.sessionId,
+    harnessId: input.harnessId,
+    modelId: input.modelId,
+    reasoningEffort: input.reasoningEffort,
+  };
+  appendActivity(store, {
+    type: "task_finished",
+    ...metadata,
+    status: input.status,
+    durationMs,
+  });
+  const usage =
+    input.tokenUsages.length > 0
+      ? mergeModelTokenUsage(input.tokenUsages)
+      : estimateModelTokenUsage(input.userText, input.messages, {
+          model: input.modelId,
+          provider: input.harnessId,
+        });
+  appendActivity(store, { type: "token_usage", ...metadata, tokens: usage });
+}
+
+function appendActivity(store: ActivityStore, input: ActivityEventInput): void {
+  try {
+    store.append(input);
+  } catch (error) {
+    console.warn(`Failed to persist local activity: ${errorMessage(error)}`);
   }
 }
 
@@ -163,6 +271,7 @@ async function loadDesktopExtensionInventory(): Promise<ExtensionInventory> {
 
 export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): void {
   const updateService = options.updateService ?? createDisabledDesktopUpdateService();
+  const activityStore = options.activityStore ?? desktopActivity;
   if (options.broadcastUpdateState) updateService.subscribe(options.broadcastUpdateState);
   ipcMain.handle(
     "agent:send",
@@ -170,6 +279,7 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
       event: IpcMainInvokeEvent,
       params: {
         requestId: string;
+        sessionId?: string;
         harnessId: string;
         userText: string;
         agentConfig?: AgentConfig;
@@ -178,9 +288,32 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
         cwd?: string;
       },
     ) => {
+      const startedAt = Date.now();
+      const observedMessages: MessageChunk[] = [];
+      const tokenUsages: ModelTokenUsage[] = [];
+      let foregroundRuntime: ClaudeSessionRuntime | undefined;
+      const taskMetadata = {
+        taskId: params.requestId,
+        sessionId: params.sessionId,
+        harnessId: params.harnessId,
+        modelId: stringProperty(params.agentComposition, "modelId"),
+        reasoningEffort: stringProperty(params.agentComposition, "effort"),
+      };
+      appendActivity(activityStore, { type: "task_started", ...taskMetadata });
       try {
-        return await agentRequests.run(event.sender, params.requestId, async () => {
-          const onChunk = agentChunkPublisher(event.sender, params.requestId);
+        const result = await agentRequests.run(event.sender, params.requestId, async () => {
+          const publishChunk = agentChunkPublisher(event.sender, params.requestId);
+          const onChunk = (chunk: MessageChunk) => {
+            observedMessages.push(chunk);
+            publishChunk(chunk);
+            if (chunk.kind === "tool_call" && chunk.toolName) {
+              appendActivity(activityStore, {
+                type: "tool_called",
+                ...taskMetadata,
+                name: chunk.toolName,
+              });
+            }
+          };
           let swarm: Swarm;
           const cwd = await normalizeWorkingDirectory(params.cwd);
 
@@ -193,6 +326,13 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
           } else if (params.agentComposition) {
             const inventory = await modelCatalog.list(await loadDesktopExtensionInventory());
             const plan = resolveAgentCompositionPlan(params.agentComposition, inventory);
+            for (const skillId of new Set(plan.skills.map((skill) => skill.id))) {
+              appendActivity(activityStore, {
+                type: "skill_used",
+                ...taskMetadata,
+                name: skillId,
+              });
+            }
             assertCompositionSupplyReady(inventory, plan, process.env);
             const providerSecrets = plan.modelSupplyId
               ? await modelCatalog.runtimeSecretsForSupply(inventory, plan.modelSupplyId)
@@ -202,6 +342,157 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
               cwd && compositionRuntimeHarnessId(inventory, plan) === "swarmx"
                 ? new WorkspaceTools(cwd)
                 : null;
+            const selectedWorkspaceSkills = plan.skills.flatMap((skillRef) => {
+              if (skillRef.status !== "ok") return [];
+              const matches = inventory.skills.filter((skill) => skill.id === skillRef.id);
+              if (matches.length !== 1) return [];
+              const skill = matches[0];
+              const filePath = skill?.canonicalPath ?? skill?.path;
+              if (!skill || !filePath || !path.isAbsolute(filePath)) return [];
+              return [
+                {
+                  id: skill.id,
+                  ...(skill.name ? { name: skill.name } : {}),
+                  filePath,
+                  ...(skill.description ? { description: skill.description } : {}),
+                },
+              ];
+            });
+            const baseWorkspaceToolOptions: WorkspaceAgentToolOptions = {
+              ...((plan.modelId ?? plan.runtimeModel)
+                ? { model: [plan.modelId, plan.runtimeModel].filter(Boolean).join(" ") }
+                : {}),
+              ...(plan.apiProtocol ? { apiProtocol: plan.apiProtocol } : {}),
+              ...(selectedWorkspaceSkills.length > 0 ? { skills: selectedWorkspaceSkills } : {}),
+              ...(plan.effort ? { effort: plan.effort } : {}),
+              ...(projectTools && lspHost.supportsClaudeOperations(inventory)
+                ? {
+                    lsp: (request) => lspHost.operate(inventory, projectTools.root, request),
+                  }
+                : {}),
+            };
+            const sessionRuntime =
+              projectTools &&
+              params.sessionId &&
+              workspaceToolProfile(baseWorkspaceToolOptions) === "claude_code"
+                ? await claudeSessionRuntimes.open(params.sessionId, projectTools.root)
+                : undefined;
+            if (sessionRuntime && params.sessionId) {
+              const sessionId = params.sessionId;
+              sessionRuntime.configure({
+                activate: async (activation) => {
+                  const activationMessage: MessageChunk = {
+                    role: "system",
+                    content: activation.prompt,
+                    kind: "message",
+                  };
+                  if (!appendMessages(sessionId, [activationMessage])) {
+                    throw new Error(`Session ${sessionId} no longer exists.`);
+                  }
+                  publishSessionMessages(event.sender, sessionId);
+                  const persisted = loadSession(sessionId);
+                  if (!persisted) throw new Error(`Session ${sessionId} no longer exists.`);
+                  const backgroundTools = new WorkspaceTools(sessionRuntime.root);
+                  const backgroundToolOptions: WorkspaceAgentToolOptions = {
+                    ...baseWorkspaceToolOptions,
+                    sessionId,
+                    sessionTools: sessionRuntime,
+                    borrowShell: true,
+                  };
+                  const messages = await executeAgentComposition(
+                    params.agentComposition,
+                    [
+                      {
+                        role: "system",
+                        content: projectAgentContextMessage(
+                          sessionRuntime.root,
+                          backgroundToolOptions,
+                        ),
+                      },
+                      ...sessionChatMessages(persisted),
+                    ],
+                    {
+                      inventory: protectedInventory,
+                      providerSecrets,
+                      cwd: sessionRuntime.root,
+                      localTools: workspaceAgentTools(
+                        backgroundTools,
+                        sessionRuntime.shell,
+                        backgroundToolOptions,
+                      ),
+                    },
+                  );
+                  assertFinalAssistantMessage(messages);
+                  if (!appendMessages(sessionId, messages)) {
+                    throw new Error(`Session ${sessionId} no longer exists.`);
+                  }
+                  publishSessionMessages(event.sender, sessionId);
+                },
+                onActivationError: (_activation, error) => {
+                  const message: MessageChunk = {
+                    role: "system",
+                    content: `Background activation failed: ${errorMessage(error)}`,
+                    kind: "message",
+                  };
+                  if (appendMessages(sessionId, [message])) {
+                    publishSessionMessages(event.sender, sessionId);
+                  }
+                },
+              });
+              await sessionRuntime.beginForeground();
+              foregroundRuntime = sessionRuntime;
+            }
+            const childAgentHost = projectTools
+              ? new ClaudeChildAgentHost({
+                  parentModel: [plan.modelId, plan.runtimeModel].filter(Boolean).join(" "),
+                  root: () => projectTools.root,
+                  systemContext: (root) =>
+                    projectAgentContextMessage(root, {
+                      ...baseWorkspaceToolOptions,
+                      sessionId: `${params.sessionId ?? params.requestId}:agent`,
+                    }),
+                  execute: async ({ agentId, root, messages: childMessages }) => {
+                    const childTools = new WorkspaceTools(root);
+                    const childToolOptions: WorkspaceAgentToolOptions = {
+                      ...baseWorkspaceToolOptions,
+                      sessionId: `${params.sessionId ?? params.requestId}:agent:${agentId}`,
+                      ...(lspHost.supportsClaudeOperations(inventory)
+                        ? {
+                            lsp: (request) => lspHost.operate(inventory, childTools.root, request),
+                          }
+                        : {}),
+                    };
+                    const childUsages: ModelTokenUsage[] = [];
+                    const messages = await executeAgentComposition(
+                      params.agentComposition,
+                      childMessages,
+                      {
+                        inventory: protectedInventory,
+                        providerSecrets,
+                        cwd: root,
+                        localTools: workspaceAgentTools(childTools, undefined, childToolOptions),
+                        onUsage: (usage) => childUsages.push(usage),
+                      },
+                    );
+                    return { messages, usages: childUsages };
+                  },
+                })
+              : null;
+            const workspaceToolOptions: WorkspaceAgentToolOptions = {
+              ...baseWorkspaceToolOptions,
+              sessionId: params.sessionId ?? params.requestId,
+              ...(sessionRuntime ? { sessionTools: sessionRuntime, borrowShell: true } : {}),
+              ...(childAgentHost ? { agent: (request) => childAgentHost.run(request) } : {}),
+              interact: (request) =>
+                agentInteractions.request(event.sender, params.requestId, request),
+              closeInteractions: () => {
+                childAgentHost?.close();
+                agentInteractions.cancelRequest(event.sender, params.requestId);
+              },
+            };
+            const sessionMessages = params.sessionId
+              ? sessionChatMessages(loadSession(params.sessionId))
+              : [];
             const messages = await executeAgentComposition(
               params.agentComposition,
               [
@@ -209,18 +500,32 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
                   ? [
                       {
                         role: "system" as const,
-                        content: projectAgentContextMessage(cwd ?? desktopWorkspaceRoot),
+                        content: projectAgentContextMessage(
+                          cwd ?? desktopWorkspaceRoot,
+                          workspaceToolOptions,
+                        ),
                       },
                     ]
                   : []),
-                { role: "user", content: params.userText },
+                ...(sessionMessages.length > 0
+                  ? sessionMessages
+                  : [{ role: "user" as const, content: params.userText }]),
               ],
               {
                 inventory: protectedInventory,
                 providerSecrets,
                 cwd,
-                ...(projectTools ? { localTools: workspaceAgentTools(projectTools) } : {}),
+                ...(projectTools
+                  ? {
+                      localTools: workspaceAgentTools(
+                        projectTools,
+                        sessionRuntime?.shell,
+                        workspaceToolOptions,
+                      ),
+                    }
+                  : {}),
                 onChunk,
+                onUsage: (usage) => tokenUsages.push(usage),
               },
             );
             assertFinalAssistantMessage(messages);
@@ -243,27 +548,88 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
             },
             undefined,
             onChunk,
+            (usage) => tokenUsages.push(usage),
           );
 
           return { success: true, messages: result };
         });
+        const persistedMessages = timedMessages(result.messages, startedAt);
+        const sessionPersisted = params.sessionId
+          ? appendMessages(params.sessionId, persistedMessages)
+          : false;
+        recordActivityOutcome(activityStore, {
+          ...taskMetadata,
+          status: "completed",
+          startedAt,
+          userText: params.userText,
+          messages: persistedMessages,
+          tokenUsages,
+        });
+        return { ...result, messages: persistedMessages, sessionPersisted };
       } catch (err) {
         if (err instanceof RequestCancelledError) {
-          return { success: false, canceled: true, requestId: params.requestId };
+          const canceledMessages = timedMessages(observedMessages, startedAt);
+          const sessionPersisted = params.sessionId
+            ? appendMessages(params.sessionId, canceledMessages)
+            : false;
+          recordActivityOutcome(activityStore, {
+            ...taskMetadata,
+            status: "canceled",
+            startedAt,
+            userText: params.userText,
+            messages: observedMessages,
+            tokenUsages,
+          });
+          return {
+            success: false,
+            canceled: true,
+            requestId: params.requestId,
+            sessionPersisted,
+          };
         }
+        const error = err instanceof Error ? err.message : String(err);
+        const failedMessages = [
+          ...timedMessages(observedMessages, startedAt),
+          { role: "system", content: `Error: ${error}`, kind: "message" as const },
+        ];
+        const sessionPersisted = params.sessionId
+          ? appendMessages(params.sessionId, failedMessages)
+          : false;
+        recordActivityOutcome(activityStore, {
+          ...taskMetadata,
+          status: "failed",
+          startedAt,
+          userText: params.userText,
+          messages: observedMessages,
+          tokenUsages,
+        });
         return {
           success: false,
-          error: err instanceof Error ? err.message : String(err),
+          error,
+          sessionPersisted,
         };
+      } finally {
+        foregroundRuntime?.endForeground();
       }
     },
   );
+
+  ipcMain.handle("activity:profile", () => activityStore.summary());
 
   ipcMain.handle(
     "agent:cancel",
     async (event: IpcMainInvokeEvent, params: { requestId: string }) => ({
       requestId: params.requestId,
       canceled: await agentRequests.cancel(event.sender, params.requestId),
+    }),
+  );
+
+  ipcMain.handle(
+    "agent:resolveInteraction",
+    (event: IpcMainInvokeEvent, resolution: DesktopAgentInteractionResolution) => ({
+      requestId: resolution.requestId,
+      interactionId: resolution.interactionId,
+      resolved: agentInteractions.resolve(event.sender, resolution),
     }),
   );
 
@@ -393,9 +759,10 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
     },
   );
 
-  ipcMain.handle("session:delete", (_event: IpcMainInvokeEvent, id: string): boolean =>
-    deleteSession(id),
-  );
+  ipcMain.handle("session:delete", async (_event: IpcMainInvokeEvent, id: string) => {
+    await claudeSessionRuntimes.delete(id);
+    return deleteSession(id);
+  });
 
   ipcMain.handle(
     "session:rename",
@@ -780,6 +1147,7 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
 }
 
 export function disposeDesktopTerminals(): void {
+  void claudeSessionRuntimes.close();
   browserHost.dispose();
   terminalHost.dispose();
   interactiveOwnerIds.clear();
@@ -1060,6 +1428,16 @@ function safeDecodeUri(value: string): string {
   } catch {
     return value;
   }
+}
+
+function stringProperty(value: unknown, key: string): string | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const property = (value as Record<string, unknown>)[key];
+  return typeof property === "string" && property.length > 0 ? property : undefined;
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 function detectImageMimeType(bytes: Buffer): string | null {

@@ -28,7 +28,12 @@ export class Tool {
       for (const [name, params] of this.mcpServers) {
         await manager.addServer(name, params);
       }
-      return await manager.callTool(this.name, arguments_, context);
+      const result = await manager.callTool(this.name, arguments_, context);
+      return result.structuredContent !== null &&
+        typeof result.structuredContent === "object" &&
+        !Array.isArray(result.structuredContent)
+        ? (result.structuredContent as Record<string, unknown>)
+        : { result: result.structuredContent ?? result.content };
     } finally {
       await manager.close();
     }

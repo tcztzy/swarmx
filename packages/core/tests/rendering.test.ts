@@ -169,6 +169,22 @@ describe("normalized render events", () => {
     expect(textual.output).toEqual({ text: "Command failed with exit code 1" });
   });
 
+  it("V363 renders structured tool content instead of model-facing text", () => {
+    const event = normalizeMessageChunk({
+      role: "tool",
+      kind: "tool_result",
+      content: "File updated successfully.",
+      structuredContent: {
+        filePath: "README.md",
+        userModified: false,
+      },
+      toolName: "Write",
+    });
+
+    expect(event.output).toEqual({ filePath: "README.md", userModified: false });
+    expect(event.summary).toContain("README.md");
+  });
+
   it("normalizes arrays with stable raw payload references", () => {
     const events = normalizeMessageChunks([
       { role: "assistant", kind: "thinking", content: "Planning" },

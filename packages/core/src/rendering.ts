@@ -163,7 +163,10 @@ export function normalizeMessageChunk(
   const status = options.status ?? defaultStatusForChunk(chunk);
   const source = options.source ?? "swarmx.message";
   const title = titleForChunk(chunk);
-  const contentPayload = parseContentPayload(chunk.content);
+  const contentPayload =
+    chunk.structuredContent === undefined
+      ? parseContentPayload(chunk.content)
+      : chunk.structuredContent;
   const sanitizedPayload = sanitizeRenderPayload(contentPayload);
   const eventInput = {
     eventId: deterministicRenderEventId({ chunk, options }),

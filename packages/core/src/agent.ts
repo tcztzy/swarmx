@@ -6,7 +6,7 @@ import {
   currentRequestSignal,
   throwIfCurrentRequestCancelled,
 } from "./acp.js";
-import { type LocalMcpTool, McpManager } from "./mcp.js";
+import { type LocalTool, McpManager } from "./mcp.js";
 import { ModelApiModeSchema, ModelApiSchema } from "./model-api.js";
 import type { ModelApi, ModelApiMode } from "./model-api.js";
 import {
@@ -26,9 +26,10 @@ import type {
   AgentConfig,
   McpServerConfig,
   MessageChunk,
+  ModelTokenUsage,
   ProcessOptions,
 } from "./types.js";
-import { AgentConfigSchema } from "./types.js";
+import { AgentConfigSchema, ModelTokenUsageSchema } from "./types.js";
 import { SWARMX_VERSION } from "./version.js";
 
 const CODEX_RESPONSES_BASE_URL = "https://chatgpt.com/backend-api/codex";
@@ -46,7 +47,8 @@ type ChatMsg = OpenAI.Chat.Completions.ChatCompletionMessageParam;
 
 export interface AgentRuntimeOptions {
   createAcpClient?: () => AcpPromptClient;
-  localTools?: readonly LocalMcpTool[];
+  createMcpManager?: () => McpManager;
+  localTools?: readonly LocalTool[];
 }
 
 interface AcpPromptClient {
@@ -85,7 +87,8 @@ export class Agent {
   processOptions?: ProcessOptions;
   private mcp: McpManager | null = null;
   private createAcpClient: () => AcpPromptClient;
-  private localTools: readonly LocalMcpTool[];
+  private createMcpManager: () => McpManager;
+  private localTools: readonly LocalTool[];
   private configuredModel?: string;
   private maxOutputTokens: number;
 
@@ -115,6 +118,7 @@ export class Agent {
     this.hooks = (parsed.hooks ?? []).map((h) => new HookRef(h));
     this.processOptions = parsed.process;
     this.createAcpClient = options.createAcpClient ?? (() => new AcpClient());
+    this.createMcpManager = options.createMcpManager ?? (() => new McpManager());
     this.localTools = options.localTools ?? [];
     this.maxOutputTokens = positiveInteger(clientConfig.maxOutputTokens) ?? 8192;
 
@@ -194,6 +198,7 @@ export class Agent {
   async call(
     arguments_: Record<string, unknown>,
     _context?: Record<string, unknown>,
+    onUsage?: (usage: ModelTokenUsage) => void,
   ): Promise<{ messages: MessageChunk[] }> {
     throwIfCurrentRequestCancelled();
     if (this.backend.type === "echo") {
@@ -209,10 +214,10 @@ export class Agent {
       throwIfCurrentRequestCancelled();
 
       if (this.apiProtocol === "anthropic") {
-        return await callAnthropicMessages(this.nativeProtocolContext(), arguments_);
+        return await callAnthropicMessages(this.nativeProtocolContext(onUsage), arguments_);
       }
       if (this.apiProtocol === "openai_responses") {
-        return await callOpenAIResponses(this.nativeProtocolContext(), arguments_);
+        return await callOpenAIResponses(this.nativeProtocolContext(onUsage), arguments_);
       }
       if (this.apiProtocol !== "openai_chat") {
         throw new Error(`SwarmX does not natively execute ${this.apiProtocol} Models.`);
@@ -243,6 +248,7 @@ export class Agent {
           requestOptions(),
         );
         throwIfCurrentRequestCancelled();
+        reportOpenAIChatUsage(response.usage, this.requiredNativeModel(), onUsage);
 
         const choice = response.choices[0];
         if (!choice) break;
@@ -297,16 +303,17 @@ export class Agent {
             });
 
             let toolResult: string;
+            let structuredContent: unknown;
             try {
               throwIfCurrentRequestCancelled();
               const result = await this.getMcp().callTool(toolName, toolArgs);
               throwIfCurrentRequestCancelled();
-              toolResult = JSON.stringify(result);
+              toolResult = result.content;
+              structuredContent = result.structuredContent;
             } catch (e) {
               throwIfCurrentRequestCancelled();
-              toolResult = JSON.stringify({
-                error: e instanceof Error ? e.message : String(e),
-              });
+              structuredContent = { error: e instanceof Error ? e.message : String(e) };
+              toolResult = JSON.stringify(structuredContent);
             }
 
             allChunks.push({
@@ -315,6 +322,7 @@ export class Agent {
               kind: "tool_result",
               toolName,
               agent: this.name,
+              ...(structuredContent === undefined ? {} : { structuredContent }),
             });
 
             messages.push({
@@ -341,6 +349,7 @@ export class Agent {
   async callStream(
     arguments_: Record<string, unknown>,
     onChunk: (chunk: MessageChunk) => void,
+    onUsage?: (usage: ModelTokenUsage) => void,
   ): Promise<{ messages: MessageChunk[] }> {
     throwIfCurrentRequestCancelled();
     if (this.backend.type === "echo") {
@@ -358,10 +367,14 @@ export class Agent {
       throwIfCurrentRequestCancelled();
 
       if (this.apiProtocol === "anthropic") {
-        return await callAnthropicMessages(this.nativeProtocolContext(), arguments_, onChunk);
+        return await callAnthropicMessages(
+          this.nativeProtocolContext(onUsage),
+          arguments_,
+          onChunk,
+        );
       }
       if (this.apiProtocol === "openai_responses") {
-        return await callOpenAIResponses(this.nativeProtocolContext(), arguments_, onChunk);
+        return await callOpenAIResponses(this.nativeProtocolContext(onUsage), arguments_, onChunk);
       }
       if (this.apiProtocol !== "openai_chat") {
         throw new Error(`SwarmX does not natively execute ${this.apiProtocol} Models.`);
@@ -389,6 +402,7 @@ export class Agent {
                 ? (mcpTools as OpenAI.Chat.Completions.ChatCompletionTool[])
                 : undefined,
             stream: true,
+            stream_options: { include_usage: true },
           },
           requestOptions(),
         );
@@ -400,9 +414,11 @@ export class Agent {
           number,
           { id: string; function: { name: string; arguments: string } }
         >();
+        let streamedUsage: unknown;
 
         for await (const chunk of stream) {
           throwIfCurrentRequestCancelled();
+          if (chunk.usage) streamedUsage = chunk.usage;
           const delta = chunk.choices[0]?.delta;
           if (!delta) continue;
 
@@ -439,12 +455,9 @@ export class Agent {
               toolCallAcc.set(tc.index, existing);
             }
           }
-
-          if (chunk.choices[0]?.finish_reason) {
-            break;
-          }
         }
         throwIfCurrentRequestCancelled();
+        reportOpenAIChatUsage(streamedUsage, this.requiredNativeModel(), onUsage);
 
         if (reasoningContent) {
           allChunks.push({
@@ -507,16 +520,17 @@ export class Agent {
             }
 
             let toolResult: string;
+            let structuredContent: unknown;
             try {
               throwIfCurrentRequestCancelled();
               const result = await this.getMcp().callTool(tc.function.name, toolArgs);
               throwIfCurrentRequestCancelled();
-              toolResult = JSON.stringify(result);
+              toolResult = result.content;
+              structuredContent = result.structuredContent;
             } catch (e) {
               throwIfCurrentRequestCancelled();
-              toolResult = JSON.stringify({
-                error: e instanceof Error ? e.message : String(e),
-              });
+              structuredContent = { error: e instanceof Error ? e.message : String(e) };
+              toolResult = JSON.stringify(structuredContent);
             }
 
             const trChunk: MessageChunk = {
@@ -525,6 +539,7 @@ export class Agent {
               kind: "tool_result",
               toolName: tc.function.name,
               agent: this.name,
+              ...(structuredContent === undefined ? {} : { structuredContent }),
             };
             onChunk(trChunk);
             allChunks.push(trChunk);
@@ -595,14 +610,24 @@ export class Agent {
 
   private async ensureMcpConnected(): Promise<void> {
     if (this.mcp) return;
-    this.mcp = new McpManager();
+    this.mcp = this.createMcpManager();
     this.mcp.addLocalTools(this.localTools);
+    const isClaudeCodeProfile = this.localTools.some((tool) => tool.name === "Bash");
+    if (isClaudeCodeProfile && this.mcpServers.size > 0) {
+      for (const [name, config] of this.mcpServers) this.mcp.startServer(name, config);
+      this.mcp.addClaudeMcpDiscoveryTools();
+      this.mcp.addClaudeMcpResourceTools();
+      return;
+    }
     for (const [name, config] of this.mcpServers) {
       try {
         await this.mcp.addServer(name, config);
       } catch (e) {
         console.warn(`Failed to connect MCP server ${name}: ${e}`);
       }
+    }
+    if (isClaudeCodeProfile) {
+      this.mcp.addClaudeMcpResourceTools();
     }
   }
 
@@ -619,7 +644,7 @@ export class Agent {
     return this.mcp;
   }
 
-  private nativeProtocolContext(): NativeProtocolContext {
+  private nativeProtocolContext(onUsage?: (usage: ModelTokenUsage) => void): NativeProtocolContext {
     return {
       agentName: this.name,
       model: this.requiredNativeModel(),
@@ -629,8 +654,9 @@ export class Agent {
       apiMode: this.apiMode,
       openai: this.client,
       anthropic: this.anthropicClient,
-      tools: this.mcp?.toolsForOpenai() ?? [],
+      tools: () => this.mcp?.toolsForNative() ?? [],
       callTool: (name, input) => this.getMcp().callTool(name, input),
+      onUsage,
     };
   }
 
@@ -846,6 +872,43 @@ function stringProperty(value: unknown, key: string): string | undefined {
   if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
   const property = (value as Record<string, unknown>)[key];
   return typeof property === "string" && property.length > 0 ? property : undefined;
+}
+
+function reportOpenAIChatUsage(
+  value: unknown,
+  model: string,
+  onUsage?: (usage: ModelTokenUsage) => void,
+): void {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return;
+  const usage = value as Record<string, unknown>;
+  const promptDetails = objectProperty(usage.prompt_tokens_details);
+  const completionDetails = objectProperty(usage.completion_tokens_details);
+  const inputTokens = nonnegativeInteger(usage.prompt_tokens) ?? 0;
+  const outputTokens = nonnegativeInteger(usage.completion_tokens) ?? 0;
+  const totalTokens = nonnegativeInteger(usage.total_tokens) ?? inputTokens + outputTokens;
+  if (totalTokens === 0) return;
+  onUsage?.(
+    ModelTokenUsageSchema.parse({
+      inputTokens,
+      outputTokens,
+      reasoningTokens: nonnegativeInteger(completionDetails.reasoning_tokens) ?? 0,
+      cachedInputTokens: nonnegativeInteger(promptDetails.cached_tokens) ?? 0,
+      totalTokens,
+      estimated: false,
+      model,
+      provider: "openai_chat",
+    }),
+  );
+}
+
+function objectProperty(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function nonnegativeInteger(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : undefined;
 }
 
 function codexResponsesHeaders(accessToken: string | undefined): Record<string, string> {

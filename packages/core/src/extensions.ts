@@ -4,7 +4,7 @@ import { z } from "zod";
 import { AgentDefinitionSourceSchema } from "./agent-profiles.js";
 import { ContextPacketModeSchema, ContextStrategySchema } from "./context.js";
 import { HARNESSES, harnessModelRuntimeEnv, harnessModelRuntimeModel } from "./harness.js";
-import type { LocalMcpTool } from "./mcp.js";
+import type { LocalTool } from "./mcp.js";
 import { ModelApiModeSchema, ModelApiSchema } from "./model-api.js";
 import {
   ModelSchema as IndependentModelSchema,
@@ -29,6 +29,7 @@ import type {
   ChatMessage,
   McpServerConfig,
   MessageChunk,
+  ModelTokenUsage,
   SwarmConfig,
 } from "./types.js";
 import { SWARMX_VERSION } from "./version.js";
@@ -769,6 +770,7 @@ export const AgentCompositionPlanSchema = z
     harnessLabel: z.string().min(1).optional(),
     modelId: z.string().min(1).optional(),
     runtimeModel: z.string().min(1).optional(),
+    apiProtocol: ModelApiSchema.optional(),
     modelSupplyId: z.string().min(1).optional(),
     supplyLabel: z.string().min(1).optional(),
     effort: z.string().min(1).optional(),
@@ -884,8 +886,9 @@ export interface ExecuteAgentCompositionOptions {
   providerSecrets?: Readonly<Record<string, string>>;
   context?: Record<string, unknown>;
   cwd?: string;
-  localTools?: readonly LocalMcpTool[];
+  localTools?: readonly LocalTool[];
   onChunk?: (chunk: MessageChunk) => void;
+  onUsage?: (usage: ModelTokenUsage) => void;
 }
 
 export interface ValidateSkillHostCompatibilityOptions {
@@ -1310,6 +1313,7 @@ export function resolveAgentCompositionPlan(
     harnessLabel: harness?.label,
     modelId: model?.id ?? modelId,
     runtimeModel,
+    apiProtocol: resolvedMatrixModel?.apiProtocol,
     modelSupplyId: supply?.id ?? modelSupplyId,
     supplyLabel: provider?.label ?? supply?.id,
     effort,
@@ -1558,7 +1562,7 @@ export async function executeAgentComposition(
     singleAgentSwarmConfig(agentConfigWithRuntimeEnv(agentConfig, runtimeEnv, options.cwd)),
     { agent: { localTools: options.localTools } },
   );
-  return swarm.execute({ messages }, options.context, options.onChunk);
+  return swarm.execute({ messages }, options.context, options.onChunk, options.onUsage);
 }
 
 export function builtInExtensionBundle(): ExtensionBundle {

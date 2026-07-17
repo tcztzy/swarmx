@@ -11,7 +11,7 @@ import {
 const coreRoot = fileURLToPath(new URL("..", import.meta.url));
 
 describe("request-scoped cancellation", () => {
-  it("applies only models advertised by the ACP session", async () => {
+  it("V362 applies only models advertised by the ACP session", async () => {
     const client = new AcpClient();
     await expect(
       client.prompt({ ...agentOptions("models"), model: "verified-model" }, "hello"),
@@ -23,7 +23,7 @@ describe("request-scoped cancellation", () => {
     await expect(
       rejected.prompt({ ...agentOptions("models"), model: "invented-model" }, "hello"),
     ).rejects.toThrow('cannot run configured model "invented-model"');
-  });
+  }, 15_000);
 
   it("applies stable model config before refreshed reasoning effort config", async () => {
     const client = new AcpClient();

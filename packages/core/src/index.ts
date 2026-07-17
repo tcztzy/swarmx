@@ -5,8 +5,14 @@ export type { SwarmRuntimeOptions } from "./swarm.js";
 export { Edge } from "./edge.js";
 export { Hook } from "./hook.js";
 export { Tool } from "./tool.js";
-export { McpManager } from "./mcp.js";
-export type { LocalMcpTool } from "./mcp.js";
+export { McpManager, localToolResult } from "./mcp.js";
+export type {
+  LocalMcpTool,
+  LocalTextTool,
+  LocalTool,
+  LocalToolResult,
+  ToolExecutionResult,
+} from "./mcp.js";
 export { QuotaManager } from "./quota.js";
 export {
   AcpClient,
@@ -19,7 +25,29 @@ export {
   withAcpRequest,
 } from "./acp.js";
 export type { AcpClientOptions, AcpPromptResult, MessageChunk as AcpMessageChunk } from "./acp.js";
-export { MessageRenderMetadataSchema } from "./types.js";
+export { MessageRenderMetadataSchema, ModelTokenUsageSchema } from "./types.js";
+export type { ModelTokenUsage } from "./types.js";
+export {
+  ActivityDaySchema,
+  ActivityEventSchema,
+  ActivityEventTypeSchema,
+  ActivityProfileSummarySchema,
+  ActivityRankSchema,
+  ActivityStore,
+  estimateModelTokenUsage,
+  estimateTextTokens,
+  mergeModelTokenUsage,
+  summarizeActivityEvents,
+} from "./activity.js";
+export type {
+  ActivityDay,
+  ActivityEvent,
+  ActivityEventInput,
+  ActivityEventType,
+  ActivityProfileSummary,
+  ActivityRank,
+  ActivityStoreOptions,
+} from "./activity.js";
 export { SWARMX_VERSION } from "./version.js";
 export {
   createSession,

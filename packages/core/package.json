@@ -1,6 +1,6 @@
 {
   "name": "@swarmx/core",
-  "version": "3.1.0",
+  "version": "3.1.1",
   "description": "Core SwarmX multi-agent runtime and platform contracts.",
   "license": "MIT",
   "type": "module",
@@ -22,6 +22,10 @@
     "./telemetry": {
       "types": "./dist/telemetry.d.ts",
       "import": "./dist/telemetry.js"
+    },
+    "./activity": {
+      "types": "./dist/activity.d.ts",
+      "import": "./dist/activity.js"
     },
     "./dependencies": {
       "types": "./dist/dependencies.d.ts",

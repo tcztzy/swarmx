@@ -9,6 +9,7 @@ import {
   type EvalTraceEvent,
   type McpServerConfig,
   type MessageChunk,
+  type ModelTokenUsage,
   type SwarmConfig,
   SwarmConfigSchema,
   type SwarmNodeConfig,
@@ -157,8 +158,9 @@ export class Swarm {
     arguments_: Record<string, unknown>,
     context?: Record<string, unknown>,
     onChunk?: (chunk: MessageChunk) => void,
+    onUsage?: (usage: ModelTokenUsage) => void,
   ): Promise<MessageChunk[]> {
-    return this.executeInternal(arguments_, context, undefined, onChunk);
+    return this.executeInternal(arguments_, context, undefined, onChunk, onUsage);
   }
 
   async executeForEval(
@@ -193,6 +195,7 @@ export class Swarm {
     context?: Record<string, unknown>,
     trace?: EvalTraceCollector,
     onChunk?: (chunk: MessageChunk) => void,
+    onUsage?: (usage: ModelTokenUsage) => void,
   ): Promise<MessageChunk[]> {
     const ctx = { ...(context ?? {}) };
     const newMessages: MessageChunk[] = [];
@@ -215,7 +218,15 @@ export class Swarm {
       const node = this.nodes.get(nodeName);
       if (!node) throw new Error(`Node "${nodeName}" not found`);
 
-      const nodeMessages = await this.runNode(nodeName, node, arguments_, ctx, trace, onChunk);
+      const nodeMessages = await this.runNode(
+        nodeName,
+        node,
+        arguments_,
+        ctx,
+        trace,
+        onChunk,
+        onUsage,
+      );
       visited.add(nodeName);
 
       if (nodeMessages.length > 0) {
@@ -254,6 +265,7 @@ export class Swarm {
     context: Record<string, unknown>,
     trace?: EvalTraceCollector,
     onChunk?: (chunk: MessageChunk) => void,
+    onUsage?: (usage: ModelTokenUsage) => void,
   ): Promise<MessageChunk[]> {
     const startedAt = new Date().toISOString();
     const step = trace?.nextStep ?? 0;
@@ -262,7 +274,14 @@ export class Swarm {
     }
 
     try {
-      const messages = await this.runNodeUnchecked(node, arguments_, context, trace, onChunk);
+      const messages = await this.runNodeUnchecked(
+        node,
+        arguments_,
+        context,
+        trace,
+        onChunk,
+        onUsage,
+      );
       if (trace) {
         trace.events.push({
           runId: trace.runId,
@@ -302,13 +321,14 @@ export class Swarm {
     context: Record<string, unknown>,
     trace?: EvalTraceCollector,
     onChunk?: (chunk: MessageChunk) => void,
+    onUsage?: (usage: ModelTokenUsage) => void,
   ): Promise<MessageChunk[]> {
     switch (node.kind) {
       case "agent": {
         if (!node.agent) return [];
         const result = onChunk
-          ? await node.agent.callStream(arguments_, onChunk)
-          : await node.agent.call(arguments_, context);
+          ? await node.agent.callStream(arguments_, onChunk, onUsage)
+          : await node.agent.call(arguments_, context, onUsage);
         const messages = result.messages as MessageChunk[] | undefined;
         return messages ?? [];
       }
@@ -325,7 +345,7 @@ export class Swarm {
       }
       case "swarm": {
         if (!node.swarm) return [];
-        return node.swarm.executeInternal(arguments_, context, trace, onChunk);
+        return node.swarm.executeInternal(arguments_, context, trace, onChunk, onUsage);
       }
     }
   }

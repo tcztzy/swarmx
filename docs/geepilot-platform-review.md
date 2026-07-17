@@ -18,7 +18,7 @@ analysis workflows in GEEPilot.
 | `0401-harness-management` | Harness identity, discovery, selector failure behavior, invocation metadata. |
 | `0402-provider-profiles-and-secrets` | Provider profile metadata and secret-reference separation; no inline keys in persisted metadata. |
 | `0403-agent-profiles-and-definitions` | Agent profile schema, selector resolution, read-only plugin-provided profiles. |
-| `0404-acp-agent-protocol-and-composition` | Agent composition resolver: exactly one harness plus one model/provider selection before run. |
+| `0404-acp-agent-protocol-and-composition` | Agent composition resolver: exactly one Harness x Model identity; SwarmX resolves any ModelSupply route internally before run. |
 | `0500-plugin-marketplace-and-harness-bundles` | Plugin bundle inventory model covering software, skills, MCP servers, agents, harnesses, and app connectors. |
 | `0600-environment-bootstrap-and-managed-dependencies` | Generic dependency class metadata and explicit-user-action install boundary. |
 | `0700-autonomous-iteration-and-traceability` | Durable traceability contracts and verification evidence primitives. |
@@ -39,8 +39,9 @@ analysis workflows in GEEPilot.
 
 SwarmX now exposes a generic extension inventory in `@swarmx/core`:
 
-- `ExtensionBundleSchema` models plugin bundles with software, skills, MCP
-  servers, provider profiles, harnesses, agent profiles, app connectors,
+- `ExtensionBundleSchema` models plugin bundles with software, standalone
+  Models, ModelSupplies, Provider connections, skills, MCP servers, Harnesses,
+  Agent profiles, app connectors,
   GUI contributions, commands, LSP servers, hooks, monitors, output styles,
   settings, assets, permission declarations, auth policies, marketplace
   sources, and plugin catalog entries.
@@ -68,20 +69,23 @@ SwarmX now exposes a generic extension inventory in `@swarmx/core`:
 - `parseExtensionBundle()` rejects inline secret-looking fields such as API keys,
   tokens, passwords, private keys, and credentials. Secret references remain
   metadata only.
-- `resolveAgentComposition()` turns an agent composition into an `AgentConfig`
-  only after it resolves an explicit harness and model/provider selection.
+- `resolveAgentComposition()` turns an Agent composition into an `AgentConfig`
+  only after it resolves an explicit Harness x Model identity. Optional
+  ModelSupply metadata comes from a trusted profile or fixed core route, not an
+  ordinary composer choice.
   The resulting agent records extension provenance but does not copy secret refs.
 - `resolveAgentCompositionPlan()` produces a side-effect-free ACP execution
-  preflight plan with status, canonical selector, harness, provider/model,
+  preflight plan with status, canonical selector, Harness x Model, optional supply,
   definition source, enabled plugin ids, selected skill and MCP provenance,
   context, permissions, visual metadata, auth requirement metadata, and missing
   or blocked requirements. The execution resolver uses the same readiness model
   so unknown skills, missing MCP servers, disabled profiles, unsupported context
   strategies, missing harnesses, and missing models fail before invocation
   instead of falling back to defaults.
-- `resolveAgentCompositionRuntimeEnv()` resolves provider env only for an
-  explicit composition, checks harness/provider compatibility, and fails on
-  missing env secrets or unsupported secret sources before execution.
+- `resolveAgentCompositionRuntimeEnv()` follows only internally bound
+  ModelSupply metadata to its Provider connection and fails on missing env
+  secrets or unsupported secret sources before execution. Harness compatibility
+  is already decided from Harness and Model API metadata, never from Provider.
 
 Minimal manifest shape:
 
@@ -92,6 +96,14 @@ Minimal manifest shape:
   "name": "GEEPilot",
   "version": "0.1.0",
   "capabilities": {
+    "models": [
+      {
+        "id": "gpt-5",
+        "label": "GPT-5",
+        "runtimeModel": "gpt-5",
+        "apiProtocols": ["openai_responses"]
+      }
+    ],
     "skills": [{ "id": "geepilot.memory", "path": "skills/memory/SKILL.md" }],
     "mcpServers": [
       {
@@ -103,11 +115,13 @@ Minimal manifest shape:
       {
         "id": "geepilot-codex",
         "label": "GEEPilot Codex",
-        "compatibleProviders": ["openai_responses"],
+        "modelControl": "session",
+        "modelCompatibility": "any",
+        "supportedModelApis": [],
         "backend": {
           "type": "custom",
-          "program": "bun",
-          "args": ["x", "--silent", "@agentclientprotocol/codex-acp"]
+          "program": "npx",
+          "args": ["--yes", "@agentclientprotocol/codex-acp"]
         }
       }
     ],
@@ -116,7 +130,7 @@ Minimal manifest shape:
         "id": "analysis-lead",
         "name": "analysis lead",
         "harnessId": "geepilot-codex",
-        "model": "gpt-5",
+        "modelId": "gpt-5",
         "skills": ["geepilot.memory"],
         "mcpServers": ["project-fs"]
       }
@@ -193,8 +207,9 @@ SwarmX also exposes local desktop settings primitives through the browser-safe
 `@swarmx/core/desktop-settings` subpath:
 
 - `DesktopSettingsDocumentSchema` models a generic settings document with
-  desktop root metadata, server metadata, UI state, provider profile metadata,
-  agent profile metadata, and extension state.
+  desktop root metadata, server metadata, UI state, standalone Models,
+  ModelSupplies, Provider connection metadata, Agent profile metadata, and
+  extension state.
 - `resolveDesktopRoot()` implements the local-first root precedence from spec
   0200: explicit desktop-root environment variables win, settings desktop roots
   come next, legacy app-root values are compatibility fallbacks, and server data
@@ -202,9 +217,9 @@ SwarmX also exposes local desktop settings primitives through the browser-safe
 - `LocaleRegistrySchema` and `resolveLocaleSelection()` provide a centralized
   locale registry and selected-locale resolution so desktop UIs do not scatter
   translation tables through components.
-- The settings schema reuses SwarmX provider and agent profile metadata so
-  persisted providers, agents, harnesses, plugins, and extensions remain
-  separate records.
+- The settings schema reuses SwarmX Model, ModelSupply, Provider, and Agent
+  profile metadata so persisted identities, routes, connections, Harnesses,
+  plugins, and extensions remain separate records.
 
 This covers the reusable settings, root, locale, and profile-metadata substrate
 from GEEPilot specs 0200, 0402, and 0403. GEEPilot still owns the actual
@@ -238,18 +253,20 @@ SwarmX also exposes provider profile primitives through the browser-safe
 `@swarmx/core/providers` subpath:
 
 - `ProviderProfileMetadataSchema` models provider ids, preset ids, display
-  names, API kind, default model, base URL, default state, harness-specific
-  model overrides, read-only state, and secret references.
+  names, API supply label, base URL, read-only state, metadata, and secret
+  references. Provider-owned Model catalogs, defaults, and Harness overrides
+  are rejected.
 - `ProviderSecretRefSchema` and `ProviderSecretStatusSchema` keep secret
   location/status separate from secret values. Status records can report that a
   key exists, but they reject returned key values.
-- `resolveProviderProfile()` resolves explicit, default, and kind-scoped
-  provider selections and fails on missing, unknown, or ambiguous profile ids.
+- `resolveProviderProfile()` resolves an explicit connection and fails on
+  missing, unknown, or ambiguous profile ids; it never chooses a default Model
+  or Provider.
 - `ProviderPromptRequestSchema` models direct provider prompt metadata without
   pretending direct prompts are ACP harness calls.
-- `buildProviderRuntimeEnv()` constructs request-scoped env vars only from an
-  explicit caller-supplied runtime secret value and never mutates persisted
-  profile metadata.
+- `buildProviderRuntimeEnv()` constructs request-scoped env vars only from the
+  selected Model/ModelSupply route plus an explicit caller-supplied runtime
+  secret value and never mutates persisted profile metadata.
 
 This covers the reusable contract from GEEPilot spec 0402. GEEPilot still owns
 the concrete local `~/.geepilot/auth.json` file mode, server Keychain routes,
@@ -262,15 +279,15 @@ SwarmX also exposes harness management primitives through the browser-safe
 - `HarnessDiscoveryRecordSchema` models runtime adapter discovery state:
   adapter id, display name, host scope, availability, command path, version,
   installability, dependency id, and status note.
-- `resolveHarnessSelector()` parses `@adapter`, `@adapter:provider`, and named
-  agent aliases, strips the selector from the delegated prompt, and fails on
+- `resolveHarnessSelector()` parses `@harness`, `@harness:model`, and named
+  Agent aliases, strips the selector from the delegated prompt, and fails on
   unknown or ambiguous selectors instead of falling back silently.
-- `HarnessAgentAliasSchema` maps a named agent selector to one explicit adapter
-  plus optional provider profile and agent profile.
+- `HarnessAgentAliasSchema` maps a named Agent selector to one explicit Harness,
+  Model, optional ModelSupply, and optional Agent profile.
 - `HarnessInvocationMetadataSchema` models invocation trace metadata with
-  context packet id, trigger message id, adapter, provider profile, agent
-  profile, canonical selector, external session reference, status, timestamps,
-  and errors.
+  context packet id, trigger message id, Harness x Model identity, optional
+  ModelSupply and Agent profile, canonical selector, external session reference,
+  status, timestamps, and errors.
 
 This covers the reusable contract from GEEPilot spec 0401. GEEPilot still owns
 the actual local/server harness discovery implementations, adapter install
@@ -285,23 +302,24 @@ SwarmX also exposes agent profile definition primitives through the browser-safe
   budget, skills, initial prompt, memory, effort, background execution,
   isolation, and color.
 - `AgentDefinitionGeepilotMetadataSchema` keeps GEEPilot-only binding metadata
-  under `geepilot`, including harness id, provider profile id, selector alias,
+  under `geepilot`, including Harness id, optional supply id, selector alias,
   enablement, and source label.
 - `parseAgentDefinitionMarkdown()` parses YAML frontmatter and preserves the
   Markdown body as the behavior prompt while keeping unknown frontmatter fields
   as inert metadata.
 - `createAgentProfileFromDefinition()` turns a definition into profile metadata
-  that links to harness, provider, model, plugin/source provenance, tools,
+  that links to Harness, Model, optional supply, plugin/source provenance, tools,
   skills, memory, and permission-like fields without copying secrets or
   collapsing profiles into harness records.
 - `projectAgentDefinitionForClaudeCode()` produces a host-compatible Claude Code
   projection that omits GEEPilot-only metadata.
 
 This covers the reusable parser and metadata contract from GEEPilot spec 0403.
-GEEPilot still owns concrete `.claude/agents/` and `~/.claude/agents/`
-discovery, local settings persistence, server profile APIs, enable/disable
-flows, imported-agent forking, test invocation, UI navigation, and host-specific
-export writes.
+SwarmX Desktop now owns passive, read-only discovery for project/user
+`.claude/agents/*.md` and `.codex/agents/*.toml`, including deterministic
+precedence and warning isolation. GEEPilot still owns server profile APIs,
+enable/disable flows, imported-agent forking, test invocation, product-specific
+UI navigation, and host-specific export writes.
 
 Extension-provided agent profiles now also carry passive policy metadata in the
 same inventory layer: tools, disallowed tools, permission mode, turn budget,
@@ -320,11 +338,11 @@ SwarmX also exposes typed context packet primitives in `@swarmx/core`:
 - `ContextPacketSchema` records requested/resolved strategy, packet mode,
   included/dropped/truncated object ids, included message ids, prompt bytes, and
   prompt SHA-256.
-- `SummaryCheckpointSchema` models append-only checkpoint metadata with redacted
-  provider metadata and compression prompt hash.
-- `AgentInvocationContextMetadataSchema` lets child harness invocations cite the
-  context packet they used while keeping external Codex or Claude sessions as
-  trace references only.
+- `SummaryCheckpointSchema` models append-only checkpoint metadata with optional
+  Model/ModelSupply runtime metadata and compression prompt hash.
+- `AgentInvocationContextMetadataSchema` lets child Harness x Model invocations
+  cite the context packet and optional ModelSupply they used while keeping
+  external Codex or Claude sessions as trace references only.
 - `buildContextPacket()` fits typed objects to a prompt budget while preserving
   the delegated request and making dropped or truncated context explicit.
 
@@ -354,7 +372,7 @@ them:
 - `NormalizedRenderEventSchema` gives messages, tool calls, tool results,
   artifacts, traces, and agent metadata one host-neutral rendering contract.
 - `RenderArtifactReferenceSchema` and `RenderProvenanceSchema` carry artifact,
-  plugin, MCP, harness, provider profile, model, agent, and external-session
+  plugin, MCP, Harness x Model, optional ModelSupply, Agent, and external-session
   metadata without making the renderer branch by host.
 - `normalizeMessageChunk()` maps current SwarmX message chunks into normalized
   render events with stable `rne_` ids, status, title, summary, sanitized
@@ -473,7 +491,8 @@ SwarmX also exposes deterministic autonomy primitives in `@swarmx/core`:
   `createAutonomyWorkflowDecisionRuntimeEvent()`, and
   `linkAgentStageToWorkflowState()` give GEEPilot reusable `agt_` agent-stage
   records, `dec_` workflow-decision records, append-only runtime event
-  projection, and workflow-state linkage without making SwarmX the worker,
+  projection, and workflow-state linkage. Agent-run identity is Harness x Model
+  with optional ModelSupply, without making SwarmX the worker,
   daemon, issue-intake, or analysis-decision owner.
 - `AutonomyTransitionDecisionSchema`, `evaluateAutonomyTransition()`, and
   `createAutonomyTransitionRuntimeEvent()` keep lifecycle mutation behind

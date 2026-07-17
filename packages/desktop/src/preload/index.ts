@@ -23,13 +23,18 @@ contextBridge.exposeInMainWorld("swarmxAPI", api);
 
 export type {
   DesktopAgentChunkEvent,
+  DesktopAgentInteractionEvent,
+  DesktopAgentInteractionResponse,
   DesktopAgentMessageChunk,
+  DesktopAgentQuestion,
+  DesktopAgentQuestionOption,
   DesktopBrowserBounds,
   DesktopBrowserState,
   DesktopBootstrapData,
   DesktopIpcInvoke,
   DesktopIpcSubscribe,
   DesktopProjectData,
+  DesktopSessionMessagesEvent,
   DesktopTerminalDataEvent,
   DesktopTerminalExitEvent,
   DesktopUpdatePhase,

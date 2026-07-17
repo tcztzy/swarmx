@@ -64,6 +64,11 @@ import type React from "react";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import useSWR, { useSWRConfig } from "swr";
+import {
+  AgentInteractionDialog,
+  type AgentInteractionEvent,
+  type AgentInteractionResponse,
+} from "./agent-interaction-dialog.js";
 import { Composer } from "./composer.js";
 import { PACKAGED_HARNESS_ICON_URLS } from "./harness-icon-data.js";
 import { MessageContent } from "./message-content.js";
@@ -72,6 +77,7 @@ import {
   modelBrandPresentation,
   selectableModelReasoning,
 } from "./model-display.js";
+import { type ActivityProfileSummary, ProfileWorkspace } from "./profile-workspace.js";
 import {
   type BrowserBounds,
   type BrowserState,
@@ -337,7 +343,7 @@ interface ExtensionManagementState {
 }
 
 type ModelApiProtocol = "anthropic" | "openai_chat" | "openai_responses" | "ollama";
-type SettingsSection = "providers" | "extensions" | "agents" | "runtime";
+type SettingsSection = "profile" | "providers" | "extensions" | "agents" | "runtime";
 type DesktopUpdatePhase = "hidden" | "available" | "downloading" | "installing" | "restarting";
 
 interface DesktopUpdateState {
@@ -954,6 +960,7 @@ interface SwarmxAPI {
   readonly initialProjects?: readonly ProjectData[];
   sendMessage(params: {
     requestId: string;
+    sessionId?: string;
     harnessId: string;
     userText: string;
     agentComposition?: unknown;
@@ -965,8 +972,16 @@ interface SwarmxAPI {
     error?: string;
     canceled?: boolean;
     requestId?: string;
+    sessionPersisted?: boolean;
   }>;
   onAgentChunk(listener: (event: { requestId: string; chunk: MessageChunk }) => void): () => void;
+  onAgentInteraction(listener: (event: AgentInteractionEvent) => void): () => void;
+  onSessionMessages?(listener: (event: { sessionId: string }) => void): () => void;
+  resolveAgentInteraction(params: {
+    requestId: string;
+    interactionId: string;
+    response: AgentInteractionResponse;
+  }): Promise<{ requestId: string; interactionId: string; resolved: boolean }>;
   cancelMessage(requestId: string): Promise<{ requestId: string; canceled: boolean }>;
   createSession(params: {
     agentName: string;
@@ -979,6 +994,7 @@ interface SwarmxAPI {
   loadSession(id: string): Promise<SessionData | null>;
   loadDiscoveredSession(session: DiscoveredSession): Promise<SessionData | null>;
   listSessions(): Promise<SessionData[]>;
+  getActivityProfile(): Promise<ActivityProfileSummary>;
   listProjects(): Promise<ProjectData[]>;
   addExistingProject(): Promise<ProjectData | null>;
   createScratchProject(): Promise<ProjectData | null>;
@@ -1116,6 +1132,7 @@ declare global {
 const api = window.swarmxAPI;
 const LOCAL_SESSIONS_KEY = "sessions:local";
 const GROUPED_SESSIONS_KEY = "sessions:grouped";
+const ACTIVITY_PROFILE_KEY = "activity:profile";
 const PROJECTS_KEY = "projects:local";
 const EXTENSIONS_KEY = "extensions:inventory";
 const EXTENSION_MANAGEMENT_KEY = "extensions:management";
@@ -1379,6 +1396,9 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
   const [runState, setRunState] = useState<"idle" | "running" | "stopping">("idle");
   const [composerError, setComposerError] = useState<string | null>(null);
   const activeRequestId = useRef<string | null>(null);
+  const [agentInteractions, setAgentInteractions] = useState<AgentInteractionEvent[]>([]);
+  const [resolvingInteractionId, setResolvingInteractionId] = useState<string | null>(null);
+  const [agentInteractionError, setAgentInteractionError] = useState<string | null>(null);
   const requestDispatched = useRef(false);
   const stopRequested = useRef(false);
   const [selectedHarness, setSelectedHarness] = useState("swarmx");
@@ -1479,6 +1499,20 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
   const messageCount = currentSession?.messages.length ?? 0;
   const emptyRun = !currentSession || messageCount === 0;
   const acpHistoryReadOnly = Boolean(currentSession?.acpSessionId);
+
+  useEffect(
+    () =>
+      api.onAgentInteraction((interaction) => {
+        if (activeRequestId.current !== interaction.requestId) return;
+        setAgentInteractionError(null);
+        setAgentInteractions((current) =>
+          current.some((candidate) => candidate.interactionId === interaction.interactionId)
+            ? current
+            : [...current, interaction],
+        );
+      }),
+    [],
+  );
 
   useEffect(() => {
     if (!sidebarSearchOpen) return;
@@ -1635,6 +1669,29 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
     revalidateOnFocus: false,
     revalidateOnReconnect: false,
   });
+
+  useEffect(() => {
+    if (!api.onSessionMessages) return;
+    return api.onSessionMessages(({ sessionId }) => {
+      void api
+        .loadSession(sessionId)
+        .then((persisted) => {
+          if (!persisted) return;
+          setCurrentSession((current) => (current?.id === sessionId ? persisted : current));
+          void Promise.all([mutateLocalSessions(), mutateGroupedSessions()]);
+        })
+        .catch(() => undefined);
+    });
+  }, [mutateGroupedSessions, mutateLocalSessions]);
+  const {
+    data: activityProfile,
+    error: activityProfileError,
+    isLoading: activityProfileLoading,
+  } = useSWR<ActivityProfileSummary>(
+    settingsSection === "profile" ? ACTIVITY_PROFILE_KEY : null,
+    () => api.getActivityProfile(),
+    { revalidateOnFocus: true, revalidateOnReconnect: false },
+  );
   const {
     data: extensionInventory,
     error: extensionInventoryError,
@@ -2081,7 +2138,9 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
     : "Workflow draft";
   const runTitle = activeUiContribution?.name ?? currentSession?.title ?? productConfig.name;
   const runSubtitle = settingsSection
-    ? "Providers, balances, and usage"
+    ? settingsSection === "profile"
+      ? "Private, on-device activity"
+      : "Providers, extensions, and runtime"
     : activeUiContribution
       ? `${activeUiContribution.placement} contribution${
           activeUiContribution.sourcePluginId ? ` via ${activeUiContribution.sourcePluginId}` : ""
@@ -2097,7 +2156,9 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
                 activeHarness.id,
               )}`;
   const headerTitle = settingsSection
-    ? "Settings"
+    ? settingsSection === "profile"
+      ? "Profile"
+      : "Settings"
     : activeUiContribution?.name
       ? activeUiContribution.name
       : workflowPanelOpen
@@ -2850,6 +2911,9 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
     setRunState("running");
     const requestId = crypto.randomUUID();
     activeRequestId.current = requestId;
+    setAgentInteractions([]);
+    setAgentInteractionError(null);
+    setResolvingInteractionId(null);
     requestDispatched.current = false;
     stopRequested.current = false;
     let sessionForError = currentSession;
@@ -2891,6 +2955,7 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
 
       const sendParams: {
         requestId: string;
+        sessionId?: string;
         harnessId: string;
         userText: string;
         agentComposition?: AgentCompositionPayload;
@@ -2898,6 +2963,7 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
         cwd?: string;
       } = {
         requestId,
+        sessionId: session.id,
         harnessId: activeExtensionAgent?.harnessId ?? selectedHarness,
         userText: text,
         ...(session.cwd || composerWorkspaceRoot
@@ -2944,16 +3010,20 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
           requestStartedAt,
           requestEndedAt,
         );
-        const updated = { ...session, messages: [...updatedMessages, ...responseMessages] };
-        await api.saveSession(updated);
+        const localUpdated = { ...session, messages: [...updatedMessages, ...responseMessages] };
+        const persisted = result.sessionPersisted ? await api.loadSession(session.id) : null;
+        const updated = persisted ?? localUpdated;
+        if (!persisted) await api.saveSession(updated);
         setCurrentSession(updated);
         requestAutomaticSessionTitle(updated, text);
       } else if (result.canceled) {
         const canceledMessages = requestStartedAt
           ? withRequestTiming(streamedMessages, requestStartedAt, requestEndedAt)
           : streamedMessages;
-        const updated = { ...session, messages: [...updatedMessages, ...canceledMessages] };
-        await api.saveSession(updated);
+        const localUpdated = { ...session, messages: [...updatedMessages, ...canceledMessages] };
+        const persisted = result.sessionPersisted ? await api.loadSession(session.id) : null;
+        const updated = persisted ?? localUpdated;
+        if (!persisted) await api.saveSession(updated);
         setCurrentSession(updated);
       } else if (result.error) {
         const workMessages = requestStartedAt
@@ -2964,11 +3034,13 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
           content: `Error: ${result.error}`,
           kind: "message",
         };
-        const updated = {
+        const localUpdated = {
           ...session,
           messages: [...updatedMessages, ...workMessages, errorMsg],
         };
-        await api.saveSession(updated);
+        const persisted = result.sessionPersisted ? await api.loadSession(session.id) : null;
+        const updated = persisted ?? localUpdated;
+        if (!persisted) await api.saveSession(updated);
         setCurrentSession(updated);
       }
 
@@ -3000,6 +3072,11 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
       }
     } finally {
       unsubscribeAgentChunks();
+      setAgentInteractions((current) =>
+        current.filter((interaction) => interaction.requestId !== requestId),
+      );
+      setAgentInteractionError(null);
+      setResolvingInteractionId(null);
       if (activeRequestId.current === requestId) {
         activeRequestId.current = null;
         requestDispatched.current = false;
@@ -3029,6 +3106,32 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
     replaceCurrentNavigationEntry,
     requestAutomaticSessionTitle,
   ]);
+
+  const resolveAgentInteraction = useCallback(
+    async (interaction: AgentInteractionEvent, response: AgentInteractionResponse) => {
+      if (activeRequestId.current !== interaction.requestId) return;
+      setResolvingInteractionId(interaction.interactionId);
+      setAgentInteractionError(null);
+      try {
+        const result = await api.resolveAgentInteraction({
+          requestId: interaction.requestId,
+          interactionId: interaction.interactionId,
+          response,
+        });
+        if (!result.resolved) throw new Error("This interaction is no longer active.");
+        setAgentInteractions((current) =>
+          current.filter((candidate) => candidate.interactionId !== interaction.interactionId),
+        );
+      } catch (error) {
+        setAgentInteractionError(errorMessage(error));
+      } finally {
+        setResolvingInteractionId((current) =>
+          current === interaction.interactionId ? null : current,
+        );
+      }
+    },
+    [],
+  );
 
   const stopMessage = useCallback(async () => {
     const requestId = activeRequestId.current;
@@ -3100,6 +3203,7 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
       </button>
     );
   };
+  const activeAgentInteraction = agentInteractions[0];
 
   return (
     <div
@@ -3157,46 +3261,50 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
           </div>
 
           <div className="runtime__actions">
-            <>
-              <Button
-                variant={pinnedSummaryOpen ? "secondary" : "ghost"}
-                size="icon"
-                onClick={() => setPinnedSummaryOpen((open) => !open)}
-                title={pinnedSummaryOpen ? "Hide pinned summary" : "Show pinned summary"}
-                aria-label={pinnedSummaryOpen ? "Hide pinned summary" : "Show pinned summary"}
-                aria-pressed={pinnedSummaryOpen}
-              >
-                <Pin data-icon aria-hidden="true" />
-              </Button>
-              <Button
-                variant={bottomPanelOpen ? "secondary" : "ghost"}
-                size="icon"
-                onClick={() => setBottomPanelOpen((open) => !open)}
-                title={bottomPanelOpen ? "Hide bottom panel" : "Show bottom panel"}
-                aria-label={bottomPanelOpen ? "Hide bottom panel" : "Show bottom panel"}
-                aria-pressed={bottomPanelOpen}
-              >
-                <PanelBottom data-icon aria-hidden="true" />
-              </Button>
-              <Button
-                variant={rightPanelOpen || doctorPanelOpen ? "secondary" : "ghost"}
-                size="icon"
-                onClick={() => {
-                  if (doctorPanelOpen) {
-                    setDoctorPanelOpen(false);
-                    return;
+            {!settingsSection && (
+              <>
+                <Button
+                  variant={pinnedSummaryOpen ? "secondary" : "ghost"}
+                  size="icon"
+                  onClick={() => setPinnedSummaryOpen((open) => !open)}
+                  title={pinnedSummaryOpen ? "Hide pinned summary" : "Show pinned summary"}
+                  aria-label={pinnedSummaryOpen ? "Hide pinned summary" : "Show pinned summary"}
+                  aria-pressed={pinnedSummaryOpen}
+                >
+                  <Pin data-icon aria-hidden="true" />
+                </Button>
+                <Button
+                  variant={bottomPanelOpen ? "secondary" : "ghost"}
+                  size="icon"
+                  onClick={() => setBottomPanelOpen((open) => !open)}
+                  title={bottomPanelOpen ? "Hide bottom panel" : "Show bottom panel"}
+                  aria-label={bottomPanelOpen ? "Hide bottom panel" : "Show bottom panel"}
+                  aria-pressed={bottomPanelOpen}
+                >
+                  <PanelBottom data-icon aria-hidden="true" />
+                </Button>
+                <Button
+                  variant={rightPanelOpen || doctorPanelOpen ? "secondary" : "ghost"}
+                  size="icon"
+                  onClick={() => {
+                    if (doctorPanelOpen) {
+                      setDoctorPanelOpen(false);
+                      return;
+                    }
+                    setRightPanelOpen((open) => !open);
+                  }}
+                  title={
+                    rightPanelOpen || doctorPanelOpen ? "Hide right panel" : "Show right panel"
                   }
-                  setRightPanelOpen((open) => !open);
-                }}
-                title={rightPanelOpen || doctorPanelOpen ? "Hide right panel" : "Show right panel"}
-                aria-label={
-                  rightPanelOpen || doctorPanelOpen ? "Hide right panel" : "Show right panel"
-                }
-                aria-pressed={rightPanelOpen || doctorPanelOpen}
-              >
-                <PanelRight data-icon aria-hidden="true" />
-              </Button>
-            </>
+                  aria-label={
+                    rightPanelOpen || doctorPanelOpen ? "Hide right panel" : "Show right panel"
+                  }
+                  aria-pressed={rightPanelOpen || doctorPanelOpen}
+                >
+                  <PanelRight data-icon aria-hidden="true" />
+                </Button>
+              </>
+            )}
           </div>
         </header>
       )}
@@ -3692,7 +3800,7 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
                     </span>
                   </div>
                   <div className="sidebar-account-menu__items">
-                    <button type="button" role="menuitem" onClick={() => openSettings("providers")}>
+                    <button type="button" role="menuitem" onClick={() => openSettings("profile")}>
                       <Settings aria-hidden="true" />
                       <span>Settings</span>
                     </button>
@@ -3758,7 +3866,13 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
               </div>
             )}
             <div className="runtime__surface">
-              {settingsSection === "providers" ? (
+              {settingsSection === "profile" ? (
+                <ProfileWorkspace
+                  summary={activityProfile}
+                  loading={activityProfileLoading}
+                  error={activityProfileError ? errorMessage(activityProfileError) : undefined}
+                />
+              ) : settingsSection === "providers" ? (
                 <SettingsWorkspace
                   providers={extensionInventory?.providers ?? []}
                   modelCatalog={extensionInventory?.modelCatalog}
@@ -4032,6 +4146,21 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
           </div>
         </div>
       </main>
+      {activeAgentInteraction
+        ? createPortal(
+            <AgentInteractionDialog
+              key={activeAgentInteraction.interactionId}
+              interaction={activeAgentInteraction}
+              resolving={resolvingInteractionId === activeAgentInteraction.interactionId}
+              error={agentInteractionError}
+              onResolve={(response) =>
+                void resolveAgentInteraction(activeAgentInteraction, response)
+              }
+              onStop={() => void stopMessage()}
+            />,
+            document.body,
+          )
+        : null}
       {sessionContextMenu
         ? createPortal(
             <div
@@ -4201,12 +4330,39 @@ function SettingsSidebar({
   onBack: () => void;
 }) {
   const normalizedQuery = query.trim().toLowerCase();
-  const sections = [
+  const personalSections = [{ id: "profile" as const, label: "Profile", icon: User }].filter(
+    (item) => item.label.toLowerCase().includes(normalizedQuery),
+  );
+  const systemSections = [
     { id: "providers" as const, label: "Providers", icon: KeyRound },
     { id: "extensions" as const, label: "Extensions", icon: Package },
     { id: "agents" as const, label: "Custom Agents", icon: Bot },
     { id: "runtime" as const, label: "Runtime", icon: TerminalIcon },
   ].filter((item) => item.label.toLowerCase().includes(normalizedQuery));
+  const renderSections = (
+    label: string,
+    sections: Array<{ id: SettingsSection; label: string; icon: LucideIcon }>,
+  ) =>
+    sections.length > 0 ? (
+      <>
+        <span className="settings-sidebar__group-label">{label}</span>
+        {sections.map((item) => {
+          const Icon = item.icon;
+          return (
+            <button
+              key={item.id}
+              type="button"
+              className={section === item.id ? "is-active" : undefined}
+              aria-current={section === item.id ? "page" : undefined}
+              onClick={() => onSectionChange(item.id)}
+            >
+              <Icon aria-hidden="true" />
+              <span>{item.label}</span>
+            </button>
+          );
+        })}
+      </>
+    ) : null;
 
   return (
     <div className="settings-sidebar">
@@ -4225,23 +4381,9 @@ function SettingsSidebar({
         />
       </label>
       <nav className="settings-sidebar__sections" aria-label="Settings sections">
-        <span className="settings-sidebar__group-label">Settings</span>
-        {sections.map((item) => {
-          const Icon = item.icon;
-          return (
-            <button
-              key={item.id}
-              type="button"
-              className={section === item.id ? "is-active" : undefined}
-              aria-current={section === item.id ? "page" : undefined}
-              onClick={() => onSectionChange(item.id)}
-            >
-              <Icon aria-hidden="true" />
-              <span>{item.label}</span>
-            </button>
-          );
-        })}
-        {sections.length === 0 && (
+        {renderSections("Personal", personalSections)}
+        {renderSections("System", systemSections)}
+        {personalSections.length === 0 && systemSections.length === 0 && (
           <span className="settings-sidebar__empty">No matching settings</span>
         )}
       </nav>

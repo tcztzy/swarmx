@@ -10,16 +10,19 @@ import type {
 } from "@anthropic-ai/sdk/resources/messages/messages";
 import type OpenAI from "openai";
 import type {
-  FunctionTool,
   Response,
+  ResponseCustomToolCall,
   ResponseFunctionToolCall,
   ResponseInputItem,
   ResponseOutputItem,
   ResponseReasoningItem,
+  Tool as ResponseTool,
 } from "openai/resources/responses/responses";
 import { currentRequestSignal, throwIfCurrentRequestCancelled } from "./acp.js";
+import type { NativeLocalToolDefinition, ToolExecutionResult } from "./mcp.js";
 import type { ModelApiMode } from "./model-api.js";
-import type { MessageChunk } from "./types.js";
+import { ModelTokenUsageSchema } from "./types.js";
+import type { MessageChunk, ModelTokenUsage } from "./types.js";
 
 const MAX_TOOL_STEPS = 20;
 const OPENAI_RESPONSES_EFFORTS = new Set([
@@ -33,15 +36,6 @@ const OPENAI_RESPONSES_EFFORTS = new Set([
 ]);
 const ANTHROPIC_EFFORTS = new Set(["low", "medium", "high", "xhigh", "max"]);
 
-export interface NativeFunctionTool {
-  type: "function";
-  function: {
-    name: string;
-    description: string;
-    parameters: Record<string, unknown>;
-  };
-}
-
 export interface NativeProtocolContext {
   agentName: string;
   model: string;
@@ -51,8 +45,9 @@ export interface NativeProtocolContext {
   apiMode: ModelApiMode;
   openai: OpenAI;
   anthropic: Anthropic;
-  tools: NativeFunctionTool[];
-  callTool(name: string, input: Record<string, unknown>): Promise<Record<string, unknown>>;
+  tools: NativeLocalToolDefinition[] | (() => NativeLocalToolDefinition[]);
+  callTool(name: string, input: Record<string, unknown> | string): Promise<ToolExecutionResult>;
+  onUsage?: (usage: ModelTokenUsage) => void;
 }
 
 export async function callOpenAIResponses(
@@ -61,12 +56,12 @@ export async function callOpenAIResponses(
   onChunk?: (chunk: MessageChunk) => void,
 ): Promise<{ messages: MessageChunk[] }> {
   const input = responseInput(arguments_);
-  const tools = responseTools(context.tools);
   const reasoning = responseReasoning(context.parameters, context.apiMode);
   const allChunks: MessageChunk[] = [];
 
   for (let step = 0; step < MAX_TOOL_STEPS; step++) {
     throwIfCurrentRequestCancelled();
+    const tools = responseTools(currentNativeTools(context.tools));
     const request = {
       model: context.model,
       input,
@@ -91,6 +86,7 @@ export async function callOpenAIResponses(
     throwIfCurrentRequestCancelled();
 
     const responseChunks = responseChunksFromOutput(context.agentName, response.output);
+    reportOpenAIResponsesUsage(context, response);
     const stepChunks =
       responseChunks.length > 0
         ? responseChunks
@@ -98,7 +94,7 @@ export async function callOpenAIResponses(
           streamedFallbackChunks(context.agentName, response);
     allChunks.push(...stepChunks);
 
-    const toolCalls = response.output.filter(isResponseFunctionCall);
+    const toolCalls = response.output.filter(isResponseToolCall);
     if (toolCalls.length === 0) {
       if (stepChunks.some(isFinalAssistantChunk)) break;
       input.push(...responseReplayItems(response.output, context.apiMode));
@@ -107,19 +103,35 @@ export async function callOpenAIResponses(
 
     const outputs: ResponseInputItem[] = [];
     for (const call of toolCalls) {
-      const toolCallChunk = toolCallMessage(context.agentName, call.name, call.arguments);
+      const name = responseToolCallName(call);
+      const input = responseToolCallInput(call);
+      const serializedInput = typeof input === "string" ? input : JSON.stringify(input);
+      const toolCallChunk = toolCallMessage(context.agentName, name, serializedInput);
       onChunk?.(toolCallChunk);
       allChunks.push(toolCallChunk);
 
-      const result = await executeTool(context, call.name, parseObject(call.arguments));
-      const toolResultChunk = toolResultMessage(context.agentName, call.name, result.output);
+      const result = await executeTool(context, name, input);
+      const toolResultChunk = toolResultMessage(
+        context.agentName,
+        name,
+        result.output,
+        result.structuredContent,
+      );
       onChunk?.(toolResultChunk);
       allChunks.push(toolResultChunk);
-      outputs.push({
-        type: "function_call_output",
-        call_id: call.call_id,
-        output: result.output,
-      });
+      outputs.push(
+        call.type === "custom_tool_call"
+          ? {
+              type: "custom_tool_call_output",
+              call_id: call.call_id,
+              output: result.output,
+            }
+          : {
+              type: "function_call_output",
+              call_id: call.call_id,
+              output: result.output,
+            },
+      );
     }
     input.push(...responseReplayItems(response.output, context.apiMode), ...outputs);
   }
@@ -138,12 +150,12 @@ export async function callAnthropicMessages(
 ): Promise<{ messages: MessageChunk[] }> {
   const built = anthropicInput(context.instructions, arguments_);
   const messages = built.messages;
-  const tools = anthropicTools(context.tools);
   const outputConfig = anthropicOutputConfig(context.parameters);
   const allChunks: MessageChunk[] = [];
 
   for (let step = 0; step < MAX_TOOL_STEPS; step++) {
     throwIfCurrentRequestCancelled();
+    const tools = anthropicTools(currentNativeTools(context.tools));
     const request: MessageCreateParamsBase = {
       model: context.model,
       max_tokens: context.maxOutputTokens,
@@ -156,6 +168,7 @@ export async function callAnthropicMessages(
       ? await streamAnthropicMessage(context, request, onChunk)
       : await context.anthropic.messages.create({ ...request, stream: false }, requestOptions());
     throwIfCurrentRequestCancelled();
+    reportAnthropicUsage(context, response);
 
     allChunks.push(...anthropicResponseChunks(context.agentName, response));
     const toolCalls = response.content.filter(isAnthropicToolUse);
@@ -173,7 +186,12 @@ export async function callAnthropicMessages(
       allChunks.push(toolCallChunk);
 
       const result = await executeTool(context, call.name, objectValue(call.input));
-      const toolResultChunk = toolResultMessage(context.agentName, call.name, result.output);
+      const toolResultChunk = toolResultMessage(
+        context.agentName,
+        call.name,
+        result.output,
+        result.structuredContent,
+      );
       onChunk?.(toolResultChunk);
       allChunks.push(toolResultChunk);
       results.push({
@@ -342,18 +360,32 @@ function anthropicInput(
   return { ...(system ? { system } : {}), messages };
 }
 
-function responseTools(tools: NativeFunctionTool[]): FunctionTool[] {
-  return tools.map((tool) => ({
-    type: "function",
-    name: tool.function.name,
-    description: tool.function.description,
-    parameters: tool.function.parameters,
-    strict: false,
-  }));
+function currentNativeTools(tools: NativeProtocolContext["tools"]): NativeLocalToolDefinition[] {
+  return typeof tools === "function" ? tools() : tools;
 }
 
-function anthropicTools(tools: NativeFunctionTool[]): Tool[] {
-  return tools.map((tool) => ({
+function responseTools(tools: NativeLocalToolDefinition[]): ResponseTool[] {
+  return tools.map((tool): ResponseTool => {
+    if (tool.type === "custom") {
+      return {
+        type: "custom",
+        name: tool.name,
+        description: tool.description,
+        ...(tool.format ? { format: tool.format } : {}),
+      } as ResponseTool;
+    }
+    return {
+      type: "function",
+      name: tool.function.name,
+      description: tool.function.description,
+      parameters: tool.function.parameters,
+      strict: false,
+    };
+  });
+}
+
+function anthropicTools(tools: NativeLocalToolDefinition[]): Tool[] {
+  return tools.filter(isNativeFunctionTool).map((tool) => ({
     name: tool.function.name,
     description: tool.function.description,
     input_schema: tool.function.parameters as Tool.InputSchema,
@@ -449,20 +481,49 @@ function streamedFallbackChunks(agentName: string, response: Response): MessageC
 async function executeTool(
   context: NativeProtocolContext,
   name: string,
-  input: Record<string, unknown>,
-): Promise<{ output: string; failed: boolean }> {
+  input: Record<string, unknown> | string,
+): Promise<{ output: string; structuredContent?: unknown; failed: boolean }> {
   try {
     throwIfCurrentRequestCancelled();
-    const result = await context.callTool(name, input);
-    throwIfCurrentRequestCancelled();
-    return { output: JSON.stringify(result), failed: false };
-  } catch (error) {
+    const result = normalizeToolExecutionResult(await context.callTool(name, input));
     throwIfCurrentRequestCancelled();
     return {
-      output: JSON.stringify({ error: error instanceof Error ? error.message : String(error) }),
-      failed: true,
+      output: result.content,
+      ...(result.structuredContent === undefined
+        ? {}
+        : { structuredContent: result.structuredContent }),
+      failed: result.isError,
+    };
+  } catch (error) {
+    throwIfCurrentRequestCancelled();
+    const structuredContent = { error: error instanceof Error ? error.message : String(error) };
+    return { output: JSON.stringify(structuredContent), structuredContent, failed: true };
+  }
+}
+
+function normalizeToolExecutionResult(result: unknown): ToolExecutionResult {
+  if (
+    result &&
+    typeof result === "object" &&
+    !Array.isArray(result) &&
+    typeof (result as { content?: unknown }).content === "string"
+  ) {
+    const record = result as Partial<ToolExecutionResult> & { content: string };
+    return {
+      content: record.content,
+      ...(record.structuredContent === undefined
+        ? {}
+        : { structuredContent: record.structuredContent }),
+      isError: record.isError === true,
     };
   }
+  const structuredContent =
+    result && typeof result === "object" && !Array.isArray(result) ? result : { result };
+  return {
+    content: JSON.stringify(structuredContent),
+    structuredContent,
+    isError: false,
+  };
 }
 
 function rawMessages(arguments_: Record<string, unknown>): Array<{
@@ -490,6 +551,32 @@ function isResponseFunctionCall(item: ResponseOutputItem): item is ResponseFunct
   return item.type === "function_call";
 }
 
+function isResponseCustomToolCall(item: ResponseOutputItem): item is ResponseCustomToolCall {
+  return item.type === "custom_tool_call";
+}
+
+function isResponseToolCall(
+  item: ResponseOutputItem,
+): item is ResponseFunctionToolCall | ResponseCustomToolCall {
+  return isResponseFunctionCall(item) || isResponseCustomToolCall(item);
+}
+
+function responseToolCallName(call: ResponseFunctionToolCall | ResponseCustomToolCall): string {
+  return call.name;
+}
+
+function responseToolCallInput(
+  call: ResponseFunctionToolCall | ResponseCustomToolCall,
+): Record<string, unknown> | string {
+  return call.type === "custom_tool_call" ? call.input : parseObject(call.arguments);
+}
+
+function isNativeFunctionTool(
+  tool: NativeLocalToolDefinition,
+): tool is Extract<NativeLocalToolDefinition, { type: "function" }> {
+  return tool.type === "function";
+}
+
 function responseReplayItems(
   output: ResponseOutputItem[],
   apiMode: ModelApiMode,
@@ -515,6 +602,9 @@ function responseReplayItems(
           arguments: item.arguments,
         } as ResponseInputItem,
       ];
+    }
+    if (item.type === "custom_tool_call") {
+      return [item as unknown as ResponseInputItem];
     }
     if (item.type === "message") {
       const content = item.content
@@ -545,8 +635,20 @@ function toolCallMessage(agent: string, toolName: string, content: string): Mess
   return { role: "assistant", content, kind: "tool_call", toolName, agent };
 }
 
-function toolResultMessage(agent: string, toolName: string, content: string): MessageChunk {
-  return { role: "tool", content, kind: "tool_result", toolName, agent };
+function toolResultMessage(
+  agent: string,
+  toolName: string,
+  content: string,
+  structuredContent?: unknown,
+): MessageChunk {
+  return {
+    role: "tool",
+    content,
+    kind: "tool_result",
+    toolName,
+    agent,
+    ...(structuredContent === undefined ? {} : { structuredContent }),
+  };
 }
 
 function parseObject(value: string): Record<string, unknown> {
@@ -561,6 +663,56 @@ function objectValue(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : {};
+}
+
+function reportOpenAIResponsesUsage(context: NativeProtocolContext, response: Response): void {
+  const usage = objectValue(response.usage);
+  const inputDetails = objectValue(usage.input_tokens_details);
+  const outputDetails = objectValue(usage.output_tokens_details);
+  const inputTokens = nonnegativeInteger(usage.input_tokens);
+  const outputTokens = nonnegativeInteger(usage.output_tokens);
+  const totalTokens =
+    nonnegativeInteger(usage.total_tokens) ?? (inputTokens ?? 0) + (outputTokens ?? 0);
+  if (totalTokens === 0 && inputTokens === undefined && outputTokens === undefined) return;
+  context.onUsage?.(
+    ModelTokenUsageSchema.parse({
+      inputTokens: inputTokens ?? 0,
+      outputTokens: outputTokens ?? 0,
+      reasoningTokens: nonnegativeInteger(outputDetails.reasoning_tokens) ?? 0,
+      cachedInputTokens: nonnegativeInteger(inputDetails.cached_tokens) ?? 0,
+      totalTokens,
+      estimated: false,
+      model: context.model,
+      provider: "openai_responses",
+    }),
+  );
+}
+
+function reportAnthropicUsage(context: NativeProtocolContext, response: Message): void {
+  const usage = objectValue(response.usage);
+  const uncachedInputTokens = nonnegativeInteger(usage.input_tokens) ?? 0;
+  const outputTokens = nonnegativeInteger(usage.output_tokens) ?? 0;
+  const cachedInputTokens =
+    (nonnegativeInteger(usage.cache_creation_input_tokens) ?? 0) +
+    (nonnegativeInteger(usage.cache_read_input_tokens) ?? 0);
+  const inputTokens = uncachedInputTokens + cachedInputTokens;
+  if (inputTokens === 0 && outputTokens === 0 && cachedInputTokens === 0) return;
+  context.onUsage?.(
+    ModelTokenUsageSchema.parse({
+      inputTokens,
+      outputTokens,
+      reasoningTokens: 0,
+      cachedInputTokens,
+      totalTokens: inputTokens + outputTokens,
+      estimated: false,
+      model: context.model,
+      provider: "anthropic",
+    }),
+  );
+}
+
+function nonnegativeInteger(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : undefined;
 }
 
 function jsonString(value: unknown): string {
