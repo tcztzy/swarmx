@@ -1,4 +1,4 @@
-name: ci
+name: CI
 
 on:
   push:
@@ -9,31 +9,88 @@ on:
     branches:
       - master
       - main
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
 
+env:
+  CI: "true"
+
 jobs:
   quality:
-    runs-on: ubuntu-latest
+    name: ${{ matrix.name }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Node 20 compatibility
+            node-version: 20.x
+            primary: false
+          - name: quality
+            node-version: 22.x
+            primary: true
     steps:
-      - uses: actions/checkout@v4
+      - name: Check out repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
-      - uses: actions/setup-node@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: 22
+          node-version: ${{ matrix.node-version }}
 
-      - name: Enable Corepack
-        run: corepack enable
+      - name: Set up pnpm
+        uses: pnpm/action-setup@008330803749db0355799c700092d9a85fd074e9 # v6.0.9
+        with:
+          version: 11.13.1
+          cache: true
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends ripgrep
+          rg --version
 
       - name: Install Node dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Install uv
-        uses: astral-sh/setup-uv@v5
+      - name: Lint
+        if: matrix.primary
+        run: pnpm lint
+
+      - name: Test
+        run: pnpm test
+
+      - name: Build
+        run: pnpm -r build
+
+  inspect:
+    name: Inspect
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Set up uv and Python
+        uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
         with:
+          version: 0.11.28
+          python-version: "3.12"
           enable-cache: true
           cache-dependency-glob: uv.lock
 
-      - name: Run CI checks
-        run: pnpm run ci
+      - name: Sync Python dependencies
+        run: uv sync --locked --group inspect
+
+      - name: Test Inspect integration
+        run: uv run --locked --group inspect python -m unittest discover -s evals/inspect -p '*_test.py'
+
+      - name: Run Inspect smoke evaluation
+        run: uv run --locked --group inspect inspect eval evals/inspect/tasks.py@swarmx_smoke --model none
