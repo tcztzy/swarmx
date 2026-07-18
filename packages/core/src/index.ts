@@ -1,6 +1,11 @@
 export { Agent, HookRef } from "./agent.js";
 export { Swarm, SwarmNode } from "./swarm.js";
 export type { AgentRuntimeOptions } from "./agent.js";
+export type {
+  AcpPermissionHandler,
+  AcpPermissionRequest,
+  AcpPermissionResponse,
+} from "./acp.js";
 export type { SwarmRuntimeOptions } from "./swarm.js";
 export { Edge } from "./edge.js";
 export { Hook } from "./hook.js";
@@ -753,10 +758,13 @@ export {
 } from "./extensions.js";
 export {
   HarnessDeliveryPolicySchema,
+  HarnessPermissionModeSchema,
   HarnessPermissionPolicySchema,
   HarnessProjectContextSchema,
   HarnessRecipeSchema,
   HarnessSkillBindingSchema,
+  HarnessToolAccessSchema,
+  HarnessToolPermissionDecisionSchema,
   LogicalSkillSchema,
   ResolvedSkillBindingSchema,
   SkillBindingModeSchema,
@@ -775,6 +783,7 @@ export {
   evaluateSkillCandidate,
   normalizeLogicalSkill,
   resolveHarnessSkillBinding,
+  resolveHarnessToolPermission,
 } from "./skill-variants.js";
 export {
   ExtensionActionKindSchema,
@@ -803,11 +812,16 @@ export type {
 } from "./extension-management.js";
 export type {
   HarnessDeliveryPolicy,
+  HarnessPermissionMode,
   HarnessPermissionPolicy,
   HarnessProjectContext,
   HarnessRecipe,
   HarnessSkillBinding,
+  HarnessToolAccess,
+  HarnessToolPermissionDecision,
+  HarnessToolPermissionRequest,
   LogicalSkill,
+  ResolvedHarnessToolPermission,
   ResolvedSkillBinding,
   SkillBindingMode,
   SkillDeliveryMode,

@@ -6,6 +6,7 @@ import {
   currentRequestSignal,
   throwIfCurrentRequestCancelled,
 } from "./acp.js";
+import type { AcpPermissionHandler } from "./acp.js";
 import { type LocalTool, McpManager } from "./mcp.js";
 import { ModelApiModeSchema, ModelApiSchema } from "./model-api.js";
 import type { ModelApi, ModelApiMode } from "./model-api.js";
@@ -49,6 +50,7 @@ export interface AgentRuntimeOptions {
   createAcpClient?: () => AcpPromptClient;
   createMcpManager?: () => McpManager;
   localTools?: readonly LocalTool[];
+  acpPermissionHandler?: AcpPermissionHandler;
 }
 
 interface AcpPromptClient {
@@ -61,6 +63,7 @@ interface AcpPromptClient {
       clearEnv?: boolean;
       model?: string;
       effort?: string;
+      requestPermission?: AcpPermissionHandler;
     },
     userText: string,
     swarmConfig?: unknown,
@@ -89,6 +92,7 @@ export class Agent {
   private createAcpClient: () => AcpPromptClient;
   private createMcpManager: () => McpManager;
   private localTools: readonly LocalTool[];
+  private acpPermissionHandler?: AcpPermissionHandler;
   private configuredModel?: string;
   private maxOutputTokens: number;
 
@@ -120,6 +124,7 @@ export class Agent {
     this.createAcpClient = options.createAcpClient ?? (() => new AcpClient());
     this.createMcpManager = options.createMcpManager ?? (() => new McpManager());
     this.localTools = options.localTools ?? [];
+    this.acpPermissionHandler = options.acpPermissionHandler;
     this.maxOutputTokens = positiveInteger(clientConfig.maxOutputTokens) ?? 8192;
 
     const configuredApiKey = stringProperty(clientConfig, "apiKey");
@@ -755,6 +760,7 @@ export class Agent {
           clearEnv: this.processOptions?.clearEnv,
           ...(this.configuredModel ? { model: this.configuredModel } : {}),
           ...(this.configuredReasoningEffort() ? { effort: this.configuredReasoningEffort() } : {}),
+          ...(this.acpPermissionHandler ? { requestPermission: this.acpPermissionHandler } : {}),
         },
         this.buildAcpPrompt(arguments_),
         undefined,

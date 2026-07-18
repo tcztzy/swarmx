@@ -237,9 +237,15 @@ export const HarnessDeliveryPolicySchema = z
   .passthrough()
   .superRefine(addSecretIssues);
 
+export const HarnessPermissionModeSchema = z.enum(["default", "plan", "restricted", "trusted"]);
+
+export const HarnessToolAccessSchema = z.enum(["read", "write", "execute", "control"]);
+
+export const HarnessToolPermissionDecisionSchema = z.enum(["allow", "ask", "deny"]);
+
 export const HarnessPermissionPolicySchema = z
   .object({
-    mode: z.string().min(1).default("default"),
+    mode: HarnessPermissionModeSchema.default("default"),
     allowedTools: z.array(z.string().min(1)).default([]),
     deniedTools: z.array(z.string().min(1)).default([]),
   })
@@ -278,14 +284,62 @@ export type SkillDeliveryMode = z.infer<typeof SkillDeliveryModeSchema>;
 export type SkillVariant = z.infer<typeof SkillVariantSchema>;
 export type LogicalSkill = z.infer<typeof LogicalSkillSchema>;
 export type HarnessSkillBinding = z.infer<typeof HarnessSkillBindingSchema>;
+export type HarnessPermissionMode = z.infer<typeof HarnessPermissionModeSchema>;
+export type HarnessToolAccess = z.infer<typeof HarnessToolAccessSchema>;
+export type HarnessToolPermissionDecision = z.infer<typeof HarnessToolPermissionDecisionSchema>;
+export type HarnessPermissionPolicy = z.infer<typeof HarnessPermissionPolicySchema>;
 export type SkillResolutionContext = z.infer<typeof SkillResolutionContextSchema>;
 export type ResolvedSkillBinding = z.infer<typeof ResolvedSkillBindingSchema>;
 export type SkillEvolutionCandidate = z.infer<typeof SkillEvolutionCandidateSchema>;
 export type SkillEvaluationRun = z.infer<typeof SkillEvaluationRunSchema>;
 export type SkillPromotionDecision = z.infer<typeof SkillPromotionDecisionSchema>;
+
+export interface HarnessToolPermissionRequest {
+  toolName: string;
+  access: HarnessToolAccess;
+}
+
+export interface ResolvedHarnessToolPermission {
+  decision: HarnessToolPermissionDecision;
+  reason:
+    | "explicit_deny"
+    | "plan_read_only"
+    | "explicit_allow"
+    | "read_only"
+    | HarnessPermissionMode;
+}
+
+/** Resolves direct host-tool authority without changing the enclosing OS sandbox. */
+export function resolveHarnessToolPermission(
+  policyInput: unknown,
+  request: HarnessToolPermissionRequest,
+): ResolvedHarnessToolPermission {
+  const policy = HarnessPermissionPolicySchema.parse(policyInput);
+  const toolName = z.string().min(1).parse(request.toolName);
+  const access = HarnessToolAccessSchema.parse(request.access);
+
+  if (policy.deniedTools.includes(toolName)) {
+    return { decision: "deny", reason: "explicit_deny" };
+  }
+  if (policy.mode === "plan" && access !== "read") {
+    return { decision: "deny", reason: "plan_read_only" };
+  }
+  if (policy.allowedTools.includes(toolName)) {
+    return { decision: "allow", reason: "explicit_allow" };
+  }
+  if (access === "read") {
+    return { decision: "allow", reason: "read_only" };
+  }
+  if (policy.mode === "default") {
+    return { decision: "ask", reason: "default" };
+  }
+  if (policy.mode === "restricted") {
+    return { decision: "deny", reason: "restricted" };
+  }
+  return { decision: "allow", reason: policy.mode };
+}
 export type HarnessProjectContext = z.infer<typeof HarnessProjectContextSchema>;
 export type HarnessDeliveryPolicy = z.infer<typeof HarnessDeliveryPolicySchema>;
-export type HarnessPermissionPolicy = z.infer<typeof HarnessPermissionPolicySchema>;
 export type HarnessRecipe = z.infer<typeof HarnessRecipeSchema>;
 
 export interface LegacySkillCapabilityInput {

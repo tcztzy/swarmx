@@ -49,6 +49,53 @@ describe("request-scoped cancellation", () => {
     });
   });
 
+  it("V446 cancels ACP permission by default and returns only an offered handled option", async () => {
+    const cancelled = new AcpClient();
+    await expect(cancelled.prompt(agentOptions("permission"), "hello")).resolves.toMatchObject({
+      messages: [expect.objectContaining({ content: "permission:cancelled" })],
+    });
+
+    const requests: unknown[] = [];
+    const selected = new AcpClient();
+    await expect(
+      selected.prompt(
+        {
+          ...agentOptions("permission"),
+          requestPermission: async (request) => {
+            requests.push(request);
+            return { outcome: { outcome: "selected", optionId: "allow-once" } };
+          },
+        },
+        "hello",
+      ),
+    ).resolves.toMatchObject({
+      messages: [expect.objectContaining({ content: "permission:selected:allow-once" })],
+    });
+    expect(requests).toEqual([
+      expect.objectContaining({
+        sessionId: "test-session",
+        options: expect.arrayContaining([
+          expect.objectContaining({ optionId: "allow-once", kind: "allow_once" }),
+        ]),
+      }),
+    ]);
+
+    const forged = new AcpClient();
+    await expect(
+      forged.prompt(
+        {
+          ...agentOptions("permission"),
+          requestPermission: async () => ({
+            outcome: { outcome: "selected", optionId: "not-offered" },
+          }),
+        },
+        "hello",
+      ),
+    ).resolves.toMatchObject({
+      messages: [expect.objectContaining({ content: "permission:cancelled" })],
+    });
+  }, 15_000);
+
   it("sends ACP session/cancel before process fallback", async () => {
     const client = new AcpClient();
     const started = deferred<void>();
@@ -187,7 +234,8 @@ type AgentMode =
   | "failure"
   | "models"
   | "stable-config"
-  | "grouped-config";
+  | "grouped-config"
+  | "permission";
 
 function agentOptions(mode: AgentMode) {
   return {
@@ -273,6 +321,32 @@ function agentScript(mode: AgentMode): string {
         return { configOptions: configOptions() };
       },
       async prompt() {
+        if (${JSON.stringify(mode)} === "permission") {
+          const response = await connection.requestPermission({
+            sessionId: "test-session",
+            toolCall: {
+              toolCallId: "call_permission_1",
+              title: "Run tests",
+              kind: "execute",
+              rawInput: { command: "pnpm test", token: "must-not-cross-desktop" },
+            },
+            options: [
+              { optionId: "reject-once", name: "Reject", kind: "reject_once" },
+              { optionId: "allow-once", name: "Allow once", kind: "allow_once" },
+            ],
+          });
+          const suffix = response.outcome.outcome === "selected"
+            ? ":" + response.outcome.optionId
+            : "";
+          await connection.sessionUpdate({
+            sessionId: "test-session",
+            update: {
+              sessionUpdate: "agent_message_chunk",
+              content: { type: "text", text: "permission:" + response.outcome.outcome + suffix },
+            },
+          });
+          return { stopReason: "end_turn" };
+        }
         if (${JSON.stringify(mode)} === "tree") {
           const grandchild = spawn(process.execPath, [
             "--input-type=module",

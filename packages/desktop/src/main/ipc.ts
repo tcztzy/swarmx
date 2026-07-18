@@ -4,6 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   ActivityStore,
+  HarnessPermissionPolicySchema,
   RequestCancelledError,
   Swarm,
   appendMessages,
@@ -32,6 +33,7 @@ import {
   updateSessionTitle,
 } from "@swarmx/core";
 import type {
+  AcpPermissionHandler,
   ActivityEventInput,
   AgentBackend,
   AgentComposition,
@@ -314,6 +316,28 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
               });
             }
           };
+          const acpPermissionHandler: AcpPermissionHandler = async (request) => {
+            const optionIds = request.options.map((option) => option.optionId);
+            if (optionIds.length === 0 || new Set(optionIds).size !== optionIds.length) {
+              return { outcome: { outcome: "cancelled" } };
+            }
+            const response = await agentInteractions.request(event.sender, params.requestId, {
+              kind: "tool_approval",
+              title: boundedPermissionLabel(request.toolCall.title ?? "ACP tool request"),
+              ...(request.toolCall.kind ? { toolKind: request.toolCall.kind } : {}),
+              summary:
+                "An ACP Harness requested permission for this tool call. Raw input and output are not shown in the approval payload.",
+              options: request.options.map((option) => ({
+                optionId: option.optionId,
+                name: boundedPermissionLabel(option.name),
+                kind: option.kind,
+              })),
+            });
+            if (response.kind !== "tool_approval") {
+              return { outcome: { outcome: "cancelled" } };
+            }
+            return { outcome: { outcome: "selected", optionId: response.optionId } };
+          };
           let swarm: Swarm;
           const cwd = await normalizeWorkingDirectory(params.cwd);
 
@@ -322,7 +346,9 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
             const config = cwd
               ? swarmConfigWithWorkingDirectory(params.swarmConfig, cwd)
               : params.swarmConfig;
-            swarm = new Swarm(await protectSwarmConfigBackends(config));
+            swarm = new Swarm(await protectSwarmConfigBackends(config), {
+              agent: { acpPermissionHandler },
+            });
           } else if (params.agentComposition) {
             const inventory = await modelCatalog.list(await loadDesktopExtensionInventory());
             const plan = resolveAgentCompositionPlan(params.agentComposition, inventory);
@@ -342,6 +368,13 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
               cwd && compositionRuntimeHarnessId(inventory, plan) === "swarmx"
                 ? new WorkspaceTools(cwd)
                 : null;
+            const permissionPolicy = projectTools
+              ? HarnessPermissionPolicySchema.parse({
+                  mode: plan.permissions?.mode ?? "default",
+                  allowedTools: plan.permissions?.allowedTools ?? [],
+                  deniedTools: plan.permissions?.deniedTools ?? [],
+                })
+              : undefined;
             const selectedWorkspaceSkills = plan.skills.flatMap((skillRef) => {
               if (skillRef.status !== "ok") return [];
               const matches = inventory.skills.filter((skill) => skill.id === skillRef.id);
@@ -365,6 +398,7 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
               ...(plan.apiProtocol ? { apiProtocol: plan.apiProtocol } : {}),
               ...(selectedWorkspaceSkills.length > 0 ? { skills: selectedWorkspaceSkills } : {}),
               ...(plan.effort ? { effort: plan.effort } : {}),
+              ...(permissionPolicy ? { permissionPolicy } : {}),
               ...(projectTools && lspHost.supportsClaudeOperations(inventory)
                 ? {
                     lsp: (request) => lspHost.operate(inventory, projectTools.root, request),
@@ -415,6 +449,7 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
                       inventory: protectedInventory,
                       providerSecrets,
                       cwd: sessionRuntime.root,
+                      acpPermissionHandler,
                       localTools: workspaceAgentTools(
                         backgroundTools,
                         sessionRuntime.shell,
@@ -470,6 +505,7 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
                         inventory: protectedInventory,
                         providerSecrets,
                         cwd: root,
+                        acpPermissionHandler,
                         localTools: workspaceAgentTools(childTools, undefined, childToolOptions),
                         onUsage: (usage) => childUsages.push(usage),
                       },
@@ -515,6 +551,7 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
                 inventory: protectedInventory,
                 providerSecrets,
                 cwd,
+                acpPermissionHandler,
                 ...(projectTools
                   ? {
                       localTools: workspaceAgentTools(
@@ -1434,6 +1471,12 @@ function stringProperty(value: unknown, key: string): string | undefined {
   if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
   const property = (value as Record<string, unknown>)[key];
   return typeof property === "string" && property.length > 0 ? property : undefined;
+}
+
+function boundedPermissionLabel(value: string): string {
+  const compact = value.replace(/\s+/g, " ").trim();
+  if (!compact) return "Tool permission request";
+  return compact.length <= 160 ? compact : `${compact.slice(0, 159)}…`;
 }
 
 function errorMessage(error: unknown): string {

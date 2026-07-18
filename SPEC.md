@@ -61,6 +61,7 @@ G57: Direct SwarmX Models receive coding-tool signatures aligned with their trai
 G58: Direct SwarmX Models receive Claude Code/Codex-compatible tool results and can manage bounded long-running background commands within a task.
 G59: Direct desktop Claude sessions can persist project-scoped scheduled prompts across app restarts with Claude Code-compatible task files, ownership, recovery, and deletion semantics.
 G60: Publish the completed trained-in tool alignment and durable scheduler work as SwarmX 3.1.1 while retaining explicit TODOs for the three unimplemented Claude tools.
+G61: Desktop users can rely on Custom Agent permission policy and ACP permission requests as executable authorization boundaries instead of passive labels or automatic cancellation.
 
 ## §C
 C1: Reuse existing `SwarmConfig`; no second workflow DSL.
@@ -224,6 +225,9 @@ C158: Direct desktop Claude sessions may own a session-scoped runtime keyed by p
 C159: Claude `Monitor` is exposed only through that session runtime. Monitor commands retain the Project sandbox, stream bounded stdout lines as untrusted task notifications, apply timeout/persistent lifecycle and output-rate controls, and remain stoppable through the same `TaskStop` task id.
 C160: Claude cron tools use the session runtime's local-time scheduler. Jobs are bounded, validated as standard five-field cron expressions with a next occurrence inside one year, serialized with foreground/monitor activations, and auto-delete after a one-shot fire. Session-only recurring jobs expire after three days. Durable jobs use the canonical Project's `.claude/scheduled_tasks.json`, survive session/app close, use Claude Code's seven-day recurring lifetime unless marked `permanent`, coordinate eligible execution through `.claude/scheduled_tasks.lock`, persist recurring `lastFiredAt`, and are visible/deletable from every session on that Project. A durable one-shot occurrence missed while SwarmX was closed is removed and converted to a confirmation-required activation instead of executing its original prompt automatically.
 C161: A 3.1.1 release keeps every workspace package version aligned, publishes dependency-first from one verified commit, creates one matching `v3.1.1` tag/release, excludes generated residue and secrets, and does not present the three remaining TODO tools as implemented.
+C162: Permission decisions and OS sandboxing remain separate layers. Approval may authorize one tool call inside its existing Project/runtime boundary; it never grants network, path, environment, or sandbox escalation, and ACP Harnesses keep their native permission semantics.
+C163: Direct SwarmX tool policy resolves `deniedTools` before mode/allow rules, treats plan mode as a hard read-only boundary, and fails closed for unsupported modes, unavailable interaction bridges, or unclassified side-effecting tools.
+C164: Desktop approval prompts bind request, renderer owner, interaction id, and offered option ids; task cancellation, renderer destruction, or tool-manager close rejects pending authority without a default approval. Prompt summaries remain bounded and omit file contents, patch bodies, and raw ACP input/output.
 
 ## §I
 I1: `packages/core/src/types.ts` `SwarmConfigSchema`.
@@ -444,6 +448,9 @@ I215: `packages/desktop/src/main/ipc.ts`, `child-agent-host.ts`, and `workspace-
 I216: `packages/desktop/src/main/claude-session-runtime.ts`, `workspace-shell.ts`, `workspace-tools.ts`, IPC/preload session-message transport, and Renderer authoritative-session refresh for Monitor/Cron activation.
 I217: `packages/desktop/src/main/claude-scheduled-tasks.ts`, `claude-session-runtime.ts`, and focused tests Claude Code-compatible scheduled-task persistence, lock ownership, startup recovery, and multi-session refresh.
 I218: root/workspace `package.json` manifests, npm package tarballs, Git `main`/`v3.1.1`, and the GitHub release are the 3.1.1 release surfaces.
+I219: `packages/core/src/skill-variants.ts`, `extensions.ts`, `agent.ts`, and `acp.ts` typed Harness permission policy, deterministic tool decision, composition projection, and optional ACP permission handler.
+I220: `packages/desktop/src/main/workspace-tools.ts`, `agent-interactions.ts`, `ipc.ts`, Preload API, Renderer dialog/Settings, and focused tests direct-tool plus ACP approval enforcement.
+I221: `docs/native-tool-compatibility.md` Claude Code/Codex permission-model audit, SwarmX policy semantics, and staged follow-up plan.
 
 ## §V
 V1: Workflow JSON source of truth is `SwarmConfig`; UI preview, run badges, and send payload derive from parsed JSON.
@@ -888,6 +895,12 @@ V439: Durable Cron implementation, tests, compatibility matrix, and user documen
 V440: The parity inventory labels `PowerShell`, `SendMessage`, and `Workflow` as TODO, keeps their exact blockers visible, and gives each one a distinct pending §T task without exposing a placeholder tool.
 V441: The root manifest and all six publishable packages declare 3.1.1; packed workspace dependencies resolve to the same released version, and every tarball contains its declared runtime/type/assets without generated or secret-bearing residue.
 V442: The 3.1.1 commit is released only after full lint, tests, builds, package dry-runs, and diff checks pass; the verified commit is pushed to `main`, npm packages publish dependency-first, then the matching tag/GitHub release and registry metadata are verified against that same commit/version.
+V443: Harness permission mode accepts only `default`, `plan`, `restricted`, or `trusted`; policy preserves exact `allowedTools`/`deniedTools`, composition plans carry those lists, and unknown direct-runtime policy blocks execution instead of degrading to trusted behavior.
+V444: Direct tool decisions are deterministic and deny-first: explicit deny always blocks; plan allows read-only tools only; explicit allow may pre-approve non-plan calls; read-only calls auto-allow; default asks for remaining calls; restricted denies remaining calls; trusted allows remaining calls only inside unchanged Project sandbox/path/output/cancellation limits.
+V445: Every direct `ask` decision waits for one request-scoped desktop choice between allow-once and reject-once. Missing bridge, invalid/mismatched option, cancellation, close, or rejection blocks the call; approval runs exactly that original call and creates no durable rule.
+V446: `AcpClient` cancels permission requests when no handler exists; a desktop handler projects exact ACP option ids/kinds and bounded display names into the same request-scoped approval dialog and returns only an explicitly selected offered option id to the requesting ACP session.
+V447: Permission prompt payloads expose bounded tool title/kind and safe operation summary only; they omit write content, patch text, ACP raw input/output, secrets, and credentials. Permission policy never makes `dangerouslyDisableSandbox` or `sandbox_permissions=require_escalated` effective.
+V448: Focused Core/Desktop/Renderer tests cover schema rejection, deny/plan/allow/default/restricted/trusted precedence, no-bridge failure, approve/reject execution, ACP cancel/selection, broker ownership/cancellation, policy persistence/UI, and unchanged sandbox-escalation rejection; docs cite official Claude Code and Codex sources.
 
 ## §T
 |id|status|task|cites|
@@ -1090,6 +1103,7 @@ V442: The 3.1.1 commit is released only after full lint, tests, builds, package 
 |T196|.|implement concurrent Claude teammate SendMessage mailboxes and lifecycle|C157,V374,V423,V440,I203,I207|
 |T197|.|implement persisted resumable Claude Workflow VM parity|C157,V374,V423,V440,I203,I207|
 |T198|x|clean, version, verify, publish, and verify SwarmX 3.1.1|G60,C161,V440,V441,V442,I207,I218|
+|T199|x|enforce direct and ACP permission decisions with desktop approval UI, policy Settings, tests, and source audit|G61,C162,C163,C164,V443,V444,V445,V446,V447,V448,I219,I220,I221|
 
 ## §B
 |id|date|cause|fix|
@@ -1194,3 +1208,4 @@ V442: The 3.1.1 commit is released only after full lint, tests, builds, package 
 |B98|2026-07-17|`pnpm ci` invoked pnpm 10's unimplemented built-in command instead of the repository script named `ci` after lint had passed|invoke the release gate explicitly as `pnpm run ci`|
 |B99|2026-07-17|the combined `pnpm run ci` exceeded the command yield after tests/build passed, and the wrapper printed an undefined exit status without retaining the session id or final Inspect output|verify the remaining `uv sync` and Inspect gate in a separate bounded command|
 |B100|2026-07-17|the Inspect release gate selected uv's Python 3.14 environment whose downloaded `pydantic_core` extension was rejected by macOS code-signing policy before any project test ran|recreate the Inspect environment with a supported signed Python runtime and rerun the unchanged gate|
+|B101|2026-07-18|Custom Agent permission policy was passive metadata and ACP permission requests always returned cancelled, so displayed authority did not match executable desktop behavior|V443,V444,V445,V446,V447|

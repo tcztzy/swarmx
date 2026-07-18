@@ -60,6 +60,12 @@ export interface DesktopAgentQuestion {
   multiSelect: boolean;
 }
 
+export interface DesktopToolApprovalOption {
+  optionId: string;
+  name: string;
+  kind: "allow_once" | "allow_always" | "reject_once" | "reject_always";
+}
+
 export type DesktopAgentInteractionEvent =
   | {
       kind: "questions";
@@ -73,11 +79,21 @@ export type DesktopAgentInteractionEvent =
       interactionId: string;
       plan: string;
       filePath: string;
+    }
+  | {
+      kind: "tool_approval";
+      requestId: string;
+      interactionId: string;
+      title: string;
+      toolKind?: string;
+      summary: string;
+      options: DesktopToolApprovalOption[];
     };
 
 export type DesktopAgentInteractionResponse =
   | { kind: "questions"; answers: Record<string, string> }
-  | { kind: "plan_approval"; approved: boolean; feedback?: string };
+  | { kind: "plan_approval"; approved: boolean; feedback?: string }
+  | { kind: "tool_approval"; optionId: string };
 
 export interface DesktopBrowserBounds {
   x: number;

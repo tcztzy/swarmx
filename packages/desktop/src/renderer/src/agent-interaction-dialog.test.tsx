@@ -5,6 +5,37 @@ import { describe, expect, it, vi } from "vitest";
 import { AgentInteractionDialog } from "./agent-interaction-dialog.js";
 
 describe("V390 AgentInteractionDialog", () => {
+  it("V445-V447 returns one exact tool permission option without raw input", () => {
+    const onResolve = vi.fn();
+    render(
+      <AgentInteractionDialog
+        interaction={{
+          kind: "tool_approval",
+          requestId: "request-1",
+          interactionId: "approval-1",
+          title: "Allow exec_command?",
+          toolKind: "execute",
+          summary: "Project-sandboxed shell command",
+          options: [
+            { optionId: "reject_once", name: "Reject", kind: "reject_once" },
+            { optionId: "allow_once", name: "Allow once", kind: "allow_once" },
+          ],
+        }}
+        resolving={false}
+        error={null}
+        onResolve={onResolve}
+        onStop={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("Project-sandboxed shell command")).not.toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Allow once" }));
+    expect(onResolve).toHaveBeenCalledWith({
+      kind: "tool_approval",
+      optionId: "allow_once",
+    });
+  });
+
   it("V386 collects single, multiple, and automatic Other answers", () => {
     const onResolve = vi.fn();
     render(

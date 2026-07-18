@@ -131,7 +131,15 @@ export interface AcpClientOptions {
   model?: string;
   /** Requested ACP reasoning/thought level. Applied after model selection. */
   effort?: string;
+  /** Optional host-owned interactive authorization bridge. Missing handlers fail closed. */
+  requestPermission?: AcpPermissionHandler;
 }
+
+export type AcpPermissionRequest = RequestPermissionRequest;
+export type AcpPermissionResponse = RequestPermissionResponse;
+export type AcpPermissionHandler = (
+  request: AcpPermissionRequest,
+) => Promise<AcpPermissionResponse>;
 
 export interface AcpPromptResult {
   sessionId: string;
@@ -212,9 +220,18 @@ export class AcpClient {
 
     const clientStubs: Client = {
       async requestPermission(
-        _request: RequestPermissionRequest,
+        request: RequestPermissionRequest,
       ): Promise<RequestPermissionResponse> {
-        return { outcome: { outcome: "cancelled" } };
+        if (!opts.requestPermission) return { outcome: { outcome: "cancelled" } };
+        const response = await opts.requestPermission(request);
+        const outcome = response.outcome;
+        if (
+          outcome.outcome === "selected" &&
+          !request.options.some((option) => option.optionId === outcome.optionId)
+        ) {
+          return { outcome: { outcome: "cancelled" } };
+        }
+        return response;
       },
       async sessionUpdate(notification: SessionNotification): Promise<void> {
         onSessionUpdate(notification.update);

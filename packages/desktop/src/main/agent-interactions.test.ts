@@ -22,6 +22,40 @@ class FakeOwner extends EventEmitter implements AgentInteractionOwner {
 }
 
 describe("AgentInteractionBroker", () => {
+  it("V445-V446 accepts only an offered tool approval option", async () => {
+    const broker = new AgentInteractionBroker();
+    const owner = new FakeOwner(1);
+    const pending = broker.request(owner, "permission-request", {
+      kind: "tool_approval",
+      title: "Allow Bash?",
+      toolKind: "execute",
+      summary: "Project-sandboxed shell command",
+      options: [
+        { optionId: "reject", name: "Reject", kind: "reject_once" },
+        { optionId: "allow", name: "Allow once", kind: "allow_once" },
+      ],
+    });
+    const event = owner.send.mock.calls[0]?.[1] as {
+      requestId: string;
+      interactionId: string;
+    };
+
+    expect(() =>
+      broker.resolve(owner, {
+        ...event,
+        response: { kind: "tool_approval", optionId: "forged" },
+      }),
+    ).toThrow(/not offered/i);
+    expect(broker.size).toBe(1);
+    expect(
+      broker.resolve(owner, {
+        ...event,
+        response: { kind: "tool_approval", optionId: "allow" },
+      }),
+    ).toBe(true);
+    await expect(pending).resolves.toEqual({ kind: "tool_approval", optionId: "allow" });
+  });
+
   it("V387 resolves only a matching owner, request, id, and response kind", async () => {
     const broker = new AgentInteractionBroker();
     const owner = new FakeOwner(1);

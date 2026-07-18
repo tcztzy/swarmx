@@ -667,7 +667,19 @@ export class ModelCatalogService {
           .filter((agent) => !inventory.agents.some((candidate) => candidate.id === agent.id))
           .map((agent) => {
             const { source, ...profile } = agent;
-            return AgentProfileSchema.parse({ ...profile, definition: source });
+            return AgentProfileSchema.parse({
+              ...profile,
+              definition: source,
+              ...(agent.harnessRecipe
+                ? {
+                    permissions: {
+                      mode: agent.harnessRecipe.permissions.mode,
+                      allowedTools: agent.harnessRecipe.permissions.allowedTools,
+                      deniedTools: agent.harnessRecipe.permissions.deniedTools,
+                    },
+                  }
+                : {}),
+            });
           }),
       ],
       modelCatalog: {

@@ -618,7 +618,15 @@ interface ExtensionAgentPlanSummary {
   skills?: ExtensionAgentPlanCapabilitySummary[];
   mcpServers?: ExtensionAgentPlanCapabilitySummary[];
   context?: { mode: string; strategy: string; memory?: string };
-  permissions?: { tools?: string; mcp?: string; shell?: string; mode?: string; summary?: string };
+  permissions?: {
+    tools?: string;
+    mcp?: string;
+    shell?: string;
+    mode?: string;
+    allowedTools?: string[];
+    deniedTools?: string[];
+    summary?: string;
+  };
   visual?: { label?: string; color?: string; icon?: string };
   requirements?: ExtensionAgentPlanRequirementSummary[];
 }
@@ -4430,6 +4438,8 @@ function CustomAgentsSettings({
   const [contextPaths, setContextPaths] = useState("");
   const [instructionFiles, setInstructionFiles] = useState("AGENTS.md");
   const [permissionMode, setPermissionMode] = useState("default");
+  const [allowedTools, setAllowedTools] = useState("");
+  const [deniedTools, setDeniedTools] = useState("");
   const [unsupportedSkill, setUnsupportedSkill] = useState<"block" | "skip">("block");
   const [saving, setSaving] = useState(false);
   const [setupBusy, setSetupBusy] = useState(false);
@@ -4475,6 +4485,8 @@ function CustomAgentsSettings({
     setContextPaths("");
     setInstructionFiles("AGENTS.md");
     setPermissionMode("default");
+    setAllowedTools("");
+    setDeniedTools("");
     setUnsupportedSkill("block");
     setFormError(null);
   };
@@ -4502,6 +4514,8 @@ function CustomAgentsSettings({
     setContextPaths(recipe.projectContext.paths.join("\n"));
     setInstructionFiles(recipe.projectContext.instructionFiles.join("\n"));
     setPermissionMode(recipe.permissions.mode);
+    setAllowedTools(recipe.permissions.allowedTools.join("\n"));
+    setDeniedTools(recipe.permissions.deniedTools.join("\n"));
     setUnsupportedSkill(recipe.delivery.unsupportedSkill);
     setFormError(null);
   };
@@ -4559,8 +4573,8 @@ function CustomAgentsSettings({
           },
           permissions: {
             mode: permissionMode,
-            allowedTools: [],
-            deniedTools: [],
+            allowedTools: lines(allowedTools),
+            deniedTools: lines(deniedTools),
           },
         },
         modelId: selectedModelOption.modelId,
@@ -4907,10 +4921,27 @@ function CustomAgentsSettings({
                   onChange={(event) => setPermissionMode(event.target.value)}
                 >
                   <option value="default">Default</option>
-                  <option value="plan">Plan / confirm</option>
-                  <option value="restricted">Restricted</option>
+                  <option value="plan">Plan (read-only)</option>
+                  <option value="restricted">Restricted (allowlist only)</option>
                   <option value="trusted">Trusted workspace</option>
                 </select>
+              </label>
+              <label>
+                <span>Pre-approved tools</span>
+                <textarea
+                  value={allowedTools}
+                  placeholder={"Read\nGrep"}
+                  onChange={(event) => setAllowedTools(event.target.value)}
+                />
+              </label>
+              <label>
+                <span>Denied tools</span>
+                <textarea
+                  value={deniedTools}
+                  placeholder={"Bash\nexec_command"}
+                  onChange={(event) => setDeniedTools(event.target.value)}
+                />
+                <small>Denied rules always win.</small>
               </label>
               <label>
                 <span>Unsupported Skill delivery</span>

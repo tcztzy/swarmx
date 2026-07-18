@@ -2377,6 +2377,13 @@ describe("App user workflow", () => {
     await user.type(screen.getByLabelText("Name"), "Researcher");
     await user.click(screen.getByRole("checkbox", { name: /Biosecurity/ }));
     await user.click(screen.getByRole("checkbox", { name: /Project Files/ }));
+    await user.selectOptions(screen.getByLabelText("Permission mode"), "restricted");
+    fireEvent.change(screen.getByLabelText("Pre-approved tools"), {
+      target: { value: "Read\nGrep" },
+    });
+    fireEvent.change(screen.getByLabelText(/^Denied tools/), {
+      target: { value: "Bash" },
+    });
     await user.click(screen.getByRole("button", { name: "Save Agent" }));
 
     await waitFor(() => expect(api.saveCustomAgent).toHaveBeenCalledTimes(1));
@@ -2393,6 +2400,11 @@ describe("App user workflow", () => {
             expect.objectContaining({ skillId: "geepilot.biosecurity", mode: "auto" }),
           ],
           mcpServerIds: ["project-fs"],
+          permissions: {
+            mode: "restricted",
+            allowedTools: ["Read", "Grep"],
+            deniedTools: ["Bash"],
+          },
         }),
       }),
     );

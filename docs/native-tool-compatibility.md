@@ -48,6 +48,60 @@ Only direct `swarmx` compositions receive these tools. ACP harnesses such as
 Claude Code or Codex already own their host tools, so SwarmX does not inject a
 second, conflicting copy.
 
+## Permission model and source audit
+
+Permissions and sandboxing are separate controls. Claude Code evaluates
+fine-grained deny, ask, and allow rules with deny taking precedence, then uses
+OS-level filesystem/network isolation as a second boundary. It offers default,
+accept-edits, plan, auto, pre-approved-only, and bypass modes; managed settings
+can prevent local overrides and disable bypass. See the official
+[permissions](https://code.claude.com/docs/en/permissions),
+[permission modes](https://code.claude.com/docs/en/permission-modes), and
+[sandboxing](https://code.claude.com/docs/en/sandboxing) documentation.
+
+Codex likewise separates `sandbox_mode` from `approval_policy`. Its normal local
+automation preset uses workspace-scoped writes, no command network access, and
+on-request approval for crossing the boundary. Read-only and full-access modes,
+protected repository/config paths, command-prefix rules, granular approval
+categories, managed requirements, and optional approval review remain distinct
+controls. See the official [sandboxing](https://learn.chatgpt.com/docs/sandboxing),
+[configuration](https://learn.chatgpt.com/docs/config-file/config-advanced#approval-policies-and-sandbox-modes),
+and [rules](https://learn.chatgpt.com/docs/agent-configuration/rules) pages.
+
+SwarmX follows the common core without pretending that its modes are identical
+to either vendor:
+
+| Harness mode | Direct SwarmX behavior |
+| --- | --- |
+| `default` | Read-only tools run; remaining Project tool calls require one-call desktop approval. |
+| `plan` | Hard read-only boundary; allow rules cannot enable mutation or execution. |
+| `restricted` | Read-only and explicitly pre-approved tools run; remaining calls fail closed. |
+| `trusted` | Tools run without prompts, but only inside unchanged Project path, Seatbelt, network, environment, output, timeout, stale-write, and cancellation boundaries. |
+
+Exact `deniedTools` rules win first. Outside plan mode, exact `allowedTools`
+rules pre-approve a tool. Unknown modes fail schema validation. Approval changes
+only one call's permission decision; `dangerouslyDisableSandbox` and
+`sandbox_permissions=require_escalated` remain rejected.
+
+ACP Harnesses keep their own option semantics. SwarmX Desktop preserves the
+offered option ids and kinds, bounds their display names, and returns only the
+explicitly selected offered id. Headless Core callers without a permission
+handler still return ACP `cancelled`. The desktop prompt carries only bounded
+title/kind/summary data and never ACP raw input/output, patch bodies, file
+contents, or credentials.
+
+Current staged follow-up after this executable P0 boundary:
+
+1. Add project/user/managed policy layers with immutable deny rules and trust
+   state, instead of storing every rule only in one Custom Agent recipe.
+2. Add tool-argument scopes (path, command prefix, MCP server/tool, and network
+   domain) plus protected-path policy; exact tool names are intentionally the
+   first narrow contract.
+3. Add sanitized approval receipts, policy provenance, and revocation UI without
+   persisting secrets or raw tool payloads.
+4. Add MCP/app side-effect annotations and shared enforcement so direct local,
+   MCP, ACP, and connector actions use one auditable decision vocabulary.
+
 The three interactive names require the desktop request bridge. Headless callers
 without that bridge receive the 15 non-interactive names and do not receive
 placeholder prompts that can never resolve.

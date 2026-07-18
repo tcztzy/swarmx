@@ -1,6 +1,7 @@
 import { readFile, readdir, stat } from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
+import type { AcpPermissionHandler } from "./acp.js";
 import { AgentDefinitionSourceSchema } from "./agent-profiles.js";
 import { ContextPacketModeSchema, ContextStrategySchema } from "./context.js";
 import { HARNESSES, harnessModelRuntimeEnv, harnessModelRuntimeModel } from "./harness.js";
@@ -252,6 +253,8 @@ export const AgentCompositionPermissionsInputSchema = z
     mcp: z.string().min(1).optional(),
     shell: z.string().min(1).optional(),
     mode: z.string().min(1).optional(),
+    allowedTools: z.array(z.string().min(1)).default([]),
+    deniedTools: z.array(z.string().min(1)).default([]),
   })
   .passthrough();
 
@@ -742,6 +745,8 @@ export const AgentCompositionPermissionSummarySchema = z
     mcp: z.string().min(1).optional(),
     shell: z.string().min(1).optional(),
     mode: z.string().min(1).optional(),
+    allowedTools: z.array(z.string().min(1)).default([]),
+    deniedTools: z.array(z.string().min(1)).default([]),
     summary: z.string().min(1).optional(),
   })
   .passthrough()
@@ -887,6 +892,7 @@ export interface ExecuteAgentCompositionOptions {
   context?: Record<string, unknown>;
   cwd?: string;
   localTools?: readonly LocalTool[];
+  acpPermissionHandler?: AcpPermissionHandler;
   onChunk?: (chunk: MessageChunk) => void;
   onUsage?: (usage: ModelTokenUsage) => void;
 }
@@ -1560,7 +1566,12 @@ export async function executeAgentComposition(
   });
   const swarm = new Swarm(
     singleAgentSwarmConfig(agentConfigWithRuntimeEnv(agentConfig, runtimeEnv, options.cwd)),
-    { agent: { localTools: options.localTools } },
+    {
+      agent: {
+        localTools: options.localTools,
+        acpPermissionHandler: options.acpPermissionHandler,
+      },
+    },
   );
   return swarm.execute({ messages }, options.context, options.onChunk, options.onUsage);
 }
@@ -2070,6 +2081,8 @@ function permissionSummaryForPlan(
     mcp,
     shell,
     mode,
+    allowedTools: input?.allowedTools ?? [],
+    deniedTools: input?.deniedTools ?? profile?.disallowedTools ?? [],
     summary: [mode ? `mode ${mode}` : undefined, `${mcp} MCP`, shell].filter(Boolean).join(" / "),
   });
 }

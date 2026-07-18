@@ -14,6 +14,12 @@ export interface AgentQuestion {
   multiSelect: boolean;
 }
 
+export interface ToolApprovalOption {
+  optionId: string;
+  name: string;
+  kind: "allow_once" | "allow_always" | "reject_once" | "reject_always";
+}
+
 export type AgentInteractionEvent =
   | {
       kind: "questions";
@@ -27,11 +33,21 @@ export type AgentInteractionEvent =
       interactionId: string;
       plan: string;
       filePath: string;
+    }
+  | {
+      kind: "tool_approval";
+      requestId: string;
+      interactionId: string;
+      title: string;
+      toolKind?: string;
+      summary: string;
+      options: ToolApprovalOption[];
     };
 
 export type AgentInteractionResponse =
   | { kind: "questions"; answers: Record<string, string> }
-  | { kind: "plan_approval"; approved: boolean; feedback?: string };
+  | { kind: "plan_approval"; approved: boolean; feedback?: string }
+  | { kind: "tool_approval"; optionId: string };
 
 interface AgentInteractionDialogProps {
   interaction: AgentInteractionEvent;
@@ -48,15 +64,29 @@ export function AgentInteractionDialog({
   onResolve,
   onStop,
 }: AgentInteractionDialogProps) {
-  return interaction.kind === "questions" ? (
-    <QuestionDialog
-      interaction={interaction}
-      resolving={resolving}
-      error={error}
-      onResolve={onResolve}
-      onStop={onStop}
-    />
-  ) : (
+  if (interaction.kind === "questions") {
+    return (
+      <QuestionDialog
+        interaction={interaction}
+        resolving={resolving}
+        error={error}
+        onResolve={onResolve}
+        onStop={onStop}
+      />
+    );
+  }
+  if (interaction.kind === "tool_approval") {
+    return (
+      <ToolApprovalDialog
+        interaction={interaction}
+        resolving={resolving}
+        error={error}
+        onResolve={onResolve}
+        onStop={onStop}
+      />
+    );
+  }
+  return (
     <PlanApprovalDialog
       interaction={interaction}
       resolving={resolving}
@@ -64,6 +94,70 @@ export function AgentInteractionDialog({
       onResolve={onResolve}
       onStop={onStop}
     />
+  );
+}
+
+function ToolApprovalDialog({
+  interaction,
+  resolving,
+  error,
+  onResolve,
+  onStop,
+}: AgentInteractionDialogProps & {
+  interaction: Extract<AgentInteractionEvent, { kind: "tool_approval" }>;
+}) {
+  const rejectOptions = interaction.options.filter((option) => option.kind.startsWith("reject"));
+  const allowOptions = interaction.options.filter((option) => option.kind.startsWith("allow"));
+  return (
+    <div className="agent-interaction-backdrop">
+      <dialog
+        open
+        className="agent-interaction-dialog agent-interaction-dialog--tool"
+        aria-modal="true"
+        aria-labelledby="agent-tool-approval-title"
+      >
+        <header>
+          <span>Permission request</span>
+          <h2 id="agent-tool-approval-title">{interaction.title}</h2>
+          <p>This action is paused until you choose one of the offered permissions.</p>
+        </header>
+        <div className="agent-interaction-dialog__plan">
+          <pre>{interaction.summary}</pre>
+          {interaction.toolKind && <small>Tool kind: {interaction.toolKind}</small>}
+        </div>
+        {error && (
+          <p className="agent-interaction-dialog__error" role="alert">
+            {error}
+          </p>
+        )}
+        <footer>
+          <button type="button" disabled={resolving} onClick={onStop}>
+            Stop task
+          </button>
+          {rejectOptions.map((option) => (
+            <button
+              type="button"
+              disabled={resolving}
+              key={option.optionId}
+              onClick={() => onResolve({ kind: "tool_approval", optionId: option.optionId })}
+            >
+              {option.name}
+            </button>
+          ))}
+          {allowOptions.map((option) => (
+            <button
+              type="button"
+              className="is-primary"
+              disabled={resolving}
+              key={option.optionId}
+              onClick={() => onResolve({ kind: "tool_approval", optionId: option.optionId })}
+            >
+              {resolving ? "Sending…" : option.name}
+            </button>
+          ))}
+        </footer>
+      </dialog>
+    </div>
   );
 }
 

@@ -8,6 +8,7 @@ import {
   evaluateSkillCandidate,
   normalizeLogicalSkill,
   resolveHarnessSkillBinding,
+  resolveHarnessToolPermission,
 } from "../src/skill-variants.js";
 
 const context = {
@@ -91,6 +92,51 @@ describe("Skill variants", () => {
         skillBindings: [recipe.skillBindings[0], recipe.skillBindings[0]],
       }),
     ).toThrow(/duplicate Skill/i);
+  });
+
+  it("V443-V444 resolves typed permission modes with deny and plan precedence", () => {
+    expect(() =>
+      HarnessRecipeSchema.parse({
+        id: "unsafe-harness",
+        revisionId: "unsafe-harness@1",
+        softwareId: "swarmx",
+        permissions: { mode: "unknown" },
+      }),
+    ).toThrow();
+
+    expect(
+      resolveHarnessToolPermission(
+        { mode: "trusted", allowedTools: ["Bash"], deniedTools: ["Bash"] },
+        { toolName: "Bash", access: "execute" },
+      ),
+    ).toEqual({ decision: "deny", reason: "explicit_deny" });
+    expect(
+      resolveHarnessToolPermission(
+        { mode: "plan", allowedTools: ["Write"] },
+        { toolName: "Write", access: "write" },
+      ),
+    ).toEqual({ decision: "deny", reason: "plan_read_only" });
+    expect(
+      resolveHarnessToolPermission(
+        { mode: "restricted", allowedTools: ["Bash"] },
+        { toolName: "Bash", access: "execute" },
+      ),
+    ).toEqual({ decision: "allow", reason: "explicit_allow" });
+    expect(
+      resolveHarnessToolPermission({ mode: "default" }, { toolName: "Read", access: "read" }),
+    ).toEqual({ decision: "allow", reason: "read_only" });
+    expect(
+      resolveHarnessToolPermission(
+        { mode: "default" },
+        { toolName: "exec_command", access: "execute" },
+      ),
+    ).toEqual({ decision: "ask", reason: "default" });
+    expect(
+      resolveHarnessToolPermission({ mode: "restricted" }, { toolName: "Write", access: "write" }),
+    ).toEqual({ decision: "deny", reason: "restricted" });
+    expect(
+      resolveHarnessToolPermission({ mode: "trusted" }, { toolName: "Write", access: "write" }),
+    ).toEqual({ decision: "allow", reason: "trusted" });
   });
 
   it("migrates a legacy single-path Skill into one default variant", () => {

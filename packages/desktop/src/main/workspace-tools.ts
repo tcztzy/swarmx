@@ -18,7 +18,17 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { type LocalMcpTool, type LocalTool, type ModelApi, localToolResult } from "@swarmx/core";
+import {
+  type HarnessPermissionPolicy,
+  HarnessPermissionPolicySchema,
+  type HarnessToolAccess,
+  type LocalMcpTool,
+  type LocalTextTool,
+  type LocalTool,
+  type ModelApi,
+  localToolResult,
+  resolveHarnessToolPermission,
+} from "@swarmx/core";
 import type {
   ClaudeInteractionRequest,
   ClaudeInteractionResponse,
@@ -189,6 +199,7 @@ export interface WorkspaceAgentToolOptions {
   agent?: (request: ClaudeAgentInvocation) => Promise<ClaudeAgentResult>;
   sessionTools?: ClaudeSessionToolBridge;
   borrowShell?: boolean;
+  permissionPolicy?: HarnessPermissionPolicy;
 }
 
 export interface ClaudeSessionActivation {
@@ -1494,9 +1505,125 @@ export function workspaceAgentTools(
   shell = new WorkspaceShell(tools.root),
   options: WorkspaceAgentToolOptions = {},
 ): LocalTool[] {
-  return workspaceToolProfile(options) === "claude_code"
-    ? claudeCodeWorkspaceTools(tools, shell, options)
-    : codexWorkspaceTools(tools, shell, options.apiProtocol);
+  const profileTools =
+    workspaceToolProfile(options) === "claude_code"
+      ? claudeCodeWorkspaceTools(tools, shell, options)
+      : codexWorkspaceTools(tools, shell, options.apiProtocol);
+  if (!options.permissionPolicy) return profileTools;
+  const policy = HarnessPermissionPolicySchema.parse(options.permissionPolicy);
+  return profileTools.map((tool) => permissionGuardedTool(tool, policy, options.interact));
+}
+
+const READ_ONLY_PERMISSION_TOOLS = new Set([
+  "AskUserQuestion",
+  "CronList",
+  "EnterPlanMode",
+  "ExitPlanMode",
+  "Glob",
+  "Grep",
+  "LSP",
+  "Read",
+  "ReportFindings",
+  "TaskCreate",
+  "TaskGet",
+  "TaskList",
+  "TaskOutput",
+  "TaskUpdate",
+  "TodoWrite",
+]);
+
+const WRITE_PERMISSION_TOOLS = new Set(["Edit", "NotebookEdit", "Write", "apply_patch"]);
+
+function permissionGuardedTool(
+  tool: LocalTool,
+  policy: HarnessPermissionPolicy,
+  interact: WorkspaceAgentToolOptions["interact"],
+): LocalTool {
+  const authorize = (input: Record<string, unknown> | string) =>
+    authorizeWorkspaceTool(tool.name, workspaceToolAccess(tool.name), input, policy, interact);
+  if (tool.kind === "text") {
+    const textTool = tool as LocalTextTool;
+    return {
+      ...textTool,
+      call: async (input: string) => {
+        await authorize(input);
+        return textTool.call(input);
+      },
+    };
+  }
+  const functionTool = tool as LocalMcpTool;
+  return {
+    ...functionTool,
+    call: async (input: Record<string, unknown>) => {
+      await authorize(input);
+      return functionTool.call(input);
+    },
+  };
+}
+
+async function authorizeWorkspaceTool(
+  toolName: string,
+  access: HarnessToolAccess,
+  input: Record<string, unknown> | string,
+  policy: HarnessPermissionPolicy,
+  interact: WorkspaceAgentToolOptions["interact"],
+): Promise<void> {
+  const resolved = resolveHarnessToolPermission(policy, { toolName, access });
+  if (resolved.decision === "allow") return;
+  if (resolved.decision === "deny") {
+    throw new Error(
+      `Tool "${toolName}" is denied by Harness permission policy (${resolved.reason}).`,
+    );
+  }
+  if (!interact) {
+    throw new Error(
+      `Tool "${toolName}" requires approval, but no interaction bridge is available.`,
+    );
+  }
+  const response = await interact({
+    kind: "tool_approval",
+    title: `Allow ${toolName}?`,
+    toolKind: access,
+    summary: workspaceToolApprovalSummary(toolName, input),
+    options: [
+      { optionId: "reject_once", name: "Reject", kind: "reject_once" },
+      { optionId: "allow_once", name: "Allow once", kind: "allow_once" },
+    ],
+  });
+  if (response.kind !== "tool_approval" || response.optionId !== "allow_once") {
+    throw new Error(`Tool "${toolName}" was rejected by the user.`);
+  }
+}
+
+function workspaceToolAccess(toolName: string): HarnessToolAccess {
+  if (READ_ONLY_PERMISSION_TOOLS.has(toolName)) return "read";
+  if (WRITE_PERMISSION_TOOLS.has(toolName)) return "write";
+  return "execute";
+}
+
+function workspaceToolApprovalSummary(
+  toolName: string,
+  input: Record<string, unknown> | string,
+): string {
+  if (typeof input === "string") return `${toolName} requested a bounded Project patch.`;
+  const safeFields = ["file_path", "path", "workdir", "name", "action", "description", "cron"];
+  const details = safeFields.flatMap((field) => {
+    const value = input[field];
+    return typeof value === "string" && value.trim()
+      ? [`${field}: ${boundedApprovalText(value)}`]
+      : [];
+  });
+  if ("command" in input || "cmd" in input) {
+    details.push("command: Project-sandboxed shell command");
+  }
+  return details.length > 0
+    ? `${toolName}\n${details.join("\n")}`
+    : `${toolName} requested a ${workspaceToolAccess(toolName)} operation in the active Project.`;
+}
+
+function boundedApprovalText(value: string): string {
+  const compact = value.replace(/\s+/g, " ").trim();
+  return compact.length <= 240 ? compact : `${compact.slice(0, 239)}…`;
 }
 
 export function workspaceToolProfile(

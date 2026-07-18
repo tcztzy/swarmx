@@ -14,13 +14,27 @@ export interface ClaudeQuestion {
   multiSelect: boolean;
 }
 
+export interface ToolApprovalOption {
+  optionId: string;
+  name: string;
+  kind: "allow_once" | "allow_always" | "reject_once" | "reject_always";
+}
+
 export type ClaudeInteractionRequest =
   | { kind: "questions"; questions: ClaudeQuestion[] }
-  | { kind: "plan_approval"; plan: string; filePath: string };
+  | { kind: "plan_approval"; plan: string; filePath: string }
+  | {
+      kind: "tool_approval";
+      title: string;
+      toolKind?: string;
+      summary: string;
+      options: ToolApprovalOption[];
+    };
 
 export type ClaudeInteractionResponse =
   | { kind: "questions"; answers: Record<string, string> }
-  | { kind: "plan_approval"; approved: boolean; feedback?: string };
+  | { kind: "plan_approval"; approved: boolean; feedback?: string }
+  | { kind: "tool_approval"; optionId: string };
 
 export type DesktopAgentInteractionEvent = ClaudeInteractionRequest & {
   requestId: string;
@@ -176,6 +190,15 @@ function validateResponse(
       approved: response.approved,
       ...(response.feedback?.trim() ? { feedback: response.feedback.trim() } : {}),
     };
+  }
+  if (request.kind === "tool_approval") {
+    if (response.kind !== "tool_approval" || typeof response.optionId !== "string") {
+      throw new Error("Tool approval response is invalid.");
+    }
+    if (!request.options.some((option) => option.optionId === response.optionId)) {
+      throw new Error("Tool approval option was not offered.");
+    }
+    return { kind: "tool_approval", optionId: response.optionId };
   }
   if (response.kind !== "questions" || !isRecord(response.answers)) {
     throw new Error("Question answers are invalid.");
