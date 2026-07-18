@@ -176,6 +176,7 @@ export function createSwarmxDesktopApi(
       model?: string;
       projectId?: string;
       cwd?: string;
+      permissionMode?: "inherit" | "default" | "plan" | "trusted";
     }) => invoke("session:create", params),
 
     saveSession: (session: unknown) => invoke("session:save", session),

@@ -92,8 +92,7 @@ contents, or credentials.
 
 ### Layered governance and desktop UX
 
-Direct SwarmX policy now resolves four explicit sources in least-authority
-order:
+Direct SwarmX policy resolves four durable sources in least-authority order:
 
 1. `SWARMX_MANAGED_PERMISSION_POLICY` supplies an optional read-only managed
    JSON layer.
@@ -103,6 +102,14 @@ order:
 3. Desktop Settings supplies editable personal defaults.
 4. The selected Custom Agent supplies its Harness policy.
 
+A persisted conversation may additionally select `inherit`, `default`, `plan`,
+or `trusted`. `inherit` keeps the four-layer result. An explicit conversation
+choice replaces the personal and Agent mode defaults for that conversation,
+but managed/Project mode ceilings and every explicit deny rule remain in force.
+The Main process reads this value from the authoritative saved session before
+creating direct tools and again for background activations. External ACP
+Harnesses retain their own permission semantics.
+
 The least-authority declared mode wins in the order `plan < restricted <
 default < trusted`. Denials union across all layers and remove any matching
 pre-approval. Missing managed/Project sources inherit neutrally; malformed
@@ -110,9 +117,13 @@ configured sources are visible and fail closed before direct tools are
 created. This prevents repository content from granting authority while still
 letting a Project enforce local restrictions.
 
-Desktop Settings has a dedicated Permissions workspace that shows the effective
-mode, exact allow/deny counts, source provenance, editable personal defaults,
-the selected Project policy path, and a newest-first local approval history.
+General Settings owns the personal default mode in a Codex-style Permissions
+card. Advanced permissions shows the effective mode, exact allow/deny counts,
+source provenance, editable exact-tool rules, the selected Project policy path,
+and a newest-first local approval history. Changing the General default
+preserves the advanced rules. Every direct SwarmX conversation Composer exposes
+its current choice before send and persists changes immediately for an existing
+session or with creation of a new session.
 Custom Agents use structured exact-tool chips with duplicate/conflict checking
 instead of newline rule text. Approval dialogs explain that allow-once applies
 to one call and does not expand the host sandbox; rejection receives initial

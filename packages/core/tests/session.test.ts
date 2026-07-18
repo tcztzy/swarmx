@@ -33,6 +33,7 @@ describe("Session", () => {
     expect(session.agentName).toBe("agent");
     expect(session.harness).toBe("swarmx");
     expect(session.model).toBe("gpt-4");
+    expect(session.permissionMode).toBe("inherit");
     expect(session.messages).toEqual([]);
     expect(session.pinned).toBe(false);
     expect(session.createdAt).toBeTruthy();
@@ -42,6 +43,7 @@ describe("Session", () => {
     const session = createSession("agent", "swarmx", "gpt-4", {
       projectId: "project-1",
       cwd: "/workspace/project-1",
+      permissionMode: "trusted",
     });
     savedIds.push(session.id);
     saveSession(session);
@@ -49,7 +51,27 @@ describe("Session", () => {
     expect(loadSession(session.id)).toMatchObject({
       projectId: "project-1",
       cwd: "/workspace/project-1",
+      permissionMode: "trusted",
     });
+  });
+
+  it("V457 migrates legacy sessions to inherit and rejects unsupported overrides", () => {
+    fs.mkdirSync(sessionsDir, { recursive: true });
+    const legacy = {
+      id: "legacy-permission-session",
+      title: "Legacy",
+      agentName: "agent",
+      harness: "swarmx",
+      pinned: false,
+      messages: [],
+      createdAt: "2026-07-18T00:00:00.000Z",
+      updatedAt: "2026-07-18T00:00:00.000Z",
+    };
+    savedIds.push(legacy.id);
+    fs.writeFileSync(path.join(sessionsDir, `${legacy.id}.json`), JSON.stringify(legacy), "utf8");
+    expect(loadSession(legacy.id)?.permissionMode).toBe("inherit");
+
+    expect(() => saveSession({ ...legacy, permissionMode: "restricted" } as never)).toThrow();
   });
 
   it("saves and loads a session", () => {

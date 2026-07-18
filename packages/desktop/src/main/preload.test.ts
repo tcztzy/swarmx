@@ -65,6 +65,20 @@ describe("preload API", () => {
     expect(electron.invoke).toHaveBeenCalledWith("agent:send", params);
   });
 
+  it("V457 forwards the persisted conversation permission when creating a session", async () => {
+    const params = {
+      agentName: "agent",
+      harness: "swarmx",
+      projectId: "project-1",
+      cwd: "/workspace/project-1",
+      permissionMode: "plan" as const,
+    };
+
+    await exposedApi().createSession(params);
+
+    expect(electron.invoke).toHaveBeenCalledWith("session:create", params);
+  });
+
   it("V353 exposes request-scoped live agent chunks through a removable subscription", () => {
     const listener = vi.fn();
     const unsubscribe = exposedApi().onAgentChunk(listener);

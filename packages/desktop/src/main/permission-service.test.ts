@@ -74,6 +74,69 @@ describe("PermissionService", () => {
     ).rejects.toThrow(/Project policy is invalid:[\s\S]*cannot pre-approve/i);
   });
 
+  it("V458 applies a conversation mode without bypassing ceilings or explicit denials", async () => {
+    const managed = await fixture({
+      SWARMX_MANAGED_PERMISSION_POLICY: JSON.stringify({
+        mode: "default",
+        deniedTools: ["Write"],
+      }),
+    });
+    await managed.service.savePersonalPolicy({
+      mode: "plan",
+      allowedTools: ["exec_command"],
+      deniedTools: ["Bash"],
+    });
+
+    const inherited = await managed.service.resolve({
+      cwd: managed.root,
+      agentId: "builder",
+      agentPolicy: { mode: "restricted", allowedTools: ["Edit"], deniedTools: ["WebFetch"] },
+      sessionPermissionMode: "inherit",
+    });
+    expect(inherited.policy.mode).toBe("plan");
+
+    const overridden = await managed.service.resolve({
+      cwd: managed.root,
+      agentId: "builder",
+      agentPolicy: { mode: "restricted", allowedTools: ["Edit"], deniedTools: ["WebFetch"] },
+      sessionPermissionMode: "trusted",
+    });
+    expect(overridden.policy).toEqual({
+      mode: "default",
+      allowedTools: ["Edit", "exec_command"],
+      deniedTools: ["Bash", "WebFetch", "Write"],
+    });
+    expect(overridden.modeSourceIds).toEqual(["managed"]);
+    expect(overridden.layers.at(-1)).toMatchObject({
+      id: "session",
+      source: "session",
+      mode: "trusted",
+    });
+
+    const personalDefault = await fixture();
+    await personalDefault.service.savePersonalPolicy({ mode: "trusted" });
+    await expect(
+      personalDefault.service.resolve({
+        agentPolicy: { mode: "default", allowedTools: [], deniedTools: [] },
+        agentModeDeclared: false,
+      }),
+    ).resolves.toMatchObject({ policy: { mode: "trusted" }, modeSourceIds: ["personal"] });
+
+    await mkdir(join(personalDefault.root, ".swarmx"), { recursive: true });
+    await writeFile(
+      join(personalDefault.root, ".swarmx", "permissions.json"),
+      JSON.stringify({ mode: "plan" }),
+    );
+    await expect(
+      personalDefault.service.resolve({
+        cwd: personalDefault.root,
+        agentPolicy: { mode: "default", allowedTools: [], deniedTools: [] },
+        agentModeDeclared: false,
+        sessionPermissionMode: "trusted",
+      }),
+    ).resolves.toMatchObject({ policy: { mode: "plan" }, modeSourceIds: ["project"] });
+  });
+
   it("V452 persists structured personal policy and sanitized newest-first receipts", async () => {
     const { service } = await fixture(undefined, {
       now: () => "2026-07-18T12:00:00.000Z",

@@ -5,6 +5,7 @@ import type {
   HarnessPermissionPolicyLayer,
   PermissionApprovalReceipt,
   ResolvedHarnessPermissionPolicy,
+  SessionPermissionMode,
   SwarmConfig,
   SwarmNodeConfig,
 } from "@swarmx/core";
@@ -136,6 +137,7 @@ interface SessionData {
   agentName: string;
   harness: string;
   model?: string;
+  permissionMode?: SessionPermissionMode;
   pinned: boolean;
   messages: MessageChunk[];
   archivedAt?: string;
@@ -354,6 +356,7 @@ interface ExtensionManagementState {
 
 type ModelApiProtocol = "anthropic" | "openai_chat" | "openai_responses" | "ollama";
 type SettingsSection =
+  | "general"
   | "profile"
   | "permissions"
   | "providers"
@@ -1034,6 +1037,7 @@ interface SwarmxAPI {
     model?: string;
     projectId?: string;
     cwd?: string;
+    permissionMode?: SessionPermissionMode;
   }): Promise<SessionData>;
   saveSession(session: SessionData): Promise<void>;
   loadSession(id: string): Promise<SessionData | null>;
@@ -1459,6 +1463,9 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
   const [selectedModelId, setSelectedModelId] = useState<string | null>(null);
   const [selectedEffort, setSelectedEffort] = useState<string | null>(null);
   const [agentPickerOpen, setAgentPickerOpen] = useState(false);
+  const [permissionPickerOpen, setPermissionPickerOpen] = useState(false);
+  const [newSessionPermissionMode, setNewSessionPermissionMode] =
+    useState<SessionPermissionMode>("inherit");
   const [agentPickerSection, setAgentPickerSection] = useState<"harness" | "model" | "effort">(
     "harness",
   );
@@ -2050,6 +2057,15 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
     selectedModel?.label ??
     displayHarness.label;
   const activeRunHarnessId = activeExtensionAgent?.harnessId ?? selectedHarness;
+  const sessionPermissionSupported = Boolean(
+    !activeWorkflowConfig &&
+      !acpHistoryReadOnly &&
+      (activeExtensionAgent
+        ? activeExtensionAgent.harnessRecipe?.softwareId === "swarmx" ||
+          activeExtensionAgent.harnessId === "swarmx"
+        : selectedHarness === "swarmx"),
+  );
+  const sessionPermissionMode = currentSession?.permissionMode ?? newSessionPermissionMode;
   const activeRunHarnessEnvironment = useMemo(
     () =>
       harnessEnvironment?.harnesses.find((harness) => harness.harnessId === activeRunHarnessId) ??
@@ -2138,7 +2154,7 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
     isLoading: permissionStatusLoading,
     mutate: mutatePermissionStatus,
   } = useSWR<DesktopPermissionStatus>(
-    settingsSection === "permissions"
+    settingsSection === "general" || settingsSection === "permissions"
       ? [
           "permissions:status",
           selectedProject?.cwd ?? "personal",
@@ -2226,9 +2242,11 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
     : "Workflow draft";
   const runTitle = activeUiContribution?.name ?? currentSession?.title ?? productConfig.name;
   const runSubtitle = settingsSection
-    ? settingsSection === "profile"
-      ? "Private, on-device activity"
-      : "Providers, extensions, and runtime"
+    ? settingsSection === "general"
+      ? "Defaults for new conversations"
+      : settingsSection === "profile"
+        ? "Private, on-device activity"
+        : "Providers, extensions, and runtime"
     : activeUiContribution
       ? `${activeUiContribution.placement} contribution${
           activeUiContribution.sourcePluginId ? ` via ${activeUiContribution.sourcePluginId}` : ""
@@ -2244,9 +2262,11 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
                 activeHarness.id,
               )}`;
   const headerTitle = settingsSection
-    ? settingsSection === "profile"
-      ? "Profile"
-      : "Settings"
+    ? settingsSection === "general"
+      ? "General"
+      : settingsSection === "profile"
+        ? "Profile"
+        : "Settings"
     : activeUiContribution?.name
       ? activeUiContribution.name
       : workflowPanelOpen
@@ -2414,10 +2434,33 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
       setSidebarQuery("");
       setSidebarSearchOpen(false);
       setProjectError(null);
+      setNewSessionPermissionMode("inherit");
+      setPermissionPickerOpen(false);
       recordNavigationEntry(null);
       window.requestAnimationFrame(() => composerRef.current?.focus());
     },
     [recordNavigationEntry, selectedProject],
+  );
+
+  const changeSessionPermissionMode = useCallback(
+    async (permissionMode: SessionPermissionMode) => {
+      setComposerError(null);
+      if (!currentSession) {
+        setNewSessionPermissionMode(permissionMode);
+        return;
+      }
+      const previous = currentSession;
+      const updated = { ...currentSession, permissionMode };
+      setCurrentSession(updated);
+      try {
+        await api.saveSession(updated);
+      } catch (error) {
+        setCurrentSession((visible) => (visible?.id === previous.id ? previous : visible));
+        setComposerError(`Could not save conversation permissions: ${errorMessage(error)}`);
+        throw error;
+      }
+    },
+    [currentSession],
   );
 
   const addProject = useCallback(
@@ -3026,6 +3069,7 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
         session = (await api.createSession({
           agentName: activeWorkflowConfig?.name ?? activeExtensionAgent?.name ?? "agent",
           harness: activeExtensionAgent?.harnessId ?? selectedHarness,
+          permissionMode: newSessionPermissionMode,
           ...(selectedProject ? { projectId: selectedProject.id, cwd: selectedProject.cwd } : {}),
         })) as SessionData;
         sessionForError = session;
@@ -3186,6 +3230,7 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
     selectedHarnessNeedsSetup,
     activeRunHarnessId,
     selectedProject,
+    newSessionPermissionMode,
     composerWorkspaceRoot,
     manualCompositionNeedsModel,
     acpHistoryReadOnly,
@@ -3888,7 +3933,7 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
                     </span>
                   </div>
                   <div className="sidebar-account-menu__items">
-                    <button type="button" role="menuitem" onClick={() => openSettings("profile")}>
+                    <button type="button" role="menuitem" onClick={() => openSettings("general")}>
                       <Settings aria-hidden="true" />
                       <span>Settings</span>
                     </button>
@@ -3954,7 +3999,20 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
               </div>
             )}
             <div className="runtime__surface">
-              {settingsSection === "profile" ? (
+              {settingsSection === "general" ? (
+                <GeneralSettings
+                  status={permissionStatus}
+                  loading={permissionStatusLoading}
+                  error={permissionStatusError}
+                  onOpenAdvanced={() => setSettingsSection("permissions")}
+                  onSave={async (policy) => {
+                    await mutatePermissionStatus(
+                      await api.savePersonalPermissionPolicy(policy, permissionContext),
+                      false,
+                    );
+                  }}
+                />
+              ) : settingsSection === "profile" ? (
                 <ProfileWorkspace
                   summary={activityProfile}
                   loading={activityProfileLoading}
@@ -4197,6 +4255,17 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
               selectFilesAndFolders={api.selectFilesAndFolders}
               onContextError={(error) => setComposerError(errorMessage(error))}
             >
+              <ConversationPermissionPicker
+                open={permissionPickerOpen}
+                mode={sessionPermissionMode}
+                supported={sessionPermissionSupported}
+                disabled={runState !== "idle" || acpHistoryReadOnly}
+                onOpenChange={(open) => {
+                  setPermissionPickerOpen(open);
+                  if (open) setAgentPickerOpen(false);
+                }}
+                onChange={changeSessionPermissionMode}
+              />
               <AgentPicker
                 open={agentPickerOpen}
                 section={agentPickerSection}
@@ -4212,7 +4281,10 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
                 modelCatalogError={modelCatalogError}
                 disabled={Boolean(activeWorkflowConfig || activeExtensionAgent)}
                 label={agentPickerLabel}
-                onOpenChange={setAgentPickerOpen}
+                onOpenChange={(open) => {
+                  setAgentPickerOpen(open);
+                  if (open) setPermissionPickerOpen(false);
+                }}
                 onSectionChange={setAgentPickerSection}
                 onHarnessChange={(harnessId) => {
                   setSelectedHarness(harnessId);
@@ -4433,10 +4505,11 @@ function SettingsSidebar({
 }) {
   const normalizedQuery = query.trim().toLowerCase();
   const personalSections = [
+    { id: "general" as const, label: "General", icon: Settings },
     { id: "profile" as const, label: "Profile", icon: User },
-    { id: "permissions" as const, label: "Permissions", icon: ShieldCheck },
   ].filter((item) => item.label.toLowerCase().includes(normalizedQuery));
   const systemSections = [
+    { id: "permissions" as const, label: "Advanced permissions", icon: ShieldCheck },
     { id: "providers" as const, label: "Providers", icon: KeyRound },
     { id: "extensions" as const, label: "Extensions", icon: Package },
     { id: "agents" as const, label: "Custom Agents", icon: Bot },
@@ -4536,6 +4609,132 @@ const PERMISSION_MODE_OPTIONS: Array<{
   },
 ];
 
+const GENERAL_PERMISSION_MODE_OPTIONS = [
+  {
+    id: "default" as const,
+    label: "Default permissions",
+    description: "Read-only tools run automatically; writes and commands ask each time.",
+  },
+  {
+    id: "plan" as const,
+    label: "Plan only",
+    description: "Allow inspection and planning, while blocking writes and commands.",
+  },
+  {
+    id: "restricted" as const,
+    label: "Restricted",
+    description: "Run only read-only tools and tools pre-approved in Advanced permissions.",
+  },
+  {
+    id: "trusted" as const,
+    label: "Full access",
+    description: "Run tools without approval prompts inside the unchanged Project sandbox.",
+  },
+];
+
+function GeneralSettings({
+  status,
+  loading,
+  error,
+  onSave,
+  onOpenAdvanced,
+}: {
+  status?: DesktopPermissionStatus;
+  loading: boolean;
+  error: unknown;
+  onSave: (policy: unknown) => Promise<void>;
+  onOpenAdvanced: () => void;
+}) {
+  const [savingMode, setSavingMode] = useState<HarnessPermissionMode | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const selectedMode = status?.personalPolicy.mode ?? "default";
+
+  const selectMode = async (mode: HarnessPermissionMode) => {
+    if (!status || savingMode) return;
+    setSavingMode(mode);
+    setSaveError(null);
+    try {
+      await onSave({
+        mode,
+        allowedTools: status.personalPolicy.allowedTools,
+        deniedTools: status.personalPolicy.deniedTools,
+      });
+    } catch (saveFailure) {
+      setSaveError(errorMessage(saveFailure));
+    } finally {
+      setSavingMode(null);
+    }
+  };
+
+  if (loading && !status) {
+    return (
+      <section className="settings-workspace general-settings" aria-label="General settings">
+        <div className="settings-workspace__loading">
+          <Loader2 className="is-spinning" aria-hidden="true" /> Loading General settings…
+        </div>
+      </section>
+    );
+  }
+
+  return (
+    <section className="settings-workspace general-settings" aria-label="General settings">
+      <div className="settings-workspace__body">
+        <div className="settings-workspace__content general-settings__content">
+          <div className="general-settings__heading">
+            <h2>General</h2>
+          </div>
+
+          {Boolean(saveError || error) && (
+            <div className="settings-provider-error">{saveError ?? errorMessage(error)}</div>
+          )}
+
+          <section className="general-settings__section" aria-labelledby="general-permissions">
+            <h3 id="general-permissions">Permissions</h3>
+            <fieldset className="general-permission-card" disabled={!status || Boolean(savingMode)}>
+              <legend className="sr-only">Default permission mode</legend>
+              {GENERAL_PERMISSION_MODE_OPTIONS.map((option) => {
+                const selected = selectedMode === option.id;
+                return (
+                  <label key={option.id} className={selected ? "is-selected" : undefined}>
+                    <input
+                      type="radio"
+                      name="general-permission-mode"
+                      value={option.id}
+                      checked={selected}
+                      onChange={() => void selectMode(option.id)}
+                    />
+                    <span className="general-permission-card__copy">
+                      <strong>{option.label}</strong>
+                      <small>{option.description}</small>
+                    </span>
+                    <span className="general-permission-card__choice" aria-hidden="true">
+                      {savingMode === option.id ? (
+                        <Loader2 className="is-spinning" />
+                      ) : selected ? (
+                        <Check />
+                      ) : null}
+                    </span>
+                  </label>
+                );
+              })}
+            </fieldset>
+            <div className="general-permission-note">
+              <span>
+                <ShieldCheck aria-hidden="true" /> Managed, Project, and explicit deny rules still
+                apply. Full access never disables the host sandbox.
+              </span>
+              <button type="button" onClick={onOpenAdvanced}>
+                Advanced permissions
+                <ChevronRight aria-hidden="true" />
+              </button>
+            </div>
+          </section>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 function PermissionsSettings({
   status,
   loading,
@@ -4551,7 +4750,6 @@ function PermissionsSettings({
   agentName?: string;
   onSave: (policy: unknown) => Promise<void>;
 }) {
-  const [mode, setMode] = useState<HarnessPermissionMode | "inherit">("inherit");
   const [allowedTools, setAllowedTools] = useState<string[]>([]);
   const [deniedTools, setDeniedTools] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
@@ -4559,7 +4757,6 @@ function PermissionsSettings({
 
   useEffect(() => {
     if (!status) return;
-    setMode(status.personalPolicy.mode ?? "inherit");
     setAllowedTools(status.personalPolicy.allowedTools);
     setDeniedTools(status.personalPolicy.deniedTools);
     setSaveError(null);
@@ -4570,7 +4767,7 @@ function PermissionsSettings({
     setSaveError(null);
     try {
       await onSave({
-        ...(mode === "inherit" ? {} : { mode }),
+        ...(status?.personalPolicy.mode ? { mode: status.personalPolicy.mode } : {}),
         allowedTools,
         deniedTools,
       });
@@ -4583,7 +4780,10 @@ function PermissionsSettings({
 
   if (loading && !status) {
     return (
-      <section className="settings-workspace permission-settings" aria-label="Permissions settings">
+      <section
+        className="settings-workspace permission-settings"
+        aria-label="Advanced permissions settings"
+      >
         <div className="settings-workspace__loading">
           <Loader2 className="is-spinning" aria-hidden="true" /> Loading permission policy…
         </div>
@@ -4593,7 +4793,10 @@ function PermissionsSettings({
 
   if (error && !status) {
     return (
-      <section className="settings-workspace permission-settings" aria-label="Permissions settings">
+      <section
+        className="settings-workspace permission-settings"
+        aria-label="Advanced permissions settings"
+      >
         <div className="settings-provider-error">{errorMessage(error)}</div>
       </section>
     );
@@ -4604,16 +4807,19 @@ function PermissionsSettings({
   const effectiveModeLabel = permissionModeLabel(effectiveMode);
 
   return (
-    <section className="settings-workspace permission-settings" aria-label="Permissions settings">
+    <section
+      className="settings-workspace permission-settings"
+      aria-label="Advanced permissions settings"
+    >
       <div className="settings-workspace__body">
         <div className="settings-workspace__content permission-settings__content">
           <div className="settings-content-heading permission-settings__heading">
             <span>
-              <small>Authority and approvals</small>
-              <h2>Permissions</h2>
+              <small>Exact rules and audit</small>
+              <h2>Advanced permissions</h2>
               <p>
-                Review the effective policy before changing personal defaults. Denials and the most
-                restrictive mode always win.
+                Review effective authority, configure exact tool rules, and inspect one-call
+                decisions. The default mode lives in General.
               </p>
             </span>
             <button
@@ -4622,7 +4828,7 @@ function PermissionsSettings({
               disabled={saving}
               onClick={() => void save()}
             >
-              {saving ? "Saving…" : "Save personal defaults"}
+              {saving ? "Saving…" : "Save exact tool rules"}
             </button>
           </div>
 
@@ -4681,47 +4887,14 @@ function PermissionsSettings({
             <div className="permission-panel__heading">
               <span>
                 <small>Editable on this device</small>
-                <h3 id="personal-permission-heading">Personal defaults</h3>
+                <h3 id="personal-permission-heading">Exact tool rules</h3>
                 <p>
-                  These defaults combine with managed, Project, and Agent policy at execution time.
+                  Pre-approvals and denials combine with the default mode, managed, Project, and
+                  Agent policy at execution time.
                 </p>
               </span>
               <Badge tone="active">Personal</Badge>
             </div>
-
-            <fieldset className="permission-mode-picker">
-              <legend>Default mode</legend>
-              <label className={mode === "inherit" ? "is-selected" : undefined}>
-                <input
-                  type="radio"
-                  name="personal-permission-mode"
-                  value="inherit"
-                  checked={mode === "inherit"}
-                  onChange={() => setMode("inherit")}
-                />
-                <span>
-                  <strong>Use other policy</strong>
-                  <small>
-                    Do not set a personal ceiling; default to Ask when needed if none exists.
-                  </small>
-                </span>
-              </label>
-              {PERMISSION_MODE_OPTIONS.map((option) => (
-                <label key={option.id} className={mode === option.id ? "is-selected" : undefined}>
-                  <input
-                    type="radio"
-                    name="personal-permission-mode"
-                    value={option.id}
-                    checked={mode === option.id}
-                    onChange={() => setMode(option.id)}
-                  />
-                  <span>
-                    <strong>{option.label}</strong>
-                    <small>{option.description}</small>
-                  </span>
-                </label>
-              ))}
-            </fieldset>
 
             <div className="permission-rule-grid">
               <PermissionToolRulesEditor
@@ -4962,6 +5135,161 @@ function formatPermissionTime(value: string): string {
     hour: "2-digit",
     minute: "2-digit",
   });
+}
+
+const CONVERSATION_PERMISSION_OPTIONS: Array<{
+  id: SessionPermissionMode;
+  label: string;
+  shortLabel: string;
+  description: string;
+}> = [
+  {
+    id: "inherit",
+    label: "Use default",
+    shortLabel: "Default",
+    description: "Follow General and the selected Agent's default mode.",
+  },
+  {
+    id: "default",
+    label: "Ask when needed",
+    shortLabel: "Ask",
+    description: "Read-only tools run; writes and commands ask once.",
+  },
+  {
+    id: "plan",
+    label: "Plan only",
+    shortLabel: "Plan",
+    description: "Inspect and plan without writes or commands.",
+  },
+  {
+    id: "trusted",
+    label: "Full access",
+    shortLabel: "Full access",
+    description: "Run without prompts inside the unchanged Project sandbox.",
+  },
+];
+
+function ConversationPermissionPicker({
+  open,
+  mode,
+  supported,
+  disabled,
+  onOpenChange,
+  onChange,
+}: {
+  open: boolean;
+  mode: SessionPermissionMode;
+  supported: boolean;
+  disabled: boolean;
+  onOpenChange: (open: boolean) => void;
+  onChange: (mode: SessionPermissionMode) => Promise<void>;
+}) {
+  const rootRef = useRef<HTMLDivElement>(null);
+  const [savingMode, setSavingMode] = useState<SessionPermissionMode | null>(null);
+  const descriptionId = useId();
+  const selected =
+    CONVERSATION_PERMISSION_OPTIONS.find((option) => option.id === mode) ??
+    CONVERSATION_PERMISSION_OPTIONS[0];
+
+  useEffect(() => {
+    if (!open) return;
+    const onPointerDown = (event: PointerEvent) => {
+      if (!rootRef.current?.contains(event.target as Node)) onOpenChange(false);
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onOpenChange(false);
+    };
+    document.addEventListener("pointerdown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [onOpenChange, open]);
+
+  const selectMode = async (nextMode: SessionPermissionMode) => {
+    if (savingMode) return;
+    setSavingMode(nextMode);
+    try {
+      await onChange(nextMode);
+      onOpenChange(false);
+    } catch {
+      // The owning Composer surfaces the persistence error without closing this menu.
+    } finally {
+      setSavingMode(null);
+    }
+  };
+
+  return (
+    <div className="conversation-permission-picker" ref={rootRef}>
+      <button
+        type="button"
+        className="conversation-permission-picker__trigger"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-describedby={descriptionId}
+        disabled={disabled || !supported}
+        title={
+          supported
+            ? "Set permissions for this conversation"
+            : "External ACP Harnesses keep their native permission controls."
+        }
+        onClick={() => onOpenChange(!open)}
+      >
+        <ShieldCheck aria-hidden="true" />
+        <span>{supported ? selected?.shortLabel : "Harness managed"}</span>
+        <ChevronDown aria-hidden="true" />
+      </button>
+      <span id={descriptionId} className="sr-only">
+        {supported
+          ? "This selection applies to this conversation only."
+          : "External ACP Harnesses keep their native permission controls."}
+      </span>
+      {open && supported && (
+        <section
+          className="conversation-permission-picker__menu"
+          role="menu"
+          aria-label="Conversation permissions"
+        >
+          <div className="conversation-permission-picker__heading">
+            <strong>Conversation permissions</strong>
+            <small>Choose what direct SwarmX tools can do in this task.</small>
+          </div>
+          <div className="conversation-permission-picker__options">
+            {CONVERSATION_PERMISSION_OPTIONS.map((option) => (
+              <button
+                key={option.id}
+                type="button"
+                role="menuitemradio"
+                aria-checked={mode === option.id}
+                className={cx(
+                  mode === option.id && "is-selected",
+                  option.id === "trusted" && "is-trusted",
+                )}
+                disabled={Boolean(savingMode)}
+                onClick={() => void selectMode(option.id)}
+              >
+                <span className="conversation-permission-picker__check">
+                  {savingMode === option.id ? (
+                    <Loader2 className="is-spinning" aria-hidden="true" />
+                  ) : mode === option.id ? (
+                    <Check aria-hidden="true" />
+                  ) : null}
+                </span>
+                <span>
+                  <strong>{option.label}</strong>
+                  <small>{option.description}</small>
+                </span>
+              </button>
+            ))}
+          </div>
+          <p>
+            Managed and Project limits, explicit deny rules, and the host sandbox always stay on.
+          </p>
+        </section>
+      )}
+    </div>
+  );
 }
 
 function CustomAgentsSettings({

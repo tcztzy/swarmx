@@ -194,6 +194,8 @@ export const EvalRunResultSchema = z.object({
 
 // ── Session ──────────────────────────────────────────────────────────────────
 
+export const SessionPermissionModeSchema = z.enum(["inherit", "default", "plan", "trusted"]);
+
 export const SessionDataSchema = z.object({
   id: z.string(),
   title: z.string(),
@@ -203,6 +205,7 @@ export const SessionDataSchema = z.object({
   agentName: z.string(),
   harness: z.string(),
   model: z.string().optional(),
+  permissionMode: SessionPermissionModeSchema.default("inherit"),
   pinned: z.boolean().default(false),
   messages: z.array(MessageChunkSchema),
   archivedAt: z.string().optional(),
@@ -227,4 +230,5 @@ export type MessageChunk = z.infer<typeof MessageChunkSchema>;
 export type ModelTokenUsage = z.infer<typeof ModelTokenUsageSchema>;
 export type EvalTraceEvent = z.infer<typeof EvalTraceEventSchema>;
 export type EvalRunResult = z.infer<typeof EvalRunResultSchema>;
+export type SessionPermissionMode = z.infer<typeof SessionPermissionModeSchema>;
 export type SessionData = z.infer<typeof SessionDataSchema>;

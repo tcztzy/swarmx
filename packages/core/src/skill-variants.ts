@@ -248,6 +248,7 @@ export const HarnessPermissionLayerSourceSchema = z.enum([
   "project",
   "personal",
   "agent",
+  "session",
 ]);
 
 export const HarnessPermissionPolicySchema = z
@@ -404,6 +405,7 @@ const PERMISSION_LAYER_RANK: Record<HarnessPermissionLayerSource, number> = {
   project: 1,
   personal: 2,
   agent: 3,
+  session: 4,
 };
 
 /** Merges authority ceilings without allowing repository content to grant authority. */

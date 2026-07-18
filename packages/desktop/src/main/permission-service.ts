@@ -8,6 +8,8 @@ import {
   type PermissionApprovalReceipt,
   PermissionApprovalReceiptSchema,
   type ResolvedHarnessPermissionPolicy,
+  type SessionPermissionMode,
+  SessionPermissionModeSchema,
   resolveHarnessPermissionLayers,
 } from "@swarmx/core";
 import type { DesktopSettingsStoreLike } from "./settings-store.js";
@@ -42,6 +44,8 @@ export interface ResolveDesktopPermissionOptions {
   cwd?: string;
   agentId?: string;
   agentPolicy?: HarnessPermissionPolicy;
+  agentModeDeclared?: boolean;
+  sessionPermissionMode?: SessionPermissionMode;
 }
 
 export interface RecordPermissionDecisionInput {
@@ -83,15 +87,36 @@ export class PermissionService {
           source: "agent",
           label: options.agentId?.trim() ? `Agent · ${options.agentId.trim()}` : "Selected Agent",
           readOnly: false,
-          policy: options.agentPolicy,
+          policy:
+            options.agentModeDeclared === false
+              ? withoutPolicyMode(options.agentPolicy)
+              : options.agentPolicy,
         })
       : undefined;
+    const sessionMode = SessionPermissionModeSchema.parse(
+      options.sessionPermissionMode ?? "inherit",
+    );
+    const session =
+      sessionMode === "inherit"
+        ? undefined
+        : HarnessPermissionPolicyLayerSchema.parse({
+            id: "session",
+            source: "session",
+            label: "Conversation override",
+            mode: sessionMode,
+            allowedTools: [],
+            deniedTools: [],
+            readOnly: false,
+          });
     const blocked = Boolean(managed.error || project.error);
     const configuredLayers = [
       ...(managed.layer ? [managed.layer] : []),
       ...(project.layer ? [project.layer] : []),
-      settings.permissions.personalPolicy,
-      ...(agent ? [agent] : []),
+      session
+        ? withoutMode(settings.permissions.personalPolicy)
+        : settings.permissions.personalPolicy,
+      ...(agent ? [session ? withoutMode(agent) : agent] : []),
+      ...(session ? [session] : []),
     ];
     return {
       personalPolicy: settings.permissions.personalPolicy,
@@ -103,6 +128,9 @@ export class PermissionService {
         }),
         ...(agent
           ? [permissionLayerStatus("agent", agent.label ?? "Selected Agent", { layer: agent })]
+          : []),
+        ...(session
+          ? [permissionLayerStatus("session", "Conversation override", { layer: session })]
           : []),
       ],
       ...(!blocked ? { effective: resolveHarnessPermissionLayers(configuredLayers) } : {}),
@@ -205,6 +233,16 @@ export class PermissionService {
       return { error: safeErrorMessage(error) };
     }
   }
+}
+
+function withoutMode(layer: HarnessPermissionPolicyLayer): HarnessPermissionPolicyLayer {
+  const { mode: _mode, ...rest } = layer;
+  return HarnessPermissionPolicyLayerSchema.parse(rest);
+}
+
+function withoutPolicyMode(policy: HarnessPermissionPolicy): Omit<HarnessPermissionPolicy, "mode"> {
+  const { mode: _mode, ...rest } = policy;
+  return rest;
 }
 
 interface LoadedPermissionLayer {

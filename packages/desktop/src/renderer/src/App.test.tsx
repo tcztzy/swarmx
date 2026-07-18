@@ -65,6 +65,7 @@ interface SessionData {
   cwd?: string;
   agentName: string;
   harness: string;
+  permissionMode?: "inherit" | "default" | "plan" | "trusted";
   pinned?: boolean;
   messages: MessageChunk[];
   createdAt: string;
@@ -255,6 +256,43 @@ describe("App user workflow", () => {
     reply.resolve({ success: true, messages: [] });
     await screen.findByRole("button", { name: "Send message" });
   }, 15_000);
+
+  it("V461 persists a conversation permission choice for new and existing tasks", async () => {
+    const api = createDesktopApiMock();
+    await renderApp(api);
+    const user = userEvent.setup();
+
+    const permissionTrigger = await screen.findByRole("button", { name: "Default" });
+    await user.click(permissionTrigger);
+    expect(screen.getByRole("menu", { name: "Conversation permissions" })).toBeTruthy();
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("menu", { name: "Conversation permissions" })).toBeNull();
+
+    await user.click(permissionTrigger);
+    fireEvent.pointerDown(document.body);
+    expect(screen.queryByRole("menu", { name: "Conversation permissions" })).toBeNull();
+
+    await user.click(permissionTrigger);
+    await user.click(screen.getByRole("menuitemradio", { name: /Full access/ }));
+    expect(api.saveSession).not.toHaveBeenCalled();
+
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "Run this task" } });
+    await user.click(screen.getByRole("button", { name: "Send message" }));
+    await waitFor(() =>
+      expect(api.createSession).toHaveBeenCalledWith(
+        expect.objectContaining({ permissionMode: "trusted" }),
+      ),
+    );
+
+    const fullAccessTrigger = await screen.findByRole("button", { name: "Full access" });
+    await user.click(fullAccessTrigger);
+    await user.click(screen.getByRole("menuitemradio", { name: /Plan only/ }));
+    await waitFor(() =>
+      expect(api.saveSession).toHaveBeenCalledWith(
+        expect.objectContaining({ id: "created-1", permissionMode: "plan" }),
+      ),
+    );
+  });
 
   it("does not fall back to an implicit model when no standalone Model is registered", async () => {
     const api = createDesktopApiMock();
@@ -620,7 +658,7 @@ describe("App user workflow", () => {
 
     await user.click(accountTrigger);
     await user.click(screen.getByRole("menuitem", { name: "Settings" }));
-    const settings = screen.getByRole("region", { name: "Settings" });
+    const settings = screen.getByRole("region", { name: "General settings" });
     const settingsNavigation = screen.getByRole("complementary", {
       name: "Settings navigation",
     });
@@ -632,9 +670,9 @@ describe("App user workflow", () => {
     expect(
       within(settingsNavigation).getByRole("navigation", { name: "Settings sections" }),
     ).toBeTruthy();
-    expect(within(settings).getByRole("heading", { name: "Anonymous user" })).toBeTruthy();
-    expect(within(settings).getByText("Lifetime tokens")).toBeTruthy();
-    expect(api.getActivityProfile).toHaveBeenCalledTimes(1);
+    expect(within(settings).getByRole("heading", { name: "General" })).toBeTruthy();
+    expect(within(settings).getByRole("heading", { name: "Permissions" })).toBeTruthy();
+    expect(api.getActivityProfile).not.toHaveBeenCalled();
     expect(api.refreshProviderUsage).not.toHaveBeenCalled();
 
     await user.type(
@@ -657,6 +695,8 @@ describe("App user workflow", () => {
     await user.click(await screen.findByRole("button", { name: "Open anonymous user menu" }));
     await user.click(screen.getByRole("menuitem", { name: "Settings" }));
 
+    await user.click(screen.getByRole("button", { name: "Profile" }));
+
     expect(await screen.findByText("1.3K")).toBeTruthy();
     expect(screen.getByText("paper-reviewer")).toBeTruthy();
     await user.click(screen.getByRole("button", { name: "Weekly" }));
@@ -673,16 +713,30 @@ describe("App user workflow", () => {
     await renderApp(api);
     await user.click(await screen.findByRole("button", { name: "Open anonymous user menu" }));
     await user.click(screen.getByRole("menuitem", { name: "Settings" }));
-    await user.click(screen.getByRole("button", { name: "Permissions" }));
+    const general = await screen.findByLabelText("General settings");
+    expect(within(general).getByRole("radio", { name: /Default permissions/ })).toBeTruthy();
+    await user.click(within(general).getByRole("radio", { name: /Full access/ }));
+    await waitFor(() =>
+      expect(api.savePersonalPermissionPolicy).toHaveBeenCalledWith(
+        { mode: "trusted", allowedTools: [], deniedTools: [] },
+        { cwd: "/Users/tcztzy/swarmx" },
+      ),
+    );
 
-    const workspace = await screen.findByLabelText("Permissions settings");
+    await user.click(
+      within(screen.getByRole("complementary", { name: "Settings navigation" })).getByRole(
+        "button",
+        { name: "Advanced permissions" },
+      ),
+    );
+
+    const workspace = await screen.findByLabelText("Advanced permissions settings");
     expect(within(workspace).getByText("Effective policy · before Agent")).toBeTruthy();
     expect(within(workspace).getByRole("heading", { name: "Ask when needed" })).toBeTruthy();
     expect(within(workspace).getByText("Managed policy")).toBeTruthy();
     expect(within(workspace).getByText("Project policy")).toBeTruthy();
     expect(api.getPermissionStatus).toHaveBeenCalledWith({ cwd: "/Users/tcztzy/swarmx" });
 
-    await user.click(within(workspace).getByRole("radio", { name: /Restricted/ }));
     const allowInput = within(workspace).getByLabelText("Pre-approved tools tool name");
     await user.type(allowInput, "Write{Enter}");
     const denyInput = within(workspace).getByLabelText("Denied tools tool name");
@@ -690,11 +744,11 @@ describe("App user workflow", () => {
     expect(within(workspace).getByText("Write already has the opposite rule.")).toBeTruthy();
     await user.clear(denyInput);
     await user.type(denyInput, "Bash{Enter}");
-    await user.click(within(workspace).getByRole("button", { name: "Save personal defaults" }));
+    await user.click(within(workspace).getByRole("button", { name: "Save exact tool rules" }));
 
     await waitFor(() =>
       expect(api.savePersonalPermissionPolicy).toHaveBeenCalledWith(
-        { mode: "restricted", allowedTools: ["Write"], deniedTools: ["Bash"] },
+        { allowedTools: ["Write"], deniedTools: ["Bash"] },
         { cwd: "/Users/tcztzy/swarmx" },
       ),
     );
@@ -2380,6 +2434,7 @@ describe("App user workflow", () => {
         harness: "geepilot-codex",
         projectId: "project-swarmx",
         cwd: "/Users/tcztzy/swarmx",
+        permissionMode: "inherit",
       });
       expect(api.sendMessage).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -3996,14 +4051,21 @@ function createDesktopApiMock(overrides: Partial<DesktopApiMock> = {}): DesktopA
       }),
     ),
     cancelMessage: vi.fn(async (requestId: string) => ({ requestId, canceled: true })),
-    createSession: vi.fn(async (params?: { projectId?: string; cwd?: string }) => ({
-      ...localSession,
-      id: "created-1",
-      title: "Untitled",
-      messages: [],
-      ...(params?.projectId ? { projectId: params.projectId } : {}),
-      ...(params?.cwd ? { cwd: params.cwd } : {}),
-    })),
+    createSession: vi.fn(
+      async (params?: {
+        projectId?: string;
+        cwd?: string;
+        permissionMode?: SessionData["permissionMode"];
+      }) => ({
+        ...localSession,
+        id: "created-1",
+        title: "Untitled",
+        messages: [],
+        ...(params?.projectId ? { projectId: params.projectId } : {}),
+        ...(params?.cwd ? { cwd: params.cwd } : {}),
+        ...(params?.permissionMode ? { permissionMode: params.permissionMode } : {}),
+      }),
+    ),
     saveSession: vi.fn(async () => undefined),
     loadSession: vi.fn(async () => localSession),
     loadDiscoveredSession: vi.fn(async (session: DiscoveredSession) =>

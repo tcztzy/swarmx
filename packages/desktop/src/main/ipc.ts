@@ -47,6 +47,7 @@ import type {
   ModelTokenUsage,
   ProjectData,
   SessionData,
+  SessionPermissionMode,
   SwarmConfig,
 } from "@swarmx/core";
 import { type IpcMainInvokeEvent, dialog, ipcMain, safeStorage, shell } from "electron";
@@ -403,15 +404,25 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
               cwd && compositionRuntimeHarnessId(inventory, plan) === "swarmx"
                 ? new WorkspaceTools(cwd)
                 : null;
+            const agentPermissionPolicy = HarnessPermissionPolicySchema.parse({
+              mode: plan.permissions?.mode ?? "default",
+              allowedTools: plan.permissions?.allowedTools ?? [],
+              deniedTools: plan.permissions?.deniedTools ?? [],
+            });
+            const permissionSession =
+              projectTools && params.sessionId ? loadSession(params.sessionId) : undefined;
+            if (projectTools && params.sessionId && !permissionSession) {
+              throw new Error(`Session ${params.sessionId} no longer exists.`);
+            }
             const permissionPolicy = projectTools
               ? await permissionService.resolve({
                   cwd,
                   agentId: plan.agentProfileId ?? plan.agentId,
-                  agentPolicy: HarnessPermissionPolicySchema.parse({
-                    mode: plan.permissions?.mode ?? "default",
-                    allowedTools: plan.permissions?.allowedTools ?? [],
-                    deniedTools: plan.permissions?.deniedTools ?? [],
-                  }),
+                  agentPolicy: agentPermissionPolicy,
+                  agentModeDeclared: Boolean(plan.permissions?.mode),
+                  ...(permissionSession
+                    ? { sessionPermissionMode: permissionSession.permissionMode }
+                    : {}),
                 })
               : undefined;
             const selectedWorkspaceSkills = plan.skills.flatMap((skillRef) => {
@@ -468,6 +479,13 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
                   const backgroundTools = new WorkspaceTools(sessionRuntime.root);
                   const backgroundToolOptions: WorkspaceAgentToolOptions = {
                     ...baseWorkspaceToolOptions,
+                    permissionPolicy: await permissionService.resolve({
+                      cwd: sessionRuntime.root,
+                      agentId: plan.agentProfileId ?? plan.agentId,
+                      agentPolicy: agentPermissionPolicy,
+                      agentModeDeclared: Boolean(plan.permissions?.mode),
+                      sessionPermissionMode: persisted.permissionMode,
+                    }),
                     sessionId,
                     sessionTools: sessionRuntime,
                     borrowShell: true,
@@ -756,11 +774,13 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
         model?: string;
         projectId?: string;
         cwd?: string;
+        permissionMode?: SessionPermissionMode;
       },
     ): SessionData => {
       return createSession(params.agentName, params.harness, params.model, {
         projectId: params.projectId,
         cwd: params.cwd,
+        permissionMode: params.permissionMode,
       });
     },
   );

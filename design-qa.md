@@ -1,3 +1,47 @@
+# Permission UI design QA
+
+final result: passed
+
+## Source visual
+
+- Codex General permissions reference: `/var/folders/dc/cbvy15k16vz7s8mls82v1ng80000gn/T/codex-clipboard-986c5ad1-0845-49e8-a697-c227ec667102.png`
+
+## Implementation captures
+
+- Desktop conversation default, 1152 x 768: `/Users/tcztzy/.codex/visualizations/2026/07/18/019f736f-f2ea-79f3-8c85-4af1d8b6ddd7/permission-t201/01-conversation-default.png`
+- Desktop conversation menu, 1152 x 768: `/Users/tcztzy/.codex/visualizations/2026/07/18/019f736f-f2ea-79f3-8c85-4af1d8b6ddd7/permission-t201/02-conversation-menu.png`
+- General permissions, 1152 x 768: `/Users/tcztzy/.codex/visualizations/2026/07/18/019f736f-f2ea-79f3-8c85-4af1d8b6ddd7/permission-t201/03-general-settings.png`
+- Advanced permissions, 1152 x 768: `/Users/tcztzy/.codex/visualizations/2026/07/18/019f736f-f2ea-79f3-8c85-4af1d8b6ddd7/permission-t201/04-advanced-settings.png`
+- General permissions, 768 x 768: `/Users/tcztzy/.codex/visualizations/2026/07/18/019f736f-f2ea-79f3-8c85-4af1d8b6ddd7/permission-t201/05-general-narrow.png`
+- Conversation menu, 768 x 768: `/Users/tcztzy/.codex/visualizations/2026/07/18/019f736f-f2ea-79f3-8c85-4af1d8b6ddd7/permission-t201/06-conversation-menu-narrow.png`
+
+## Comparison evidence
+
+- Compared the Codex source and SwarmX General screenshot together at the desktop state. Both place Permissions first in General, use one bordered row card, keep labels/descriptions left-aligned, and put the current control on the right.
+- SwarmX uses one mutually exclusive permission mode instead of independent switches because `default`, `plan`, `restricted`, and `trusted` cannot safely be active together.
+- The supplied source does not show a conversation menu. The implementation reuses the existing Composer and Agent-picker tokens, keeps the current mode visible before send, and explains the persistent safety ceilings inside the menu.
+- No P0, P1, or P2 visual issues remain: desktop and narrow captures have no overlap, clipping, broken hierarchy, or inaccessible off-screen control.
+
+## Interaction and accessibility checks
+
+- Opened General from the lower-left account Settings action.
+- Opened Advanced permissions from both the sidebar and General footer.
+- Opened the conversation permission menu, selected Full access for a new unsent task, and confirmed the Composer trigger updated.
+- Confirmed Escape closes the conversation menu; automated tests also cover outside-pointer dismissal.
+- Accessibility tree exposes General/Permissions headings, one named default-mode radio group, four named radio choices, the conversation popup trigger, four `menuitemradio` choices, and the ACP-native scope explanation.
+- External ACP Harness permission ownership remains explicit and the conversation trigger is disabled when SwarmX cannot enforce the selection.
+
+## Validation history
+
+1. Initial rendered desktop and 768 px checks passed without P0/P1/P2 corrections. The reference comparison confirmed placement, row rhythm, control alignment, spacing, and typography were consistent with the target while preserving SwarmX's design tokens.
+2. Renderer, permission-service, preload, migration, and layer-precedence tests passed. The Electron development console produced no new errors during the exercised states.
+
+## Assets
+
+- No new image assets were required. Existing Lucide icons and SwarmX design tokens cover the source UI's iconography and controls.
+
+---
+
 # Design QA: macOS sidebar title bar
 
 - Source visual truth: `/var/folders/dc/cbvy15k16vz7s8mls82v1ng80000gn/T/codex-clipboard-8c95ec28-c792-4178-9513-bb9f354a7d47.png`

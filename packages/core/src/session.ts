@@ -2,7 +2,12 @@ import * as fs from "node:fs";
 import { homedir } from "node:os";
 import * as path from "node:path";
 import { v4 as uuidv4 } from "uuid";
-import { type MessageChunk, type SessionData, SessionDataSchema } from "./types.js";
+import {
+  type MessageChunk,
+  type SessionData,
+  SessionDataSchema,
+  type SessionPermissionMode,
+} from "./types.js";
 
 const SESSIONS_DIR = path.join(homedir(), ".swarmx", "sessions");
 
@@ -16,6 +21,7 @@ function ensureSessionsDir(): string {
 export interface SessionProjectContext {
   projectId?: string;
   cwd?: string;
+  permissionMode?: SessionPermissionMode;
 }
 
 export function createSession(
@@ -35,6 +41,7 @@ export function createSession(
     model,
     ...(project.projectId ? { projectId: project.projectId } : {}),
     ...(project.cwd ? { cwd: project.cwd } : {}),
+    ...(project.permissionMode ? { permissionMode: project.permissionMode } : {}),
     messages: [],
     createdAt: now,
     updatedAt: now,
@@ -44,8 +51,9 @@ export function createSession(
 export function saveSession(session: SessionData): void {
   ensureSessionsDir();
   session.updatedAt = new Date().toISOString();
+  const parsed = SessionDataSchema.parse(session);
   const filePath = path.join(SESSIONS_DIR, `${session.id}.json`);
-  fs.writeFileSync(filePath, JSON.stringify(session, null, 2));
+  fs.writeFileSync(filePath, JSON.stringify(parsed, null, 2));
 }
 
 export function loadSession(id: string): SessionData | null {

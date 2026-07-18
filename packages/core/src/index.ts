@@ -890,7 +890,11 @@ export type {
   UiContributionPlacement,
   ValidateSkillHostCompatibilityOptions,
 } from "./extensions.js";
-export { EvalRunResultSchema, EvalTraceEventSchema } from "./types.js";
+export {
+  EvalRunResultSchema,
+  EvalTraceEventSchema,
+  SessionPermissionModeSchema,
+} from "./types.js";
 export type {
   AgentConfig,
   AgentBackend,
@@ -902,6 +906,7 @@ export type {
   HookConfig,
   ProcessOptions,
   SessionData,
+  SessionPermissionMode,
   MessageChunk,
   EvalTraceEvent,
   EvalRunResult,

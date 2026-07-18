@@ -63,6 +63,7 @@ G59: Direct desktop Claude sessions can persist project-scoped scheduled prompts
 G60: Publish the completed trained-in tool alignment and durable scheduler work as SwarmX 3.1.1 while retaining explicit TODOs for the three unimplemented Claude tools.
 G61: Desktop users can rely on Custom Agent permission policy and ACP permission requests as executable authorization boundaries instead of passive labels or automatic cancellation.
 G62: Desktop users can understand and manage effective permission authority across managed, Project, personal, and Agent layers, then review sanitized one-call decisions without confusing approval with sandbox escape.
+G63: Desktop users can choose their default direct-tool permission mode from General Settings and override that default for each persisted conversation from the Composer, with the active choice visible before sending.
 
 ## §C
 C1: Reuse existing `SwarmConfig`; no second workflow DSL.
@@ -233,6 +234,9 @@ C165: Effective direct policy = Agent base + optional personal/managed ceilings 
 C166: Managed policy uses explicit secret-free `SWARMX_MANAGED_PERMISSION_POLICY` JSON, remains renderer read-only, and malformed managed/Project policy blocks direct execution instead of disappearing or widening authority.
 C167: Approval receipts persist ≤200 newest sanitized records containing time, source, tool label/kind, decision, and policy provenance only; no command, prompt, file content, patch, ACP raw payload, secret, credential, or durable allow rule.
 C168: Permissions UX reuses existing Settings layout/tokens, separates effective authority from sandbox scope, uses structured allow/deny chips instead of newline policy text, exposes conflicts/source precedence, and keeps keyboard/narrow-width behavior complete.
+C169: A conversation permission override is one of `inherit`, `default`, `plan`, or `trusted`. `inherit` follows the personal and Agent defaults; an explicit conversation mode replaces those default mode declarations for that conversation, while managed/Project mode ceilings and every managed/Project/personal/Agent explicit deny remain authoritative.
+C170: Conversation permission state persists in `SessionData`, defaults to `inherit` for existing sessions, is loaded by the Main process from the authoritative session id before direct-tool execution, and does not claim to override an external ACP Harness's native permission system.
+C171: General Settings owns the personal default mode control. Advanced Permissions owns exact-tool allow/deny rules, source hierarchy, sandbox explanation, and decision history; changing the default mode preserves those advanced rules.
 
 ## §I
 I1: `packages/core/src/types.ts` `SwarmConfigSchema`.
@@ -459,6 +463,9 @@ I221: `docs/native-tool-compatibility.md` Claude Code/Codex permission-model aud
 I222: `packages/core/src/skill-variants.ts`, `desktop-settings.ts`, browser-safe exports, and tests layered permission policy, provenance, personal settings, and sanitized approval receipt contracts.
 I223: `packages/desktop/src/main/permission-service.ts`, `ipc.ts`, Preload API, and tests managed/Project/personal/Agent resolution, fail-closed loading, receipt persistence, and renderer-safe IPC.
 I224: `packages/desktop/src/renderer/src/App.tsx`, `agent-interaction-dialog.tsx`, `assets/styles.css`, and tests dedicated Permissions workspace, structured Agent rule editor, effective-policy explanation, approval history, and one-call dialog UX.
+I225: `packages/core/src/types.ts`, `session.ts`, `skill-variants.ts`, exports, and focused tests persisted conversation permission mode plus session-layer policy provenance.
+I226: `packages/desktop/src/main/permission-service.ts`, `ipc.ts`, Preload API, and tests authoritative conversation override loading and safe layered resolution.
+I227: `packages/desktop/src/renderer/src/App.tsx`, `assets/styles.css`, renderer tests, and `design-qa.md` General default-permission placement, Advanced Permissions split, Composer permission menu, persistence, responsive interaction, and visual QA.
 
 ## §V
 V1: Workflow JSON source of truth is `SwarmConfig`; UI preview, run badges, and send payload derive from parsed JSON.
@@ -917,6 +924,12 @@ V453: Settings navigation contains dedicated `Permissions` workspace with hierar
 V454: Custom Agent editor replaces newline allow/deny textareas with keyboard-usable structured exact-tool rows/chips, prevents duplicates/conflicts before save, describes each mode in plain language, and states higher layers may only reduce effective authority.
 V455: Tool approval dialog shows action/risk/source hierarchy, bounded safe facts, `One call only` and `Project sandbox stays on` reassurance, safe-default reject focus, offered ACP options, and responsive controls without exposing prohibited payload fields.
 V456: Core/Main/Preload/Renderer tests cover layer precedence, Project restriction-only validation, malformed fail-closed behavior, personal persistence, receipt redaction/truncation, navigation/editor/dialog accessibility, and unchanged Project sandbox enforcement; desktop screenshots verify full and scrolled Settings states.
+V457: `SessionDataSchema` persists `permissionMode` with backward-compatible `inherit`; session create/save/load round trips preserve it and reject unsupported values.
+V458: Explicit conversation `default`, `plan`, or `trusted` replaces personal and Agent mode defaults for that conversation, but cannot exceed managed/Project mode ceilings or bypass any explicit deny; `inherit` preserves the existing four-layer result.
+V459: Direct SwarmX execution resolves the permission mode from the authoritative persisted session identified by the request. Missing/invalid session state fails safely, while ACP Harness execution keeps its native permission semantics.
+V460: Settings opens on `General`, whose first card controls the personal default permission mode and preserves advanced exact-tool rules. The separate `Advanced permissions` workspace retains hierarchy, exact allow/deny, sandbox, Project state, and receipts without duplicating the mode selector.
+V461: Every conversation Composer shows a keyboard-usable permission trigger with `Use default`, `Ask when needed`, `Plan only`, and `Full access`; the menu explains scope, marks the current choice, persists existing-session changes immediately, and supplies the selected mode when creating a new session.
+V462: Focused Core/Main/Preload/Renderer tests cover migration, persistence, safe override precedence, General rule preservation, Composer selection, new-session payloads, existing-session saves, Escape/outside dismissal, and ACP scope copy; rendered desktop QA compares General and conversation states with the supplied Codex reference at desktop and narrow widths.
 
 ## §T
 |id|status|task|cites|
@@ -1121,6 +1134,7 @@ V456: Core/Main/Preload/Renderer tests cover layer precedence, Project restricti
 |T198|x|clean, version, verify, publish, and verify SwarmX 3.1.1|G60,C161,V440,V441,V442,I207,I218|
 |T199|x|enforce direct and ACP permission decisions with desktop approval UI, policy Settings, tests, and source audit|G61,C162,C163,C164,V443,V444,V445,V446,V447,V448,I219,I220,I221|
 |T200|x|build layered permission governance, dedicated UX, sanitized receipts, tests, and visual QA|G62,C162,C163,C164,C165,C166,C167,C168,V443,V444,V445,V446,V447,V448,V449,V450,V451,V452,V453,V454,V455,V456,I219,I220,I221,I222,I223,I224|
+|T201|x|move defaults to General and add safe persisted conversation permission overrides|G63,C162,C163,C165,C166,C167,C168,C169,C170,C171,V443,V444,V449,V450,V451,V452,V457,V458,V459,V460,V461,V462,I222,I223,I224,I225,I226,I227|
 
 ## §B
 |id|date|cause|fix|
