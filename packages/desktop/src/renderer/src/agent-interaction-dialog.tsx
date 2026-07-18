@@ -40,6 +40,8 @@ export type AgentInteractionEvent =
       interactionId: string;
       title: string;
       toolKind?: string;
+      source?: "direct" | "acp";
+      policySourceIds?: string[];
       summary: string;
       options: ToolApprovalOption[];
     };
@@ -108,6 +110,7 @@ function ToolApprovalDialog({
 }) {
   const rejectOptions = interaction.options.filter((option) => option.kind.startsWith("reject"));
   const allowOptions = interaction.options.filter((option) => option.kind.startsWith("allow"));
+  const offersAllowOnce = allowOptions.some((option) => option.kind === "allow_once");
   return (
     <div className="agent-interaction-backdrop">
       <dialog
@@ -117,13 +120,35 @@ function ToolApprovalDialog({
         aria-labelledby="agent-tool-approval-title"
       >
         <header>
-          <span>Permission request</span>
+          <span>
+            Permission request · {interaction.source === "acp" ? "ACP Harness" : "SwarmX tool"}
+          </span>
           <h2 id="agent-tool-approval-title">{interaction.title}</h2>
-          <p>This action is paused until you choose one of the offered permissions.</p>
+          <p>The task is paused. Review the bounded action before choosing a permission.</p>
         </header>
+        <div className="agent-interaction-dialog__assurances">
+          <span>
+            <strong>{offersAllowOnce ? "One call" : "Offered scope"}</strong>
+            {offersAllowOnce
+              ? "Allow once applies only to this request."
+              : "The selected option is returned only to the requesting Harness."}
+          </span>
+          <span>
+            <strong>Sandbox unchanged</strong>
+            Approval does not expand the host OS sandbox.
+          </span>
+        </div>
         <div className="agent-interaction-dialog__plan">
           <pre>{interaction.summary}</pre>
-          {interaction.toolKind && <small>Tool kind: {interaction.toolKind}</small>}
+          {(interaction.toolKind || interaction.policySourceIds?.length) && (
+            <small>
+              {interaction.toolKind ? `Tool kind: ${interaction.toolKind}` : ""}
+              {interaction.toolKind && interaction.policySourceIds?.length ? " · " : ""}
+              {interaction.policySourceIds?.length
+                ? `Policy: ${interaction.policySourceIds.join(" + ")}`
+                : ""}
+            </small>
+          )}
         </div>
         {error && (
           <p className="agent-interaction-dialog__error" role="alert">
@@ -134,9 +159,11 @@ function ToolApprovalDialog({
           <button type="button" disabled={resolving} onClick={onStop}>
             Stop task
           </button>
-          {rejectOptions.map((option) => (
+          {rejectOptions.map((option, index) => (
             <button
               type="button"
+              // biome-ignore lint/a11y/noAutofocus: Permission dialogs put keyboard focus on the safe default.
+              autoFocus={index === 0}
               disabled={resolving}
               key={option.optionId}
               onClick={() => onResolve({ kind: "tool_approval", optionId: option.optionId })}

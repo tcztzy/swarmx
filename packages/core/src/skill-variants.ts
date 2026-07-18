@@ -243,6 +243,13 @@ export const HarnessToolAccessSchema = z.enum(["read", "write", "execute", "cont
 
 export const HarnessToolPermissionDecisionSchema = z.enum(["allow", "ask", "deny"]);
 
+export const HarnessPermissionLayerSourceSchema = z.enum([
+  "managed",
+  "project",
+  "personal",
+  "agent",
+]);
+
 export const HarnessPermissionPolicySchema = z
   .object({
     mode: HarnessPermissionModeSchema.default("default"),
@@ -251,6 +258,77 @@ export const HarnessPermissionPolicySchema = z
   })
   .passthrough()
   .superRefine(addSecretIssues);
+
+export const HarnessPermissionPolicyLayerSchema = z
+  .object({
+    id: z.string().min(1).max(128),
+    source: HarnessPermissionLayerSourceSchema,
+    label: z.string().min(1).max(160).optional(),
+    mode: HarnessPermissionModeSchema.optional(),
+    allowedTools: z.array(z.string().min(1).max(128)).max(256).default([]),
+    deniedTools: z.array(z.string().min(1).max(128)).max(256).default([]),
+    readOnly: z.boolean().default(true),
+  })
+  .strict()
+  .superRefine((layer, ctx) => {
+    addSecretIssues(layer, ctx);
+    addDuplicateIssues(layer.allowedTools, "allowedTools", ctx);
+    addDuplicateIssues(layer.deniedTools, "deniedTools", ctx);
+    const denied = new Set(layer.deniedTools);
+    for (const [index, toolName] of layer.allowedTools.entries()) {
+      if (denied.has(toolName)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["allowedTools", index],
+          message: `Tool "${toolName}" cannot be both allowed and denied in one layer.`,
+        });
+      }
+    }
+    if (layer.source === "project" && layer.allowedTools.length > 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["allowedTools"],
+        message: "Project permission policy may restrict authority but cannot pre-approve tools.",
+      });
+    }
+  });
+
+export const ResolvedHarnessPermissionPolicySchema = z
+  .object({
+    policy: HarnessPermissionPolicySchema,
+    layers: z.array(HarnessPermissionPolicyLayerSchema).max(16),
+    modeSourceIds: z.array(z.string().min(1)).default([]),
+    allowedToolSources: z.record(z.array(z.string().min(1))).default({}),
+    deniedToolSources: z.record(z.array(z.string().min(1))).default({}),
+  })
+  .strict();
+
+export const PermissionApprovalReceiptSchema = z
+  .object({
+    id: z.string().regex(/^prm_[a-zA-Z0-9_-]{8,}$/),
+    createdAt: z.string().datetime(),
+    source: z.enum(["direct", "acp"]),
+    toolName: z.string().min(1).max(160),
+    toolKind: z.string().min(1).max(80).optional(),
+    decision: z.enum(["allowed", "rejected", "cancelled"]),
+    optionKind: z.enum(["allow_once", "allow_always", "reject_once", "reject_always"]).optional(),
+    policySourceIds: z.array(z.string().min(1).max(128)).max(16).default([]),
+  })
+  .strict()
+  .superRefine((receipt, ctx) => {
+    addSecretIssues(receipt, ctx);
+    const values = [receipt.toolName, receipt.toolKind, ...receipt.policySourceIds].filter(
+      (value): value is string => Boolean(value),
+    );
+    for (const value of values) {
+      if (!FORBIDDEN_SECRET_KEY_PATTERN.test(value)) continue;
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Permission approval receipts must not contain secret-bearing values.",
+      });
+      break;
+    }
+  });
 
 export const HarnessRecipeSchema = z
   .object({
@@ -288,6 +366,10 @@ export type HarnessPermissionMode = z.infer<typeof HarnessPermissionModeSchema>;
 export type HarnessToolAccess = z.infer<typeof HarnessToolAccessSchema>;
 export type HarnessToolPermissionDecision = z.infer<typeof HarnessToolPermissionDecisionSchema>;
 export type HarnessPermissionPolicy = z.infer<typeof HarnessPermissionPolicySchema>;
+export type HarnessPermissionLayerSource = z.infer<typeof HarnessPermissionLayerSourceSchema>;
+export type HarnessPermissionPolicyLayer = z.infer<typeof HarnessPermissionPolicyLayerSchema>;
+export type ResolvedHarnessPermissionPolicy = z.infer<typeof ResolvedHarnessPermissionPolicySchema>;
+export type PermissionApprovalReceipt = z.infer<typeof PermissionApprovalReceiptSchema>;
 export type SkillResolutionContext = z.infer<typeof SkillResolutionContextSchema>;
 export type ResolvedSkillBinding = z.infer<typeof ResolvedSkillBindingSchema>;
 export type SkillEvolutionCandidate = z.infer<typeof SkillEvolutionCandidateSchema>;
@@ -307,6 +389,66 @@ export interface ResolvedHarnessToolPermission {
     | "explicit_allow"
     | "read_only"
     | HarnessPermissionMode;
+  sourceIds: string[];
+}
+
+const PERMISSION_MODE_RANK: Record<HarnessPermissionMode, number> = {
+  plan: 0,
+  restricted: 1,
+  default: 2,
+  trusted: 3,
+};
+
+const PERMISSION_LAYER_RANK: Record<HarnessPermissionLayerSource, number> = {
+  managed: 0,
+  project: 1,
+  personal: 2,
+  agent: 3,
+};
+
+/** Merges authority ceilings without allowing repository content to grant authority. */
+export function resolveHarnessPermissionLayers(input: unknown): ResolvedHarnessPermissionPolicy {
+  const layers = z.array(HarnessPermissionPolicyLayerSchema).max(16).parse(input);
+  const ids = new Set<string>();
+  for (const layer of layers) {
+    if (ids.has(layer.id)) throw new Error(`Duplicate permission layer id "${layer.id}".`);
+    ids.add(layer.id);
+  }
+  const sortedLayers = [...layers].sort(
+    (left, right) =>
+      PERMISSION_LAYER_RANK[left.source] - PERMISSION_LAYER_RANK[right.source] ||
+      left.id.localeCompare(right.id),
+  );
+  const declaredModes = sortedLayers.filter(
+    (layer): layer is HarnessPermissionPolicyLayer & { mode: HarnessPermissionMode } =>
+      layer.mode !== undefined,
+  );
+  const mode = declaredModes.reduce<HarnessPermissionMode>(
+    (current, layer) =>
+      PERMISSION_MODE_RANK[layer.mode] < PERMISSION_MODE_RANK[current] ? layer.mode : current,
+    "trusted",
+  );
+  const effectiveMode = declaredModes.length > 0 ? mode : "default";
+  const modeSourceIds = declaredModes
+    .filter((layer) => layer.mode === effectiveMode)
+    .map((layer) => layer.id);
+  const allowedToolSources = collectPermissionToolSources(
+    sortedLayers.filter((layer) => layer.source !== "project"),
+    "allowedTools",
+  );
+  const deniedToolSources = collectPermissionToolSources(sortedLayers, "deniedTools");
+  for (const toolName of Object.keys(deniedToolSources)) delete allowedToolSources[toolName];
+  return ResolvedHarnessPermissionPolicySchema.parse({
+    policy: {
+      mode: effectiveMode,
+      allowedTools: Object.keys(allowedToolSources).sort(),
+      deniedTools: Object.keys(deniedToolSources).sort(),
+    },
+    layers: sortedLayers,
+    modeSourceIds,
+    allowedToolSources,
+    deniedToolSources,
+  });
 }
 
 /** Resolves direct host-tool authority without changing the enclosing OS sandbox. */
@@ -314,29 +456,64 @@ export function resolveHarnessToolPermission(
   policyInput: unknown,
   request: HarnessToolPermissionRequest,
 ): ResolvedHarnessToolPermission {
-  const policy = HarnessPermissionPolicySchema.parse(policyInput);
+  const layered = ResolvedHarnessPermissionPolicySchema.safeParse(policyInput);
+  const resolution = layered.success ? layered.data : undefined;
+  const policy = resolution?.policy ?? HarnessPermissionPolicySchema.parse(policyInput);
   const toolName = z.string().min(1).parse(request.toolName);
   const access = HarnessToolAccessSchema.parse(request.access);
 
   if (policy.deniedTools.includes(toolName)) {
-    return { decision: "deny", reason: "explicit_deny" };
+    return {
+      decision: "deny",
+      reason: "explicit_deny",
+      sourceIds: resolution?.deniedToolSources[toolName] ?? [],
+    };
   }
   if (policy.mode === "plan" && access !== "read") {
-    return { decision: "deny", reason: "plan_read_only" };
+    return {
+      decision: "deny",
+      reason: "plan_read_only",
+      sourceIds: resolution?.modeSourceIds ?? [],
+    };
   }
   if (policy.allowedTools.includes(toolName)) {
-    return { decision: "allow", reason: "explicit_allow" };
+    return {
+      decision: "allow",
+      reason: "explicit_allow",
+      sourceIds: resolution?.allowedToolSources[toolName] ?? [],
+    };
   }
   if (access === "read") {
-    return { decision: "allow", reason: "read_only" };
+    return { decision: "allow", reason: "read_only", sourceIds: [] };
   }
   if (policy.mode === "default") {
-    return { decision: "ask", reason: "default" };
+    return { decision: "ask", reason: "default", sourceIds: resolution?.modeSourceIds ?? [] };
   }
   if (policy.mode === "restricted") {
-    return { decision: "deny", reason: "restricted" };
+    return {
+      decision: "deny",
+      reason: "restricted",
+      sourceIds: resolution?.modeSourceIds ?? [],
+    };
   }
-  return { decision: "allow", reason: policy.mode };
+  return {
+    decision: "allow",
+    reason: policy.mode,
+    sourceIds: resolution?.modeSourceIds ?? [],
+  };
+}
+
+function collectPermissionToolSources(
+  layers: HarnessPermissionPolicyLayer[],
+  field: "allowedTools" | "deniedTools",
+): Record<string, string[]> {
+  const result: Record<string, string[]> = {};
+  for (const layer of layers) {
+    for (const toolName of layer[field]) {
+      result[toolName] = [...(result[toolName] ?? []), layer.id];
+    }
+  }
+  return result;
 }
 export type HarnessProjectContext = z.infer<typeof HarnessProjectContextSchema>;
 export type HarnessDeliveryPolicy = z.infer<typeof HarnessDeliveryPolicySchema>;
@@ -579,7 +756,7 @@ function addSecretIssues(value: unknown, ctx: z.RefinementCtx): void {
 
 function addDuplicateIssues(
   values: string[],
-  path: "skillBindings" | "mcpServerIds",
+  path: "skillBindings" | "mcpServerIds" | "allowedTools" | "deniedTools",
   ctx: z.RefinementCtx,
 ): void {
   const seen = new Set<string>();
@@ -588,7 +765,10 @@ function addDuplicateIssues(
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: [path, index],
-        message: `Harness recipe contains duplicate ${path === "skillBindings" ? "Skill" : "MCP"} id "${value}".`,
+        message:
+          path === "skillBindings" || path === "mcpServerIds"
+            ? `Harness recipe contains duplicate ${path === "skillBindings" ? "Skill" : "MCP"} id "${value}".`
+            : `Permission layer contains duplicate tool "${value}".`,
       });
     }
     seen.add(value);

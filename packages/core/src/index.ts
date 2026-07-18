@@ -369,6 +369,7 @@ export type {
 } from "./agent-profiles.js";
 export {
   DesktopExtensionSettingsSchema,
+  DesktopPermissionSettingsSchema,
   DesktopRootConfigSchema,
   DesktopRootSourceSchema,
   DesktopServerSettingsSchema,
@@ -390,6 +391,7 @@ export {
 } from "./desktop-settings.js";
 export type {
   DesktopExtensionSettings,
+  DesktopPermissionSettings,
   DesktopRootConfig,
   DesktopRootSource,
   DesktopServerSettings,
@@ -759,12 +761,16 @@ export {
 export {
   HarnessDeliveryPolicySchema,
   HarnessPermissionModeSchema,
+  HarnessPermissionLayerSourceSchema,
   HarnessPermissionPolicySchema,
+  HarnessPermissionPolicyLayerSchema,
   HarnessProjectContextSchema,
   HarnessRecipeSchema,
   HarnessSkillBindingSchema,
   HarnessToolAccessSchema,
   HarnessToolPermissionDecisionSchema,
+  PermissionApprovalReceiptSchema,
+  ResolvedHarnessPermissionPolicySchema,
   LogicalSkillSchema,
   ResolvedSkillBindingSchema,
   SkillBindingModeSchema,
@@ -783,6 +789,7 @@ export {
   evaluateSkillCandidate,
   normalizeLogicalSkill,
   resolveHarnessSkillBinding,
+  resolveHarnessPermissionLayers,
   resolveHarnessToolPermission,
 } from "./skill-variants.js";
 export {
@@ -813,7 +820,9 @@ export type {
 export type {
   HarnessDeliveryPolicy,
   HarnessPermissionMode,
+  HarnessPermissionLayerSource,
   HarnessPermissionPolicy,
+  HarnessPermissionPolicyLayer,
   HarnessProjectContext,
   HarnessRecipe,
   HarnessSkillBinding,
@@ -821,6 +830,8 @@ export type {
   HarnessToolPermissionDecision,
   HarnessToolPermissionRequest,
   LogicalSkill,
+  PermissionApprovalReceipt,
+  ResolvedHarnessPermissionPolicy,
   ResolvedHarnessToolPermission,
   ResolvedSkillBinding,
   SkillBindingMode,

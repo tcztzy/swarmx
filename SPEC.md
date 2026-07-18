@@ -62,6 +62,7 @@ G58: Direct SwarmX Models receive Claude Code/Codex-compatible tool results and 
 G59: Direct desktop Claude sessions can persist project-scoped scheduled prompts across app restarts with Claude Code-compatible task files, ownership, recovery, and deletion semantics.
 G60: Publish the completed trained-in tool alignment and durable scheduler work as SwarmX 3.1.1 while retaining explicit TODOs for the three unimplemented Claude tools.
 G61: Desktop users can rely on Custom Agent permission policy and ACP permission requests as executable authorization boundaries instead of passive labels or automatic cancellation.
+G62: Desktop users can understand and manage effective permission authority across managed, Project, personal, and Agent layers, then review sanitized one-call decisions without confusing approval with sandbox escape.
 
 ## §C
 C1: Reuse existing `SwarmConfig`; no second workflow DSL.
@@ -228,6 +229,10 @@ C161: A 3.1.1 release keeps every workspace package version aligned, publishes d
 C162: Permission decisions and OS sandboxing remain separate layers. Approval may authorize one tool call inside its existing Project/runtime boundary; it never grants network, path, environment, or sandbox escalation, and ACP Harnesses keep their native permission semantics.
 C163: Direct SwarmX tool policy resolves `deniedTools` before mode/allow rules, treats plan mode as a hard read-only boundary, and fails closed for unsupported modes, unavailable interaction bridges, or unclassified side-effecting tools.
 C164: Desktop approval prompts bind request, renderer owner, interaction id, and offered option ids; task cancellation, renderer destruction, or tool-manager close rejects pending authority without a default approval. Prompt summaries remain bounded and omit file contents, patch bodies, and raw ACP input/output.
+C165: Effective direct policy = Agent base + optional personal/managed ceilings + restriction-only Project layer from `<Project>/.swarmx/permissions.json`; deny union wins, least-authority declared mode wins, and Project content cannot add pre-approval.
+C166: Managed policy uses explicit secret-free `SWARMX_MANAGED_PERMISSION_POLICY` JSON, remains renderer read-only, and malformed managed/Project policy blocks direct execution instead of disappearing or widening authority.
+C167: Approval receipts persist ≤200 newest sanitized records containing time, source, tool label/kind, decision, and policy provenance only; no command, prompt, file content, patch, ACP raw payload, secret, credential, or durable allow rule.
+C168: Permissions UX reuses existing Settings layout/tokens, separates effective authority from sandbox scope, uses structured allow/deny chips instead of newline policy text, exposes conflicts/source precedence, and keeps keyboard/narrow-width behavior complete.
 
 ## §I
 I1: `packages/core/src/types.ts` `SwarmConfigSchema`.
@@ -451,6 +456,9 @@ I218: root/workspace `package.json` manifests, npm package tarballs, Git `main`/
 I219: `packages/core/src/skill-variants.ts`, `extensions.ts`, `agent.ts`, and `acp.ts` typed Harness permission policy, deterministic tool decision, composition projection, and optional ACP permission handler.
 I220: `packages/desktop/src/main/workspace-tools.ts`, `agent-interactions.ts`, `ipc.ts`, Preload API, Renderer dialog/Settings, and focused tests direct-tool plus ACP approval enforcement.
 I221: `docs/native-tool-compatibility.md` Claude Code/Codex permission-model audit, SwarmX policy semantics, and staged follow-up plan.
+I222: `packages/core/src/skill-variants.ts`, `desktop-settings.ts`, browser-safe exports, and tests layered permission policy, provenance, personal settings, and sanitized approval receipt contracts.
+I223: `packages/desktop/src/main/permission-service.ts`, `ipc.ts`, Preload API, and tests managed/Project/personal/Agent resolution, fail-closed loading, receipt persistence, and renderer-safe IPC.
+I224: `packages/desktop/src/renderer/src/App.tsx`, `agent-interaction-dialog.tsx`, `assets/styles.css`, and tests dedicated Permissions workspace, structured Agent rule editor, effective-policy explanation, approval history, and one-call dialog UX.
 
 ## §V
 V1: Workflow JSON source of truth is `SwarmConfig`; UI preview, run badges, and send payload derive from parsed JSON.
@@ -901,6 +909,14 @@ V445: Every direct `ask` decision waits for one request-scoped desktop choice be
 V446: `AcpClient` cancels permission requests when no handler exists; a desktop handler projects exact ACP option ids/kinds and bounded display names into the same request-scoped approval dialog and returns only an explicitly selected offered option id to the requesting ACP session.
 V447: Permission prompt payloads expose bounded tool title/kind and safe operation summary only; they omit write content, patch text, ACP raw input/output, secrets, and credentials. Permission policy never makes `dangerouslyDisableSandbox` or `sandbox_permissions=require_escalated` effective.
 V448: Focused Core/Desktop/Renderer tests cover schema rejection, deny/plan/allow/default/restricted/trusted precedence, no-bridge failure, approve/reject execution, ACP cancel/selection, broker ownership/cancellation, policy persistence/UI, and unchanged sandbox-escalation rejection; docs cite official Claude Code and Codex sources.
+V449: Layer schemas identify `managed`, `project`, `personal`, and `agent` sources plus optional mode ceiling and exact allow/deny tools. Merge is deterministic: mode rank `plan < restricted < default < trusted`, all denies union, Agent/personal/managed allows union minus denies, and Project allows reject validation.
+V450: Desktop loads personal policy from atomic Settings, managed policy from `SWARMX_MANAGED_PERMISSION_POLICY`, and Project restriction from canonical `<Project>/.swarmx/permissions.json` with bounded size. Missing layers inherit; malformed configured layers return visible errors and block direct SwarmX execution.
+V451: Permission status IPC returns personal policy, managed/Project layer summaries, effective preview for selected Project/Agent inputs, immutable-source flags, and no raw environment/file content; save mutates personal policy only.
+V452: Every resolved direct or ACP approval choice appends one sanitized receipt with stable id/time/source/tool kind/decision/policy source ids; history truncates to newest 200 and never becomes an allow rule or contains request payload content.
+V453: Settings navigation contains dedicated `Permissions` workspace with hierarchy cards, sandbox reassurance, personal mode selector, structured exact-tool allow/deny editor, current Project policy state, and recent decisions; missing managed/Project policy reads neutral rather than broken.
+V454: Custom Agent editor replaces newline allow/deny textareas with keyboard-usable structured exact-tool rows/chips, prevents duplicates/conflicts before save, describes each mode in plain language, and states higher layers may only reduce effective authority.
+V455: Tool approval dialog shows action/risk/source hierarchy, bounded safe facts, `One call only` and `Project sandbox stays on` reassurance, safe-default reject focus, offered ACP options, and responsive controls without exposing prohibited payload fields.
+V456: Core/Main/Preload/Renderer tests cover layer precedence, Project restriction-only validation, malformed fail-closed behavior, personal persistence, receipt redaction/truncation, navigation/editor/dialog accessibility, and unchanged Project sandbox enforcement; desktop screenshots verify full and scrolled Settings states.
 
 ## §T
 |id|status|task|cites|
@@ -1104,6 +1120,7 @@ V448: Focused Core/Desktop/Renderer tests cover schema rejection, deny/plan/allo
 |T197|.|implement persisted resumable Claude Workflow VM parity|C157,V374,V423,V440,I203,I207|
 |T198|x|clean, version, verify, publish, and verify SwarmX 3.1.1|G60,C161,V440,V441,V442,I207,I218|
 |T199|x|enforce direct and ACP permission decisions with desktop approval UI, policy Settings, tests, and source audit|G61,C162,C163,C164,V443,V444,V445,V446,V447,V448,I219,I220,I221|
+|T200|x|build layered permission governance, dedicated UX, sanitized receipts, tests, and visual QA|G62,C162,C163,C164,C165,C166,C167,C168,V443,V444,V445,V446,V447,V448,V449,V450,V451,V452,V453,V454,V455,V456,I219,I220,I221,I222,I223,I224|
 
 ## §B
 |id|date|cause|fix|

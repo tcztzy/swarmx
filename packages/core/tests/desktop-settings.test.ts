@@ -76,6 +76,28 @@ describe("desktop settings primitives", () => {
       extensions: {
         enabledPluginIds: ["geepilot"],
       },
+      permissions: {
+        personalPolicy: {
+          id: "personal",
+          source: "personal",
+          mode: "default",
+          allowedTools: ["exec_command"],
+          deniedTools: ["Bash"],
+          readOnly: false,
+        },
+        approvalReceipts: [
+          {
+            id: "prm_12345678",
+            createdAt: "2026-07-18T10:00:00.000Z",
+            source: "direct",
+            toolName: "exec_command",
+            toolKind: "execute",
+            decision: "allowed",
+            optionKind: "allow_once",
+            policySourceIds: ["personal"],
+          },
+        ],
+      },
     });
 
     expect(settings).toMatchObject({
@@ -108,6 +130,15 @@ describe("desktop settings primitives", () => {
       ],
       extensions: {
         enabledPluginIds: ["geepilot"],
+      },
+      permissions: {
+        personalPolicy: {
+          source: "personal",
+          allowedTools: ["exec_command"],
+          deniedTools: ["Bash"],
+          readOnly: false,
+        },
+        approvalReceipts: [{ decision: "allowed", toolName: "exec_command" }],
       },
     });
   });
@@ -309,6 +340,16 @@ describe("desktop settings primitives", () => {
         enabledPluginIds: [],
         disabledPluginIds: [],
         trustedSourceIds: [],
+      },
+      permissions: {
+        personalPolicy: {
+          id: "personal",
+          source: "personal",
+          allowedTools: [],
+          deniedTools: [],
+          readOnly: false,
+        },
+        approvalReceipts: [],
       },
     });
   });

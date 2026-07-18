@@ -90,16 +90,47 @@ handler still return ACP `cancelled`. The desktop prompt carries only bounded
 title/kind/summary data and never ACP raw input/output, patch bodies, file
 contents, or credentials.
 
-Current staged follow-up after this executable P0 boundary:
+### Layered governance and desktop UX
 
-1. Add project/user/managed policy layers with immutable deny rules and trust
-   state, instead of storing every rule only in one Custom Agent recipe.
-2. Add tool-argument scopes (path, command prefix, MCP server/tool, and network
+Direct SwarmX policy now resolves four explicit sources in least-authority
+order:
+
+1. `SWARMX_MANAGED_PERMISSION_POLICY` supplies an optional read-only managed
+   JSON layer.
+2. `<Project>/.swarmx/permissions.json` supplies a read-only, restriction-only
+   Project layer. It may set a mode ceiling or deny exact tools, but it cannot
+   pre-approve tools.
+3. Desktop Settings supplies editable personal defaults.
+4. The selected Custom Agent supplies its Harness policy.
+
+The least-authority declared mode wins in the order `plan < restricted <
+default < trusted`. Denials union across all layers and remove any matching
+pre-approval. Missing managed/Project sources inherit neutrally; malformed
+configured sources are visible and fail closed before direct tools are
+created. This prevents repository content from granting authority while still
+letting a Project enforce local restrictions.
+
+Desktop Settings has a dedicated Permissions workspace that shows the effective
+mode, exact allow/deny counts, source provenance, editable personal defaults,
+the selected Project policy path, and a newest-first local approval history.
+Custom Agents use structured exact-tool chips with duplicate/conflict checking
+instead of newline rule text. Approval dialogs explain that allow-once applies
+to one call and does not expand the host sandbox; rejection receives initial
+focus.
+
+Approval receipts are bounded to the newest 200 entries and contain only id,
+time, direct/ACP source, bounded tool name/kind, decision, offered option kind,
+and policy-source ids. They never create an allow rule and never store raw tool
+arguments, output, patch/file content, environment values, or credentials.
+
+Remaining staged follow-up:
+
+1. Add tool-argument scopes (path, command prefix, MCP server/tool, and network
    domain) plus protected-path policy; exact tool names are intentionally the
    first narrow contract.
-3. Add sanitized approval receipts, policy provenance, and revocation UI without
-   persisting secrets or raw tool payloads.
-4. Add MCP/app side-effect annotations and shared enforcement so direct local,
+2. Add policy simulation and organization-managed distribution/signature
+   metadata for administrators.
+3. Add MCP/app side-effect annotations and shared enforcement so direct local,
    MCP, ACP, and connector actions use one auditable decision vocabulary.
 
 The three interactive names require the desktop request bridge. Headless callers

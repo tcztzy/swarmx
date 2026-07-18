@@ -15,6 +15,8 @@ describe("V390 AgentInteractionDialog", () => {
           interactionId: "approval-1",
           title: "Allow exec_command?",
           toolKind: "execute",
+          source: "direct",
+          policySourceIds: ["personal"],
           summary: "Project-sandboxed shell command",
           options: [
             { optionId: "reject_once", name: "Reject", kind: "reject_once" },
@@ -29,6 +31,10 @@ describe("V390 AgentInteractionDialog", () => {
     );
 
     expect(screen.getByText("Project-sandboxed shell command")).not.toBeNull();
+    expect(screen.getByText(/Allow once applies only to this request/)).not.toBeNull();
+    expect(screen.getByText(/does not expand the host OS sandbox/)).not.toBeNull();
+    expect(screen.getByText(/Policy: personal/)).not.toBeNull();
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Reject" }));
     fireEvent.click(screen.getByRole("button", { name: "Allow once" }));
     expect(onResolve).toHaveBeenCalledWith({
       kind: "tool_approval",

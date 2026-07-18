@@ -26,6 +26,8 @@ import {
   type LocalTextTool,
   type LocalTool,
   type ModelApi,
+  type ResolvedHarnessPermissionPolicy,
+  ResolvedHarnessPermissionPolicySchema,
   localToolResult,
   resolveHarnessToolPermission,
 } from "@swarmx/core";
@@ -199,7 +201,7 @@ export interface WorkspaceAgentToolOptions {
   agent?: (request: ClaudeAgentInvocation) => Promise<ClaudeAgentResult>;
   sessionTools?: ClaudeSessionToolBridge;
   borrowShell?: boolean;
-  permissionPolicy?: HarnessPermissionPolicy;
+  permissionPolicy?: HarnessPermissionPolicy | ResolvedHarnessPermissionPolicy;
 }
 
 export interface ClaudeSessionActivation {
@@ -1510,7 +1512,10 @@ export function workspaceAgentTools(
       ? claudeCodeWorkspaceTools(tools, shell, options)
       : codexWorkspaceTools(tools, shell, options.apiProtocol);
   if (!options.permissionPolicy) return profileTools;
-  const policy = HarnessPermissionPolicySchema.parse(options.permissionPolicy);
+  const layered = ResolvedHarnessPermissionPolicySchema.safeParse(options.permissionPolicy);
+  const policy = layered.success
+    ? layered.data
+    : HarnessPermissionPolicySchema.parse(options.permissionPolicy);
   return profileTools.map((tool) => permissionGuardedTool(tool, policy, options.interact));
 }
 
@@ -1536,7 +1541,7 @@ const WRITE_PERMISSION_TOOLS = new Set(["Edit", "NotebookEdit", "Write", "apply_
 
 function permissionGuardedTool(
   tool: LocalTool,
-  policy: HarnessPermissionPolicy,
+  policy: HarnessPermissionPolicy | ResolvedHarnessPermissionPolicy,
   interact: WorkspaceAgentToolOptions["interact"],
 ): LocalTool {
   const authorize = (input: Record<string, unknown> | string) =>
@@ -1565,7 +1570,7 @@ async function authorizeWorkspaceTool(
   toolName: string,
   access: HarnessToolAccess,
   input: Record<string, unknown> | string,
-  policy: HarnessPermissionPolicy,
+  policy: HarnessPermissionPolicy | ResolvedHarnessPermissionPolicy,
   interact: WorkspaceAgentToolOptions["interact"],
 ): Promise<void> {
   const resolved = resolveHarnessToolPermission(policy, { toolName, access });
@@ -1584,6 +1589,8 @@ async function authorizeWorkspaceTool(
     kind: "tool_approval",
     title: `Allow ${toolName}?`,
     toolKind: access,
+    source: "direct",
+    policySourceIds: resolved.sourceIds,
     summary: workspaceToolApprovalSummary(toolName, input),
     options: [
       { optionId: "reject_once", name: "Reject", kind: "reject_once" },

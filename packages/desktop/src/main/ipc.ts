@@ -76,6 +76,7 @@ import {
   ModelCatalogService,
   type UserProviderInput,
 } from "./model-catalog.js";
+import { PermissionService, type RecordPermissionDecisionInput } from "./permission-service.js";
 import { EncryptedFileProviderAuthStore } from "./provider-auth.js";
 import {
   type ProviderUsageRefreshTarget,
@@ -106,6 +107,8 @@ import {
 } from "./workspace-tools.js";
 
 const MAX_INLINE_IMAGE_BYTES = 25 * 1024 * 1024;
+const SENSITIVE_PERMISSION_LABEL_PATTERN =
+  /(api[_ -]?key|access[_ -]?token|password|passwd|bearer\s+[a-z0-9]|secret\s*[=:]|private[_ -]?key)/i;
 const lspHost = new LspHost();
 const harnessEnvironment = new HarnessEnvironmentService();
 const harnessDoctor = new HarnessDoctor(harnessEnvironment);
@@ -134,6 +137,7 @@ const modelCatalog = new ModelCatalogService({
   settingsStore: desktopSettingsStore,
 });
 const customAgents = new CustomAgentService(desktopSettingsStore);
+const permissionService = new PermissionService(desktopSettingsStore);
 const extensionManager = new DesktopExtensionManager(desktopSettingsStore);
 const providerUsage = new ProviderUsageService({ authStore: providerAuthStore });
 const desktopActivity = new ActivityStore(
@@ -321,22 +325,53 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
             if (optionIds.length === 0 || new Set(optionIds).size !== optionIds.length) {
               return { outcome: { outcome: "cancelled" } };
             }
-            const response = await agentInteractions.request(event.sender, params.requestId, {
-              kind: "tool_approval",
-              title: boundedPermissionLabel(request.toolCall.title ?? "ACP tool request"),
-              ...(request.toolCall.kind ? { toolKind: request.toolCall.kind } : {}),
-              summary:
-                "An ACP Harness requested permission for this tool call. Raw input and output are not shown in the approval payload.",
-              options: request.options.map((option) => ({
-                optionId: option.optionId,
-                name: boundedPermissionLabel(option.name),
-                kind: option.kind,
-              })),
-            });
-            if (response.kind !== "tool_approval") {
-              return { outcome: { outcome: "cancelled" } };
+            const title = boundedPermissionLabel(request.toolCall.title ?? "ACP tool request");
+            const toolKind = request.toolCall.kind
+              ? boundedPermissionLabel(request.toolCall.kind)
+              : undefined;
+            try {
+              const response = await agentInteractions.request(event.sender, params.requestId, {
+                kind: "tool_approval",
+                title,
+                ...(toolKind ? { toolKind } : {}),
+                source: "acp",
+                summary:
+                  "An ACP Harness requested permission for this tool call. Raw input and output are not shown in the approval payload.",
+                options: request.options.map((option) => ({
+                  optionId: option.optionId,
+                  name: boundedPermissionLabel(option.name),
+                  kind: option.kind,
+                })),
+              });
+              if (response.kind !== "tool_approval") {
+                await recordPermissionDecision({
+                  source: "acp",
+                  toolName: title,
+                  ...(toolKind ? { toolKind } : {}),
+                  decision: "cancelled",
+                });
+                return { outcome: { outcome: "cancelled" } };
+              }
+              const selected = request.options.find(
+                (option) => option.optionId === response.optionId,
+              );
+              await recordPermissionDecision({
+                source: "acp",
+                toolName: title,
+                ...(toolKind ? { toolKind } : {}),
+                decision: selected?.kind.startsWith("allow") ? "allowed" : "rejected",
+                ...(selected ? { optionKind: selected.kind } : {}),
+              });
+              return { outcome: { outcome: "selected", optionId: response.optionId } };
+            } catch (error) {
+              await recordPermissionDecision({
+                source: "acp",
+                toolName: title,
+                ...(toolKind ? { toolKind } : {}),
+                decision: "cancelled",
+              });
+              throw error;
             }
-            return { outcome: { outcome: "selected", optionId: response.optionId } };
           };
           let swarm: Swarm;
           const cwd = await normalizeWorkingDirectory(params.cwd);
@@ -369,10 +404,14 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
                 ? new WorkspaceTools(cwd)
                 : null;
             const permissionPolicy = projectTools
-              ? HarnessPermissionPolicySchema.parse({
-                  mode: plan.permissions?.mode ?? "default",
-                  allowedTools: plan.permissions?.allowedTools ?? [],
-                  deniedTools: plan.permissions?.deniedTools ?? [],
+              ? await permissionService.resolve({
+                  cwd,
+                  agentId: plan.agentProfileId ?? plan.agentId,
+                  agentPolicy: HarnessPermissionPolicySchema.parse({
+                    mode: plan.permissions?.mode ?? "default",
+                    allowedTools: plan.permissions?.allowedTools ?? [],
+                    deniedTools: plan.permissions?.deniedTools ?? [],
+                  }),
                 })
               : undefined;
             const selectedWorkspaceSkills = plan.skills.flatMap((skillRef) => {
@@ -477,6 +516,42 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
               await sessionRuntime.beginForeground();
               foregroundRuntime = sessionRuntime;
             }
+            const interactWithPermissionReceipts: NonNullable<
+              WorkspaceAgentToolOptions["interact"]
+            > = async (request) => {
+              try {
+                const response = await agentInteractions.request(
+                  event.sender,
+                  params.requestId,
+                  request,
+                );
+                if (request.kind === "tool_approval" && response.kind === "tool_approval") {
+                  const selected = request.options.find(
+                    (option) => option.optionId === response.optionId,
+                  );
+                  await recordPermissionDecision({
+                    source: request.source ?? "direct",
+                    toolName: request.title,
+                    ...(request.toolKind ? { toolKind: request.toolKind } : {}),
+                    decision: selected?.kind.startsWith("allow") ? "allowed" : "rejected",
+                    ...(selected ? { optionKind: selected.kind } : {}),
+                    policySourceIds: request.policySourceIds ?? [],
+                  });
+                }
+                return response;
+              } catch (error) {
+                if (request.kind === "tool_approval") {
+                  await recordPermissionDecision({
+                    source: request.source ?? "direct",
+                    toolName: request.title,
+                    ...(request.toolKind ? { toolKind: request.toolKind } : {}),
+                    decision: "cancelled",
+                    policySourceIds: request.policySourceIds ?? [],
+                  });
+                }
+                throw error;
+              }
+            };
             const childAgentHost = projectTools
               ? new ClaudeChildAgentHost({
                   parentModel: [plan.modelId, plan.runtimeModel].filter(Boolean).join(" "),
@@ -485,12 +560,14 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
                     projectAgentContextMessage(root, {
                       ...baseWorkspaceToolOptions,
                       sessionId: `${params.sessionId ?? params.requestId}:agent`,
+                      interact: interactWithPermissionReceipts,
                     }),
                   execute: async ({ agentId, root, messages: childMessages }) => {
                     const childTools = new WorkspaceTools(root);
                     const childToolOptions: WorkspaceAgentToolOptions = {
                       ...baseWorkspaceToolOptions,
                       sessionId: `${params.sessionId ?? params.requestId}:agent:${agentId}`,
+                      interact: interactWithPermissionReceipts,
                       ...(lspHost.supportsClaudeOperations(inventory)
                         ? {
                             lsp: (request) => lspHost.operate(inventory, childTools.root, request),
@@ -519,8 +596,7 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
               sessionId: params.sessionId ?? params.requestId,
               ...(sessionRuntime ? { sessionTools: sessionRuntime, borrowShell: true } : {}),
               ...(childAgentHost ? { agent: (request) => childAgentHost.run(request) } : {}),
-              interact: (request) =>
-                agentInteractions.request(event.sender, params.requestId, request),
+              interact: interactWithPermissionReceipts,
               closeInteractions: () => {
                 childAgentHost?.close();
                 agentInteractions.cancelRequest(event.sender, params.requestId);
@@ -946,6 +1022,38 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
       await customAgents.remove(params.id);
       const inventory = await loadDesktopExtensionInventory();
       return extensionInventoryWithPlans(await modelCatalog.list(inventory));
+    },
+  );
+
+  ipcMain.handle(
+    "permission:status",
+    async (
+      _event: IpcMainInvokeEvent,
+      params?: { cwd?: string; agentId?: string; agentPolicy?: unknown },
+    ) =>
+      permissionService.status({
+        cwd: await normalizeWorkingDirectory(params?.cwd),
+        ...(params?.agentId ? { agentId: params.agentId } : {}),
+        ...(params?.agentPolicy
+          ? { agentPolicy: HarnessPermissionPolicySchema.parse(params.agentPolicy) }
+          : {}),
+      }),
+  );
+
+  ipcMain.handle(
+    "permission:savePersonal",
+    async (
+      _event: IpcMainInvokeEvent,
+      params: { cwd?: string; agentId?: string; agentPolicy?: unknown; policy: unknown },
+    ) => {
+      await permissionService.savePersonalPolicy(params.policy);
+      return permissionService.status({
+        cwd: await normalizeWorkingDirectory(params.cwd),
+        ...(params.agentId ? { agentId: params.agentId } : {}),
+        ...(params.agentPolicy
+          ? { agentPolicy: HarnessPermissionPolicySchema.parse(params.agentPolicy) }
+          : {}),
+      });
     },
   );
 
@@ -1473,9 +1581,18 @@ function stringProperty(value: unknown, key: string): string | undefined {
   return typeof property === "string" && property.length > 0 ? property : undefined;
 }
 
+async function recordPermissionDecision(input: RecordPermissionDecisionInput): Promise<void> {
+  try {
+    await permissionService.recordDecision(input);
+  } catch {
+    // An unavailable audit store must not rewrite the user's authority decision.
+  }
+}
+
 function boundedPermissionLabel(value: string): string {
   const compact = value.replace(/\s+/g, " ").trim();
   if (!compact) return "Tool permission request";
+  if (SENSITIVE_PERMISSION_LABEL_PATTERN.test(compact)) return "Tool permission request";
   return compact.length <= 160 ? compact : `${compact.slice(0, 159)}…`;
 }
 

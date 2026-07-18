@@ -80,6 +80,14 @@ export type {
 } from "./model-catalog.js";
 export { CustomAgentService } from "./custom-agents.js";
 export type { SaveCustomAgentOptions } from "./custom-agents.js";
+export { PermissionService } from "./permission-service.js";
+export type {
+  DesktopPermissionStatus,
+  PermissionLayerStatus,
+  PermissionServiceOptions,
+  RecordPermissionDecisionInput,
+  ResolveDesktopPermissionOptions,
+} from "./permission-service.js";
 export { DesktopSettingsStore } from "./settings-store.js";
 export type {
   DesktopSettingsStoreLike,

@@ -86,6 +86,8 @@ export type DesktopAgentInteractionEvent =
       interactionId: string;
       title: string;
       toolKind?: string;
+      source?: "direct" | "acp";
+      policySourceIds?: string[];
       summary: string;
       options: DesktopToolApprovalOption[];
     };
@@ -254,6 +256,17 @@ export function createSwarmxDesktopApi(
     saveCustomAgent: (input: unknown) => invoke("customAgent:save", input),
 
     removeCustomAgent: (id: string) => invoke("customAgent:remove", { id }),
+
+    getPermissionStatus: (params?: {
+      cwd?: string;
+      agentId?: string;
+      agentPolicy?: unknown;
+    }) => invoke("permission:status", params ?? {}),
+
+    savePersonalPermissionPolicy: (
+      policy: unknown,
+      context?: { cwd?: string; agentId?: string; agentPolicy?: unknown },
+    ) => invoke("permission:savePersonal", { policy, ...context }),
 
     workspaceRoot: () => invoke("workspace:root") as Promise<string>,
 

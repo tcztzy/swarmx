@@ -27,6 +27,8 @@ export type ClaudeInteractionRequest =
       kind: "tool_approval";
       title: string;
       toolKind?: string;
+      source?: "direct" | "acp";
+      policySourceIds?: string[];
       summary: string;
       options: ToolApprovalOption[];
     };

@@ -1,4 +1,13 @@
-import type { AgentBackend, EdgeConfig, SwarmConfig, SwarmNodeConfig } from "@swarmx/core";
+import type {
+  AgentBackend,
+  EdgeConfig,
+  HarnessPermissionMode,
+  HarnessPermissionPolicyLayer,
+  PermissionApprovalReceipt,
+  ResolvedHarnessPermissionPolicy,
+  SwarmConfig,
+  SwarmNodeConfig,
+} from "@swarmx/core";
 import { resolveHarnessModelInventory } from "@swarmx/core/model-capabilities";
 import {
   type NormalizeMessageChunkOptions,
@@ -48,6 +57,7 @@ import {
   RefreshCw,
   Search,
   Settings,
+  ShieldCheck,
   Sparkles,
   SquarePen,
   Telescope,
@@ -61,7 +71,7 @@ import {
   XCircle,
 } from "lucide-react";
 import type React from "react";
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import useSWR, { useSWRConfig } from "swr";
 import {
@@ -343,7 +353,34 @@ interface ExtensionManagementState {
 }
 
 type ModelApiProtocol = "anthropic" | "openai_chat" | "openai_responses" | "ollama";
-type SettingsSection = "profile" | "providers" | "extensions" | "agents" | "runtime";
+type SettingsSection =
+  | "profile"
+  | "permissions"
+  | "providers"
+  | "extensions"
+  | "agents"
+  | "runtime";
+
+interface PermissionLayerStatus {
+  id: string;
+  source: HarnessPermissionPolicyLayer["source"];
+  label: string;
+  configured: boolean;
+  readOnly: boolean;
+  mode?: HarnessPermissionMode;
+  allowedTools: string[];
+  deniedTools: string[];
+  error?: string;
+}
+
+interface DesktopPermissionStatus {
+  personalPolicy: HarnessPermissionPolicyLayer;
+  layers: PermissionLayerStatus[];
+  effective?: ResolvedHarnessPermissionPolicy;
+  blocked: boolean;
+  projectPolicyPath: string;
+  approvalReceipts: PermissionApprovalReceipt[];
+}
 type DesktopUpdatePhase = "hidden" | "available" | "downloading" | "installing" | "restarting";
 
 interface DesktopUpdateState {
@@ -591,7 +628,7 @@ interface ExtensionAgentSummary {
       allowHostNativePlugins: boolean;
     };
     permissions: {
-      mode: string;
+      mode: HarnessPermissionMode;
       allowedTools: string[];
       deniedTools: string[];
     };
@@ -1038,6 +1075,15 @@ interface SwarmxAPI {
   listCustomAgents(): Promise<ExtensionCapabilityInventory>;
   saveCustomAgent(input: unknown): Promise<ExtensionCapabilityInventory>;
   removeCustomAgent(id: string): Promise<ExtensionCapabilityInventory>;
+  getPermissionStatus(params?: {
+    cwd?: string;
+    agentId?: string;
+    agentPolicy?: unknown;
+  }): Promise<DesktopPermissionStatus>;
+  savePersonalPermissionPolicy(
+    policy: unknown,
+    context?: { cwd?: string; agentId?: string; agentPolicy?: unknown },
+  ): Promise<DesktopPermissionStatus>;
   workspaceRoot(): Promise<string>;
   getWorkspaceReview(cwd?: string): Promise<WorkspaceReviewSnapshot>;
   listWorkspaceDirectory(path?: string, cwd?: string): Promise<WorkspaceDirectoryListing>;
@@ -2068,6 +2114,40 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
   const selectedProject = useMemo(
     () => projects.find((project) => project.id === activeProjectId) ?? null,
     [activeProjectId, projects],
+  );
+  const selectedPermissionPlan = useMemo(
+    () =>
+      (extensionInventory?.agentPlans ?? []).find(
+        (plan) =>
+          plan.agentProfileId === activeExtensionAgent?.id ||
+          plan.agentId === activeExtensionAgent?.id,
+      ),
+    [activeExtensionAgent?.id, extensionInventory?.agentPlans],
+  );
+  const permissionAgentPolicy =
+    activeExtensionAgent?.harnessRecipe?.permissions ?? selectedPermissionPlan?.permissions;
+  const permissionContext = {
+    ...(selectedProject?.cwd ? { cwd: selectedProject.cwd } : {}),
+    ...(activeExtensionAgent && permissionAgentPolicy
+      ? { agentId: activeExtensionAgent.id, agentPolicy: permissionAgentPolicy }
+      : {}),
+  };
+  const {
+    data: permissionStatus,
+    error: permissionStatusError,
+    isLoading: permissionStatusLoading,
+    mutate: mutatePermissionStatus,
+  } = useSWR<DesktopPermissionStatus>(
+    settingsSection === "permissions"
+      ? [
+          "permissions:status",
+          selectedProject?.cwd ?? "personal",
+          activeExtensionAgent?.id ?? "no-agent",
+          JSON.stringify(permissionAgentPolicy ?? null),
+        ]
+      : null,
+    () => api.getPermissionStatus(permissionContext),
+    { revalidateOnFocus: true, revalidateOnReconnect: false },
   );
   const actionProject = useMemo(
     () => projects.find((project) => project.id === projectActionMenuId) ?? null,
@@ -3880,6 +3960,20 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
                   loading={activityProfileLoading}
                   error={activityProfileError ? errorMessage(activityProfileError) : undefined}
                 />
+              ) : settingsSection === "permissions" ? (
+                <PermissionsSettings
+                  status={permissionStatus}
+                  loading={permissionStatusLoading}
+                  error={permissionStatusError}
+                  projectName={selectedProject?.name}
+                  agentName={activeExtensionAgent?.name}
+                  onSave={async (policy) => {
+                    await mutatePermissionStatus(
+                      await api.savePersonalPermissionPolicy(policy, permissionContext),
+                      false,
+                    );
+                  }}
+                />
               ) : settingsSection === "providers" ? (
                 <SettingsWorkspace
                   providers={extensionInventory?.providers ?? []}
@@ -4338,9 +4432,10 @@ function SettingsSidebar({
   onBack: () => void;
 }) {
   const normalizedQuery = query.trim().toLowerCase();
-  const personalSections = [{ id: "profile" as const, label: "Profile", icon: User }].filter(
-    (item) => item.label.toLowerCase().includes(normalizedQuery),
-  );
+  const personalSections = [
+    { id: "profile" as const, label: "Profile", icon: User },
+    { id: "permissions" as const, label: "Permissions", icon: ShieldCheck },
+  ].filter((item) => item.label.toLowerCase().includes(normalizedQuery));
   const systemSections = [
     { id: "providers" as const, label: "Providers", icon: KeyRound },
     { id: "extensions" as const, label: "Extensions", icon: Package },
@@ -4399,6 +4494,476 @@ function SettingsSidebar({
   );
 }
 
+const PERMISSION_TOOL_SUGGESTIONS = [
+  "Read",
+  "Glob",
+  "Grep",
+  "LSP",
+  "Edit",
+  "Write",
+  "apply_patch",
+  "Bash",
+  "exec_command",
+  "Task",
+  "WebFetch",
+  "WebSearch",
+];
+
+const PERMISSION_MODE_OPTIONS: Array<{
+  id: HarnessPermissionMode;
+  label: string;
+  description: string;
+}> = [
+  {
+    id: "plan",
+    label: "Plan only",
+    description: "Read-only tools can run; writes and commands are denied.",
+  },
+  {
+    id: "restricted",
+    label: "Restricted",
+    description: "Only read-only and explicitly pre-approved tools can run.",
+  },
+  {
+    id: "default",
+    label: "Ask when needed",
+    description: "Read-only tools run; each write or command needs one-time approval.",
+  },
+  {
+    id: "trusted",
+    label: "Full tool access",
+    description: "Tools run without prompts, while the host OS sandbox still applies.",
+  },
+];
+
+function PermissionsSettings({
+  status,
+  loading,
+  error,
+  projectName,
+  agentName,
+  onSave,
+}: {
+  status?: DesktopPermissionStatus;
+  loading: boolean;
+  error: unknown;
+  projectName?: string;
+  agentName?: string;
+  onSave: (policy: unknown) => Promise<void>;
+}) {
+  const [mode, setMode] = useState<HarnessPermissionMode | "inherit">("inherit");
+  const [allowedTools, setAllowedTools] = useState<string[]>([]);
+  const [deniedTools, setDeniedTools] = useState<string[]>([]);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!status) return;
+    setMode(status.personalPolicy.mode ?? "inherit");
+    setAllowedTools(status.personalPolicy.allowedTools);
+    setDeniedTools(status.personalPolicy.deniedTools);
+    setSaveError(null);
+  }, [status]);
+
+  const save = async () => {
+    setSaving(true);
+    setSaveError(null);
+    try {
+      await onSave({
+        ...(mode === "inherit" ? {} : { mode }),
+        allowedTools,
+        deniedTools,
+      });
+    } catch (saveFailure) {
+      setSaveError(errorMessage(saveFailure));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (loading && !status) {
+    return (
+      <section className="settings-workspace permission-settings" aria-label="Permissions settings">
+        <div className="settings-workspace__loading">
+          <Loader2 className="is-spinning" aria-hidden="true" /> Loading permission policy…
+        </div>
+      </section>
+    );
+  }
+
+  if (error && !status) {
+    return (
+      <section className="settings-workspace permission-settings" aria-label="Permissions settings">
+        <div className="settings-provider-error">{errorMessage(error)}</div>
+      </section>
+    );
+  }
+
+  const effective = status?.effective;
+  const effectiveMode = effective?.policy.mode ?? "default";
+  const effectiveModeLabel = permissionModeLabel(effectiveMode);
+
+  return (
+    <section className="settings-workspace permission-settings" aria-label="Permissions settings">
+      <div className="settings-workspace__body">
+        <div className="settings-workspace__content permission-settings__content">
+          <div className="settings-content-heading permission-settings__heading">
+            <span>
+              <small>Authority and approvals</small>
+              <h2>Permissions</h2>
+              <p>
+                Review the effective policy before changing personal defaults. Denials and the most
+                restrictive mode always win.
+              </p>
+            </span>
+            <button
+              type="button"
+              className="settings-primary-action"
+              disabled={saving}
+              onClick={() => void save()}
+            >
+              {saving ? "Saving…" : "Save personal defaults"}
+            </button>
+          </div>
+
+          {Boolean(saveError || error) && (
+            <div className="settings-provider-error">{saveError ?? errorMessage(error)}</div>
+          )}
+
+          <section
+            className={cx(
+              "permission-effective",
+              status?.blocked && "permission-effective--blocked",
+            )}
+            aria-label="Effective permission policy"
+          >
+            <div className="permission-effective__icon">
+              {status?.blocked ? (
+                <XCircle aria-hidden="true" />
+              ) : (
+                <ShieldCheck aria-hidden="true" />
+              )}
+            </div>
+            <div className="permission-effective__copy">
+              <small>
+                {status?.blocked
+                  ? "Execution blocked"
+                  : agentName
+                    ? `Effective policy · ${agentName}`
+                    : "Effective policy · before Agent"}
+              </small>
+              <h3>{status?.blocked ? "A policy source needs attention" : effectiveModeLabel}</h3>
+              <p>
+                {status?.blocked
+                  ? "Malformed managed or Project policy fails closed until its source is corrected."
+                  : permissionModeDescription(effectiveMode)}
+              </p>
+            </div>
+            {!status?.blocked && effective && (
+              <dl className="permission-effective__stats">
+                <div>
+                  <dt>Pre-approved</dt>
+                  <dd>{effective.policy.allowedTools.length}</dd>
+                </div>
+                <div>
+                  <dt>Denied</dt>
+                  <dd>{effective.policy.deniedTools.length}</dd>
+                </div>
+                <div>
+                  <dt>Sources</dt>
+                  <dd>{effective.layers.length}</dd>
+                </div>
+              </dl>
+            )}
+          </section>
+
+          <section className="permission-panel" aria-labelledby="personal-permission-heading">
+            <div className="permission-panel__heading">
+              <span>
+                <small>Editable on this device</small>
+                <h3 id="personal-permission-heading">Personal defaults</h3>
+                <p>
+                  These defaults combine with managed, Project, and Agent policy at execution time.
+                </p>
+              </span>
+              <Badge tone="active">Personal</Badge>
+            </div>
+
+            <fieldset className="permission-mode-picker">
+              <legend>Default mode</legend>
+              <label className={mode === "inherit" ? "is-selected" : undefined}>
+                <input
+                  type="radio"
+                  name="personal-permission-mode"
+                  value="inherit"
+                  checked={mode === "inherit"}
+                  onChange={() => setMode("inherit")}
+                />
+                <span>
+                  <strong>Use other policy</strong>
+                  <small>
+                    Do not set a personal ceiling; default to Ask when needed if none exists.
+                  </small>
+                </span>
+              </label>
+              {PERMISSION_MODE_OPTIONS.map((option) => (
+                <label key={option.id} className={mode === option.id ? "is-selected" : undefined}>
+                  <input
+                    type="radio"
+                    name="personal-permission-mode"
+                    value={option.id}
+                    checked={mode === option.id}
+                    onChange={() => setMode(option.id)}
+                  />
+                  <span>
+                    <strong>{option.label}</strong>
+                    <small>{option.description}</small>
+                  </span>
+                </label>
+              ))}
+            </fieldset>
+
+            <div className="permission-rule-grid">
+              <PermissionToolRulesEditor
+                label="Pre-approved tools"
+                description="Exact tool names that may run without a prompt."
+                values={allowedTools}
+                blockedValues={deniedTools}
+                onChange={setAllowedTools}
+              />
+              <PermissionToolRulesEditor
+                label="Denied tools"
+                description="Exact tool names that can never run. Denials always win."
+                values={deniedTools}
+                blockedValues={allowedTools}
+                tone="danger"
+                onChange={setDeniedTools}
+              />
+            </div>
+          </section>
+
+          <section className="permission-panel" aria-labelledby="permission-sources-heading">
+            <div className="permission-panel__heading">
+              <span>
+                <small>Effective authority stack</small>
+                <h3 id="permission-sources-heading">Policy sources</h3>
+                <p>
+                  {projectName
+                    ? `Project policy is resolved for ${projectName}.`
+                    : "Choose a Project to include its repository policy."}
+                </p>
+              </span>
+              <code>{status?.projectPolicyPath ?? ".swarmx/permissions.json"}</code>
+            </div>
+            <div className="permission-layer-list">
+              {status?.layers.map((layer) => (
+                <article
+                  key={layer.id}
+                  className={cx(
+                    "permission-layer-card",
+                    layer.error && "permission-layer-card--error",
+                  )}
+                >
+                  <div className="permission-layer-card__heading">
+                    <span className={`permission-source permission-source--${layer.source}`}>
+                      {permissionSourceLabel(layer.source)}
+                    </span>
+                    <Badge tone={layer.error ? "danger" : layer.configured ? "active" : "neutral"}>
+                      {layer.error ? "Invalid" : layer.configured ? "Applied" : "Not configured"}
+                    </Badge>
+                  </div>
+                  <strong>{layer.label}</strong>
+                  {layer.error ? (
+                    <p>{layer.error}</p>
+                  ) : layer.configured ? (
+                    <dl>
+                      <div>
+                        <dt>Mode</dt>
+                        <dd>{layer.mode ? permissionModeLabel(layer.mode) : "No ceiling"}</dd>
+                      </div>
+                      <div>
+                        <dt>Allow</dt>
+                        <dd>{layer.allowedTools.length}</dd>
+                      </div>
+                      <div>
+                        <dt>Deny</dt>
+                        <dd>{layer.deniedTools.length}</dd>
+                      </div>
+                    </dl>
+                  ) : (
+                    <p>No policy was found for this source.</p>
+                  )}
+                </article>
+              ))}
+            </div>
+          </section>
+
+          <section className="permission-panel" aria-labelledby="permission-history-heading">
+            <div className="permission-panel__heading">
+              <span>
+                <small>Sanitized local audit trail</small>
+                <h3 id="permission-history-heading">Approval history</h3>
+                <p>Only the tool, decision, source, and policy provenance are stored.</p>
+              </span>
+              <Badge>{status?.approvalReceipts.length ?? 0} receipts</Badge>
+            </div>
+            {(status?.approvalReceipts.length ?? 0) === 0 ? (
+              <div className="permission-history-empty">
+                <Clock3 aria-hidden="true" /> No approval decisions yet.
+              </div>
+            ) : (
+              <div className="permission-history-list">
+                {status?.approvalReceipts.map((receipt) => (
+                  <article key={`${receipt.id}:${receipt.createdAt}`}>
+                    <span
+                      className={cx(
+                        "permission-decision",
+                        `permission-decision--${receipt.decision}`,
+                      )}
+                    >
+                      {receipt.decision}
+                    </span>
+                    <span>
+                      <strong>{receipt.toolName}</strong>
+                      <small>
+                        {receipt.source.toUpperCase()}
+                        {receipt.toolKind ? ` · ${receipt.toolKind}` : ""}
+                        {receipt.policySourceIds.length > 0
+                          ? ` · ${receipt.policySourceIds.join(" + ")}`
+                          : ""}
+                      </small>
+                    </span>
+                    <time dateTime={receipt.createdAt}>
+                      {formatPermissionTime(receipt.createdAt)}
+                    </time>
+                  </article>
+                ))}
+              </div>
+            )}
+          </section>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function PermissionToolRulesEditor({
+  label,
+  description,
+  values,
+  blockedValues,
+  tone = "default",
+  onChange,
+}: {
+  label: string;
+  description: string;
+  values: string[];
+  blockedValues: string[];
+  tone?: "default" | "danger";
+  onChange: (values: string[]) => void;
+}) {
+  const listId = useId();
+  const [draft, setDraft] = useState("");
+  const [inputError, setInputError] = useState<string | null>(null);
+  const add = () => {
+    const toolName = draft.trim();
+    if (!toolName) {
+      setInputError("Enter an exact tool name.");
+      return;
+    }
+    if (values.includes(toolName)) {
+      setInputError(`${toolName} is already listed.`);
+      return;
+    }
+    if (blockedValues.includes(toolName)) {
+      setInputError(`${toolName} already has the opposite rule.`);
+      return;
+    }
+    onChange([...values, toolName]);
+    setDraft("");
+    setInputError(null);
+  };
+
+  return (
+    <div className={cx("permission-rule-editor", tone === "danger" && "is-danger")}>
+      <div>
+        <strong>{label}</strong>
+        <p>{description}</p>
+      </div>
+      <div className="permission-rule-editor__input">
+        <input
+          list={listId}
+          value={draft}
+          aria-label={`${label} tool name`}
+          placeholder="Type an exact tool name"
+          onChange={(event) => {
+            setDraft(event.target.value);
+            setInputError(null);
+          }}
+          onKeyDown={(event) => {
+            if (event.key !== "Enter") return;
+            event.preventDefault();
+            add();
+          }}
+        />
+        <datalist id={listId}>
+          {PERMISSION_TOOL_SUGGESTIONS.filter(
+            (toolName) => !values.includes(toolName) && !blockedValues.includes(toolName),
+          ).map((toolName) => (
+            <option key={toolName} value={toolName} />
+          ))}
+        </datalist>
+        <button type="button" onClick={add}>
+          <Plus aria-hidden="true" /> Add
+        </button>
+      </div>
+      {inputError && <small className="permission-rule-editor__error">{inputError}</small>}
+      <div className="permission-rule-editor__chips" aria-label={`${label} rules`}>
+        {values.length === 0 ? (
+          <small>No exact-tool rules.</small>
+        ) : (
+          values.map((toolName) => (
+            <span key={toolName}>
+              <code>{toolName}</code>
+              <button
+                type="button"
+                aria-label={`Remove ${toolName} from ${label}`}
+                onClick={() => onChange(values.filter((value) => value !== toolName))}
+              >
+                <X aria-hidden="true" />
+              </button>
+            </span>
+          ))
+        )}
+      </div>
+    </div>
+  );
+}
+
+function permissionModeLabel(mode: HarnessPermissionMode): string {
+  return PERMISSION_MODE_OPTIONS.find((option) => option.id === mode)?.label ?? mode;
+}
+
+function permissionModeDescription(mode: HarnessPermissionMode): string {
+  return PERMISSION_MODE_OPTIONS.find((option) => option.id === mode)?.description ?? "";
+}
+
+function permissionSourceLabel(source: HarnessPermissionPolicyLayer["source"]): string {
+  if (source === "project") return "Project";
+  return `${source.slice(0, 1).toUpperCase()}${source.slice(1)}`;
+}
+
+function formatPermissionTime(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString([], {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
 function CustomAgentsSettings({
   inventory,
   environment,
@@ -4437,9 +5002,9 @@ function CustomAgentsSettings({
   const [selectedMcps, setSelectedMcps] = useState<ReadonlySet<string>>(new Set());
   const [contextPaths, setContextPaths] = useState("");
   const [instructionFiles, setInstructionFiles] = useState("AGENTS.md");
-  const [permissionMode, setPermissionMode] = useState("default");
-  const [allowedTools, setAllowedTools] = useState("");
-  const [deniedTools, setDeniedTools] = useState("");
+  const [permissionMode, setPermissionMode] = useState<HarnessPermissionMode>("default");
+  const [allowedTools, setAllowedTools] = useState<string[]>([]);
+  const [deniedTools, setDeniedTools] = useState<string[]>([]);
   const [unsupportedSkill, setUnsupportedSkill] = useState<"block" | "skip">("block");
   const [saving, setSaving] = useState(false);
   const [setupBusy, setSetupBusy] = useState(false);
@@ -4485,8 +5050,8 @@ function CustomAgentsSettings({
     setContextPaths("");
     setInstructionFiles("AGENTS.md");
     setPermissionMode("default");
-    setAllowedTools("");
-    setDeniedTools("");
+    setAllowedTools([]);
+    setDeniedTools([]);
     setUnsupportedSkill("block");
     setFormError(null);
   };
@@ -4514,8 +5079,8 @@ function CustomAgentsSettings({
     setContextPaths(recipe.projectContext.paths.join("\n"));
     setInstructionFiles(recipe.projectContext.instructionFiles.join("\n"));
     setPermissionMode(recipe.permissions.mode);
-    setAllowedTools(recipe.permissions.allowedTools.join("\n"));
-    setDeniedTools(recipe.permissions.deniedTools.join("\n"));
+    setAllowedTools(recipe.permissions.allowedTools);
+    setDeniedTools(recipe.permissions.deniedTools);
     setUnsupportedSkill(recipe.delivery.unsupportedSkill);
     setFormError(null);
   };
@@ -4573,8 +5138,8 @@ function CustomAgentsSettings({
           },
           permissions: {
             mode: permissionMode,
-            allowedTools: lines(allowedTools),
-            deniedTools: lines(deniedTools),
+            allowedTools,
+            deniedTools,
           },
         },
         modelId: selectedModelOption.modelId,
@@ -4782,6 +5347,52 @@ function CustomAgentsSettings({
               )}
             </label>
 
+            <section className="harness-permission-section" aria-label="Agent permission policy">
+              <div className="harness-permission-section__heading">
+                <ShieldCheck aria-hidden="true" />
+                <span>
+                  <strong>Agent permission policy</strong>
+                  <small>
+                    This is one layer. Managed, Project, and personal restrictions can reduce it.
+                  </small>
+                </span>
+              </div>
+              <label className="harness-permission-mode">
+                <span>Mode</span>
+                <select
+                  aria-label="Permission mode"
+                  value={permissionMode}
+                  onChange={(event) =>
+                    setPermissionMode(event.target.value as HarnessPermissionMode)
+                  }
+                >
+                  {PERMISSION_MODE_OPTIONS.map((option) => (
+                    <option key={option.id} value={option.id}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+                <small>{permissionModeDescription(permissionMode)}</small>
+              </label>
+              <div className="permission-rule-grid">
+                <PermissionToolRulesEditor
+                  label="Pre-approved tools"
+                  description="Exact tool names that skip a prompt for this Agent."
+                  values={allowedTools}
+                  blockedValues={deniedTools}
+                  onChange={setAllowedTools}
+                />
+                <PermissionToolRulesEditor
+                  label="Denied tools"
+                  description="Exact tool names this Agent can never use."
+                  values={deniedTools}
+                  blockedValues={allowedTools}
+                  tone="danger"
+                  onChange={setDeniedTools}
+                />
+              </div>
+            </section>
+
             <div className="harness-recipe-columns">
               <fieldset>
                 <legend>Skills</legend>
@@ -4913,35 +5524,6 @@ function CustomAgentsSettings({
                   placeholder="AGENTS.md"
                   onChange={(event) => setInstructionFiles(event.target.value)}
                 />
-              </label>
-              <label>
-                <span>Permission mode</span>
-                <select
-                  value={permissionMode}
-                  onChange={(event) => setPermissionMode(event.target.value)}
-                >
-                  <option value="default">Default</option>
-                  <option value="plan">Plan (read-only)</option>
-                  <option value="restricted">Restricted (allowlist only)</option>
-                  <option value="trusted">Trusted workspace</option>
-                </select>
-              </label>
-              <label>
-                <span>Pre-approved tools</span>
-                <textarea
-                  value={allowedTools}
-                  placeholder={"Read\nGrep"}
-                  onChange={(event) => setAllowedTools(event.target.value)}
-                />
-              </label>
-              <label>
-                <span>Denied tools</span>
-                <textarea
-                  value={deniedTools}
-                  placeholder={"Bash\nexec_command"}
-                  onChange={(event) => setDeniedTools(event.target.value)}
-                />
-                <small>Denied rules always win.</small>
               </label>
               <label>
                 <span>Unsupported Skill delivery</span>

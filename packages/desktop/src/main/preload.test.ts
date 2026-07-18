@@ -426,6 +426,22 @@ describe("preload API", () => {
     expect(electron.invoke).toHaveBeenNthCalledWith(2, "customAgent:save", agent);
     expect(electron.invoke).toHaveBeenNthCalledWith(3, "customAgent:remove", { id: agent.id });
   });
+
+  it("exposes permission status and personal policy updates through narrow IPC methods", async () => {
+    electron.invoke.mockResolvedValue({ layers: [] });
+    const policy = { mode: "restricted", deniedTools: ["Bash"] };
+
+    await exposedApi().getPermissionStatus({ cwd: "/workspace" });
+    await exposedApi().savePersonalPermissionPolicy(policy, { cwd: "/workspace" });
+
+    expect(electron.invoke).toHaveBeenNthCalledWith(1, "permission:status", {
+      cwd: "/workspace",
+    });
+    expect(electron.invoke).toHaveBeenNthCalledWith(2, "permission:savePersonal", {
+      policy,
+      cwd: "/workspace",
+    });
+  });
 });
 
 function exposedApi(): {
@@ -508,6 +524,15 @@ function exposedApi(): {
   listCustomAgents(): Promise<unknown>;
   saveCustomAgent(input: unknown): Promise<unknown>;
   removeCustomAgent(id: string): Promise<unknown>;
+  getPermissionStatus(params?: {
+    cwd?: string;
+    agentId?: string;
+    agentPolicy?: unknown;
+  }): Promise<unknown>;
+  savePersonalPermissionPolicy(
+    policy: unknown,
+    context?: { cwd?: string; agentId?: string; agentPolicy?: unknown },
+  ): Promise<unknown>;
 } {
   const call = electron.exposeInMainWorld.mock.calls[0];
   if (!call) throw new Error("Preload API was not exposed.");

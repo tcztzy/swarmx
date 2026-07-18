@@ -3,10 +3,12 @@ import {
   HarnessRecipeSchema,
   HarnessSkillBindingSchema,
   LogicalSkillSchema,
+  PermissionApprovalReceiptSchema,
   SkillEvolutionCandidateSchema,
   SkillPromotionDecisionSchema,
   evaluateSkillCandidate,
   normalizeLogicalSkill,
+  resolveHarnessPermissionLayers,
   resolveHarnessSkillBinding,
   resolveHarnessToolPermission,
 } from "../src/skill-variants.js";
@@ -109,34 +111,109 @@ describe("Skill variants", () => {
         { mode: "trusted", allowedTools: ["Bash"], deniedTools: ["Bash"] },
         { toolName: "Bash", access: "execute" },
       ),
-    ).toEqual({ decision: "deny", reason: "explicit_deny" });
+    ).toEqual({ decision: "deny", reason: "explicit_deny", sourceIds: [] });
     expect(
       resolveHarnessToolPermission(
         { mode: "plan", allowedTools: ["Write"] },
         { toolName: "Write", access: "write" },
       ),
-    ).toEqual({ decision: "deny", reason: "plan_read_only" });
+    ).toEqual({ decision: "deny", reason: "plan_read_only", sourceIds: [] });
     expect(
       resolveHarnessToolPermission(
         { mode: "restricted", allowedTools: ["Bash"] },
         { toolName: "Bash", access: "execute" },
       ),
-    ).toEqual({ decision: "allow", reason: "explicit_allow" });
+    ).toEqual({ decision: "allow", reason: "explicit_allow", sourceIds: [] });
     expect(
       resolveHarnessToolPermission({ mode: "default" }, { toolName: "Read", access: "read" }),
-    ).toEqual({ decision: "allow", reason: "read_only" });
+    ).toEqual({ decision: "allow", reason: "read_only", sourceIds: [] });
     expect(
       resolveHarnessToolPermission(
         { mode: "default" },
         { toolName: "exec_command", access: "execute" },
       ),
-    ).toEqual({ decision: "ask", reason: "default" });
+    ).toEqual({ decision: "ask", reason: "default", sourceIds: [] });
     expect(
       resolveHarnessToolPermission({ mode: "restricted" }, { toolName: "Write", access: "write" }),
-    ).toEqual({ decision: "deny", reason: "restricted" });
+    ).toEqual({ decision: "deny", reason: "restricted", sourceIds: [] });
     expect(
       resolveHarnessToolPermission({ mode: "trusted" }, { toolName: "Write", access: "write" }),
-    ).toEqual({ decision: "allow", reason: "trusted" });
+    ).toEqual({ decision: "allow", reason: "trusted", sourceIds: [] });
+  });
+
+  it("V449 merges permission ceilings and keeps Project policy restriction-only", () => {
+    expect(() =>
+      resolveHarnessPermissionLayers([
+        {
+          id: "project",
+          source: "project",
+          allowedTools: ["Bash"],
+          deniedTools: [],
+        },
+      ]),
+    ).toThrow(/cannot pre-approve/i);
+
+    const resolution = resolveHarnessPermissionLayers([
+      {
+        id: "agent:researcher",
+        source: "agent",
+        mode: "trusted",
+        allowedTools: ["Bash"],
+        deniedTools: [],
+      },
+      {
+        id: "personal",
+        source: "personal",
+        mode: "default",
+        allowedTools: ["exec_command"],
+        deniedTools: [],
+        readOnly: false,
+      },
+      {
+        id: "project",
+        source: "project",
+        mode: "restricted",
+        allowedTools: [],
+        deniedTools: ["Bash"],
+      },
+      {
+        id: "managed",
+        source: "managed",
+        mode: "trusted",
+        allowedTools: ["Write"],
+        deniedTools: [],
+      },
+    ]);
+
+    expect(resolution.policy).toEqual({
+      mode: "restricted",
+      allowedTools: ["Write", "exec_command"],
+      deniedTools: ["Bash"],
+    });
+    expect(resolution.layers.map((layer) => layer.source)).toEqual([
+      "managed",
+      "project",
+      "personal",
+      "agent",
+    ]);
+    expect(
+      resolveHarnessToolPermission(resolution, { toolName: "Bash", access: "execute" }),
+    ).toEqual({ decision: "deny", reason: "explicit_deny", sourceIds: ["project"] });
+    expect(
+      resolveHarnessToolPermission(resolution, { toolName: "Write", access: "write" }),
+    ).toEqual({ decision: "allow", reason: "explicit_allow", sourceIds: ["managed"] });
+
+    expect(() =>
+      PermissionApprovalReceiptSchema.parse({
+        id: "prm_12345678",
+        createdAt: "2026-07-18T10:00:00.000Z",
+        source: "direct",
+        toolName: "Bash",
+        decision: "allowed",
+        policySourceIds: ["personal"],
+        rawInput: "secret command",
+      }),
+    ).toThrow();
   });
 
   it("migrates a legacy single-path Skill into one default variant", () => {

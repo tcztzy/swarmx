@@ -7,6 +7,12 @@ import {
 } from "./extension-management.js";
 import { ModelSchema, ModelSupplySchema } from "./model-capabilities.js";
 import { ProviderProfileMetadataSchema } from "./providers.js";
+import {
+  type HarnessPermissionPolicyLayer,
+  HarnessPermissionPolicyLayerSchema,
+  type PermissionApprovalReceipt,
+  PermissionApprovalReceiptSchema,
+} from "./skill-variants.js";
 
 const REDACTED_VALUE = "[redacted]";
 
@@ -75,6 +81,40 @@ export const DesktopExtensionSettingsSchema = z
   .passthrough()
   .superRefine(addSecretIssues);
 
+const PersonalPermissionPolicySchema = HarnessPermissionPolicyLayerSchema.superRefine(
+  (policy, ctx) => {
+    if (policy.source !== "personal") {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["source"],
+        message: "Desktop personal permission policy must use the personal source.",
+      });
+    }
+    if (policy.readOnly) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["readOnly"],
+        message: "Desktop personal permission policy must remain editable.",
+      });
+    }
+  },
+);
+
+export const DesktopPermissionSettingsSchema = z
+  .object({
+    personalPolicy: PersonalPermissionPolicySchema.default({
+      id: "personal",
+      source: "personal",
+      label: "Personal defaults",
+      allowedTools: [],
+      deniedTools: [],
+      readOnly: false,
+    }),
+    approvalReceipts: z.array(PermissionApprovalReceiptSchema).max(200).default([]),
+  })
+  .strict()
+  .superRefine(addSecretIssues);
+
 export const DesktopSettingsDocumentSchema: z.ZodType<
   DesktopSettingsDocument,
   z.ZodTypeDef,
@@ -92,6 +132,7 @@ export const DesktopSettingsDocumentSchema: z.ZodType<
       providers: z.array(ProviderProfileMetadataSchema).default([]),
       agents: z.array(AgentProfileMetadataSchema).default([]),
       extensions: DesktopExtensionSettingsSchema.default({}),
+      permissions: DesktopPermissionSettingsSchema.default({}),
     })
     .passthrough()
     .superRefine(addSecretIssues),
@@ -171,6 +212,10 @@ export type DesktopRootConfig = z.infer<typeof DesktopRootConfigSchema>;
 export type DesktopServerSettings = z.infer<typeof DesktopServerSettingsSchema>;
 export type DesktopUiState = z.infer<typeof DesktopUiStateSchema>;
 export type DesktopExtensionSettings = z.infer<typeof DesktopExtensionSettingsSchema>;
+export interface DesktopPermissionSettings {
+  personalPolicy: HarnessPermissionPolicyLayer;
+  approvalReceipts: PermissionApprovalReceipt[];
+}
 export interface DesktopSettingsDocument {
   schemaVersion: 1;
   desktop: DesktopRootConfig;
@@ -181,6 +226,7 @@ export interface DesktopSettingsDocument {
   providers: Array<z.infer<typeof ProviderProfileMetadataSchema>>;
   agents: Array<z.infer<typeof AgentProfileMetadataSchema>>;
   extensions: DesktopExtensionSettings;
+  permissions: DesktopPermissionSettings;
   [key: string]: unknown;
 }
 export type DesktopRootSource = z.infer<typeof DesktopRootSourceSchema>;
@@ -230,6 +276,7 @@ export function createDefaultDesktopSettings(
     providers: [],
     agents: [],
     extensions: {},
+    permissions: {},
     ...input,
   });
 }

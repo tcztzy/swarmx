@@ -131,6 +131,8 @@ interface DesktopApiMock {
   listCustomAgents: ReturnType<typeof vi.fn>;
   saveCustomAgent: ReturnType<typeof vi.fn>;
   removeCustomAgent: ReturnType<typeof vi.fn>;
+  getPermissionStatus: ReturnType<typeof vi.fn>;
+  savePersonalPermissionPolicy: ReturnType<typeof vi.fn>;
   workspaceRoot: ReturnType<typeof vi.fn>;
   createTerminal: ReturnType<typeof vi.fn>;
   writeTerminal: ReturnType<typeof vi.fn>;
@@ -663,6 +665,39 @@ describe("App user workflow", () => {
     );
     await user.click(screen.getByRole("button", { name: "Tools" }));
     expect(screen.getByText("workspace_read_file")).toBeTruthy();
+  });
+
+  it("V453 exposes effective layers and saves conflict-checked personal permission rules", async () => {
+    const api = createDesktopApiMock();
+    const user = userEvent.setup();
+    await renderApp(api);
+    await user.click(await screen.findByRole("button", { name: "Open anonymous user menu" }));
+    await user.click(screen.getByRole("menuitem", { name: "Settings" }));
+    await user.click(screen.getByRole("button", { name: "Permissions" }));
+
+    const workspace = await screen.findByLabelText("Permissions settings");
+    expect(within(workspace).getByText("Effective policy · before Agent")).toBeTruthy();
+    expect(within(workspace).getByRole("heading", { name: "Ask when needed" })).toBeTruthy();
+    expect(within(workspace).getByText("Managed policy")).toBeTruthy();
+    expect(within(workspace).getByText("Project policy")).toBeTruthy();
+    expect(api.getPermissionStatus).toHaveBeenCalledWith({ cwd: "/Users/tcztzy/swarmx" });
+
+    await user.click(within(workspace).getByRole("radio", { name: /Restricted/ }));
+    const allowInput = within(workspace).getByLabelText("Pre-approved tools tool name");
+    await user.type(allowInput, "Write{Enter}");
+    const denyInput = within(workspace).getByLabelText("Denied tools tool name");
+    await user.type(denyInput, "Write{Enter}");
+    expect(within(workspace).getByText("Write already has the opposite rule.")).toBeTruthy();
+    await user.clear(denyInput);
+    await user.type(denyInput, "Bash{Enter}");
+    await user.click(within(workspace).getByRole("button", { name: "Save personal defaults" }));
+
+    await waitFor(() =>
+      expect(api.savePersonalPermissionPolicy).toHaveBeenCalledWith(
+        { mode: "restricted", allowedTools: ["Write"], deniedTools: ["Bash"] },
+        { cwd: "/Users/tcztzy/swarmx" },
+      ),
+    );
   });
 
   it("shows Codex, OpenAI, and DeepSeek as peers in one fixed Provider matrix", async () => {
@@ -2377,13 +2412,19 @@ describe("App user workflow", () => {
     await user.type(screen.getByLabelText("Name"), "Researcher");
     await user.click(screen.getByRole("checkbox", { name: /Biosecurity/ }));
     await user.click(screen.getByRole("checkbox", { name: /Project Files/ }));
-    await user.selectOptions(screen.getByLabelText("Permission mode"), "restricted");
-    fireEvent.change(screen.getByLabelText("Pre-approved tools"), {
-      target: { value: "Read\nGrep" },
-    });
-    fireEvent.change(screen.getByLabelText(/^Denied tools/), {
-      target: { value: "Bash" },
-    });
+    const permissionSection = screen.getByRole("region", { name: "Agent permission policy" });
+    await user.selectOptions(
+      within(permissionSection).getByLabelText("Permission mode"),
+      "restricted",
+    );
+    await user.type(
+      within(permissionSection).getByLabelText("Pre-approved tools tool name"),
+      "Read{Enter}Grep{Enter}",
+    );
+    await user.type(
+      within(permissionSection).getByLabelText("Denied tools tool name"),
+      "Bash{Enter}",
+    );
     await user.click(screen.getByRole("button", { name: "Save Agent" }));
 
     await waitFor(() => expect(api.saveCustomAgent).toHaveBeenCalledTimes(1));
@@ -3889,6 +3930,54 @@ function activityProfileFixture() {
   };
 }
 
+function permissionStatusFixture() {
+  const personalPolicy = {
+    id: "personal",
+    source: "personal" as const,
+    label: "Personal defaults",
+    allowedTools: [],
+    deniedTools: [],
+    readOnly: false,
+  };
+  return {
+    personalPolicy,
+    layers: [
+      {
+        id: "managed",
+        source: "managed" as const,
+        label: "Managed policy",
+        configured: false,
+        readOnly: true,
+        allowedTools: [],
+        deniedTools: [],
+      },
+      {
+        id: "project",
+        source: "project" as const,
+        label: "Project policy",
+        configured: false,
+        readOnly: true,
+        allowedTools: [],
+        deniedTools: [],
+      },
+      {
+        ...personalPolicy,
+        configured: true,
+      },
+    ],
+    effective: {
+      policy: { mode: "default" as const, allowedTools: [], deniedTools: [] },
+      layers: [personalPolicy],
+      modeSourceIds: [],
+      allowedToolSources: {},
+      deniedToolSources: {},
+    },
+    blocked: false,
+    projectPolicyPath: ".swarmx/permissions.json",
+    approvalReceipts: [],
+  };
+}
+
 function createDesktopApiMock(overrides: Partial<DesktopApiMock> = {}): DesktopApiMock {
   return {
     initialProjects: [swarmxProject],
@@ -4085,6 +4174,8 @@ function createDesktopApiMock(overrides: Partial<DesktopApiMock> = {}): DesktopA
     listCustomAgents: vi.fn(async () => ({ agents: [] })),
     saveCustomAgent: vi.fn(async () => ({ agents: [] })),
     removeCustomAgent: vi.fn(async () => ({ agents: [] })),
+    getPermissionStatus: vi.fn(async () => permissionStatusFixture()),
+    savePersonalPermissionPolicy: vi.fn(async () => permissionStatusFixture()),
     listExtensions: vi.fn(async () => ({
       bundles: [
         {
