@@ -194,4 +194,18 @@ describe("npm launcher cold start", () => {
     expect(script).toContain('arm64: "mac-arm64"');
     expect(script).toContain('x64: "mac"');
   });
+
+  it("V491 refreshes only release automation when rebuilding an existing tag", () => {
+    const workflow = readFileSync(
+      new URL("../../../.github/workflows/release.yml", import.meta.url),
+      "utf8",
+    );
+
+    expect(workflow).toContain("Restore current release automation for manual retry");
+    expect(workflow).toContain("RELEASE_AUTOMATION_SHA: ${{ github.sha }}");
+    expect(workflow).toContain("/contents/packages/desktop/scripts/build-macos-artifacts.mjs");
+    expect(workflow).toContain(
+      'cp "$RUNNER_TEMP/build-macos-artifacts.mjs" packages/desktop/scripts/build-macos-artifacts.mjs',
+    );
+  });
 });
