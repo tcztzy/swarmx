@@ -1305,3 +1305,4 @@ V488: The repository's declared pnpm 9/10 range retains its legacy required-buil
 |B119|2026-07-20|electron-builder introduced `electron-winstaller@5.4.0`, whose unused Windows-only install script was absent from pnpm 11 `allowBuilds`, so both fresh Linux CI jobs failed during frozen install before tests|V487|
 |B120|2026-07-20|removing pnpm 11's deprecated legacy build allowlist made the repository's still-supported pnpm 10 skip every required dependency script during a forced install|V488|
 |B121|2026-07-20|the new cross-version build-policy test used a one-line file read that differed from Biome's canonical wrapping|apply Biome formatting before the release rerun|
+|B122|2026-07-20|pnpm 10 forwarded its `--no-git-checks` publish flag to npm 11, which rejected the unknown option before uploading any package|publish the dependency-ordered pnpm-generated tarballs with npm|
