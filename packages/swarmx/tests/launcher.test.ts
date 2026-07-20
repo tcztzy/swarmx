@@ -184,4 +184,14 @@ describe("npm launcher cold start", () => {
     expect(workflow).toContain('export CSC_LINK="$SWARMX_MACOS_CERTIFICATE"');
     expect(workflow).not.toContain("CSC_LINK: ${{ secrets.");
   });
+
+  it("V490 resolves electron-builder app directories for both macOS architectures", () => {
+    const script = readFileSync(
+      new URL("../../desktop/scripts/build-macos-artifacts.mjs", import.meta.url),
+      "utf8",
+    );
+
+    expect(script).toContain('arm64: "mac-arm64"');
+    expect(script).toContain('x64: "mac"');
+  });
 });
