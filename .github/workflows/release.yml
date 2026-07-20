@@ -4,12 +4,19 @@ on:
   push:
     tags:
       - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing v<version> tag to package
+        required: true
+        type: string
 
 permissions:
   contents: write
 
 env:
   CI: "true"
+  RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
 
 jobs:
   macos:
@@ -27,6 +34,8 @@ jobs:
     steps:
       - name: Check out tagged commit
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ env.RELEASE_TAG }}
 
       - name: Set up Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -43,8 +52,6 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Verify tag and package versions
-        env:
-          RELEASE_TAG: ${{ github.ref_name }}
         run: |
           node --input-type=module <<'NODE'
           import { readFileSync } from "node:fs";
@@ -70,14 +77,21 @@ jobs:
 
       - name: Build macOS packages
         env:
-          CSC_LINK: ${{ secrets.MACOS_CERTIFICATE }}
-          CSC_KEY_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          SWARMX_MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
+          SWARMX_MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          SWARMX_APPLE_ID: ${{ secrets.APPLE_ID }}
+          SWARMX_APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          SWARMX_APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
           builder_args=(--arch ${{ matrix.arch }})
-          if [[ -n "$APPLE_ID" && -n "$APPLE_APP_SPECIFIC_PASSWORD" && -n "$APPLE_TEAM_ID" ]]; then
+          if [[ -n "$SWARMX_MACOS_CERTIFICATE" ]]; then
+            export CSC_LINK="$SWARMX_MACOS_CERTIFICATE"
+            export CSC_KEY_PASSWORD="$SWARMX_MACOS_CERTIFICATE_PASSWORD"
+          fi
+          if [[ -n "$SWARMX_APPLE_ID" && -n "$SWARMX_APPLE_APP_SPECIFIC_PASSWORD" && -n "$SWARMX_APPLE_TEAM_ID" ]]; then
+            export APPLE_ID="$SWARMX_APPLE_ID"
+            export APPLE_APP_SPECIFIC_PASSWORD="$SWARMX_APPLE_APP_SPECIFIC_PASSWORD"
+            export APPLE_TEAM_ID="$SWARMX_APPLE_TEAM_ID"
             builder_args+=("--notarize")
           fi
           node packages/desktop/scripts/build-macos-artifacts.mjs "${builder_args[@]}"
@@ -106,4 +120,4 @@ jobs:
       - name: Publish GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" release-artifacts/* --verify-tag --generate-notes --title "SwarmX ${GITHUB_REF_NAME#v}"
+        run: gh release create "$RELEASE_TAG" release-artifacts/* --verify-tag --generate-notes --title "SwarmX ${RELEASE_TAG#v}"

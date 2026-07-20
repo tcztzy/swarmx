@@ -77,7 +77,7 @@ describe("npm launcher cold start", () => {
 
     expect(workflow).toContain("macos-15");
     expect(workflow).toContain("macos-15-intel");
-    expect(workflow).toContain("GITHUB_REF_NAME");
+    expect(workflow).toContain("RELEASE_TAG:");
     expect(workflow).toContain("gh release create");
     expect(workflow).toContain("build-macos-artifacts.mjs");
     expect(builder).toContain("- dir");
@@ -169,5 +169,19 @@ describe("npm launcher cold start", () => {
     for (const dependency of ['"@biomejs/biome"', "electron", "esbuild", "node-pty"]) {
       expect(workspace).toContain(`  - ${dependency}`);
     }
+  });
+
+  it("V489 exports optional macOS signing inputs only when configured", () => {
+    const workflow = readFileSync(
+      new URL("../../../.github/workflows/release.yml", import.meta.url),
+      "utf8",
+    );
+
+    expect(workflow).toContain("workflow_dispatch:");
+    expect(workflow).toContain("github.event_name == 'workflow_dispatch'");
+    expect(workflow).toContain("ref: ${{ env.RELEASE_TAG }}");
+    expect(workflow).toContain("SWARMX_MACOS_CERTIFICATE:");
+    expect(workflow).toContain('export CSC_LINK="$SWARMX_MACOS_CERTIFICATE"');
+    expect(workflow).not.toContain("CSC_LINK: ${{ secrets.");
   });
 });
