@@ -115,6 +115,16 @@ interface ConversationTurn {
   finalMessage: MessageChunk | null;
 }
 
+interface ToolActivity {
+  call?: MessageChunk;
+  result?: MessageChunk;
+  sourceIndex: number;
+}
+
+type WorkActivity =
+  | { kind: "message"; message: MessageChunk; sourceIndex: number }
+  | { kind: "tool"; activity: ToolActivity };
+
 interface MessageRenderMetadata {
   artifacts?: RenderArtifactReference[];
   durationMs?: number;
@@ -378,6 +388,11 @@ interface PermissionLayerStatus {
 
 interface DesktopPermissionStatus {
   personalPolicy: HarnessPermissionPolicyLayer;
+  profileAvailability: {
+    default: boolean;
+    auto: boolean;
+    trusted: boolean;
+  };
   layers: PermissionLayerStatus[];
   effective?: ResolvedHarnessPermissionPolicy;
   blocked: boolean;
@@ -412,6 +427,23 @@ interface UserProviderInput {
   accountAccessToken?: string;
   accountUserId?: string;
   clearAccountAccess?: boolean;
+  additionalApiKeys?: Array<{ label?: string; value: string }>;
+  removeApiKeyIds?: string[];
+}
+
+interface ProviderKeyUsageSummary {
+  id: string;
+  label: string;
+  enabled: boolean;
+  status: "ready" | "cooling" | "disabled";
+  requestCount: number;
+  inputTokens: number;
+  outputTokens: number;
+  reasoningTokens: number;
+  cachedInputTokens: number;
+  totalTokens: number;
+  lastUsedAt?: string;
+  cooldownUntil?: string;
 }
 
 interface ModelCatalogSummary {
@@ -484,6 +516,7 @@ interface ProviderUsageEntry {
   detail?: string;
   plan?: string;
   account?: NewApiUsageAccount;
+  keys?: ProviderKeyUsageSummary[];
 }
 
 interface ProviderUsageSnapshot {
@@ -573,6 +606,8 @@ interface ExtensionProviderSummary {
   runtimeReady?: boolean;
   runtimeNote?: string;
   catalogAdapter?: string;
+  runtimeKeySlots?: Array<{ id: string; label: string; enabled: boolean }>;
+  runtimeKeyUsage?: ProviderKeyUsageSummary[];
   readOnly?: boolean;
 }
 
@@ -1088,6 +1123,10 @@ interface SwarmxAPI {
     policy: unknown,
     context?: { cwd?: string; agentId?: string; agentPolicy?: unknown },
   ): Promise<DesktopPermissionStatus>;
+  savePermissionProfileAvailability(
+    profileAvailability: unknown,
+    context?: { cwd?: string; agentId?: string; agentPolicy?: unknown },
+  ): Promise<DesktopPermissionStatus>;
   workspaceRoot(): Promise<string>;
   getWorkspaceReview(cwd?: string): Promise<WorkspaceReviewSnapshot>;
   listWorkspaceDirectory(path?: string, cwd?: string): Promise<WorkspaceDirectoryListing>;
@@ -1128,6 +1167,7 @@ interface SwarmxAPI {
   removeManualModel(modelId: string): Promise<ExtensionCapabilityInventory | null>;
   saveProvider(input: UserProviderInput): Promise<ExtensionCapabilityInventory | null>;
   removeProvider(providerId: string): Promise<ExtensionCapabilityInventory | null>;
+  resetProviderKey(providerId: string, keyId: string): Promise<ExtensionCapabilityInventory | null>;
   refreshProviderUsage(target?: ProviderUsageTarget): Promise<ProviderUsageSnapshot>;
   getHarnessEnvironment(): Promise<HarnessEnvironmentStatus>;
   getHarnessVersion(params: { harnessId: string; refresh?: boolean }): Promise<HarnessVersionCheck>;
@@ -1898,6 +1938,21 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
     },
     [mutateExtensionInventory, refreshProviderUsage],
   );
+  const resetProviderKey = useCallback(
+    async (providerId: string, keyId: string) => {
+      setModelCatalogError(null);
+      try {
+        const inventory = await api.resetProviderKey(providerId, keyId);
+        if (inventory) await mutateExtensionInventory(inventory, false);
+        await refreshProviderUsage({ source: "provider", sourceId: providerId });
+      } catch (error) {
+        const message = errorMessage(error);
+        setModelCatalogError(message);
+        throw new Error(message);
+      }
+    },
+    [mutateExtensionInventory, refreshProviderUsage],
+  );
   useEffect(() => {
     if (settingsSection !== "providers" || providerUsageRefreshStarted.current) return;
     providerUsageRefreshStarted.current = true;
@@ -2154,14 +2209,12 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
     isLoading: permissionStatusLoading,
     mutate: mutatePermissionStatus,
   } = useSWR<DesktopPermissionStatus>(
-    settingsSection === "general" || settingsSection === "permissions"
-      ? [
-          "permissions:status",
-          selectedProject?.cwd ?? "personal",
-          activeExtensionAgent?.id ?? "no-agent",
-          JSON.stringify(permissionAgentPolicy ?? null),
-        ]
-      : null,
+    [
+      "permissions:status",
+      selectedProject?.cwd ?? "personal",
+      activeExtensionAgent?.id ?? "no-agent",
+      JSON.stringify(permissionAgentPolicy ?? null),
+    ],
     () => api.getPermissionStatus(permissionContext),
     { revalidateOnFocus: true, revalidateOnReconnect: false },
   );
@@ -4004,10 +4057,12 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
                   status={permissionStatus}
                   loading={permissionStatusLoading}
                   error={permissionStatusError}
-                  onOpenAdvanced={() => setSettingsSection("permissions")}
-                  onSave={async (policy) => {
+                  onSaveProfiles={async (profileAvailability) => {
                     await mutatePermissionStatus(
-                      await api.savePersonalPermissionPolicy(policy, permissionContext),
+                      await api.savePermissionProfileAvailability(
+                        profileAvailability,
+                        permissionContext,
+                      ),
                       false,
                     );
                   }}
@@ -4046,6 +4101,7 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
                   onRefreshUsage={refreshProviderUsage}
                   onSaveProvider={saveProvider}
                   onRemoveProvider={removeProvider}
+                  onResetProviderKey={resetProviderKey}
                 />
               ) : settingsSection === "extensions" ? (
                 <ExtensionWorkspace
@@ -4259,6 +4315,7 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
                 open={permissionPickerOpen}
                 mode={sessionPermissionMode}
                 supported={sessionPermissionSupported}
+                profileAvailability={permissionStatus?.profileAvailability}
                 disabled={runState !== "idle" || acpHistoryReadOnly}
                 onOpenChange={(open) => {
                   setPermissionPickerOpen(open);
@@ -4599,8 +4656,13 @@ const PERMISSION_MODE_OPTIONS: Array<{
   },
   {
     id: "default",
-    label: "Ask when needed",
+    label: "Ask for approval",
     description: "Read-only tools run; each write or command needs one-time approval.",
+  },
+  {
+    id: "auto",
+    label: "Auto-review",
+    description: "Read and Project writes run; commands and control actions still ask once.",
   },
   {
     id: "trusted",
@@ -4613,22 +4675,20 @@ const GENERAL_PERMISSION_MODE_OPTIONS = [
   {
     id: "default" as const,
     label: "Default permissions",
-    description: "Read-only tools run automatically; writes and commands ask each time.",
+    description:
+      "By default, SwarmX can read and edit files in its Project. It asks for additional access when needed.",
   },
   {
-    id: "plan" as const,
-    label: "Plan only",
-    description: "Allow inspection and planning, while blocking writes and commands.",
-  },
-  {
-    id: "restricted" as const,
-    label: "Restricted",
-    description: "Run only read-only tools and tools pre-approved in Advanced permissions.",
+    id: "auto" as const,
+    label: "Auto-review",
+    description:
+      "SwarmX automatically approves lower-risk Project changes. Commands and control actions can still ask.",
   },
   {
     id: "trusted" as const,
     label: "Full access",
-    description: "Run tools without approval prompts inside the unchanged Project sandbox.",
+    description:
+      "SwarmX can edit files and run commands without approval. This increases the risk of data loss or unexpected changes.",
   },
 ];
 
@@ -4636,28 +4696,28 @@ function GeneralSettings({
   status,
   loading,
   error,
-  onSave,
-  onOpenAdvanced,
+  onSaveProfiles,
 }: {
   status?: DesktopPermissionStatus;
   loading: boolean;
   error: unknown;
-  onSave: (policy: unknown) => Promise<void>;
-  onOpenAdvanced: () => void;
+  onSaveProfiles: (
+    profileAvailability: DesktopPermissionStatus["profileAvailability"],
+  ) => Promise<void>;
 }) {
-  const [savingMode, setSavingMode] = useState<HarnessPermissionMode | null>(null);
+  const [savingMode, setSavingMode] = useState<
+    keyof DesktopPermissionStatus["profileAvailability"] | null
+  >(null);
   const [saveError, setSaveError] = useState<string | null>(null);
-  const selectedMode = status?.personalPolicy.mode ?? "default";
 
-  const selectMode = async (mode: HarnessPermissionMode) => {
+  const toggleProfile = async (mode: keyof DesktopPermissionStatus["profileAvailability"]) => {
     if (!status || savingMode) return;
     setSavingMode(mode);
     setSaveError(null);
     try {
-      await onSave({
-        mode,
-        allowedTools: status.personalPolicy.allowedTools,
-        deniedTools: status.personalPolicy.deniedTools,
+      await onSaveProfiles({
+        ...status.profileAvailability,
+        [mode]: !status.profileAvailability[mode],
       });
     } catch (saveFailure) {
       setSaveError(errorMessage(saveFailure));
@@ -4691,43 +4751,37 @@ function GeneralSettings({
           <section className="general-settings__section" aria-labelledby="general-permissions">
             <h3 id="general-permissions">Permissions</h3>
             <fieldset className="general-permission-card" disabled={!status || Boolean(savingMode)}>
-              <legend className="sr-only">Default permission mode</legend>
+              <legend className="sr-only">Available permission profiles</legend>
               {GENERAL_PERMISSION_MODE_OPTIONS.map((option) => {
-                const selected = selectedMode === option.id;
+                const enabled = status?.profileAvailability[option.id] ?? false;
                 return (
-                  <label key={option.id} className={selected ? "is-selected" : undefined}>
+                  <label key={option.id}>
                     <input
-                      type="radio"
-                      name="general-permission-mode"
+                      type="checkbox"
+                      role="switch"
+                      aria-checked={enabled}
                       value={option.id}
-                      checked={selected}
-                      onChange={() => void selectMode(option.id)}
+                      checked={enabled}
+                      onChange={() => void toggleProfile(option.id)}
                     />
                     <span className="general-permission-card__copy">
                       <strong>{option.label}</strong>
                       <small>{option.description}</small>
                     </span>
-                    <span className="general-permission-card__choice" aria-hidden="true">
-                      {savingMode === option.id ? (
-                        <Loader2 className="is-spinning" />
-                      ) : selected ? (
-                        <Check />
-                      ) : null}
+                    <span
+                      className={cx(
+                        "general-permission-card__switch",
+                        enabled && "is-enabled",
+                        savingMode === option.id && "is-saving",
+                      )}
+                      aria-hidden="true"
+                    >
+                      {savingMode === option.id ? <Loader2 className="is-spinning" /> : <span />}
                     </span>
                   </label>
                 );
               })}
             </fieldset>
-            <div className="general-permission-note">
-              <span>
-                <ShieldCheck aria-hidden="true" /> Managed, Project, and explicit deny rules still
-                apply. Full access never disables the host sandbox.
-              </span>
-              <button type="button" onClick={onOpenAdvanced}>
-                Advanced permissions
-                <ChevronRight aria-hidden="true" />
-              </button>
-            </div>
           </section>
         </div>
       </div>
@@ -4752,6 +4806,7 @@ function PermissionsSettings({
 }) {
   const [allowedTools, setAllowedTools] = useState<string[]>([]);
   const [deniedTools, setDeniedTools] = useState<string[]>([]);
+  const [mode, setMode] = useState<HarnessPermissionMode>("default");
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
 
@@ -4759,6 +4814,7 @@ function PermissionsSettings({
     if (!status) return;
     setAllowedTools(status.personalPolicy.allowedTools);
     setDeniedTools(status.personalPolicy.deniedTools);
+    setMode(status.personalPolicy.mode ?? "default");
     setSaveError(null);
   }, [status]);
 
@@ -4767,7 +4823,7 @@ function PermissionsSettings({
     setSaveError(null);
     try {
       await onSave({
-        ...(status?.personalPolicy.mode ? { mode: status.personalPolicy.mode } : {}),
+        mode,
         allowedTools,
         deniedTools,
       });
@@ -4819,7 +4875,7 @@ function PermissionsSettings({
               <h2>Advanced permissions</h2>
               <p>
                 Review effective authority, configure exact tool rules, and inspect one-call
-                decisions. The default mode lives in General.
+                decisions. Profile availability lives in General.
               </p>
             </span>
             <button
@@ -4828,13 +4884,45 @@ function PermissionsSettings({
               disabled={saving}
               onClick={() => void save()}
             >
-              {saving ? "Saving…" : "Save exact tool rules"}
+              {saving ? "Saving…" : "Save policy"}
             </button>
           </div>
 
           {Boolean(saveError || error) && (
             <div className="settings-provider-error">{saveError ?? errorMessage(error)}</div>
           )}
+
+          <section className="permission-fallback" aria-labelledby="permission-fallback-title">
+            <span>
+              <h3 id="permission-fallback-title">Inherited fallback</h3>
+              <p>
+                This is what <strong>Use default</strong> means for direct SwarmX conversations.
+                Plan only and Restricted remain available here as conservative profiles.
+              </p>
+            </span>
+            <label>
+              <span>Default mode</span>
+              <select
+                value={mode}
+                onChange={(event) => setMode(event.target.value as HarnessPermissionMode)}
+              >
+                {PERMISSION_MODE_OPTIONS.map((option) => (
+                  <option
+                    key={option.id}
+                    value={option.id}
+                    disabled={
+                      (option.id === "default" ||
+                        option.id === "auto" ||
+                        option.id === "trusted") &&
+                      !status?.profileAvailability[option.id]
+                    }
+                  >
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </section>
 
           <section
             className={cx(
@@ -5151,15 +5239,15 @@ const CONVERSATION_PERMISSION_OPTIONS: Array<{
   },
   {
     id: "default",
-    label: "Ask when needed",
+    label: "Ask for approval",
     shortLabel: "Ask",
     description: "Read-only tools run; writes and commands ask once.",
   },
   {
-    id: "plan",
-    label: "Plan only",
-    shortLabel: "Plan",
-    description: "Inspect and plan without writes or commands.",
+    id: "auto",
+    label: "Approve for me",
+    shortLabel: "Auto",
+    description: "Review Project changes automatically; commands can still ask.",
   },
   {
     id: "trusted",
@@ -5167,12 +5255,19 @@ const CONVERSATION_PERMISSION_OPTIONS: Array<{
     shortLabel: "Full access",
     description: "Run without prompts inside the unchanged Project sandbox.",
   },
+  {
+    id: "plan",
+    label: "Plan only",
+    shortLabel: "Plan",
+    description: "Inspect and plan without writes or commands.",
+  },
 ];
 
 function ConversationPermissionPicker({
   open,
   mode,
   supported,
+  profileAvailability,
   disabled,
   onOpenChange,
   onChange,
@@ -5180,6 +5275,7 @@ function ConversationPermissionPicker({
   open: boolean;
   mode: SessionPermissionMode;
   supported: boolean;
+  profileAvailability?: DesktopPermissionStatus["profileAvailability"];
   disabled: boolean;
   onOpenChange: (open: boolean) => void;
   onChange: (mode: SessionPermissionMode) => Promise<void>;
@@ -5187,8 +5283,13 @@ function ConversationPermissionPicker({
   const rootRef = useRef<HTMLDivElement>(null);
   const [savingMode, setSavingMode] = useState<SessionPermissionMode | null>(null);
   const descriptionId = useId();
+  const availableOptions = CONVERSATION_PERMISSION_OPTIONS.filter((option) => {
+    if (option.id === "inherit" || option.id === "plan") return true;
+    return profileAvailability?.[option.id] ?? true;
+  });
   const selected =
-    CONVERSATION_PERMISSION_OPTIONS.find((option) => option.id === mode) ??
+    availableOptions.find((option) => option.id === mode) ??
+    CONVERSATION_PERMISSION_OPTIONS.find((option) => option.id === "plan") ??
     CONVERSATION_PERMISSION_OPTIONS[0];
 
   useEffect(() => {
@@ -5251,12 +5352,8 @@ function ConversationPermissionPicker({
           role="menu"
           aria-label="Conversation permissions"
         >
-          <div className="conversation-permission-picker__heading">
-            <strong>Conversation permissions</strong>
-            <small>Choose what direct SwarmX tools can do in this task.</small>
-          </div>
           <div className="conversation-permission-picker__options">
-            {CONVERSATION_PERMISSION_OPTIONS.map((option) => (
+            {availableOptions.map((option) => (
               <button
                 key={option.id}
                 type="button"
@@ -5265,6 +5362,7 @@ function ConversationPermissionPicker({
                 className={cx(
                   mode === option.id && "is-selected",
                   option.id === "trusted" && "is-trusted",
+                  option.id === "plan" && "is-secondary",
                 )}
                 disabled={Boolean(savingMode)}
                 onClick={() => void selectMode(option.id)}
@@ -5283,9 +5381,6 @@ function ConversationPermissionPicker({
               </button>
             ))}
           </div>
-          <p>
-            Managed and Project limits, explicit deny rules, and the host sandbox always stay on.
-          </p>
         </section>
       )}
     </div>
@@ -6327,6 +6422,7 @@ function SettingsWorkspace({
   onRefreshUsage,
   onSaveProvider,
   onRemoveProvider,
+  onResetProviderKey,
 }: {
   providers: ExtensionProviderSummary[];
   modelCatalog?: ModelCatalogSummary;
@@ -6340,6 +6436,7 @@ function SettingsWorkspace({
   onRefreshUsage: (target?: ProviderUsageTarget) => Promise<void>;
   onSaveProvider: (input: UserProviderInput) => Promise<void>;
   onRemoveProvider: (providerId: string) => Promise<void>;
+  onResetProviderKey: (providerId: string, keyId: string) => Promise<void>;
 }) {
   const [providerFormOpen, setProviderFormOpen] = useState(false);
   const [editingProviderId, setEditingProviderId] = useState<string | null>(null);
@@ -6354,6 +6451,8 @@ function SettingsWorkspace({
   const [providerAccountAccessToken, setProviderAccountAccessToken] = useState("");
   const [providerAccountUserId, setProviderAccountUserId] = useState("");
   const [providerClearAccountAccess, setProviderClearAccountAccess] = useState(false);
+  const [providerAdditionalApiKeys, setProviderAdditionalApiKeys] = useState("");
+  const [providerRemovedApiKeyIds, setProviderRemovedApiKeyIds] = useState<string[]>([]);
   const [providerSaving, setProviderSaving] = useState(false);
   const [providerError, setProviderError] = useState<string | null>(null);
   const userProviderIds = new Set(modelCatalog?.userProviderIds ?? []);
@@ -6367,6 +6466,8 @@ function SettingsWorkspace({
     (provider) => provider.catalogAdapter !== "codex_app_server",
   );
   const deepSeekForm = isDeepSeekProviderUrl(providerBaseUrl);
+  const openCodeGoForm = isOpenCodeGoProviderUrl(providerBaseUrl);
+  const editingProvider = providers.find((provider) => provider.id === editingProviderId);
 
   const resetProviderForm = () => {
     setProviderFormOpen(false);
@@ -6380,6 +6481,8 @@ function SettingsWorkspace({
     setProviderAccountAccessToken("");
     setProviderAccountUserId("");
     setProviderClearAccountAccess(false);
+    setProviderAdditionalApiKeys("");
+    setProviderRemovedApiKeyIds([]);
     setProviderError(null);
   };
   const beginAddProvider = () => {
@@ -6401,6 +6504,8 @@ function SettingsWorkspace({
     setProviderAccountAccessToken("");
     setProviderAccountUserId(provider.newApiAccountUserId ?? "");
     setProviderClearAccountAccess(false);
+    setProviderAdditionalApiKeys("");
+    setProviderRemovedApiKeyIds([]);
     setProviderError(null);
     setProviderFormOpen(true);
   };
@@ -6415,20 +6520,36 @@ function SettingsWorkspace({
         kind: providerKind,
         baseUrl: providerBaseUrl,
         authMode: providerAuthMode,
-        ...(providerUsageAdapter === "new_api" ? { usageAdapter: "new_api" as const } : {}),
+        ...(!openCodeGoForm && providerUsageAdapter === "new_api"
+          ? { usageAdapter: "new_api" as const }
+          : {}),
         ...(providerSecret.trim() ? { secret: providerSecret } : {}),
-        ...(providerUsageAdapter === "new_api" &&
+        ...(!openCodeGoForm &&
+        providerUsageAdapter === "new_api" &&
         !providerClearAccountAccess &&
         providerAccountAccessToken.trim()
           ? { accountAccessToken: providerAccountAccessToken }
           : {}),
-        ...(providerUsageAdapter === "new_api" &&
+        ...(!openCodeGoForm &&
+        providerUsageAdapter === "new_api" &&
         !providerClearAccountAccess &&
         providerAccountUserId.trim()
           ? { accountUserId: providerAccountUserId.trim() }
           : {}),
-        ...(providerUsageAdapter === "new_api" && providerClearAccountAccess
+        ...(!openCodeGoForm && providerUsageAdapter === "new_api" && providerClearAccountAccess
           ? { clearAccountAccess: true }
+          : {}),
+        ...(openCodeGoForm && providerAdditionalApiKeys.trim()
+          ? {
+              additionalApiKeys: providerAdditionalApiKeys
+                .split(/\r?\n/)
+                .map((value) => value.trim())
+                .filter(Boolean)
+                .map((value) => ({ value })),
+            }
+          : {}),
+        ...(openCodeGoForm && providerRemovedApiKeyIds.length > 0
+          ? { removeApiKeyIds: providerRemovedApiKeyIds }
           : {}),
       });
       resetProviderForm();
@@ -6534,21 +6655,33 @@ function SettingsWorkspace({
                     />
                   </label>
                   <label>
-                    <span>{deepSeekForm ? "Preferred API protocol" : "API protocol"}</span>
+                    <span>
+                      {deepSeekForm || openCodeGoForm ? "Preferred API protocol" : "API protocol"}
+                    </span>
                     <select
-                      aria-label={deepSeekForm ? "Preferred API protocol" : "API protocol"}
+                      aria-label={
+                        deepSeekForm || openCodeGoForm ? "Preferred API protocol" : "API protocol"
+                      }
                       value={providerKind}
                       onChange={(event) => setProviderKind(event.target.value as ModelApiProtocol)}
                     >
                       <option value="anthropic">Anthropic</option>
-                      <option value="openai_responses">OpenAI Responses</option>
+                      {!openCodeGoForm && (
+                        <option value="openai_responses">OpenAI Responses</option>
+                      )}
                       <option value="openai_chat">OpenAI Chat</option>
-                      <option value="ollama">Ollama</option>
+                      {!openCodeGoForm && <option value="ollama">Ollama</option>}
                     </select>
                     {deepSeekForm && (
                       <small className="settings-provider-form__helper">
                         DeepSeek supports native OpenAI and Anthropic APIs. This selects the
                         preferred route while keeping them in one Provider.
+                      </small>
+                    )}
+                    {openCodeGoForm && (
+                      <small className="settings-provider-form__helper">
+                        The official Go endpoint exposes Anthropic and OpenAI Chat routes. Models
+                        are loaded from /zen/go/v1/models.
                       </small>
                     )}
                   </label>
@@ -6559,7 +6692,16 @@ function SettingsWorkspace({
                       type="url"
                       value={providerBaseUrl}
                       placeholder="https://api.example.com"
-                      onChange={(event) => setProviderBaseUrl(event.target.value)}
+                      onChange={(event) => {
+                        const value = event.target.value;
+                        setProviderBaseUrl(value);
+                        if (
+                          isOpenCodeGoProviderUrl(value) &&
+                          !["anthropic", "openai_chat"].includes(providerKind)
+                        ) {
+                          setProviderKind("openai_chat");
+                        }
+                      }}
                     />
                   </label>
                   <label>
@@ -6574,33 +6716,46 @@ function SettingsWorkspace({
                       <option value="auth_token">Auth Token</option>
                     </select>
                   </label>
-                  <label>
-                    <span>Usage API</span>
-                    <select
-                      value={providerUsageAdapter}
-                      onChange={(event) =>
-                        setProviderUsageAdapter(event.target.value as "automatic" | "new_api")
-                      }
-                    >
-                      <option value="automatic">Automatic</option>
-                      <option value="new_api">New API</option>
-                    </select>
-                  </label>
+                  {openCodeGoForm ? (
+                    <div className="settings-provider-form__section">
+                      <strong>Local usage tracking</strong>
+                      <small>
+                        No usage endpoint is queried. Quota errors cool and rotate keys.
+                      </small>
+                    </div>
+                  ) : (
+                    <label>
+                      <span>Usage API</span>
+                      <select
+                        value={providerUsageAdapter}
+                        onChange={(event) =>
+                          setProviderUsageAdapter(event.target.value as "automatic" | "new_api")
+                        }
+                      >
+                        <option value="automatic">Automatic</option>
+                        <option value="new_api">New API</option>
+                      </select>
+                    </label>
+                  )}
                   <label className="settings-provider-form__wide">
                     <span>
-                      {providerUsageAdapter === "new_api"
-                        ? "Primary API token"
-                        : providerAuthMode === "auth_token"
-                          ? "Auth token"
-                          : "API key"}
-                    </span>
-                    <input
-                      aria-label={
-                        providerUsageAdapter === "new_api"
+                      {openCodeGoForm
+                        ? "Primary API key"
+                        : providerUsageAdapter === "new_api"
                           ? "Primary API token"
                           : providerAuthMode === "auth_token"
                             ? "Auth token"
-                            : "API key"
+                            : "API key"}
+                    </span>
+                    <input
+                      aria-label={
+                        openCodeGoForm
+                          ? "Primary API key"
+                          : providerUsageAdapter === "new_api"
+                            ? "Primary API token"
+                            : providerAuthMode === "auth_token"
+                              ? "Auth token"
+                              : "API key"
                       }
                       required={!editingProviderId}
                       type="password"
@@ -6611,13 +6766,65 @@ function SettingsWorkspace({
                       }
                       onChange={(event) => setProviderSecret(event.target.value)}
                     />
-                    {providerUsageAdapter === "new_api" && (
+                    {!openCodeGoForm && providerUsageAdapter === "new_api" && (
                       <small className="settings-provider-form__helper">
                         Used for Model requests and its own /api/usage/token quota.
                       </small>
                     )}
                   </label>
-                  {providerUsageAdapter === "new_api" && (
+                  {openCodeGoForm && (
+                    <>
+                      <label className="settings-provider-form__wide">
+                        <span>Additional API keys</span>
+                        <textarea
+                          aria-label="Additional API keys"
+                          rows={4}
+                          value={providerAdditionalApiKeys}
+                          placeholder="One API key per line"
+                          onChange={(event) => setProviderAdditionalApiKeys(event.target.value)}
+                        />
+                        <small className="settings-provider-form__helper">
+                          New keys are encrypted separately. Values are never shown again.
+                        </small>
+                      </label>
+                      {editingProvider?.runtimeKeyUsage &&
+                        editingProvider.runtimeKeyUsage.length > 0 && (
+                          <div className="settings-provider-form__wide settings-provider-key-editor">
+                            <strong>Saved keys</strong>
+                            {editingProvider.runtimeKeyUsage.map((key) => {
+                              const removed = providerRemovedApiKeyIds.includes(key.id);
+                              return (
+                                <span key={key.id} className={cx(removed && "is-removed")}>
+                                  <span>
+                                    <strong>{key.label}</strong>
+                                    <small>
+                                      {removed
+                                        ? "Will be removed"
+                                        : `${capitalize(key.status)} · ${key.totalTokens.toLocaleString()} tokens`}
+                                    </small>
+                                  </span>
+                                  {key.id !== "primary" && (
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        setProviderRemovedApiKeyIds((current) =>
+                                          current.includes(key.id)
+                                            ? current.filter((id) => id !== key.id)
+                                            : [...current, key.id],
+                                        )
+                                      }
+                                    >
+                                      {removed ? "Keep" : "Remove"}
+                                    </button>
+                                  )}
+                                </span>
+                              );
+                            })}
+                          </div>
+                        )}
+                    </>
+                  )}
+                  {!openCodeGoForm && providerUsageAdapter === "new_api" && (
                     <>
                       <div className="settings-provider-form__section settings-provider-form__wide">
                         <strong>Account usage</strong>
@@ -6756,6 +6963,7 @@ function SettingsWorkspace({
                     onRefresh={() => onRefreshUsage(target)}
                     onEdit={userManaged ? () => beginEditProvider(provider) : undefined}
                     onRemove={userManaged ? () => void removeUserProvider(provider.id) : undefined}
+                    onResetProviderKey={(keyId) => onResetProviderKey(provider.id, keyId)}
                   />
                 );
               })}
@@ -6781,6 +6989,7 @@ function ProviderMatrixRow({
   onRefresh,
   onEdit,
   onRemove,
+  onResetProviderKey,
 }: {
   label: string;
   source: ProviderUsageEntry["source"];
@@ -6795,6 +7004,7 @@ function ProviderMatrixRow({
   onRefresh: () => Promise<void>;
   onEdit?: () => void;
   onRemove?: () => void;
+  onResetProviderKey?: (keyId: string) => Promise<void>;
 }) {
   const fiveHour = findUsageWindow(entry, "five_hour");
   const weekly = findUsageWindow(entry, "weekly");
@@ -6805,6 +7015,7 @@ function ProviderMatrixRow({
   const updatedAt = entry?.fetchedAt ?? (entry ? updatedFallback : undefined);
   const status = providerUsageStatus(entry, loading);
   const deepSeek = provider ? isDeepSeekProvider(provider) : false;
+  const openCodeGo = provider ? isOpenCodeGoProviderUrl(provider.baseUrl ?? "") : false;
   const modelCount =
     discovery?.status === "ready" || discovery?.status === "cached"
       ? `${discovery.modelCount} model${discovery.modelCount === 1 ? "" : "s"}`
@@ -6820,9 +7031,11 @@ function ProviderMatrixRow({
         ? `${providerProtocolLabel(provider.kind)} + ${
             provider.kind === "anthropic" ? "OpenAI" : "Anthropic"
           } · Preferred ${providerProtocolLabel(provider.kind)} · ${modelCount}`
-        : provider?.usageAdapter === "new_api"
-          ? `New API · ${modelCount}`
-          : `${providerProtocolLabel(provider?.kind ?? "Provider")} · ${modelCount}`;
+        : openCodeGo
+          ? `OpenCode Go · ${entry?.keys?.length ?? provider?.runtimeKeySlots?.length ?? 0} keys · Local usage · ${modelCount}`
+          : provider?.usageAdapter === "new_api"
+            ? `New API · ${modelCount}`
+            : `${providerProtocolLabel(provider?.kind ?? "Provider")} · ${modelCount}`;
 
   return (
     <article
@@ -6897,6 +7110,12 @@ function ProviderMatrixRow({
       </div>
       {(provider?.usageAdapter === "new_api" || entry?.account) && (
         <NewApiAccountDetails provider={provider} entry={entry} onManage={onEdit} />
+      )}
+      {openCodeGo && (
+        <ProviderKeyPoolDetails
+          keys={entry?.keys ?? provider?.runtimeKeyUsage ?? []}
+          onReset={onResetProviderKey}
+        />
       )}
     </article>
   );
@@ -7079,6 +7298,71 @@ function NewApiAccountDetails({
   );
 }
 
+function ProviderKeyPoolDetails({
+  keys,
+  onReset,
+}: {
+  keys: ProviderKeyUsageSummary[];
+  onReset?: (keyId: string) => Promise<void>;
+}) {
+  const [resettingKeyId, setResettingKeyId] = useState<string | null>(null);
+  const ready = keys.filter((key) => key.status === "ready").length;
+  return (
+    <details className="settings-provider-account settings-provider-key-pool">
+      <summary>
+        <span>API key pool</span>
+        <small>
+          {ready}/{keys.length} ready · local counters
+        </small>
+      </summary>
+      <div className="settings-provider-account__content">
+        <p>
+          Keys rotate only after an explicit quota-exhausted response and only before any output or
+          tool event has been emitted.
+        </p>
+        <section className="settings-provider-key-list" aria-label="OpenCode Go API keys">
+          {keys.map((key) => (
+            <div className="settings-provider-key-list__row" key={key.id}>
+              <span>
+                <strong>{key.label}</strong>
+                <small>{key.id === "primary" ? "Primary" : "Encrypted backup"}</small>
+              </span>
+              <span className={`is-${key.status}`}>{capitalize(key.status)}</span>
+              <span>
+                <strong>{key.totalTokens.toLocaleString()}</strong>
+                <small>{key.requestCount.toLocaleString()} requests</small>
+              </span>
+              <span>
+                {key.cooldownUntil
+                  ? `Retry ${formatUsageReset(key.cooldownUntil)}`
+                  : key.lastUsedAt
+                    ? `Used ${formatUsageReset(key.lastUsedAt)}`
+                    : "Not used yet"}
+              </span>
+              {key.status === "cooling" && onReset ? (
+                <button
+                  type="button"
+                  disabled={resettingKeyId !== null}
+                  onClick={() => {
+                    setResettingKeyId(key.id);
+                    void onReset(key.id)
+                      .catch(() => undefined)
+                      .finally(() => setResettingKeyId(null));
+                  }}
+                >
+                  {resettingKeyId === key.id ? "Resetting…" : "Reset cooldown"}
+                </button>
+              ) : (
+                <span />
+              )}
+            </div>
+          ))}
+        </section>
+      </div>
+    </details>
+  );
+}
+
 function ProviderBrandIcon({
   label,
   sourceId,
@@ -7254,6 +7538,21 @@ function isDeepSeekProviderUrl(value: string): boolean {
     return new URL(value).hostname.toLowerCase() === "api.deepseek.com";
   } catch {
     return value.toLowerCase().includes("api.deepseek.com");
+  }
+}
+
+function isOpenCodeGoProviderUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    const pathname = url.pathname.replace(/\/+$/, "");
+    return (
+      url.protocol === "https:" &&
+      url.hostname.toLowerCase() === "opencode.ai" &&
+      !url.port &&
+      (pathname === "/zen/go" || pathname === "/zen/go/v1")
+    );
+  } catch {
+    return false;
   }
 }
 
@@ -10193,6 +10492,7 @@ function WorkDisclosure({
   const wasActive = useRef(active);
   const detailsId = `${turnId}-work-details`;
   const duration = workDurationMs(messages);
+  const activities = groupWorkActivities(messages);
   const label = active
     ? "Working"
     : duration
@@ -10224,9 +10524,20 @@ function WorkDisclosure({
         <div className="work-disclosure__details" id={detailsId} ref={detailsRef}>
           {messages.length > 0 ? (
             <div className="work-disclosure__events">
-              {messages.map((message, index) => (
-                <RunEvent compact key={`${messageKey(message)}\u001f${index}`} msg={message} />
-              ))}
+              {activities.map((activity) =>
+                activity.kind === "message" ? (
+                  <RunEvent
+                    compact
+                    key={`${messageKey(activity.message)}\u001f${activity.sourceIndex}`}
+                    msg={activity.message}
+                  />
+                ) : (
+                  <ToolActivityEvent
+                    activity={activity.activity}
+                    key={toolActivityKey(activity.activity)}
+                  />
+                ),
+              )}
             </div>
           ) : (
             <output className="work-disclosure__pending">
@@ -10238,6 +10549,272 @@ function WorkDisclosure({
       )}
     </section>
   );
+}
+
+function groupWorkActivities(messages: readonly MessageChunk[]): WorkActivity[] {
+  const activities: WorkActivity[] = [];
+  const tools: ToolActivity[] = [];
+
+  messages.forEach((message, sourceIndex) => {
+    if (message.kind === "tool_call") {
+      const activity = { call: message, sourceIndex };
+      activities.push({ kind: "tool", activity });
+      tools.push(activity);
+      return;
+    }
+    if (message.kind !== "tool_result") {
+      activities.push({ kind: "message", message, sourceIndex });
+      return;
+    }
+
+    const invocationId = message.render?.invocationId;
+    const exactMatch = invocationId
+      ? tools.find((activity) => activity.call?.render?.invocationId === invocationId)
+      : undefined;
+    const fallbackMatch = tools.find(
+      (activity) =>
+        activity.call?.toolName === message.toolName &&
+        (!activity.result || !isTerminalToolResult(activity.result)),
+    );
+    const match = exactMatch ?? fallbackMatch;
+    if (match) {
+      match.result = message;
+      return;
+    }
+
+    const activity = { result: message, sourceIndex };
+    activities.push({ kind: "tool", activity });
+    tools.push(activity);
+  });
+
+  return activities;
+}
+
+function isTerminalToolResult(message: MessageChunk): boolean {
+  const status = normalizeMessageChunk(message, normalizeOptionsFromMessage(message)).status;
+  return !["queued", "running"].includes(status);
+}
+
+function toolActivityKey(activity: ToolActivity): string {
+  const message = activity.call ?? activity.result;
+  const invocationId = message?.render?.invocationId;
+  return invocationId
+    ? `tool:${invocationId}`
+    : `tool:${activity.sourceIndex}:${message ? messageKey(message) : "unknown"}`;
+}
+
+function ToolActivityEvent({ activity }: { activity: ToolActivity }) {
+  const [expanded, setExpanded] = useState(false);
+  const event = mergedToolActivityEvent(activity);
+  const summary = describeToolActivity(event);
+  const specialized = specializedTracePresentation(event);
+  const failure = toolFailureSummary(event);
+  const hasDetails = !!specialized || event.artifacts.length > 0 || !!failure;
+  const detailsId = `${event.eventId}-activity-details`;
+  const failed = event.status === "failed" || event.status === "canceled";
+  const running = event.status === "queued" || event.status === "running";
+  const StatusIcon = running ? Loader2 : failed ? XCircle : Check;
+
+  return (
+    <article
+      className={cx(
+        "tool-activity",
+        running && "is-running",
+        failed && "is-failed",
+        expanded && "is-open",
+      )}
+      data-render-event-id={event.eventId}
+      data-render-kind="tool_activity"
+      data-render-status={event.status}
+    >
+      <button
+        type="button"
+        className="tool-activity__summary"
+        aria-controls={hasDetails ? detailsId : undefined}
+        aria-expanded={hasDetails ? expanded : undefined}
+        aria-label={`${summary}, ${humanToolStatus(event.status)}`}
+        disabled={!hasDetails}
+        onClick={() => hasDetails && setExpanded((value) => !value)}
+      >
+        <span className="tool-activity__status" aria-hidden="true">
+          <StatusIcon />
+        </span>
+        <span className="tool-activity__label">{summary}</span>
+        {hasDetails && <ChevronRight className="tool-activity__chevron" aria-hidden="true" />}
+      </button>
+      {expanded && hasDetails && (
+        <div className="tool-activity__details" id={detailsId}>
+          {specialized && <SpecializedTracePresentation presentation={specialized} />}
+          {failure && !specialized?.blocks.some((block) => block.content.includes(failure)) && (
+            <p className="tool-activity__error">{failure}</p>
+          )}
+          <TraceArtifacts artifacts={event.artifacts} />
+        </div>
+      )}
+    </article>
+  );
+}
+
+function mergedToolActivityEvent(activity: ToolActivity): NormalizedRenderEvent {
+  const call = activity.call
+    ? normalizeMessageChunk(activity.call, normalizeOptionsFromMessage(activity.call))
+    : undefined;
+  const result = activity.result
+    ? normalizeMessageChunk(activity.result, normalizeOptionsFromMessage(activity.result))
+    : undefined;
+  const base = call ?? result;
+  if (!base) throw new Error("Tool activity requires a call or result.");
+
+  return {
+    ...base,
+    eventId: call?.eventId ?? result?.eventId ?? base.eventId,
+    invocationId: call?.invocationId ?? result?.invocationId,
+    kind: result ? "tool_result" : "tool_call",
+    status: result?.status ?? call?.status ?? base.status,
+    title: call?.title ?? result?.title ?? base.title,
+    summary: result?.summary ?? call?.summary ?? base.summary,
+    toolName: call?.toolName ?? result?.toolName,
+    input: call?.input,
+    output: result?.output,
+    artifacts: uniqueArtifacts([...(call?.artifacts ?? []), ...(result?.artifacts ?? [])]),
+    provenance: { ...(call?.provenance ?? {}), ...(result?.provenance ?? {}) },
+    startedAt: call?.startedAt ?? result?.startedAt,
+    endedAt: result?.endedAt ?? call?.endedAt,
+    durationMs: result?.durationMs ?? call?.durationMs,
+    rawPayloadRef: undefined,
+  };
+}
+
+function describeToolActivity(event: NormalizedRenderEvent): string {
+  const payload = tracePayloadRecord(event) ?? {};
+  const tool = (event.toolName ?? "tool").toLowerCase();
+  const path = compactToolValue(
+    stringValue(payload, [
+      "path",
+      "filePath",
+      "file_path",
+      "notebook_path",
+      "targetPath",
+      "target_path",
+    ]),
+  );
+  const command = compactToolValue(stringValue(payload, ["command", "cmd"]));
+  const query = compactToolValue(
+    stringValue(payload, ["query", "pattern", "search", "search_query"]),
+  );
+  const running = event.status === "queued" || event.status === "running";
+  const failed = event.status === "failed" || event.status === "canceled";
+
+  if (/apply[_-]?patch|notebookedit|(^|[_-])(edit|patch)([_-]|$)/.test(tool)) {
+    return toolActionSummary("Editing", "Edited", "Couldn’t edit", path, running, failed);
+  }
+  if (/(^|[_-])(write|create)([_-]|$)/.test(tool)) {
+    return toolActionSummary("Writing", "Wrote", "Couldn’t write", path, running, failed);
+  }
+  if (/(^|[_-])(read|open)([_-]|$)/.test(tool)) {
+    return toolActionSummary("Reading", "Read", "Couldn’t read", path, running, failed);
+  }
+  if (/(^|[_-])(glob|grep|search|find)([_-]|$)|toolsearch/.test(tool)) {
+    const subject = query ? `“${query}”` : path;
+    return toolActionSummary(
+      "Searching for",
+      "Searched for",
+      "Couldn’t search for",
+      subject,
+      running,
+      failed,
+      "Searching files",
+      "Searched files",
+      "File search failed",
+    );
+  }
+  if (/(^|[_-])(test|check|vitest|jest|pytest)([_-]|$)/.test(tool)) {
+    return running ? "Running tests" : failed ? "Tests failed" : "Ran tests";
+  }
+  if (/(^|[_-])(bash|shell|terminal|exec_command|powershell)([_-]|$)/.test(tool)) {
+    return toolActionSummary(
+      "Running",
+      "Ran",
+      "Command failed:",
+      command,
+      running,
+      failed,
+      "Running command",
+      "Ran command",
+      "Command failed",
+    );
+  }
+  if (/(^|[_-])(browser|chrome|playwright|computer[_-]?use)([_-]|$)/.test(tool)) {
+    return running ? "Using the browser" : failed ? "Browser action failed" : "Used the browser";
+  }
+  if (/(^|[_-])(imagegen|image_generation|generate[_-]?image)([_-]|$)/.test(tool)) {
+    return running
+      ? "Generating an image"
+      : failed
+        ? "Image generation failed"
+        : "Generated an image";
+  }
+
+  const label = humanizeToolName(event.toolName ?? "tool");
+  return running ? `Using ${label}` : failed ? `${label} failed` : `Used ${label}`;
+}
+
+function toolActionSummary(
+  pendingVerb: string,
+  completedVerb: string,
+  failedVerb: string,
+  subject: string | undefined,
+  running: boolean,
+  failed: boolean,
+  pendingFallback = pendingVerb,
+  completedFallback = completedVerb,
+  failedFallback = failedVerb,
+): string {
+  if (!subject) return running ? pendingFallback : failed ? failedFallback : completedFallback;
+  return `${running ? pendingVerb : failed ? failedVerb : completedVerb} ${subject}`;
+}
+
+function compactToolValue(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  const compact = value.replace(/\s+/g, " ").trim();
+  return compact.length > 96 ? `${compact.slice(0, 93)}…` : compact;
+}
+
+function humanizeToolName(toolName: string): string {
+  const publicName = toolName.includes("__") ? (toolName.split("__").at(-1) ?? toolName) : toolName;
+  return publicName
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/^\w/, (character) => character.toUpperCase());
+}
+
+function humanToolStatus(status: NormalizedRenderEvent["status"]): string {
+  if (status === "queued" || status === "running") return "in progress";
+  if (status === "failed") return "failed";
+  if (status === "canceled") return "canceled";
+  return "complete";
+}
+
+function toolFailureSummary(event: NormalizedRenderEvent): string | undefined {
+  if (event.status !== "failed" && event.status !== "canceled") return undefined;
+  const payload = tracePayloadRecord(event);
+  return compactToolValue(
+    payload ? stringValue(payload, ["error", "message", "stderr", "failure"]) : undefined,
+  );
+}
+
+function uniqueArtifacts(artifacts: RenderArtifactReference[]): RenderArtifactReference[] {
+  const seen = new Set<string>();
+  return artifacts.filter((artifact, index) => {
+    const key =
+      artifact.artifactId ??
+      [artifact.kind, artifact.path ?? "", artifact.title ?? "", index].join(":");
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 function groupConversationTurns(messages: MessageChunk[]): ConversationTurn[] {
@@ -10758,8 +11335,10 @@ function compactPresentation(
 }
 
 function tracePayloadRecord(event: NormalizedRenderEvent): Record<string, unknown> | undefined {
-  const payload = event.output ?? event.input;
-  return isRecord(payload) ? payload : undefined;
+  const input = isRecord(event.input) ? event.input : undefined;
+  const output = isRecord(event.output) ? event.output : undefined;
+  if (input && output) return { ...input, ...output };
+  return output ?? input;
 }
 
 function traceField(label: string, value: string | undefined): [string, string] | null {

@@ -65,7 +65,7 @@ interface SessionData {
   cwd?: string;
   agentName: string;
   harness: string;
-  permissionMode?: "inherit" | "default" | "plan" | "trusted";
+  permissionMode?: "inherit" | "default" | "auto" | "plan" | "trusted";
   pinned?: boolean;
   messages: MessageChunk[];
   createdAt: string;
@@ -134,6 +134,7 @@ interface DesktopApiMock {
   removeCustomAgent: ReturnType<typeof vi.fn>;
   getPermissionStatus: ReturnType<typeof vi.fn>;
   savePersonalPermissionPolicy: ReturnType<typeof vi.fn>;
+  savePermissionProfileAvailability: ReturnType<typeof vi.fn>;
   workspaceRoot: ReturnType<typeof vi.fn>;
   createTerminal: ReturnType<typeof vi.fn>;
   writeTerminal: ReturnType<typeof vi.fn>;
@@ -147,6 +148,7 @@ interface DesktopApiMock {
   removeManualModel: ReturnType<typeof vi.fn>;
   saveProvider: ReturnType<typeof vi.fn>;
   removeProvider: ReturnType<typeof vi.fn>;
+  resetProviderKey: ReturnType<typeof vi.fn>;
   refreshProviderUsage: ReturnType<typeof vi.fn>;
   getUpdateState: ReturnType<typeof vi.fn>;
   startUpdate: ReturnType<typeof vi.fn>;
@@ -273,25 +275,42 @@ describe("App user workflow", () => {
     expect(screen.queryByRole("menu", { name: "Conversation permissions" })).toBeNull();
 
     await user.click(permissionTrigger);
-    await user.click(screen.getByRole("menuitemradio", { name: /Full access/ }));
+    await user.click(screen.getByRole("menuitemradio", { name: /Approve for me/ }));
     expect(api.saveSession).not.toHaveBeenCalled();
 
     fireEvent.change(screen.getByRole("textbox"), { target: { value: "Run this task" } });
     await user.click(screen.getByRole("button", { name: "Send message" }));
     await waitFor(() =>
       expect(api.createSession).toHaveBeenCalledWith(
-        expect.objectContaining({ permissionMode: "trusted" }),
+        expect.objectContaining({ permissionMode: "auto" }),
       ),
     );
 
-    const fullAccessTrigger = await screen.findByRole("button", { name: "Full access" });
-    await user.click(fullAccessTrigger);
+    const autoReviewTrigger = await screen.findByRole("button", { name: "Auto" });
+    await user.click(autoReviewTrigger);
     await user.click(screen.getByRole("menuitemradio", { name: /Plan only/ }));
     await waitFor(() =>
       expect(api.saveSession).toHaveBeenCalledWith(
         expect.objectContaining({ id: "created-1", permissionMode: "plan" }),
       ),
     );
+  });
+
+  it("V463 removes disabled General profiles from the conversation menu", async () => {
+    const status = permissionStatusFixture();
+    status.profileAvailability.auto = false;
+    const api = createDesktopApiMock({
+      getPermissionStatus: vi.fn(async () => status),
+    });
+    await renderApp(api);
+    const user = userEvent.setup();
+
+    await user.click(await screen.findByRole("button", { name: "Default" }));
+    const menu = screen.getByRole("menu", { name: "Conversation permissions" });
+    expect(within(menu).queryByRole("menuitemradio", { name: /Approve for me/ })).toBeNull();
+    expect(within(menu).getByRole("menuitemradio", { name: /Ask for approval/ })).toBeTruthy();
+    expect(within(menu).getByRole("menuitemradio", { name: /Full access/ })).toBeTruthy();
+    expect(within(menu).getByRole("menuitemradio", { name: /Plan only/ })).toBeTruthy();
   });
 
   it("does not fall back to an implicit model when no standalone Model is registered", async () => {
@@ -714,11 +733,16 @@ describe("App user workflow", () => {
     await user.click(await screen.findByRole("button", { name: "Open anonymous user menu" }));
     await user.click(screen.getByRole("menuitem", { name: "Settings" }));
     const general = await screen.findByLabelText("General settings");
-    expect(within(general).getByRole("radio", { name: /Default permissions/ })).toBeTruthy();
-    await user.click(within(general).getByRole("radio", { name: /Full access/ }));
+    expect(within(general).getByRole("switch", { name: /Default permissions/ })).toBeTruthy();
+    expect(
+      within(general)
+        .getAllByRole("switch")
+        .every((control) => (control as HTMLInputElement).checked),
+    ).toBe(true);
+    await user.click(within(general).getByRole("switch", { name: /Full access/ }));
     await waitFor(() =>
-      expect(api.savePersonalPermissionPolicy).toHaveBeenCalledWith(
-        { mode: "trusted", allowedTools: [], deniedTools: [] },
+      expect(api.savePermissionProfileAvailability).toHaveBeenCalledWith(
+        { default: true, auto: true, trusted: false },
         { cwd: "/Users/tcztzy/swarmx" },
       ),
     );
@@ -732,7 +756,7 @@ describe("App user workflow", () => {
 
     const workspace = await screen.findByLabelText("Advanced permissions settings");
     expect(within(workspace).getByText("Effective policy · before Agent")).toBeTruthy();
-    expect(within(workspace).getByRole("heading", { name: "Ask when needed" })).toBeTruthy();
+    expect(within(workspace).getByRole("heading", { name: "Ask for approval" })).toBeTruthy();
     expect(within(workspace).getByText("Managed policy")).toBeTruthy();
     expect(within(workspace).getByText("Project policy")).toBeTruthy();
     expect(api.getPermissionStatus).toHaveBeenCalledWith({ cwd: "/Users/tcztzy/swarmx" });
@@ -744,11 +768,11 @@ describe("App user workflow", () => {
     expect(within(workspace).getByText("Write already has the opposite rule.")).toBeTruthy();
     await user.clear(denyInput);
     await user.type(denyInput, "Bash{Enter}");
-    await user.click(within(workspace).getByRole("button", { name: "Save exact tool rules" }));
+    await user.click(within(workspace).getByRole("button", { name: "Save policy" }));
 
     await waitFor(() =>
       expect(api.savePersonalPermissionPolicy).toHaveBeenCalledWith(
-        { allowedTools: ["Write"], deniedTools: ["Bash"] },
+        { mode: "default", allowedTools: ["Write"], deniedTools: ["Bash"] },
         { cwd: "/Users/tcztzy/swarmx" },
       ),
     );
@@ -933,6 +957,122 @@ describe("App user workflow", () => {
     await user.click(within(providerCard).getByRole("button", { name: "Edit Provider DeepSeek" }));
     expect(screen.getByLabelText("Preferred API protocol")).toBeTruthy();
     expect(screen.getByText(/DeepSeek supports native OpenAI and Anthropic APIs/)).toBeTruthy();
+  });
+
+  it("V486 manages OpenCode Go keys and shows local cooldown usage", async () => {
+    const providerId = "swarmx.user.opencode-go";
+    const backupId = "key-11111111-1111-4111-8111-111111111111";
+    const keyUsage = [
+      {
+        id: "primary",
+        label: "Key 1",
+        enabled: true,
+        status: "cooling" as const,
+        requestCount: 3,
+        inputTokens: 100,
+        outputTokens: 20,
+        reasoningTokens: 0,
+        cachedInputTokens: 0,
+        totalTokens: 120,
+        lastUsedAt: "2026-07-12T11:00:00.000Z",
+        cooldownUntil: "2026-07-12T17:00:00.000Z",
+      },
+      {
+        id: backupId,
+        label: "Key 2",
+        enabled: true,
+        status: "ready" as const,
+        requestCount: 1,
+        inputTokens: 10,
+        outputTokens: 5,
+        reasoningTokens: 0,
+        cachedInputTokens: 0,
+        totalTokens: 15,
+      },
+    ];
+    const api = createDesktopApiMock();
+    const base = await api.listExtensions();
+    const inventory = {
+      ...base,
+      providers: [
+        {
+          id: providerId,
+          label: "OpenCode Go",
+          kind: "openai_chat",
+          baseUrl: "https://opencode.ai/zen/go/v1",
+          authMode: "api_key" as const,
+          runtimeReady: true,
+          readOnly: false,
+          runtimeKeySlots: keyUsage.map(({ id, label, enabled }) => ({ id, label, enabled })),
+          runtimeKeyUsage: keyUsage,
+        },
+      ],
+      modelCatalog: {
+        manualModelIds: [],
+        userProviderIds: [providerId],
+        providers: [
+          {
+            providerProfileId: providerId,
+            label: "OpenCode Go",
+            status: "ready" as const,
+            modelCount: 4,
+          },
+        ],
+      },
+    };
+    const usageSnapshot = {
+      fetchedAt: "2026-07-12T12:00:00.000Z",
+      providers: [
+        {
+          source: "provider" as const,
+          sourceId: providerId,
+          providerProfileId: providerId,
+          label: "OpenCode Go",
+          adapterId: "opencode_go_local",
+          status: "ready" as const,
+          meters: [],
+          keys: keyUsage,
+        },
+      ],
+      toolAccounts: [],
+    };
+    api.listExtensions.mockResolvedValue(inventory);
+    api.refreshProviderUsage.mockResolvedValue(usageSnapshot);
+    api.resetProviderKey.mockResolvedValue(inventory);
+    api.saveProvider.mockResolvedValue(inventory);
+    await renderApp(api);
+    const user = userEvent.setup();
+
+    await user.click(await screen.findByRole("button", { name: "Open anonymous user menu" }));
+    await user.click(screen.getByRole("menuitem", { name: "Settings" }));
+    await user.click(screen.getByRole("button", { name: "Providers" }));
+    const card = await screen.findByRole("article", { name: "OpenCode Go Provider" });
+    expect(card.textContent).toContain("2 keys · Local usage");
+    await user.click(within(card).getByText("API key pool"));
+    expect(
+      within(card).getByRole("region", { name: "OpenCode Go API keys" }).textContent,
+    ).toContain("120");
+    await user.click(within(card).getByRole("button", { name: "Reset cooldown" }));
+    await waitFor(() => expect(api.resetProviderKey).toHaveBeenCalledWith(providerId, "primary"));
+
+    await user.click(within(card).getByRole("button", { name: "Edit Provider OpenCode Go" }));
+    expect(screen.queryByLabelText("Usage API")).toBeNull();
+    expect(screen.getByText(/No usage endpoint is queried/)).toBeTruthy();
+    fireEvent.change(screen.getByLabelText("Additional API keys"), {
+      target: { value: "go-third\ngo-fourth" },
+    });
+    const savedKeys = screen.getByText("Saved keys").parentElement;
+    expect(savedKeys).toBeTruthy();
+    await user.click(within(savedKeys as HTMLElement).getByRole("button", { name: "Remove" }));
+    await user.click(screen.getByRole("button", { name: "Save Provider" }));
+    expect(api.saveProvider).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: providerId,
+        kind: "openai_chat",
+        additionalApiKeys: [{ value: "go-third" }, { value: "go-fourth" }],
+        removeApiKeyIds: [backupId],
+      }),
+    );
   });
 
   it("refreshes only the selected Provider row and merges its targeted snapshot", async () => {
@@ -3181,7 +3321,8 @@ describe("App user workflow", () => {
     expect(work.getAttribute("aria-expanded")).toBe("true");
     expect(screen.getByText("Reviewing message boundaries")).toBeTruthy();
     expect(screen.getByText("I will inspect the current layout first.")).toBeTruthy();
-    expect(screen.getAllByText("terminal").length).toBeGreaterThan(0);
+    expect(screen.getByText("Ran rg run-event App.tsx")).toBeTruthy();
+    expect(document.querySelectorAll(".tool-activity")).toHaveLength(1);
     expect(screen.queryByText("Output")).toBeNull();
     expect(screen.getByText("The final summary stays visible.")).toBeTruthy();
 
@@ -3236,16 +3377,8 @@ describe("App user workflow", () => {
           role: "assistant",
           kind: "tool_call",
           toolName: "workspace_read_file",
-          content: JSON.stringify({ path: "README.md" }),
-        },
-      });
-      emitChunk({
-        requestId,
-        chunk: {
-          role: "tool",
-          kind: "tool_result",
-          toolName: "workspace_read_file",
-          content: JSON.stringify({ path: "README.md", content: "# SwarmX" }),
+          content: JSON.stringify({ path: "README.md", requestId: "req_internal_123" }),
+          render: { invocationId: "call_readme_1", status: "running" },
         },
       });
     });
@@ -3254,7 +3387,37 @@ describe("App user workflow", () => {
     expect(thought.closest(".run-event__markdown")?.querySelector("strong")).toBeNull();
     const commentary = screen.getByText("I will read the Project files now.");
     expect(commentary.closest(".run-event")?.querySelector(".run-event__card")).toBeNull();
-    expect(screen.getAllByText("workspace_read_file").length).toBeGreaterThan(0);
+    const runningTool = screen.getByRole("button", {
+      name: "Reading README.md, in progress",
+    });
+    const toolRow = runningTool.closest(".tool-activity");
+    expect(toolRow).not.toBeNull();
+    expect(document.querySelectorAll(".tool-activity")).toHaveLength(1);
+    expect(document.body.textContent).not.toContain("workspace_read_file");
+    expect(document.body.textContent).not.toContain("req_internal_123");
+    expect(document.body.textContent).not.toContain("call_readme_1");
+
+    await act(async () => {
+      emitChunk({
+        requestId,
+        chunk: {
+          role: "tool",
+          kind: "tool_result",
+          toolName: "workspace_read_file",
+          content: JSON.stringify({
+            path: "README.md",
+            content: "# SwarmX",
+            requestId: "req_internal_123",
+          }),
+          render: { invocationId: "call_readme_1", status: "succeeded" },
+        },
+      });
+    });
+
+    const completedTool = screen.getByRole("button", { name: "Read README.md, complete" });
+    expect(completedTool.closest(".tool-activity")).toBe(toolRow);
+    expect(document.querySelectorAll(".tool-activity")).toHaveLength(1);
+    expect(document.body.textContent).not.toContain("# SwarmX");
 
     reply.resolve({
       success: true,
@@ -3294,7 +3457,7 @@ describe("App user workflow", () => {
     await waitFor(() => expect(worked.getAttribute("aria-expanded")).toBe("false"));
     expect(screen.queryByText("Inspecting README")).toBeNull();
     expect(screen.queryByText("I will read the Project files now.")).toBeNull();
-    expect(screen.queryByText("workspace_read_file")).toBeNull();
+    expect(screen.queryByText("Read README.md")).toBeNull();
     expect(unsubscribe).toHaveBeenCalledTimes(1);
   }, 15_000);
 
@@ -3496,11 +3659,11 @@ describe("App user workflow", () => {
     await user.click(await screen.findByRole("button", { name: /ACP investigation/i }));
     await user.click(await screen.findByRole("button", { name: "Worked" }));
 
-    expect((await screen.findAllByText("terminal")).length).toBeGreaterThan(0);
-    await waitFor(() => {
-      expect(document.body.textContent).toContain("[redacted]");
-    });
-    await user.click(screen.getByRole("button", { name: "Show details" }));
+    expect(await screen.findByText("Command failed: curl")).toBeTruthy();
+    expect(document.body.textContent).not.toContain("apiKey");
+    expect(document.body.textContent).not.toContain("[redacted]");
+    expect(document.body.textContent).not.toContain("tool_result_terminal.json");
+    await user.click(screen.getByRole("button", { name: "Command failed: curl, failed" }));
     const terminalDetails = screen
       .getByRole("heading", { name: "Terminal" })
       .closest<HTMLElement>(".trace-card__special");
@@ -3513,13 +3676,10 @@ describe("App user workflow", () => {
     expect(screen.getByText("downloaded 0 bytes")).toBeTruthy();
     expect(screen.getAllByText("truncated").length).toBeGreaterThan(0);
     expect(screen.getByText("curl failed")).toBeTruthy();
-    expect(screen.getByText("Output")).toBeTruthy();
     expect(screen.getByText("Artifacts")).toBeTruthy();
     expect(screen.getByText("terminal.log")).toBeTruthy();
-    expect(screen.getByText("Raw payload ref")).toBeTruthy();
-    expect(screen.getByText("autonomy/runs/run_1/tool_result_terminal.json")).toBeTruthy();
-    expect(screen.getByText("mcpServer")).toBeTruthy();
-    expect(screen.getByText("filesystem")).toBeTruthy();
+    expect(screen.queryByText("Raw payload ref")).toBeNull();
+    expect(screen.queryByText("Provenance")).toBeNull();
     expect(document.body.textContent).not.toContain("sk-test");
     expect(document.querySelector('[data-render-status="failed"]')).toBeTruthy();
     expect(screen.queryByRole("button", { name: /rerun/i })).toBeNull();
@@ -3619,7 +3779,10 @@ describe("App user workflow", () => {
     await renderApp(api);
     await user.click(await screen.findByRole("button", { name: /ACP investigation/i }));
     await user.click(await screen.findByRole("button", { name: "Worked" }));
-    for (const button of screen.getAllByRole("button", { name: "Show details" })) {
+    const detailButtons = document.querySelectorAll<HTMLButtonElement>(
+      ".tool-activity__summary:not(:disabled)",
+    );
+    for (const button of detailButtons) {
       await user.click(button);
     }
 
@@ -3633,7 +3796,7 @@ describe("App user workflow", () => {
     expect(screen.getByText("README.md")).toBeTruthy();
     expect(screen.getByText("10-20")).toBeTruthy();
     expect(screen.getByText("expected true to equal false")).toBeTruthy();
-    expect(screen.getByText("Read README.md")).toBeTruthy();
+    expect(screen.getAllByText("Read README.md").length).toBeGreaterThan(0);
     expect(screen.getByText("https://example.test")).toBeTruthy();
     expect(screen.getByText("button clicked")).toBeTruthy();
     expect(screen.getByText("plot.png")).toBeTruthy();
@@ -3643,7 +3806,7 @@ describe("App user workflow", () => {
     expect(within(transcript as HTMLElement).queryByRole("button", { name: /open/i })).toBeNull();
   });
 
-  it("falls back to the generic trace card for unknown tool payloads", async () => {
+  it("keeps unknown tool payloads behind a human-readable summary", async () => {
     const sessionWithUnknownTrace: SessionData = {
       ...acpSessionDetail,
       messages: [
@@ -3665,10 +3828,12 @@ describe("App user workflow", () => {
     await renderApp(api);
     await user.click(await screen.findByRole("button", { name: /ACP investigation/i }));
     await user.click(await screen.findByRole("button", { name: "Worked" }));
-    await user.click(screen.getByRole("button", { name: "Show details" }));
-
-    expect(screen.getByText("Output")).toBeTruthy();
-    expect(document.body.textContent).toContain("plain generic output");
+    expect(screen.getByText("Used Opaque")).toBeTruthy();
+    expect(document.body.textContent).not.toContain("plain generic output");
+    expect(
+      screen.getByRole("button", { name: "Used Opaque, complete" }).hasAttribute("disabled"),
+    ).toBe(true);
+    expect(screen.queryByText("Output")).toBeNull();
     expect(screen.queryByText("Terminal")).toBeNull();
     expect(screen.queryByText("Diff")).toBeNull();
     expect(screen.queryByText("Test/check")).toBeNull();
@@ -3996,6 +4161,7 @@ function permissionStatusFixture() {
   };
   return {
     personalPolicy,
+    profileAvailability: { default: true, auto: true, trusted: true },
     layers: [
       {
         id: "managed",
@@ -4120,6 +4286,7 @@ function createDesktopApiMock(overrides: Partial<DesktopApiMock> = {}): DesktopA
     removeManualModel: vi.fn(async () => null),
     saveProvider: vi.fn(async () => null),
     removeProvider: vi.fn(async () => null),
+    resetProviderKey: vi.fn(async () => null),
     refreshProviderUsage: vi.fn(async () => ({
       fetchedAt: "2026-07-12T12:00:00.000Z",
       providers: [],
@@ -4238,6 +4405,7 @@ function createDesktopApiMock(overrides: Partial<DesktopApiMock> = {}): DesktopA
     removeCustomAgent: vi.fn(async () => ({ agents: [] })),
     getPermissionStatus: vi.fn(async () => permissionStatusFixture()),
     savePersonalPermissionPolicy: vi.fn(async () => permissionStatusFixture()),
+    savePermissionProfileAvailability: vi.fn(async () => permissionStatusFixture()),
     listExtensions: vi.fn(async () => ({
       bundles: [
         {

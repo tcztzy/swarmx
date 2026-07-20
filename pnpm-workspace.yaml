@@ -4,6 +4,7 @@ packages:
 allowBuilds:
   "@biomejs/biome": true
   electron: true
+  electron-winstaller: false
   esbuild: true
   node-pty: true
 

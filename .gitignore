@@ -136,4 +136,5 @@ node_modules/
 # TypeScript / Electron
 packages/*/dist/
 packages/desktop/out/
+packages/desktop/release/
 *.tsbuildinfo

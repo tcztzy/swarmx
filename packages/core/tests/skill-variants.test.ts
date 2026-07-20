@@ -137,6 +137,15 @@ describe("Skill variants", () => {
       resolveHarnessToolPermission({ mode: "restricted" }, { toolName: "Write", access: "write" }),
     ).toEqual({ decision: "deny", reason: "restricted", sourceIds: [] });
     expect(
+      resolveHarnessToolPermission({ mode: "auto" }, { toolName: "Write", access: "write" }),
+    ).toEqual({ decision: "allow", reason: "auto", sourceIds: [] });
+    expect(
+      resolveHarnessToolPermission(
+        { mode: "auto" },
+        { toolName: "exec_command", access: "execute" },
+      ),
+    ).toEqual({ decision: "ask", reason: "auto", sourceIds: [] });
+    expect(
       resolveHarnessToolPermission({ mode: "trusted" }, { toolName: "Write", access: "write" }),
     ).toEqual({ decision: "allow", reason: "trusted", sourceIds: [] });
   });
@@ -164,7 +173,7 @@ describe("Skill variants", () => {
       {
         id: "personal",
         source: "personal",
-        mode: "default",
+        mode: "auto",
         allowedTools: ["exec_command"],
         deniedTools: [],
         readOnly: false,

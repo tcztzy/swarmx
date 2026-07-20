@@ -2,43 +2,46 @@
 
 final result: passed
 
-## Source visual
+## Source and rendered evidence
 
-- Codex General permissions reference: `/var/folders/dc/cbvy15k16vz7s8mls82v1ng80000gn/T/codex-clipboard-986c5ad1-0845-49e8-a697-c227ec667102.png`
+- Recovered Codex General reference, 2048 x 1168: `/Users/tcztzy/.codex/visualizations/2026/07/18/019f736f-f2ea-79f3-8c85-4af1d8b6ddd7/permission-t202/01-codex-reference.png`
+- SwarmX General, 1356 x 768: `/Users/tcztzy/.codex/visualizations/2026/07/18/019f736f-f2ea-79f3-8c85-4af1d8b6ddd7/permission-t202/07-general-final.jpg`
+- Normalized General comparison: `/Users/tcztzy/.codex/visualizations/2026/07/18/019f736f-f2ea-79f3-8c85-4af1d8b6ddd7/permission-t202/08-general-final-comparison.png`
+- Focused Permissions-card comparison: `/Users/tcztzy/.codex/visualizations/2026/07/18/019f736f-f2ea-79f3-8c85-4af1d8b6ddd7/permission-t202/11-permission-card-focus.png`
+- Conversation permission menu, 1152 x 768: `/Users/tcztzy/.codex/visualizations/2026/07/18/019f736f-f2ea-79f3-8c85-4af1d8b6ddd7/permission-t202/10-conversation-menu-refreshed.jpg`
+- General at minimum window width, 802 x 768 capture: `/Users/tcztzy/.codex/visualizations/2026/07/18/019f736f-f2ea-79f3-8c85-4af1d8b6ddd7/permission-t202/12-general-narrow-800.jpg`
+- Conversation menu at minimum window width, 802 x 768 capture: `/Users/tcztzy/.codex/visualizations/2026/07/18/019f736f-f2ea-79f3-8c85-4af1d8b6ddd7/permission-t202/13-conversation-menu-narrow-800.jpg`
 
-## Implementation captures
+## Codex benchmark and implementation mapping
 
-- Desktop conversation default, 1152 x 768: `/Users/tcztzy/.codex/visualizations/2026/07/18/019f736f-f2ea-79f3-8c85-4af1d8b6ddd7/permission-t201/01-conversation-default.png`
-- Desktop conversation menu, 1152 x 768: `/Users/tcztzy/.codex/visualizations/2026/07/18/019f736f-f2ea-79f3-8c85-4af1d8b6ddd7/permission-t201/02-conversation-menu.png`
-- General permissions, 1152 x 768: `/Users/tcztzy/.codex/visualizations/2026/07/18/019f736f-f2ea-79f3-8c85-4af1d8b6ddd7/permission-t201/03-general-settings.png`
-- Advanced permissions, 1152 x 768: `/Users/tcztzy/.codex/visualizations/2026/07/18/019f736f-f2ea-79f3-8c85-4af1d8b6ddd7/permission-t201/04-advanced-settings.png`
-- General permissions, 768 x 768: `/Users/tcztzy/.codex/visualizations/2026/07/18/019f736f-f2ea-79f3-8c85-4af1d8b6ddd7/permission-t201/05-general-narrow.png`
-- Conversation menu, 768 x 768: `/Users/tcztzy/.codex/visualizations/2026/07/18/019f736f-f2ea-79f3-8c85-4af1d8b6ddd7/permission-t201/06-conversation-menu-narrow.png`
+- General contains three independent, enabled-by-default switches: Default permissions, Auto-review, and Full access. SwarmX now uses the same information architecture and switch treatment instead of a mutually exclusive global mode selector.
+- Each conversation exposes its own compact permission menu in the Composer. The primary choices map to Codex as Use default, Ask for approval, Approve for me, and Full access; Plan only remains a separated SwarmX safety option.
+- SwarmX's Auto-review is a deterministic permission policy rather than a second reviewer model: lower-risk Project writes are approved, while execution and control actions can still ask. This distinction is stated in product copy and the specification.
+- General controls profile availability. Advanced retains the inherited fallback and policy ceilings. A disabled profile is removed from the conversation menu and degrades to Plan in Main if stale data tries to select it.
 
-## Comparison evidence
+## Full-view and focused comparison
 
-- Compared the Codex source and SwarmX General screenshot together at the desktop state. Both place Permissions first in General, use one bordered row card, keep labels/descriptions left-aligned, and put the current control on the right.
-- SwarmX uses one mutually exclusive permission mode instead of independent switches because `default`, `plan`, `restricted`, and `trusted` cannot safely be active together.
-- The supplied source does not show a conversation menu. The implementation reuses the existing Composer and Agent-picker tokens, keeps the current mode visible before send, and explains the persistent safety ceilings inside the menu.
-- No P0, P1, or P2 visual issues remain: desktop and narrow captures have no overlap, clipping, broken hierarchy, or inaccessible off-screen control.
+The normalized full view compares the supplied Codex screen and the real Electron renderer at 1356 x 768. The final SwarmX page matches the reference's left alignment, 760 px content measure, title and section rhythm, single outlined permission card, three-row density, right-aligned purple switches, neutral page surface, and restrained dividers.
+
+The focused comparison keeps all row labels, descriptions, borders, and switches legible together. The remaining differences are intentional product content: `SwarmX`/`Project` terminology, shorter risk copy, a smaller settings taxonomy, and no unrelated General section beneath Permissions. No actionable P0, P1, or P2 difference remains in the requested permission surface.
 
 ## Interaction and accessibility checks
 
-- Opened General from the lower-left account Settings action.
-- Opened Advanced permissions from both the sidebar and General footer.
-- Opened the conversation permission menu, selected Full access for a new unsent task, and confirmed the Composer trigger updated.
-- Confirmed Escape closes the conversation menu; automated tests also cover outside-pointer dismissal.
-- Accessibility tree exposes General/Permissions headings, one named default-mode radio group, four named radio choices, the conversation popup trigger, four `menuitemradio` choices, and the ACP-native scope explanation.
-- External ACP Harness permission ownership remains explicit and the conversation trigger is disabled when SwarmX cannot enforce the selection.
+- Toggled Default permissions off and on in the live Electron app and confirmed persistence while leaving all three profiles enabled.
+- Opened the per-conversation menu in a normal 1152 x 768 window. The live accessibility tree exposes the trigger plus all five choices and their descriptions, with Use default selected.
+- Focused tests cover selecting Auto-review for an unsent conversation, persistence through the preload/Main boundary, disabled-profile filtering, outside-pointer dismissal, and Escape dismissal.
+- General switches expose native checkbox semantics with `role="switch"`; the Composer trigger remains a named popup button.
+- Electron's development terminal showed no new renderer error while exercising these states.
 
-## Validation history
+## Comparison history
 
-1. Initial rendered desktop and 768 px checks passed without P0/P1/P2 corrections. The reference comparison confirmed placement, row rhythm, control alignment, spacing, and typography were consistent with the target while preserving SwarmX's design tokens.
-2. Renderer, permission-service, preload, migration, and layer-precedence tests passed. The Electron development console produced no new errors during the exercised states.
+1. First side-by-side pass found P2 differences in content width, section offset, card padding and row height, switch scale, title weight, and page tone.
+2. SwarmX was adjusted to the measured 760 px content width, tighter 76 px rows, smaller native-like switches, Codex-aligned heading rhythm, and lighter surfaces.
+3. The second full comparison and focused crop found no remaining P0, P1, or P2 issues. General and the conversation menu were then exercised at Electron's 800 px minimum width; both remain reachable without clipped or off-screen controls.
 
 ## Assets
 
-- No new image assets were required. Existing Lucide icons and SwarmX design tokens cover the source UI's iconography and controls.
+- The scoped UI contains no raster art or custom illustration. Existing Lucide navigation icons were preserved, and the switches are native CSS controls rather than approximate image assets.
 
 ---
 

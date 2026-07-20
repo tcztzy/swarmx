@@ -100,6 +100,14 @@ const PersonalPermissionPolicySchema = HarnessPermissionPolicyLayerSchema.superR
   },
 );
 
+export const DesktopPermissionProfileAvailabilitySchema = z
+  .object({
+    default: z.boolean().default(true),
+    auto: z.boolean().default(true),
+    trusted: z.boolean().default(true),
+  })
+  .strict();
+
 export const DesktopPermissionSettingsSchema = z
   .object({
     personalPolicy: PersonalPermissionPolicySchema.default({
@@ -110,6 +118,7 @@ export const DesktopPermissionSettingsSchema = z
       deniedTools: [],
       readOnly: false,
     }),
+    profileAvailability: DesktopPermissionProfileAvailabilitySchema.default({}),
     approvalReceipts: z.array(PermissionApprovalReceiptSchema).max(200).default([]),
   })
   .strict()
@@ -212,8 +221,12 @@ export type DesktopRootConfig = z.infer<typeof DesktopRootConfigSchema>;
 export type DesktopServerSettings = z.infer<typeof DesktopServerSettingsSchema>;
 export type DesktopUiState = z.infer<typeof DesktopUiStateSchema>;
 export type DesktopExtensionSettings = z.infer<typeof DesktopExtensionSettingsSchema>;
+export type DesktopPermissionProfileAvailability = z.infer<
+  typeof DesktopPermissionProfileAvailabilitySchema
+>;
 export interface DesktopPermissionSettings {
   personalPolicy: HarnessPermissionPolicyLayer;
+  profileAvailability: DesktopPermissionProfileAvailability;
   approvalReceipts: PermissionApprovalReceipt[];
 }
 export interface DesktopSettingsDocument {

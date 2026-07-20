@@ -10,7 +10,12 @@ import {
 } from "@swarmx/core";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ModelCatalogService, humanReadableModelLabel } from "./model-catalog.js";
-import { type ProviderAuthStore, newApiAccountCredentialKey } from "./provider-auth.js";
+import {
+  type ProviderAuthStore,
+  newApiAccountCredentialKey,
+  providerPoolCredentialKey,
+} from "./provider-auth.js";
+import { ProviderKeyUsageStore } from "./provider-key-pool.js";
 
 const temporaryRoots: string[] = [];
 
@@ -158,6 +163,159 @@ describe("ModelCatalogService", () => {
       }),
     );
     expect(await readFile(paths.cachePath, "utf8")).not.toContain("sk-runtime-only");
+  });
+
+  it("V482 treats a Custom Provider as one exact base URL plus /models", async () => {
+    const paths = await catalogPaths();
+    const authStore = new MemoryProviderAuthStore();
+    const fetch = vi.fn().mockResolvedValue(response({ data: [{ id: "custom-model" }] }));
+    const service = new ModelCatalogService({
+      ...paths,
+      env: {},
+      authStore,
+      fetch,
+      now: fixedClock(),
+    });
+    const inventory = createExtensionInventory([]);
+
+    const saved = await service.saveProvider(inventory, {
+      label: "Custom Gateway",
+      kind: "openai_chat",
+      baseUrl: "https://gateway.example.test/shared/v1",
+      authMode: "api_key",
+      secret: "custom-only-key",
+    });
+    const providerId = saved.modelCatalog.userProviderIds[0] as string;
+
+    expect(saved.providers[0]).toEqual(
+      expect.objectContaining({
+        id: providerId,
+        baseUrl: "https://gateway.example.test/shared/v1",
+        apiEntrypoints: {},
+      }),
+    );
+    expect(saved.providers[0]).not.toHaveProperty("usageAdapter");
+    expect(saved.providers[0]?.newApiAccountUserId).toBeUndefined();
+
+    const refreshed = await service.refresh(inventory);
+    expect(fetch).toHaveBeenCalledWith(
+      "https://gateway.example.test/shared/v1/models",
+      expect.objectContaining({
+        headers: expect.objectContaining({ Authorization: "Bearer custom-only-key" }),
+      }),
+    );
+    expect(refreshed.models).toContainEqual(expect.objectContaining({ id: "custom-model" }));
+    expect(await readFile(paths.settingsPath, "utf8")).not.toContain("custom-only-key");
+  });
+
+  it("V483/V484 persists an OpenCode Go key pool and exposes local per-key usage", async () => {
+    const paths = await catalogPaths();
+    const authStore = new MemoryProviderAuthStore();
+    const keyUsageStore = new ProviderKeyUsageStore({
+      path: paths.keyUsagePath,
+      now: fixedClock(),
+    });
+    const fetch = vi.fn().mockResolvedValue(response({ data: [{ id: "go-model" }] }));
+    const service = new ModelCatalogService({
+      ...paths,
+      env: {},
+      authStore,
+      keyUsageStore,
+      fetch,
+      now: fixedClock(),
+    });
+    const inventory = createExtensionInventory([]);
+
+    const saved = await service.saveProvider(inventory, {
+      label: "OpenCode Go",
+      kind: "openai_chat",
+      baseUrl: "https://opencode.ai/zen/go",
+      authMode: "api_key",
+      secret: "go-primary",
+      additionalApiKeys: [{ value: "go-second" }, { label: "Backup", value: "go-third" }],
+    });
+    const provider = saved.providers[0] as (typeof saved.providers)[number] & {
+      runtimeKeySlots: Array<{ id: string; label: string; enabled: boolean }>;
+      runtimeKeyUsage: Array<{ id: string; status: string; totalTokens: number }>;
+    };
+    const providerId = provider.id;
+    const extraSlots = provider.runtimeKeySlots.filter((slot) => slot.id !== "primary");
+
+    expect(provider).toEqual(
+      expect.objectContaining({
+        baseUrl: "https://opencode.ai/zen/go/v1",
+        apiEntrypoints: {
+          anthropic: "https://opencode.ai/zen/go",
+          openai_chat: "https://opencode.ai/zen/go/v1",
+        },
+        modelDiscoveryUrl: "https://opencode.ai/zen/go/v1/models",
+      }),
+    );
+    expect(provider.runtimeKeySlots).toHaveLength(3);
+    expect(provider.runtimeKeyUsage.map((entry) => entry.status)).toEqual([
+      "ready",
+      "ready",
+      "ready",
+    ]);
+    expect(await authStore.get(providerId)).toBe("go-primary");
+    expect(
+      await authStore.get(providerPoolCredentialKey(providerId, extraSlots[0]?.id ?? "")),
+    ).toBe("go-second");
+    expect(
+      await authStore.get(providerPoolCredentialKey(providerId, extraSlots[1]?.id ?? "")),
+    ).toBe("go-third");
+
+    const refreshed = await service.refresh(inventory);
+    expect(fetch).toHaveBeenCalledWith("https://opencode.ai/zen/go/v1/models", expect.any(Object));
+    expect(refreshed.models).toContainEqual(
+      expect.objectContaining({ id: "go-model", apiProtocols: ["anthropic", "openai_chat"] }),
+    );
+    const supply = refreshed.modelSupplies.find(
+      (candidate) => candidate.apiCompatibility.targetApi === "openai_chat",
+    );
+    await expect(
+      service.runtimeCredentialsForSupply(refreshed, supply?.id ?? "missing"),
+    ).resolves.toEqual({
+      providerId,
+      pooled: true,
+      candidates: [
+        { id: "primary", value: "go-primary" },
+        { id: extraSlots[0]?.id, value: "go-second" },
+        { id: extraSlots[1]?.id, value: "go-third" },
+      ],
+    });
+
+    await keyUsageStore.recordSuccess(providerId, extraSlots[0]?.id ?? "", {
+      inputTokens: 10,
+      outputTokens: 4,
+      reasoningTokens: 0,
+      cachedInputTokens: 0,
+      totalTokens: 14,
+      estimated: false,
+    });
+    const withUsage = await service.list(inventory);
+    expect(
+      (withUsage.providers[0] as typeof provider).runtimeKeyUsage.find(
+        (entry) => entry.id === extraSlots[0]?.id,
+      ),
+    ).toEqual(expect.objectContaining({ totalTokens: 14, status: "ready" }));
+
+    const removed = await service.saveProvider(inventory, {
+      id: providerId,
+      label: "OpenCode Go",
+      kind: "anthropic",
+      baseUrl: "https://opencode.ai/zen/go/v1",
+      authMode: "api_key",
+      removeApiKeyIds: [extraSlots[0]?.id ?? ""],
+    });
+    expect((removed.providers[0] as typeof provider).runtimeKeySlots).toHaveLength(2);
+    expect(
+      await authStore.get(providerPoolCredentialKey(providerId, extraSlots[0]?.id ?? "")),
+    ).toBeUndefined();
+    const settings = await readFile(paths.settingsPath, "utf8");
+    expect(settings).not.toContain("go-primary");
+    expect(settings).not.toContain("go-second");
+    expect(settings).not.toContain("go-third");
   });
 
   it("V332 migrates cached Anthropic supplies into explicit Claude Code routes", async () => {
@@ -492,7 +650,7 @@ describe("ModelCatalogService", () => {
     expect(fetch).not.toHaveBeenCalled();
     await service.refresh(createExtensionInventory([]));
     expect(fetch).toHaveBeenLastCalledWith(
-      "https://api.deepseek.com.evil.test/anthropic/v1/models?limit=1000",
+      "https://api.deepseek.com.evil.test/anthropic/models?limit=1000",
       expect.any(Object),
     );
   });
@@ -1153,6 +1311,7 @@ async function catalogPaths() {
   return {
     settingsPath: join(root, "settings.json"),
     cachePath: join(root, "model-catalog-cache.json"),
+    keyUsagePath: join(root, "provider-key-usage.json"),
   };
 }
 

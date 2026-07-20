@@ -237,7 +237,13 @@ export const HarnessDeliveryPolicySchema = z
   .passthrough()
   .superRefine(addSecretIssues);
 
-export const HarnessPermissionModeSchema = z.enum(["default", "plan", "restricted", "trusted"]);
+export const HarnessPermissionModeSchema = z.enum([
+  "default",
+  "auto",
+  "plan",
+  "restricted",
+  "trusted",
+]);
 
 export const HarnessToolAccessSchema = z.enum(["read", "write", "execute", "control"]);
 
@@ -397,7 +403,8 @@ const PERMISSION_MODE_RANK: Record<HarnessPermissionMode, number> = {
   plan: 0,
   restricted: 1,
   default: 2,
-  trusted: 3,
+  auto: 3,
+  trusted: 4,
 };
 
 const PERMISSION_LAYER_RANK: Record<HarnessPermissionLayerSource, number> = {
@@ -495,6 +502,13 @@ export function resolveHarnessToolPermission(
     return {
       decision: "deny",
       reason: "restricted",
+      sourceIds: resolution?.modeSourceIds ?? [],
+    };
+  }
+  if (policy.mode === "auto") {
+    return {
+      decision: access === "write" ? "allow" : "ask",
+      reason: "auto",
       sourceIds: resolution?.modeSourceIds ?? [],
     };
   }

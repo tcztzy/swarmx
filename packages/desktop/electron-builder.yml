@@ -1,0 +1,16 @@
+appId: tech.swarmx.desktop
+productName: SwarmX
+directories:
+  output: release
+files:
+  - out/**/*
+  - package.json
+  - LICENSE
+  - THIRD_PARTY_NOTICES.md
+  - third_party_licenses/**/*
+asarUnpack:
+  - node_modules/node-pty/**/*
+mac:
+  category: public.app-category.developer-tools
+  target:
+    - dir

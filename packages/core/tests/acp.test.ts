@@ -49,6 +49,41 @@ describe("request-scoped cancellation", () => {
     });
   });
 
+  it("keeps ACP tool updates correlated without exposing their ids as content", async () => {
+    const client = new AcpClient();
+    const chunks: Array<{
+      content: string;
+      kind: string;
+      render?: { invocationId?: string; status?: string };
+    }> = [];
+
+    await expect(
+      client.prompt(agentOptions("tools"), "hello", undefined, undefined, (chunk) => {
+        chunks.push(chunk);
+      }),
+    ).resolves.toMatchObject({ stopReason: "end_turn" });
+
+    expect(chunks).toEqual([
+      expect.objectContaining({
+        content: JSON.stringify({ path: "README.md" }),
+        kind: "tool_call",
+        render: { invocationId: "call_readme_1", status: "running" },
+      }),
+      expect.objectContaining({
+        content: JSON.stringify({ progress: "reading" }),
+        kind: "tool_result",
+        render: { invocationId: "call_readme_1", status: "running" },
+      }),
+      expect.objectContaining({
+        content: JSON.stringify({ path: "README.md" }),
+        kind: "tool_result",
+        render: { invocationId: "call_readme_1", status: "succeeded" },
+      }),
+      expect.objectContaining({ content: "done", kind: "message" }),
+    ]);
+    expect(chunks.map((chunk) => chunk.content)).not.toContain("call_readme_1");
+  });
+
   it("V446 cancels ACP permission by default and returns only an offered handled option", async () => {
     const cancelled = new AcpClient();
     await expect(cancelled.prompt(agentOptions("permission"), "hello")).resolves.toMatchObject({
@@ -235,6 +270,7 @@ type AgentMode =
   | "models"
   | "stable-config"
   | "grouped-config"
+  | "tools"
   | "permission";
 
 function agentOptions(mode: AgentMode) {
@@ -343,6 +379,45 @@ function agentScript(mode: AgentMode): string {
             update: {
               sessionUpdate: "agent_message_chunk",
               content: { type: "text", text: "permission:" + response.outcome.outcome + suffix },
+            },
+          });
+          return { stopReason: "end_turn" };
+        }
+        if (${JSON.stringify(mode)} === "tools") {
+          await connection.sessionUpdate({
+            sessionId: "test-session",
+            update: {
+              sessionUpdate: "tool_call",
+              toolCallId: "call_readme_1",
+              title: "workspace_read_file",
+              rawInput: { path: "README.md" },
+            },
+          });
+          await connection.sessionUpdate({
+            sessionId: "test-session",
+            update: {
+              sessionUpdate: "tool_call_update",
+              toolCallId: "call_readme_1",
+              title: "workspace_read_file",
+              status: "in_progress",
+              rawOutput: { progress: "reading" },
+            },
+          });
+          await connection.sessionUpdate({
+            sessionId: "test-session",
+            update: {
+              sessionUpdate: "tool_call_update",
+              toolCallId: "call_readme_1",
+              title: "workspace_read_file",
+              status: "completed",
+              rawOutput: { path: "README.md" },
+            },
+          });
+          await connection.sessionUpdate({
+            sessionId: "test-session",
+            update: {
+              sessionUpdate: "agent_message_chunk",
+              content: { type: "text", text: "done" },
             },
           });
           return { stopReason: "end_turn" };

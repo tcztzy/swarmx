@@ -6,7 +6,7 @@
     "useIgnoreFile": true
   },
   "files": {
-    "ignore": ["packages/*/dist/**", "packages/desktop/out/**"]
+    "ignore": ["packages/*/dist/**", "packages/desktop/out/**", "packages/desktop/release/**"]
   },
   "organizeImports": { "enabled": true },
   "formatter": {

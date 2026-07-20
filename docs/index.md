@@ -324,6 +324,11 @@ user → Settings → Providers → Add Provider** path and enter:
 - Authentication mode: API Key or Auth Token.
 - The credential value.
 
+A normal Custom Provider is deliberately not treated as New API. It keeps one
+credential and one exact API Base URL; OpenAI-compatible discovery requests
+`<baseUrl>/models`. New API quota/account calls are enabled only by the explicit
+**Usage API → New API** selection, never by URL or response-shape detection.
+
 Desktop does not scan ambient `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`,
 `DEEPSEEK_API_KEY`, `OLLAMA_HOST`, or related variables to create connections or
 start network discovery. Add desktop Providers explicitly through Settings.
@@ -350,7 +355,8 @@ Provider Usage currently has this support boundary:
 | MiniMax Token Plan | Model-specific current/weekly quota, boosts, and unlimited status | [Official CLI quota interface](https://github.com/MiniMax-AI/cli/blob/main/src/client/endpoints.ts) |
 | New API | Primary API-key quota; optionally one shared account wallet plus masked, individually expandable token limits | Same-origin `GET /api/usage/token/`; explicit account access adds `/api/status`, `/api/user/self`, and bounded `/api/token/` pagination |
 | Codex | 5-hour/weekly remaining percentage, plan, and returned credits | [Official local app-server rate-limit method](https://learn.chatgpt.com/docs/app-server#6-rate-limits-chatgpt) |
-| Anthropic/Claude Code, Google Gemini, OpenCode Go/Zen | Explicit automatic-query-unavailable state | No supported API-key subscription-quota interface |
+| OpenCode Go | Per-key locally observed request/token counts, last use, and cooldown state | No remote usage request; state comes only from successful SwarmX requests and explicit quota-exhaustion responses |
+| Anthropic/Claude Code, Google Gemini, OpenCode Zen | Explicit automatic-query-unavailable state | No supported API-key subscription-quota interface |
 
 These requests run only in Electron main against fixed official HTTPS origins,
 or the configured HTTPS origin when the user explicitly selects New API.
@@ -375,6 +381,17 @@ official native entrypoints: Anthropic Messages at `/anthropic` and OpenAI Chat
 Completions at the origin. Anthropic is the default; selecting OpenAI Chat is an
 explicit preference override. Model discovery continues through the compatible
 origin `/models` endpoint.
+
+For the exact official OpenCode Go Base URL (`https://opencode.ai/zen/go` or
+`https://opencode.ai/zen/go/v1`), one Provider exposes Anthropic Messages and
+OpenAI Chat entrypoints and discovers models from `/zen/go/v1/models`. Settings
+accepts a primary key plus encrypted backup keys. Each successful request adds
+only normalized local token counters to
+`~/.swarmx/provider-key-usage.json`. SwarmX changes keys only when the error is
+an explicit quota/balance exhaustion (not a generic HTTP 429), and retries only
+before any output or tool event has been emitted. Provider reset metadata sets
+the cooldown when present; otherwise the affected key cools for five hours.
+Removing a backup key removes its separate encrypted credential and ledger row.
 
 Update UI remains hidden until the canonical npm latest endpoint reports a newer
 stable `@swarmx/desktop`. The account row then shows a circular download control

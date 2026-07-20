@@ -77,6 +77,11 @@ describe("desktop settings primitives", () => {
         enabledPluginIds: ["geepilot"],
       },
       permissions: {
+        profileAvailability: {
+          default: true,
+          auto: true,
+          trusted: true,
+        },
         personalPolicy: {
           id: "personal",
           source: "personal",
@@ -132,6 +137,11 @@ describe("desktop settings primitives", () => {
         enabledPluginIds: ["geepilot"],
       },
       permissions: {
+        profileAvailability: {
+          default: true,
+          auto: true,
+          trusted: true,
+        },
         personalPolicy: {
           source: "personal",
           allowedTools: ["exec_command"],
@@ -342,6 +352,11 @@ describe("desktop settings primitives", () => {
         trustedSourceIds: [],
       },
       permissions: {
+        profileAvailability: {
+          default: true,
+          auto: true,
+          trusted: true,
+        },
         personalPolicy: {
           id: "personal",
           source: "personal",
