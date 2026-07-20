@@ -4,7 +4,17 @@ A lightweight, stateless multi-agent orchestration framework with a TypeScript c
 
 SwarmX now includes a polished desktop UI for browsing local and ACP sessions, switching harnesses, sending messages, and reading Markdown-rich agent output in one place.
 
-![SwarmX desktop interface](docs/assets/swarmx-desktop.png)
+<p align="center">
+  <a href="docs/assets/swarmx-demo.mp4">
+    <img
+      src="docs/assets/swarmx-demo.gif"
+      alt="SwarmX desktop demo showing agent selection, a live response, and a multi-agent ACP workflow"
+      width="900"
+    />
+  </a>
+</p>
+
+<p align="center"><sub>Select an agent, run a prompt, and inspect a multi-agent workflow. Click the animation for the MP4.</sub></p>
 
 ## Architecture
 
