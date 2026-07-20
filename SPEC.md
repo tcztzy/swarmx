@@ -975,6 +975,7 @@ V488: The repository's declared pnpm 9/10 range retains its legacy required-buil
 V489: macOS Release jobs expose electron-builder signing and notarization variables only when their corresponding GitHub secrets are nonempty; a manual dispatch can rebuild an existing matching `v<version>` tag without moving it, while every job still checks out and validates that tagged commit.
 V490: The macOS artifact script resolves electron-builder's architecture directory convention explicitly as `mac-arm64` for arm64 and `mac` for x64 before creating architecture-named DMG/ZIP files; missing app output remains a hard failure before upload.
 V491: A manual Release retry keeps every application and package source locked to the requested existing tag, then restores only the macOS artifact automation from the exact workflow-dispatch commit before packaging; tag-triggered releases continue to use the script owned by their tagged commit.
+V492: The checkout-free GitHub Release job supplies the repository explicitly to GitHub CLI, so it can create the verified tagged Release and attach every downloaded architecture artifact without relying on ambient Git metadata.
 
 ## §T
 |id|status|task|cites|
@@ -1181,7 +1182,7 @@ V491: A manual Release retry keeps every application and package source locked t
 |T200|x|build layered permission governance, dedicated UX, sanitized receipts, tests, and visual QA|G62,C162,C163,C164,C165,C166,C167,C168,V443,V444,V445,V446,V447,V448,V449,V450,V451,V452,V453,V454,V455,V456,I219,I220,I221,I222,I223,I224|
 |T201|x|move defaults to General and add safe persisted conversation permission overrides|G63,C162,C163,C165,C166,C167,C168,C169,C170,C171,V443,V444,V449,V450,V451,V452,V457,V458,V459,V460,V461,V462,I222,I223,I224,I225,I226,I227|
 |T202|x|backprop Codex permission UI parity and implement profile availability plus Auto-review|G64,C162,C163,C165,C166,C168,C169,C170,C171,C172,C173,V444,V449,V457,V458,V459,V460,V461,V462,V463,V464,V465,V466,I222,I223,I224,I225,I226,I227,I228|
-|T203|x|fix npm Desktop cold start, add dual-architecture macOS Release packages, simplify README, verify, and publish 3.1.2|G65,C174,C175,C176,V467,V468,V469,V470,V471,V472,V473,V474,V475,V476,V477,V478,V479,V480,V481,V487,V488,V489,V490,V491,I229,I230,I231,I232|
+|T203|x|fix npm Desktop cold start, add dual-architecture macOS Release packages, simplify README, verify, and publish 3.1.2|G65,C174,C175,C176,V467,V468,V469,V470,V471,V472,V473,V474,V475,V476,V477,V478,V479,V480,V481,V487,V488,V489,V490,V491,V492,I229,I230,I231,I232|
 |T204|x|implement Custom Provider exact discovery and OpenCode Go encrypted multi-key local-usage failover with Provider Settings UI|G43,G44,G46,G47,C3,C15,C47,C51,V236,V243,V245,V246,V282,V283,V284,V302,V482,V483,V484,V485,V486,I144,I151,I152,I153,I154,I159,I160,I161,I233,I234,I235,I236|
 
 ## §B
@@ -1313,3 +1314,4 @@ V491: A manual Release retry keeps every application and package source locked t
 |B124|2026-07-20|the original Release regression test required GitHub's push-only `GITHUB_REF_NAME` after the workflow intentionally unified tag pushes and manual rebuilds under validated `RELEASE_TAG`|V469,V489|
 |B125|2026-07-20|electron-builder emitted the Intel application under its conventional `release/mac` directory while the artifact script looked only for `release/mac-x64`, so x64 failed after successful packaging but before archive upload|V490|
 |B126|2026-07-20|manual Release recovery checked out the existing tag after loading the repaired workflow, which also restored that tag's stale artifact script and silently discarded the Intel path fix|V491|
+|B127|2026-07-20|the checkout-free Release job invoked GitHub CLI without an explicit repository, so both architecture artifacts uploaded successfully but final Release creation failed while trying to inspect absent local Git metadata|V492|

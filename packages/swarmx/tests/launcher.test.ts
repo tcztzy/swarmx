@@ -208,4 +208,14 @@ describe("npm launcher cold start", () => {
       'cp "$RUNNER_TEMP/build-macos-artifacts.mjs" packages/desktop/scripts/build-macos-artifacts.mjs',
     );
   });
+
+  it("V492 publishes from an explicit repository without requiring a checkout", () => {
+    const workflow = readFileSync(
+      new URL("../../../.github/workflows/release.yml", import.meta.url),
+      "utf8",
+    );
+
+    expect(workflow).toContain("GH_REPO: ${{ github.repository }}");
+    expect(workflow).toContain('gh release create "$RELEASE_TAG"');
+  });
 });
