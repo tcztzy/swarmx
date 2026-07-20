@@ -37,6 +37,19 @@ jobs:
         with:
           ref: ${{ env.RELEASE_TAG }}
 
+      - name: Restore current release automation for manual retry
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_AUTOMATION_SHA: ${{ github.sha }}
+        run: |
+          gh api --method GET \
+            -H "Accept: application/vnd.github.raw+json" \
+            "/repos/$GITHUB_REPOSITORY/contents/packages/desktop/scripts/build-macos-artifacts.mjs" \
+            -f ref="$RELEASE_AUTOMATION_SHA" \
+            > "$RUNNER_TEMP/build-macos-artifacts.mjs"
+          cp "$RUNNER_TEMP/build-macos-artifacts.mjs" packages/desktop/scripts/build-macos-artifacts.mjs
+
       - name: Set up Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
