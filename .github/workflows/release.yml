@@ -108,6 +108,9 @@ jobs:
             builder_args+=("--notarize")
           fi
           node packages/desktop/scripts/build-macos-artifacts.mjs "${builder_args[@]}"
+          artifact_base="packages/desktop/release/SwarmX-${RELEASE_TAG#v}-${{ matrix.arch }}"
+          hdiutil verify "${artifact_base}.dmg"
+          unzip -tq "${artifact_base}.zip"
 
       - name: Upload macOS packages
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
