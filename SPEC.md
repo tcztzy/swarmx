@@ -970,6 +970,8 @@ V483: The exact official OpenCode Go origin normalizes one Provider into native 
 V484: OpenCode Go usage is local observed state only: SwarmX records per-key request count, returned input/output/reasoning/cache token usage, last use, quota exhaustion, and cooldown without calling undocumented usage endpoints, scraping the console, persisting raw Provider errors, or exposing key values through IPC/UI.
 V485: A direct OpenCode Go request selects one enabled non-cooling key for the request/session and switches to the next key only after a classified quota-exhaustion response. Automatic replay is allowed only before any model output or tool event is emitted; response reset metadata controls cooldown when available and otherwise uses a bounded five-hour cooldown.
 V486: Removing an OpenCode Go key deletes its encrypted entry and retains unrelated Provider/settings state. If every key is unavailable, execution returns one actionable secret-free error; tests cover generic Custom Provider isolation, official route normalization, encrypted CRUD, local usage, quota-only failover, no replay after output, all-key exhaustion, preload isolation, and responsive key-management UI.
+V487: pnpm 11 dependency build policy explicitly allows required runtime/compiler scripts and denies the unused macOS-release graph's Windows installer script, so frozen CI installs fail only for newly unreviewed build scripts.
+V488: The repository's declared pnpm 9/10 range retains its legacy required-build allowlist alongside pnpm 11 `allowBuilds`; installing with either supported policy runs Electron, esbuild, Biome, and node-pty scripts while skipping the unused Windows installer helper.
 
 ## §T
 |id|status|task|cites|
@@ -1176,7 +1178,7 @@ V486: Removing an OpenCode Go key deletes its encrypted entry and retains unrela
 |T200|x|build layered permission governance, dedicated UX, sanitized receipts, tests, and visual QA|G62,C162,C163,C164,C165,C166,C167,C168,V443,V444,V445,V446,V447,V448,V449,V450,V451,V452,V453,V454,V455,V456,I219,I220,I221,I222,I223,I224|
 |T201|x|move defaults to General and add safe persisted conversation permission overrides|G63,C162,C163,C165,C166,C167,C168,C169,C170,C171,V443,V444,V449,V450,V451,V452,V457,V458,V459,V460,V461,V462,I222,I223,I224,I225,I226,I227|
 |T202|x|backprop Codex permission UI parity and implement profile availability plus Auto-review|G64,C162,C163,C165,C166,C168,C169,C170,C171,C172,C173,V444,V449,V457,V458,V459,V460,V461,V462,V463,V464,V465,V466,I222,I223,I224,I225,I226,I227,I228|
-|T203|x|fix npm Desktop cold start, add dual-architecture macOS Release packages, simplify README, verify, and publish 3.1.2|G65,C174,C175,C176,V467,V468,V469,V470,V471,V472,V473,V474,V475,V476,V477,V478,V479,V480,V481,I229,I230,I231,I232|
+|T203|x|fix npm Desktop cold start, add dual-architecture macOS Release packages, simplify README, verify, and publish 3.1.2|G65,C174,C175,C176,V467,V468,V469,V470,V471,V472,V473,V474,V475,V476,V477,V478,V479,V480,V481,V487,V488,I229,I230,I231,I232|
 |T204|x|implement Custom Provider exact discovery and OpenCode Go encrypted multi-key local-usage failover with Provider Settings UI|G43,G44,G46,G47,C3,C15,C47,C51,V236,V243,V245,V246,V282,V283,V284,V302,V482,V483,V484,V485,V486,I144,I151,I152,I153,I154,I159,I160,I161,I233,I234,I235,I236|
 
 ## §B
@@ -1300,3 +1302,6 @@ V486: Removing an OpenCode Go key deletes its encrypted entry and retains unrela
 |B116|2026-07-20|Node 26 exited an otherwise awaited Electron downloader promise as unsettled top-level await because the dependency left no referenced event-loop handle while work remained pending|V480|
 |B117|2026-07-20|after keeping Node alive, Electron 33's `extract-zip` dependency on macOS/Node 26 stalled on the first archive entry instead of completing the 253 MB runtime extraction|V481|
 |B118|2026-07-20|the first full-suite release run hit the existing scheduled-task file-watcher test's two-second notification timeout under concurrent load; the focused retry and unchanged full-suite rerun passed|V434|
+|B119|2026-07-20|electron-builder introduced `electron-winstaller@5.4.0`, whose unused Windows-only install script was absent from pnpm 11 `allowBuilds`, so both fresh Linux CI jobs failed during frozen install before tests|V487|
+|B120|2026-07-20|removing pnpm 11's deprecated legacy build allowlist made the repository's still-supported pnpm 10 skip every required dependency script during a forced install|V488|
+|B121|2026-07-20|the new cross-version build-policy test used a one-line file read that differed from Biome's canonical wrapping|apply Biome formatting before the release rerun|

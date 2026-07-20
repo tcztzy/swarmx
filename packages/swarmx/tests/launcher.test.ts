@@ -157,4 +157,17 @@ describe("npm launcher cold start", () => {
     expect(launcher).toContain('execFileSync("ditto"');
     expect(launcher).toContain('["-x", "-k"');
   });
+
+  it("V487 and V488 explicitly review dependency build scripts across supported pnpm", () => {
+    const workspace = readFileSync(
+      new URL("../../../pnpm-workspace.yaml", import.meta.url),
+      "utf8",
+    );
+
+    expect(workspace).toContain("electron-winstaller: false");
+    expect(workspace).toContain("onlyBuiltDependencies:");
+    for (const dependency of ['"@biomejs/biome"', "electron", "esbuild", "node-pty"]) {
+      expect(workspace).toContain(`  - ${dependency}`);
+    }
+  });
 });
