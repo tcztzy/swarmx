@@ -30,7 +30,8 @@ if (process.argv.includes("--notarize")) builderArgs.push("-c.mac.notarize=true"
 execFileSync("pnpm", builderArgs, { cwd: packageRoot, stdio: "inherit" });
 
 const releaseDir = join(packageRoot, "release");
-const appPath = join(releaseDir, `mac-${arch}`, "SwarmX.app");
+const appDirectory = { arm64: "mac-arm64", x64: "mac" }[arch];
+const appPath = join(releaseDir, appDirectory, "SwarmX.app");
 const zipPath = join(releaseDir, `SwarmX-${manifest.version}-${arch}.zip`);
 const dmgPath = join(releaseDir, `SwarmX-${manifest.version}-${arch}.dmg`);
 mkdirSync(releaseDir, { recursive: true });
