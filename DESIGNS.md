@@ -63,8 +63,10 @@ Supplemental guidance for coding agents. Use this alongside `AGENTS.md` for deep
 - **Provider configuration:** desktop Provider CRUD lives under the lower-left
   account menu's dedicated Settings workspace, never inside Agent composition.
   A user supplies a Base URL and API key or auth token; saving updates
-  connection metadata and encrypted auth state together, then refreshes the
-  Provider API without exposing a Supply selector.
+  connection metadata and encrypted auth state together without exposing a
+  Supply selector. A normal Custom Provider keeps one credential and treats its
+  Base URL as the exact API root; OpenAI-compatible discovery appends `/models`.
+  URL or response shape never opts the connection into New API account logic.
 - **No ambient discovery:** desktop never scans known environment variables to
   synthesize Provider connections or start discovery. Connections must come
   from explicit encrypted Settings or extension metadata; an extension env
@@ -85,10 +87,17 @@ Supplemental guidance for coding agents. Use this alongside `AGENTS.md` for deep
   desktop-managed keychain Providers are eligible; ambient env and extension
   metadata cannot trigger usage requests. Codex uses the official local
   app-server protocol rather than auth-file or browser-session parsing.
-- **Unsupported usage:** Anthropic/Claude Code, Gemini, and OpenCode Go/Zen are
+- **Unsupported usage:** Anthropic/Claude Code, Gemini, and OpenCode Zen are
   displayed honestly when their configured credential has no official quota
   query. SwarmX does not scrape consoles or collect browser cookies/private
   OAuth state to fill those cards.
+- **OpenCode Go key pool:** only the exact official `/zen/go` or `/zen/go/v1`
+  connection may declare secret-free key slots backed by separately encrypted
+  credentials. Main records normalized per-key request/token/cooldown state
+  locally and calls no undocumented usage endpoint. A request changes key only
+  for explicit quota/balance exhaustion before any output or tool event; generic
+  rate limiting and post-output failures are returned without replay. Reset
+  metadata wins, otherwise the failed key receives a bounded five-hour cooldown.
 - **Account footer:** the persistent anonymous-user popover contains only
   Settings. The account row has no update affordance until npm
   reports a newer stable desktop package; it then shows the Codex-style

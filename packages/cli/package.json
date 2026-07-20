@@ -1,6 +1,6 @@
 {
   "name": "@swarmx/cli",
-  "version": "3.1.1",
+  "version": "3.1.2",
   "description": "Command-line interface for SwarmX workflows and evaluations.",
   "license": "MIT",
   "type": "module",
@@ -11,7 +11,7 @@
     "access": "public"
   },
   "bin": {
-    "swarmx": "./dist/cli.js"
+    "swarmx-cli": "./dist/cli.js"
   },
   "scripts": {
     "build": "tsc",

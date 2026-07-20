@@ -1,6 +1,6 @@
 {
   "name": "@swarmx/runtime",
-  "version": "3.1.1",
+  "version": "3.1.2",
   "description": "Host runtime detection, doctor, and explicit repair services for SwarmX.",
   "license": "MIT",
   "type": "module",

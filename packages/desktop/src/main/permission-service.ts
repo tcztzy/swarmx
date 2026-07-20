@@ -2,6 +2,8 @@ import { randomUUID } from "node:crypto";
 import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import {
+  type DesktopPermissionProfileAvailability,
+  DesktopPermissionProfileAvailabilitySchema,
   type HarnessPermissionPolicy,
   type HarnessPermissionPolicyLayer,
   HarnessPermissionPolicyLayerSchema,
@@ -33,6 +35,7 @@ export interface PermissionLayerStatus {
 
 export interface DesktopPermissionStatus {
   personalPolicy: HarnessPermissionPolicyLayer;
+  profileAvailability: DesktopPermissionProfileAvailability;
   layers: PermissionLayerStatus[];
   effective?: ResolvedHarnessPermissionPolicy;
   blocked: boolean;
@@ -79,19 +82,23 @@ export class PermissionService {
 
   async status(options: ResolveDesktopPermissionOptions = {}): Promise<DesktopPermissionStatus> {
     const settings = await this.#settings.read();
+    const profileAvailability = settings.permissions.profileAvailability;
     const managed = await this.#loadManagedPolicy();
     const project = await this.#loadProjectPolicy(options.cwd);
     const agent = options.agentPolicy
-      ? permissionLayer({
-          id: `agent:${options.agentId?.trim() || "selected"}`,
-          source: "agent",
-          label: options.agentId?.trim() ? `Agent · ${options.agentId.trim()}` : "Selected Agent",
-          readOnly: false,
-          policy:
-            options.agentModeDeclared === false
-              ? withoutPolicyMode(options.agentPolicy)
-              : options.agentPolicy,
-        })
+      ? constrainUnavailableMode(
+          permissionLayer({
+            id: `agent:${options.agentId?.trim() || "selected"}`,
+            source: "agent",
+            label: options.agentId?.trim() ? `Agent · ${options.agentId.trim()}` : "Selected Agent",
+            readOnly: false,
+            policy:
+              options.agentModeDeclared === false
+                ? withoutPolicyMode(options.agentPolicy)
+                : options.agentPolicy,
+          }),
+          profileAvailability,
+        )
       : undefined;
     const sessionMode = SessionPermissionModeSchema.parse(
       options.sessionPermissionMode ?? "inherit",
@@ -103,28 +110,31 @@ export class PermissionService {
             id: "session",
             source: "session",
             label: "Conversation override",
-            mode: sessionMode,
+            mode: availableSessionMode(sessionMode, profileAvailability),
             allowedTools: [],
             deniedTools: [],
             readOnly: false,
           });
     const blocked = Boolean(managed.error || project.error);
+    const personalPolicy = constrainUnavailableMode(
+      settings.permissions.personalPolicy,
+      profileAvailability,
+    );
     const configuredLayers = [
       ...(managed.layer ? [managed.layer] : []),
       ...(project.layer ? [project.layer] : []),
-      session
-        ? withoutMode(settings.permissions.personalPolicy)
-        : settings.permissions.personalPolicy,
+      session ? withoutMode(personalPolicy) : personalPolicy,
       ...(agent ? [session ? withoutMode(agent) : agent] : []),
       ...(session ? [session] : []),
     ];
     return {
       personalPolicy: settings.permissions.personalPolicy,
+      profileAvailability,
       layers: [
         permissionLayerStatus("managed", "Managed policy", managed),
         permissionLayerStatus("project", "Project policy", project),
         permissionLayerStatus("personal", "Personal defaults", {
-          layer: settings.permissions.personalPolicy,
+          layer: personalPolicy,
         }),
         ...(agent
           ? [permissionLayerStatus("agent", agent.label ?? "Selected Agent", { layer: agent })]
@@ -164,6 +174,15 @@ export class PermissionService {
       permissions: { ...settings.permissions, personalPolicy: policy },
     }));
     return policy;
+  }
+
+  async saveProfileAvailability(input: unknown): Promise<DesktopPermissionProfileAvailability> {
+    const profileAvailability = DesktopPermissionProfileAvailabilitySchema.parse(input);
+    await this.#settings.update((settings) => ({
+      ...settings,
+      permissions: { ...settings.permissions, profileAvailability },
+    }));
+    return profileAvailability;
   }
 
   async recordDecision(input: RecordPermissionDecisionInput): Promise<PermissionApprovalReceipt> {
@@ -238,6 +257,29 @@ export class PermissionService {
 function withoutMode(layer: HarnessPermissionPolicyLayer): HarnessPermissionPolicyLayer {
   const { mode: _mode, ...rest } = layer;
   return HarnessPermissionPolicyLayerSchema.parse(rest);
+}
+
+function constrainUnavailableMode(
+  layer: HarnessPermissionPolicyLayer,
+  availability: DesktopPermissionProfileAvailability,
+): HarnessPermissionPolicyLayer {
+  if (!layer.mode || !isAvailabilityControlledMode(layer.mode) || availability[layer.mode]) {
+    return layer;
+  }
+  return HarnessPermissionPolicyLayerSchema.parse({ ...layer, mode: "plan" });
+}
+
+function availableSessionMode(
+  mode: Exclude<SessionPermissionMode, "inherit">,
+  availability: DesktopPermissionProfileAvailability,
+): Exclude<SessionPermissionMode, "inherit"> {
+  return isAvailabilityControlledMode(mode) && !availability[mode] ? "plan" : mode;
+}
+
+function isAvailabilityControlledMode(
+  mode: HarnessPermissionPolicyLayer["mode"],
+): mode is keyof DesktopPermissionProfileAvailability {
+  return mode === "default" || mode === "auto" || mode === "trusted";
 }
 
 function withoutPolicyMode(policy: HarnessPermissionPolicy): Omit<HarnessPermissionPolicy, "mode"> {

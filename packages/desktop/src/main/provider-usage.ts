@@ -4,12 +4,28 @@ import { type ExtensionInventory, type ProviderProfile, SWARMX_VERSION } from "@
 import { z } from "zod";
 import type { ProviderAuthStore } from "./provider-auth.js";
 import { newApiAccountCredentialKey } from "./provider-auth.js";
+import { type ProviderKeyUsageSummary, isOpenCodeGoBaseUrl } from "./provider-key-pool.js";
 
 const DEFAULT_USAGE_TIMEOUT_MS = 8_000;
 const MAX_USAGE_RESPONSE_BYTES = 256 * 1024;
 const MAX_CODEX_OUTPUT_BYTES = 512 * 1024;
 const MAX_NEW_API_TOKEN_PAGES = 20;
 const NEW_API_TOKEN_PAGE_SIZE = 100;
+
+const ProviderKeyUsageSummarySchema = z.object({
+  id: z.string().min(1),
+  label: z.string().min(1),
+  enabled: z.boolean(),
+  status: z.enum(["ready", "cooling", "disabled"]),
+  requestCount: z.number().int().nonnegative(),
+  inputTokens: z.number().int().nonnegative(),
+  outputTokens: z.number().int().nonnegative(),
+  reasoningTokens: z.number().int().nonnegative(),
+  cachedInputTokens: z.number().int().nonnegative(),
+  totalTokens: z.number().int().nonnegative(),
+  lastUsedAt: z.string().datetime().optional(),
+  cooldownUntil: z.string().datetime().optional(),
+});
 
 export type ProviderUsageStatus = "ready" | "unsupported" | "unavailable" | "error";
 
@@ -82,6 +98,7 @@ export interface ProviderUsageEntry {
   detail?: string;
   plan?: string;
   account?: ProviderAccountSummary;
+  keys?: ProviderKeyUsageSummary[];
 }
 
 export interface ProviderUsageSnapshot {
@@ -379,6 +396,15 @@ export class ProviderUsageService {
     provider: ProviderProfile,
     userProviderIds: ReadonlySet<string>,
   ): Promise<ProviderUsageEntry> {
+    if (isOpenCodeGoBaseUrl(provider.baseUrl)) {
+      const keys = providerKeyUsageSummaries(provider);
+      return providerEntry(provider, "opencode_go_local", "ready", [], {
+        detail:
+          "OpenCode Go has no official usage endpoint. Counts are observed locally; quota errors temporarily cool only the affected key.",
+        fetchedAt: this.now().toISOString(),
+        keys,
+      });
+    }
     const detected = providerUsageAdapter(provider);
     if ("unsupported" in detected) {
       return providerEntry(provider, detected.adapterId, "unsupported", [], {
@@ -1262,7 +1288,7 @@ function providerEntry(
   adapterId: string,
   status: ProviderUsageStatus,
   meters: ProviderUsageMeter[],
-  extra: Pick<ProviderUsageEntry, "account" | "detail" | "fetchedAt" | "plan"> = {},
+  extra: Pick<ProviderUsageEntry, "account" | "detail" | "fetchedAt" | "keys" | "plan"> = {},
 ): ProviderUsageEntry {
   return {
     source: "provider",
@@ -1296,14 +1322,24 @@ function toolAccountEntry(
 }
 
 function definedEntryExtra(
-  extra: Pick<ProviderUsageEntry, "account" | "detail" | "fetchedAt" | "plan">,
-): Pick<ProviderUsageEntry, "account" | "detail" | "fetchedAt" | "plan"> {
+  extra: Pick<ProviderUsageEntry, "account" | "detail" | "fetchedAt" | "keys" | "plan">,
+): Pick<ProviderUsageEntry, "account" | "detail" | "fetchedAt" | "keys" | "plan"> {
   return {
     ...(extra.account ? { account: extra.account } : {}),
     ...(extra.detail ? { detail: extra.detail } : {}),
     ...(extra.fetchedAt ? { fetchedAt: extra.fetchedAt } : {}),
+    ...(extra.keys ? { keys: extra.keys } : {}),
     ...(extra.plan ? { plan: extra.plan } : {}),
   };
+}
+
+function providerKeyUsageSummaries(provider: ProviderProfile): ProviderKeyUsageSummary[] {
+  const input = (provider as Record<string, unknown>).runtimeKeyUsage;
+  if (!Array.isArray(input)) return [];
+  return input.flatMap((entry) => {
+    const parsed = ProviderKeyUsageSummarySchema.safeParse(entry);
+    return parsed.success ? [parsed.data] : [];
+  });
 }
 
 class UsageQueryFailure extends Error {

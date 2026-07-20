@@ -1,7 +1,7 @@
 {
   "name": "swarmx",
-  "version": "3.1.1",
-  "description": "SwarmX multi-agent orchestration CLI.",
+  "version": "3.1.2",
+  "description": "SwarmX desktop app and multi-agent orchestration CLI.",
   "license": "MIT",
   "type": "module",
   "bin": {
@@ -12,7 +12,9 @@
     "access": "public"
   },
   "dependencies": {
-    "@swarmx/cli": "workspace:*"
+    "@swarmx/cli": "workspace:*",
+    "@swarmx/desktop": "workspace:*",
+    "electron": "^33.4.11"
   },
   "engines": {
     "node": ">=20.0.0"

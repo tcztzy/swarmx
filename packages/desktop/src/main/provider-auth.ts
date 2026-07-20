@@ -18,6 +18,10 @@ export function newApiAccountCredentialKey(providerId: string): string {
   return `${normalizeKey(providerId)}:new-api-account`;
 }
 
+export function providerPoolCredentialKey(providerId: string, keyId: string): string {
+  return `${normalizeKey(providerId)}:pool:${normalizeKey(keyId)}`;
+}
+
 export interface EncryptedFileProviderAuthStoreOptions {
   path?: string;
   encryption: ProviderSecretEncryption;

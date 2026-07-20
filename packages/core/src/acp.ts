@@ -152,6 +152,10 @@ export interface MessageChunk {
   content: string;
   kind: "message" | "thinking" | "tool_call" | "tool_result";
   agent?: string;
+  render?: {
+    invocationId?: string;
+    status?: "queued" | "running" | "succeeded" | "failed" | "canceled" | "skipped" | "completed";
+  };
   swarmEvent?: string;
   toolName?: string;
 }
@@ -713,17 +717,21 @@ function sessionUpdateToChunk(update: SessionUpdate): MessageChunk | null {
     }
     case "tool_call": {
       const args = u.rawInput ? JSON.stringify(u.rawInput) : "";
+      const invocationId = stringValue(u.toolCallId);
       return {
         role: "assistant",
         content: args,
         kind: "tool_call",
         toolName: stringValue(u.title),
+        ...(invocationId ? { render: { invocationId, status: "running" } } : {}),
       };
     }
     case "tool_call_update": {
       const fields = recordValue(u.fields);
       const rawOutput = u.rawOutput ?? fields?.rawOutput;
       const status = u.status ?? fields?.status;
+      const invocationId = stringValue(u.toolCallId) ?? stringValue(fields?.toolCallId);
+      const renderStatus = acpRenderStatus(status);
       const result =
         (rawOutput ? JSON.stringify(rawOutput) : "") || (status ? JSON.stringify(status) : "");
       if (!result) return null;
@@ -732,11 +740,31 @@ function sessionUpdateToChunk(update: SessionUpdate): MessageChunk | null {
         content: result,
         kind: "tool_result",
         toolName: stringValue(u.title) ?? stringValue(fields?.title) ?? "tool",
+        ...(invocationId || renderStatus
+          ? {
+              render: {
+                ...(invocationId ? { invocationId } : {}),
+                ...(renderStatus ? { status: renderStatus } : {}),
+              },
+            }
+          : {}),
       };
     }
     default:
       return null;
   }
+}
+
+function acpRenderStatus(
+  value: unknown,
+): NonNullable<MessageChunk["render"]>["status"] | undefined {
+  if (typeof value !== "string") return undefined;
+  if (["queued", "pending"].includes(value)) return "queued";
+  if (["running", "in_progress"].includes(value)) return "running";
+  if (["completed", "succeeded"].includes(value)) return "succeeded";
+  if (["failed", "error"].includes(value)) return "failed";
+  if (["canceled", "cancelled"].includes(value)) return "canceled";
+  return value === "skipped" ? "skipped" : undefined;
 }
 
 function recordValue(value: unknown): Record<string, unknown> | undefined {

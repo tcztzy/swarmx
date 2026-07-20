@@ -369,6 +369,7 @@ export type {
 } from "./agent-profiles.js";
 export {
   DesktopExtensionSettingsSchema,
+  DesktopPermissionProfileAvailabilitySchema,
   DesktopPermissionSettingsSchema,
   DesktopRootConfigSchema,
   DesktopRootSourceSchema,
@@ -391,6 +392,7 @@ export {
 } from "./desktop-settings.js";
 export type {
   DesktopExtensionSettings,
+  DesktopPermissionProfileAvailability,
   DesktopPermissionSettings,
   DesktopRootConfig,
   DesktopRootSource,

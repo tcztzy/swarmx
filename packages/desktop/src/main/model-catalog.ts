@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
@@ -19,7 +20,13 @@ import {
 } from "@swarmx/core";
 import type { CodexAccessTokenProvider } from "./codex-auth.js";
 import type { ProviderAuthStore } from "./provider-auth.js";
-import { newApiAccountCredentialKey } from "./provider-auth.js";
+import { newApiAccountCredentialKey, providerPoolCredentialKey } from "./provider-auth.js";
+import {
+  type ProviderKeyCandidate,
+  type ProviderKeySlot,
+  ProviderKeyUsageStore,
+  isOpenCodeGoBaseUrl,
+} from "./provider-key-pool.js";
 import { queryCodexAppServerRequest } from "./provider-usage.js";
 import { DesktopSettingsStore, type DesktopSettingsStoreLike } from "./settings-store.js";
 
@@ -80,6 +87,14 @@ export interface UserProviderInput {
   accountAccessToken?: string;
   accountUserId?: string;
   clearAccountAccess?: boolean;
+  additionalApiKeys?: Array<{ label?: string; value: string }>;
+  removeApiKeyIds?: string[];
+}
+
+export interface ProviderRuntimeCredentials {
+  providerId: string;
+  pooled: boolean;
+  candidates: ProviderKeyCandidate[];
 }
 
 export interface ModelCatalogProviderStatus {
@@ -110,6 +125,7 @@ export interface ModelCatalogServiceOptions {
   now?: () => Date;
   timeoutMs?: number;
   authStore?: ProviderAuthStore;
+  keyUsageStore?: ProviderKeyUsageStore;
   includeCodex?: boolean;
   codexCommand?: string;
   codexModelReader?: CodexModelReader;
@@ -149,6 +165,7 @@ interface DiscoveredModelDescriptor {
   label?: string;
   runtimeModel?: string;
   group?: string;
+  apiProtocols?: ModelApi[];
   reasoning?: {
     apiProtocol: ModelApi;
     supportedEfforts: string[];
@@ -166,6 +183,7 @@ export class ModelCatalogService {
   private readonly now: () => Date;
   private readonly timeoutMs: number;
   private readonly authStore?: ProviderAuthStore;
+  private readonly keyUsageStore: ProviderKeyUsageStore;
   private readonly includeCodex: boolean;
   private readonly codexModelReader: CodexModelReader;
   private readonly codexAccessTokenProvider?: CodexAccessTokenProvider;
@@ -180,6 +198,7 @@ export class ModelCatalogService {
     this.now = options.now ?? (() => new Date());
     this.timeoutMs = options.timeoutMs ?? DEFAULT_DISCOVERY_TIMEOUT_MS;
     this.authStore = options.authStore;
+    this.keyUsageStore = options.keyUsageStore ?? new ProviderKeyUsageStore();
     this.includeCodex = options.includeCodex ?? true;
     this.codexAccessTokenProvider = options.codexAccessTokenProvider;
     const codexCommand = options.codexCommand ?? "codex";
@@ -359,20 +378,64 @@ export class ModelCatalogService {
     ) {
       throw new Error("New API account access token is required when a User ID is configured.");
     }
-    let primaryCredentialChanged = false;
-    let accountCredentialChanged = false;
+
+    const existingKeySlots = providerKeySlots(existing?.metadata.runtimeKeySlots);
+    const removedKeyIds = new Set(normalizeRemovedProviderKeyIds(input.removeApiKeyIds));
+    if (removedKeyIds.has("primary")) {
+      throw new Error("The primary OpenCode Go API key can be replaced but not removed.");
+    }
+    for (const keyId of removedKeyIds) {
+      if (!existingKeySlots.some((slot) => slot.id === keyId)) {
+        throw new Error(`Unknown OpenCode Go API key "${keyId}".`);
+      }
+    }
+    const additionalKeys = normalizeAdditionalProviderKeys(input.additionalApiKeys);
+    if (!provider.openCodeGo && (additionalKeys.length > 0 || removedKeyIds.size > 0)) {
+      throw new Error(
+        "Multiple API keys are supported only for the official OpenCode Go Provider.",
+      );
+    }
+    const retainedKeySlots = existingKeySlots.filter(
+      (slot) => slot.id === "primary" || !removedKeyIds.has(slot.id),
+    );
+    const newKeyEntries = additionalKeys.map((entry, index) => ({
+      id: `key-${randomUUID()}`,
+      label: entry.label ?? `Key ${retainedKeySlots.length + index + 1}`,
+      enabled: true,
+      value: entry.value,
+    }));
+    const runtimeKeySlots = provider.openCodeGo
+      ? [
+          ...(retainedKeySlots.some((slot) => slot.id === "primary")
+            ? retainedKeySlots
+            : [{ id: "primary", label: "Key 1", enabled: true }, ...retainedKeySlots]),
+          ...newKeyEntries.map(({ value: _value, ...slot }) => slot),
+        ]
+      : [];
+    if (runtimeKeySlots.length > 32) {
+      throw new Error("OpenCode Go supports at most 32 configured API keys.");
+    }
+
+    const authChanges = new Map<string, string | undefined>();
+    if (secret) authChanges.set(provider.id, secret);
+    if (accountAccessToken) authChanges.set(accountCredentialKey, accountAccessToken);
+    else if (input.clearAccountAccess || provider.usageAdapter !== "new_api") {
+      authChanges.set(accountCredentialKey, undefined);
+    }
+    for (const entry of newKeyEntries) {
+      authChanges.set(providerPoolCredentialKey(provider.id, entry.id), entry.value);
+    }
+    const discardedKeySlots = provider.openCodeGo
+      ? existingKeySlots.filter((slot) => removedKeyIds.has(slot.id))
+      : existingKeySlots.filter((slot) => slot.id !== "primary");
+    for (const slot of discardedKeySlots) {
+      authChanges.set(providerPoolCredentialKey(provider.id, slot.id), undefined);
+    }
+
+    const previousAuthValues = new Map<string, string | undefined>();
+    for (const key of authChanges.keys()) previousAuthValues.set(key, await authStore.get(key));
     try {
-      if (secret) {
-        await authStore.set(provider.id, secret);
-        primaryCredentialChanged = true;
-      }
-      if (accountAccessToken) {
-        await authStore.set(accountCredentialKey, accountAccessToken);
-        accountCredentialChanged = true;
-      } else if (input.clearAccountAccess || provider.usageAdapter !== "new_api") {
-        await authStore.delete(accountCredentialKey);
-        accountCredentialChanged = true;
-      }
+      await applyProviderAuthChanges(authStore, authChanges);
       await this.settingsStore.update((current) => ({
         ...current,
         providers: [
@@ -391,32 +454,16 @@ export class ModelCatalogService {
               account: provider.id,
             },
             readOnly: false,
-            metadata: userProviderMetadata(existing?.metadata, provider),
+            metadata: userProviderMetadata(existing?.metadata, provider, runtimeKeySlots),
           },
         ],
       }));
     } catch (error) {
-      if (primaryCredentialChanged) {
-        try {
-          if (previousSecret) await authStore.set(provider.id, previousSecret);
-          else await authStore.delete(provider.id);
-        } catch {
-          // Preserve the original settings failure while attempting both restores.
-        }
-      }
-      if (accountCredentialChanged) {
-        try {
-          if (previousAccountAccessToken) {
-            await authStore.set(accountCredentialKey, previousAccountAccessToken);
-          } else {
-            await authStore.delete(accountCredentialKey);
-          }
-        } catch {
-          // Preserve the original settings failure while attempting both restores.
-        }
-      }
+      await applyProviderAuthChanges(authStore, previousAuthValues).catch(() => undefined);
       throw error;
     }
+
+    for (const slot of discardedKeySlots) await this.keyUsageStore.remove(provider.id, slot.id);
 
     return this.list(inventory);
   }
@@ -439,6 +486,10 @@ export class ModelCatalogService {
     const authStore = this.requireAuthStore();
     await authStore.delete(provider.secretRef?.key ?? id);
     await authStore.delete(newApiAccountCredentialKey(id));
+    for (const slot of providerKeySlots(provider.metadata.runtimeKeySlots)) {
+      if (slot.id !== "primary") await authStore.delete(providerPoolCredentialKey(id, slot.id));
+    }
+    await this.keyUsageStore.removeProvider(id);
     await this.writeCache({
       ...cache,
       discoveries: cache.discoveries.filter((entry) => entry.providerProfileId !== id),
@@ -446,10 +497,37 @@ export class ModelCatalogService {
     return this.list(inventory);
   }
 
+  async resetProviderKey(
+    inventory: ExtensionInventory,
+    providerId: string,
+    keyId: string,
+  ): Promise<ModelCatalogInventory> {
+    const id = providerId.trim();
+    const normalizedKeyId = keyId.trim();
+    const settings = await this.readSettings();
+    const provider = settings.providers.find((candidate) => candidate.id === id);
+    if (!provider) throw new Error(`User-managed Provider "${id}" was not found.`);
+    const slots = providerKeySlots(provider.metadata.runtimeKeySlots);
+    if (!slots.some((slot) => slot.id === normalizedKeyId)) {
+      throw new Error(`Unknown OpenCode Go API key "${normalizedKeyId}".`);
+    }
+    await this.keyUsageStore.reset(id, normalizedKeyId);
+    return this.list(inventory);
+  }
+
   async runtimeSecretsForSupply(
     inventory: ExtensionInventory,
     modelSupplyId: string,
   ): Promise<Record<string, string>> {
+    const runtime = await this.runtimeCredentialsForSupply(inventory, modelSupplyId);
+    const candidate = runtime.candidates[0];
+    return candidate ? { [runtime.providerId]: candidate.value } : {};
+  }
+
+  async runtimeCredentialsForSupply(
+    inventory: ExtensionInventory,
+    modelSupplyId: string,
+  ): Promise<ProviderRuntimeCredentials> {
     const supply = inventory.modelSupplies.find((candidate) => candidate.id === modelSupplyId);
     if (!supply) throw new Error(`Unknown Model supply "${modelSupplyId}".`);
     const provider = inventory.providers.find(
@@ -464,11 +542,31 @@ export class ModelCatalogService {
           "Codex subscription authentication is unavailable. Open Codex and sign in again.",
         );
       }
-      return { [provider.id]: await this.codexAccessTokenProvider.resolve() };
+      return {
+        providerId: provider.id,
+        pooled: false,
+        candidates: [{ id: "primary", value: await this.codexAccessTokenProvider.resolve() }],
+      };
     }
     const resolution = await this.resolveSecret(provider);
     if (!resolution.ready) throw new Error(resolution.error);
-    return resolution.value ? { [provider.id]: resolution.value } : {};
+    if (!resolution.value) {
+      return { providerId: provider.id, pooled: false, candidates: [] };
+    }
+    if (!isOpenCodeGoProvider(provider)) {
+      return {
+        providerId: provider.id,
+        pooled: false,
+        candidates: [{ id: "primary", value: resolution.value }],
+      };
+    }
+    const candidates: ProviderKeyCandidate[] = [{ id: "primary", value: resolution.value }];
+    for (const slot of providerRuntimeKeySlots(provider)) {
+      if (slot.id === "primary" || !slot.enabled) continue;
+      const value = await this.authStore?.get(providerPoolCredentialKey(provider.id, slot.id));
+      if (value) candidates.push({ id: slot.id, value });
+    }
+    return { providerId: provider.id, pooled: true, candidates };
   }
 
   private async discoverProviderModels(
@@ -491,7 +589,13 @@ export class ModelCatalogService {
     }
     const url = discoveryUrl(provider);
     const payload = await this.fetchJson(url, providerHeaders(provider, secret));
-    return parseOpenAiModels(payload, discoveryApi, url);
+    const descriptors = parseOpenAiModels(payload, discoveryApi, url);
+    return isOpenCodeGoProvider(provider)
+      ? descriptors.map((descriptor) => ({
+          ...descriptor,
+          apiProtocols: ["anthropic", "openai_chat"],
+        }))
+      : descriptors;
   }
 
   private async discoverCodexModels(): Promise<DiscoveredModelDescriptor[]> {
@@ -572,6 +676,7 @@ export class ModelCatalogService {
         modelDiscoveryUrl: stringMetadata(provider.metadata.modelDiscoveryUrl),
         modelDiscoveryApi: modelApiMetadata(provider.metadata.modelDiscoveryApi),
         newApiAccountUserId: stringMetadata(provider.metadata.newApiAccountUserId),
+        runtimeKeySlots: providerKeySlots(provider.metadata.runtimeKeySlots),
         ...(usageAdapter ? { usageAdapter } : {}),
       });
     });
@@ -762,10 +867,15 @@ export class ModelCatalogService {
         accountAccessReady = false;
       }
     }
+    const runtimeKeySlots = providerRuntimeKeySlots(provider);
+    const runtimeKeyUsage = isOpenCodeGoProvider(provider)
+      ? await this.keyUsageStore.summaries(provider.id, runtimeKeySlots)
+      : undefined;
     return {
       ...provider,
       runtimeReady: resolution.ready,
       ...(accountAccessReady === undefined ? {} : { accountAccessReady }),
+      ...(runtimeKeyUsage ? { runtimeKeyUsage } : {}),
       ...(!resolution.ready ? { runtimeNote: resolution.error } : { runtimeNote: undefined }),
     };
   }
@@ -808,9 +918,9 @@ function discoveryUrl(provider: ProviderProfile): string {
     return baseUrl.endsWith("/api") ? `${baseUrl}/tags` : `${baseUrl}/api/tags`;
   }
   if (discoveryApi === "anthropic") {
-    return baseUrl.endsWith("/v1") ? `${baseUrl}/models` : `${baseUrl}/v1/models`;
+    return baseUrl === "https://api.anthropic.com" ? `${baseUrl}/v1/models` : `${baseUrl}/models`;
   }
-  return baseUrl.endsWith("/v1") ? `${baseUrl}/models` : `${baseUrl}/v1/models`;
+  return `${baseUrl}/models`;
 }
 
 function providerDiscoveryApi(provider: ProviderProfile): ModelApi {
@@ -976,9 +1086,9 @@ function providerCache(
   descriptors: DiscoveredModelDescriptor[],
   fetchedAt: string,
 ): ProviderDiscoveryCache {
-  const apiProtocols = providerApiProtocols(provider);
   const models = mergeModels(
     descriptors.map((descriptor) => {
+      const apiProtocols = descriptor.apiProtocols ?? providerApiProtocols(provider);
       const humanLabel = humanReadableModelLabel(descriptor.id);
       return parseModel({
         id: descriptor.id,
@@ -997,8 +1107,9 @@ function providerCache(
     providerProfileId: provider.id,
     fetchedAt,
     models,
-    modelSupplies: descriptors.flatMap((descriptor) =>
-      apiProtocols.map((apiProtocol) => {
+    modelSupplies: descriptors.flatMap((descriptor) => {
+      const apiProtocols = descriptor.apiProtocols ?? providerApiProtocols(provider);
+      return apiProtocols.map((apiProtocol) => {
         const harnessIds = catalogHarnessIds(
           provider,
           apiProtocol,
@@ -1024,8 +1135,8 @@ function providerCache(
             : {}),
           readOnly: true,
         });
-      }),
-    ),
+      });
+    }),
   };
 }
 
@@ -1110,6 +1221,7 @@ function normalizeUserProviderInput(
   accountUserId?: string;
   modelDiscoveryUrl?: string;
   modelDiscoveryApi?: ModelApi;
+  openCodeGo: boolean;
 } {
   const label = input.label.trim();
   if (!label) throw new Error("Provider name is required.");
@@ -1125,6 +1237,9 @@ function normalizeUserProviderInput(
   }
   if (parsedUrl.username || parsedUrl.password) {
     throw new Error("Base URL must not contain credentials.");
+  }
+  if (parsedUrl.search || parsedUrl.hash) {
+    throw new Error("Base URL must not contain a query string or fragment.");
   }
   const kind = ModelApiSchema.parse(input.kind);
   const usageAdapter = newApiUsageAdapter(input.usageAdapter);
@@ -1149,14 +1264,21 @@ function normalizeUserProviderInput(
     throw new Error("New API User ID is required for an account access token.");
   }
   const deepSeekRouting = officialDeepSeekRouting(parsedUrl, kind);
+  const openCodeGoRouting = officialOpenCodeGoRouting(parsedUrl, kind);
+  if (openCodeGoRouting && usageAdapter === "new_api") {
+    throw new Error("OpenCode Go usage is tracked locally and does not use the New API Usage API.");
+  }
   const modelDiscovery =
-    deepSeekRouting ?? (usageAdapter === "new_api" ? newApiModelDiscovery(parsedUrl) : undefined);
+    deepSeekRouting ??
+    openCodeGoRouting ??
+    (usageAdapter === "new_api" ? newApiModelDiscovery(parsedUrl) : undefined);
+  const routing = deepSeekRouting ?? openCodeGoRouting;
   return {
     id,
     label,
     kind,
-    baseUrl: deepSeekRouting?.baseUrl ?? baseUrl,
-    apiEntrypoints: deepSeekRouting?.apiEntrypoints ?? {},
+    baseUrl: routing?.baseUrl ?? baseUrl,
+    apiEntrypoints: routing?.apiEntrypoints ?? {},
     authMode: ProviderAuthModeSchema.parse(input.authMode),
     usageAdapter,
     ...(usageAdapter === "new_api" && accountUserId ? { accountUserId } : {}),
@@ -1166,18 +1288,21 @@ function normalizeUserProviderInput(
           modelDiscoveryApi: modelDiscovery.modelDiscoveryApi,
         }
       : {}),
+    openCodeGo: !!openCodeGoRouting,
   };
 }
 
 function userProviderMetadata(
   existing: Record<string, unknown> | undefined,
   provider: ReturnType<typeof normalizeUserProviderInput>,
+  runtimeKeySlots: readonly ProviderKeySlot[],
 ): Record<string, unknown> {
   const {
     usageAdapter: _usageAdapter,
     newApiAccountUserId: _newApiAccountUserId,
     modelDiscoveryUrl: _modelDiscoveryUrl,
     modelDiscoveryApi: _modelDiscoveryApi,
+    runtimeKeySlots: _runtimeKeySlots,
     ...rest
   } = existing ?? {};
   return {
@@ -1187,6 +1312,7 @@ function userProviderMetadata(
     ...(provider.accountUserId ? { newApiAccountUserId: provider.accountUserId } : {}),
     ...(provider.modelDiscoveryUrl ? { modelDiscoveryUrl: provider.modelDiscoveryUrl } : {}),
     ...(provider.modelDiscoveryApi ? { modelDiscoveryApi: provider.modelDiscoveryApi } : {}),
+    ...(provider.openCodeGo ? { runtimeKeySlots } : {}),
   };
 }
 
@@ -1231,6 +1357,39 @@ function officialDeepSeekRouting(
   };
 }
 
+function officialOpenCodeGoRouting(
+  baseUrl: URL,
+  preferredApi: ModelApi,
+):
+  | {
+      baseUrl: string;
+      apiEntrypoints: Partial<Record<ModelApi, string>>;
+      modelDiscoveryUrl: string;
+      modelDiscoveryApi: ModelApi;
+    }
+  | undefined {
+  const pathname = baseUrl.pathname.replace(/\/+$/, "");
+  const official =
+    baseUrl.protocol === "https:" &&
+    baseUrl.hostname.toLowerCase() === "opencode.ai" &&
+    !baseUrl.port &&
+    (pathname === "/zen/go" || pathname === "/zen/go/v1");
+  if (!official) return undefined;
+  if (!(["anthropic", "openai_chat"] as ModelApi[]).includes(preferredApi)) {
+    throw new Error("OpenCode Go supports the Anthropic Messages or OpenAI Chat API protocol.");
+  }
+  const apiEntrypoints = {
+    anthropic: `${baseUrl.origin}/zen/go`,
+    openai_chat: `${baseUrl.origin}/zen/go/v1`,
+  } satisfies Partial<Record<ModelApi, string>>;
+  return {
+    baseUrl: apiEntrypoints[preferredApi as "anthropic" | "openai_chat"],
+    apiEntrypoints,
+    modelDiscoveryUrl: `${baseUrl.origin}/zen/go/v1/models`,
+    modelDiscoveryApi: "openai_chat",
+  };
+}
+
 function normalizePersistedProvider(provider: ProviderProfile): ProviderProfile {
   if (!provider.baseUrl) return provider;
   let parsedUrl: URL;
@@ -1239,7 +1398,9 @@ function normalizePersistedProvider(provider: ProviderProfile): ProviderProfile 
   } catch {
     return provider;
   }
-  const routing = officialDeepSeekRouting(parsedUrl, provider.kind);
+  const routing =
+    officialDeepSeekRouting(parsedUrl, provider.kind) ??
+    officialOpenCodeGoRouting(parsedUrl, provider.kind);
   const modelDiscovery =
     routing ??
     (stringProperty(provider, "usageAdapter") === "new_api"
@@ -1257,6 +1418,75 @@ function normalizePersistedProvider(provider: ProviderProfile): ProviderProfile 
     modelDiscoveryUrl: modelDiscovery?.modelDiscoveryUrl,
     modelDiscoveryApi: modelDiscovery?.modelDiscoveryApi,
   };
+}
+
+function isOpenCodeGoProvider(provider: ProviderProfile): boolean {
+  return isOpenCodeGoBaseUrl(provider.baseUrl);
+}
+
+function providerRuntimeKeySlots(provider: ProviderProfile): ProviderKeySlot[] {
+  if (!isOpenCodeGoProvider(provider)) return [];
+  const slots = providerKeySlots((provider as Record<string, unknown>).runtimeKeySlots);
+  return slots.some((slot) => slot.id === "primary")
+    ? slots
+    : [{ id: "primary", label: "Key 1", enabled: true }, ...slots];
+}
+
+function providerKeySlots(value: unknown): ProviderKeySlot[] {
+  if (!Array.isArray(value)) return [];
+  const slots: ProviderKeySlot[] = [];
+  const seen = new Set<string>();
+  for (const input of value.slice(0, 32)) {
+    const record = optionalRecord(input);
+    const id = stringMetadata(record?.id);
+    const label = stringMetadata(record?.label);
+    if (!id || !/^(?:primary|key-[a-f0-9-]{36})$/i.test(id) || seen.has(id)) continue;
+    seen.add(id);
+    slots.push({
+      id,
+      label: label?.slice(0, 80) ?? `Key ${slots.length + 1}`,
+      enabled: record?.enabled !== false,
+    });
+  }
+  return slots;
+}
+
+function normalizeRemovedProviderKeyIds(value: unknown): string[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value)) throw new Error("Removed OpenCode Go API key ids must be an array.");
+  return uniqueStrings(
+    value.map((item) => {
+      if (typeof item !== "string" || !/^(?:primary|key-[a-f0-9-]{36})$/i.test(item.trim())) {
+        throw new Error("Invalid OpenCode Go API key id.");
+      }
+      return item.trim();
+    }),
+  );
+}
+
+function normalizeAdditionalProviderKeys(
+  value: UserProviderInput["additionalApiKeys"],
+): Array<{ label?: string; value: string }> {
+  if (value === undefined) return [];
+  if (!Array.isArray(value)) throw new Error("Additional OpenCode Go API keys must be an array.");
+  return value.map((entry, index) => {
+    const secret = entry.value?.trim();
+    const label = entry.label?.trim();
+    if (!secret) throw new Error(`OpenCode Go API key ${index + 2} is required.`);
+    if (secret.length > 65_536) throw new Error("OpenCode Go API key is too long.");
+    if (label && label.length > 80) throw new Error("OpenCode Go API key label is too long.");
+    return { ...(label ? { label } : {}), value: secret };
+  });
+}
+
+async function applyProviderAuthChanges(
+  authStore: ProviderAuthStore,
+  changes: ReadonlyMap<string, string | undefined>,
+): Promise<void> {
+  for (const [key, value] of changes) {
+    if (value) await authStore.set(key, value);
+    else await authStore.delete(key);
+  }
 }
 
 function newApiModelDiscovery(baseUrl: URL): {

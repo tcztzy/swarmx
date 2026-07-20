@@ -35,6 +35,10 @@ export interface DesktopAgentMessageChunk {
   content: string;
   kind: "message" | "thinking" | "tool_call" | "tool_result";
   agent?: string;
+  render?: {
+    invocationId?: string;
+    status?: "queued" | "running" | "succeeded" | "failed" | "canceled" | "skipped" | "completed";
+  };
   toolName?: string;
 }
 
@@ -176,7 +180,7 @@ export function createSwarmxDesktopApi(
       model?: string;
       projectId?: string;
       cwd?: string;
-      permissionMode?: "inherit" | "default" | "plan" | "trusted";
+      permissionMode?: "inherit" | "default" | "auto" | "plan" | "trusted";
     }) => invoke("session:create", params),
 
     saveSession: (session: unknown) => invoke("session:save", session),
@@ -269,6 +273,11 @@ export function createSwarmxDesktopApi(
       context?: { cwd?: string; agentId?: string; agentPolicy?: unknown },
     ) => invoke("permission:savePersonal", { policy, ...context }),
 
+    savePermissionProfileAvailability: (
+      profileAvailability: unknown,
+      context?: { cwd?: string; agentId?: string; agentPolicy?: unknown },
+    ) => invoke("permission:saveProfiles", { profileAvailability, ...context }),
+
     workspaceRoot: () => invoke("workspace:root") as Promise<string>,
 
     getWorkspaceReview: (cwd?: string) => invoke("workspace:review", cwd ? { cwd } : {}),
@@ -358,9 +367,14 @@ export function createSwarmxDesktopApi(
       accountAccessToken?: string;
       accountUserId?: string;
       clearAccountAccess?: boolean;
+      additionalApiKeys?: Array<{ label?: string; value: string }>;
+      removeApiKeyIds?: string[];
     }) => invoke("modelCatalog:saveProvider", input),
 
     removeProvider: (providerId: string) => invoke("modelCatalog:removeProvider", { providerId }),
+
+    resetProviderKey: (providerId: string, keyId: string) =>
+      invoke("modelCatalog:resetProviderKey", { providerId, keyId }),
 
     refreshProviderUsage: (target?: {
       source: "provider" | "tool_account";

@@ -406,6 +406,7 @@ describe("preload API", () => {
     await exposedApi().removeManualModel(manualModel.id);
     await exposedApi().saveProvider(provider);
     await exposedApi().removeProvider("swarmx.user.anthropic-proxy");
+    await exposedApi().resetProviderKey("swarmx.user.opencode-go", "primary");
     await exposedApi().refreshProviderUsage();
     await exposedApi().refreshProviderUsage({
       source: "provider",
@@ -421,8 +422,12 @@ describe("preload API", () => {
     expect(electron.invoke).toHaveBeenNthCalledWith(5, "modelCatalog:removeProvider", {
       providerId: "swarmx.user.anthropic-proxy",
     });
-    expect(electron.invoke).toHaveBeenNthCalledWith(6, "providerUsage:refresh");
-    expect(electron.invoke).toHaveBeenNthCalledWith(7, "providerUsage:refresh", {
+    expect(electron.invoke).toHaveBeenNthCalledWith(6, "modelCatalog:resetProviderKey", {
+      providerId: "swarmx.user.opencode-go",
+      keyId: "primary",
+    });
+    expect(electron.invoke).toHaveBeenNthCalledWith(7, "providerUsage:refresh");
+    expect(electron.invoke).toHaveBeenNthCalledWith(8, "providerUsage:refresh", {
       source: "provider",
       sourceId: "swarmx.user.anthropic-proxy",
     });
@@ -447,12 +452,20 @@ describe("preload API", () => {
 
     await exposedApi().getPermissionStatus({ cwd: "/workspace" });
     await exposedApi().savePersonalPermissionPolicy(policy, { cwd: "/workspace" });
+    await exposedApi().savePermissionProfileAvailability(
+      { default: true, auto: false, trusted: true },
+      { cwd: "/workspace" },
+    );
 
     expect(electron.invoke).toHaveBeenNthCalledWith(1, "permission:status", {
       cwd: "/workspace",
     });
     expect(electron.invoke).toHaveBeenNthCalledWith(2, "permission:savePersonal", {
       policy,
+      cwd: "/workspace",
+    });
+    expect(electron.invoke).toHaveBeenNthCalledWith(3, "permission:saveProfiles", {
+      profileAvailability: { default: true, auto: false, trusted: true },
       cwd: "/workspace",
     });
   });
@@ -529,8 +542,11 @@ function exposedApi(): {
     accountAccessToken?: string;
     accountUserId?: string;
     clearAccountAccess?: boolean;
+    additionalApiKeys?: Array<{ label?: string; value: string }>;
+    removeApiKeyIds?: string[];
   }): Promise<unknown>;
   removeProvider(providerId: string): Promise<unknown>;
+  resetProviderKey(providerId: string, keyId: string): Promise<unknown>;
   refreshProviderUsage(target?: {
     source: "provider" | "tool_account";
     sourceId: string;
@@ -545,6 +561,10 @@ function exposedApi(): {
   }): Promise<unknown>;
   savePersonalPermissionPolicy(
     policy: unknown,
+    context?: { cwd?: string; agentId?: string; agentPolicy?: unknown },
+  ): Promise<unknown>;
+  savePermissionProfileAvailability(
+    profileAvailability: unknown,
     context?: { cwd?: string; agentId?: string; agentPolicy?: unknown },
   ): Promise<unknown>;
 } {

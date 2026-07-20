@@ -66,7 +66,8 @@ protected repository/config paths, command-prefix rules, granular approval
 categories, managed requirements, and optional approval review remain distinct
 controls. See the official [sandboxing](https://learn.chatgpt.com/docs/sandboxing),
 [configuration](https://learn.chatgpt.com/docs/config-file/config-advanced#approval-policies-and-sandbox-modes),
-and [rules](https://learn.chatgpt.com/docs/agent-configuration/rules) pages.
+[rules](https://learn.chatgpt.com/docs/agent-configuration/rules), and
+[desktop permissions](https://learn.chatgpt.com/docs/permissions) pages.
 
 SwarmX follows the common core without pretending that its modes are identical
 to either vendor:
@@ -74,6 +75,7 @@ to either vendor:
 | Harness mode | Direct SwarmX behavior |
 | --- | --- |
 | `default` | Read-only tools run; remaining Project tool calls require one-call desktop approval. |
+| `auto` | Read-only and Project-contained write calls run after deterministic host review; execute/control calls still require one-call approval. This does not claim Codex's separate reviewer-model implementation. |
 | `plan` | Hard read-only boundary; allow rules cannot enable mutation or execution. |
 | `restricted` | Read-only and explicitly pre-approved tools run; remaining calls fail closed. |
 | `trusted` | Tools run without prompts, but only inside unchanged Project path, Seatbelt, network, environment, output, timeout, stale-write, and cancellation boundaries. |
@@ -92,7 +94,8 @@ contents, or credentials.
 
 ### Layered governance and desktop UX
 
-Direct SwarmX policy resolves four durable sources in least-authority order:
+Direct SwarmX policy resolves four durable sources plus an optional conversation
+override in least-authority order:
 
 1. `SWARMX_MANAGED_PERMISSION_POLICY` supplies an optional read-only managed
    JSON layer.
@@ -102,28 +105,33 @@ Direct SwarmX policy resolves four durable sources in least-authority order:
 3. Desktop Settings supplies editable personal defaults.
 4. The selected Custom Agent supplies its Harness policy.
 
-A persisted conversation may additionally select `inherit`, `default`, `plan`,
-or `trusted`. `inherit` keeps the four-layer result. An explicit conversation
-choice replaces the personal and Agent mode defaults for that conversation,
-but managed/Project mode ceilings and every explicit deny rule remain in force.
+A persisted conversation may additionally select `inherit`, `default`, `auto`,
+`plan`, or `trusted`. `inherit` keeps the four durable layers. An explicit
+conversation choice replaces the personal and Agent mode defaults for that
+conversation, but managed/Project mode ceilings and every explicit deny rule
+remain in force.
 The Main process reads this value from the authoritative saved session before
 creating direct tools and again for background activations. External ACP
 Harnesses retain their own permission semantics.
 
 The least-authority declared mode wins in the order `plan < restricted <
-default < trusted`. Denials union across all layers and remove any matching
+default < auto < trusted`. Denials union across all layers and remove any matching
 pre-approval. Missing managed/Project sources inherit neutrally; malformed
 configured sources are visible and fail closed before direct tools are
 created. This prevents repository content from granting authority while still
 letting a Project enforce local restrictions.
 
-General Settings owns the personal default mode in a Codex-style Permissions
-card. Advanced permissions shows the effective mode, exact allow/deny counts,
-source provenance, editable exact-tool rules, the selected Project policy path,
-and a newest-first local approval history. Changing the General default
-preserves the advanced rules. Every direct SwarmX conversation Composer exposes
-its current choice before send and persists changes immediately for an existing
-session or with creation of a new session.
+General Settings follows Codex's three-row information architecture: independent
+Default permissions, Auto-review, and Full access switches control whether those
+profiles are available to conversations. They default on and persist separately.
+If a disabled profile remains in an older conversation or inherited personal or
+Agent policy, authoritative Main-process resolution substitutes `plan`; hiding an
+option in the Renderer is never the safety boundary. Advanced permissions owns
+the inherited fallback (including Plan only and Restricted), effective mode,
+exact allow/deny counts, source provenance, editable rules, selected Project
+policy path, and newest-first local approval history. Every direct SwarmX
+conversation Composer exposes a compact local choice before send and persists it
+immediately for an existing session or with creation of a new session.
 Custom Agents use structured exact-tool chips with duplicate/conflict checking
 instead of newline rule text. Approval dialogs explain that allow-once applies
 to one call and does not expand the host sandbox; rejection receives initial

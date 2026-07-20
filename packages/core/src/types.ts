@@ -194,7 +194,13 @@ export const EvalRunResultSchema = z.object({
 
 // ── Session ──────────────────────────────────────────────────────────────────
 
-export const SessionPermissionModeSchema = z.enum(["inherit", "default", "plan", "trusted"]);
+export const SessionPermissionModeSchema = z.enum([
+  "inherit",
+  "default",
+  "auto",
+  "plan",
+  "trusted",
+]);
 
 export const SessionDataSchema = z.object({
   id: z.string(),

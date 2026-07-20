@@ -7,6 +7,42 @@ import {
 } from "./provider-usage.js";
 
 describe("ProviderUsageService", () => {
+  it("V484 reports OpenCode Go usage only from local key observations", async () => {
+    const fetch = vi.fn();
+    const service = new ProviderUsageService({ fetch, includeCodex: false, now: fixedClock() });
+    const openCodeGo = {
+      ...userProvider("opencode-go", "OpenCode Go", "https://opencode.ai/zen/go/v1"),
+      runtimeKeyUsage: [
+        {
+          id: "primary",
+          label: "Key 1",
+          enabled: true,
+          status: "ready" as const,
+          requestCount: 2,
+          inputTokens: 100,
+          outputTokens: 25,
+          reasoningTokens: 0,
+          cachedInputTokens: 0,
+          totalTokens: 125,
+          lastUsedAt: "2026-07-12T11:00:00.000Z",
+        },
+      ],
+    };
+
+    const snapshot = await service.refresh(usageInventory(openCodeGo));
+
+    expect(fetch).not.toHaveBeenCalled();
+    expect(snapshot.providers).toEqual([
+      expect.objectContaining({
+        adapterId: "opencode_go_local",
+        status: "ready",
+        meters: [],
+        detail: expect.stringContaining("no official usage endpoint"),
+        keys: [expect.objectContaining({ id: "primary", requestCount: 2, totalTokens: 125 })],
+      }),
+    ]);
+  });
+
   it("queries DeepSeek and regional Kimi balances without exposing credentials", async () => {
     const fetch = vi.fn(async (url: string) => {
       if (url.includes("deepseek")) {
@@ -724,10 +760,10 @@ describe("ProviderUsageService", () => {
     expect(snapshot.providers.map((entry) => entry.status)).toEqual([
       "unsupported",
       "unsupported",
-      "unsupported",
+      "ready",
     ]);
     expect(snapshot.providers[1]?.detail).toContain("Claude Code");
-    expect(snapshot.providers[2]?.detail).toContain("no API-key quota endpoint");
+    expect(snapshot.providers[2]?.detail).toContain("no official usage endpoint");
   });
 
   it("isolates Provider failures and never returns secret-bearing errors", async () => {

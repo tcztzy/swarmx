@@ -43,7 +43,7 @@ describe("Session", () => {
     const session = createSession("agent", "swarmx", "gpt-4", {
       projectId: "project-1",
       cwd: "/workspace/project-1",
-      permissionMode: "trusted",
+      permissionMode: "auto",
     });
     savedIds.push(session.id);
     saveSession(session);
@@ -51,7 +51,7 @@ describe("Session", () => {
     expect(loadSession(session.id)).toMatchObject({
       projectId: "project-1",
       cwd: "/workspace/project-1",
-      permissionMode: "trusted",
+      permissionMode: "auto",
     });
   });
 

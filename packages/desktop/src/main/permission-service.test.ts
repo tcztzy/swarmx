@@ -137,6 +137,39 @@ describe("PermissionService", () => {
     ).resolves.toMatchObject({ policy: { mode: "plan" }, modeSourceIds: ["project"] });
   });
 
+  it("V463-V464 persists profile availability and safely degrades disabled modes", async () => {
+    const { service } = await fixture();
+    await service.savePersonalPolicy({
+      mode: "auto",
+      allowedTools: ["Write"],
+      deniedTools: ["Bash"],
+    });
+    await service.saveProfileAvailability({ default: true, auto: false, trusted: false });
+
+    const inherited = await service.status({
+      agentPolicy: { mode: "trusted", allowedTools: [], deniedTools: [] },
+      agentModeDeclared: false,
+    });
+    expect(inherited.profileAvailability).toEqual({
+      default: true,
+      auto: false,
+      trusted: false,
+    });
+    expect(inherited.personalPolicy).toMatchObject({
+      mode: "auto",
+      allowedTools: ["Write"],
+      deniedTools: ["Bash"],
+    });
+    expect(inherited.effective).toMatchObject({ policy: { mode: "plan" } });
+
+    await expect(
+      service.resolve({
+        agentPolicy: { mode: "trusted", allowedTools: [], deniedTools: [] },
+        sessionPermissionMode: "trusted",
+      }),
+    ).resolves.toMatchObject({ policy: { mode: "plan" }, modeSourceIds: ["session"] });
+  });
+
   it("V452 persists structured personal policy and sanitized newest-first receipts", async () => {
     const { service } = await fixture(undefined, {
       now: () => "2026-07-18T12:00:00.000Z",

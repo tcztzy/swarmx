@@ -1,6 +1,6 @@
 {
   "name": "@swarmx/core",
-  "version": "3.1.1",
+  "version": "3.1.2",
   "description": "Core SwarmX multi-agent runtime and platform contracts.",
   "license": "MIT",
   "type": "module",

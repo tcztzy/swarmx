@@ -1,0 +1,109 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+env:
+  CI: "true"
+
+jobs:
+  macos:
+    name: macOS ${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: arm64
+            runner: macos-15
+          - arch: x64
+            runner: macos-15-intel
+    steps:
+      - name: Check out tagged commit
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22.x
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@008330803749db0355799c700092d9a85fd074e9 # v6.0.9
+        with:
+          version: 11.13.1
+          cache: true
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Verify tag and package versions
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          node --input-type=module <<'NODE'
+          import { readFileSync } from "node:fs";
+
+          const manifests = [
+            "package.json",
+            "packages/core/package.json",
+            "packages/runtime/package.json",
+            "packages/acp-server/package.json",
+            "packages/cli/package.json",
+            "packages/desktop/package.json",
+            "packages/swarmx/package.json",
+          ];
+          const versions = manifests.map((path) => JSON.parse(readFileSync(path, "utf8")).version);
+          const expected = process.env.RELEASE_TAG?.replace(/^v/, "");
+          if (!expected || versions.some((version) => version !== expected)) {
+            throw new Error(`Tag/package version mismatch: ${process.env.RELEASE_TAG} vs ${versions.join(", ")}`);
+          }
+          NODE
+
+      - name: Build workspace
+        run: pnpm -r build
+
+      - name: Build macOS packages
+        env:
+          CSC_LINK: ${{ secrets.MACOS_CERTIFICATE }}
+          CSC_KEY_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          builder_args=(--arch ${{ matrix.arch }})
+          if [[ -n "$APPLE_ID" && -n "$APPLE_APP_SPECIFIC_PASSWORD" && -n "$APPLE_TEAM_ID" ]]; then
+            builder_args+=("--notarize")
+          fi
+          node packages/desktop/scripts/build-macos-artifacts.mjs "${builder_args[@]}"
+
+      - name: Upload macOS packages
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: macos-${{ matrix.arch }}
+          path: |
+            packages/desktop/release/*.dmg
+            packages/desktop/release/*.zip
+          if-no-files-found: error
+
+  github-release:
+    name: GitHub Release
+    needs: macos
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Download macOS packages
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          pattern: macos-*
+          path: release-artifacts
+          merge-multiple: true
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" release-artifacts/* --verify-tag --generate-notes --title "SwarmX ${GITHUB_REF_NAME#v}"

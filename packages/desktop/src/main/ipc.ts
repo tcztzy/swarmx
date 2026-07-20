@@ -75,10 +75,16 @@ import { type LspCompletionRequest, LspHost, type LspStopRequest } from "./lsp-h
 import {
   type ManualModelInput,
   ModelCatalogService,
+  type ProviderRuntimeCredentials,
   type UserProviderInput,
 } from "./model-catalog.js";
 import { PermissionService, type RecordPermissionDecisionInput } from "./permission-service.js";
 import { EncryptedFileProviderAuthStore } from "./provider-auth.js";
+import {
+  type ProviderKeyAttemptObservation,
+  ProviderKeyPoolRuntime,
+  ProviderKeyUsageStore,
+} from "./provider-key-pool.js";
 import {
   type ProviderUsageRefreshTarget,
   ProviderUsageService,
@@ -132,9 +138,16 @@ const providerAuthStore = new EncryptedFileProviderAuthStore({
 const codexAccessTokenProvider = new CodexAccessTokenResolver({
   refresh: () => queryCodexAppServerRequest("account/read", { refreshToken: true }),
 });
+const providerKeyUsageStore = new ProviderKeyUsageStore(
+  process.env.NODE_ENV === "test"
+    ? { path: path.join(tmpdir(), `swarmx-provider-key-usage-test-${process.pid}.json`) }
+    : {},
+);
+const providerKeyPoolRuntime = new ProviderKeyPoolRuntime(providerKeyUsageStore);
 const modelCatalog = new ModelCatalogService({
   authStore: providerAuthStore,
   codexAccessTokenProvider,
+  keyUsageStore: providerKeyUsageStore,
   settingsStore: desktopSettingsStore,
 });
 const customAgents = new CustomAgentService(desktopSettingsStore);
@@ -156,6 +169,33 @@ export interface RegisterIpcHandlersOptions {
 export interface AgentChunkSender {
   isDestroyed(): boolean;
   send(channel: string, payload: unknown): void;
+}
+
+async function executeWithProviderRuntime<T>(
+  runtime: ProviderRuntimeCredentials | undefined,
+  routingKey: string,
+  run: (
+    providerSecrets: Record<string, string>,
+    observation: ProviderKeyAttemptObservation,
+  ) => Promise<T>,
+): Promise<T> {
+  const idleObservation: ProviderKeyAttemptObservation = {
+    markOutput: () => undefined,
+    recordUsage: () => undefined,
+  };
+  if (!runtime?.pooled) {
+    const candidate = runtime?.candidates[0];
+    return run(
+      candidate && runtime ? { [runtime.providerId]: candidate.value } : {},
+      idleObservation,
+    );
+  }
+  return providerKeyPoolRuntime.execute({
+    providerId: runtime.providerId,
+    routingKey,
+    candidates: runtime.candidates,
+    run: (candidate, observation) => run({ [runtime.providerId]: candidate.value }, observation),
+  });
 }
 
 export function agentChunkPublisher(
@@ -396,9 +436,9 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
               });
             }
             assertCompositionSupplyReady(inventory, plan, process.env);
-            const providerSecrets = plan.modelSupplyId
-              ? await modelCatalog.runtimeSecretsForSupply(inventory, plan.modelSupplyId)
-              : {};
+            const providerRuntime = plan.modelSupplyId
+              ? await modelCatalog.runtimeCredentialsForSupply(inventory, plan.modelSupplyId)
+              : undefined;
             const protectedInventory = await protectCompositionHarness(inventory, plan.harnessId);
             const projectTools =
               cwd && compositionRuntimeHarnessId(inventory, plan) === "swarmx"
@@ -490,29 +530,36 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
                     sessionTools: sessionRuntime,
                     borrowShell: true,
                   };
-                  const messages = await executeAgentComposition(
-                    params.agentComposition,
-                    [
-                      {
-                        role: "system",
-                        content: projectAgentContextMessage(
-                          sessionRuntime.root,
-                          backgroundToolOptions,
-                        ),
-                      },
-                      ...sessionChatMessages(persisted),
-                    ],
-                    {
-                      inventory: protectedInventory,
-                      providerSecrets,
-                      cwd: sessionRuntime.root,
-                      acpPermissionHandler,
-                      localTools: workspaceAgentTools(
-                        backgroundTools,
-                        sessionRuntime.shell,
-                        backgroundToolOptions,
+                  const messages = await executeWithProviderRuntime(
+                    providerRuntime,
+                    `${sessionId}:background`,
+                    (providerSecrets, observation) =>
+                      executeAgentComposition(
+                        params.agentComposition,
+                        [
+                          {
+                            role: "system",
+                            content: projectAgentContextMessage(
+                              sessionRuntime.root,
+                              backgroundToolOptions,
+                            ),
+                          },
+                          ...sessionChatMessages(persisted),
+                        ],
+                        {
+                          inventory: protectedInventory,
+                          providerSecrets,
+                          cwd: sessionRuntime.root,
+                          acpPermissionHandler,
+                          localTools: workspaceAgentTools(
+                            backgroundTools,
+                            sessionRuntime.shell,
+                            backgroundToolOptions,
+                          ),
+                          onChunk: () => observation.markOutput(),
+                          onUsage: (usage) => observation.recordUsage(usage),
+                        },
                       ),
-                    },
                   );
                   assertFinalAssistantMessage(messages);
                   if (!appendMessages(sessionId, messages)) {
@@ -593,17 +640,22 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
                         : {}),
                     };
                     const childUsages: ModelTokenUsage[] = [];
-                    const messages = await executeAgentComposition(
-                      params.agentComposition,
-                      childMessages,
-                      {
-                        inventory: protectedInventory,
-                        providerSecrets,
-                        cwd: root,
-                        acpPermissionHandler,
-                        localTools: workspaceAgentTools(childTools, undefined, childToolOptions),
-                        onUsage: (usage) => childUsages.push(usage),
-                      },
+                    const messages = await executeWithProviderRuntime(
+                      providerRuntime,
+                      `${params.sessionId ?? params.requestId}:agent:${agentId}`,
+                      (providerSecrets, observation) =>
+                        executeAgentComposition(params.agentComposition, childMessages, {
+                          inventory: protectedInventory,
+                          providerSecrets,
+                          cwd: root,
+                          acpPermissionHandler,
+                          localTools: workspaceAgentTools(childTools, undefined, childToolOptions),
+                          onChunk: () => observation.markOutput(),
+                          onUsage: (usage) => {
+                            childUsages.push(usage);
+                            observation.recordUsage(usage);
+                          },
+                        }),
                     );
                     return { messages, usages: childUsages };
                   },
@@ -623,41 +675,52 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
             const sessionMessages = params.sessionId
               ? sessionChatMessages(loadSession(params.sessionId))
               : [];
-            const messages = await executeAgentComposition(
-              params.agentComposition,
-              [
-                ...(projectTools
-                  ? [
-                      {
-                        role: "system" as const,
-                        content: projectAgentContextMessage(
-                          cwd ?? desktopWorkspaceRoot,
-                          workspaceToolOptions,
-                        ),
-                      },
-                    ]
-                  : []),
-                ...(sessionMessages.length > 0
-                  ? sessionMessages
-                  : [{ role: "user" as const, content: params.userText }]),
-              ],
-              {
-                inventory: protectedInventory,
-                providerSecrets,
-                cwd,
-                acpPermissionHandler,
-                ...(projectTools
-                  ? {
-                      localTools: workspaceAgentTools(
-                        projectTools,
-                        sessionRuntime?.shell,
-                        workspaceToolOptions,
-                      ),
-                    }
-                  : {}),
-                onChunk,
-                onUsage: (usage) => tokenUsages.push(usage),
-              },
+            const messages = await executeWithProviderRuntime(
+              providerRuntime,
+              params.sessionId ?? params.requestId,
+              (providerSecrets, observation) =>
+                executeAgentComposition(
+                  params.agentComposition,
+                  [
+                    ...(projectTools
+                      ? [
+                          {
+                            role: "system" as const,
+                            content: projectAgentContextMessage(
+                              cwd ?? desktopWorkspaceRoot,
+                              workspaceToolOptions,
+                            ),
+                          },
+                        ]
+                      : []),
+                    ...(sessionMessages.length > 0
+                      ? sessionMessages
+                      : [{ role: "user" as const, content: params.userText }]),
+                  ],
+                  {
+                    inventory: protectedInventory,
+                    providerSecrets,
+                    cwd,
+                    acpPermissionHandler,
+                    ...(projectTools
+                      ? {
+                          localTools: workspaceAgentTools(
+                            projectTools,
+                            sessionRuntime?.shell,
+                            workspaceToolOptions,
+                          ),
+                        }
+                      : {}),
+                    onChunk: (chunk) => {
+                      observation.markOutput();
+                      onChunk(chunk);
+                    },
+                    onUsage: (usage) => {
+                      tokenUsages.push(usage);
+                      observation.recordUsage(usage);
+                    },
+                  },
+                ),
             );
             assertFinalAssistantMessage(messages);
             return { success: true, messages };
@@ -946,16 +1009,19 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
         };
         const plan = resolveAgentCompositionPlan(composition, inventory);
         assertCompositionSupplyReady(inventory, plan, process.env);
-        const providerSecrets = plan.modelSupplyId
-          ? await modelCatalog.runtimeSecretsForSupply(inventory, plan.modelSupplyId)
-          : {};
-        const messages = await executeAgentComposition(
-          composition,
-          sessionTitleMessages(params.userText),
-          {
-            inventory,
-            providerSecrets,
-          },
+        const providerRuntime = plan.modelSupplyId
+          ? await modelCatalog.runtimeCredentialsForSupply(inventory, plan.modelSupplyId)
+          : undefined;
+        const messages = await executeWithProviderRuntime(
+          providerRuntime,
+          `${session.id}:title`,
+          (providerSecrets, observation) =>
+            executeAgentComposition(composition, sessionTitleMessages(params.userText), {
+              inventory,
+              providerSecrets,
+              onChunk: () => observation.markOutput(),
+              onUsage: (usage) => observation.recordUsage(usage),
+            }),
         );
         const title = generatedSessionTitle(messages);
         const latest = loadSession(params.id);
@@ -1067,6 +1133,28 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
       params: { cwd?: string; agentId?: string; agentPolicy?: unknown; policy: unknown },
     ) => {
       await permissionService.savePersonalPolicy(params.policy);
+      return permissionService.status({
+        cwd: await normalizeWorkingDirectory(params.cwd),
+        ...(params.agentId ? { agentId: params.agentId } : {}),
+        ...(params.agentPolicy
+          ? { agentPolicy: HarnessPermissionPolicySchema.parse(params.agentPolicy) }
+          : {}),
+      });
+    },
+  );
+
+  ipcMain.handle(
+    "permission:saveProfiles",
+    async (
+      _event: IpcMainInvokeEvent,
+      params: {
+        cwd?: string;
+        agentId?: string;
+        agentPolicy?: unknown;
+        profileAvailability: unknown;
+      },
+    ) => {
+      await permissionService.saveProfileAvailability(params.profileAvailability);
       return permissionService.status({
         cwd: await normalizeWorkingDirectory(params.cwd),
         ...(params.agentId ? { agentId: params.agentId } : {}),
@@ -1256,6 +1344,16 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
       const inventory = await loadDesktopExtensionInventory();
       return extensionInventoryWithPlans(
         await modelCatalog.removeProvider(inventory, params.providerId),
+      );
+    },
+  );
+
+  ipcMain.handle(
+    "modelCatalog:resetProviderKey",
+    async (_event: IpcMainInvokeEvent, params: { providerId: string; keyId: string }) => {
+      const inventory = await loadDesktopExtensionInventory();
+      return extensionInventoryWithPlans(
+        await modelCatalog.resetProviderKey(inventory, params.providerId, params.keyId),
       );
     },
   );
