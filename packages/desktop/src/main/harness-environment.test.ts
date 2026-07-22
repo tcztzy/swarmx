@@ -34,6 +34,7 @@ describe("HarnessEnvironmentService", () => {
         command === "node" ||
         command === "claude" ||
         command === "codex" ||
+        command === "pi" ||
         command === "container" ||
         command === "openclaw"
           ? `/Users/test/bin/${command}`
@@ -45,6 +46,9 @@ describe("HarnessEnvironmentService", () => {
         }
         if (program.endsWith("/codex")) {
           return { exitCode: 0, stdout: "codex-cli 0.69.0\n", stderr: "" };
+        }
+        if (program.endsWith("/pi")) {
+          return { exitCode: 0, stdout: "0.80.10\n", stderr: "" };
         }
         if (program.endsWith("/openclaw")) {
           return { exitCode: 0, stdout: "2026.6.11\n", stderr: "" };
@@ -87,6 +91,12 @@ describe("HarnessEnvironmentService", () => {
           requiredBy: ["codex"],
         }),
         expect.objectContaining({
+          id: "pi",
+          status: "ready",
+          version: "0.80.10",
+          requiredBy: ["pi"],
+        }),
+        expect.objectContaining({
           id: "opencode",
           status: "missing",
           installable: true,
@@ -116,8 +126,16 @@ describe("HarnessEnvironmentService", () => {
     );
     expect(status.harnesses).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ harnessId: "swarmx", status: "ready", version: "3.1.2" }),
+        expect.objectContaining({ harnessId: "swarmx", status: "ready", version: "3.1.3" }),
         expect.objectContaining({ harnessId: "codex", status: "ready", version: "0.69.0" }),
+        expect.objectContaining({
+          harnessId: "pi",
+          status: "ready",
+          version: "0.80.10",
+          executionMode: "native",
+          protectionRequired: false,
+          note: expect.stringContaining("owned by Pi"),
+        }),
         expect.objectContaining({
           harnessId: "opencode",
           status: "needs_setup",
@@ -334,6 +352,58 @@ describe("HarnessEnvironmentService", () => {
     );
     expect(result.status.harnesses).toEqual(
       expect.arrayContaining([expect.objectContaining({ harnessId: "codex", status: "ready" })]),
+    );
+  });
+
+  it("V495 installs the official Pi CLI only through confirmed Runtime setup", async () => {
+    let piInstalled = false;
+    const runCommand = vi.fn(async (program: string, args: string[]) => {
+      if (
+        program === "bash" &&
+        args
+          .join(" ")
+          .includes("npm install --global --ignore-scripts @earendil-works/pi-coding-agent")
+      ) {
+        piInstalled = true;
+        return { exitCode: 0, stdout: "pi installed\n", stderr: "" };
+      }
+      if (program.endsWith("/pi")) {
+        return { exitCode: 0, stdout: "0.80.10\n", stderr: "" };
+      }
+      return { exitCode: 0, stdout: "v22.19.0\n", stderr: "" };
+    });
+    const service = new HarnessEnvironmentService({
+      env: { PATH: "/usr/bin" },
+      platform: "linux",
+      protectionMode: "native",
+      homeDir: "/Users/test",
+      findExecutable: async (command) => {
+        if (command === "node") return "/usr/bin/node";
+        if (command === "pi" && piInstalled) return "/Users/test/.npm-global/bin/pi";
+        return null;
+      },
+      runCommand,
+    });
+
+    const result = await service.setup({ harnessId: "pi" });
+
+    expect(result.success).toBe(true);
+    expect(result.installedRequirementIds).toEqual(["pi"]);
+    expect(result.failedRequirementIds).toEqual([]);
+    expect(runCommand).toHaveBeenCalledWith(
+      "bash",
+      ["-lc", "npm install --global --ignore-scripts @earendil-works/pi-coding-agent"],
+      expect.objectContaining({ timeoutMs: 900000 }),
+    );
+    expect(result.status.harnesses).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          harnessId: "pi",
+          status: "ready",
+          version: "0.80.10",
+          executionMode: "native",
+        }),
+      ]),
     );
   });
 

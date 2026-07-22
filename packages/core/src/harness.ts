@@ -30,6 +30,7 @@ export interface HarnessConfig {
 
 const CODEX_ACP_VERSION = "1.1.2";
 const CLAUDE_AGENT_ACP_VERSION = "0.58.1";
+const PI_ACP_VERSION = "0.0.31";
 const CLAUDE_DEEPSEEK_PRO_MODEL = "deepseek-v4-pro[1m]";
 const CLAUDE_DEEPSEEK_FLASH_MODEL = "deepseek-v4-flash";
 
@@ -69,6 +70,33 @@ export const HARNESSES: Record<string, HarnessConfig> = {
       type: "custom",
       program: "npx",
       args: ["--yes", `@agentclientprotocol/codex-acp@${CODEX_ACP_VERSION}`],
+    },
+  },
+  pi: {
+    label: "Pi",
+    icon: "pi",
+    modelControl: "session",
+    modelCompatibility: "any",
+    supportedModelApis: ["anthropic", "openai_chat", "openai_responses", "ollama"],
+    requiresExplicitModelRoute: true,
+    passthroughEnv: [
+      "PATH",
+      "HOME",
+      "LANG",
+      "USER",
+      "SHELL",
+      "TERM",
+      "PI_CODING_AGENT_DIR",
+      "PI_CODING_AGENT_SESSION_DIR",
+      "PI_PACKAGE_DIR",
+      "PI_OFFLINE",
+      "PI_SKIP_VERSION_CHECK",
+      "PI_CACHE_RETENTION",
+    ],
+    backend: {
+      type: "custom",
+      program: "npx",
+      args: ["--yes", `pi-acp@${PI_ACP_VERSION}`],
     },
   },
   opencode: {

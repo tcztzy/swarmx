@@ -1259,6 +1259,7 @@ const HARNESSES: HarnessOption[] = [
   { id: "swarmx", label: "SwarmX", icon: Workflow, modelControl: "direct" },
   { id: "claude_code", label: "Claude Code", icon: Hammer, modelControl: "session" },
   { id: "codex", label: "Codex", icon: TerminalIcon, modelControl: "session" },
+  { id: "pi", label: "Pi", icon: Bot, modelControl: "session" },
   { id: "opencode", label: "OpenCode", icon: Code2, modelControl: "session" },
   { id: "hermes", label: "Hermes", icon: Sparkles, modelControl: "session" },
   {
@@ -11977,6 +11978,7 @@ function harnessIdFromBackend(backend: unknown): string {
   const commandLine = [program, ...args].join(" ");
   if (commandLine.includes("@agentclientprotocol/codex-acp")) return "codex";
   if (commandLine.includes("@agentclientprotocol/claude-agent-acp")) return "claude_code";
+  if (commandLine.includes("pi-acp")) return "pi";
 
   return type || program || "custom";
 }

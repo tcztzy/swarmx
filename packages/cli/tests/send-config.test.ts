@@ -36,4 +36,25 @@ describe("send command composition", () => {
       /does not support request-scoped model selection/,
     );
   });
+
+  it("V494 sends a provider-prefixed Pi Model through the pinned ACP adapter", () => {
+    const config = createSendSwarmConfig({
+      harnessId: "pi",
+      model: "anthropic/claude-sonnet-4-20250514",
+      effort: "high",
+    });
+
+    expect(config.nodes.agent).toEqual({
+      kind: "agent",
+      agent: expect.objectContaining({
+        model: "anthropic/claude-sonnet-4-20250514",
+        backend: {
+          type: "custom",
+          program: "npx",
+          args: ["--yes", "pi-acp@0.0.31"],
+        },
+        parameters: { reasoning: { effort: "high" } },
+      }),
+    });
+  });
 });

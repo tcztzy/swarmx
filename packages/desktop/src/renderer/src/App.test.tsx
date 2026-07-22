@@ -2279,6 +2279,36 @@ describe("App user workflow", () => {
     expect(document.querySelector('[data-harness-icon-fallback="codex"]')).not.toBeNull();
   });
 
+  it("V497 exposes Pi as a session Harness with its packaged icon", async () => {
+    const api = createDesktopApiMock();
+    const inventory = await api.listExtensions();
+    api.listExtensions.mockResolvedValue({
+      ...inventory,
+      harnesses: [
+        ...inventory.harnesses,
+        {
+          id: "pi",
+          label: "Pi",
+          modelControl: "session",
+          modelCompatibility: "any",
+          supportedModelApis: ["anthropic", "openai_chat", "openai_responses", "ollama"],
+          requiresExplicitModelRoute: true,
+          software: { name: "pi-acp", version: "0.0.31" },
+        },
+      ],
+    });
+    await renderApp(api);
+    const user = userEvent.setup();
+
+    await user.click(await screen.findByRole("button", { name: "Choose agent" }));
+    await user.click(screen.getByRole("menuitem", { name: /^Harness/ }));
+
+    expect(screen.getByRole("menuitemradio", { name: "Pi" })).toBeTruthy();
+    expect(
+      document.querySelector<HTMLImageElement>('[data-harness-icon="pi"]')?.getAttribute("src"),
+    ).toMatch(/^data:image\/svg\+xml/);
+  });
+
   it("resets a failed packaged icon when the selected harness changes", async () => {
     const api = createDesktopApiMock();
     const inventory = await api.listExtensions();
@@ -2822,6 +2852,7 @@ describe("App user workflow", () => {
 
   it("renders harnesses while versions load and refreshes only the clicked version", async () => {
     const environment = readyHarnessEnvironment();
+    const harnessCount = environment.harnesses.length;
     const reportGate = deferred<ReturnType<typeof doctorReport>>();
     const versionGate = deferred<void>();
     const api = createDesktopApiMock({
@@ -2841,7 +2872,7 @@ describe("App user workflow", () => {
     await user.type(screen.getByRole("textbox"), "/doctor{Enter}");
 
     expect(await screen.findByRole("heading", { name: "Harnesses" })).toBeTruthy();
-    expect(document.querySelectorAll(".doctor-harness")).toHaveLength(6);
+    expect(document.querySelectorAll(".doctor-harness")).toHaveLength(harnessCount);
     expect(screen.getByLabelText("Checking Codex version")).toBeTruthy();
     expect(screen.getByText("Checking environment")).toBeTruthy();
 
@@ -2851,15 +2882,15 @@ describe("App user workflow", () => {
       name: "Check Codex version again",
     });
     expect(codexVersion.textContent).toBe("0.69.0");
-    expect(api.getHarnessVersion).toHaveBeenCalledTimes(6);
+    expect(api.getHarnessVersion).toHaveBeenCalledTimes(harnessCount);
 
     await user.click(screen.getByRole("button", { name: "Close Doctor" }));
     await user.type(screen.getByRole("textbox"), "/doctor{Enter}");
     await screen.findByRole("button", { name: "Check Codex version again" });
-    expect(api.getHarnessVersion).toHaveBeenCalledTimes(6);
+    expect(api.getHarnessVersion).toHaveBeenCalledTimes(harnessCount);
 
     await user.click(screen.getByRole("button", { name: "Check Codex version again" }));
-    await waitFor(() => expect(api.getHarnessVersion).toHaveBeenCalledTimes(7));
+    await waitFor(() => expect(api.getHarnessVersion).toHaveBeenCalledTimes(harnessCount + 1));
     expect(api.getHarnessVersion).toHaveBeenLastCalledWith({
       harnessId: "codex",
       refresh: true,
@@ -2867,6 +2898,7 @@ describe("App user workflow", () => {
   });
 
   it("shows unavailable optional harnesses without global repairs", async () => {
+    const harnessCount = readyHarnessEnvironment().harnesses.length;
     const before = doctorReport(missingHarnessEnvironment());
     const legacyBefore = {
       ...before,
@@ -2913,7 +2945,7 @@ describe("App user workflow", () => {
     expect(screen.queryByRole("heading", { name: "Diagnostics" })).toBeNull();
     expect(screen.getByText("0.69.0").classList.contains("badge--active")).toBe(true);
     expect(screen.queryByText("Built in.")).toBeNull();
-    expect(document.querySelectorAll(".doctor-harness__icon")).toHaveLength(6);
+    expect(document.querySelectorAll(".doctor-harness__icon")).toHaveLength(harnessCount);
     expect(document.querySelector(".doctor-harness [data-harness-icon='codex']")).not.toBeNull();
     expect(
       screen.queryByText("Apple Container must be installed and its system service started."),
@@ -3922,6 +3954,16 @@ function readyHarnessEnvironment() {
         version: "0.69.0",
       },
       {
+        id: "pi",
+        label: "Pi coding agent",
+        command: "pi",
+        status: "ready",
+        installable: true,
+        requiredBy: ["pi"],
+        path: "/Users/test/.npm-global/bin/pi",
+        version: "0.80.10",
+      },
+      {
         id: "opencode",
         label: "OpenCode CLI",
         command: "opencode",
@@ -3990,6 +4032,19 @@ function readyHarnessEnvironment() {
         executionMode: "protected",
         protectionRequired: true,
         containerRuntimeId: "apple_container",
+      },
+      {
+        harnessId: "pi",
+        harnessLabel: "Pi",
+        command: "pi",
+        installable: true,
+        path: "/Users/test/.npm-global/bin/pi",
+        version: "0.80.10",
+        status: "ready",
+        requirements: ["pi"],
+        executionMode: "native",
+        protectionRequired: false,
+        note: "Runs natively; provider login, settings, and sessions remain owned by Pi.",
       },
       {
         harnessId: "opencode",

@@ -177,6 +177,7 @@ const HARNESS_REQUIREMENTS: Record<string, string[]> = {
   swarmx: [],
   claude_code: ["claude_code"],
   codex: ["codex"],
+  pi: ["pi"],
   opencode: ["opencode"],
   hermes: ["hermes"],
   openclaw: ["openclaw"],
@@ -186,6 +187,7 @@ const HARNESS_VERSION_COMMANDS: Record<string, string> = {
   swarmx: "swarmx",
   claude_code: "claude",
   codex: "codex",
+  pi: "pi",
   opencode: "opencode",
   hermes: "hermes",
   openclaw: "openclaw",
@@ -218,6 +220,20 @@ const REQUIREMENTS: RequirementDefinition[] = [
     versionArgs: ["--version"],
     installers: {
       default: { script: "npm install --global @openai/codex" },
+    },
+  },
+  {
+    id: "pi",
+    label: "Pi coding agent",
+    command: "pi",
+    versionArgs: ["--version"],
+    notes: {
+      default: "Requires Node.js 22.19 or newer; configure provider login with Pi itself.",
+    },
+    installers: {
+      default: {
+        script: "npm install --global --ignore-scripts @earendil-works/pi-coding-agent",
+      },
     },
   },
   {
@@ -424,11 +440,13 @@ export class HarnessEnvironmentService {
         note:
           harnessId === "openclaw"
             ? "CLI ready; a configured and reachable OpenClaw Gateway is also required."
-            : harnessId === "opencode" || harnessId === "hermes"
-              ? "Runs natively so the installed CLI and user configuration remain available."
-              : requirementIds.length === 0
-                ? "Built in."
-                : undefined,
+            : harnessId === "pi"
+              ? "Runs natively; provider login, settings, and sessions remain owned by Pi."
+              : harnessId === "opencode" || harnessId === "hermes"
+                ? "Runs natively so the installed CLI and user configuration remain available."
+                : requirementIds.length === 0
+                  ? "Built in."
+                  : undefined,
       } satisfies HarnessEnvironmentHarness;
     });
 
@@ -525,6 +543,7 @@ export class HarnessEnvironmentService {
     const commandLine = [backend.program, ...(backend.args ?? [])].join(" ");
     if (commandLine.includes("@agentclientprotocol/codex-acp")) return "codex";
     if (commandLine.includes("@agentclientprotocol/claude-agent-acp")) return "claude_code";
+    if (commandLine.includes("pi-acp")) return "pi";
     if (backend.program === "opencode") return "opencode";
     if (backend.program === "hermes") return "hermes";
     if (backend.program === "openclaw") return "openclaw";

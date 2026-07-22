@@ -228,4 +228,18 @@ describe("npm launcher cold start", () => {
     expect(workflow).toContain('hdiutil verify "${artifact_base}.dmg"');
     expect(workflow).toContain('unzip -tq "${artifact_base}.zip"');
   });
+
+  it("V500 names the pnpm release gate without invoking the reserved ci command", () => {
+    const rootManifest = JSON.parse(
+      readFileSync(new URL("../../../package.json", import.meta.url), "utf8"),
+    ) as { scripts: Record<string, string> };
+    const inspectReadme = readFileSync(
+      new URL("../../../evals/inspect/README.md", import.meta.url),
+      "utf8",
+    );
+
+    expect(rootManifest.scripts.ci).toBe("pnpm run ci:node && pnpm run ci:inspect");
+    expect(inspectReadme).toContain("pnpm run ci");
+    expect(inspectReadme).not.toContain("`pnpm ci`");
+  });
 });

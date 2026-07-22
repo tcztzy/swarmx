@@ -15,15 +15,18 @@ Feather-derived subset under MIT; the complete bundled notice is at
 
 ## Agent Client Protocol registry icons
 
-The Claude Agent ACP, Codex, and OpenCode SVG markup is copied verbatim from
-`agentclientprotocol/registry` commit
-`c47300d575354b69c348bd0ed77265bb9a698336`:
+The Claude Agent ACP, Codex, OpenCode, and Pi ACP SVG markup is copied verbatim
+from `agentclientprotocol/registry` at the listed commits:
 
-- `claude-acp/icon.svg`
-- `codex-acp/icon.svg`
-- `opencode/icon.svg`
+- `claude-acp/icon.svg` at commit `c47300d575354b69c348bd0ed77265bb9a698336`
+- `codex-acp/icon.svg` at commit `c47300d575354b69c348bd0ed77265bb9a698336`
+- `opencode/icon.svg` at commit `c47300d575354b69c348bd0ed77265bb9a698336`
+- `pi-acp/icon.svg` at commit `01aca4c6e97dc0f84bf8e9b3529d4261cfdd2c84`
 
-Source: <https://github.com/agentclientprotocol/registry/tree/c47300d575354b69c348bd0ed77265bb9a698336>
+Sources:
+
+- <https://github.com/agentclientprotocol/registry/tree/c47300d575354b69c348bd0ed77265bb9a698336>
+- <https://github.com/agentclientprotocol/registry/tree/01aca4c6e97dc0f84bf8e9b3529d4261cfdd2c84/pi-acp>
 
 License: Apache License 2.0. The complete upstream license is included at
 `third_party_licenses/ACP_REGISTRY_APACHE-2.0.txt`.

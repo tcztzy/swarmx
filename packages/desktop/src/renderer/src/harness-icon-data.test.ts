@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { PACKAGED_HARNESS_ICON_URLS } from "./harness-icon-data.js";
 
-const ICON_IDS = ["claude_code", "codex", "hermes", "opencode"] as const;
+const ICON_IDS = ["claude_code", "codex", "hermes", "opencode", "pi"] as const;
 
 describe("packaged harness icons", () => {
   it.each(ICON_IDS)("embeds the revisioned %s SVG source", (harnessId) => {
