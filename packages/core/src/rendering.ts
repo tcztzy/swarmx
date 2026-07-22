@@ -211,7 +211,11 @@ export function normalizeMessageChunks(
 
 function defaultStatusForChunk(chunk: MessageChunk): RenderEventStatus {
   if (chunk.kind === "tool_call") return "running";
-  if (chunk.kind === "tool_result") return looksLikeFailure(chunk.content) ? "failed" : "succeeded";
+  if (chunk.kind === "tool_result") {
+    const structuredFailure = explicitFailureStatus(chunk.structuredContent);
+    if (structuredFailure !== undefined) return structuredFailure ? "failed" : "succeeded";
+    return looksLikeFailure(chunk.content) ? "failed" : "succeeded";
+  }
   return "completed";
 }
 
@@ -251,12 +255,36 @@ function looksLikeFailure(content: string): boolean {
   if (!trimmed) return false;
   try {
     const parsed = JSON.parse(trimmed);
-    if (!isObjectRecord(parsed)) return false;
-    const status = typeof parsed.status === "string" ? parsed.status.toLowerCase() : "";
-    return status === "failed" || status === "error" || "error" in parsed;
+    return explicitFailureStatus(parsed) ?? false;
   } catch {
     return /\b(error|failed|exception)\b/i.test(trimmed);
   }
+}
+
+function explicitFailureStatus(payload: unknown): boolean | undefined {
+  if (!isObjectRecord(payload)) return undefined;
+
+  const status = typeof payload.status === "string" ? payload.status.toLowerCase() : "";
+  if (["failed", "error", "canceled", "cancelled", "declined"].includes(status)) return true;
+  if (["succeeded", "success", "completed", "complete", "ok", "skipped"].includes(status)) {
+    return false;
+  }
+
+  const isError = payload.isError ?? payload.is_error;
+  if (typeof isError === "boolean") return isError;
+  if (typeof payload.failed === "boolean") return payload.failed;
+
+  const exitCode = payload.exit_code ?? payload.exitCode;
+  if (typeof exitCode === "number" && Number.isFinite(exitCode)) return exitCode !== 0;
+  if (typeof exitCode === "string" && /^-?\d+$/.test(exitCode.trim())) {
+    return Number.parseInt(exitCode, 10) !== 0;
+  }
+
+  if ("error" in payload) {
+    const error = payload.error;
+    return error !== undefined && error !== null && error !== false && error !== "";
+  }
+  return undefined;
 }
 
 function deterministicRenderEventId(input: unknown): string {

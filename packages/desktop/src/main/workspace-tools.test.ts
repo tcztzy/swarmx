@@ -1339,6 +1339,14 @@ Session=\${CLAUDE_SESSION_ID}
           chunk_id: expect.any(String),
           wall_time_seconds: expect.any(Number),
         });
+        expect(terminal.isError).toBe(false);
+
+        const failed = (await execCommand.call({
+          cmd: "exit 7",
+          yield_time_ms: 2_000,
+        })) as LocalToolResult;
+        expect(failed.structuredContent).toMatchObject({ exit_code: 7 });
+        expect(failed.isError).toBe(true);
       } finally {
         await execCommand.dispose?.();
       }

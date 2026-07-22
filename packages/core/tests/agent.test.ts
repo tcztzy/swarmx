@@ -548,6 +548,13 @@ describe("Agent", () => {
       },
     });
     expect(applyPatch).toHaveBeenCalledWith(patch);
+    expect(result.messages).toContainEqual(
+      expect.objectContaining({
+        kind: "tool_result",
+        toolName: "apply_patch",
+        render: { status: "succeeded" },
+      }),
+    );
     expect(create.mock.calls[1]?.[0]?.input).toContainEqual({
       type: "custom_tool_call_output",
       call_id: "call_apply_patch",
@@ -1417,6 +1424,7 @@ describe("Agent", () => {
           kind: "tool_result",
           content: "chat model text",
           structuredContent: { result: "structured" },
+          render: { status: "succeeded" },
         }),
       ]),
     );

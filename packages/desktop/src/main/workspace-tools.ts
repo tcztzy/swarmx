@@ -3521,7 +3521,9 @@ function codexExecToolResult(result: WorkspaceShellExecResult) {
     "Output:",
     result.output,
   ];
-  return localToolResult(sections.join("\n"), structuredContent);
+  return localToolResult(sections.join("\n"), structuredContent, {
+    isError: result.exitCode !== undefined && result.exitCode !== 0,
+  });
 }
 
 function formatCodexPatchResult(result: WorkspacePatchResult): string {

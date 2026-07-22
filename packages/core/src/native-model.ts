@@ -116,6 +116,7 @@ export async function callOpenAIResponses(
         name,
         result.output,
         result.structuredContent,
+        result.failed,
       );
       onChunk?.(toolResultChunk);
       allChunks.push(toolResultChunk);
@@ -191,6 +192,7 @@ export async function callAnthropicMessages(
         call.name,
         result.output,
         result.structuredContent,
+        result.failed,
       );
       onChunk?.(toolResultChunk);
       allChunks.push(toolResultChunk);
@@ -640,6 +642,7 @@ function toolResultMessage(
   toolName: string,
   content: string,
   structuredContent?: unknown,
+  failed = false,
 ): MessageChunk {
   return {
     role: "tool",
@@ -647,6 +650,7 @@ function toolResultMessage(
     kind: "tool_result",
     toolName,
     agent,
+    render: { status: failed ? "failed" : "succeeded" },
     ...(structuredContent === undefined ? {} : { structuredContent }),
   };
 }

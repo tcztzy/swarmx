@@ -990,6 +990,7 @@ V497: Desktop and extension inventory expose Pi as a selectable Harness, Runtime
 V498: Documentation states Pi owns provider login, settings, Skills/extensions, tools, and session files; `pi-acp` streams messages/tool events and loads sessions but does not delegate filesystem/terminal calls, wire client MCP servers into Pi, expose a separate thought stream, or add permission prompts.
 V499: Harness inventory UI tests derive expected rows and version checks from their supplied Harness fixture or assert stable ids; adding one built-in Harness must not require unrelated fixed-count rewrites.
 V500: Root release verification uses `pnpm run ci`; tracked runbooks and examples never prescribe bare `pnpm ci`, which pnpm 10 reserves as an unimplemented built-in command.
+V501: Tool-result rendering derives terminal status from explicit `render.status`/`isError` and structured `status` or `exit_code` before textual fallback; stdout containing words such as `error`, `failed`, or `exception` cannot turn `exit_code: 0` into failure, and a nonzero exit code cannot render as success across native Responses, Anthropic, or Chat paths.
 
 ## §T
 |id|status|task|cites|
@@ -1333,3 +1334,4 @@ V500: Root release verification uses `pnpm run ci`; tracked runbooks and example
 |B127|2026-07-20|the checkout-free Release job invoked GitHub CLI without an explicit repository, so both architecture artifacts uploaded successfully but final Release creation failed while trying to inspect absent local Git metadata|V492|
 |B128|2026-07-21|two Runtime renderer tests hard-coded six Harness rows, so valid Pi registry expansion failed while product behavior and the new Pi test passed|V499|
 |B129|2026-07-22|release verification repeated B98 by invoking pnpm 10's unimplemented `pnpm ci` built-in instead of the root package script|V500|
+|B130|2026-07-22|native tool chunks discarded their explicit error bit and render normalization scanned ordinary stdout for failure words without first honoring structured exit status, so successful source-inspection commands displayed as failed|V501|

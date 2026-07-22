@@ -169,6 +169,34 @@ describe("normalized render events", () => {
     expect(textual.output).toEqual({ text: "Command failed with exit code 1" });
   });
 
+  it("V501 prioritizes structured exit status over ordinary output text", () => {
+    const succeeded = normalizeMessageChunk({
+      role: "tool",
+      kind: "tool_result",
+      content: "Process exited with code 0\nOutput:\nFailed telemetry sends",
+      structuredContent: {
+        exit_code: 0,
+        output: "Failed telemetry sends",
+      },
+      agent: "runner",
+      toolName: "exec_command",
+    });
+    const failed = normalizeMessageChunk({
+      role: "tool",
+      kind: "tool_result",
+      content: "Process exited with code 7\nOutput:\nNo diagnostic text",
+      structuredContent: {
+        exit_code: 7,
+        output: "No diagnostic text",
+      },
+      agent: "runner",
+      toolName: "exec_command",
+    });
+
+    expect(succeeded.status).toBe("succeeded");
+    expect(failed.status).toBe("failed");
+  });
+
   it("V363 renders structured tool content instead of model-facing text", () => {
     const event = normalizeMessageChunk({
       role: "tool",

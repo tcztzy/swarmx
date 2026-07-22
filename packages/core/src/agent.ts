@@ -309,16 +309,19 @@ export class Agent {
 
             let toolResult: string;
             let structuredContent: unknown;
+            let toolFailed = false;
             try {
               throwIfCurrentRequestCancelled();
               const result = await this.getMcp().callTool(toolName, toolArgs);
               throwIfCurrentRequestCancelled();
               toolResult = result.content;
               structuredContent = result.structuredContent;
+              toolFailed = result.isError;
             } catch (e) {
               throwIfCurrentRequestCancelled();
               structuredContent = { error: e instanceof Error ? e.message : String(e) };
               toolResult = JSON.stringify(structuredContent);
+              toolFailed = true;
             }
 
             allChunks.push({
@@ -327,6 +330,7 @@ export class Agent {
               kind: "tool_result",
               toolName,
               agent: this.name,
+              render: { status: toolFailed ? "failed" : "succeeded" },
               ...(structuredContent === undefined ? {} : { structuredContent }),
             });
 
@@ -526,16 +530,19 @@ export class Agent {
 
             let toolResult: string;
             let structuredContent: unknown;
+            let toolFailed = false;
             try {
               throwIfCurrentRequestCancelled();
               const result = await this.getMcp().callTool(tc.function.name, toolArgs);
               throwIfCurrentRequestCancelled();
               toolResult = result.content;
               structuredContent = result.structuredContent;
+              toolFailed = result.isError;
             } catch (e) {
               throwIfCurrentRequestCancelled();
               structuredContent = { error: e instanceof Error ? e.message : String(e) };
               toolResult = JSON.stringify(structuredContent);
+              toolFailed = true;
             }
 
             const trChunk: MessageChunk = {
@@ -544,6 +551,7 @@ export class Agent {
               kind: "tool_result",
               toolName: tc.function.name,
               agent: this.name,
+              render: { status: toolFailed ? "failed" : "succeeded" },
               ...(structuredContent === undefined ? {} : { structuredContent }),
             };
             onChunk(trChunk);
