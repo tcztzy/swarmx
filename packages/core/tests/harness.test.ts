@@ -18,7 +18,7 @@ describe("harness registry", () => {
     expect(getHarness("swarmx")).not.toHaveProperty("modelSelection");
   });
 
-  it.each(["claude_code", "codex", "opencode", "hermes"])(
+  it.each(["claude_code", "codex", "pi", "opencode", "hermes"])(
     "%s exposes request-scoped ACP session model control",
     (id) => {
       expect(getHarness(id)).toMatchObject({
@@ -28,13 +28,21 @@ describe("harness registry", () => {
     },
   );
 
-  it("V309 launches built-in ACP adapters through Node.js npx instead of Bun", () => {
-    for (const harnessId of ["claude_code", "codex"]) {
+  it("V309 V494 launches built-in ACP adapters through pinned Node.js npx packages", () => {
+    for (const harnessId of ["claude_code", "codex", "pi"]) {
       const backend = getHarness(harnessId)?.backend;
       expect(backend).toMatchObject({ type: "custom", program: "npx" });
       expect(backend?.type === "custom" ? backend.args : []).toContain("--yes");
       expect(backend?.type === "custom" ? backend.args : []).not.toContain("bun");
     }
+    expect(getHarness("pi")?.backend).toEqual({
+      type: "custom",
+      program: "npx",
+      args: ["--yes", "pi-acp@0.0.31"],
+    });
+    expect(getHarness("pi")?.passthroughEnv).toEqual(
+      expect.arrayContaining(["HOME", "PI_CODING_AGENT_DIR", "PI_CODING_AGENT_SESSION_DIR"]),
+    );
   });
 
   it("keeps unsupported model control explicit", () => {

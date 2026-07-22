@@ -477,12 +477,53 @@ alone is not route evidence. Session Harnesses then use ACP `configOptions`
 (Model first, then refreshed effort); omission keeps the Harness-negotiated
 default, while an explicit unsupported selection fails. Anthropic and Codex
 catalog supplies name their session Harness only for runtime ids proven against
-the pinned adapter. OpenCode and Hermes remain empty until their
+the pinned adapter. Pi, OpenCode, and Hermes remain empty until their
 provider-prefixed runtime ids are imported explicitly; SwarmX does not pass bare
 catalog ids and claim they work.
 OpenClaw is the current explicit gap because its official ACP bridge states that
 [Model selection is not exposed as an ACP config option](https://docs.openclaw.ai/cli/acp);
 SwarmX does not simulate support by rewriting the user's global Gateway config.
+
+### Pi coding Harness
+
+The built-in `pi` Harness launches pinned `pi-acp@0.0.31` through `npx`. The
+adapter bridges ACP JSON-RPC over stdio to Pi's official `pi --mode rpc`
+interface; SwarmX does not embed Pi SDK packages. Install and authenticate Pi
+separately, or use the confirmed Runtime repair action, which runs the official
+documented npm install:
+
+```bash
+npm install --global --ignore-scripts @earendil-works/pi-coding-agent
+pi
+```
+
+Pi currently requires Node.js 22.19 or newer. Provider login, API-key setup,
+`~/.pi/agent` settings, Skills, TypeScript extensions, prompts, and session files
+remain Pi-owned. A SwarmX Model becomes selectable for this Harness only when it
+declares `harnessRuntimeModels.pi` or an explicit ModelSupply contains both a
+provider-prefixed `runtimeModel` such as `anthropic/claude-sonnet-4-20250514`
+and `harnessIds: ["pi"]`. At session start, SwarmX applies that exact runtime id
+through Pi ACP's advertised `model` option, then applies supported effort through
+`thought_level`; unsupported values fail before the prompt runs.
+
+The CLI accepts the same exact Pi runtime id directly:
+
+```bash
+swarmx send --harness pi --model anthropic/claude-sonnet-4-20250514 --effort high "Review this project"
+```
+
+The adapter streams assistant text and tool events, advertises model/thinking
+configuration, and supports Pi session list/load. Its current boundary is also
+important: Pi reads/writes files and runs terminal commands itself, not through
+ACP `fs/*` or `terminal/*`; client-supplied MCP servers are not wired into Pi;
+reasoning is not emitted as a separate thought stream; and Pi intentionally has
+no built-in permission popups. The Harness therefore runs natively so its user
+configuration and sessions remain available. SwarmX direct-tool permissions and
+selected Custom Agent MCP metadata do not expand or replace Pi's native security
+model. Run Pi in a container or configure a Pi extension when stronger isolation
+or confirmation is required. See the
+[Pi documentation](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/index.md)
+and [`pi-acp` feature/limitation list](https://github.com/svkozak/pi-acp#readme).
 
 ## Provider Profile Primitives
 
@@ -565,7 +606,7 @@ chat, but there is no permanent Setup navigation destination or separate Doctor
 detour from Runtime.
 
 Runtime presents Node.js separately, then detects SwarmX, Claude Code, Codex,
-OpenCode, Hermes Agent, and OpenClaw as independent Harness tools. Every displayed
+Pi, OpenCode, Hermes Agent, and OpenClaw as independent Harness tools. Every displayed
 version is normalized to its semantic-version token, and clicking a Harness
 version rechecks only that tool. The protected container backend is detected
 separately. On macOS,

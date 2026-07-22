@@ -66,6 +66,7 @@ G62: Desktop users can understand and manage effective permission authority acro
 G63: Desktop users can choose their default direct-tool permission mode from General Settings and override that default for each persisted conversation from the Composer, with the active choice visible before sending.
 G64: Desktop permission controls match Codex's information architecture before SwarmX-specific expansion: General exposes Default permissions, Auto-review, and Full access as independent capabilities, each conversation has a compact local selector, and conservative/custom policy details remain in Advanced permissions.
 G65: New users can install `swarmx` from npm and launch Desktop by default, while macOS users can download matching install packages directly from GitHub Releases.
+G66: CLI and desktop users can select Pi as a built-in ACP coding Harness, use Pi-owned models and sessions, and diagnose or install its official CLI through shared Runtime surfaces.
 
 ## §C
 C1: Reuse existing `SwarmConfig`; no second workflow DSL.
@@ -244,6 +245,8 @@ C173: Disabling a General permission profile removes it from new conversation ch
 C174: Package installation never launches GUI code as a lifecycle side effect. No-argument `swarmx` launches Desktop; explicit CLI arguments retain existing commands and automation compatibility.
 C175: macOS release packaging covers Apple silicon and Intel, uses tag/manifests as one version source, and supports optional Apple signing/notarization without making unsigned artifact generation impossible.
 C176: Root README stays a short user entrypoint; detailed architecture, Provider, Extension, permission, and runtime material remains in `docs/`.
+C177: Pi integration uses a pinned `pi-acp` stdio adapter over Pi's official RPC mode; SwarmX does not embed Pi SDK packages, copy Pi provider auth, or persist Pi credentials.
+C178: Pi executes filesystem and terminal tools natively, exposes no permission popups, does not delegate ACP `fs/*` or `terminal/*`, and does not consume client-supplied MCP servers; SwarmX UI and docs must not claim otherwise.
 
 ## §I
 I1: `packages/core/src/types.ts` `SwarmConfigSchema`.
@@ -482,6 +485,9 @@ I233: `packages/desktop/src/main/provider-key-pool.ts` and focused tests encrypt
 I234: `packages/desktop/src/main/provider-auth.ts`, `model-catalog.ts`, `provider-usage.ts`, and focused tests Custom Provider discovery plus OpenCode Go routing, encrypted key-pool persistence, and local usage projection.
 I235: `packages/desktop/src/main/ipc.ts`, `packages/desktop/src/preload/api.ts`, Renderer Provider Settings, styles, and focused tests request-scoped key selection, safe retry, key management, and local status display.
 I236: `docs/index.md` and `DESIGNS.md` Custom Provider and OpenCode Go key-pool documentation.
+I237: `packages/core/src/harness.ts`, model-capability behavior, and focused tests built-in Pi ACP Harness registration and explicit model-route enforcement.
+I238: `packages/runtime/src/harness-environment.ts` and desktop Runtime tests Pi CLI detection, version reporting, confirmed official npm installation, and native-execution status.
+I239: Desktop Renderer Harness registry/icon assets/tests plus `docs/index.md`, `DESIGNS.md`, and third-party notices Pi selection, provenance, setup, ACP feature, and security-boundary presentation.
 
 ## §V
 V1: Workflow JSON source of truth is `SwarmConfig`; UI preview, run badges, and send payload derive from parsed JSON.
@@ -977,6 +983,13 @@ V490: The macOS artifact script resolves electron-builder's architecture directo
 V491: A manual Release retry keeps every application and package source locked to the requested existing tag, then restores only the macOS artifact automation from the exact workflow-dispatch commit before packaging; tag-triggered releases continue to use the script owned by their tagged commit.
 V492: The checkout-free GitHub Release job supplies the repository explicitly to GitHub CLI, so it can create the verified tagged Release and attach every downloaded architecture artifact without relying on ambient Git metadata.
 V493: Each macOS Release job verifies its architecture-named DMG with `hdiutil` and its ZIP directory with `unzip` before artifact upload, so a structurally invalid installer or archive cannot reach the GitHub Release.
+V494: Built-in `pi` is a session Harness with `modelCompatibility=any`, explicit model-route requirement, and a pinned `npx --yes pi-acp@0.0.31` backend; no Pi SDK becomes a SwarmX runtime dependency.
+V495: Runtime detects Pi only through `pi --version`, reports its normalized version, and offers `npm install --global --ignore-scripts @earendil-works/pi-coding-agent` only after existing explicit repair confirmation; Pi remains native so its user config and sessions stay available.
+V496: Pi model and reasoning selection flows through ACP-advertised `model` and `thought_level` configuration, and a Model is executable only with `harnessRuntimeModels.pi` or a ModelSupply whose runtime id explicitly names `pi`; unsupported or absent Pi routes fail closed.
+V497: Desktop and extension inventory expose Pi as a selectable Harness, Runtime shows its CLI health, backend inference recognizes the pinned adapter, and a revisioned ACP registry SVG renders offline with deterministic fallback.
+V498: Documentation states Pi owns provider login, settings, Skills/extensions, tools, and session files; `pi-acp` streams messages/tool events and loads sessions but does not delegate filesystem/terminal calls, wire client MCP servers into Pi, expose a separate thought stream, or add permission prompts.
+V499: Harness inventory UI tests derive expected rows and version checks from their supplied Harness fixture or assert stable ids; adding one built-in Harness must not require unrelated fixed-count rewrites.
+V500: Root release verification uses `pnpm run ci`; tracked runbooks and examples never prescribe bare `pnpm ci`, which pnpm 10 reserves as an unimplemented built-in command.
 
 ## §T
 |id|status|task|cites|
@@ -1185,6 +1198,8 @@ V493: Each macOS Release job verifies its architecture-named DMG with `hdiutil` 
 |T202|x|backprop Codex permission UI parity and implement profile availability plus Auto-review|G64,C162,C163,C165,C166,C168,C169,C170,C171,C172,C173,V444,V449,V457,V458,V459,V460,V461,V462,V463,V464,V465,V466,I222,I223,I224,I225,I226,I227,I228|
 |T203|x|fix npm Desktop cold start, add dual-architecture macOS Release packages, simplify README, verify, and publish 3.1.2|G65,C174,C175,C176,V467,V468,V469,V470,V471,V472,V473,V474,V475,V476,V477,V478,V479,V480,V481,V487,V488,V489,V490,V491,V492,V493,I229,I230,I231,I232|
 |T204|x|implement Custom Provider exact discovery and OpenCode Go encrypted multi-key local-usage failover with Provider Settings UI|G43,G44,G46,G47,C3,C15,C47,C51,V236,V243,V245,V246,V282,V283,V284,V302,V482,V483,V484,V485,V486,I144,I151,I152,I153,I154,I159,I160,I161,I233,I234,I235,I236|
+|T205|x|add built-in Pi ACP Harness, Runtime setup, Desktop selection, tests, and boundary documentation|G66,C177,C178,V494,V495,V496,V497,V498,V499,I237,I238,I239|
+|T206|x|prepare 3.1.3 with Pi Harness after real smoke and full CI|V469,V470,V471,V476,V487,V493,V494,V495,V496,V497,V498,V499,V500,I237,I238,I239|
 
 ## §B
 |id|date|cause|fix|
@@ -1316,3 +1331,5 @@ V493: Each macOS Release job verifies its architecture-named DMG with `hdiutil` 
 |B125|2026-07-20|electron-builder emitted the Intel application under its conventional `release/mac` directory while the artifact script looked only for `release/mac-x64`, so x64 failed after successful packaging but before archive upload|V490|
 |B126|2026-07-20|manual Release recovery checked out the existing tag after loading the repaired workflow, which also restored that tag's stale artifact script and silently discarded the Intel path fix|V491|
 |B127|2026-07-20|the checkout-free Release job invoked GitHub CLI without an explicit repository, so both architecture artifacts uploaded successfully but final Release creation failed while trying to inspect absent local Git metadata|V492|
+|B128|2026-07-21|two Runtime renderer tests hard-coded six Harness rows, so valid Pi registry expansion failed while product behavior and the new Pi test passed|V499|
+|B129|2026-07-22|release verification repeated B98 by invoking pnpm 10's unimplemented `pnpm ci` built-in instead of the root package script|V500|
