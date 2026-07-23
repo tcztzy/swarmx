@@ -136,7 +136,7 @@ describe("HarnessEnvironmentService", () => {
     );
     expect(status.harnesses).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ harnessId: "swarmx", status: "ready", version: "3.1.3" }),
+        expect.objectContaining({ harnessId: "swarmx", status: "ready", version: "3.1.4" }),
         expect.objectContaining({ harnessId: "codex", status: "ready", version: "0.69.0" }),
         expect.objectContaining({
           harnessId: "pi",

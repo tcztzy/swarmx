@@ -1215,7 +1215,7 @@ V508: Focused Core/Runtime/Renderer tests cover registry metadata, explicit mode
 |T205|x|add built-in Pi ACP Harness, Runtime setup, Desktop selection, tests, and boundary documentation|G66,C177,C178,V494,V495,V496,V497,V498,V499,I237,I238,I239|
 |T206|x|prepare 3.1.3 with Pi Harness after real smoke and full CI|V469,V470,V471,V476,V487,V493,V494,V495,V496,V497,V498,V499,V500,I237,I238,I239|
 |T207|x|add built-in Kimi Code ACP Harness, Runtime setup, Desktop selection, tests, and boundary documentation|G67,C179,V502,V503,V504,V505,V506,V508,I240|
-|T208|.|verify, version, publish, tag, and release SwarmX 3.1.4 with Kimi Code support|G68,C180,V469,V470,V487,V493,V507,V508,I241|
+|T208|x|verify, version, publish, tag, and release SwarmX 3.1.4 with Kimi Code support|G68,C180,V469,V470,V487,V493,V507,V508,I241|
 
 ## §B
 |id|date|cause|fix|

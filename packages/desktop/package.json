@@ -1,6 +1,6 @@
 {
   "name": "@swarmx/desktop",
-  "version": "3.1.3",
+  "version": "3.1.4",
   "description": "Electron desktop host and reusable renderer shell for SwarmX.",
   "license": "MIT",
   "type": "module",

@@ -13,12 +13,12 @@ const manifestUrls = [
 ];
 
 describe("release version", () => {
-  it("V471 keeps the runtime and every workspace manifest on 3.1.3", async () => {
+  it("V507 keeps the runtime and every workspace manifest on 3.1.4", async () => {
     const versions = await Promise.all(
       manifestUrls.map(async (url) => JSON.parse(await readFile(url, "utf8")).version as unknown),
     );
 
-    expect(SWARMX_VERSION).toBe("3.1.3");
+    expect(SWARMX_VERSION).toBe("3.1.4");
     expect(versions).toEqual(manifestUrls.map(() => SWARMX_VERSION));
   });
 });
