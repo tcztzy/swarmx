@@ -178,6 +178,7 @@ const HARNESS_REQUIREMENTS: Record<string, string[]> = {
   claude_code: ["claude_code"],
   codex: ["codex"],
   pi: ["pi"],
+  kimi: ["kimi"],
   opencode: ["opencode"],
   hermes: ["hermes"],
   openclaw: ["openclaw"],
@@ -188,6 +189,7 @@ const HARNESS_VERSION_COMMANDS: Record<string, string> = {
   claude_code: "claude",
   codex: "codex",
   pi: "pi",
+  kimi: "kimi",
   opencode: "opencode",
   hermes: "hermes",
   openclaw: "openclaw",
@@ -234,6 +236,20 @@ const REQUIREMENTS: RequirementDefinition[] = [
       default: {
         script: "npm install --global --ignore-scripts @earendil-works/pi-coding-agent",
       },
+    },
+  },
+  {
+    id: "kimi",
+    label: "Kimi Code CLI",
+    command: "kimi",
+    versionArgs: ["--version"],
+    notes: {
+      default:
+        "Configure provider login and settings with Kimi Code itself; the npm alternative requires Node.js 22.19 or newer.",
+    },
+    installers: {
+      default: { script: "curl -fsSL https://code.kimi.com/kimi-code/install.sh | bash" },
+      win32: { script: "irm https://code.kimi.com/kimi-code/install.ps1 | iex" },
     },
   },
   {
@@ -442,11 +458,13 @@ export class HarnessEnvironmentService {
             ? "CLI ready; a configured and reachable OpenClaw Gateway is also required."
             : harnessId === "pi"
               ? "Runs natively; provider login, settings, and sessions remain owned by Pi."
-              : harnessId === "opencode" || harnessId === "hermes"
-                ? "Runs natively so the installed CLI and user configuration remain available."
-                : requirementIds.length === 0
-                  ? "Built in."
-                  : undefined,
+              : harnessId === "kimi"
+                ? "Runs natively; login, provider settings, plugins, tools, and sessions remain owned by Kimi Code."
+                : harnessId === "opencode" || harnessId === "hermes"
+                  ? "Runs natively so the installed CLI and user configuration remain available."
+                  : requirementIds.length === 0
+                    ? "Built in."
+                    : undefined,
       } satisfies HarnessEnvironmentHarness;
     });
 
@@ -544,6 +562,7 @@ export class HarnessEnvironmentService {
     if (commandLine.includes("@agentclientprotocol/codex-acp")) return "codex";
     if (commandLine.includes("@agentclientprotocol/claude-agent-acp")) return "claude_code";
     if (commandLine.includes("pi-acp")) return "pi";
+    if (backend.program === "kimi" && backend.args?.[0] === "acp") return "kimi";
     if (backend.program === "opencode") return "opencode";
     if (backend.program === "hermes") return "hermes";
     if (backend.program === "openclaw") return "openclaw";

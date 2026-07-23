@@ -1260,6 +1260,7 @@ const HARNESSES: HarnessOption[] = [
   { id: "claude_code", label: "Claude Code", icon: Hammer, modelControl: "session" },
   { id: "codex", label: "Codex", icon: TerminalIcon, modelControl: "session" },
   { id: "pi", label: "Pi", icon: Bot, modelControl: "session" },
+  { id: "kimi", label: "Kimi Code", icon: Bot, modelControl: "session" },
   { id: "opencode", label: "OpenCode", icon: Code2, modelControl: "session" },
   { id: "hermes", label: "Hermes", icon: Sparkles, modelControl: "session" },
   {
@@ -11970,7 +11971,14 @@ function harnessIdFromBackend(backend: unknown): string {
   if (type === "swarmx" || type === "claude_code") return type;
 
   const program = readString(backend, "program");
-  if (program === "opencode" || program === "hermes" || program === "openclaw") return program;
+  if (
+    program === "kimi" ||
+    program === "opencode" ||
+    program === "hermes" ||
+    program === "openclaw"
+  ) {
+    return program;
+  }
 
   const args = Array.isArray(backend.args)
     ? backend.args.filter((arg): arg is string => typeof arg === "string")

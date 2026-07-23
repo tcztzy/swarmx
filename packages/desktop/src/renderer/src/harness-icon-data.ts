@@ -17,6 +17,9 @@ export const PACKAGED_HARNESS_ICON_URLS: Readonly<Record<string, string>> = {
   pi: svgDataUrl(
     '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M1 1H11.7692V7.9999H8.17942V11.4999H4.58982V15H1V1ZM4.58982 4.50005V7.9999H8.17942V4.50005H4.58982Z" fill="currentColor"/><path d="M11.7692 7.46154H15V15H11.7692V7.46154Z" fill="currentColor"/></svg>',
   ),
+  kimi: svgDataUrl(
+    '<svg width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><!-- body outline --><rect x="3" y="4.5" width="18" height="13" rx="2.2" fill="none" stroke="currentColor" stroke-width="1.6"/><!-- left eye (filled) --><rect x="9.6" y="8.0" width="1.4" height="2.6" rx="0.45" fill="currentColor"/><!-- right eye (filled) --><rect x="15.6" y="8.0" width="1.4" height="2.6" rx="0.45" fill="currentColor"/></svg>',
+  ),
   opencode: svgDataUrl(
     '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><title>OpenCode</title><path fill-rule="evenodd" clip-rule="evenodd" d="M13 14H3V2H13V14ZM10.5 4.4H5.5V11.6H10.5V4.4Z" fill="currentColor"/></svg>',
   ),

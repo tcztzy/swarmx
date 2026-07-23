@@ -57,4 +57,21 @@ describe("send command composition", () => {
       }),
     });
   });
+
+  it("V502 sends a configured Kimi model alias through the native ACP entrypoint", () => {
+    const config = createSendSwarmConfig({
+      harnessId: "kimi",
+      model: "kimi-managed",
+      effort: "high",
+    });
+
+    expect(config.nodes.agent).toEqual({
+      kind: "agent",
+      agent: expect.objectContaining({
+        model: "kimi-managed",
+        backend: { type: "custom", program: "kimi", args: ["acp"] },
+        parameters: { reasoning: { effort: "high" } },
+      }),
+    });
+  });
 });

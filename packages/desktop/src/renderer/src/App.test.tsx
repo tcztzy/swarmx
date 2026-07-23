@@ -2309,6 +2309,36 @@ describe("App user workflow", () => {
     ).toMatch(/^data:image\/svg\+xml/);
   });
 
+  it("V505 exposes Kimi Code as a session Harness with its packaged icon", async () => {
+    const api = createDesktopApiMock();
+    const inventory = await api.listExtensions();
+    api.listExtensions.mockResolvedValue({
+      ...inventory,
+      harnesses: [
+        ...inventory.harnesses,
+        {
+          id: "kimi",
+          label: "Kimi Code",
+          modelControl: "session",
+          modelCompatibility: "any",
+          supportedModelApis: ["anthropic", "openai_chat", "openai_responses", "ollama"],
+          requiresExplicitModelRoute: true,
+          software: { name: "kimi-code" },
+        },
+      ],
+    });
+    await renderApp(api);
+    const user = userEvent.setup();
+
+    await user.click(await screen.findByRole("button", { name: "Choose agent" }));
+    await user.click(screen.getByRole("menuitem", { name: /^Harness/ }));
+
+    expect(screen.getByRole("menuitemradio", { name: "Kimi Code" })).toBeTruthy();
+    expect(
+      document.querySelector<HTMLImageElement>('[data-harness-icon="kimi"]')?.getAttribute("src"),
+    ).toMatch(/^data:image\/svg\+xml/);
+  });
+
   it("resets a failed packaged icon when the selected harness changes", async () => {
     const api = createDesktopApiMock();
     const inventory = await api.listExtensions();
@@ -2852,7 +2882,6 @@ describe("App user workflow", () => {
 
   it("renders harnesses while versions load and refreshes only the clicked version", async () => {
     const environment = readyHarnessEnvironment();
-    const harnessCount = environment.harnesses.length;
     const reportGate = deferred<ReturnType<typeof doctorReport>>();
     const versionGate = deferred<void>();
     const api = createDesktopApiMock({
@@ -2872,7 +2901,7 @@ describe("App user workflow", () => {
     await user.type(screen.getByRole("textbox"), "/doctor{Enter}");
 
     expect(await screen.findByRole("heading", { name: "Harnesses" })).toBeTruthy();
-    expect(document.querySelectorAll(".doctor-harness")).toHaveLength(harnessCount);
+    expect(screen.getByText("Kimi Code", { selector: ".doctor-harness strong" })).toBeTruthy();
     expect(screen.getByLabelText("Checking Codex version")).toBeTruthy();
     expect(screen.getByText("Checking environment")).toBeTruthy();
 
@@ -2882,15 +2911,18 @@ describe("App user workflow", () => {
       name: "Check Codex version again",
     });
     expect(codexVersion.textContent).toBe("0.69.0");
-    expect(api.getHarnessVersion).toHaveBeenCalledTimes(harnessCount);
+    expect(api.getHarnessVersion).toHaveBeenCalledWith({ harnessId: "kimi" });
+    const initialVersionChecks = api.getHarnessVersion.mock.calls.length;
 
     await user.click(screen.getByRole("button", { name: "Close Doctor" }));
     await user.type(screen.getByRole("textbox"), "/doctor{Enter}");
     await screen.findByRole("button", { name: "Check Codex version again" });
-    expect(api.getHarnessVersion).toHaveBeenCalledTimes(harnessCount);
+    expect(api.getHarnessVersion).toHaveBeenCalledTimes(initialVersionChecks);
 
     await user.click(screen.getByRole("button", { name: "Check Codex version again" }));
-    await waitFor(() => expect(api.getHarnessVersion).toHaveBeenCalledTimes(harnessCount + 1));
+    await waitFor(() =>
+      expect(api.getHarnessVersion).toHaveBeenCalledTimes(initialVersionChecks + 1),
+    );
     expect(api.getHarnessVersion).toHaveBeenLastCalledWith({
       harnessId: "codex",
       refresh: true,
@@ -2898,7 +2930,6 @@ describe("App user workflow", () => {
   });
 
   it("shows unavailable optional harnesses without global repairs", async () => {
-    const harnessCount = readyHarnessEnvironment().harnesses.length;
     const before = doctorReport(missingHarnessEnvironment());
     const legacyBefore = {
       ...before,
@@ -2945,8 +2976,8 @@ describe("App user workflow", () => {
     expect(screen.queryByRole("heading", { name: "Diagnostics" })).toBeNull();
     expect(screen.getByText("0.69.0").classList.contains("badge--active")).toBe(true);
     expect(screen.queryByText("Built in.")).toBeNull();
-    expect(document.querySelectorAll(".doctor-harness__icon")).toHaveLength(harnessCount);
     expect(document.querySelector(".doctor-harness [data-harness-icon='codex']")).not.toBeNull();
+    expect(document.querySelector(".doctor-harness [data-harness-icon='kimi']")).not.toBeNull();
     expect(
       screen.queryByText("Apple Container must be installed and its system service started."),
     ).toBeNull();

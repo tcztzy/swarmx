@@ -44,6 +44,17 @@ Copyright (c) 2025 Nous Research. License: MIT. The complete upstream license,
 verified from the local upstream checkout at `~/.hermes/hermes-agent/LICENSE`,
 is included at `third_party_licenses/HERMES_MIT.txt`.
 
+## Kimi Code icon
+
+The Kimi Code SVG markup is copied from `MoonshotAI/kimi-code` commit
+`188c0fcbf7c884d4a86bd4eebd012b0ab7aeb5da`, path
+`apps/vscode/resources/kimi-icon.svg`, with whitespace normalized for embedding.
+
+Source: <https://github.com/MoonshotAI/kimi-code/tree/188c0fcbf7c884d4a86bd4eebd012b0ab7aeb5da>
+
+Copyright (c) 2026 Moonshot AI. License: MIT. The complete upstream license is
+included at `third_party_licenses/KIMI_CODE_MIT.txt`.
+
 ## OpenClaw interoperability
 
 SwarmX interoperates with the official `openclaw acp` command but does not

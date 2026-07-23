@@ -18,7 +18,7 @@ describe("harness registry", () => {
     expect(getHarness("swarmx")).not.toHaveProperty("modelSelection");
   });
 
-  it.each(["claude_code", "codex", "pi", "opencode", "hermes"])(
+  it.each(["claude_code", "codex", "pi", "kimi", "opencode", "hermes"])(
     "%s exposes request-scoped ACP session model control",
     (id) => {
       expect(getHarness(id)).toMatchObject({
@@ -42,6 +42,19 @@ describe("harness registry", () => {
     });
     expect(getHarness("pi")?.passthroughEnv).toEqual(
       expect.arrayContaining(["HOME", "PI_CODING_AGENT_DIR", "PI_CODING_AGENT_SESSION_DIR"]),
+    );
+  });
+
+  it("V502 launches Kimi Code through its native ACP entrypoint", () => {
+    expect(getHarness("kimi")).toMatchObject({
+      label: "Kimi Code",
+      modelControl: "session",
+      modelCompatibility: "any",
+      requiresExplicitModelRoute: true,
+      backend: { type: "custom", program: "kimi", args: ["acp"] },
+    });
+    expect(getHarness("kimi")?.passthroughEnv).toEqual(
+      expect.arrayContaining(["HOME", "KIMI_CODE_HOME", "KIMI_DISABLE_TELEMETRY"]),
     );
   });
 

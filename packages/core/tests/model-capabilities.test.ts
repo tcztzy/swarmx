@@ -284,7 +284,7 @@ describe("Harness x Model matrix", () => {
   });
 
   it("V332 fails closed unless a session Harness has an explicit executable route", () => {
-    for (const harnessId of ["claude_code", "codex", "pi", "opencode", "hermes"]) {
+    for (const harnessId of ["claude_code", "codex", "pi", "kimi", "opencode", "hermes"]) {
       expect(resolveHarnessModelInventory({ harnessId, models })).toEqual([]);
     }
 
@@ -336,6 +336,32 @@ describe("Harness x Model matrix", () => {
           expect.objectContaining({
             id: "shared-pi",
             runtimeModel: "anthropic/shared-runtime",
+          }),
+        ],
+      }),
+    );
+    expect(
+      resolveHarnessModelInventory({
+        harnessId: "kimi",
+        models,
+        supplies: [
+          {
+            id: "shared-kimi",
+            modelId: "shared-model",
+            providerProfileId: "kimi-managed",
+            runtimeModel: "kimi/shared-runtime",
+            harnessIds: ["kimi"],
+          },
+        ],
+      }),
+    ).toContainEqual(
+      expect.objectContaining({
+        harnessId: "kimi",
+        modelId: "shared-model",
+        supplies: [
+          expect.objectContaining({
+            id: "shared-kimi",
+            runtimeModel: "kimi/shared-runtime",
           }),
         ],
       }),

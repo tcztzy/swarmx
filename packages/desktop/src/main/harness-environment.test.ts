@@ -35,6 +35,7 @@ describe("HarnessEnvironmentService", () => {
         command === "claude" ||
         command === "codex" ||
         command === "pi" ||
+        command === "kimi" ||
         command === "container" ||
         command === "openclaw"
           ? `/Users/test/bin/${command}`
@@ -49,6 +50,9 @@ describe("HarnessEnvironmentService", () => {
         }
         if (program.endsWith("/pi")) {
           return { exitCode: 0, stdout: "0.80.10\n", stderr: "" };
+        }
+        if (program.endsWith("/kimi")) {
+          return { exitCode: 0, stdout: "Kimi Code CLI 1.2.3\n", stderr: "" };
         }
         if (program.endsWith("/openclaw")) {
           return { exitCode: 0, stdout: "2026.6.11\n", stderr: "" };
@@ -97,6 +101,12 @@ describe("HarnessEnvironmentService", () => {
           requiredBy: ["pi"],
         }),
         expect.objectContaining({
+          id: "kimi",
+          status: "ready",
+          version: "1.2.3",
+          requiredBy: ["kimi"],
+        }),
+        expect.objectContaining({
           id: "opencode",
           status: "missing",
           installable: true,
@@ -135,6 +145,14 @@ describe("HarnessEnvironmentService", () => {
           executionMode: "native",
           protectionRequired: false,
           note: expect.stringContaining("owned by Pi"),
+        }),
+        expect.objectContaining({
+          harnessId: "kimi",
+          status: "ready",
+          version: "1.2.3",
+          executionMode: "native",
+          protectionRequired: false,
+          note: expect.stringContaining("owned by Kimi Code"),
         }),
         expect.objectContaining({
           harnessId: "opencode",
@@ -405,6 +423,64 @@ describe("HarnessEnvironmentService", () => {
         }),
       ]),
     );
+  });
+
+  it("V503 installs the official Kimi Code CLI only through confirmed Runtime setup", async () => {
+    let kimiInstalled = false;
+    const runCommand = vi.fn(async (program: string, args: string[]) => {
+      if (
+        program === "bash" &&
+        args.join(" ").includes("https://code.kimi.com/kimi-code/install.sh")
+      ) {
+        kimiInstalled = true;
+        return { exitCode: 0, stdout: "kimi installed\n", stderr: "" };
+      }
+      if (program.endsWith("/kimi")) {
+        return { exitCode: 0, stdout: "Kimi Code CLI 1.2.3\n", stderr: "" };
+      }
+      return { exitCode: 0, stdout: "v22.19.0\n", stderr: "" };
+    });
+    const service = new HarnessEnvironmentService({
+      env: { PATH: "/usr/bin" },
+      platform: "linux",
+      protectionMode: "native",
+      homeDir: "/Users/test",
+      findExecutable: async (command) => {
+        if (command === "node") return "/usr/bin/node";
+        if (command === "kimi" && kimiInstalled) return "/Users/test/.npm-global/bin/kimi";
+        return null;
+      },
+      runCommand,
+    });
+
+    const result = await service.setup({ harnessId: "kimi" });
+
+    expect(result.success).toBe(true);
+    expect(result.installedRequirementIds).toEqual(["kimi"]);
+    expect(result.failedRequirementIds).toEqual([]);
+    expect(runCommand).toHaveBeenCalledWith(
+      "bash",
+      ["-lc", "curl -fsSL https://code.kimi.com/kimi-code/install.sh | bash"],
+      expect.objectContaining({ timeoutMs: 900000 }),
+    );
+    expect(result.status.harnesses).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          harnessId: "kimi",
+          status: "ready",
+          version: "1.2.3",
+          executionMode: "native",
+        }),
+      ]),
+    );
+  });
+
+  it("V505 recognizes the native Kimi ACP backend", () => {
+    const service = new HarnessEnvironmentService({ protectionMode: "native" });
+
+    expect(
+      service.guessProtectedHarnessId({ type: "custom", program: "kimi", args: ["acp"] }),
+    ).toBe("kimi");
   });
 
   it("installs the verified OpenClaw CLI while leaving Gateway setup explicit", async () => {

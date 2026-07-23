@@ -67,6 +67,8 @@ G63: Desktop users can choose their default direct-tool permission mode from Gen
 G64: Desktop permission controls match Codex's information architecture before SwarmX-specific expansion: General exposes Default permissions, Auto-review, and Full access as independent capabilities, each conversation has a compact local selector, and conservative/custom policy details remain in Advanced permissions.
 G65: New users can install `swarmx` from npm and launch Desktop by default, while macOS users can download matching install packages directly from GitHub Releases.
 G66: CLI and desktop users can select Pi as a built-in ACP coding Harness, use Pi-owned models and sessions, and diagnose or install its official CLI through shared Runtime surfaces.
+G67: CLI and desktop users can select Kimi Code as a built-in ACP coding Harness, reuse Kimi-owned authentication and configuration, and diagnose or install its official CLI through shared Runtime surfaces.
+G68: Publish the verified Kimi Code Harness as SwarmX 3.1.4 through aligned npm packages, Git tag, and GitHub Release.
 
 ## §C
 C1: Reuse existing `SwarmConfig`; no second workflow DSL.
@@ -247,6 +249,8 @@ C175: macOS release packaging covers Apple silicon and Intel, uses tag/manifests
 C176: Root README stays a short user entrypoint; detailed architecture, Provider, Extension, permission, and runtime material remains in `docs/`.
 C177: Pi integration uses a pinned `pi-acp` stdio adapter over Pi's official RPC mode; SwarmX does not embed Pi SDK packages, copy Pi provider auth, or persist Pi credentials.
 C178: Pi executes filesystem and terminal tools natively, exposes no permission popups, does not delegate ACP `fs/*` or `terminal/*`, and does not consume client-supplied MCP servers; SwarmX UI and docs must not claim otherwise.
+C179: Kimi Code integration uses the official `kimi acp` stdio entrypoint and remains native so its local authentication, provider config, plugins, tools, and sessions remain available; SwarmX does not embed Kimi packages, copy credentials, or rewrite Kimi config.
+C180: A 3.1.4 release keeps every workspace package version aligned, publishes dependency-first from one verified commit, creates one matching `v3.1.4` tag/release, and preserves unrelated user-owned workspace changes.
 
 ## §I
 I1: `packages/core/src/types.ts` `SwarmConfigSchema`.
@@ -488,6 +492,8 @@ I236: `docs/index.md` and `DESIGNS.md` Custom Provider and OpenCode Go key-pool 
 I237: `packages/core/src/harness.ts`, model-capability behavior, and focused tests built-in Pi ACP Harness registration and explicit model-route enforcement.
 I238: `packages/runtime/src/harness-environment.ts` and desktop Runtime tests Pi CLI detection, version reporting, confirmed official npm installation, and native-execution status.
 I239: Desktop Renderer Harness registry/icon assets/tests plus `docs/index.md`, `DESIGNS.md`, and third-party notices Pi selection, provenance, setup, ACP feature, and security-boundary presentation.
+I240: `packages/core/src/harness.ts`, `packages/runtime/src/harness-environment.ts`, Desktop Harness registry/backend inference/icon assets, focused tests, `docs/index.md`, `DESIGNS.md`, and third-party notices Kimi Code ACP registration, Runtime setup, selection, provenance, and ownership boundaries.
+I241: Root/workspace manifests, lockfile, runtime version, npm packages, Git `v3.1.4`, and GitHub Release are the 3.1.4 release surfaces.
 
 ## §V
 V1: Workflow JSON source of truth is `SwarmConfig`; UI preview, run badges, and send payload derive from parsed JSON.
@@ -991,6 +997,13 @@ V498: Documentation states Pi owns provider login, settings, Skills/extensions, 
 V499: Harness inventory UI tests derive expected rows and version checks from their supplied Harness fixture or assert stable ids; adding one built-in Harness must not require unrelated fixed-count rewrites.
 V500: Root release verification uses `pnpm run ci`; tracked runbooks and examples never prescribe bare `pnpm ci`, which pnpm 10 reserves as an unimplemented built-in command.
 V501: Tool-result rendering derives terminal status from explicit `render.status`/`isError` and structured `status` or `exit_code` before textual fallback; stdout containing words such as `error`, `failed`, or `exception` cannot turn `exit_code: 0` into failure, and a nonzero exit code cannot render as success across native Responses, Anthropic, or Chat paths.
+V502: Built-in `kimi` is a session Harness with `modelCompatibility=any`, explicit model-route requirement, and direct `kimi acp` backend; no Kimi SDK or CLI package becomes a SwarmX runtime dependency.
+V503: Runtime detects Kimi Code only through `kimi --version`, reports its normalized version, and offers the official self-contained install script only after existing explicit repair confirmation; docs keep official npm as a Node 22.19+ alternative and Kimi runs natively.
+V504: Kimi model and reasoning selection flows through ACP-advertised `model` and `thought_level` configuration, and a Model is executable only with `harnessRuntimeModels.kimi` or a ModelSupply whose runtime id explicitly names `kimi`; unsupported or absent routes fail closed.
+V505: Desktop and extension inventory expose Kimi Code as selectable, Runtime shows CLI health, backend inference recognizes `kimi acp`, and the revisioned upstream MIT SVG renders offline with deterministic fallback.
+V506: Documentation states Kimi owns login, provider config, Skills/plugins, tools, permission modes, and session files; Kimi ACP reuses local auth, runs shell locally, falls back to local files because SwarmX advertises no ACP FS capability, and receives no client MCP servers while SwarmX sends an empty MCP list.
+V507: Root runtime constant and all six publishable packages declare 3.1.4; packed workspace dependencies resolve to 3.1.4 and npm publication remains dependency-first before matching Git tag and GitHub Release.
+V508: Focused Core/Runtime/Renderer tests cover registry metadata, explicit model-route behavior, official install command, native status, backend inference, and icon provenance; `pnpm run ci` plus an installed-CLI ACP startup smoke pass before publication.
 
 ## §T
 |id|status|task|cites|
@@ -1201,6 +1214,8 @@ V501: Tool-result rendering derives terminal status from explicit `render.status
 |T204|x|implement Custom Provider exact discovery and OpenCode Go encrypted multi-key local-usage failover with Provider Settings UI|G43,G44,G46,G47,C3,C15,C47,C51,V236,V243,V245,V246,V282,V283,V284,V302,V482,V483,V484,V485,V486,I144,I151,I152,I153,I154,I159,I160,I161,I233,I234,I235,I236|
 |T205|x|add built-in Pi ACP Harness, Runtime setup, Desktop selection, tests, and boundary documentation|G66,C177,C178,V494,V495,V496,V497,V498,V499,I237,I238,I239|
 |T206|x|prepare 3.1.3 with Pi Harness after real smoke and full CI|V469,V470,V471,V476,V487,V493,V494,V495,V496,V497,V498,V499,V500,I237,I238,I239|
+|T207|x|add built-in Kimi Code ACP Harness, Runtime setup, Desktop selection, tests, and boundary documentation|G67,C179,V502,V503,V504,V505,V506,V508,I240|
+|T208|.|verify, version, publish, tag, and release SwarmX 3.1.4 with Kimi Code support|G68,C180,V469,V470,V487,V493,V507,V508,I241|
 
 ## §B
 |id|date|cause|fix|
@@ -1335,3 +1350,8 @@ V501: Tool-result rendering derives terminal status from explicit `render.status
 |B128|2026-07-21|two Runtime renderer tests hard-coded six Harness rows, so valid Pi registry expansion failed while product behavior and the new Pi test passed|V499|
 |B129|2026-07-22|release verification repeated B98 by invoking pnpm 10's unimplemented `pnpm ci` built-in instead of the root package script|V500|
 |B130|2026-07-22|native tool chunks discarded their explicit error bit and render normalization scanned ordinary stdout for failure words without first honoring structured exit status, so successful source-inspection commands displayed as failed|V501|
+|B131|2026-07-23|new Kimi Runtime note extended a nested conditional without Biome's canonical indentation|existing formatter gate|
+|B132|2026-07-23|Runtime UI tests derived expected Harness rows from a separate environment fixture instead of the extension Harness inventory that drives rendering, repeating B128 when Kimi expanded the registry|V499|
+|B133|2026-07-23|B132 regression assertion exceeded Biome's canonical line width after the behavioral fix|existing formatter gate|
+|B134|2026-07-23|B132 stable-ID assertion expected an absent optional refresh field on initial version checks|existing focused test|
+|B135|2026-07-23|the installed-CLI smoke script treated `AcpClient.listSessions()` as a response envelope instead of its normalized array return|existing TypeScript return contract|

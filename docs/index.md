@@ -477,7 +477,7 @@ alone is not route evidence. Session Harnesses then use ACP `configOptions`
 (Model first, then refreshed effort); omission keeps the Harness-negotiated
 default, while an explicit unsupported selection fails. Anthropic and Codex
 catalog supplies name their session Harness only for runtime ids proven against
-the pinned adapter. Pi, OpenCode, and Hermes remain empty until their
+the pinned adapter. Pi, Kimi Code, OpenCode, and Hermes remain empty until their
 provider-prefixed runtime ids are imported explicitly; SwarmX does not pass bare
 catalog ids and claim they work.
 OpenClaw is the current explicit gap because its official ACP bridge states that
@@ -524,6 +524,42 @@ model. Run Pi in a container or configure a Pi extension when stronger isolation
 or confirmation is required. See the
 [Pi documentation](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/index.md)
 and [`pi-acp` feature/limitation list](https://github.com/svkozak/pi-acp#readme).
+
+### Kimi Code Harness
+
+The built-in `kimi` Harness launches the installed official CLI directly as
+`kimi acp`. The confirmed Runtime repair action uses Kimi's recommended
+self-contained installer, then Kimi's own login flow:
+
+```bash
+curl -fsSL https://code.kimi.com/kimi-code/install.sh | bash
+kimi login
+```
+
+The official npm alternative is `npm install --global @moonshot-ai/kimi-code`;
+its current package requires Node.js 22.19 or newer.
+
+SwarmX sends ACP protocol v1 over stdio and reuses Kimi Code's local
+authentication state. Kimi login, provider definitions, model aliases,
+`~/.kimi-code` configuration, Skills, plugins, tools, permission modes, MCP
+configuration, and sessions stay Kimi-owned. SwarmX neither embeds a Kimi SDK
+nor copies credentials or rewrites `config.toml`.
+
+A SwarmX Model becomes selectable for this Harness only when it declares
+`harnessRuntimeModels.kimi` or an explicit ModelSupply contains a Kimi model
+alias in `runtimeModel` and `harnessIds: ["kimi"]`. At session start SwarmX
+applies that exact alias through Kimi ACP's advertised `model` option, then
+applies supported reasoning effort through the `thought_level` option. Missing
+or unsupported aliases and efforts fail before the prompt runs.
+
+Kimi ACP can use client filesystem and MCP capabilities, but SwarmX currently
+advertises no ACP filesystem capability and sends an empty client MCP list.
+Kimi therefore uses its local filesystem and shell implementation plus its own
+configured MCP servers. Tool approval requests still use the existing ACP
+permission bridge. The Harness runs natively so local auth, configuration,
+plugins, tools, and sessions remain available. See the official
+[Kimi Code ACP reference](https://moonshotai.github.io/kimi-code/en/reference/kimi-acp)
+and [IDE integration guide](https://moonshotai.github.io/kimi-code/en/guides/ides).
 
 ## Provider Profile Primitives
 
@@ -606,7 +642,7 @@ chat, but there is no permanent Setup navigation destination or separate Doctor
 detour from Runtime.
 
 Runtime presents Node.js separately, then detects SwarmX, Claude Code, Codex,
-Pi, OpenCode, Hermes Agent, and OpenClaw as independent Harness tools. Every displayed
+Pi, Kimi Code, OpenCode, Hermes Agent, and OpenClaw as independent Harness tools. Every displayed
 version is normalized to its semantic-version token, and clicking a Harness
 version rechecks only that tool. The protected container backend is detected
 separately. On macOS,
