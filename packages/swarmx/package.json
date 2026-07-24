@@ -3,6 +3,11 @@
   "version": "3.1.4",
   "description": "SwarmX desktop app and multi-agent orchestration CLI.",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/tcztzy/swarmx.git",
+    "directory": "packages/swarmx"
+  },
   "type": "module",
   "bin": {
     "swarmx": "./bin/swarmx.js"

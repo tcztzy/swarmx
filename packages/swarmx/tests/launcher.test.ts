@@ -242,4 +242,28 @@ describe("npm launcher cold start", () => {
     expect(inspectReadme).toContain("pnpm run ci");
     expect(inspectReadme).not.toContain("`pnpm ci`");
   });
+
+  it("V516-V517 publishes tagged npm packages through OIDC in dependency order", () => {
+    const workflow = readFileSync(
+      new URL("../../../.github/workflows/release.yml", import.meta.url),
+      "utf8",
+    );
+    const publisher = readFileSync(
+      new URL("../../../scripts/publish-npm.mjs", import.meta.url),
+      "utf8",
+    );
+
+    expect(workflow).toContain("id-token: write");
+    expect(workflow).toContain("needs: macos");
+    expect(workflow).toContain("node scripts/publish-npm.mjs");
+    expect(workflow).toContain("needs: [macos, npm]");
+    expect(publisher).toContain('"packages/core"');
+    expect(publisher).toContain('"packages/runtime"');
+    expect(publisher).toContain('"packages/acp-server"');
+    expect(publisher).toContain('"packages/cli"');
+    expect(publisher).toContain('"packages/desktop"');
+    expect(publisher).toContain('"packages/swarmx"');
+    expect(publisher).toContain("workspace:");
+    expect(publisher).toContain("dist.integrity");
+  });
 });

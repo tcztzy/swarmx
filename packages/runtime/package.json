@@ -3,6 +3,11 @@
   "version": "3.1.4",
   "description": "Host runtime detection, doctor, and explicit repair services for SwarmX.",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/tcztzy/swarmx.git",
+    "directory": "packages/runtime"
+  },
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

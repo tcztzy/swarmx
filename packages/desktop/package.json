@@ -3,6 +3,11 @@
   "version": "3.1.4",
   "description": "Electron desktop host and reusable renderer shell for SwarmX.",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/tcztzy/swarmx.git",
+    "directory": "packages/desktop"
+  },
   "type": "module",
   "main": "./out/main/index.js",
   "files": [

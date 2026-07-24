@@ -3,6 +3,11 @@
   "version": "3.1.4",
   "description": "Command-line interface for SwarmX workflows and evaluations.",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/tcztzy/swarmx.git",
+    "directory": "packages/cli"
+  },
   "type": "module",
   "main": "./dist/cli.js",
   "types": "./dist/cli.d.ts",

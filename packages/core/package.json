@@ -3,6 +3,11 @@
   "version": "3.1.4",
   "description": "Core SwarmX multi-agent runtime and platform contracts.",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/tcztzy/swarmx.git",
+    "directory": "packages/core"
+  },
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
