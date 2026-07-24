@@ -45,6 +45,7 @@ import {
   Download,
   FileSearch,
   Folder,
+  FolderOpen,
   Gauge,
   GitBranch,
   Hammer,
@@ -616,6 +617,7 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
   const [projectHeaderMenu, setProjectHeaderMenu] = useState<"organize" | "add" | null>(null);
   const [projectActionMenuId, setProjectActionMenuId] = useState<string | null>(null);
   const [projectPreview, setProjectPreview] = useState<ProjectPreviewState | null>(null);
+  const [projectExpandedById, setProjectExpandedById] = useState<Record<string, boolean>>({});
   const [projectOrganizationMode, setProjectOrganizationMode] =
     useState<ProjectOrganizationMode>("project");
   const [projectSortMode, setProjectSortMode] = useState<ProjectSortMode>("priority");
@@ -2972,10 +2974,12 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
                 </div>
               ) : (
                 visibleDisplayGroups.map((group) => {
-                  const expanded =
-                    sidebarQuery.trim().length > 0 ||
-                    !group.project ||
-                    activeProjectId === group.project.id;
+                  const projectId = group.project?.id;
+                  const expanded = projectId
+                    ? sidebarQuery.trim().length > 0 ||
+                      (projectExpandedById[projectId] ?? activeProjectId === projectId)
+                    : true;
+                  const ProjectFolderIcon = expanded ? FolderOpen : Folder;
                   return (
                     <section
                       key={group.id}
@@ -2994,7 +2998,7 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
                             void commitProjectRename();
                           }}
                         >
-                          <Folder aria-hidden="true" />
+                          <ProjectFolderIcon aria-hidden="true" />
                           <input
                             ref={projectRenameInputRef}
                             aria-label={`Rename ${group.label}`}
@@ -3029,11 +3033,16 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
                             type="button"
                             className="project-group__trigger"
                             title={group.cwd || group.label}
+                            aria-expanded={group.project ? expanded : undefined}
                             onClick={() => {
-                              if (group.project) newSession(group.project);
+                              if (!projectId) return;
+                              setProjectExpandedById((current) => ({
+                                ...current,
+                                [projectId]: !expanded,
+                              }));
                             }}
                           >
-                            <Folder aria-hidden="true" />
+                            <ProjectFolderIcon aria-hidden="true" />
                             <span>{group.label}</span>
                           </button>
                           {group.project && (

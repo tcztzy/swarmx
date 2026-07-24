@@ -72,6 +72,7 @@ G68: Desktop users can distinguish retryable Provider failures from SwarmX syste
 G69: CLI and desktop users can select Kimi Code as a built-in ACP coding Harness, reuse Kimi-owned authentication and configuration, and diagnose or install its official CLI through shared Runtime surfaces.
 G70: Publish the verified Kimi Code Harness as SwarmX 3.1.4 through aligned npm packages, Git tag, and GitHub Release.
 G71: A release tag publishes every aligned SwarmX package to npm from that tagged commit before creating the matching GitHub Release.
+G72: Desktop users can collapse or expand each sidebar Project group from its main row and identify that state from matching folder icons.
 
 ## §C
 C1: Reuse existing `SwarmConfig`; no second workflow DSL.
@@ -260,6 +261,7 @@ C183: Provider recovery actions require an explicit user click, retry the exact 
 C184: Kimi Code integration uses the official `kimi acp` stdio entrypoint and remains native so its local authentication, provider config, plugins, tools, and sessions remain available; SwarmX does not embed Kimi packages, copy credentials, or rewrite Kimi config.
 C185: A 3.1.4 release keeps every workspace package version aligned, publishes dependency-first from one verified commit, creates one matching `v3.1.4` tag/release, and preserves unrelated user-owned workspace changes.
 C186: npm release automation prefers GitHub OIDC trusted publishing, accepts a repository-scoped npm automation token while trusted-publisher enrollment is bootstrapped, packs workspace dependencies to exact release versions, publishes dependency-first, and treats an existing version as idempotent only when its registry integrity matches the locally packed tarball.
+C187: Project disclosure changes task-list visibility only. The row's right-side options and new-task buttons retain independent actions.
 
 ## §I
 I1: `packages/core/src/types.ts` `SwarmConfigSchema`.
@@ -508,6 +510,7 @@ I243: `packages/desktop/src/main/provider-error.ts`, `ipc.ts`, Preload response 
 I244: `packages/core/src/harness.ts`, `packages/runtime/src/harness-environment.ts`, Desktop Harness registry/backend inference/icon assets, focused tests, `docs/index.md`, `DESIGNS.md`, and third-party notices Kimi Code ACP registration, Runtime setup, selection, provenance, and ownership boundaries.
 I245: Root/workspace manifests, lockfile, runtime version, npm packages, Git `v3.1.4`, and GitHub Release are the 3.1.4 release surfaces.
 I246: `.github/workflows/release.yml`, `scripts/publish-npm.mjs`, publishable manifests, and `packages/swarmx/tests/launcher.test.ts` tag-to-npm release automation.
+I247: `packages/desktop/src/renderer/src/App.tsx` and `App.test.tsx` sidebar Project disclosure UI.
 
 ## §V
 V1: Workflow JSON source of truth is `SwarmConfig`; UI preview, run badges, and send payload derive from parsed JSON.
@@ -1028,6 +1031,7 @@ V515: Focused Core/Runtime/Renderer tests cover registry metadata, explicit mode
 V516: A pushed stable `v<version>` tag runs an npm job from that exact tag after both macOS packages pass, grants only `contents: read` plus `id-token: write`, uses npm 11 with trusted publishing or the repository-scoped bootstrap token, and publishes `@swarmx/core`, `@swarmx/runtime`, `@swarmx/acp-server`, `@swarmx/cli`, `@swarmx/desktop`, then `swarmx`.
 V517: npm release packing rejects tag/manifest/runtime-version drift, unresolved `workspace:` dependencies, package name/version drift, and registry/local integrity mismatches; a matching existing tarball is the only allowed publish retry skip.
 V518: The root runtime constant and all six publishable packages declare 3.1.5; one verified tagged commit owns the matching npm versions and GitHub Release.
+V519: Each grouped sidebar Project main row is a keyboard-accessible disclosure excluding its right-side action buttons; click, Enter, or Space toggles only that Project's task list, `aria-expanded` matches visibility, expanded state uses Lucide `FolderOpen`, and collapsed state uses Lucide `Folder`.
 
 ## §T
 |id|status|task|cites|
@@ -1245,6 +1249,7 @@ V518: The root runtime constant and all six publishable packages declare 3.1.5; 
 |T211|x|verify, version, publish, tag, and release SwarmX 3.1.4 with Kimi Code support|G70,C185,V469,V470,V487,V493,V514,V515,I245|
 |T212|x|add npm release automation with OIDC readiness, dependency ordering, and integrity-safe retries|G71,C186,V516,V517,I246|
 |T213|x|align, verify, publish, tag, and release SwarmX 3.1.5|G71,V469,V470,V487,V493,V516,V517,V518,I246|
+|T214|x|implement Project main-row disclosure toggle, state icons, and renderer tests|G72,C187,V519,I247|
 
 ## §B
 |id|date|cause|fix|

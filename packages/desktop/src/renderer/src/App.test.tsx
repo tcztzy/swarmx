@@ -1745,6 +1745,43 @@ describe("App user workflow", () => {
     expect(api.listProjects).not.toHaveBeenCalled();
   });
 
+  it("V519 toggles a Project from its main row with matching folder icons", async () => {
+    const api = createDesktopApiMock();
+    await renderApp(api);
+    const user = userEvent.setup();
+    const projectTrigger = await screen.findByRole("button", { name: "swarmx" });
+    const projectGroup = projectTrigger.closest("section");
+    expect(projectGroup).toBeTruthy();
+
+    await waitFor(() => expect(projectTrigger.getAttribute("aria-expanded")).toBe("true"));
+    expect(projectTrigger.querySelector(".lucide-folder-open")).toBeTruthy();
+    expect(await within(projectGroup as HTMLElement).findByText("ACP investigation")).toBeTruthy();
+
+    await user.click(projectTrigger);
+    expect(projectTrigger.getAttribute("aria-expanded")).toBe("false");
+    expect(projectTrigger.querySelector(".lucide-folder")).toBeTruthy();
+    expect(projectTrigger.querySelector(".lucide-folder-open")).toBeNull();
+    expect(within(projectGroup as HTMLElement).queryByText("ACP investigation")).toBeNull();
+
+    const options = within(projectGroup as HTMLElement).getByRole("button", {
+      name: "Options for swarmx",
+    });
+    await user.click(options);
+    expect(projectTrigger.getAttribute("aria-expanded")).toBe("false");
+    expect(screen.getByRole("menu", { name: "Project actions for swarmx" })).toBeTruthy();
+    await user.click(options);
+
+    await user.click(
+      within(projectGroup as HTMLElement).getByRole("button", { name: "New task in swarmx" }),
+    );
+    expect(projectTrigger.getAttribute("aria-expanded")).toBe("false");
+
+    await user.click(projectTrigger);
+    expect(projectTrigger.getAttribute("aria-expanded")).toBe("true");
+    expect(projectTrigger.querySelector(".lucide-folder-open")).toBeTruthy();
+    expect(within(projectGroup as HTMLElement).getByText("ACP investigation")).toBeTruthy();
+  });
+
   it("V329 matches the per-project hover row, controls, and semantic detail card", async () => {
     const api = createDesktopApiMock({
       setProjectPinned: vi.fn(async (_id: string, pinned: boolean) => ({
