@@ -3464,22 +3464,27 @@ describe("App user workflow", () => {
     expect(screen.getByText("The final summary stays visible.")).toBeTruthy();
   });
 
-  it("V353/V355 streams open work live, normalizes Thought emphasis, and collapses on completion", async () => {
+  it("V353/V355/V520 streams stable open work live and collapses on completion", async () => {
     const reply = deferred<{ success: boolean; messages: MessageChunk[] }>();
     const unsubscribe = vi.fn();
     const api = createDesktopApiMock({
       sendMessage: vi.fn(() => reply.promise),
       onAgentChunk: vi.fn(() => unsubscribe),
     });
-    const user = userEvent.setup();
-
     await renderApp(api);
-    await user.type(screen.getByRole("textbox"), "Inspect the message history");
-    await user.click(screen.getByRole("button", { name: "Send message" }));
+    fireEvent.change(screen.getByRole("textbox"), {
+      target: { value: "Inspect the message history" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Send message" }));
 
     const working = await screen.findByRole("button", { name: "Thinking" });
     expect(working.getAttribute("aria-expanded")).toBe("true");
     expect(screen.getByRole("status").textContent).toContain("Waiting for agent output");
+    const initialLabel = working.querySelector(".work-disclosure__label");
+    expect(initialLabel).not.toBeNull();
+
+    fireEvent.click(working);
+    expect(working.getAttribute("aria-expanded")).toBe("false");
 
     const requestId = api.sendMessage.mock.calls[0]?.[0]?.requestId as string;
     const emitChunk = api.onAgentChunk.mock.calls[0]?.[0] as (event: {
@@ -3515,6 +3520,9 @@ describe("App user workflow", () => {
       });
     });
 
+    const activeWork = screen.getByRole("button", { name: "Reading README.md" });
+    expect(activeWork.getAttribute("aria-expanded")).toBe("true");
+    expect(activeWork.querySelector(".work-disclosure__label")).toBe(initialLabel);
     const thought = screen.getByText("Inspecting README");
     expect(thought.closest(".run-event__markdown")?.querySelector("strong")).toBeNull();
     const commentary = screen.getByText("I will read the Project files now.");

@@ -7619,7 +7619,6 @@ button.doctor-harness__version:focus-visible {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  animation: work-label-enter 240ms var(--ease-out);
 }
 
 .work-disclosure.is-active .work-disclosure__label {
@@ -7633,7 +7632,7 @@ button.doctor-harness__version:focus-visible {
   background-size: 220% 100%;
   -webkit-background-clip: text;
   background-clip: text;
-  animation: work-label-enter 240ms var(--ease-out), work-label-shimmer 1.8s linear infinite;
+  animation: work-label-shimmer 1.8s linear infinite;
 }
 
 .work-disclosure__details {
@@ -9858,18 +9857,6 @@ button.doctor-harness__version:focus-visible {
   from {
     opacity: 0;
     transform: translateY(5px);
-  }
-
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-@keyframes work-label-enter {
-  from {
-    opacity: 0;
-    transform: translateY(3px);
   }
 
   to {

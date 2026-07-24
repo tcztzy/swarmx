@@ -1032,6 +1032,7 @@ V516: A pushed stable `v<version>` tag runs an npm job from that exact tag after
 V517: npm release packing rejects tag/manifest/runtime-version drift, unresolved `workspace:` dependencies, package name/version drift, and registry/local integrity mismatches; a matching existing tarball is the only allowed publish retry skip.
 V518: The root runtime constant and all six publishable packages declare 3.1.5; one verified tagged commit owns the matching npm versions and GitHub Release.
 V519: Each grouped sidebar Project main row is a keyboard-accessible disclosure excluding its right-side action buttons; click, Enter, or Space toggles only that Project's task list, `aria-expanded` matches visibility, expanded state uses Lucide `FolderOpen`, and collapsed state uses Lucide `Folder`.
+V520: A running desktop turn keeps Worked open as new commentary, reasoning, or tool activity arrives, including after a transient closed state; completion still collapses it, and live Worked labels update in the existing DOM node without replaying an entry transition.
 
 ## §T
 |id|status|task|cites|
@@ -1250,6 +1251,7 @@ V519: Each grouped sidebar Project main row is a keyboard-accessible disclosure 
 |T212|x|add npm release automation with OIDC readiness, dependency ordering, and integrity-safe retries|G71,C186,V516,V517,I246|
 |T213|x|align, verify, publish, tag, and release SwarmX 3.1.5|G71,V469,V470,V487,V493,V516,V517,V518,I246|
 |T214|x|implement Project main-row disclosure toggle, state icons, and renderer tests|G72,C187,V519,I247|
+|T215|x|backprop running Worked expansion and remove live-label transition flicker|G56,C138,C139,V353,V520,I191,I194|
 
 ## §B
 |id|date|cause|fix|
@@ -1397,3 +1399,4 @@ V519: Each grouped sidebar Project main row is a keyboard-accessible disclosure 
 |B141|2026-07-24|the local `gh run watch` connection hit a transient GitHub API TLS handshake timeout while the remote Release jobs remained healthy|re-query the authoritative run id with `gh run view` instead of inferring a workflow failure|
 |B142|2026-07-24|the first final verification query assumed an unsupported `gh release view` `isLatest` field and projected npm selected-field output as full metadata|request only advertised GitHub fields and project the full npm version document|
 |B143|2026-07-24|a local Core tarball integrity differed from the published clean-CI tarball because the dirty workspace retained obsolete untracked `dist/acp-server.*` outputs|compare unpacked contents before blaming archive metadata and keep publication on the exact clean tagged CI checkout|
+|B144|2026-07-24|Worked expansion lived as unsynchronized local state while its keyed live label replayed an opacity/translate entry animation, so an active turn could remain closed and visibly flash across status changes|V520|

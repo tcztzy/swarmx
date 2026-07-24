@@ -7099,6 +7099,11 @@ function WorkDisclosure({
   const toggleRef = useRef<HTMLButtonElement>(null);
   const detailsRef = useRef<HTMLDivElement>(null);
   const wasActive = useRef(active);
+  const workRevision =
+    messages.length > 0
+      ? `${messages.length}:${messageKey(messages[messages.length - 1] as MessageChunk)}`
+      : "";
+  const previousWorkRevision = useRef(workRevision);
   const detailsId = `${turnId}-work-details`;
   const duration = workDurationMs(messages);
   const activities = groupWorkActivities(messages);
@@ -7117,12 +7122,15 @@ function WorkDisclosure({
       : "Worked";
 
   useLayoutEffect(() => {
-    if (wasActive.current && !active) {
+    if (active) {
+      if (!wasActive.current || previousWorkRevision.current !== workRevision) setExpanded(true);
+    } else if (wasActive.current) {
       if (detailsRef.current?.contains(document.activeElement)) toggleRef.current?.focus();
       setExpanded(false);
     }
     wasActive.current = active;
-  }, [active]);
+    previousWorkRevision.current = workRevision;
+  }, [active, workRevision]);
 
   return (
     <section className={cx("work-disclosure", active && "is-active", expanded && "is-open")}>
@@ -7134,9 +7142,7 @@ function WorkDisclosure({
         onClick={() => setExpanded((value) => !value)}
         ref={toggleRef}
       >
-        <span className="work-disclosure__label" key={label}>
-          {label}
-        </span>
+        <span className="work-disclosure__label">{label}</span>
         <ChevronRight aria-hidden="true" />
       </button>
       {expanded && (
