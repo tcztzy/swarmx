@@ -5,8 +5,8 @@
     "declarationMap": true,
     "emitDeclarationOnly": true,
     "noEmit": false,
-    "outDir": "dist/preload",
-    "rootDir": "src/preload"
+    "outDir": "dist",
+    "rootDir": "src"
   },
   "include": ["src/preload/api.ts"]
 }

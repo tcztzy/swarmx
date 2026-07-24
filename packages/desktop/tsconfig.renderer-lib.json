@@ -5,13 +5,9 @@
     "declarationMap": true,
     "emitDeclarationOnly": false,
     "noEmit": false,
-    "outDir": "dist/renderer",
-    "rootDir": "src/renderer/src",
+    "outDir": "dist",
+    "rootDir": "src",
     "sourceMap": true
   },
-  "include": [
-    "src/renderer/src/App.tsx",
-    "src/renderer/src/code-highlighter.ts",
-    "src/renderer/src/message-content.tsx"
-  ]
+  "include": ["src/renderer/App.ts"]
 }

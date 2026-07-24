@@ -1,15 +1,14 @@
 import type {
   AgentBackend,
+  DesktopComposerPreferenceUpdate,
+  DesktopComposerPreferences,
   EdgeConfig,
   HarnessPermissionMode,
   HarnessPermissionPolicyLayer,
-  PermissionApprovalReceipt,
-  ResolvedHarnessPermissionPolicy,
   SessionPermissionMode,
   SwarmConfig,
   SwarmNodeConfig,
 } from "@swarmx/core";
-import { resolveHarnessModelInventory } from "@swarmx/core/model-capabilities";
 import {
   type NormalizeMessageChunkOptions,
   type NormalizedRenderEvent,
@@ -17,8 +16,19 @@ import {
   type RenderProvenance,
   normalizeMessageChunk,
 } from "@swarmx/core/rendering";
-import { FitAddon } from "@xterm/addon-fit";
-import { Terminal as XtermTerminal } from "@xterm/xterm";
+import type {
+  DoctorFixResult,
+  DoctorReport,
+  HarnessContainerRuntime,
+  HarnessEnvironmentHarness,
+  HarnessEnvironmentHarnessState,
+  HarnessEnvironmentSetupResult,
+  HarnessEnvironmentStatus,
+  HarnessProtectionMode,
+  HarnessProtectionSummary,
+  HarnessRuntimeRequirement,
+  HarnessVersionCheck,
+} from "@swarmx/runtime";
 import {
   Archive,
   ArrowLeft,
@@ -75,20 +85,78 @@ import type React from "react";
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import useSWR, { useSWRConfig } from "swr";
+import type {
+  DesktopPermissionStatus,
+  DesktopUpdateState,
+  ExtensionCapabilityInventory,
+  ExtensionManagementState,
+  ManualModelInput,
+  DesktopMessageChunk as MessageChunk,
+  DesktopMessageRenderMetadata as MessageRenderMetadata,
+  ModelApiProtocol,
+  ModelCatalogSummary,
+  DesktopN8nImportResponse as N8nImportResponse,
+  NewApiUsageAccount,
+  DesktopPermissionLayerStatus as PermissionLayerStatus,
+  ProviderKeyUsageSummary,
+  ProviderUsageEntry,
+  ProviderUsageMeter,
+  ProviderUsageSnapshot,
+  ProviderUsageTarget,
+  DesktopSessionData as SessionData,
+  UserProviderInput,
+} from "../../shared/desktop-api.js";
 import {
   AgentInteractionDialog,
   type AgentInteractionEvent,
   type AgentInteractionResponse,
 } from "./agent-interaction-dialog.js";
-import { Composer } from "./composer.js";
-import { PACKAGED_HARNESS_ICON_URLS } from "./harness-icon-data.js";
-import { MessageContent } from "./message-content.js";
 import {
-  compareModelDisplayOrder,
-  modelBrandPresentation,
-  selectableModelReasoning,
-} from "./model-display.js";
+  AgentPicker,
+  type ComposerModelOption,
+  canonicalDefaultComposerModel,
+  composerModelOptionId,
+  groupComposerModels,
+  preferredComposerModel,
+  resolveComposerModelOptions,
+} from "./agent-picker.js";
+import { AppBrandIcon } from "./app-brand.js";
+import { Composer } from "./composer.js";
+import {
+  type DoctorHarnessVersionState,
+  DoctorPanel,
+  type DoctorPanelMode,
+} from "./doctor-panel.js";
+import {
+  type AgentCompositionPayload,
+  extensionAgentComposition,
+  formatSoftwareSummary,
+  nativeAgentHostLabel,
+  uniqueById,
+} from "./extension-presentation.js";
+import { ExtensionWorkspace } from "./extension-workspace.js";
+import { HARNESSES, type HarnessOption } from "./harness-presentation.js";
+import { RuntimeBottomPanel } from "./internal-terminal.js";
+import { MessageContent } from "./message-content.js";
 import { type ActivityProfileSummary, ProfileWorkspace } from "./profile-workspace.js";
+import {
+  ProviderBrandIcon,
+  isDeepSeekProvider,
+  isDeepSeekProviderUrl,
+  isOpenCodeGoProviderUrl,
+  providerProtocolLabel,
+} from "./provider-presentation.js";
+import { api } from "./renderer-api.js";
+import { RuntimeSettings } from "./runtime-settings.js";
+import {
+  capitalize,
+  errorMessage,
+  formatTimestamp,
+  lines,
+  projectName,
+  slugId,
+} from "./text-utils.js";
+import { Badge, Button, cx } from "./ui-primitives.js";
 import {
   type BrowserBounds,
   type BrowserState,
@@ -98,14 +166,12 @@ import {
   type WorkspaceReviewSnapshot,
 } from "./workspace-panel.js";
 
-interface MessageChunk {
-  role: string;
-  content: string;
-  kind: "message" | "thinking" | "tool_call" | "tool_result";
-  agent?: string;
-  render?: MessageRenderMetadata;
-  swarmEvent?: string;
-  toolName?: string;
+interface ProviderErrorNotice {
+  type: "provider_error";
+  code: "overloaded" | "rate_limited" | "temporarily_unavailable";
+  title: string;
+  message: string;
+  retryable: boolean;
 }
 
 interface ConversationTurn {
@@ -117,6 +183,7 @@ interface ConversationTurn {
 
 interface ToolActivity {
   call?: MessageChunk;
+  progress?: MessageChunk;
   result?: MessageChunk;
   sourceIndex: number;
 }
@@ -124,36 +191,6 @@ interface ToolActivity {
 type WorkActivity =
   | { kind: "message"; message: MessageChunk; sourceIndex: number }
   | { kind: "tool"; activity: ToolActivity };
-
-interface MessageRenderMetadata {
-  artifacts?: RenderArtifactReference[];
-  durationMs?: number;
-  endedAt?: string;
-  invocationId?: string;
-  parentMessageId?: string;
-  provenance?: RenderProvenance;
-  rawPayloadRef?: string;
-  source?: string;
-  startedAt?: string;
-  status?: NormalizeMessageChunkOptions["status"];
-}
-
-interface SessionData {
-  id: string;
-  title: string;
-  acpSessionId?: string;
-  projectId?: string;
-  cwd?: string;
-  agentName: string;
-  harness: string;
-  model?: string;
-  permissionMode?: SessionPermissionMode;
-  pinned: boolean;
-  messages: MessageChunk[];
-  archivedAt?: string;
-  createdAt: string;
-  updatedAt: string;
-}
 
 type SessionGroupMode = "project" | "harness";
 type ProjectOrganizationMode = "project" | "list";
@@ -215,33 +252,6 @@ interface SessionContextMenuState {
   y: number;
 }
 
-interface HarnessOption {
-  id: string;
-  label: string;
-  icon: LucideIcon;
-  modelControl: "direct" | "session" | "unsupported";
-  disabled?: boolean;
-  disabledReason?: string;
-}
-
-interface ComposerModelOption {
-  id: string;
-  label: string;
-  modelId: string;
-  modelSupplyId?: string;
-  runtimeModel: string;
-  apiProtocol: string;
-  providerId: string;
-  providerLabel: string;
-  providerGroup?: string;
-  provider?: ExtensionProviderSummary;
-  manual?: boolean;
-  reasoning?: {
-    supportedEfforts: string[];
-    defaultEffort?: string;
-  };
-}
-
 interface HarnessDescriptor {
   software?: {
     name?: string;
@@ -278,93 +288,12 @@ interface WorkflowParseResult {
   edges: EdgeConfig[];
 }
 
-interface N8nImportResponse {
-  success: boolean;
-  config?: SwarmConfig;
-  warnings?: string[];
-  nodeMap?: Record<string, string>;
-  error?: string;
-}
-
 interface WorkflowImportStatus {
   kind: "success" | "error";
   message: string;
   warnings: string[];
 }
 
-interface ExtensionCapabilityInventory {
-  bundles: ExtensionBundleSummary[];
-  harnesses: ExtensionHarnessSummary[];
-  models: ExtensionModelSummary[];
-  modelSupplies: ExtensionModelSupplySummary[];
-  providers: ExtensionProviderSummary[];
-  agents: ExtensionAgentSummary[];
-  skills: ExtensionSkillSummary[];
-  mcpServers: ExtensionMcpSummary[];
-  appConnectors: ExtensionConnectorSummary[];
-  uiContributions: ExtensionUiContributionSummary[];
-  commands: ExtensionCommandSummary[];
-  lspServers: ExtensionLspSummary[];
-  hooks: ExtensionHookSummary[];
-  monitors: ExtensionMonitorSummary[];
-  outputStyles: ExtensionOutputStyleSummary[];
-  settings: ExtensionSettingSummary[];
-  assets: ExtensionAssetSummary[];
-  permissions: ExtensionPermissionSummary[];
-  authPolicies: ExtensionAuthPolicySummary[];
-  marketplaceSources: ExtensionMarketplaceSourceSummary[];
-  pluginCatalog: ExtensionPluginCatalogEntrySummary[];
-  agentPlans?: ExtensionAgentPlanSummary[];
-  modelCatalog?: ModelCatalogSummary;
-  warnings: Array<{ source: string; message: string }>;
-}
-
-interface ManagedExtensionRevision {
-  revisionId: string;
-  version: string;
-  contentDigest: string;
-  sourceId: string;
-  packageRef?: string;
-  publishedAt?: string;
-}
-
-interface ManagedExtensionCandidate {
-  pluginId: string;
-  name: string;
-  trust: "builtin" | "local" | "verified" | "untrusted";
-  revision: ManagedExtensionRevision;
-  description?: string;
-}
-
-interface ManagedExtension {
-  pluginId: string;
-  name: string;
-  state: string;
-  enabled: boolean;
-  trust: string;
-  currentRevision?: ManagedExtensionRevision;
-  previousRevisions: ManagedExtensionRevision[];
-  pinnedRevisionId?: string;
-}
-
-interface ExtensionManagementState {
-  sources: Array<{
-    id: string;
-    name: string;
-    kind: "local_path" | "remote_catalog" | "host_native" | "registry";
-    location: string;
-    trust: "builtin" | "local" | "verified" | "untrusted";
-    enabled: boolean;
-    readOnly: boolean;
-    refreshedAt?: string;
-  }>;
-  candidates?: ManagedExtensionCandidate[];
-  installed: ManagedExtension[];
-  skillEvolutionEnabled: boolean;
-  skillPromotionGate: "human" | "policy";
-}
-
-type ModelApiProtocol = "anthropic" | "openai_chat" | "openai_responses" | "ollama";
 type SettingsSection =
   | "general"
   | "profile"
@@ -374,833 +303,14 @@ type SettingsSection =
   | "agents"
   | "runtime";
 
-interface PermissionLayerStatus {
-  id: string;
-  source: HarnessPermissionPolicyLayer["source"];
-  label: string;
-  configured: boolean;
-  readOnly: boolean;
-  mode?: HarnessPermissionMode;
-  allowedTools: string[];
-  deniedTools: string[];
-  error?: string;
-}
-
-interface DesktopPermissionStatus {
-  personalPolicy: HarnessPermissionPolicyLayer;
-  profileAvailability: {
-    default: boolean;
-    auto: boolean;
-    trusted: boolean;
-  };
-  layers: PermissionLayerStatus[];
-  effective?: ResolvedHarnessPermissionPolicy;
-  blocked: boolean;
-  projectPolicyPath: string;
-  approvalReceipts: PermissionApprovalReceipt[];
-}
-type DesktopUpdatePhase = "hidden" | "available" | "downloading" | "installing" | "restarting";
-
-interface DesktopUpdateState {
-  phase: DesktopUpdatePhase;
-  currentVersion: string;
-  latestVersion?: string;
-  progress?: number;
-  error?: string;
-}
-
-interface ManualModelInput {
-  id: string;
-  label?: string;
-  runtimeModel?: string;
-  apiProtocol: ModelApiProtocol;
-}
-
-interface UserProviderInput {
-  id?: string;
-  label: string;
-  kind: ModelApiProtocol;
-  baseUrl: string;
-  authMode: "api_key" | "auth_token";
-  usageAdapter?: "new_api";
-  secret?: string;
-  accountAccessToken?: string;
-  accountUserId?: string;
-  clearAccountAccess?: boolean;
-  additionalApiKeys?: Array<{ label?: string; value: string }>;
-  removeApiKeyIds?: string[];
-}
-
-interface ProviderKeyUsageSummary {
-  id: string;
-  label: string;
-  enabled: boolean;
-  status: "ready" | "cooling" | "disabled";
-  requestCount: number;
-  inputTokens: number;
-  outputTokens: number;
-  reasoningTokens: number;
-  cachedInputTokens: number;
-  totalTokens: number;
-  lastUsedAt?: string;
-  cooldownUntil?: string;
-}
-
-interface ModelCatalogSummary {
-  manualModelIds: string[];
-  userProviderIds: string[];
-  providers: Array<{
-    providerProfileId: string;
-    label: string;
-    status: "cached" | "ready" | "skipped" | "error";
-    modelCount: number;
-    fetchedAt?: string;
-    error?: string;
-  }>;
-  refreshedAt?: string;
-}
-
-type ProviderUsageMeter =
-  | {
-      kind: "balance";
-      label: string;
-      currency: string;
-      total: string;
-      granted?: string;
-      toppedUp?: string;
-    }
-  | {
-      kind: "window";
-      id: string;
-      label: string;
-      usedPercent: number;
-      remainingPercent: number;
-      resetsAt?: string;
-    }
-  | { kind: "credit"; label: string; remaining: string; unit: string };
-
-interface NewApiUsageAccount {
-  kind: "new_api";
-  status: "ready" | "unavailable" | "error";
-  displayName?: string;
-  group?: string;
-  balance?: {
-    remaining: string;
-    used: string;
-    total: string;
-    unit: string;
-  };
-  tokens: Array<{
-    id: string;
-    name: string;
-    status: "active" | "disabled" | "exhausted" | "expired" | "unknown";
-    remaining: string;
-    used?: string;
-    total?: string;
-    lastUsedAt?: string;
-    expiresAt?: string;
-  }>;
-  totalTokens: number;
-  detail?: string;
-}
-
-interface ProviderUsageEntry {
-  source: "provider" | "tool_account";
-  sourceId: string;
-  providerProfileId?: string;
-  label: string;
-  adapterId: string;
-  status: "ready" | "unsupported" | "unavailable" | "error";
-  meters: ProviderUsageMeter[];
-  fetchedAt?: string;
-  detail?: string;
-  plan?: string;
-  account?: NewApiUsageAccount;
-  keys?: ProviderKeyUsageSummary[];
-}
-
-interface ProviderUsageSnapshot {
-  fetchedAt: string;
-  providers: ProviderUsageEntry[];
-  toolAccounts: ProviderUsageEntry[];
-}
-
-interface ProviderUsageTarget {
-  source: "provider" | "tool_account";
-  sourceId: string;
-}
-
-interface ExtensionBundleSummary {
-  id: string;
-  name: string;
-  version: string;
-  description?: string;
-  trust?: string;
-  readOnly?: boolean;
-  capabilities?: {
-    harnesses?: unknown[];
-    models?: unknown[];
-    modelSupplies?: unknown[];
-    agents?: unknown[];
-    skills?: unknown[];
-    mcpServers?: unknown[];
-    providers?: unknown[];
-    appConnectors?: unknown[];
-    uiContributions?: unknown[];
-    commands?: unknown[];
-    lspServers?: unknown[];
-    hooks?: unknown[];
-    monitors?: unknown[];
-    outputStyles?: unknown[];
-    settings?: unknown[];
-    assets?: unknown[];
-    permissions?: unknown[];
-    authPolicies?: unknown[];
-    marketplaceSources?: unknown[];
-    pluginCatalog?: unknown[];
-  };
-}
-
-interface ExtensionHarnessSummary {
-  id: string;
-  label: string;
-  modelControl: "direct" | "session" | "unsupported";
-  modelCompatibility: "declared_apis" | "any";
-  supportedModelApis?: string[];
-  readOnly?: boolean;
-  enabled?: boolean;
-  software?: { name?: string; version?: string };
-}
-
-interface ExtensionModelSummary {
-  id: string;
-  label?: string;
-  runtimeModel: string;
-  apiProtocols: string[];
-  readOnly?: boolean;
-  enabled?: boolean;
-  catalogSource?: string;
-  catalogSources?: string[];
-}
-
-interface ExtensionModelSupplySummary {
-  id: string;
-  modelId: string;
-  providerProfileId: string;
-  runtimeModel?: string;
-  providerGroup?: string;
-  harnessIds?: string[];
-  enabled?: boolean;
-  readOnly?: boolean;
-}
-
-interface ExtensionProviderSummary {
-  id: string;
-  label: string;
-  kind: string;
-  baseUrl?: string;
-  authMode?: "api_key" | "auth_token";
-  usageAdapter?: "new_api";
-  newApiAccountUserId?: string;
-  accountAccessReady?: boolean;
-  runtimeReady?: boolean;
-  runtimeNote?: string;
-  catalogAdapter?: string;
-  runtimeKeySlots?: Array<{ id: string; label: string; enabled: boolean }>;
-  runtimeKeyUsage?: ProviderKeyUsageSummary[];
-  readOnly?: boolean;
-}
-
-interface ExtensionAgentSummary {
-  id: string;
-  name: string;
-  displayName?: string;
-  selector?: string;
-  harnessId?: string;
-  modelId?: string;
-  nativeModel?: string;
-  modelSupplyId?: string;
-  skills?: string[];
-  mcpServers?: string[];
-  tools?: string[];
-  disallowedTools?: string[];
-  permissionMode?: string;
-  sandboxMode?: string;
-  nicknameCandidates?: string[];
-  maxTurns?: number;
-  memory?: string;
-  effort?: string;
-  background?: boolean;
-  isolation?: string;
-  color?: string;
-  readOnly?: boolean;
-  instructions?: string;
-  definition?: {
-    kind: "local" | "project" | "user" | "plugin" | "host" | "server" | "imported";
-    host?: "claude_code" | "codex" | "swarmx" | "custom";
-    format?: "claude_code" | "codex";
-    path?: string;
-    label?: string;
-    readOnly?: boolean;
-  };
-  harnessRecipe?: {
-    id: string;
-    revisionId: string;
-    name?: string;
-    softwareId: string;
-    softwareVersion?: string;
-    skillBindings: Array<{
-      skillId: string;
-      mode: "off" | "auto" | "required";
-      variantId?: string;
-    }>;
-    mcpServerIds: string[];
-    projectContext: {
-      paths: string[];
-      instructionFiles: string[];
-      includeWorkspaceRules: boolean;
-    };
-    delivery: {
-      unsupportedSkill: "block" | "skip";
-      requireContentDigest: boolean;
-      allowHostNativePlugins: boolean;
-    };
-    permissions: {
-      mode: HarnessPermissionMode;
-      allowedTools: string[];
-      deniedTools: string[];
-    };
-    contentDigest?: string;
-  };
-}
-
-interface ExtensionAgentPlanSummary {
-  id: string;
-  agentId: string;
-  agentProfileId?: string;
-  displayName: string;
-  canonicalSelector: string;
-  host: "local" | "server";
-  status: "draft" | "ready" | "disabled" | "blocked" | "running" | "failed" | "stale";
-  healthStatus: "ready" | "blocked";
-  harnessId?: string;
-  harnessLabel?: string;
-  modelId?: string;
-  runtimeModel?: string;
-  modelSupplyId?: string;
-  supplyLabel?: string;
-  pluginIds?: string[];
-  skills?: ExtensionAgentPlanCapabilitySummary[];
-  mcpServers?: ExtensionAgentPlanCapabilitySummary[];
-  context?: { mode: string; strategy: string; memory?: string };
-  permissions?: {
-    tools?: string;
-    mcp?: string;
-    shell?: string;
-    mode?: string;
-    allowedTools?: string[];
-    deniedTools?: string[];
-    summary?: string;
-  };
-  visual?: { label?: string; color?: string; icon?: string };
-  requirements?: ExtensionAgentPlanRequirementSummary[];
-}
-
-interface ExtensionAgentPlanCapabilitySummary {
-  id: string;
-  name?: string;
-  sourcePluginId?: string;
-  status?: string;
-}
-
-interface ExtensionAgentPlanRequirementSummary {
-  kind: string;
-  status: string;
-  id?: string;
-  sourcePluginId?: string;
-  message: string;
-}
-
-interface ExtensionSkillSummary {
-  id: string;
-  name?: string;
-  path?: string;
-  canonicalPath?: string;
-  governanceRef?: string;
-  requiresGateSkillIds?: string[];
-  hostExposures?: ExtensionSkillHostExposureSummary[];
-  readOnly?: boolean;
-  tokenEstimate?: number;
-  variants?: Array<{
-    id: string;
-    version?: string;
-    tokenEstimate?: number;
-    status?: string;
-    target?: {
-      agentProfileIds?: string[];
-      modelIds?: string[];
-      modelFamilies?: string[];
-    };
-  }>;
-}
-
-interface ExtensionSkillHostExposureSummary {
-  host: string;
-  status?: string;
-  manifestPath?: string;
-  marketplaceSourceId?: string;
-  rulesPath?: string;
-  package?: string;
-  readOnly?: boolean;
-}
-
-interface ExtensionMcpSummary {
-  id: string;
-  name?: string;
-  scope?: string;
-}
-
-interface ExtensionConnectorSummary {
-  id: string;
-  name: string;
-  kind: string;
-  readOnly?: boolean;
-}
-
-interface ExtensionUiContributionSummary {
-  id: string;
-  kind: string;
-  name: string;
-  description?: string;
-  placement: string;
-  order?: number;
-  icon?: string;
-  route?: string;
-  target?: string;
-  componentRef?: string;
-  assetRef?: string;
-  commandId?: string;
-  settingIds?: string[];
-  permissionIds?: string[];
-  authPolicyIds?: string[];
-  sourcePluginId?: string;
-  readOnly?: boolean;
-  provenance?: string;
-}
-
-interface ExtensionCommandSummary {
-  id: string;
-  name?: string;
-  command?: string[];
-  scope?: string;
-}
-
-interface ExtensionLspSummary {
-  id: string;
-  name?: string;
-  description?: string;
-  languages?: string[];
-  languageIds?: string[];
-  mentionPrefixes?: string[];
-  command?: string[] | string;
-  args?: string[];
-  cwd?: string;
-  scope?: string;
-}
-
-interface ExtensionHookSummary {
-  id: string;
-  name?: string;
-  event: string;
-}
-
-interface ExtensionMonitorSummary {
-  id: string;
-  name?: string;
-  trigger?: string;
-  schedule?: string;
-}
-
-interface ExtensionOutputStyleSummary {
-  id: string;
-  name?: string;
-  path?: string;
-}
-
-interface ExtensionSettingSummary {
-  id: string;
-  name?: string;
-  valueType?: string;
-  required?: boolean;
-}
-
-interface ExtensionAssetSummary {
-  id: string;
-  name?: string;
-  kind?: string;
-  path?: string;
-  url?: string;
-}
-
-interface ExtensionPermissionSummary {
-  id: string;
-  kind: string;
-  access?: string;
-  target?: string;
-  required?: boolean;
-}
-
-interface ExtensionAuthPolicySummary {
-  id: string;
-  kind?: string;
-  required?: boolean;
-  secretRefs?: unknown[];
-}
-
-interface ExtensionMarketplaceSourceSummary {
-  id: string;
-  name: string;
-  host?: string;
-  kind?: string;
-  path?: string;
-  url?: string;
-  package?: string;
-  enabled?: boolean;
-  readOnly?: boolean;
-  trust?: string;
-}
-
-interface ExtensionPluginCatalogEntrySummary {
-  id: string;
-  name: string;
-  version?: string;
-  marketplaceSourceId?: string;
-  bundleId?: string;
-  hosts?: string[];
-  trust?: string;
-  installState?: string;
-  updateState?: string;
-  providesHarness?: boolean;
-  componentCounts?: Record<string, number>;
-  readOnly?: boolean;
-}
-
-type HarnessRequirementStatus = "ready" | "missing" | "unsupported" | "failed";
-type HarnessEnvironmentHarnessState = "ready" | "needs_setup" | "unsupported";
-type ContainerRuntimeStatus = "ready" | "missing" | "unsupported" | "service_stopped" | "failed";
-type HarnessProtectionMode = "protected" | "native";
-
-interface HarnessRuntimeRequirement {
-  id: string;
-  label: string;
-  command: string;
-  status: HarnessRequirementStatus;
-  installable: boolean;
-  requiredBy: string[];
-  path?: string;
-  version?: string;
-  note?: string;
-}
-
-interface HarnessEnvironmentHarness {
-  harnessId: string;
-  harnessLabel: string;
-  command?: string;
-  installable?: boolean;
-  path?: string;
-  version?: string;
-  status: HarnessEnvironmentHarnessState;
-  requirements: string[];
-  executionMode?: HarnessProtectionMode;
-  protectionRequired?: boolean;
-  containerRuntimeId?: string;
-  note?: string;
-}
-
-interface HarnessContainerRuntime {
-  id: string;
-  label: string;
-  command: string;
-  status: ContainerRuntimeStatus;
-  supported: boolean;
-  installable: boolean;
-  serviceReady: boolean;
-  preferred: boolean;
-  path?: string;
-  version?: string;
-  note?: string;
-}
-
-interface HarnessProtectionSummary {
-  mode: HarnessProtectionMode;
-  ready: boolean;
-  requiredHarnessIds: string[];
-  selectedRuntimeId?: string;
-  note?: string;
-}
-
-interface HarnessEnvironmentStatus {
-  checkedAt: string;
-  path: string;
-  ready: boolean;
-  setupAvailable: boolean;
-  containerRuntimes?: HarnessContainerRuntime[];
-  protection?: HarnessProtectionSummary;
-  requirements: HarnessRuntimeRequirement[];
-  harnesses: HarnessEnvironmentHarness[];
-}
-
-interface HarnessVersionCheck {
-  harnessId: string;
-  version?: string;
-}
-
-interface DoctorHarnessVersionState {
-  status: "loading" | "loaded";
-  version?: string;
-}
-
-interface HarnessEnvironmentSetupResult {
-  success: boolean;
-  status: HarnessEnvironmentStatus;
-  installedRequirementIds: string[];
-  skippedRequirementIds: string[];
-  failedRequirementIds: string[];
-  installedContainerRuntimeIds?: string[];
-  skippedContainerRuntimeIds?: string[];
-  failedContainerRuntimeIds?: string[];
-  log: string[];
-  error?: string;
-}
-
-type DoctorRepairRisk = "safe" | "install" | "admin";
-
-interface DoctorIssue {
-  id: string;
-  severity: "error" | "warning";
-  scope: "doctor" | "protection" | "requirement" | "harness";
-  targetId?: string;
-  message: string;
-  repairActionId?: string;
-}
-
-interface DoctorRepairAction {
-  id: string;
-  label: string;
-  risk: DoctorRepairRisk;
-  request: {
-    harnessId?: string;
-    requirementIds?: string[];
-    containerRuntimeId?: string;
-    includeContainerRuntime?: boolean;
-  };
-}
-
-interface DoctorReport {
-  checkedAt: string;
-  healthy: boolean;
-  harnessId?: string;
-  summary: {
-    readyHarnesses: number;
-    totalHarnesses: number;
-    issueCount: number;
-    fixableCount: number;
-  };
-  issues: DoctorIssue[];
-  repairActions: DoctorRepairAction[];
-  environment: HarnessEnvironmentStatus;
-}
-
-interface DoctorFixResult {
-  executed: boolean;
-  before: DoctorReport;
-  plan: {
-    actions: DoctorRepairAction[];
-    requiresConfirmation: boolean;
-    requiresAdmin: boolean;
-  };
-  setupResults: HarnessEnvironmentSetupResult[];
-  after: DoctorReport;
-}
-
-type DoctorPanelMode = "doctor" | "setup";
+type ExtensionProviderSummary = ExtensionCapabilityInventory["providers"][number];
+type ExtensionAgentSummary = ExtensionCapabilityInventory["agents"][number];
+type ExtensionUiContributionSummary = ExtensionCapabilityInventory["uiContributions"][number];
 
 type DesktopSlashCommand =
   | { kind: "doctor"; fix: boolean; harnessId?: string }
   | { kind: "setup"; fix: false; harnessId?: string }
   | { kind: "error"; message: string };
-
-interface AgentCompositionPayload {
-  id: string;
-  agentProfileId?: string;
-  harnessId?: string;
-  modelId?: string;
-  effort?: string;
-  host?: "local" | "server";
-}
-
-interface SwarmxAPI {
-  readonly initialProjects?: readonly ProjectData[];
-  sendMessage(params: {
-    requestId: string;
-    sessionId?: string;
-    harnessId: string;
-    userText: string;
-    agentComposition?: unknown;
-    swarmConfig?: unknown;
-    cwd?: string;
-  }): Promise<{
-    success: boolean;
-    messages?: unknown;
-    error?: string;
-    canceled?: boolean;
-    requestId?: string;
-    sessionPersisted?: boolean;
-  }>;
-  onAgentChunk(listener: (event: { requestId: string; chunk: MessageChunk }) => void): () => void;
-  onAgentInteraction(listener: (event: AgentInteractionEvent) => void): () => void;
-  onSessionMessages?(listener: (event: { sessionId: string }) => void): () => void;
-  resolveAgentInteraction(params: {
-    requestId: string;
-    interactionId: string;
-    response: AgentInteractionResponse;
-  }): Promise<{ requestId: string; interactionId: string; resolved: boolean }>;
-  cancelMessage(requestId: string): Promise<{ requestId: string; canceled: boolean }>;
-  createSession(params: {
-    agentName: string;
-    harness: string;
-    model?: string;
-    projectId?: string;
-    cwd?: string;
-    permissionMode?: SessionPermissionMode;
-  }): Promise<SessionData>;
-  saveSession(session: SessionData): Promise<void>;
-  loadSession(id: string): Promise<SessionData | null>;
-  loadDiscoveredSession(session: DiscoveredSession): Promise<SessionData | null>;
-  listSessions(): Promise<SessionData[]>;
-  getActivityProfile(): Promise<ActivityProfileSummary>;
-  listProjects(): Promise<ProjectData[]>;
-  addExistingProject(): Promise<ProjectData | null>;
-  createScratchProject(): Promise<ProjectData | null>;
-  setProjectPinned(id: string, pinned: boolean): Promise<ProjectData>;
-  renameProject(id: string, name: string): Promise<ProjectData>;
-  revealProject(id: string): Promise<boolean>;
-  archiveProjectTasks(id: string): Promise<number>;
-  removeProject(id: string): Promise<boolean>;
-  listGroupedSessions(params?: {
-    mode?: "project" | "harness";
-    cwd?: string;
-    harnessIds?: string[];
-  }): Promise<GroupedSessionsResult>;
-  deleteSession(id: string): Promise<boolean>;
-  renameSession(id: string, title: string): Promise<SessionData>;
-  setSessionPinned(id: string, pinned: boolean): Promise<SessionData>;
-  generateSessionTitle(id: string, userText: string): Promise<{ title: string; updated: boolean }>;
-  appendMessages(params: { id: string; messages: unknown[] }): Promise<boolean>;
-  importN8nWorkflow(source: string): Promise<N8nImportResponse>;
-  listExtensions(): Promise<ExtensionCapabilityInventory>;
-  getExtensionManagementState(): Promise<ExtensionManagementState>;
-  saveExtensionSource(input: unknown): Promise<ExtensionManagementState>;
-  refreshExtensionSource(id: string): Promise<ExtensionManagementState>;
-  removeExtensionSource(id: string): Promise<ExtensionManagementState>;
-  applyExtensionAction(input: unknown): Promise<{
-    state: ExtensionManagementState;
-    receipt: { status: "applied" | "rejected" | "failed"; message: string };
-  }>;
-  saveSkillEvolutionPolicy(input: {
-    enabled: boolean;
-    promotionGate: "human" | "policy";
-  }): Promise<ExtensionManagementState>;
-  listCustomAgents(): Promise<ExtensionCapabilityInventory>;
-  saveCustomAgent(input: unknown): Promise<ExtensionCapabilityInventory>;
-  removeCustomAgent(id: string): Promise<ExtensionCapabilityInventory>;
-  getPermissionStatus(params?: {
-    cwd?: string;
-    agentId?: string;
-    agentPolicy?: unknown;
-  }): Promise<DesktopPermissionStatus>;
-  savePersonalPermissionPolicy(
-    policy: unknown,
-    context?: { cwd?: string; agentId?: string; agentPolicy?: unknown },
-  ): Promise<DesktopPermissionStatus>;
-  savePermissionProfileAvailability(
-    profileAvailability: unknown,
-    context?: { cwd?: string; agentId?: string; agentPolicy?: unknown },
-  ): Promise<DesktopPermissionStatus>;
-  workspaceRoot(): Promise<string>;
-  getWorkspaceReview(cwd?: string): Promise<WorkspaceReviewSnapshot>;
-  listWorkspaceDirectory(path?: string, cwd?: string): Promise<WorkspaceDirectoryListing>;
-  readWorkspaceFile(path: string, cwd?: string): Promise<WorkspaceFilePreview>;
-  createTerminal(params: {
-    id: string;
-    cwd: string;
-    cols?: number;
-    rows?: number;
-  }): Promise<{ id: string; pid: number }>;
-  writeTerminal(id: string, data: string): Promise<{ written: boolean }>;
-  resizeTerminal(id: string, cols: number, rows: number): Promise<{ resized: boolean }>;
-  killTerminal(id: string): Promise<{ killed: boolean }>;
-  onTerminalData(listener: (event: { id: string; data: string }) => void): () => void;
-  onTerminalExit(
-    listener: (event: { id: string; exitCode: number; signal?: number }) => void,
-  ): () => void;
-  createBrowser(params?: {
-    id?: string;
-    url?: string;
-    bounds?: BrowserBounds;
-    visible?: boolean;
-  }): Promise<BrowserState>;
-  navigateBrowser(id: string, url: string): Promise<BrowserState>;
-  backBrowser(id: string): Promise<BrowserState>;
-  forwardBrowser(id: string): Promise<BrowserState>;
-  reloadBrowser(id: string): Promise<BrowserState>;
-  setBrowserBounds(id: string, bounds: BrowserBounds): Promise<{ updated: boolean }>;
-  setBrowserVisible(id: string, visible: boolean): Promise<{ updated: boolean }>;
-  destroyBrowser(id: string): Promise<{ destroyed: boolean }>;
-  onBrowserState(listener: (state: BrowserState) => void): () => void;
-  getUpdateState?(): Promise<DesktopUpdateState>;
-  startUpdate?(): Promise<DesktopUpdateState>;
-  onUpdateState?(listener: (state: DesktopUpdateState) => void): () => void;
-  selectFilesAndFolders(): Promise<string[]>;
-  refreshModelCatalog(): Promise<ExtensionCapabilityInventory | null>;
-  addManualModel(input: ManualModelInput): Promise<ExtensionCapabilityInventory | null>;
-  removeManualModel(modelId: string): Promise<ExtensionCapabilityInventory | null>;
-  saveProvider(input: UserProviderInput): Promise<ExtensionCapabilityInventory | null>;
-  removeProvider(providerId: string): Promise<ExtensionCapabilityInventory | null>;
-  resetProviderKey(providerId: string, keyId: string): Promise<ExtensionCapabilityInventory | null>;
-  refreshProviderUsage(target?: ProviderUsageTarget): Promise<ProviderUsageSnapshot>;
-  getHarnessEnvironment(): Promise<HarnessEnvironmentStatus>;
-  getHarnessVersion(params: { harnessId: string; refresh?: boolean }): Promise<HarnessVersionCheck>;
-  inspectDoctor(params?: { harnessId?: string }): Promise<DoctorReport>;
-  fixDoctor(params: { harnessId?: string; confirmed: boolean }): Promise<DoctorFixResult>;
-  setupHarnessEnvironment(params?: {
-    harnessId?: string;
-    harnessToolId?: string;
-    requirementIds?: string[];
-    containerRuntimeId?: string;
-    includeContainerRuntime?: boolean;
-  }): Promise<HarnessEnvironmentSetupResult>;
-  lspComplete(params: {
-    serverId: string;
-    workspaceRoot: string;
-    text: string;
-    position: { line: number; character: number };
-    documentUri?: string;
-    languageId?: string;
-    triggerCharacter?: string;
-    timeoutMs?: number;
-  }): Promise<{ serverId: string; status: "ok"; result: unknown }>;
-  lspStop(params: { serverId: string; workspaceRoot?: string }): Promise<{
-    serverId: string;
-    stopped: boolean;
-  }>;
-  loadImageDataUrl(source: string): Promise<string | null>;
-}
-
-interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
-  variant?: "default" | "secondary" | "ghost" | "destructive";
-  size?: "sm" | "md" | "icon";
-}
 
 export interface SwarmxDesktopProductConfig {
   name?: string;
@@ -1221,19 +331,13 @@ export interface AppProps {
   uiComponentRegistry?: GuiContributionComponentRegistry;
 }
 
-declare global {
-  interface Window {
-    swarmxAPI: SwarmxAPI;
-  }
-}
-
-const api = window.swarmxAPI;
 const LOCAL_SESSIONS_KEY = "sessions:local";
 const GROUPED_SESSIONS_KEY = "sessions:grouped";
 const ACTIVITY_PROFILE_KEY = "activity:profile";
 const PROJECTS_KEY = "projects:local";
 const EXTENSIONS_KEY = "extensions:inventory";
 const EXTENSION_MANAGEMENT_KEY = "extensions:management";
+const COMPOSER_PREFERENCES_KEY = "composer:preferences";
 const HARNESS_ENVIRONMENT_KEY = "harness:environment";
 const SESSION_DEDUPING_INTERVAL_MS = 10_000;
 const LOCAL_SESSION_PRELOAD_LIMIT = 24;
@@ -1255,23 +359,6 @@ const DEFAULT_MENTION_SERVERS = [
   },
 ];
 
-const HARNESSES: HarnessOption[] = [
-  { id: "swarmx", label: "SwarmX", icon: Workflow, modelControl: "direct" },
-  { id: "claude_code", label: "Claude Code", icon: Hammer, modelControl: "session" },
-  { id: "codex", label: "Codex", icon: TerminalIcon, modelControl: "session" },
-  { id: "pi", label: "Pi", icon: Bot, modelControl: "session" },
-  { id: "kimi", label: "Kimi Code", icon: Bot, modelControl: "session" },
-  { id: "opencode", label: "OpenCode", icon: Code2, modelControl: "session" },
-  { id: "hermes", label: "Hermes", icon: Sparkles, modelControl: "session" },
-  {
-    id: "openclaw",
-    label: "OpenClaw",
-    icon: Bot,
-    modelControl: "unsupported",
-    disabled: true,
-    disabledReason: "Model switching is not configured.",
-  },
-];
 const EMPTY_RUN_SUGGESTIONS: Array<{
   id: string;
   label: string;
@@ -1592,6 +679,7 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
   const navigationHistoryRef = useRef<Array<DiscoveredSession | null>>([null]);
   const navigationIndexRef = useRef(0);
   const doctorVersionChecksStarted = useRef(false);
+  const composerPreferencesRestored = useRef(false);
   const [navigationIndex, setNavigationIndex] = useState(0);
   const preloadedSessionKeys = useRef(new Set<string>());
   const scrollStateRef = useRef<{ sessionId: string | null; messageCount: number }>({
@@ -1818,6 +906,26 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
     () => api.getExtensionManagementState(),
     { revalidateOnFocus: false, revalidateOnReconnect: false },
   );
+  const {
+    data: composerPreferences,
+    isLoading: composerPreferencesLoading,
+    mutate: mutateComposerPreferences,
+  } = useSWR<DesktopComposerPreferences>(
+    COMPOSER_PREFERENCES_KEY,
+    () => api.getComposerPreferences(),
+    { revalidateOnFocus: false, revalidateOnReconnect: false },
+  );
+  const persistComposerPreference = useCallback(
+    async (update: DesktopComposerPreferenceUpdate) => {
+      try {
+        const preferences = await api.saveComposerPreference(update);
+        await mutateComposerPreferences(preferences, false);
+      } catch (error) {
+        setComposerError(`Could not save the Composer Model preference: ${errorMessage(error)}`);
+      }
+    },
+    [mutateComposerPreferences],
+  );
   const { data: desktopWorkspaceRoot } = useSWR<string>(
     "workspace:root",
     () => api.workspaceRoot(),
@@ -1882,13 +990,18 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
         const inventory = await api.addManualModel(input);
         if (inventory) await mutateExtensionInventory(inventory, false);
         setSelectedModelId(`${selectedHarness}:${input.id.trim()}`);
+        setSelectedEffort(null);
+        void persistComposerPreference({
+          harnessId: selectedHarness,
+          modelId: input.id.trim(),
+        });
       } catch (error) {
         const message = errorMessage(error);
         setModelCatalogError(message);
         throw new Error(message);
       }
     },
-    [mutateExtensionInventory, selectedHarness],
+    [mutateExtensionInventory, persistComposerPreference, selectedHarness],
   );
   const removeManualModel = useCallback(
     async (modelId: string) => {
@@ -2007,6 +1120,26 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
     [availableHarnesses, selectedHarness],
   );
   useEffect(() => {
+    if (composerPreferencesRestored.current || composerPreferencesLoading || !extensionInventory) {
+      return;
+    }
+    composerPreferencesRestored.current = true;
+    const preferredHarness = availableHarnesses.find(
+      (harness) => harness.id === composerPreferences?.lastHarnessId && harness.disabled !== true,
+    );
+    if (!preferredHarness || preferredHarness.id === selectedHarness) return;
+    setSelectedHarness(preferredHarness.id);
+    setSelectedExtensionAgentId(null);
+    setSelectedModelId(null);
+    setSelectedEffort(null);
+  }, [
+    availableHarnesses,
+    composerPreferences?.lastHarnessId,
+    composerPreferencesLoading,
+    extensionInventory,
+    selectedHarness,
+  ]);
+  useEffect(() => {
     const selected = availableHarnesses.find((harness) => harness.id === selectedHarness);
     if (!selected?.disabled) return;
     const fallback = availableHarnesses.find((harness) => !harness.disabled);
@@ -2031,6 +1164,11 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
     }
   }, [extensionInventory, selectedHarness]);
   const availableModels = modelResolution.models;
+  const preferredModelSelection = composerPreferences?.selectionsByHarness[selectedHarness];
+  const defaultModelOption = useMemo(
+    () => canonicalDefaultComposerModel(availableModels),
+    [availableModels],
+  );
   const modelStatusText =
     activeHarness.modelControl === "unsupported"
       ? "Model switching unsupported"
@@ -2048,20 +1186,32 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
   );
 
   useEffect(() => {
+    if (!composerPreferencesRestored.current) return;
     if (selectedModelId && availableModels.some((model) => model.id === selectedModelId)) return;
-    setSelectedModelId(availableModels[0]?.id ?? null);
+    const preferredModel = preferredComposerModel(availableModels, preferredModelSelection);
+    setSelectedModelId(preferredModel?.id ?? defaultModelOption?.id ?? null);
     setSelectedEffort(null);
-  }, [availableModels, selectedModelId]);
+  }, [availableModels, defaultModelOption?.id, preferredModelSelection, selectedModelId]);
 
   const availableEfforts = selectedModel?.reasoning?.supportedEfforts ?? [];
+  const preferredEffort =
+    preferredModelSelection && selectedModel?.modelId === preferredModelSelection.modelId
+      ? preferredModelSelection.effort
+      : undefined;
   useEffect(() => {
     if (availableEfforts.length === 0) {
       setSelectedEffort(null);
       return;
     }
     if (selectedEffort && availableEfforts.includes(selectedEffort)) return;
-    setSelectedEffort(selectedModel?.reasoning?.defaultEffort ?? availableEfforts[0] ?? null);
-  }, [availableEfforts, selectedEffort, selectedModel?.reasoning?.defaultEffort]);
+    setSelectedEffort(
+      (preferredEffort && availableEfforts.includes(preferredEffort)
+        ? preferredEffort
+        : selectedModel?.reasoning?.defaultEffort) ??
+        availableEfforts[0] ??
+        null,
+    );
+  }, [availableEfforts, preferredEffort, selectedEffort, selectedModel?.reasoning?.defaultEffort]);
   const selectedHarnessEnvironment = useMemo(
     () =>
       harnessEnvironment?.harnesses.find((harness) => harness.harnessId === selectedHarness) ??
@@ -2995,16 +2145,18 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
     }
   }, [applyUpdatedLocalSession, sessionActionPending, sessionContextMenu]);
 
-  const deleteSidebarSession = useCallback(async () => {
+  const archiveSidebarSession = useCallback(async () => {
     const session = sessionContextMenu?.session;
     if (!session || session.source !== "local" || sessionActionPending) return;
     setSessionContextMenu(null);
-    if (!window.confirm(`Delete “${session.title || "Untitled"}”? This cannot be undone.`)) return;
+    if (runState !== "idle" && currentSession?.id === session.id) {
+      setSessionActionError("Stop the task before archiving it.");
+      return;
+    }
     setSessionActionPending(true);
     setSessionActionError(null);
     try {
-      const deleted = await api.deleteSession(session.id);
-      if (!deleted) throw new Error(`Unknown session: ${session.id}`);
+      await api.archiveSession(session.id);
       if (currentSession?.id === session.id || selectedDiscoveredSession?.id === session.id) {
         recordNavigationEntry(null);
       }
@@ -3019,6 +2171,7 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
     mutateGroupedSessions,
     mutateLocalSessions,
     recordNavigationEntry,
+    runState,
     selectedDiscoveredSession?.id,
     sessionActionPending,
     sessionContextMenu,
@@ -3065,235 +2218,245 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
     }
   }, []);
 
-  const sendMessage = useCallback(async () => {
-    const text = input.trim();
-    if (!text || loading) return;
-    const slashCommand = parseDesktopSlashCommand(text);
-    if (slashCommand?.kind === "error") {
-      setComposerError(slashCommand.message);
-      return;
-    }
-    if (slashCommand) {
+  const sendMessage = useCallback(
+    async (textOverride?: string) => {
+      const text = (typeof textOverride === "string" ? textOverride : input).trim();
+      if (!text || loading) return;
+      const slashCommand = parseDesktopSlashCommand(text);
+      if (slashCommand?.kind === "error") {
+        setComposerError(slashCommand.message);
+        return;
+      }
+      if (slashCommand) {
+        setInput("");
+        setComposerError(null);
+        await openDoctorPanel({
+          mode: slashCommand.kind,
+          harnessId: slashCommand.harnessId,
+          requestFix: slashCommand.kind === "doctor" && slashCommand.fix,
+        });
+        return;
+      }
+      if (activeWorkflowInvalid) return;
+      if (manualCompositionNeedsModel || acpHistoryReadOnly) {
+        return;
+      }
+      if (selectedHarnessNeedsSetup) {
+        await openDoctorPanel({ mode: "doctor", harnessId: activeRunHarnessId });
+        return;
+      }
       setInput("");
       setComposerError(null);
-      await openDoctorPanel({
-        mode: slashCommand.kind,
-        harnessId: slashCommand.harnessId,
-        requestFix: slashCommand.kind === "doctor" && slashCommand.fix,
-      });
-      return;
-    }
-    if (activeWorkflowInvalid) return;
-    if (manualCompositionNeedsModel || acpHistoryReadOnly) {
-      return;
-    }
-    if (selectedHarnessNeedsSetup) {
-      await openDoctorPanel({ mode: "doctor", harnessId: activeRunHarnessId });
-      return;
-    }
-    setInput("");
-    setComposerError(null);
-    setLoading(true);
-    setRunState("running");
-    const requestId = crypto.randomUUID();
-    activeRequestId.current = requestId;
-    setAgentInteractions([]);
-    setAgentInteractionError(null);
-    setResolvingInteractionId(null);
-    requestDispatched.current = false;
-    stopRequested.current = false;
-    let sessionForError = currentSession;
-    let pendingSession: SessionData | null = null;
-    let streamedMessages: MessageChunk[] = [];
-    let requestStartedAt: string | null = null;
-    let unsubscribeAgentChunks: () => void = () => undefined;
-    const stoppedBeforeDispatch = (): boolean =>
-      activeRequestId.current === requestId && stopRequested.current && !requestDispatched.current;
-
-    try {
-      const userChunk: MessageChunk = {
-        role: "user",
-        content: text,
-        kind: "message",
-      };
-
-      let session: SessionData;
-      if (currentSession) {
-        session = currentSession;
-      } else {
-        session = (await api.createSession({
-          agentName: activeWorkflowConfig?.name ?? activeExtensionAgent?.name ?? "agent",
-          harness: activeExtensionAgent?.harnessId ?? selectedHarness,
-          permissionMode: newSessionPermissionMode,
-          ...(selectedProject ? { projectId: selectedProject.id, cwd: selectedProject.cwd } : {}),
-        })) as SessionData;
-        sessionForError = session;
-        if (stoppedBeforeDispatch()) return;
-        await api.saveSession(session);
-        replaceCurrentNavigationEntry(session);
-        if (stoppedBeforeDispatch()) return;
-      }
-
-      const updatedMessages = [...session.messages, userChunk];
-      pendingSession = { ...session, messages: updatedMessages };
-      setCurrentSession(pendingSession);
-      await api.saveSession(pendingSession);
-      if (stoppedBeforeDispatch()) return;
-
-      const sendParams: {
-        requestId: string;
-        sessionId?: string;
-        harnessId: string;
-        userText: string;
-        agentComposition?: AgentCompositionPayload;
-        swarmConfig?: SwarmConfig;
-        cwd?: string;
-      } = {
-        requestId,
-        sessionId: session.id,
-        harnessId: activeExtensionAgent?.harnessId ?? selectedHarness,
-        userText: text,
-        ...(session.cwd || composerWorkspaceRoot
-          ? { cwd: session.cwd || composerWorkspaceRoot }
-          : {}),
-      };
-      if (activeWorkflowConfig) {
-        sendParams.swarmConfig = activeWorkflowConfig;
-      } else if (activeExtensionAgent) {
-        sendParams.agentComposition = extensionAgentComposition(activeExtensionAgent);
-      } else {
-        sendParams.agentComposition = {
-          id: selectedModel ? `desktop-${selectedModel.id}` : `desktop-${selectedHarness}`,
-          harnessId: selectedHarness,
-          ...(selectedModel
-            ? {
-                modelId: selectedModel.modelId,
-                ...(selectedModel.modelSupplyId
-                  ? { modelSupplyId: selectedModel.modelSupplyId }
-                  : {}),
-                ...(selectedEffort ? { effort: selectedEffort } : {}),
-              }
-            : {}),
-          host: "local",
-        };
-      }
-
-      requestStartedAt = new Date().toISOString();
-      unsubscribeAgentChunks = api.onAgentChunk((event) => {
-        if (event.requestId !== requestId || activeRequestId.current !== requestId) return;
-        streamedMessages = mergeStreamingMessage(streamedMessages, event.chunk);
-        setCurrentSession((visibleSession) => {
-          if (!visibleSession || visibleSession.id !== session.id) return visibleSession;
-          return { ...visibleSession, messages: [...updatedMessages, ...streamedMessages] };
-        });
-      });
-      requestDispatched.current = true;
-      const result = await api.sendMessage(sendParams);
-      const requestEndedAt = new Date().toISOString();
-
-      if (result.success && result.messages) {
-        const responseMessages = withRequestTiming(
-          result.messages as MessageChunk[],
-          requestStartedAt,
-          requestEndedAt,
-        );
-        const localUpdated = { ...session, messages: [...updatedMessages, ...responseMessages] };
-        const persisted = result.sessionPersisted ? await api.loadSession(session.id) : null;
-        const updated = persisted ?? localUpdated;
-        if (!persisted) await api.saveSession(updated);
-        setCurrentSession(updated);
-        requestAutomaticSessionTitle(updated, text);
-      } else if (result.canceled) {
-        const canceledMessages = requestStartedAt
-          ? withRequestTiming(streamedMessages, requestStartedAt, requestEndedAt)
-          : streamedMessages;
-        const localUpdated = { ...session, messages: [...updatedMessages, ...canceledMessages] };
-        const persisted = result.sessionPersisted ? await api.loadSession(session.id) : null;
-        const updated = persisted ?? localUpdated;
-        if (!persisted) await api.saveSession(updated);
-        setCurrentSession(updated);
-      } else if (result.error) {
-        const workMessages = requestStartedAt
-          ? withRequestTiming(streamedMessages, requestStartedAt, requestEndedAt)
-          : streamedMessages;
-        const errorMsg: MessageChunk = {
-          role: "system",
-          content: `Error: ${result.error}`,
-          kind: "message",
-        };
-        const localUpdated = {
-          ...session,
-          messages: [...updatedMessages, ...workMessages, errorMsg],
-        };
-        const persisted = result.sessionPersisted ? await api.loadSession(session.id) : null;
-        const updated = persisted ?? localUpdated;
-        if (!persisted) await api.saveSession(updated);
-        setCurrentSession(updated);
-      }
-
-      await mutateLocalSessions();
-    } catch (error) {
-      if (activeRequestId.current !== requestId) return;
-      const message = `Error: ${errorMessage(error)}`;
-      setComposerError(message);
-      const session = pendingSession ?? sessionForError;
-      if (session) {
-        const endedAt = new Date().toISOString();
-        const workMessages = requestStartedAt
-          ? withRequestTiming(streamedMessages, requestStartedAt, endedAt)
-          : streamedMessages;
-        const updated = {
-          ...session,
-          messages: [
-            ...session.messages,
-            ...workMessages,
-            { role: "system", content: message, kind: "message" as const },
-          ],
-        };
-        setCurrentSession(updated);
-        try {
-          await api.saveSession(updated);
-        } catch {
-          // The visible error remains available even if persistence IPC also failed.
-        }
-      }
-    } finally {
-      unsubscribeAgentChunks();
-      setAgentInteractions((current) =>
-        current.filter((interaction) => interaction.requestId !== requestId),
-      );
+      setLoading(true);
+      setRunState("running");
+      const requestId = crypto.randomUUID();
+      activeRequestId.current = requestId;
+      setAgentInteractions([]);
       setAgentInteractionError(null);
       setResolvingInteractionId(null);
-      if (activeRequestId.current === requestId) {
-        activeRequestId.current = null;
-        requestDispatched.current = false;
-        stopRequested.current = false;
-        setLoading(false);
-        setRunState("idle");
+      requestDispatched.current = false;
+      stopRequested.current = false;
+      let sessionForError = currentSession;
+      let pendingSession: SessionData | null = null;
+      let streamedMessages: MessageChunk[] = [];
+      let requestStartedAt: string | null = null;
+      let unsubscribeAgentChunks: () => void = () => undefined;
+      const stoppedBeforeDispatch = (): boolean =>
+        activeRequestId.current === requestId &&
+        stopRequested.current &&
+        !requestDispatched.current;
+
+      try {
+        const userChunk: MessageChunk = {
+          role: "user",
+          content: text,
+          kind: "message",
+        };
+
+        let session: SessionData;
+        if (currentSession) {
+          session = currentSession;
+        } else {
+          session = (await api.createSession({
+            agentName: activeWorkflowConfig?.name ?? activeExtensionAgent?.name ?? "agent",
+            harness: activeExtensionAgent?.harnessId ?? selectedHarness,
+            permissionMode: newSessionPermissionMode,
+            ...(selectedProject ? { projectId: selectedProject.id, cwd: selectedProject.cwd } : {}),
+          })) as SessionData;
+          sessionForError = session;
+          if (stoppedBeforeDispatch()) return;
+          await api.saveSession(session);
+          replaceCurrentNavigationEntry(session);
+          if (stoppedBeforeDispatch()) return;
+        }
+
+        const updatedMessages = [...session.messages, userChunk];
+        pendingSession = { ...session, messages: updatedMessages };
+        setCurrentSession(pendingSession);
+        await api.saveSession(pendingSession);
+        if (stoppedBeforeDispatch()) return;
+
+        const sendParams: {
+          requestId: string;
+          sessionId?: string;
+          harnessId: string;
+          userText: string;
+          agentComposition?: AgentCompositionPayload;
+          swarmConfig?: SwarmConfig;
+          cwd?: string;
+        } = {
+          requestId,
+          sessionId: session.id,
+          harnessId: activeExtensionAgent?.harnessId ?? selectedHarness,
+          userText: text,
+          ...(session.cwd || composerWorkspaceRoot
+            ? { cwd: session.cwd || composerWorkspaceRoot }
+            : {}),
+        };
+        if (activeWorkflowConfig) {
+          sendParams.swarmConfig = activeWorkflowConfig;
+        } else if (activeExtensionAgent) {
+          sendParams.agentComposition = extensionAgentComposition(activeExtensionAgent);
+        } else {
+          sendParams.agentComposition = {
+            id: selectedModel ? `desktop-${selectedModel.id}` : `desktop-${selectedHarness}`,
+            harnessId: selectedHarness,
+            ...(selectedModel
+              ? {
+                  modelId: selectedModel.modelId,
+                  ...(selectedModel.modelSupplyId
+                    ? { modelSupplyId: selectedModel.modelSupplyId }
+                    : {}),
+                  ...(selectedEffort ? { effort: selectedEffort } : {}),
+                }
+              : {}),
+            host: "local",
+          };
+        }
+
+        requestStartedAt = new Date().toISOString();
+        unsubscribeAgentChunks = api.onAgentChunk((event) => {
+          if (event.requestId !== requestId || activeRequestId.current !== requestId) return;
+          streamedMessages = mergeStreamingMessage(streamedMessages, event.chunk);
+          setCurrentSession((visibleSession) => {
+            if (!visibleSession || visibleSession.id !== session.id) return visibleSession;
+            return { ...visibleSession, messages: [...updatedMessages, ...streamedMessages] };
+          });
+        });
+        requestDispatched.current = true;
+        const result = await api.sendMessage(sendParams);
+        const requestEndedAt = new Date().toISOString();
+
+        if (result.success && result.messages) {
+          const responseMessages = withRequestTiming(
+            result.messages as MessageChunk[],
+            requestStartedAt,
+            requestEndedAt,
+          );
+          const localUpdated = { ...session, messages: [...updatedMessages, ...responseMessages] };
+          const persisted = result.sessionPersisted ? await api.loadSession(session.id) : null;
+          const updated = persisted ?? localUpdated;
+          if (!persisted) await api.saveSession(updated);
+          setCurrentSession(updated);
+          requestAutomaticSessionTitle(updated, text);
+        } else if (result.canceled) {
+          const canceledMessages = requestStartedAt
+            ? withRequestTiming(streamedMessages, requestStartedAt, requestEndedAt)
+            : streamedMessages;
+          const localUpdated = { ...session, messages: [...updatedMessages, ...canceledMessages] };
+          const persisted = result.sessionPersisted ? await api.loadSession(session.id) : null;
+          const updated = persisted ?? localUpdated;
+          if (!persisted) await api.saveSession(updated);
+          setCurrentSession(updated);
+        } else if (result.error) {
+          const workMessages = requestStartedAt
+            ? withRequestTiming(streamedMessages, requestStartedAt, requestEndedAt)
+            : streamedMessages;
+          const failureMessages = Array.isArray(result.messages)
+            ? (result.messages as MessageChunk[])
+            : [
+                ...workMessages,
+                {
+                  role: "system",
+                  content: `Error: ${result.error}`,
+                  kind: "message" as const,
+                },
+              ];
+          const localUpdated = {
+            ...session,
+            messages: [...updatedMessages, ...failureMessages],
+          };
+          const persisted = result.sessionPersisted ? await api.loadSession(session.id) : null;
+          const updated = persisted ?? localUpdated;
+          if (!persisted) await api.saveSession(updated);
+          setCurrentSession(updated);
+        }
+
+        await mutateLocalSessions();
+      } catch (error) {
+        if (activeRequestId.current !== requestId) return;
+        const message = `Error: ${errorMessage(error)}`;
+        setComposerError(message);
+        const session = pendingSession ?? sessionForError;
+        if (session) {
+          const endedAt = new Date().toISOString();
+          const workMessages = requestStartedAt
+            ? withRequestTiming(streamedMessages, requestStartedAt, endedAt)
+            : streamedMessages;
+          const updated = {
+            ...session,
+            messages: [
+              ...session.messages,
+              ...workMessages,
+              { role: "system", content: message, kind: "message" as const },
+            ],
+          };
+          setCurrentSession(updated);
+          try {
+            await api.saveSession(updated);
+          } catch {
+            // The visible error remains available even if persistence IPC also failed.
+          }
+        }
+      } finally {
+        unsubscribeAgentChunks();
+        setAgentInteractions((current) =>
+          current.filter((interaction) => interaction.requestId !== requestId),
+        );
+        setAgentInteractionError(null);
+        setResolvingInteractionId(null);
+        if (activeRequestId.current === requestId) {
+          activeRequestId.current = null;
+          requestDispatched.current = false;
+          stopRequested.current = false;
+          setLoading(false);
+          setRunState("idle");
+        }
       }
-    }
-  }, [
-    input,
-    loading,
-    currentSession,
-    selectedHarness,
-    activeWorkflowConfig,
-    activeWorkflowInvalid,
-    activeExtensionAgent,
-    selectedModel,
-    selectedEffort,
-    selectedHarnessNeedsSetup,
-    activeRunHarnessId,
-    selectedProject,
-    newSessionPermissionMode,
-    composerWorkspaceRoot,
-    manualCompositionNeedsModel,
-    acpHistoryReadOnly,
-    mutateLocalSessions,
-    openDoctorPanel,
-    replaceCurrentNavigationEntry,
-    requestAutomaticSessionTitle,
-  ]);
+    },
+    [
+      input,
+      loading,
+      currentSession,
+      selectedHarness,
+      activeWorkflowConfig,
+      activeWorkflowInvalid,
+      activeExtensionAgent,
+      selectedModel,
+      selectedEffort,
+      selectedHarnessNeedsSetup,
+      activeRunHarnessId,
+      selectedProject,
+      newSessionPermissionMode,
+      composerWorkspaceRoot,
+      manualCompositionNeedsModel,
+      acpHistoryReadOnly,
+      mutateLocalSessions,
+      openDoctorPanel,
+      replaceCurrentNavigationEntry,
+      requestAutomaticSessionTitle,
+    ],
+  );
 
   const resolveAgentInteraction = useCallback(
     async (interaction: AgentInteractionEvent, response: AgentInteractionResponse) => {
@@ -3392,6 +2555,8 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
     );
   };
   const activeAgentInteraction = agentInteractions[0];
+  const activeToolApproval =
+    activeAgentInteraction?.kind === "tool_approval" ? activeAgentInteraction : null;
 
   return (
     <div
@@ -3551,11 +2716,14 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
         ) : (
           <>
             <div className="sidebar__brand">
-              <div className="brand-copy">
-                <div className="brand-title">{productConfig.name}</div>
-                {productConfig.subtitle && (
-                  <div className="brand-subtitle">{productConfig.subtitle}</div>
-                )}
+              <div className="brand-identity">
+                <AppBrandIcon className="brand-mark" />
+                <div className="brand-copy">
+                  <div className="brand-title">{productConfig.name}</div>
+                  {productConfig.subtitle && (
+                    <div className="brand-subtitle">{productConfig.subtitle}</div>
+                  )}
+                </div>
               </div>
               <button
                 type="button"
@@ -4221,6 +3389,17 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
                       <ConversationHistory
                         messages={currentSession?.messages ?? []}
                         running={loading}
+                        actionsDisabled={loading}
+                        onRetry={(userText) => void sendMessage(userText)}
+                        onChangeModel={
+                          activeWorkflowConfig || activeExtensionAgent
+                            ? undefined
+                            : () => {
+                                setAgentPickerSection("model");
+                                setPermissionPickerOpen(false);
+                                setAgentPickerOpen(true);
+                              }
+                        }
                       />
                     )}
                   </div>
@@ -4279,90 +3458,129 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
           )}
         </div>
 
-        {!settingsSection && !workflowPanelOpen && !activeUiContribution && (
-          <footer className="composer-dock">
-            <Composer
-              textareaRef={composerRef}
-              value={input}
-              onChange={setInput}
-              onSubmit={sendMessage}
-              onStop={stopMessage}
-              placeholder={
-                acpHistoryReadOnly
-                  ? "ACP history is read-only until resume is supported"
-                  : `Message ${activeExtensionAgent?.name ?? displayHarness.label}`
-              }
-              disabled={runState !== "idle" || acpHistoryReadOnly}
-              running={runState !== "idle"}
-              sendDisabled={
-                runState === "stopping" ||
-                (runState === "idle" &&
-                  (!input.trim() || manualCompositionNeedsModel || acpHistoryReadOnly))
-              }
-              sendTitle={
-                acpHistoryReadOnly
-                  ? "ACP history is read-only until session resume is supported."
-                  : manualCompositionNeedsModel
-                    ? modelUnavailableDiagnostic
-                    : undefined
-              }
-              error={composerError}
-              workspaceRoot={composerWorkspaceRoot}
-              mentionServers={composerMentionServers}
-              completeMention={api.lspComplete}
-              selectFilesAndFolders={api.selectFilesAndFolders}
-              onContextError={(error) => setComposerError(errorMessage(error))}
+        {!settingsSection &&
+          (activeToolApproval || (!workflowPanelOpen && !activeUiContribution)) && (
+            <footer
+              className={cx("composer-dock", activeToolApproval && "composer-dock--approval")}
             >
-              <ConversationPermissionPicker
-                open={permissionPickerOpen}
-                mode={sessionPermissionMode}
-                supported={sessionPermissionSupported}
-                profileAvailability={permissionStatus?.profileAvailability}
-                disabled={runState !== "idle" || acpHistoryReadOnly}
-                onOpenChange={(open) => {
-                  setPermissionPickerOpen(open);
-                  if (open) setAgentPickerOpen(false);
-                }}
-                onChange={changeSessionPermissionMode}
-              />
-              <AgentPicker
-                open={agentPickerOpen}
-                section={agentPickerSection}
-                harnesses={availableHarnesses}
-                selectedHarness={displayHarness}
-                models={availableModels}
-                selectedModel={selectedModel}
-                efforts={availableEfforts}
-                selectedEffort={selectedEffort}
-                modelStatusText={modelStatusText}
-                modelCatalog={extensionInventory?.modelCatalog}
-                modelCatalogRefreshing={modelCatalogRefreshing}
-                modelCatalogError={modelCatalogError}
-                disabled={Boolean(activeWorkflowConfig || activeExtensionAgent)}
-                label={agentPickerLabel}
-                onOpenChange={(open) => {
-                  setAgentPickerOpen(open);
-                  if (open) setPermissionPickerOpen(false);
-                }}
-                onSectionChange={setAgentPickerSection}
-                onHarnessChange={(harnessId) => {
-                  setSelectedHarness(harnessId);
-                  setSelectedExtensionAgentId(null);
-                  setSelectedModelId(null);
-                  setSelectedEffort(null);
-                }}
-                onModelChange={(modelId) => {
-                  setSelectedModelId(modelId);
-                  setSelectedEffort(null);
-                }}
-                onEffortChange={setSelectedEffort}
-                onRefreshModels={refreshModelCatalog}
-                onAddManualModel={addManualModel}
-                onRemoveManualModel={removeManualModel}
-              />
-            </Composer>
-          </footer>
-        )}
+              {activeToolApproval ? (
+                <AgentInteractionDialog
+                  key={activeToolApproval.interactionId}
+                  interaction={activeToolApproval}
+                  resolving={resolvingInteractionId === activeToolApproval.interactionId}
+                  error={agentInteractionError}
+                  onResolve={(response) =>
+                    void resolveAgentInteraction(activeToolApproval, response)
+                  }
+                  onStop={() => void stopMessage()}
+                />
+              ) : (
+                <Composer
+                  textareaRef={composerRef}
+                  value={input}
+                  onChange={setInput}
+                  onSubmit={sendMessage}
+                  onStop={stopMessage}
+                  placeholder={
+                    acpHistoryReadOnly
+                      ? "ACP history is read-only until resume is supported"
+                      : `Message ${activeExtensionAgent?.name ?? displayHarness.label}`
+                  }
+                  disabled={runState !== "idle" || acpHistoryReadOnly}
+                  running={runState !== "idle"}
+                  sendDisabled={
+                    runState === "stopping" ||
+                    (runState === "idle" &&
+                      (!input.trim() || manualCompositionNeedsModel || acpHistoryReadOnly))
+                  }
+                  sendTitle={
+                    acpHistoryReadOnly
+                      ? "ACP history is read-only until session resume is supported."
+                      : manualCompositionNeedsModel
+                        ? modelUnavailableDiagnostic
+                        : undefined
+                  }
+                  error={composerError}
+                  workspaceRoot={composerWorkspaceRoot}
+                  mentionServers={composerMentionServers}
+                  completeMention={api.lspComplete}
+                  selectFilesAndFolders={api.selectFilesAndFolders}
+                  onContextError={(error) => setComposerError(errorMessage(error))}
+                >
+                  <ConversationPermissionPicker
+                    open={permissionPickerOpen}
+                    mode={sessionPermissionMode}
+                    supported={sessionPermissionSupported}
+                    profileAvailability={permissionStatus?.profileAvailability}
+                    disabled={runState !== "idle" || acpHistoryReadOnly}
+                    onOpenChange={(open) => {
+                      setPermissionPickerOpen(open);
+                      if (open) setAgentPickerOpen(false);
+                    }}
+                    onChange={changeSessionPermissionMode}
+                  />
+                  <AgentPicker
+                    open={agentPickerOpen}
+                    section={agentPickerSection}
+                    harnesses={availableHarnesses}
+                    selectedHarness={displayHarness}
+                    models={availableModels}
+                    selectedModel={selectedModel}
+                    efforts={availableEfforts}
+                    selectedEffort={selectedEffort}
+                    modelStatusText={modelStatusText}
+                    modelCatalog={extensionInventory?.modelCatalog}
+                    modelCatalogRefreshing={modelCatalogRefreshing}
+                    modelCatalogError={modelCatalogError}
+                    disabled={Boolean(activeWorkflowConfig || activeExtensionAgent)}
+                    label={agentPickerLabel}
+                    onOpenChange={(open) => {
+                      setAgentPickerOpen(open);
+                      if (open) setPermissionPickerOpen(false);
+                    }}
+                    onSectionChange={setAgentPickerSection}
+                    onHarnessChange={(harnessId) => {
+                      setSelectedHarness(harnessId);
+                      setSelectedExtensionAgentId(null);
+                      setSelectedModelId(null);
+                      setSelectedEffort(null);
+                      void persistComposerPreference({ harnessId });
+                    }}
+                    onModelChange={(modelOptionId) => {
+                      const model = availableModels.find(
+                        (candidate) => candidate.id === modelOptionId,
+                      );
+                      setSelectedModelId(modelOptionId);
+                      setSelectedEffort(null);
+                      if (model) {
+                        void persistComposerPreference({
+                          harnessId: selectedHarness,
+                          modelId: model.modelId,
+                          ...(model.modelSupplyId ? { modelSupplyId: model.modelSupplyId } : {}),
+                        });
+                      }
+                    }}
+                    onEffortChange={(effort) => {
+                      setSelectedEffort(effort);
+                      if (selectedModel) {
+                        void persistComposerPreference({
+                          harnessId: selectedHarness,
+                          modelId: selectedModel.modelId,
+                          ...(selectedModel.modelSupplyId
+                            ? { modelSupplyId: selectedModel.modelSupplyId }
+                            : {}),
+                          effort,
+                        });
+                      }
+                    }}
+                    onRefreshModels={refreshModelCatalog}
+                    onAddManualModel={addManualModel}
+                    onRemoveManualModel={removeManualModel}
+                  />
+                </Composer>
+              )}
+            </footer>
+          )}
 
         <div
           className={cx("panel-transition panel-transition--bottom", bottomPanelOpen && "is-open")}
@@ -4379,7 +3597,7 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
           </div>
         </div>
       </main>
-      {activeAgentInteraction
+      {activeAgentInteraction && activeAgentInteraction.kind !== "tool_approval"
         ? createPortal(
             <AgentInteractionDialog
               key={activeAgentInteraction.interactionId}
@@ -4425,12 +3643,19 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
               <button
                 type="button"
                 role="menuitem"
-                className="is-danger"
-                disabled={sessionActionPending}
-                onClick={() => void deleteSidebarSession()}
+                disabled={
+                  sessionActionPending ||
+                  (runState !== "idle" && currentSession?.id === sessionContextMenu.session.id)
+                }
+                onClick={() => void archiveSidebarSession()}
+                title={
+                  runState !== "idle" && currentSession?.id === sessionContextMenu.session.id
+                    ? "Stop the task before archiving it"
+                    : undefined
+                }
               >
-                <Trash2 aria-hidden="true" />
-                <span>Delete task</span>
+                <Archive aria-hidden="true" />
+                <span>Archive task</span>
               </button>
             </div>,
             document.body,
@@ -5977,440 +5202,6 @@ function CustomAgentsSettings({
   );
 }
 
-function RuntimeSettings({
-  environment,
-  loading,
-  error,
-  doctorReport,
-  doctorLoading,
-  doctorError,
-  harnessVersions,
-  fixPending,
-  fixRunning,
-  fixResult,
-  installingHarnessId,
-  onRefresh,
-  onSetupContainer,
-  onInstallHarness,
-  onRefreshHarnessVersion,
-  onRequestFix,
-  onCancelFix,
-  onConfirmFix,
-}: {
-  environment?: HarnessEnvironmentStatus;
-  loading: boolean;
-  error: unknown;
-  doctorReport: DoctorReport | null;
-  doctorLoading: boolean;
-  doctorError: string | null;
-  harnessVersions: Record<string, DoctorHarnessVersionState>;
-  fixPending: boolean;
-  fixRunning: boolean;
-  fixResult: DoctorFixResult | null;
-  installingHarnessId: string | null;
-  onRefresh: () => Promise<void>;
-  onSetupContainer: (containerRuntimeId: string) => Promise<void>;
-  onInstallHarness: (harnessId: string) => Promise<void>;
-  onRefreshHarnessVersion: (harnessId: string) => void;
-  onRequestFix: () => void;
-  onCancelFix: () => void;
-  onConfirmFix: () => void;
-}) {
-  const [busyId, setBusyId] = useState<string | null>(null);
-  const [actionError, setActionError] = useState<string | null>(null);
-  const nodeRuntime = environment?.requirements.find((requirement) => requirement.id === "node");
-  const harnesses = environment?.harnesses ?? [];
-  const doctorIssues = doctorReport?.issues ?? [];
-  const repairActions = doctorReport?.repairActions ?? [];
-  const doctorHealthy = Boolean(doctorReport?.healthy && doctorIssues.length === 0);
-  const repairLogs = fixResult?.setupResults.flatMap((result) => result.log) ?? [];
-  const run = async (id: string, action: () => Promise<void>) => {
-    setBusyId(id);
-    setActionError(null);
-    try {
-      await action();
-    } catch (error) {
-      setActionError(errorMessage(error));
-    } finally {
-      setBusyId(null);
-    }
-  };
-
-  return (
-    <section className="settings-workspace" aria-label="Runtime settings">
-      <div className="settings-workspace__body">
-        <div className="settings-workspace__content">
-          <section className="runtime-settings">
-            <div className="settings-content-heading">
-              <span>
-                <small>Local environment</small>
-                <h2>Runtime</h2>
-                <p>
-                  Node.js is the shared baseline. Harness tools and environment diagnostics are
-                  managed here independently from each Custom Agent recipe.
-                </p>
-              </span>
-              <div>
-                <button
-                  type="button"
-                  className="settings-primary-action"
-                  disabled={busyId !== null}
-                  onClick={() => void run("refresh", onRefresh)}
-                >
-                  <RefreshCw
-                    className={busyId === "refresh" ? "is-spinning" : undefined}
-                    aria-hidden="true"
-                  />
-                  Refresh
-                </button>
-              </div>
-            </div>
-
-            {Boolean(actionError || doctorError || error) && (
-              <div className="settings-provider-error" role="alert">
-                {actionError ?? doctorError ?? errorMessage(error)}
-              </div>
-            )}
-            {loading && !environment ? (
-              <div className="runtime-settings__empty">Detecting local runtimes…</div>
-            ) : (
-              <>
-                <div className="runtime-settings__summary">
-                  <span>
-                    <strong>
-                      {harnesses.filter((harness) => Boolean(harness.version)).length}
-                    </strong>
-                    <small>Harness tools detected</small>
-                  </span>
-                  <span>
-                    <strong>{harnesses.filter((harness) => !harness.version).length}</strong>
-                    <small>Harness tools missing</small>
-                  </span>
-                  <span>
-                    <strong>{nodeRuntime?.version ?? "—"}</strong>
-                    <small>Node.js</small>
-                  </span>
-                  <span>
-                    <strong>
-                      {environment?.checkedAt ? formatUsageReset(environment.checkedAt) : "—"}
-                    </strong>
-                    <small>last checked</small>
-                  </span>
-                </div>
-
-                <section
-                  className="runtime-settings__doctor"
-                  aria-labelledby="runtime-doctor-title"
-                >
-                  <div className="runtime-settings__doctor-heading">
-                    <span>
-                      <small>Built-in diagnostics</small>
-                      <h3 id="runtime-doctor-title">Environment Doctor</h3>
-                    </span>
-                    <Badge tone={doctorHealthy ? "active" : "neutral"}>
-                      {doctorLoading
-                        ? "Checking"
-                        : doctorHealthy
-                          ? "Healthy"
-                          : `${doctorIssues.length} ${doctorIssues.length === 1 ? "issue" : "issues"}`}
-                    </Badge>
-                  </div>
-                  <div
-                    className={cx("doctor-summary", doctorHealthy && "is-healthy")}
-                    aria-live="polite"
-                  >
-                    <span className="doctor-summary__icon">
-                      {doctorLoading ? (
-                        <Loader2 aria-hidden="true" />
-                      ) : doctorHealthy ? (
-                        <CircleCheck aria-hidden="true" />
-                      ) : (
-                        <Wrench aria-hidden="true" />
-                      )}
-                    </span>
-                    <div>
-                      <h3>
-                        {doctorLoading
-                          ? "Checking local environment"
-                          : doctorHealthy
-                            ? "Environment ready"
-                            : doctorReport
-                              ? "Review the diagnostics below"
-                              : "Doctor status unavailable"}
-                      </h3>
-                      <p>
-                        Harnesses remain optional. Doctor checks the shared baseline and applies no
-                        repair until you confirm its plan.
-                      </p>
-                    </div>
-                  </div>
-
-                  {fixResult?.executed && (
-                    <output
-                      className={cx(
-                        "doctor-notice",
-                        fixResult.after.healthy ? "doctor-notice--success" : "doctor-notice--error",
-                      )}
-                    >
-                      {fixResult.after.healthy ? (
-                        <CircleCheck aria-hidden="true" />
-                      ) : (
-                        <XCircle aria-hidden="true" />
-                      )}
-                      <span>
-                        {fixResult.after.healthy
-                          ? "Repairs completed. The environment is ready."
-                          : "Repairs completed, but some diagnostics still need attention."}
-                      </span>
-                    </output>
-                  )}
-
-                  {!doctorLoading && repairActions.length > 0 && (
-                    <section className="doctor-section" aria-labelledby="runtime-repair-title">
-                      <div className="doctor-section__heading">
-                        <h3 id="runtime-repair-title">Repair plan</h3>
-                        <span>{repairActions.length}</span>
-                      </div>
-                      {fixPending ? (
-                        <div className="doctor-confirmation">
-                          <strong>Confirm environment changes</strong>
-                          <p>No installer or system change runs until this plan is confirmed.</p>
-                          <ul className="doctor-list">
-                            {repairActions.map((action) => (
-                              <li key={action.id} className="doctor-action">
-                                <span>{action.label}</span>
-                                <Badge tone={action.risk === "admin" ? "danger" : "neutral"}>
-                                  {action.risk}
-                                </Badge>
-                              </li>
-                            ))}
-                          </ul>
-                          <div className="doctor-confirmation__actions">
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={onCancelFix}
-                              disabled={fixRunning}
-                            >
-                              Cancel
-                            </Button>
-                            <Button size="sm" onClick={onConfirmFix} disabled={fixRunning}>
-                              {fixRunning ? (
-                                <Loader2 data-icon="inline-start" aria-hidden="true" />
-                              ) : (
-                                <Wrench data-icon="inline-start" aria-hidden="true" />
-                              )}
-                              Confirm repairs
-                            </Button>
-                          </div>
-                        </div>
-                      ) : (
-                        <Button size="sm" onClick={onRequestFix}>
-                          <Wrench data-icon="inline-start" aria-hidden="true" />
-                          Review repair plan
-                        </Button>
-                      )}
-                    </section>
-                  )}
-
-                  {!doctorLoading && doctorIssues.length > 0 && (
-                    <section className="doctor-section" aria-labelledby="runtime-diagnostics-title">
-                      <div className="doctor-section__heading">
-                        <h3 id="runtime-diagnostics-title">Diagnostics</h3>
-                        <span>{doctorIssues.length}</span>
-                      </div>
-                      <ul className="doctor-list">
-                        {doctorIssues.map((issue) => (
-                          <li key={issue.id} className="doctor-issue">
-                            <XCircle aria-hidden="true" />
-                            <div>
-                              <strong>{issue.targetId ?? issue.scope}</strong>
-                              <span>{issue.message}</span>
-                            </div>
-                            <Badge tone={issue.severity === "error" ? "danger" : "neutral"}>
-                              {issue.severity}
-                            </Badge>
-                          </li>
-                        ))}
-                      </ul>
-                    </section>
-                  )}
-                </section>
-
-                <section className="runtime-settings__section" aria-labelledby="runtime-node-title">
-                  <div>
-                    <h3 id="runtime-node-title">Node.js</h3>
-                    <p>
-                      Shared JavaScript runtime for npm/npx-based adapters and package management.
-                    </p>
-                  </div>
-                  <ul className="runtime-settings__list runtime-settings__list--node">
-                    {nodeRuntime && (
-                      <li>
-                        <span className={`runtime-status-icon is-${nodeRuntime.status}`}>
-                          {nodeRuntime.status === "ready" ? (
-                            <CircleCheck aria-hidden="true" />
-                          ) : (
-                            <XCircle aria-hidden="true" />
-                          )}
-                        </span>
-                        <span className="runtime-settings__identity">
-                          <strong>{nodeRuntime.label}</strong>
-                          <small>{nodeRuntime.path ?? nodeRuntime.command}</small>
-                        </span>
-                        {nodeRuntime.version ? (
-                          <button
-                            type="button"
-                            className="badge badge--active doctor-harness__version"
-                            aria-label="Check Node.js version again"
-                            title="Check version again"
-                            disabled={busyId !== null}
-                            onClick={() => void run("refresh-node", onRefresh)}
-                          >
-                            {nodeRuntime.version}
-                          </button>
-                        ) : (
-                          <Badge tone="danger">{requirementStatusLabel(nodeRuntime.status)}</Badge>
-                        )}
-                      </li>
-                    )}
-                  </ul>
-                </section>
-
-                <section
-                  className="runtime-settings__section"
-                  aria-labelledby="runtime-harnesses-title"
-                >
-                  <div>
-                    <h3 id="runtime-harnesses-title">Harness tools</h3>
-                    <p>
-                      Tool versions are detected independently. Click a version to check it again.
-                    </p>
-                  </div>
-                  <ul className="runtime-harness-list">
-                    {harnesses.map((harness) => {
-                      const versionState = harnessVersions[harness.harnessId];
-                      const version = versionState?.version ?? harness.version;
-                      const versionLoading = versionState?.status === "loading";
-                      return (
-                        <li key={harness.harnessId}>
-                          <span className="runtime-harness-list__icon">
-                            <HarnessBrandIcon
-                              harness={harnessOption(harness.harnessId, harness.harnessLabel)}
-                            />
-                          </span>
-                          <span className="runtime-settings__identity">
-                            <strong>{harness.harnessLabel}</strong>
-                            <small>{harness.path ?? harness.command}</small>
-                          </span>
-                          {versionLoading ? (
-                            <output
-                              className="badge doctor-harness__version is-loading"
-                              aria-label={`Checking ${harness.harnessLabel} version`}
-                            >
-                              <Loader2 data-icon aria-hidden="true" />
-                            </output>
-                          ) : version ? (
-                            <button
-                              type="button"
-                              className="badge badge--active doctor-harness__version"
-                              aria-label={`Check ${harness.harnessLabel} version again`}
-                              title="Check version again"
-                              onClick={() => onRefreshHarnessVersion(harness.harnessId)}
-                            >
-                              {version}
-                            </button>
-                          ) : harness.installable ? (
-                            <Button
-                              size="sm"
-                              disabled={Boolean(installingHarnessId)}
-                              aria-label={`Install ${harness.harnessLabel}`}
-                              onClick={() => void onInstallHarness(harness.harnessId)}
-                            >
-                              {installingHarnessId === harness.harnessId ? (
-                                <Loader2 data-icon="inline-start" aria-hidden="true" />
-                              ) : (
-                                <Download data-icon="inline-start" aria-hidden="true" />
-                              )}
-                              Install
-                            </Button>
-                          ) : (
-                            <Badge tone="neutral">Not detected</Badge>
-                          )}
-                        </li>
-                      );
-                    })}
-                  </ul>
-                </section>
-
-                <section
-                  className="runtime-settings__section"
-                  aria-labelledby="runtime-container-title"
-                >
-                  <div>
-                    <h3 id="runtime-container-title">Container runtime</h3>
-                    <p>
-                      Apple Container is preferred for protected local harness execution on
-                      supported macOS hosts.
-                    </p>
-                  </div>
-                  <ul className="runtime-settings__list">
-                    {(environment?.containerRuntimes ?? []).map((runtime) => (
-                      <li key={runtime.id}>
-                        <span className={`runtime-status-icon is-${runtime.status}`}>
-                          {runtime.status === "ready" ? (
-                            <CircleCheck aria-hidden="true" />
-                          ) : (
-                            <XCircle aria-hidden="true" />
-                          )}
-                        </span>
-                        <span className="runtime-settings__identity">
-                          <strong>{runtime.label}</strong>
-                          <small>{runtime.path ?? runtime.command}</small>
-                        </span>
-                        <span className="runtime-settings__version">
-                          {runtime.version ?? runtime.status.replaceAll("_", " ")}
-                        </span>
-                        <span className="runtime-settings__consumers">
-                          {runtime.preferred
-                            ? "Preferred"
-                            : runtime.supported
-                              ? "Supported"
-                              : "Unavailable on this host"}
-                        </span>
-                        {runtime.status !== "ready" && runtime.installable && (
-                          <Button
-                            size="sm"
-                            disabled={busyId !== null}
-                            onClick={() =>
-                              void run(`container:${runtime.id}`, () =>
-                                onSetupContainer(runtime.id),
-                              )
-                            }
-                          >
-                            <Download aria-hidden="true" />
-                            Set up
-                          </Button>
-                        )}
-                      </li>
-                    ))}
-                  </ul>
-                </section>
-
-                <div className="runtime-settings__path">
-                  <span>Detected PATH</span>
-                  <code>{environment?.path ?? "Unavailable"}</code>
-                  {repairLogs.length > 0 && <pre>{repairLogs.join("\n\n")}</pre>}
-                </div>
-              </>
-            )}
-          </section>
-        </div>
-      </div>
-    </section>
-  );
-}
-
 function SettingsWorkspace({
   providers,
   modelCatalog,
@@ -7082,7 +5873,7 @@ function ProviderMatrixRow({
       </div>
       <div className="settings-provider-matrix__updated" data-label="Updated">
         {loading && <Loader2 className="is-spinning" aria-hidden="true" />}
-        <span>{updatedAt ? formatUsageReset(updatedAt) : "Not checked"}</span>
+        <span>{updatedAt ? formatTimestamp(updatedAt) : "Not checked"}</span>
       </div>
       <div className="settings-provider-matrix__actions" data-label="Actions">
         <button
@@ -7165,7 +5956,7 @@ function ProviderWindowCell({
         <span style={{ width: `${remaining}%` }} />
       </span>
       <small>
-        {meter.resetsAt ? `Resets ${formatUsageReset(meter.resetsAt)}` : "Reset not provided"}
+        {meter.resetsAt ? `Resets ${formatTimestamp(meter.resetsAt)}` : "Reset not provided"}
       </small>
     </div>
   );
@@ -7287,7 +6078,7 @@ function NewApiAccountDetails({
                   <span data-label="Remaining">{token.remaining}</span>
                   <span data-label="Used">{token.used ?? "—"}</span>
                   <span data-label="Expires">
-                    {token.expiresAt ? formatUsageReset(token.expiresAt) : "No expiry"}
+                    {token.expiresAt ? formatTimestamp(token.expiresAt) : "No expiry"}
                   </span>
                 </div>
               ))}
@@ -7336,9 +6127,9 @@ function ProviderKeyPoolDetails({
               </span>
               <span>
                 {key.cooldownUntil
-                  ? `Retry ${formatUsageReset(key.cooldownUntil)}`
+                  ? `Retry ${formatTimestamp(key.cooldownUntil)}`
                   : key.lastUsedAt
-                    ? `Used ${formatUsageReset(key.lastUsedAt)}`
+                    ? `Used ${formatTimestamp(key.lastUsedAt)}`
                     : "Not used yet"}
               </span>
               {key.status === "cooling" && onReset ? (
@@ -7362,36 +6153,6 @@ function ProviderKeyPoolDetails({
         </section>
       </div>
     </details>
-  );
-}
-
-function ProviderBrandIcon({
-  label,
-  sourceId,
-  provider,
-}: {
-  label: string;
-  sourceId: string;
-  provider?: ExtensionProviderSummary;
-}) {
-  const normalizedLabel = label.toLowerCase();
-  const normalizedUrl = provider?.baseUrl?.toLowerCase() ?? "";
-  const iconUrl =
-    sourceId === "codex" || normalizedLabel === "codex"
-      ? "./harness-icons/codex.svg"
-      : isOpenAIProvider(provider)
-        ? "./harness-icons/codex.svg"
-        : isDeepSeekProvider(provider)
-          ? "./provider-icons/deepseek.svg"
-          : normalizedLabel.includes("packy") || normalizedUrl.includes("packyapi.com")
-            ? "./provider-icons/packy.svg"
-            : provider?.usageAdapter === "new_api"
-              ? "./provider-icons/new-api.png"
-              : undefined;
-  return (
-    <span className="settings-provider-matrix__icon" aria-hidden="true">
-      {iconUrl ? <img src={iconUrl} alt="" /> : <KeyRound />}
-    </span>
   );
 }
 
@@ -7522,54 +6283,6 @@ function formatProviderUnitAmount(unit: string, value: string): string {
   return /^[A-Z]{3}$/.test(unit) ? formatProviderAmount(unit, value) : `${value} ${unit}`;
 }
 
-function isDeepSeekProvider(provider: ExtensionProviderSummary | undefined): boolean {
-  return !!provider && isDeepSeekProviderUrl(provider.baseUrl ?? "");
-}
-
-function isOpenAIProvider(provider: ExtensionProviderSummary | undefined): boolean {
-  if (!provider?.baseUrl) return false;
-  try {
-    return new URL(provider.baseUrl).hostname.toLowerCase() === "api.openai.com";
-  } catch {
-    return provider.baseUrl.toLowerCase().includes("api.openai.com");
-  }
-}
-
-function isDeepSeekProviderUrl(value: string): boolean {
-  try {
-    return new URL(value).hostname.toLowerCase() === "api.deepseek.com";
-  } catch {
-    return value.toLowerCase().includes("api.deepseek.com");
-  }
-}
-
-function isOpenCodeGoProviderUrl(value: string): boolean {
-  try {
-    const url = new URL(value);
-    const pathname = url.pathname.replace(/\/+$/, "");
-    return (
-      url.protocol === "https:" &&
-      url.hostname.toLowerCase() === "opencode.ai" &&
-      !url.port &&
-      (pathname === "/zen/go" || pathname === "/zen/go/v1")
-    );
-  } catch {
-    return false;
-  }
-}
-
-function providerProtocolLabel(value: string): string {
-  if (value === "anthropic") return "Anthropic";
-  if (value === "openai_chat") return "OpenAI Chat";
-  if (value === "openai_responses") return "OpenAI Responses";
-  if (value === "ollama") return "Ollama";
-  return value.replaceAll("_", " ");
-}
-
-function capitalize(value: string): string {
-  return value.length > 0 ? `${value[0]?.toUpperCase()}${value.slice(1)}` : value;
-}
-
 function maskProviderTokenId(value: string): string {
   return value.length > 10 ? `${value.slice(0, 4)}…${value.slice(-4)}` : value;
 }
@@ -7592,1598 +6305,6 @@ function formatUsagePercent(value: number): string {
   return `${Math.max(0, Math.min(200, value)).toFixed(value % 1 === 0 ? 0 : 1)}%`;
 }
 
-function formatUsageReset(value: string): string {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleString([], {
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
-
-function AgentPicker({
-  open,
-  section,
-  harnesses,
-  selectedHarness,
-  models,
-  selectedModel,
-  efforts,
-  selectedEffort,
-  modelStatusText,
-  modelCatalog,
-  modelCatalogRefreshing,
-  modelCatalogError,
-  disabled,
-  label,
-  onOpenChange,
-  onSectionChange,
-  onHarnessChange,
-  onModelChange,
-  onEffortChange,
-  onRefreshModels,
-  onAddManualModel,
-  onRemoveManualModel,
-}: {
-  open: boolean;
-  section: "harness" | "model" | "effort";
-  harnesses: HarnessOption[];
-  selectedHarness: HarnessOption;
-  models: ComposerModelOption[];
-  selectedModel: ComposerModelOption | null;
-  efforts: string[];
-  selectedEffort: string | null;
-  modelStatusText: string;
-  modelCatalog?: ModelCatalogSummary;
-  modelCatalogRefreshing: boolean;
-  modelCatalogError: string | null;
-  disabled: boolean;
-  label: string;
-  onOpenChange: (open: boolean) => void;
-  onSectionChange: (section: "harness" | "model" | "effort") => void;
-  onHarnessChange: (harnessId: string) => void;
-  onModelChange: (modelId: string) => void;
-  onEffortChange: (effort: string) => void;
-  onRefreshModels: () => Promise<void>;
-  onAddManualModel: (input: ManualModelInput) => Promise<void>;
-  onRemoveManualModel: (modelId: string) => Promise<void>;
-}) {
-  const rootRef = useRef<HTMLDivElement>(null);
-  const triggerRef = useRef<HTMLButtonElement>(null);
-  const menuRef = useRef<HTMLDivElement>(null);
-  const [menuGeometry, setMenuGeometry] = useState<{
-    inlineOffset: number;
-    secondarySide: "left" | "right";
-  }>({ inlineOffset: 0, secondarySide: "right" });
-  const [modelQuery, setModelQuery] = useState("");
-  const [manualModelOpen, setManualModelOpen] = useState(false);
-  const [manualModelId, setManualModelId] = useState("");
-  const [manualModelLabel, setManualModelLabel] = useState("");
-  const [manualRuntimeModel, setManualRuntimeModel] = useState("");
-  const [manualApiProtocol, setManualApiProtocol] = useState<ModelApiProtocol>("openai_responses");
-  const [manualModelSaving, setManualModelSaving] = useState(false);
-  const [manualModelError, setManualModelError] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    const close = (event: PointerEvent) => {
-      if (!rootRef.current?.contains(event.target as Node)) onOpenChange(false);
-    };
-    window.addEventListener("pointerdown", close);
-    return () => window.removeEventListener("pointerdown", close);
-  }, [onOpenChange, open]);
-
-  useEffect(() => {
-    if (!open) setModelQuery("");
-  }, [open]);
-
-  useLayoutEffect(() => {
-    if (!open) return;
-    const root = rootRef.current;
-    const menu = menuRef.current;
-    if (!root || !menu) return;
-
-    const updateGeometry = () => {
-      const styles = window.getComputedStyle(menu);
-      const cssPixels = (property: string, fallback: number) => {
-        const value = Number.parseFloat(styles.getPropertyValue(property));
-        return Number.isFinite(value) ? value : fallback;
-      };
-      const primaryWidth = cssPixels("--agent-picker-primary-width", 196);
-      const secondaryWidth = cssPixels("--agent-picker-secondary-width", 236);
-      const panelGap = cssPixels("--agent-picker-panel-gap", 6);
-      const viewportMargin = 12;
-      const anchorLeft = root.getBoundingClientRect().left;
-      const maximumPrimaryLeft = Math.max(
-        viewportMargin,
-        window.innerWidth - viewportMargin - primaryWidth,
-      );
-      const primaryLeft = Math.min(Math.max(anchorLeft, viewportMargin), maximumPrimaryLeft);
-      const availableRight =
-        window.innerWidth - viewportMargin - (primaryLeft + primaryWidth + panelGap);
-      const availableLeft = primaryLeft - viewportMargin - panelGap;
-      const secondarySide =
-        availableRight >= secondaryWidth || availableRight >= availableLeft ? "right" : "left";
-      const inlineOffset = Math.round(primaryLeft - anchorLeft);
-
-      setMenuGeometry((current) =>
-        current.inlineOffset === inlineOffset && current.secondarySide === secondarySide
-          ? current
-          : { inlineOffset, secondarySide },
-      );
-    };
-
-    updateGeometry();
-    window.addEventListener("resize", updateGeometry);
-    const resizeObserver =
-      typeof ResizeObserver === "undefined" ? null : new ResizeObserver(updateGeometry);
-    resizeObserver?.observe(root);
-    return () => {
-      window.removeEventListener("resize", updateGeometry);
-      resizeObserver?.disconnect();
-    };
-  }, [open]);
-
-  const focusFirstPrimaryItem = useCallback(() => {
-    window.requestAnimationFrame(() => {
-      rootRef.current
-        ?.querySelector<HTMLButtonElement>(".agent-picker__primary button:not(:disabled)")
-        ?.focus();
-    });
-  }, []);
-
-  const handleMenuKeyDown = useCallback(
-    (event: React.KeyboardEvent<HTMLDivElement>) => {
-      const target = event.target as HTMLElement;
-      if (event.key === "Escape") {
-        event.preventDefault();
-        onOpenChange(false);
-        triggerRef.current?.focus();
-        return;
-      }
-
-      if (target instanceof HTMLInputElement) {
-        if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-          const modelItems = Array.from(
-            menuRef.current?.querySelectorAll<HTMLButtonElement>(
-              ".agent-picker__secondary button:not(:disabled)",
-            ) ?? [],
-          );
-          if (modelItems.length > 0) {
-            event.preventDefault();
-            modelItems[event.key === "ArrowUp" ? modelItems.length - 1 : 0]?.focus();
-          }
-        }
-        return;
-      }
-
-      if (event.key === "ArrowRight" && target.closest(".agent-picker__primary")) {
-        const button = target.closest<HTMLButtonElement>("button:not(:disabled)");
-        if (!button) return;
-        event.preventDefault();
-        button.click();
-        window.requestAnimationFrame(() => {
-          menuRef.current
-            ?.querySelector<HTMLButtonElement>(".agent-picker__secondary button:not(:disabled)")
-            ?.focus();
-        });
-        return;
-      }
-
-      if (event.key === "ArrowLeft" && target.closest(".agent-picker__secondary")) {
-        event.preventDefault();
-        menuRef.current
-          ?.querySelector<HTMLButtonElement>(".agent-picker__primary .is-active:not(:disabled)")
-          ?.focus();
-        return;
-      }
-
-      if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
-      const items = Array.from(
-        event.currentTarget.querySelectorAll<HTMLButtonElement>("button:not(:disabled)"),
-      );
-      if (items.length === 0) return;
-      event.preventDefault();
-      const currentIndex = items.indexOf(target.closest("button") as HTMLButtonElement);
-      const nextIndex =
-        event.key === "Home"
-          ? 0
-          : event.key === "End"
-            ? items.length - 1
-            : event.key === "ArrowUp"
-              ? currentIndex <= 0
-                ? items.length - 1
-                : currentIndex - 1
-              : currentIndex < 0 || currentIndex === items.length - 1
-                ? 0
-                : currentIndex + 1;
-      items[nextIndex]?.focus();
-    },
-    [onOpenChange],
-  );
-
-  const submitManualModel = async (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    setManualModelSaving(true);
-    setManualModelError(null);
-    try {
-      await onAddManualModel({
-        id: manualModelId,
-        label: manualModelLabel || undefined,
-        runtimeModel: manualRuntimeModel || undefined,
-        apiProtocol: manualApiProtocol,
-      });
-      setManualModelId("");
-      setManualModelLabel("");
-      setManualRuntimeModel("");
-      setManualModelOpen(false);
-    } catch (error) {
-      setManualModelError(errorMessage(error));
-    } finally {
-      setManualModelSaving(false);
-    }
-  };
-  const removeManualModel = async (modelId: string) => {
-    setManualModelError(null);
-    try {
-      await onRemoveManualModel(modelId);
-    } catch (error) {
-      setManualModelError(errorMessage(error));
-    }
-  };
-  const providerErrorCount =
-    modelCatalog?.providers.filter((provider) => provider.status === "error").length ?? 0;
-  const discoveredModelCount =
-    modelCatalog?.providers.reduce((total, provider) => total + provider.modelCount, 0) ?? 0;
-
-  const primaryRows: Array<{
-    id: "harness" | "model" | "effort";
-    label: string;
-    value: string;
-    enabled: boolean;
-  }> = [
-    { id: "harness", label: "Harness", value: selectedHarness.label, enabled: true },
-    {
-      id: "model",
-      label: "Model",
-      value: selectedModel?.label ?? modelStatusText,
-      enabled: true,
-    },
-    {
-      id: "effort",
-      label: "Effort",
-      value: selectedEffort ? effortLabel(selectedEffort) : "Default",
-      enabled: efforts.length > 0,
-    },
-  ];
-  const modelGroups = groupComposerModels(models, modelQuery);
-  const triggerModel =
-    !disabled && selectedModel ? modelBrandPresentation(selectedModel) : undefined;
-
-  return (
-    <div className="agent-picker" ref={rootRef}>
-      <button
-        ref={triggerRef}
-        type="button"
-        className="agent-picker__trigger"
-        aria-label="Choose agent"
-        aria-haspopup="menu"
-        aria-expanded={open}
-        data-harness-id={selectedHarness.id}
-        disabled={disabled}
-        onClick={() => onOpenChange(!open)}
-        onKeyDown={(event) => {
-          if (event.key === "Escape" && open) {
-            event.preventDefault();
-            onOpenChange(false);
-            return;
-          }
-          if (event.key !== "ArrowDown") return;
-          event.preventDefault();
-          onOpenChange(true);
-          focusFirstPrimaryItem();
-        }}
-      >
-        {triggerModel ? (
-          <img
-            className="model-brand-icon"
-            src={triggerModel.iconUrl}
-            alt=""
-            aria-hidden="true"
-            data-model-brand={triggerModel.brand}
-          />
-        ) : (
-          <HarnessBrandIcon harness={selectedHarness} />
-        )}
-        <span className="agent-picker__trigger-label">{triggerModel?.label ?? label}</span>
-        {!disabled && selectedModel && selectedEffort && (
-          <span className="agent-picker__trigger-effort">{effortLabel(selectedEffort)}</span>
-        )}
-        {!disabled && <ChevronRight aria-hidden="true" />}
-      </button>
-      {open && !disabled && (
-        <div
-          ref={menuRef}
-          className="agent-picker__menu"
-          role="menu"
-          aria-label="Agent composition"
-          data-secondary-side={menuGeometry.secondarySide}
-          style={
-            {
-              "--agent-picker-inline-offset": `${menuGeometry.inlineOffset}px`,
-            } as React.CSSProperties
-          }
-          onKeyDown={handleMenuKeyDown}
-        >
-          <div className="agent-picker__primary" data-testid="agent-picker-primary">
-            {primaryRows.map((row) => (
-              <button
-                key={row.id}
-                type="button"
-                role="menuitem"
-                className={cx("agent-picker__row", section === row.id && "is-active")}
-                disabled={!row.enabled}
-                onPointerEnter={() => row.enabled && onSectionChange(row.id)}
-                onClick={() => row.enabled && onSectionChange(row.id)}
-              >
-                {row.id === "harness" && <HarnessBrandIcon harness={selectedHarness} />}
-                <span>
-                  <strong>{row.label}</strong>
-                  <small>{row.value}</small>
-                </span>
-                <ChevronRight aria-hidden="true" />
-              </button>
-            ))}
-          </div>
-          <div className="agent-picker__secondary" role="menu" aria-label={`${section} options`}>
-            {section === "harness" &&
-              harnesses.map((harness) => {
-                return (
-                  <button
-                    key={harness.id}
-                    type="button"
-                    role="menuitemradio"
-                    aria-checked={harness.id === selectedHarness.id}
-                    aria-disabled={harness.disabled || undefined}
-                    disabled={harness.disabled}
-                    title={harness.disabledReason}
-                    className={cx(
-                      "agent-picker__option",
-                      harness.id === selectedHarness.id && "is-selected",
-                    )}
-                    onClick={() => !harness.disabled && onHarnessChange(harness.id)}
-                  >
-                    <HarnessBrandIcon harness={harness} />
-                    <span>
-                      <span>{harness.label}</span>
-                      {harness.disabledReason && <small>{harness.disabledReason}</small>}
-                    </span>
-                    {harness.id === selectedHarness.id && <CircleCheck aria-hidden="true" />}
-                  </button>
-                );
-              })}
-            {section === "model" && (
-              <div className="agent-picker__model-list">
-                <div className="agent-picker__model-actions">
-                  <button
-                    type="button"
-                    className="agent-picker__model-action"
-                    disabled={modelCatalogRefreshing}
-                    onClick={() => void onRefreshModels()}
-                  >
-                    <RefreshCw
-                      aria-hidden="true"
-                      className={modelCatalogRefreshing ? "is-spinning" : undefined}
-                    />
-                    <span>{modelCatalogRefreshing ? "Refreshing" : "Refresh"}</span>
-                  </button>
-                  <button
-                    type="button"
-                    className="agent-picker__model-action"
-                    aria-expanded={manualModelOpen}
-                    onClick={() => setManualModelOpen((current) => !current)}
-                  >
-                    <Plus aria-hidden="true" />
-                    <span>Add model</span>
-                  </button>
-                </div>
-                <output className="agent-picker__model-status">
-                  {modelCatalogRefreshing
-                    ? "Refreshing Provider APIs…"
-                    : providerErrorCount > 0
-                      ? `${providerErrorCount} Provider refresh${providerErrorCount === 1 ? "" : "es"} failed; cached Models retained.`
-                      : modelCatalog
-                        ? `${discoveredModelCount} discovered · ${modelCatalog.manualModelIds.length} manual`
-                        : "Provider discovery has not run yet."}
-                </output>
-                {(modelCatalogError || manualModelError) && (
-                  <div className="agent-picker__model-error" role="alert">
-                    {manualModelError ?? modelCatalogError}
-                  </div>
-                )}
-                {manualModelOpen && (
-                  <form
-                    className="agent-picker__manual-model"
-                    aria-label="Add manual model"
-                    onSubmit={(event) => void submitManualModel(event)}
-                    onKeyDown={(event) => event.stopPropagation()}
-                  >
-                    <label>
-                      <span>Model ID</span>
-                      <input
-                        required
-                        value={manualModelId}
-                        placeholder="vendor-model-id"
-                        onChange={(event) => setManualModelId(event.target.value)}
-                      />
-                    </label>
-                    <label>
-                      <span>Runtime model</span>
-                      <input
-                        value={manualRuntimeModel}
-                        placeholder="Defaults to Model ID"
-                        onChange={(event) => setManualRuntimeModel(event.target.value)}
-                      />
-                    </label>
-                    <label>
-                      <span>Display name</span>
-                      <input
-                        value={manualModelLabel}
-                        placeholder="Optional"
-                        onChange={(event) => setManualModelLabel(event.target.value)}
-                      />
-                    </label>
-                    <label>
-                      <span>API protocol</span>
-                      <select
-                        value={manualApiProtocol}
-                        onChange={(event) =>
-                          setManualApiProtocol(event.target.value as ModelApiProtocol)
-                        }
-                      >
-                        <option value="openai_responses">OpenAI Responses</option>
-                        <option value="openai_chat">OpenAI Chat</option>
-                        <option value="anthropic">Anthropic</option>
-                        <option value="ollama">Ollama</option>
-                      </select>
-                    </label>
-                    <div className="agent-picker__manual-model-actions">
-                      <button type="button" onClick={() => setManualModelOpen(false)}>
-                        Cancel
-                      </button>
-                      <button type="submit" disabled={manualModelSaving || !manualModelId.trim()}>
-                        {manualModelSaving ? "Saving…" : "Save model"}
-                      </button>
-                    </div>
-                  </form>
-                )}
-                {(modelCatalog?.manualModelIds.length ?? 0) > 0 && (
-                  <div className="agent-picker__manual-model-list" aria-label="Manual models">
-                    {modelCatalog?.manualModelIds.map((modelId) => (
-                      <button
-                        key={modelId}
-                        type="button"
-                        aria-label={`Remove manual model ${modelId}`}
-                        onClick={() => void removeManualModel(modelId)}
-                      >
-                        <span>{modelId}</span>
-                        <Trash2 aria-hidden="true" />
-                      </button>
-                    ))}
-                  </div>
-                )}
-                {models.length > 0 ? (
-                  <>
-                    <label
-                      className="agent-picker__model-search"
-                      onKeyDown={(event) => event.stopPropagation()}
-                    >
-                      <Search aria-hidden="true" />
-                      <input
-                        type="search"
-                        value={modelQuery}
-                        placeholder="Search models"
-                        aria-label="Search models"
-                        onChange={(event) => setModelQuery(event.target.value)}
-                      />
-                    </label>
-                    {modelGroups.map((group) => (
-                      <fieldset key={group.id} className="agent-picker__model-group">
-                        <legend
-                          id={`model-provider-${domId(group.id)}`}
-                          className="agent-picker__model-group-label"
-                        >
-                          <ProviderBrandIcon
-                            label={group.label}
-                            sourceId={group.id}
-                            provider={group.provider}
-                          />
-                          <span>{group.label}</span>
-                        </legend>
-                        {group.subgroups.map((subgroup) => (
-                          <div
-                            key={subgroup.id}
-                            className="agent-picker__model-subgroup"
-                            {...(subgroup.label
-                              ? { role: "group", "aria-label": subgroup.label }
-                              : {})}
-                          >
-                            {subgroup.label && (
-                              <span className="agent-picker__model-subgroup-label">
-                                {subgroup.label}
-                              </span>
-                            )}
-                            {subgroup.models.map((model) => (
-                              <button
-                                key={model.id}
-                                type="button"
-                                role="menuitemradio"
-                                title={model.modelId}
-                                aria-checked={model.id === selectedModel?.id}
-                                className={cx(
-                                  "agent-picker__option",
-                                  model.id === selectedModel?.id && "is-selected",
-                                )}
-                                onClick={() => onModelChange(model.id)}
-                              >
-                                <span>
-                                  <span>{model.label}</span>
-                                  {model.manual && <small>Manual</small>}
-                                </span>
-                                {model.id === selectedModel?.id && (
-                                  <CircleCheck aria-hidden="true" />
-                                )}
-                              </button>
-                            ))}
-                          </div>
-                        ))}
-                      </fieldset>
-                    ))}
-                    {modelGroups.length === 0 && (
-                      <div className="agent-picker__empty">No models match “{modelQuery}”</div>
-                    )}
-                  </>
-                ) : (
-                  <div className="agent-picker__empty">
-                    No compatible Models. Refresh Provider APIs or add one manually.
-                  </div>
-                )}
-              </div>
-            )}
-            {section === "effort" &&
-              efforts.map((effort) => (
-                <button
-                  key={effort}
-                  type="button"
-                  role="menuitemradio"
-                  aria-checked={effort === selectedEffort}
-                  className={cx("agent-picker__option", effort === selectedEffort && "is-selected")}
-                  onClick={() => onEffortChange(effort)}
-                >
-                  <Sparkles aria-hidden="true" />
-                  <span>{effortLabel(effort)}</span>
-                  {effort === selectedEffort && <CircleCheck aria-hidden="true" />}
-                </button>
-              ))}
-            {section === "effort" && efforts.length === 0 && (
-              <div className="agent-picker__empty">This model has no verified effort control</div>
-            )}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function effortLabel(effort: string): string {
-  if (effort === "xhigh") return "Extra High";
-  return effort.charAt(0).toUpperCase() + effort.slice(1);
-}
-
-function resolveComposerModelOptions(
-  inventory: ExtensionCapabilityInventory,
-  harnessId: string,
-): ComposerModelOption[] {
-  const providersById = new Map(inventory.providers.map((provider) => [provider.id, provider]));
-  return resolveHarnessModelInventory({
-    harnessId,
-    models: inventory.models,
-    supplies: inventory.modelSupplies,
-    providers: inventory.providers,
-    harnesses: inventory.harnesses,
-  }).flatMap((model): ComposerModelOption[] => {
-    const manual = inventory.modelCatalog?.manualModelIds.includes(model.modelId) ?? false;
-    const supplies = preferredComposerModelSupplies(model.supplies, model.apiProtocol);
-    if (supplies.length === 0) {
-      return [
-        {
-          id: model.agentId,
-          label: model.modelLabel,
-          modelId: model.modelId,
-          runtimeModel: model.runtimeModel,
-          apiProtocol: model.apiProtocol,
-          providerId: manual ? "manual" : "unrouted",
-          providerLabel: manual ? "Manual" : "Other",
-          manual,
-          reasoning: composerReasoning(model.reasoning),
-        },
-      ];
-    }
-    return supplies.map((supply) => {
-      const provider = providersById.get(supply.providerProfileId);
-      return {
-        id: `${model.agentId}@${supply.id}`,
-        label: model.modelLabel,
-        modelId: model.modelId,
-        modelSupplyId: supply.id,
-        runtimeModel: supply.runtimeModel,
-        apiProtocol: supply.apiProtocol,
-        providerId: supply.providerProfileId,
-        providerLabel: supply.providerLabel ?? provider?.label ?? supply.providerProfileId,
-        providerGroup: supply.providerGroup,
-        provider,
-        manual,
-        reasoning: composerReasoning(supply.reasoning ?? model.reasoning),
-      };
-    });
-  });
-}
-
-function composerModelOptionId(harnessId: string, modelId: string, modelSupplyId?: string): string {
-  const agentId = `${harnessId}:${modelId}`;
-  return modelSupplyId ? `${agentId}@${modelSupplyId}` : agentId;
-}
-
-interface ResolvedComposerSupply {
-  id: string;
-  providerProfileId: string;
-  providerLabel?: string;
-  providerKind?: string;
-  providerGroup?: string;
-  runtimeModel: string;
-  apiProtocol: string;
-  reasoning?: {
-    supportedEfforts: string[];
-    defaultEffort?: string;
-  };
-}
-
-function preferredComposerModelSupplies(
-  supplies: ResolvedComposerSupply[],
-  preferredApi: string,
-): ResolvedComposerSupply[] {
-  const selected = new Map<string, ResolvedComposerSupply>();
-  for (const supply of supplies) {
-    const key = `${supply.providerProfileId}\u0000${supply.providerGroup ?? ""}`;
-    const current = selected.get(key);
-    if (
-      !current ||
-      composerSupplyRank(supply, preferredApi) < composerSupplyRank(current, preferredApi)
-    ) {
-      selected.set(key, supply);
-    }
-  }
-  return [...selected.values()];
-}
-
-function composerSupplyRank(supply: ResolvedComposerSupply, preferredApi: string): number {
-  if (supply.providerKind && supply.apiProtocol === supply.providerKind) return 0;
-  if (supply.apiProtocol === preferredApi) return 1;
-  return 2;
-}
-
-function composerReasoning(
-  reasoning: { supportedEfforts: string[]; defaultEffort?: string } | null | undefined,
-): ComposerModelOption["reasoning"] {
-  return selectableModelReasoning(reasoning);
-}
-
-interface ComposerModelSubgroup {
-  id: string;
-  label?: string;
-  models: ComposerModelOption[];
-}
-
-interface ComposerModelGroup {
-  id: string;
-  label: string;
-  provider?: ExtensionProviderSummary;
-  subgroups: ComposerModelSubgroup[];
-}
-
-type MutableComposerModelGroup = ComposerModelGroup & {
-  subgroupMap: Map<string, ComposerModelSubgroup>;
-};
-
-function groupComposerModels(models: ComposerModelOption[], query: string): ComposerModelGroup[] {
-  const normalizedQuery = query.trim().toLowerCase();
-  const groups = new Map<string, MutableComposerModelGroup>();
-
-  for (const model of models) {
-    if (
-      normalizedQuery &&
-      !`${model.providerLabel} ${model.providerGroup ?? ""} ${model.apiProtocol} ${model.label} ${model.modelId} ${model.runtimeModel}`
-        .toLowerCase()
-        .includes(normalizedQuery)
-    ) {
-      continue;
-    }
-    const group: MutableComposerModelGroup = groups.get(model.providerId) ?? {
-      id: model.providerId,
-      label: model.providerLabel,
-      provider: model.provider,
-      subgroups: [],
-      subgroupMap: new Map<string, ComposerModelSubgroup>(),
-    };
-    const subgroupId = model.providerGroup ?? "default";
-    const subgroup: ComposerModelSubgroup = group.subgroupMap.get(subgroupId) ?? {
-      id: subgroupId,
-      label: model.providerGroup,
-      models: [],
-    };
-    subgroup.models.push(model);
-    group.subgroupMap.set(subgroupId, subgroup);
-    if (!group.subgroups.includes(subgroup)) group.subgroups.push(subgroup);
-    groups.set(model.providerId, group);
-  }
-
-  return [...groups.values()].map(({ subgroupMap: _subgroupMap, ...group }) => ({
-    ...group,
-    subgroups: group.subgroups.map((subgroup) => ({
-      ...subgroup,
-      models: [...subgroup.models].sort(compareModelDisplayOrder),
-    })),
-  }));
-}
-
-function modelApiLabel(api: string): string {
-  switch (api) {
-    case "openai_chat":
-      return "OpenAI Chat API";
-    case "openai_responses":
-      return "OpenAI Responses API";
-    case "anthropic":
-      return "Anthropic API";
-    case "ollama":
-      return "Ollama API";
-    default:
-      return api;
-  }
-}
-
-function nativeAgentHostLabel(
-  host: "claude_code" | "codex" | "swarmx" | "custom" | undefined,
-): string {
-  if (host === "codex") return "Codex";
-  if (host === "claude_code") return "Claude Code";
-  return "Native Agent";
-}
-
-function domId(value: string): string {
-  return value.replace(/[^a-zA-Z0-9_-]+/g, "-");
-}
-
-function slugId(value: string, fallback: string): string {
-  const slug = value
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
-  return slug || fallback;
-}
-
-function lines(value: string): string[] {
-  return [
-    ...new Set(
-      value
-        .split(/\r?\n|,/)
-        .map((item) => item.trim())
-        .filter(Boolean),
-    ),
-  ];
-}
-
-function uniqueById<T extends { id: string }>(items: T[]): T[] {
-  const seen = new Set<string>();
-  return items.filter((item) => {
-    if (seen.has(item.id)) return false;
-    seen.add(item.id);
-    return true;
-  });
-}
-
-function HarnessBrandIcon({ harness }: { harness: HarnessOption }) {
-  const [failedIconUrl, setFailedIconUrl] = useState<string | null>(null);
-  const Fallback = harness.icon;
-  const iconUrl = PACKAGED_HARNESS_ICON_URLS[harness.id];
-  if (!iconUrl || failedIconUrl === iconUrl) {
-    return <Fallback aria-hidden="true" data-harness-icon-fallback={harness.id} />;
-  }
-  return (
-    <img
-      className="harness-brand-icon"
-      src={iconUrl}
-      alt=""
-      aria-hidden="true"
-      data-harness-icon={harness.id}
-      onError={() => setFailedIconUrl(iconUrl)}
-    />
-  );
-}
-
-function harnessOption(id: string, label: string): HarnessOption {
-  return (
-    HARNESSES.find((harness) => harness.id === id) ?? {
-      id,
-      label,
-      icon: Bot,
-      modelControl: "session",
-    }
-  );
-}
-
-function ExtensionWorkspace({
-  inventory,
-  management,
-  loading,
-  error,
-  selectedAgentId,
-  onSelectAgent,
-  onSaveSource,
-  onRefreshSource,
-  onRemoveSource,
-  onApplyAction,
-  onSaveEvolutionPolicy,
-}: {
-  inventory?: ExtensionCapabilityInventory;
-  management?: ExtensionManagementState;
-  loading: boolean;
-  error: unknown;
-  selectedAgentId: string | null;
-  onSelectAgent: (agentId: string) => void;
-  onSaveSource: (input: unknown) => Promise<void>;
-  onRefreshSource: (id: string) => Promise<void>;
-  onRemoveSource: (id: string) => Promise<void>;
-  onApplyAction: (input: unknown) => Promise<{
-    status: "applied" | "rejected" | "failed";
-    message: string;
-  }>;
-  onSaveEvolutionPolicy: (input: {
-    enabled: boolean;
-    promotionGate: "human" | "policy";
-  }) => Promise<void>;
-}) {
-  const [sourceFormOpen, setSourceFormOpen] = useState(false);
-  const [sourceName, setSourceName] = useState("");
-  const [sourceLocation, setSourceLocation] = useState("");
-  const [sourceKind, setSourceKind] = useState<"remote_catalog" | "registry" | "local_path">(
-    "remote_catalog",
-  );
-  const [managementBusy, setManagementBusy] = useState<string | null>(null);
-  const [managementError, setManagementError] = useState<string | null>(null);
-  const bundles = inventory?.bundles ?? [];
-  const harnesses = inventory?.harnesses ?? [];
-  const agents = inventory?.agents ?? [];
-  const models = inventory?.models ?? [];
-  const modelSupplies = inventory?.modelSupplies ?? [];
-  const providers = inventory?.providers ?? [];
-  const skills = inventory?.skills ?? [];
-  const mcpServers = inventory?.mcpServers ?? [];
-  const appConnectors = inventory?.appConnectors ?? [];
-  const uiContributions = inventory?.uiContributions ?? [];
-  const agentPlans = inventory?.agentPlans ?? [];
-  const pluginComponents = extensionComponentRows(inventory);
-  const marketplaceSources: ExtensionMarketplaceSourceSummary[] = [
-    ...(management?.sources.map((source) => ({
-      ...source,
-      host: "swarmx",
-      ...(source.kind === "local_path" ? { path: source.location } : { url: source.location }),
-    })) ?? []),
-    ...(inventory?.marketplaceSources ?? []).filter(
-      (source) => !management?.sources.some((managed) => managed.id === source.id),
-    ),
-  ];
-  const candidateById = new Map(
-    (management?.candidates ?? []).map((candidate) => [candidate.pluginId, candidate]),
-  );
-  const pluginCatalog = uniqueById<ExtensionPluginCatalogEntrySummary>([
-    ...(management?.candidates ?? []).map<ExtensionPluginCatalogEntrySummary>((candidate) => ({
-      id: candidate.pluginId,
-      name: candidate.name,
-      version: candidate.revision.version,
-      marketplaceSourceId: candidate.revision.sourceId,
-      trust: candidate.trust,
-      installState: "available",
-      updateState: "unknown",
-      description: candidate.description,
-    })),
-    ...(inventory?.pluginCatalog ?? []),
-  ]);
-  const warnings = inventory?.warnings ?? [];
-  const installedById = new Map(
-    (management?.installed ?? []).map((plugin) => [plugin.pluginId, plugin]),
-  );
-  const planByAgentId = useMemo(
-    () => new Map(agentPlans.map((plan) => [plan.agentProfileId ?? plan.agentId, plan] as const)),
-    [agentPlans],
-  );
-
-  const runManagement = async (id: string, action: () => Promise<void>) => {
-    setManagementBusy(id);
-    setManagementError(null);
-    try {
-      await action();
-    } catch (error) {
-      setManagementError(errorMessage(error));
-    } finally {
-      setManagementBusy(null);
-    }
-  };
-  const submitSource = async (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    const id = slugId(sourceName || sourceLocation, "source");
-    await runManagement(`source:${id}`, async () => {
-      await onSaveSource({
-        id,
-        name: sourceName.trim(),
-        kind: sourceKind,
-        location: sourceLocation.trim(),
-        trust: sourceKind === "local_path" ? "local" : "untrusted",
-      });
-      setSourceFormOpen(false);
-      setSourceName("");
-      setSourceLocation("");
-    });
-  };
-  const applyCatalogAction = async (
-    entry: ExtensionPluginCatalogEntrySummary,
-    action: "install" | "update" | "enable" | "disable" | "rollback" | "uninstall",
-  ) => {
-    if (
-      ["install", "update", "rollback", "uninstall"].includes(action) &&
-      !window.confirm(`${capitalize(action)} ${entry.name}?`)
-    ) {
-      return;
-    }
-    await runManagement(`plugin:${entry.id}`, async () => {
-      const version = entry.version ?? "0.0.0";
-      const managedCandidate = candidateById.get(entry.id);
-      const result = await onApplyAction({
-        action,
-        pluginId: entry.id,
-        confirmed: true,
-        ...(["install", "update"].includes(action)
-          ? {
-              candidate: managedCandidate ?? {
-                pluginId: entry.id,
-                name: entry.name,
-                trust: entry.trust ?? "untrusted",
-                revision: {
-                  revisionId: `${entry.id}@${version}`,
-                  version,
-                  contentDigest: `catalog:${entry.id}@${version}`,
-                  sourceId: entry.marketplaceSourceId ?? "local",
-                },
-              },
-            }
-          : {}),
-      });
-      if (result.status !== "applied") throw new Error(result.message);
-    });
-  };
-
-  return (
-    <section className="extension-workspace" aria-label="Extension inventory">
-      <div className="extension-topbar">
-        <div className="extension-title">
-          <Package aria-hidden="true" />
-          <div>
-            <h2>Extensions</h2>
-            <span>
-              {loading
-                ? "Loading inventory"
-                : `${bundles.length} bundles / ${marketplaceSources.length} sources / ${harnesses.length} harnesses`}
-            </span>
-          </div>
-        </div>
-        <div className="extension-stats" aria-label="Extension counts">
-          <Badge tone="neutral">{pluginCatalog.length} plugins</Badge>
-          <Badge tone="neutral">{agents.length} agents</Badge>
-          <Badge tone="neutral">{skills.length} skills</Badge>
-          <Badge tone="neutral">{mcpServers.length} MCPs</Badge>
-          <Badge tone="neutral">{uiContributions.length} UI</Badge>
-          <Badge tone="neutral">{pluginComponents.length} components</Badge>
-          {warnings.length > 0 && <Badge tone="danger">{warnings.length} warnings</Badge>}
-          <button
-            type="button"
-            className="settings-primary-action"
-            onClick={() => setSourceFormOpen((open) => !open)}
-          >
-            <Plus aria-hidden="true" />
-            Add source
-          </button>
-        </div>
-      </div>
-
-      {Boolean(managementError || error) && (
-        <div className="settings-provider-error" role="alert">
-          {managementError ?? errorMessage(error)}
-        </div>
-      )}
-
-      {sourceFormOpen && (
-        <form className="extension-source-form" onSubmit={(event) => void submitSource(event)}>
-          <label>
-            <span>Source name</span>
-            <input
-              required
-              value={sourceName}
-              placeholder="Official marketplace"
-              onChange={(event) => setSourceName(event.target.value)}
-            />
-          </label>
-          <label>
-            <span>Source type</span>
-            <select
-              value={sourceKind}
-              onChange={(event) =>
-                setSourceKind(event.target.value as "remote_catalog" | "registry" | "local_path")
-              }
-            >
-              <option value="remote_catalog">Remote catalog</option>
-              <option value="registry">Registry</option>
-              <option value="local_path">Local path</option>
-            </select>
-          </label>
-          <label className="is-wide">
-            <span>{sourceKind === "local_path" ? "Path" : "HTTPS URL"}</span>
-            <input
-              required
-              type={sourceKind === "local_path" ? "text" : "url"}
-              value={sourceLocation}
-              placeholder={
-                sourceKind === "local_path"
-                  ? "/Users/me/extensions"
-                  : "https://plugins.example.com/catalog.json"
-              }
-              onChange={(event) => setSourceLocation(event.target.value)}
-            />
-          </label>
-          <div className="extension-source-form__actions">
-            <Button type="button" variant="ghost" onClick={() => setSourceFormOpen(false)}>
-              Cancel
-            </Button>
-            <Button type="submit" disabled={managementBusy !== null}>
-              Save source
-            </Button>
-          </div>
-        </form>
-      )}
-
-      <div className="extension-layout">
-        <section className="extension-section" aria-label="Plugin bundles">
-          <div className="extension-section__header">
-            <h3>Plugin bundles</h3>
-            <span>{bundles.length}</span>
-          </div>
-          {bundles.length === 0 ? (
-            <div className="extension-empty">No bundles</div>
-          ) : (
-            <ul className="extension-list">
-              {bundles.map((bundle) => (
-                <li key={bundle.id} className="extension-item">
-                  <div className="extension-item__main">
-                    <strong>{bundle.name}</strong>
-                    <span>{bundle.id}</span>
-                  </div>
-                  <div className="extension-item__meta">
-                    <span>{bundle.version}</span>
-                    <span>{bundle.trust ?? "local"}</span>
-                    {bundle.readOnly && <span>read-only</span>}
-                  </div>
-                  <div className="extension-item__chips">
-                    <span>{capabilityCount(bundle, "harnesses")} harnesses</span>
-                    <span>{capabilityCount(bundle, "agents")} agents</span>
-                    <span>{capabilityCount(bundle, "skills")} skills</span>
-                    <span>{capabilityCount(bundle, "mcpServers")} MCPs</span>
-                    <span>{capabilityCount(bundle, "commands")} commands</span>
-                    <span>{capabilityCount(bundle, "lspServers")} LSPs</span>
-                    <span>{capabilityCount(bundle, "hooks")} hooks</span>
-                    <span>{capabilityCount(bundle, "uiContributions")} UI</span>
-                  </div>
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
-
-        <section className="extension-section" aria-label="Marketplace sources">
-          <div className="extension-section__header">
-            <h3>Marketplace sources</h3>
-            <span>{marketplaceSources.length}</span>
-          </div>
-          {marketplaceSources.length === 0 ? (
-            <div className="extension-empty">No marketplace sources</div>
-          ) : (
-            <ul className="extension-list">
-              {marketplaceSources.map((source) => (
-                <li key={source.id} className="extension-item">
-                  <div className="extension-item__main">
-                    <strong>{source.name}</strong>
-                    <span>{source.id}</span>
-                    {management?.sources.some((managed) => managed.id === source.id) && (
-                      <span className="extension-item__actions">
-                        <Button
-                          size="sm"
-                          variant="secondary"
-                          disabled={managementBusy === `source:${source.id}`}
-                          onClick={() =>
-                            void runManagement(`source:${source.id}`, () =>
-                              onRefreshSource(source.id),
-                            )
-                          }
-                        >
-                          <RefreshCw aria-hidden="true" />
-                          Refresh
-                        </Button>
-                        {!source.readOnly && (
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            disabled={managementBusy === `source:${source.id}`}
-                            onClick={() =>
-                              void runManagement(`source:${source.id}`, () =>
-                                onRemoveSource(source.id),
-                              )
-                            }
-                          >
-                            Remove
-                          </Button>
-                        )}
-                      </span>
-                    )}
-                  </div>
-                  <div className="extension-item__meta">
-                    <span>{source.host ?? "custom"}</span>
-                    <span>{source.kind ?? "local_path"}</span>
-                    <span>{source.trust ?? "local"}</span>
-                    {source.enabled === false && <span>disabled</span>}
-                    {source.readOnly && <span>read-only</span>}
-                  </div>
-                  <div className="extension-item__chips">
-                    <span>{source.path ?? source.url ?? source.package ?? "host-native"}</span>
-                  </div>
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
-
-        <section className="extension-section" aria-label="Plugin catalog">
-          <div className="extension-section__header">
-            <h3>Plugin catalog</h3>
-            <span>{pluginCatalog.length}</span>
-          </div>
-          {pluginCatalog.length === 0 ? (
-            <div className="extension-empty">No plugin catalog entries</div>
-          ) : (
-            <ul className="extension-list">
-              {pluginCatalog.map((entry) => {
-                const installed = installedById.get(entry.id);
-                const updateAvailable = Boolean(
-                  installed &&
-                    entry.version &&
-                    installed.currentRevision?.version !== entry.version,
-                );
-                return (
-                  <li key={entry.id} className="extension-item">
-                    <div className="extension-item__main">
-                      <strong>{entry.name}</strong>
-                      <span>{entry.id}</span>
-                      <span className="extension-item__actions">
-                        {!installed ? (
-                          <Button
-                            size="sm"
-                            disabled={managementBusy === `plugin:${entry.id}`}
-                            onClick={() => void applyCatalogAction(entry, "install")}
-                          >
-                            Install
-                          </Button>
-                        ) : (
-                          <>
-                            <Button
-                              size="sm"
-                              variant="secondary"
-                              disabled={managementBusy === `plugin:${entry.id}`}
-                              onClick={() =>
-                                void applyCatalogAction(
-                                  entry,
-                                  installed.enabled ? "disable" : "enable",
-                                )
-                              }
-                            >
-                              {installed.enabled ? "Disable" : "Enable"}
-                            </Button>
-                            {updateAvailable && (
-                              <Button
-                                size="sm"
-                                disabled={managementBusy === `plugin:${entry.id}`}
-                                onClick={() => void applyCatalogAction(entry, "update")}
-                              >
-                                Update
-                              </Button>
-                            )}
-                            {installed.previousRevisions.length > 0 && (
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                disabled={managementBusy === `plugin:${entry.id}`}
-                                onClick={() => void applyCatalogAction(entry, "rollback")}
-                              >
-                                Roll back
-                              </Button>
-                            )}
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              disabled={managementBusy === `plugin:${entry.id}`}
-                              onClick={() => void applyCatalogAction(entry, "uninstall")}
-                            >
-                              Uninstall
-                            </Button>
-                          </>
-                        )}
-                      </span>
-                    </div>
-                    <div className="extension-item__meta">
-                      {entry.version && <span>{entry.version}</span>}
-                      <span>{installed?.state ?? entry.installState ?? "available"}</span>
-                      <span>{entry.updateState ?? "unknown"}</span>
-                      <span>{entry.trust ?? "local"}</span>
-                      {entry.providesHarness && <span>runnable harness</span>}
-                      {entry.readOnly && <span>read-only</span>}
-                    </div>
-                    <div className="extension-item__chips">
-                      {(entry.hosts ?? []).map((host) => (
-                        <span key={`${entry.id}:${host}`}>{host}</span>
-                      ))}
-                      {entry.marketplaceSourceId && <span>{entry.marketplaceSourceId}</span>}
-                      {entry.bundleId && <span>{entry.bundleId}</span>}
-                      {formatComponentCounts(entry.componentCounts).map((item) => (
-                        <span key={`${entry.id}:${item}`}>{item}</span>
-                      ))}
-                    </div>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-        </section>
-
-        <section
-          className="extension-section extension-section--evolution"
-          aria-label="Skill evolution"
-        >
-          <div className="extension-section__header">
-            <h3>Skill evolution</h3>
-            <Badge tone={management?.skillEvolutionEnabled ? "active" : "neutral"}>
-              {management?.skillEvolutionEnabled ? "Enabled" : "Off"}
-            </Badge>
-          </div>
-          <p className="extension-section__description">
-            Generate agent/model-specific candidate variants, evaluate them against the active
-            baseline, and keep promotion gated with immutable lineage and rollback.
-          </p>
-          <div className="extension-evolution-controls">
-            <label>
-              <input
-                type="checkbox"
-                checked={management?.skillEvolutionEnabled ?? false}
-                onChange={(event) =>
-                  void runManagement("evolution", () =>
-                    onSaveEvolutionPolicy({
-                      enabled: event.target.checked,
-                      promotionGate: management?.skillPromotionGate ?? "human",
-                    }),
-                  )
-                }
-              />
-              <span>Allow candidate generation</span>
-            </label>
-            <label>
-              <span>Promotion gate</span>
-              <select
-                value={management?.skillPromotionGate ?? "human"}
-                onChange={(event) =>
-                  void runManagement("evolution", () =>
-                    onSaveEvolutionPolicy({
-                      enabled: management?.skillEvolutionEnabled ?? false,
-                      promotionGate: event.target.value as "human" | "policy",
-                    }),
-                  )
-                }
-              >
-                <option value="human">Human approval</option>
-                <option value="policy">Evaluation policy</option>
-              </select>
-            </label>
-          </div>
-        </section>
-
-        <section className="extension-section" aria-label="Plugin components">
-          <div className="extension-section__header">
-            <h3>Plugin components</h3>
-            <span>{pluginComponents.length}</span>
-          </div>
-          {pluginComponents.length === 0 ? (
-            <div className="extension-empty">No plugin components</div>
-          ) : (
-            <ul className="extension-list">
-              {pluginComponents.map((component) => (
-                <li key={`${component.kind}:${component.id}`} className="extension-item">
-                  <div className="extension-item__main">
-                    <strong>{component.title}</strong>
-                    <span>{component.kind}</span>
-                  </div>
-                  <div className="extension-item__meta">
-                    <span>{component.id}</span>
-                    {component.detail && <span>{component.detail}</span>}
-                  </div>
-                  <div className="extension-item__chips">
-                    {component.chips.map((chip) => (
-                      <span key={`${component.kind}:${component.id}:${chip}`}>{chip}</span>
-                    ))}
-                  </div>
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
-
-        <section className="extension-section" aria-label="GUI contributions">
-          <div className="extension-section__header">
-            <h3>GUI contributions</h3>
-            <span>{uiContributions.length}</span>
-          </div>
-          {uiContributions.length === 0 ? (
-            <div className="extension-empty">No GUI contributions</div>
-          ) : (
-            <ul className="extension-list">
-              {uiContributions.map((contribution) => (
-                <li key={contribution.id} className="extension-item">
-                  <div className="extension-item__main">
-                    <strong>{contribution.name}</strong>
-                    <span>{contribution.kind}</span>
-                  </div>
-                  <div className="extension-item__meta">
-                    <span>{contribution.id}</span>
-                    <span>{contribution.placement}</span>
-                    {contribution.route && <span>{contribution.route}</span>}
-                    {contribution.componentRef && <span>{contribution.componentRef}</span>}
-                    {contribution.readOnly && <span>read-only</span>}
-                  </div>
-                  <div className="extension-item__chips">
-                    {extensionUiContributionChips(contribution).map((chip) => (
-                      <span key={`${contribution.id}:${chip}`}>{chip}</span>
-                    ))}
-                  </div>
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
-
-        <section className="extension-section" aria-label="Harnesses">
-          <div className="extension-section__header">
-            <h3>Harnesses</h3>
-            <span>{harnesses.length}</span>
-          </div>
-          <ul className="extension-list">
-            {harnesses.map((harness) => (
-              <li key={harness.id} className="extension-item">
-                <div className="extension-item__main">
-                  <strong>{harness.label}</strong>
-                  <span>{harness.id}</span>
-                </div>
-                <div className="extension-item__meta">
-                  <span>{formatSoftwareSummary(harness.software)}</span>
-                  {harness.readOnly && <span>read-only</span>}
-                </div>
-                <div className="extension-item__chips">
-                  <span>{harness.modelControl}</span>
-                  {(harness.supportedModelApis ?? []).map((api) => (
-                    <span key={`${harness.id}:${api}`}>{modelApiLabel(api)}</span>
-                  ))}
-                </div>
-              </li>
-            ))}
-          </ul>
-        </section>
-
-        <section className="extension-section" aria-label="Agent profiles">
-          <div className="extension-section__header">
-            <h3>Agent profiles</h3>
-            <span>{agents.length}</span>
-          </div>
-          {agents.length === 0 ? (
-            <div className="extension-empty">No agent profiles</div>
-          ) : (
-            <ul className="extension-list">
-              {agents.map((agent) => {
-                const plan = planByAgentId.get(agent.id);
-                const canUseAgent = !plan || plan.status === "ready";
-                return (
-                  <li key={agent.id} className="extension-item">
-                    <div className="extension-item__main">
-                      <strong>{agent.name}</strong>
-                      <span>{agent.id}</span>
-                      {plan && <Badge tone={agentPlanTone(plan)}>{plan.status}</Badge>}
-                      <Button
-                        size="sm"
-                        variant={selectedAgentId === agent.id ? "secondary" : "default"}
-                        onClick={() => onSelectAgent(agent.id)}
-                        aria-label={`Use agent profile ${agent.name}`}
-                        disabled={!canUseAgent}
-                        title={
-                          canUseAgent ? `Use agent profile ${agent.name}` : planBlockedTitle(plan)
-                        }
-                      >
-                        {selectedAgentId === agent.id ? "Selected" : "Use"}
-                      </Button>
-                    </div>
-                    <div className="extension-item__meta">
-                      <span>{plan?.canonicalSelector ?? agent.selector ?? agent.id}</span>
-                      <span>{plan?.harnessLabel ?? agent.harnessId ?? "no harness"}</span>
-                      <span>{plan?.modelId ?? agent.modelId ?? "no model"}</span>
-                      {(plan?.modelSupplyId ?? agent.modelSupplyId) && (
-                        <span>supply {plan?.modelSupplyId ?? agent.modelSupplyId}</span>
-                      )}
-                      {agent.permissionMode && <span>permission {agent.permissionMode}</span>}
-                      {agent.memory && <span>memory {agent.memory}</span>}
-                    </div>
-                    <div className="extension-item__chips">
-                      {agentPlanChips(plan, agent).map((chip) => (
-                        <span key={`${agent.id}:${chip}`}>{chip}</span>
-                      ))}
-                    </div>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-        </section>
-
-        <section className="extension-section" aria-label="Models and supplies">
-          <div className="extension-section__header">
-            <h3>Models and supplies</h3>
-            <span>{models.length + modelSupplies.length}</span>
-          </div>
-          <ul className="extension-list extension-list--compact">
-            {models.map((model) => (
-              <li key={`model:${model.id}`} className="extension-item">
-                <div className="extension-item__main">
-                  <strong>{model.label ?? model.id}</strong>
-                  <span>{model.id}</span>
-                </div>
-                <div className="extension-item__meta">
-                  <span>{model.runtimeModel}</span>
-                  {model.apiProtocols.map((api) => (
-                    <span key={`${model.id}:${api}`}>{modelApiLabel(api)}</span>
-                  ))}
-                </div>
-              </li>
-            ))}
-            {modelSupplies.map((supply) => (
-              <li key={`supply:${supply.id}`} className="extension-item">
-                <div className="extension-item__main">
-                  <strong>{supply.id}</strong>
-                  <span>
-                    {supply.modelId} → {supply.providerProfileId}
-                  </span>
-                </div>
-              </li>
-            ))}
-          </ul>
-        </section>
-
-        <section className="extension-section" aria-label="Providers">
-          <div className="extension-section__header">
-            <h3>Providers</h3>
-            <span>{providers.length}</span>
-          </div>
-          {providers.length === 0 ? (
-            <div className="extension-empty">No provider profiles</div>
-          ) : (
-            <ul className="extension-list">
-              {providers.map((provider) => (
-                <li key={provider.id} className="extension-item">
-                  <div className="extension-item__main">
-                    <strong>{provider.label}</strong>
-                    <span>{provider.id}</span>
-                  </div>
-                  <div className="extension-item__meta">
-                    <span>{provider.kind}</span>
-                    {provider.runtimeReady === false && <span>not ready</span>}
-                    {provider.runtimeNote && <span>{provider.runtimeNote}</span>}
-                  </div>
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
-
-        <section className="extension-section" aria-label="Skills and MCP">
-          <div className="extension-section__header">
-            <h3>Skills and MCP</h3>
-            <span>{skills.length + mcpServers.length + appConnectors.length}</span>
-          </div>
-          <ul className="extension-list extension-list--compact">
-            {skills.map((skill) => (
-              <li key={`skill:${skill.id}`} className="extension-item">
-                <div className="extension-item__main">
-                  <strong>{skill.name ?? skill.id}</strong>
-                  <span>{skill.path ?? skill.id}</span>
-                </div>
-                <div className="extension-item__chips">
-                  {extensionSkillChips(skill).map((chip) => (
-                    <span key={`${skill.id}:${chip}`}>{chip}</span>
-                  ))}
-                </div>
-              </li>
-            ))}
-            {mcpServers.map((server) => (
-              <li key={`mcp:${server.id}`} className="extension-item">
-                <div className="extension-item__main">
-                  <strong>{server.name ?? server.id}</strong>
-                  <span>{server.scope ?? "MCP server"}</span>
-                </div>
-              </li>
-            ))}
-            {appConnectors.map((connector) => (
-              <li key={`connector:${connector.id}`} className="extension-item">
-                <div className="extension-item__main">
-                  <strong>{connector.name}</strong>
-                  <span>{connector.kind}</span>
-                </div>
-              </li>
-            ))}
-          </ul>
-        </section>
-
-        {(error || warnings.length > 0) && (
-          <section
-            className="extension-section extension-section--alerts"
-            aria-label="Extension alerts"
-          >
-            <div className="extension-section__header">
-              <h3>Alerts</h3>
-              <span>{warnings.length + (error ? 1 : 0)}</span>
-            </div>
-            <ul className="extension-list extension-list--compact">
-              {error ? (
-                <li className="extension-alert">
-                  <XCircle aria-hidden="true" />
-                  <span>{errorMessage(error)}</span>
-                </li>
-              ) : null}
-              {warnings.map((warning) => (
-                <li key={`${warning.source}:${warning.message}`} className="extension-alert">
-                  <XCircle aria-hidden="true" />
-                  <span>
-                    {warning.source}: {warning.message}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          </section>
-        )}
-      </div>
-    </section>
-  );
-}
-
 function EmptyRun({
   projectLabel,
   rightPanelOpen,
@@ -9198,7 +6319,7 @@ function EmptyRun({
   return (
     <div className="empty-run">
       <div className="empty-run__mark">
-        <Workflow aria-hidden="true" />
+        <AppBrandIcon className="empty-run__icon" />
       </div>
       <div className="empty-run__copy">
         <h2>What should we build in {projectLabel}?</h2>
@@ -9272,7 +6393,7 @@ function RuntimeRightPanel({
   status,
   messageCount,
   onClose,
-  onDelete,
+  onArchive,
 }: {
   title: string;
   harness: string;
@@ -9281,7 +6402,7 @@ function RuntimeRightPanel({
   status: string;
   messageCount: number;
   onClose: () => void;
-  onDelete?: () => void;
+  onArchive?: () => void;
 }) {
   return (
     <aside className="runtime-right-panel" aria-label="Right panel">
@@ -9316,632 +6437,11 @@ function RuntimeRightPanel({
           <dd>{messageCount}</dd>
         </div>
       </dl>
-      {onDelete && (
-        <Button variant="destructive" size="sm" onClick={onDelete}>
-          <Trash2 data-icon="inline-start" aria-hidden="true" />
-          Delete session
+      {onArchive && (
+        <Button variant="secondary" size="sm" onClick={onArchive}>
+          <Archive data-icon="inline-start" aria-hidden="true" />
+          Archive session
         </Button>
-      )}
-    </aside>
-  );
-}
-
-function RuntimeBottomPanel({
-  active,
-  cwd,
-  onClose,
-}: {
-  active: boolean;
-  cwd: string;
-  onClose: () => void;
-}) {
-  const terminalElementRef = useRef<HTMLDivElement>(null);
-  const terminalRef = useRef<XtermTerminal | null>(null);
-  const fitAddonRef = useRef<FitAddon | null>(null);
-  const terminalIdRef = useRef<string | null>(null);
-  const startingRef = useRef(false);
-  const readyRef = useRef(false);
-  const activeRef = useRef(active);
-  const disposedRef = useRef(false);
-  const pendingInputRef = useRef("");
-  const fitAndResizeRef = useRef<() => void>(() => undefined);
-  const [status, setStatus] = useState<"idle" | "starting" | "running" | "exited" | "error">(
-    "idle",
-  );
-
-  const startTerminal = useCallback(async () => {
-    const terminal = terminalRef.current;
-    const fitAddon = fitAddonRef.current;
-    if (!terminal || !fitAddon || startingRef.current || terminalIdRef.current) return;
-
-    startingRef.current = true;
-    readyRef.current = false;
-    setStatus("starting");
-    fitAddon.fit();
-    const id = terminalRequestId();
-    terminalIdRef.current = id;
-
-    try {
-      await api.createTerminal({ id, cwd, cols: terminal.cols, rows: terminal.rows });
-      if (disposedRef.current || terminalIdRef.current !== id) {
-        await api.killTerminal(id);
-        return;
-      }
-      readyRef.current = true;
-      setStatus("running");
-      if (pendingInputRef.current) {
-        const pendingInput = pendingInputRef.current;
-        pendingInputRef.current = "";
-        await api.writeTerminal(id, pendingInput);
-      }
-      terminal.focus();
-    } catch (error) {
-      if (terminalIdRef.current === id) terminalIdRef.current = null;
-      pendingInputRef.current = "";
-      setStatus("error");
-      terminal.writeln(`\r\nUnable to start terminal: ${plainTerminalError(errorMessage(error))}`);
-    } finally {
-      startingRef.current = false;
-    }
-  }, [cwd]);
-
-  const newTerminal = useCallback(async () => {
-    const currentId = terminalIdRef.current;
-    terminalIdRef.current = null;
-    readyRef.current = false;
-    pendingInputRef.current = "";
-    if (currentId) await api.killTerminal(currentId);
-    terminalRef.current?.reset();
-    setStatus("idle");
-    await startTerminal();
-  }, [startTerminal]);
-
-  useEffect(() => {
-    disposedRef.current = false;
-    const element = terminalElementRef.current;
-    if (!element) return;
-
-    const terminal = new XtermTerminal({
-      allowTransparency: false,
-      cursorBlink: true,
-      cursorStyle: "bar",
-      fontFamily:
-        '"SFMono-Regular", "SF Mono", "Cascadia Code", Consolas, "Liberation Mono", Menlo, monospace',
-      fontSize: 12.5,
-      lineHeight: 1.25,
-      minimumContrastRatio: 4.5,
-      screenReaderMode: true,
-      scrollback: 5_000,
-      theme: internalTerminalTheme(),
-    });
-    const fitAddon = new FitAddon();
-    terminal.loadAddon(fitAddon);
-    terminal.open(element);
-    terminalRef.current = terminal;
-    fitAddonRef.current = fitAddon;
-
-    let lastDimensions = "";
-    const fitAndResize = () => {
-      if (!activeRef.current || !element.offsetWidth || !element.offsetHeight) return;
-      fitAddon.fit();
-      const dimensions = `${terminal.cols}:${terminal.rows}`;
-      if (dimensions === lastDimensions) return;
-      lastDimensions = dimensions;
-      const id = terminalIdRef.current;
-      if (id) void api.resizeTerminal(id, terminal.cols, terminal.rows);
-    };
-    fitAndResizeRef.current = fitAndResize;
-
-    const terminalInput = terminal.onData((data) => {
-      const id = terminalIdRef.current;
-      if (!id || !readyRef.current) {
-        pendingInputRef.current += data;
-        return;
-      }
-      void api.writeTerminal(id, data);
-    });
-    const removeDataListener = api.onTerminalData((event) => {
-      if (event.id === terminalIdRef.current) terminal.write(event.data);
-    });
-    const removeExitListener = api.onTerminalExit((event) => {
-      if (event.id !== terminalIdRef.current) return;
-      terminalIdRef.current = null;
-      readyRef.current = false;
-      setStatus("exited");
-      terminal.writeln(`\r\n[Process exited with code ${event.exitCode}]`);
-    });
-    const media =
-      typeof window.matchMedia === "function"
-        ? window.matchMedia("(prefers-color-scheme: light)")
-        : null;
-    const updateTheme = () => {
-      terminal.options.theme = internalTerminalTheme();
-    };
-    media?.addEventListener("change", updateTheme);
-    const resizeObserver =
-      typeof ResizeObserver === "undefined" ? null : new ResizeObserver(fitAndResize);
-    resizeObserver?.observe(element);
-
-    return () => {
-      disposedRef.current = true;
-      const id = terminalIdRef.current;
-      terminalIdRef.current = null;
-      readyRef.current = false;
-      if (id) void api.killTerminal(id);
-      resizeObserver?.disconnect();
-      media?.removeEventListener("change", updateTheme);
-      terminalInput.dispose();
-      removeDataListener();
-      removeExitListener();
-      terminal.dispose();
-      terminalRef.current = null;
-      fitAddonRef.current = null;
-      fitAndResizeRef.current = () => undefined;
-    };
-  }, []);
-
-  useEffect(() => {
-    activeRef.current = active;
-    if (!active) return;
-    const frame = window.requestAnimationFrame(() => {
-      fitAndResizeRef.current();
-      void startTerminal();
-    });
-    return () => window.cancelAnimationFrame(frame);
-  }, [active, startTerminal]);
-
-  return (
-    <section className="runtime-bottom-panel" aria-label="Bottom panel">
-      <div className="terminal-panel__tabbar">
-        <div className="terminal-panel__tabs" role="tablist" aria-label="Terminals">
-          <button type="button" className="terminal-panel__tab" role="tab" aria-selected="true">
-            <TerminalIcon aria-hidden="true" />
-            <span>{projectName(cwd)}</span>
-            <span className={cx("terminal-panel__status", `is-${status}`)} aria-hidden="true" />
-          </button>
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() => void newTerminal()}
-            disabled={status === "starting"}
-            title="New terminal"
-            aria-label="New terminal"
-          >
-            <Plus aria-hidden="true" />
-          </Button>
-        </div>
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={onClose}
-          title="Close bottom panel"
-          aria-label="Close bottom panel"
-        >
-          <X aria-hidden="true" />
-        </Button>
-      </div>
-      <div
-        ref={terminalElementRef}
-        className="terminal-panel__viewport"
-        aria-label="Internal terminal"
-      />
-      <span className="sr-only" aria-live="polite">
-        Terminal {status}
-      </span>
-    </section>
-  );
-}
-
-function terminalRequestId(): string {
-  return (
-    globalThis.crypto?.randomUUID?.() ??
-    `terminal-${Date.now()}-${Math.random().toString(36).slice(2)}`
-  );
-}
-
-function plainTerminalError(message: string): string {
-  return [...message]
-    .map((character) => {
-      const code = character.charCodeAt(0);
-      return code < 32 || (code >= 127 && code <= 159) ? " " : character;
-    })
-    .join("")
-    .trim();
-}
-
-function internalTerminalTheme() {
-  if (
-    typeof window.matchMedia === "function" &&
-    window.matchMedia("(prefers-color-scheme: light)").matches
-  ) {
-    return {
-      background: "#ffffff",
-      foreground: "#20242c",
-      cursor: "#087c9b",
-      cursorAccent: "#ffffff",
-      selectionBackground: "#cfeef5",
-      black: "#20242c",
-      brightBlack: "#737e8e",
-      red: "#c33535",
-      green: "#087c55",
-      yellow: "#9a6700",
-      blue: "#0969da",
-      magenta: "#8250df",
-      cyan: "#087c9b",
-      white: "#e7eaf0",
-      brightWhite: "#17191f",
-    };
-  }
-  return {
-    background: "#0b0d12",
-    foreground: "#e8eaf0",
-    cursor: "#95e9ff",
-    cursorAccent: "#0b0d12",
-    selectionBackground: "#294451",
-    black: "#151821",
-    brightBlack: "#77808f",
-    red: "#f87171",
-    green: "#34d399",
-    yellow: "#fbbf24",
-    blue: "#60a5fa",
-    magenta: "#c084fc",
-    cyan: "#67e8f9",
-    white: "#d5d9e2",
-    brightWhite: "#ffffff",
-  };
-}
-
-function DoctorPanel({
-  mode,
-  report,
-  loading,
-  harnessOptions,
-  harnessVersions,
-  error,
-  fixPending,
-  fixRunning,
-  fixResult,
-  onRefresh,
-  onRequestFix,
-  onCancelFix,
-  onConfirmFix,
-  installingHarnessId,
-  onInstallHarness,
-  onRefreshHarnessVersion,
-  onClose,
-}: {
-  mode: DoctorPanelMode;
-  report: DoctorReport | null;
-  loading: boolean;
-  harnessOptions: HarnessOption[];
-  harnessVersions: Record<string, DoctorHarnessVersionState>;
-  error: string | null;
-  fixPending: boolean;
-  fixRunning: boolean;
-  fixResult: DoctorFixResult | null;
-  onRefresh: () => void;
-  onRequestFix: () => void;
-  onCancelFix: () => void;
-  onConfirmFix: () => void;
-  installingHarnessId: string | null;
-  onInstallHarness: (harnessId: string) => void;
-  onRefreshHarnessVersion: (harnessId: string) => void;
-  onClose: () => void;
-}) {
-  const issues = (report?.issues ?? []).filter((issue) => issue.scope === "doctor");
-  const visibleRepairActionIds = new Set(issues.flatMap((issue) => issue.repairActionId ?? []));
-  const repairActions = (report?.repairActions ?? []).filter((action) =>
-    visibleRepairActionIds.has(action.id),
-  );
-  const reportedHarnesses = new Map(
-    (report?.environment.harnesses ?? []).map((harness) => [harness.harnessId, harness]),
-  );
-  const harnesses = harnessOptions.map(
-    (harness) =>
-      reportedHarnesses.get(harness.id) ?? {
-        harnessId: harness.id,
-        harnessLabel: harness.label,
-        version: undefined,
-      },
-  );
-  const requirements = report?.environment.requirements ?? [];
-  const containerRuntimes = report?.environment.containerRuntimes ?? [];
-  const setupLogs = fixResult?.setupResults.flatMap((result) => result.log) ?? [];
-  const title = mode === "setup" ? "Setup" : "Doctor";
-  const panelHealthy = Boolean(report && issues.length === 0);
-  const summaryTitle = loading
-    ? "Checking environment"
-    : panelHealthy
-      ? "Environment ready"
-      : report
-        ? issues.length + (issues.length === 1 ? " issue found" : " issues found")
-        : "Status unavailable";
-  const summaryCopy = panelHealthy
-    ? "Harnesses are optional; install one only when you plan to use it."
-    : mode === "setup"
-      ? "Review the missing pieces, then confirm before SwarmX changes anything."
-      : "Review diagnostics and the repair plan before applying fixes.";
-
-  return (
-    <aside
-      className="runtime-right-panel doctor-panel"
-      aria-label={mode === "setup" ? "Setup panel" : "Doctor panel"}
-    >
-      <div className="runtime-panel__header">
-        <div>
-          <span>Environment</span>
-          <h2>
-            {title}
-            {report?.harnessId ? ` · ${report.harnessId}` : ""}
-          </h2>
-        </div>
-        <div className="doctor-panel__header-actions">
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={onRefresh}
-            disabled={loading || fixRunning}
-            title="Refresh diagnostics"
-            aria-label="Refresh diagnostics"
-          >
-            <RefreshCw aria-hidden="true" />
-          </Button>
-          <Button variant="ghost" size="icon" onClick={onClose} aria-label={`Close ${title}`}>
-            <PanelRight aria-hidden="true" />
-          </Button>
-        </div>
-      </div>
-
-      <section className={cx("doctor-summary", panelHealthy && "is-healthy")} aria-live="polite">
-        <span className="doctor-summary__icon">
-          {loading ? (
-            <Loader2 aria-hidden="true" />
-          ) : panelHealthy ? (
-            <CircleCheck aria-hidden="true" />
-          ) : (
-            <Wrench aria-hidden="true" />
-          )}
-        </span>
-        <div>
-          <h3>{summaryTitle}</h3>
-          <p>{summaryCopy}</p>
-        </div>
-      </section>
-
-      {error && (
-        <div className="doctor-notice doctor-notice--error" role="alert">
-          <XCircle aria-hidden="true" />
-          <span>{error}</span>
-        </div>
-      )}
-
-      {fixResult?.executed && (
-        <output
-          className={cx(
-            "doctor-notice",
-            fixResult.after.healthy ? "doctor-notice--success" : "doctor-notice--error",
-          )}
-        >
-          {fixResult.after.healthy ? (
-            <CircleCheck aria-hidden="true" />
-          ) : (
-            <XCircle aria-hidden="true" />
-          )}
-          <span>
-            {fixResult.after.healthy
-              ? "Repairs completed. The environment is ready."
-              : "Repairs completed, but some issues still need attention."}
-          </span>
-        </output>
-      )}
-
-      {!loading && report && repairActions.length > 0 && (
-        <section className="doctor-section" aria-labelledby="doctor-repair-title">
-          <div className="doctor-section__heading">
-            <h3 id="doctor-repair-title">Repair plan</h3>
-            <span>{repairActions.length}</span>
-          </div>
-          {fixPending ? (
-            <div className="doctor-confirmation">
-              <strong>
-                Confirm {repairActions.length} {repairActions.length === 1 ? "repair" : "repairs"}
-              </strong>
-              <p>No changes are made until you confirm this plan.</p>
-              <ul className="doctor-list">
-                {repairActions.map((action) => (
-                  <li key={action.id} className="doctor-action">
-                    <span>{action.label}</span>
-                    <Badge tone={action.risk === "admin" ? "danger" : "neutral"}>
-                      {action.risk}
-                    </Badge>
-                  </li>
-                ))}
-              </ul>
-              <div className="doctor-confirmation__actions">
-                <Button variant="ghost" size="sm" onClick={onCancelFix} disabled={fixRunning}>
-                  Cancel
-                </Button>
-                <Button size="sm" onClick={onConfirmFix} disabled={fixRunning}>
-                  {fixRunning ? (
-                    <Loader2 data-icon="inline-start" aria-hidden="true" />
-                  ) : (
-                    <Wrench data-icon="inline-start" aria-hidden="true" />
-                  )}
-                  Confirm {repairActions.length}
-                </Button>
-              </div>
-            </div>
-          ) : (
-            <Button size="sm" onClick={onRequestFix}>
-              <Wrench data-icon="inline-start" aria-hidden="true" />
-              {mode === "setup" ? "Set up missing" : "Fix issues"}
-            </Button>
-          )}
-        </section>
-      )}
-
-      {!loading && report && issues.length > 0 && (
-        <section className="doctor-section" aria-labelledby="doctor-issues-title">
-          <div className="doctor-section__heading">
-            <h3 id="doctor-issues-title">Diagnostics</h3>
-            <span>{issues.length}</span>
-          </div>
-          <ul className="doctor-list">
-            {issues.map((issue) => (
-              <li key={issue.id} className="doctor-issue">
-                <XCircle aria-hidden="true" />
-                <div>
-                  <strong>{issue.targetId ?? issue.scope}</strong>
-                  <span>{issue.message}</span>
-                </div>
-                <Badge tone={issue.severity === "error" ? "danger" : "neutral"}>
-                  {issue.severity}
-                </Badge>
-              </li>
-            ))}
-          </ul>
-          {issues.length > 0 && repairActions.length === 0 && (
-            <p className="doctor-section__hint">These issues require manual review.</p>
-          )}
-        </section>
-      )}
-
-      <section className="doctor-section" aria-labelledby="doctor-harnesses-title">
-        <div className="doctor-section__heading">
-          <h3 id="doctor-harnesses-title">Harnesses</h3>
-          <span>
-            {
-              harnesses.filter((harness) => {
-                const state = harnessVersions[harness.harnessId];
-                return state?.status === "loaded" && Boolean(state.version ?? harness.version);
-              }).length
-            }
-            /{harnesses.length}
-          </span>
-        </div>
-        <ul className="doctor-list">
-          {harnesses.map((harness) => {
-            const versionState = harnessVersions[harness.harnessId];
-            const version = versionState?.version ?? harness.version;
-            const versionLoading = !versionState || versionState.status === "loading";
-            return (
-              <li key={harness.harnessId} className="doctor-harness">
-                <span className="doctor-harness__icon">
-                  <HarnessBrandIcon
-                    harness={harnessOption(harness.harnessId, harness.harnessLabel)}
-                  />
-                </span>
-                <div>
-                  <strong>{harness.harnessLabel}</strong>
-                </div>
-                {versionLoading ? (
-                  <output
-                    className="badge doctor-harness__version is-loading"
-                    aria-label={`Checking ${harness.harnessLabel} version`}
-                  >
-                    <Loader2 data-icon aria-hidden="true" />
-                  </output>
-                ) : version ? (
-                  <button
-                    type="button"
-                    className="badge badge--active doctor-harness__version"
-                    aria-label={`Check ${harness.harnessLabel} version again`}
-                    title="Check version again"
-                    onClick={() => onRefreshHarnessVersion(harness.harnessId)}
-                  >
-                    {version}
-                  </button>
-                ) : (
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    aria-label={`Install ${harness.harnessLabel}`}
-                    disabled={Boolean(installingHarnessId)}
-                    onClick={() => onInstallHarness(harness.harnessId)}
-                  >
-                    {installingHarnessId === harness.harnessId && (
-                      <Loader2 data-icon="inline-start" aria-hidden="true" />
-                    )}
-                    Install
-                  </Button>
-                )}
-              </li>
-            );
-          })}
-        </ul>
-      </section>
-
-      {report && (
-        <details className="doctor-advanced">
-          <summary>
-            <span>
-              <strong>Advanced details</strong>
-              <small>Runtime tools, PATH, and repair logs</small>
-            </span>
-            <ChevronRight aria-hidden="true" />
-          </summary>
-          <div className="doctor-advanced__body">
-            {requirements.length > 0 && (
-              <section>
-                <h4>Runtime tools</h4>
-                <ul className="doctor-list">
-                  {requirements.map((requirement) => (
-                    <li key={requirement.id} className="doctor-diagnostic">
-                      <div>
-                        <strong>{requirement.label}</strong>
-                        <span>
-                          {[
-                            requirement.command,
-                            requirement.version,
-                            requirement.path,
-                            requirement.note,
-                          ]
-                            .filter(Boolean)
-                            .join(" · ")}
-                        </span>
-                      </div>
-                      <Badge tone={requirement.status === "ready" ? "active" : "danger"}>
-                        {requirementStatusLabel(requirement.status)}
-                      </Badge>
-                    </li>
-                  ))}
-                </ul>
-              </section>
-            )}
-            {containerRuntimes.length > 0 && (
-              <section>
-                <h4>Container runtime</h4>
-                <ul className="doctor-list">
-                  {containerRuntimes.map((runtime) => (
-                    <li key={runtime.id} className="doctor-diagnostic">
-                      <div>
-                        <strong>{runtime.label}</strong>
-                        <span>
-                          {[runtime.command, runtime.version, runtime.path, runtime.note]
-                            .filter(Boolean)
-                            .join(" · ")}
-                        </span>
-                      </div>
-                      <Badge tone={runtime.status === "ready" ? "active" : "danger"}>
-                        {containerRuntimeStatusLabel(runtime.status)}
-                      </Badge>
-                    </li>
-                  ))}
-                </ul>
-              </section>
-            )}
-            <section>
-              <h4>Environment PATH</h4>
-              <pre className="doctor-code">{report.environment.path}</pre>
-            </section>
-            {setupLogs.length > 0 && (
-              <section>
-                <h4>Repair log</h4>
-                <pre className="doctor-code">{setupLogs.join("\n\n")}</pre>
-              </section>
-            )}
-          </div>
-        </details>
       )}
     </aside>
   );
@@ -10092,7 +6592,7 @@ function WorkflowWorkspace({
       <div className="workflow-editor-shell">
         <nav className="workflow-rail" aria-label="Workflow navigation">
           <button type="button" className="workflow-rail__brand" aria-label="Workflows">
-            <Workflow aria-hidden="true" />
+            <AppBrandIcon className="workflow-rail__logo" />
           </button>
           <button type="button" className="workflow-rail__create" aria-label="Add node">
             <MessageSquarePlus aria-hidden="true" />
@@ -10385,7 +6885,30 @@ function WorkflowCanvas({
   );
 }
 
-function RunEvent({ compact = false, msg }: { compact?: boolean; msg: MessageChunk }) {
+function RunEvent({
+  actionsDisabled = false,
+  compact = false,
+  msg,
+  onChangeModel,
+  onRetry,
+}: {
+  actionsDisabled?: boolean;
+  compact?: boolean;
+  msg: MessageChunk;
+  onChangeModel?: () => void;
+  onRetry?: () => void;
+}) {
+  const providerNotice = providerErrorNotice(msg);
+  if (providerNotice && !compact) {
+    return (
+      <ProviderErrorEvent
+        notice={providerNotice}
+        actionsDisabled={actionsDisabled}
+        onRetry={onRetry}
+        onChangeModel={onChangeModel}
+      />
+    );
+  }
   const renderEvent = normalizeMessageChunk(msg, normalizeOptionsFromMessage(msg));
   const {
     icon: Icon,
@@ -10438,11 +6961,63 @@ function RunEvent({ compact = false, msg }: { compact?: boolean; msg: MessageChu
   );
 }
 
+function ProviderErrorEvent({
+  actionsDisabled,
+  notice,
+  onChangeModel,
+  onRetry,
+}: {
+  actionsDisabled: boolean;
+  notice: ProviderErrorNotice;
+  onChangeModel?: () => void;
+  onRetry?: () => void;
+}) {
+  return (
+    <article
+      className="provider-error-notice"
+      aria-label={notice.title}
+      data-provider-error-code={notice.code}
+      role="alert"
+    >
+      <div className="provider-error-notice__icon" aria-hidden="true">
+        <RefreshCw />
+      </div>
+      <div className="provider-error-notice__body">
+        <span className="provider-error-notice__eyebrow">Provider issue</span>
+        <h3>{notice.title}</h3>
+        <p>{notice.message}</p>
+        {(onChangeModel || (notice.retryable && onRetry)) && (
+          <div className="provider-error-notice__actions">
+            {notice.retryable && onRetry && (
+              <button type="button" disabled={actionsDisabled} onClick={onRetry}>
+                <RefreshCw aria-hidden="true" />
+                Try again
+              </button>
+            )}
+            {onChangeModel && (
+              <button type="button" disabled={actionsDisabled} onClick={onChangeModel}>
+                <Sparkles aria-hidden="true" />
+                Change model
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+    </article>
+  );
+}
+
 function ConversationHistory({
+  actionsDisabled,
   messages,
+  onChangeModel,
+  onRetry,
   running,
 }: {
+  actionsDisabled: boolean;
   messages: MessageChunk[];
+  onChangeModel?: () => void;
+  onRetry: (userText: string) => void;
   running: boolean;
 }) {
   const turns = useMemo(() => groupConversationTurns(messages), [messages]);
@@ -10457,24 +7032,47 @@ function ConversationHistory({
             finalMessage: null,
           }
         : turn;
-    return <ConversationTurnView active={active} key={turn.id} turn={visibleTurn} />;
+    return (
+      <ConversationTurnView
+        active={active}
+        actionsDisabled={actionsDisabled}
+        key={turn.id}
+        onChangeModel={onChangeModel}
+        onRetry={onRetry}
+        turn={visibleTurn}
+      />
+    );
   });
 }
 
 function ConversationTurnView({
   active,
+  actionsDisabled,
+  onChangeModel,
+  onRetry,
   turn,
 }: {
   active: boolean;
+  actionsDisabled: boolean;
+  onChangeModel?: () => void;
+  onRetry: (userText: string) => void;
   turn: ConversationTurn;
 }) {
   const hasWork = active || turn.workMessages.length > 0;
+  const retryText = turn.userMessage?.content;
 
   return (
     <section className="conversation-turn" data-turn-status={active ? "running" : "completed"}>
       {turn.userMessage && <RunEvent msg={turn.userMessage} />}
       {hasWork && <WorkDisclosure active={active} messages={turn.workMessages} turnId={turn.id} />}
-      {turn.finalMessage && <RunEvent msg={turn.finalMessage} />}
+      {turn.finalMessage && (
+        <RunEvent
+          actionsDisabled={actionsDisabled}
+          msg={turn.finalMessage}
+          onChangeModel={onChangeModel}
+          onRetry={retryText ? () => onRetry(retryText) : undefined}
+        />
+      )}
     </section>
   );
 }
@@ -10495,8 +7093,16 @@ function WorkDisclosure({
   const detailsId = `${turnId}-work-details`;
   const duration = workDurationMs(messages);
   const activities = groupWorkActivities(messages);
+  const runningLabels = activities
+    .filter(
+      (activity): activity is Extract<WorkActivity, { kind: "tool" }> => activity.kind === "tool",
+    )
+    .map((activity) => mergedToolActivityEvent(activity.activity))
+    .filter((event) => event.status === "queued" || event.status === "running")
+    .map((event) => describeToolActivity(event));
+  const runningLabel = useRotatingLabel(runningLabels, active);
   const label = active
-    ? "Working"
+    ? (runningLabel ?? "Thinking")
     : duration
       ? `Worked for ${formatWorkDuration(duration)}`
       : "Worked";
@@ -10519,7 +7125,9 @@ function WorkDisclosure({
         onClick={() => setExpanded((value) => !value)}
         ref={toggleRef}
       >
-        <span>{label}</span>
+        <span className="work-disclosure__label" key={label}>
+          {label}
+        </span>
         <ChevronRight aria-hidden="true" />
       </button>
       {expanded && (
@@ -10553,6 +7161,19 @@ function WorkDisclosure({
   );
 }
 
+function useRotatingLabel(labels: readonly string[], active: boolean): string | undefined {
+  const [rotation, setRotation] = useState(0);
+
+  useEffect(() => {
+    if (!active || labels.length <= 1) return undefined;
+    const timer = window.setInterval(() => setRotation((value) => value + 1), 2600);
+    return () => window.clearInterval(timer);
+  }, [active, labels.length]);
+
+  if (labels.length === 0) return undefined;
+  return labels[labels.length - 1 - (rotation % labels.length)];
+}
+
 function groupWorkActivities(messages: readonly MessageChunk[]): WorkActivity[] {
   const activities: WorkActivity[] = [];
   const tools: ToolActivity[] = [];
@@ -10560,6 +7181,28 @@ function groupWorkActivities(messages: readonly MessageChunk[]): WorkActivity[] 
   messages.forEach((message, sourceIndex) => {
     if (message.kind === "tool_call") {
       const activity = { call: message, sourceIndex };
+      activities.push({ kind: "tool", activity });
+      tools.push(activity);
+      return;
+    }
+    if (message.kind === "tool_progress") {
+      const invocationId = message.render?.invocationId;
+      const exactMatch = invocationId
+        ? tools.find(
+            (activity) =>
+              activity.call?.render?.invocationId === invocationId ||
+              activity.progress?.render?.invocationId === invocationId,
+          )
+        : undefined;
+      const fallbackMatch = tools.find(
+        (activity) => activity.call?.toolName === message.toolName && !activity.result,
+      );
+      const match = exactMatch ?? fallbackMatch;
+      if (match) {
+        match.progress = mergeToolProgress(match.progress, message);
+        return;
+      }
+      const activity = { progress: message, sourceIndex };
       activities.push({ kind: "tool", activity });
       tools.push(activity);
       return;
@@ -10598,7 +7241,7 @@ function isTerminalToolResult(message: MessageChunk): boolean {
 }
 
 function toolActivityKey(activity: ToolActivity): string {
-  const message = activity.call ?? activity.result;
+  const message = activity.call ?? activity.progress ?? activity.result;
   const invocationId = message?.render?.invocationId;
   return invocationId
     ? `tool:${invocationId}`
@@ -10609,13 +7252,25 @@ function ToolActivityEvent({ activity }: { activity: ToolActivity }) {
   const [expanded, setExpanded] = useState(false);
   const event = mergedToolActivityEvent(activity);
   const summary = describeToolActivity(event);
-  const specialized = specializedTracePresentation(event);
+  const transcript = toolActivityTranscript(event);
   const failure = toolFailureSummary(event);
-  const hasDetails = !!specialized || event.artifacts.length > 0 || !!failure;
+  const hasDetails = !!transcript || event.artifacts.length > 0 || !!failure;
   const detailsId = `${event.eventId}-activity-details`;
   const failed = event.status === "failed" || event.status === "canceled";
   const running = event.status === "queued" || event.status === "running";
+  const hasProgress = Boolean(activity.progress?.content);
+  const autoOpened = useRef(false);
+  const wasRunning = useRef(running);
   const StatusIcon = running ? Loader2 : failed ? XCircle : Check;
+
+  useEffect(() => {
+    if (running && hasProgress && !autoOpened.current) {
+      autoOpened.current = true;
+      setExpanded(true);
+    }
+    if (wasRunning.current && !running && autoOpened.current) setExpanded(false);
+    wasRunning.current = running;
+  }, [hasProgress, running]);
 
   return (
     <article
@@ -10646,15 +7301,103 @@ function ToolActivityEvent({ activity }: { activity: ToolActivity }) {
       </button>
       {expanded && hasDetails && (
         <div className="tool-activity__details" id={detailsId}>
-          {specialized && <SpecializedTracePresentation presentation={specialized} />}
-          {failure && !specialized?.blocks.some((block) => block.content.includes(failure)) && (
-            <p className="tool-activity__error">{failure}</p>
-          )}
+          {transcript && <ToolActivityTranscript live={running} transcript={transcript} />}
+          {failure &&
+            !(transcript?.stderr ?? transcript?.output ?? "").includes(failure) &&
+            transcript?.command !== failure && <p className="tool-activity__error">{failure}</p>}
           <TraceArtifacts artifacts={event.artifacts} />
         </div>
       )}
     </article>
   );
+}
+
+interface ToolTranscript {
+  command?: string;
+  output?: string;
+  stderr?: string;
+  truncated?: boolean;
+}
+
+function ToolActivityTranscript({
+  live,
+  transcript,
+}: {
+  live: boolean;
+  transcript: ToolTranscript;
+}) {
+  const outputRef = useRef<HTMLPreElement>(null);
+  const followOutput = useRef(true);
+
+  useLayoutEffect(() => {
+    if (!live || !followOutput.current || !outputRef.current) return;
+    outputRef.current.scrollTop = outputRef.current.scrollHeight;
+  });
+
+  return (
+    <div className={cx("tool-activity__terminal", live && "is-live")}>
+      {transcript.truncated && <em className="tool-activity__truncated">truncated</em>}
+      <pre
+        onScroll={(event) => {
+          const output = event.currentTarget;
+          followOutput.current = output.scrollHeight - output.scrollTop - output.clientHeight <= 8;
+        }}
+        ref={outputRef}
+      >
+        {transcript.command && <span className="tool-activity__prompt">$ </span>}
+        {transcript.command}
+        {transcript.command && (transcript.output || transcript.stderr) ? "\n" : null}
+        {transcript.output}
+        {transcript.output && transcript.stderr ? "\n" : null}
+        {transcript.stderr && <span className="tool-activity__stderr">{transcript.stderr}</span>}
+        {live && <span className="tool-activity__cursor" aria-hidden="true" />}
+      </pre>
+    </div>
+  );
+}
+
+function toolActivityTranscript(event: NormalizedRenderEvent): ToolTranscript | null {
+  const payload = tracePayloadRecord(event);
+  if (!payload) return null;
+  const stream = stringValue(payload, ["stream"]);
+  const streamedOutput = stringValue(payload, ["output", "outputText", "formatted_output"]);
+  const command = stringValue(payload, ["command", "cmd"]);
+  const stdout =
+    stringValue(payload, ["stdout", "stdoutText"]) ??
+    (stream === "stderr" ? undefined : streamedOutput);
+  const stderr =
+    stringValue(payload, ["stderr", "stderrText", "error"]) ??
+    (stream === "stderr" ? streamedOutput : undefined);
+  const output =
+    stdout ??
+    stringValue(payload, ["content", "result", "preview", "diff", "patch", "text", "summary"]);
+  const subject = stringValue(payload, [
+    "path",
+    "filePath",
+    "file_path",
+    "notebook_path",
+    "targetPath",
+    "target_path",
+    "query",
+    "pattern",
+    "search",
+    "search_query",
+    "url",
+    "target",
+    "tool",
+  ]);
+  const commandLine =
+    command ??
+    (output || stderr
+      ? [event.toolName, subject].filter(Boolean).join(" ") || undefined
+      : undefined);
+  if (!commandLine && !output && !stderr) return null;
+  return {
+    command: commandLine,
+    output,
+    stderr,
+    truncated: booleanValue(payload, ["stdoutTruncated", "truncated", "outputTruncated"]) ?? false,
+  };
 }
 
 function mergedToolActivityEvent(activity: ToolActivity): NormalizedRenderEvent {
@@ -10664,23 +7407,35 @@ function mergedToolActivityEvent(activity: ToolActivity): NormalizedRenderEvent 
   const result = activity.result
     ? normalizeMessageChunk(activity.result, normalizeOptionsFromMessage(activity.result))
     : undefined;
-  const base = call ?? result;
-  if (!base) throw new Error("Tool activity requires a call or result.");
+  const progress = activity.progress
+    ? normalizeMessageChunk(activity.progress, normalizeOptionsFromMessage(activity.progress))
+    : undefined;
+  const base = call ?? progress ?? result;
+  if (!base) throw new Error("Tool activity requires a call, progress, or result.");
+  const resultIsTerminal = result && !["queued", "running"].includes(result.status);
 
   return {
     ...base,
     eventId: call?.eventId ?? result?.eventId ?? base.eventId,
-    invocationId: call?.invocationId ?? result?.invocationId,
-    kind: result ? "tool_result" : "tool_call",
-    status: result?.status ?? call?.status ?? base.status,
-    title: call?.title ?? result?.title ?? base.title,
-    summary: result?.summary ?? call?.summary ?? base.summary,
-    toolName: call?.toolName ?? result?.toolName,
+    invocationId: call?.invocationId ?? progress?.invocationId ?? result?.invocationId,
+    kind: result ? "tool_result" : progress ? "tool_progress" : "tool_call",
+    status: result?.status ?? progress?.status ?? call?.status ?? base.status,
+    title: call?.title ?? progress?.title ?? result?.title ?? base.title,
+    summary: result?.summary ?? call?.summary ?? progress?.summary ?? base.summary,
+    toolName: call?.toolName ?? progress?.toolName ?? result?.toolName,
     input: call?.input,
-    output: result?.output,
-    artifacts: uniqueArtifacts([...(call?.artifacts ?? []), ...(result?.artifacts ?? [])]),
-    provenance: { ...(call?.provenance ?? {}), ...(result?.provenance ?? {}) },
-    startedAt: call?.startedAt ?? result?.startedAt,
+    output: resultIsTerminal ? result.output : (progress?.output ?? result?.output),
+    artifacts: uniqueArtifacts([
+      ...(call?.artifacts ?? []),
+      ...(progress?.artifacts ?? []),
+      ...(result?.artifacts ?? []),
+    ]),
+    provenance: {
+      ...(call?.provenance ?? {}),
+      ...(progress?.provenance ?? {}),
+      ...(result?.provenance ?? {}),
+    },
+    startedAt: call?.startedAt ?? progress?.startedAt ?? result?.startedAt,
     endedAt: result?.endedAt ?? call?.endedAt,
     durationMs: result?.durationMs ?? call?.durationMs,
     rawPayloadRef: undefined,
@@ -10803,7 +7558,9 @@ function toolFailureSummary(event: NormalizedRenderEvent): string | undefined {
   if (event.status !== "failed" && event.status !== "canceled") return undefined;
   const payload = tracePayloadRecord(event);
   return compactToolValue(
-    payload ? stringValue(payload, ["error", "message", "stderr", "failure"]) : undefined,
+    payload
+      ? stringValue(payload, ["error", "message", "stderr", "failure", "failures"])
+      : undefined,
   );
 }
 
@@ -10926,6 +7683,13 @@ function mergeStreamingMessage(
   incoming: MessageChunk,
 ): MessageChunk[] {
   const previous = messages.at(-1);
+  if (
+    incoming.kind === "tool_progress" &&
+    previous?.kind === "tool_progress" &&
+    previous.render?.invocationId === incoming.render?.invocationId
+  ) {
+    return [...messages.slice(0, -1), mergeToolProgress(previous, incoming)];
+  }
   const mergeable = incoming.kind === "thinking" || incoming.kind === "message";
   if (
     mergeable &&
@@ -10940,6 +7704,43 @@ function mergeStreamingMessage(
     ];
   }
   return [...messages, incoming];
+}
+
+function mergeToolProgress(
+  previous: MessageChunk | undefined,
+  incoming: MessageChunk,
+): MessageChunk {
+  if (!previous || toolProgressMode(incoming) === "replace") return incoming;
+  const content = `${previous.content}${incoming.content}`;
+  const previousStream = toolProgressStream(previous);
+  const incomingStream = toolProgressStream(incoming);
+  return {
+    ...previous,
+    ...incoming,
+    content,
+    structuredContent: {
+      ...(isRecord(previous.structuredContent) ? previous.structuredContent : {}),
+      ...(isRecord(incoming.structuredContent) ? incoming.structuredContent : {}),
+      output: content,
+      stream:
+        previousStream && incomingStream && previousStream === incomingStream
+          ? previousStream
+          : "combined",
+      mode: "append",
+    },
+  };
+}
+
+function toolProgressMode(message: MessageChunk): string | undefined {
+  return isRecord(message.structuredContent) && typeof message.structuredContent.mode === "string"
+    ? message.structuredContent.mode
+    : undefined;
+}
+
+function toolProgressStream(message: MessageChunk): string | undefined {
+  return isRecord(message.structuredContent) && typeof message.structuredContent.stream === "string"
+    ? message.structuredContent.stream
+    : undefined;
 }
 
 function normalizeThoughtMarkdown(content: string): string {
@@ -11003,6 +7804,7 @@ interface SpecializedTracePresentationModel {
   blocks: TracePresentationBlock[];
   fields: Array<[string, string]>;
   kind: string;
+  live?: boolean;
   title: string;
 }
 
@@ -11010,6 +7812,7 @@ interface SpecializedTracePresentationDraft {
   blocks: Array<TracePresentationBlock | null>;
   fields: Array<[string, string] | null>;
   kind: string;
+  live?: boolean;
   title: string;
 }
 
@@ -11032,14 +7835,43 @@ function SpecializedTracePresentation({
         </div>
       )}
       {presentation.blocks.map((block) => (
-        <div className="trace-card__excerpt" key={block.title}>
-          <div className="trace-card__excerpt-title">
-            <span>{block.title}</span>
-            {block.truncated && <em>truncated</em>}
-          </div>
-          <pre>{block.content}</pre>
-        </div>
+        <TracePresentationBlockView block={block} key={block.title} live={presentation.live} />
       ))}
+    </div>
+  );
+}
+
+function TracePresentationBlockView({
+  block,
+  live = false,
+}: {
+  block: TracePresentationBlock;
+  live?: boolean;
+}) {
+  const outputRef = useRef<HTMLPreElement>(null);
+  const followOutput = useRef(true);
+
+  useLayoutEffect(() => {
+    if (!live || !followOutput.current || !outputRef.current) return;
+    outputRef.current.scrollTop = outputRef.current.scrollHeight;
+  });
+
+  return (
+    <div className={cx("trace-card__excerpt", live && "is-live")}>
+      <div className="trace-card__excerpt-title">
+        <span>{block.title}</span>
+        {block.truncated && <em>truncated</em>}
+        {live && <em>live</em>}
+      </div>
+      <pre
+        onScroll={(event) => {
+          const output = event.currentTarget;
+          followOutput.current = output.scrollHeight - output.scrollTop - output.clientHeight <= 8;
+        }}
+        ref={outputRef}
+      >
+        {block.content}
+      </pre>
     </div>
   );
 }
@@ -11128,18 +7960,26 @@ function terminalTracePresentation(
   const tool = `${event.toolName ?? ""} ${event.title}`.toLowerCase();
   if (
     !payload ||
-    (!tool.match(/\b(terminal|shell|bash|zsh|command)\b/) &&
+    (!tool.match(/\b(terminal|shell|bash|zsh|command)\b|exec[_-]?command|write[_-]?stdin/) &&
       !hasAnyKey(payload, ["command", "cmd", "stdout", "stderr", "exitCode", "exit_code"]))
   ) {
     return null;
   }
 
+  const output = stringValue(payload, ["output", "outputText", "formatted_output"]);
+  const stream = stringValue(payload, ["stream"]);
+  const stdout =
+    stringValue(payload, ["stdout", "stdoutText"]) ?? (stream === "stderr" ? undefined : output);
+  const stderr =
+    stringValue(payload, ["stderr", "stderrText", "error"]) ??
+    (stream === "stderr" ? output : undefined);
+
   return compactPresentation({
     blocks: [
-      traceBlock("Stdout", stringValue(payload, ["stdout", "stdoutText", "outputText"]), {
+      traceBlock(stream === "combined" ? "Output" : "Stdout", stdout, {
         truncated: booleanValue(payload, ["stdoutTruncated", "truncated"]),
       }),
-      traceBlock("Stderr", stringValue(payload, ["stderr", "stderrText", "error"]), {
+      traceBlock("Stderr", stderr, {
         truncated: booleanValue(payload, ["stderrTruncated"]),
       }),
     ],
@@ -11151,6 +7991,7 @@ function terminalTracePresentation(
       traceField("duration", durationText(payload, event)),
     ],
     kind: "terminal",
+    live: event.status === "queued" || event.status === "running",
     title: "Terminal",
   });
 }
@@ -11399,27 +8240,23 @@ function hasAutomationArtifact(event: NormalizedRenderEvent): boolean {
   );
 }
 
-function Button({
-  children,
-  className,
-  variant = "default",
-  size = "md",
-  type = "button",
-  ...props
-}: ButtonProps) {
-  return (
-    <button
-      type={type}
-      className={cx("button", `button--${variant}`, `button--${size}`, className)}
-      {...props}
-    >
-      {children}
-    </button>
-  );
-}
-
-function Badge({ children, tone = "neutral" }: { children: React.ReactNode; tone?: string }) {
-  return <span className={cx("badge", `badge--${tone}`)}>{children}</span>;
+function providerErrorNotice(msg: MessageChunk): ProviderErrorNotice | null {
+  if (msg.role !== "system" || !isRecord(msg.structuredContent)) return null;
+  const value = msg.structuredContent;
+  if (
+    value.type !== "provider_error" ||
+    !["overloaded", "rate_limited", "temporarily_unavailable"].includes(String(value.code)) ||
+    typeof value.title !== "string" ||
+    value.title.length === 0 ||
+    value.title.length > 80 ||
+    typeof value.message !== "string" ||
+    value.message.length === 0 ||
+    value.message.length > 280 ||
+    typeof value.retryable !== "boolean"
+  ) {
+    return null;
+  }
+  return value as unknown as ProviderErrorNotice;
 }
 
 function normalizeOptionsFromMessage(msg: MessageChunk): NormalizeMessageChunkOptions {
@@ -11713,232 +8550,6 @@ function formatStringList(items: string[] | undefined): string {
   return items?.filter(Boolean).join(", ") ?? "";
 }
 
-function capabilityCount(
-  bundle: ExtensionBundleSummary,
-  key: keyof NonNullable<ExtensionBundleSummary["capabilities"]>,
-): number {
-  return bundle.capabilities?.[key]?.length ?? 0;
-}
-
-function formatComponentCounts(counts: Record<string, number> | undefined): string[] {
-  if (!counts) return [];
-  return Object.entries(counts)
-    .filter(([, count]) => Number.isFinite(count) && count > 0)
-    .sort(([left], [right]) => left.localeCompare(right))
-    .map(([key, count]) => `${count} ${key}`);
-}
-
-function formatSoftwareSummary(software: ExtensionHarnessSummary["software"]): string {
-  if (!software?.name) return "software";
-  return software.version ? `${software.name}@${software.version}` : software.name;
-}
-
-function extensionComponentRows(
-  inventory: ExtensionCapabilityInventory | undefined,
-): Array<{ id: string; kind: string; title: string; detail?: string; chips: string[] }> {
-  if (!inventory) return [];
-  return [
-    ...(inventory.commands ?? []).map((item) => ({
-      id: item.id,
-      kind: "command",
-      title: item.name ?? item.id,
-      detail: item.scope,
-      chips: item.command ? [item.command.join(" ")] : [],
-    })),
-    ...(inventory.lspServers ?? []).map((item) => ({
-      id: item.id,
-      kind: "LSP",
-      title: item.name ?? item.id,
-      detail: item.scope,
-      chips: [
-        ...(item.languages ?? []),
-        ...(item.languageIds ?? []),
-        ...formatExtensionCommand(item.command, item.args),
-      ],
-    })),
-    ...(inventory.hooks ?? []).map((item) => ({
-      id: item.id,
-      kind: "hook",
-      title: item.name ?? item.id,
-      detail: item.event,
-      chips: [],
-    })),
-    ...(inventory.monitors ?? []).map((item) => ({
-      id: item.id,
-      kind: "monitor",
-      title: item.name ?? item.id,
-      detail: item.trigger,
-      chips: item.schedule ? [item.schedule] : [],
-    })),
-    ...(inventory.outputStyles ?? []).map((item) => ({
-      id: item.id,
-      kind: "output style",
-      title: item.name ?? item.id,
-      detail: item.path,
-      chips: [],
-    })),
-    ...(inventory.settings ?? []).map((item) => ({
-      id: item.id,
-      kind: "setting",
-      title: item.name ?? item.id,
-      detail: item.valueType,
-      chips: item.required ? ["required"] : [],
-    })),
-    ...(inventory.assets ?? []).map((item) => ({
-      id: item.id,
-      kind: "asset",
-      title: item.name ?? item.id,
-      detail: item.kind,
-      chips: [item.path, item.url].filter((value): value is string => Boolean(value)),
-    })),
-    ...(inventory.permissions ?? []).map((item) => ({
-      id: item.id,
-      kind: "permission",
-      title: item.kind,
-      detail: item.access,
-      chips: [item.target, item.required ? "required" : undefined].filter(
-        (value): value is string => Boolean(value),
-      ),
-    })),
-    ...(inventory.authPolicies ?? []).map((item) => ({
-      id: item.id,
-      kind: "auth policy",
-      title: item.kind ?? item.id,
-      detail: item.required ? "required" : "optional",
-      chips: item.secretRefs?.length ? [`${item.secretRefs.length} secret refs`] : [],
-    })),
-  ];
-}
-
-function formatExtensionCommand(
-  command: string[] | string | undefined,
-  args: string[] | undefined,
-): string[] {
-  if (Array.isArray(command)) return [command.join(" ")];
-  if (command) return [[command, ...(args ?? [])].join(" ")];
-  return [];
-}
-
-function extensionUiContributionChips(contribution: ExtensionUiContributionSummary): string[] {
-  const chips: Array<string | undefined> = [
-    contribution.sourcePluginId ? `via ${contribution.sourcePluginId}` : undefined,
-    contribution.commandId ? `command ${contribution.commandId}` : undefined,
-    contribution.assetRef ? `asset ${contribution.assetRef}` : undefined,
-    contribution.target ? `target ${contribution.target}` : undefined,
-    contribution.provenance,
-  ];
-  chips.push(...(contribution.settingIds ?? []).map((id) => `setting ${id}`));
-  chips.push(...(contribution.permissionIds ?? []).map((id) => `permission ${id}`));
-  chips.push(...(contribution.authPolicyIds ?? []).map((id) => `auth ${id}`));
-  return uniqueStrings(chips.filter((chip): chip is string => Boolean(chip)));
-}
-
-function extensionSkillChips(skill: ExtensionSkillSummary): string[] {
-  const chips: Array<string | undefined> = [
-    skill.canonicalPath ? `canonical ${skill.canonicalPath}` : undefined,
-    skill.governanceRef ? `governance ${skill.governanceRef}` : undefined,
-    skill.readOnly ? "read-only" : undefined,
-  ];
-  chips.push(...(skill.requiresGateSkillIds ?? []).map((id) => `gate ${id}`));
-  chips.push(
-    ...(skill.hostExposures ?? []).map((exposure) =>
-      [exposure.host, exposure.status ?? "plugin"].filter(Boolean).join(" "),
-    ),
-  );
-  chips.push(
-    ...(skill.hostExposures ?? []).flatMap((exposure) =>
-      [
-        exposure.manifestPath ? `manifest ${exposure.manifestPath}` : undefined,
-        exposure.rulesPath ? `rules ${exposure.rulesPath}` : undefined,
-        exposure.marketplaceSourceId ? `source ${exposure.marketplaceSourceId}` : undefined,
-      ].filter((value): value is string => Boolean(value)),
-    ),
-  );
-  return uniqueStrings(chips.filter((chip): chip is string => Boolean(chip)));
-}
-
-function agentPlanTone(plan: ExtensionAgentPlanSummary): string {
-  if (plan.status === "ready") return "active";
-  if (plan.status === "draft" || plan.status === "stale") return "neutral";
-  return "danger";
-}
-
-function planBlockedTitle(plan: ExtensionAgentPlanSummary | undefined): string {
-  if (!plan) return "Agent profile is not ready.";
-  const blocked = blockedPlanRequirements(plan);
-  return blocked.length > 0
-    ? blocked.map((requirement) => requirement.message).join("; ")
-    : plan.status;
-}
-
-function agentPlanChips(
-  plan: ExtensionAgentPlanSummary | undefined,
-  agent: ExtensionAgentSummary,
-): string[] {
-  const chips: Array<string | undefined> = [];
-  if (plan) {
-    chips.push(`${plan.pluginIds?.length ?? 0} plugins`);
-    chips.push(...(plan.skills ?? []).map((skill) => skill.id));
-    chips.push(...(plan.mcpServers ?? []).map((server) => server.id));
-    chips.push(...capabilitySourceChips(plan));
-    if (plan.context) chips.push(`context ${plan.context.mode}/${plan.context.strategy}`);
-    if (plan.permissions?.summary) chips.push(`permissions ${plan.permissions.summary}`);
-    chips.push(...(plan.requirements ?? []).filter(showPlanRequirement).map(planRequirementLabel));
-  } else {
-    chips.push(...(agent.skills ?? []));
-    chips.push(...(agent.mcpServers ?? []));
-  }
-  chips.push(...(agent.tools ?? []).map((tool) => `tool ${tool}`));
-  chips.push(...(agent.disallowedTools ?? []).map((tool) => `blocked ${tool}`));
-  if (agent.maxTurns) chips.push(`${agent.maxTurns} turns`);
-  if (agent.effort) chips.push(`effort ${agent.effort}`);
-  if (agent.definition?.host) chips.push(nativeAgentHostLabel(agent.definition.host));
-  if (!agent.modelId && agent.nativeModel) chips.push(`native model ${agent.nativeModel}`);
-  if (agent.sandboxMode) chips.push(`sandbox ${agent.sandboxMode}`);
-  if (agent.isolation) chips.push(`isolation ${agent.isolation}`);
-  return uniqueStrings(chips.filter((chip): chip is string => Boolean(chip)));
-}
-
-function capabilitySourceChips(plan: ExtensionAgentPlanSummary): string[] {
-  const sourceIds = [
-    ...(plan.skills ?? []).flatMap((skill) => (skill.sourcePluginId ? [skill.sourcePluginId] : [])),
-    ...(plan.mcpServers ?? []).flatMap((server) =>
-      server.sourcePluginId ? [server.sourcePluginId] : [],
-    ),
-  ];
-  return uniqueStrings(sourceIds).map((sourceId) => `via ${sourceId}`);
-}
-
-function blockedPlanRequirements(
-  plan: ExtensionAgentPlanSummary,
-): ExtensionAgentPlanRequirementSummary[] {
-  return (plan.requirements ?? []).filter(
-    (requirement) => requirement.status !== "ok" && requirement.status !== "unknown",
-  );
-}
-
-function showPlanRequirement(requirement: ExtensionAgentPlanRequirementSummary): boolean {
-  return requirement.status !== "ok";
-}
-
-function planRequirementLabel(requirement: ExtensionAgentPlanRequirementSummary): string {
-  if (requirement.kind === "secret") return "secret required";
-  const id = requirement.id ? ` ${requirement.id}` : "";
-  return `${requirement.status} ${requirement.kind}${id}`;
-}
-
-function uniqueStrings(values: string[]): string[] {
-  return [...new Set(values)];
-}
-
-function extensionAgentComposition(agent: ExtensionAgentSummary): AgentCompositionPayload {
-  return {
-    id: `desktop-${agent.id}`,
-    agentProfileId: agent.id,
-    host: "local",
-  };
-}
-
 function readStringArray(value: unknown): string[] | undefined {
   if (!Array.isArray(value)) return undefined;
   const items = value.filter((item): item is string => typeof item === "string" && item !== "");
@@ -12016,10 +8627,6 @@ function buildSessionErrors(
     });
   }
   return errors;
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
 
 function loadDiscoveredSessionDetail(session: DiscoveredSession): Promise<SessionData | null> {
@@ -12277,39 +8884,6 @@ function harnessEnvironmentLabel(
   }
 }
 
-function requirementStatusLabel(status: HarnessRequirementStatus): string {
-  switch (status) {
-    case "ready":
-      return "ready";
-    case "missing":
-      return "missing";
-    case "unsupported":
-      return "unsupported";
-    case "failed":
-      return "failed";
-  }
-}
-
-function containerRuntimeStatusLabel(status: ContainerRuntimeStatus): string {
-  switch (status) {
-    case "ready":
-      return "ready";
-    case "missing":
-      return "missing";
-    case "service_stopped":
-      return "service stopped";
-    case "unsupported":
-      return "unsupported";
-    case "failed":
-      return "failed";
-  }
-}
-
-function projectName(cwd: string): string {
-  const parts = cwd.split(/[\\/]/).filter(Boolean);
-  return parts[parts.length - 1] ?? cwd;
-}
-
 function formatSessionDate(value?: string): string {
   if (!value) return "Unknown";
   const date = new Date(value);
@@ -12322,8 +8896,4 @@ function prefersReducedMotion(): boolean {
     typeof window.matchMedia === "function" &&
     window.matchMedia("(prefers-reduced-motion: reduce)").matches
   );
-}
-
-function cx(...classes: Array<string | false | null | undefined>): string {
-  return classes.filter(Boolean).join(" ");
 }

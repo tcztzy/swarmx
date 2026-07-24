@@ -1,13 +1,13 @@
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it, vi } from "vitest";
 import {
   HarnessEnvironmentService,
   configureDesktopHarnessEnvironment,
   containerHostBridgeEnv,
   containerHostBridgeUrl,
-} from "./harness-environment.js";
+} from "@swarmx/runtime";
+import { describe, expect, it, vi } from "vitest";
 
 describe("HarnessEnvironmentService", () => {
   it("configures desktop PATH with common user install locations", () => {

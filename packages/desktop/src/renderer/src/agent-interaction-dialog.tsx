@@ -1,5 +1,6 @@
+import { ChevronDown, SquareTerminal } from "lucide-react";
 import type React from "react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 export interface AgentQuestionOption {
   label: string;
@@ -104,87 +105,128 @@ function ToolApprovalDialog({
   resolving,
   error,
   onResolve,
-  onStop,
 }: AgentInteractionDialogProps & {
   interaction: Extract<AgentInteractionEvent, { kind: "tool_approval" }>;
 }) {
+  const rootRef = useRef<HTMLDialogElement>(null);
+  const [expanded, setExpanded] = useState(false);
+  const [allowMenuOpen, setAllowMenuOpen] = useState(false);
   const rejectOptions = interaction.options.filter((option) => option.kind.startsWith("reject"));
   const allowOptions = interaction.options.filter((option) => option.kind.startsWith("allow"));
-  const offersAllowOnce = allowOptions.some((option) => option.kind === "allow_once");
+  const primaryAllow =
+    allowOptions.find((option) => option.kind === "allow_once") ?? allowOptions[0] ?? null;
+  const approvalTitle =
+    interaction.toolKind === "execute" && interaction.source === "direct"
+      ? "Allow SwarmX to run this command?"
+      : interaction.title;
+  const hasLongSummary =
+    interaction.summary.length > 180 || interaction.summary.split("\n").length > 3;
+
+  useEffect(() => {
+    if (!allowMenuOpen) return;
+    const closeOnPointer = (event: PointerEvent) => {
+      if (!rootRef.current?.contains(event.target as Node)) setAllowMenuOpen(false);
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setAllowMenuOpen(false);
+    };
+    window.addEventListener("pointerdown", closeOnPointer);
+    window.addEventListener("keydown", closeOnEscape);
+    return () => {
+      window.removeEventListener("pointerdown", closeOnPointer);
+      window.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [allowMenuOpen]);
+
   return (
-    <div className="agent-interaction-backdrop">
-      <dialog
-        open
-        className="agent-interaction-dialog agent-interaction-dialog--tool"
-        aria-modal="true"
-        aria-labelledby="agent-tool-approval-title"
-      >
-        <header>
-          <span>
-            Permission request · {interaction.source === "acp" ? "ACP Harness" : "SwarmX tool"}
-          </span>
-          <h2 id="agent-tool-approval-title">{interaction.title}</h2>
-          <p>The task is paused. Review the bounded action before choosing a permission.</p>
-        </header>
-        <div className="agent-interaction-dialog__assurances">
-          <span>
-            <strong>{offersAllowOnce ? "One call" : "Offered scope"}</strong>
-            {offersAllowOnce
-              ? "Allow once applies only to this request."
-              : "The selected option is returned only to the requesting Harness."}
-          </span>
-          <span>
-            <strong>Sandbox unchanged</strong>
-            Approval does not expand the host OS sandbox.
-          </span>
-        </div>
-        <div className="agent-interaction-dialog__plan">
-          <pre>{interaction.summary}</pre>
-          {(interaction.toolKind || interaction.policySourceIds?.length) && (
-            <small>
-              {interaction.toolKind ? `Tool kind: ${interaction.toolKind}` : ""}
-              {interaction.toolKind && interaction.policySourceIds?.length ? " · " : ""}
-              {interaction.policySourceIds?.length
-                ? `Policy: ${interaction.policySourceIds.join(" + ")}`
-                : ""}
-            </small>
-          )}
-        </div>
-        {error && (
-          <p className="agent-interaction-dialog__error" role="alert">
-            {error}
-          </p>
-        )}
-        <footer>
-          <button type="button" disabled={resolving} onClick={onStop}>
-            Stop task
+    <dialog
+      open
+      ref={rootRef}
+      className="agent-tool-approval"
+      aria-labelledby="agent-tool-approval-title"
+    >
+      <header className="agent-tool-approval__header">
+        <span className="agent-tool-approval__kind">
+          <SquareTerminal aria-hidden="true" />
+          {interaction.toolKind === "execute" ? "Terminal" : "Tool permission"}
+        </span>
+        <h2 id="agent-tool-approval-title">{approvalTitle}</h2>
+      </header>
+      <div className="agent-tool-approval__summary">
+        <pre className={hasLongSummary && !expanded ? "is-collapsed" : undefined}>
+          {interaction.summary}
+        </pre>
+        {hasLongSummary && (
+          <button type="button" onClick={() => setExpanded((current) => !current)}>
+            {expanded ? "Collapse" : "Expand"}
           </button>
-          {rejectOptions.map((option, index) => (
+        )}
+      </div>
+      {error && (
+        <p className="agent-tool-approval__error" role="alert">
+          {error}
+        </p>
+      )}
+      <footer className="agent-tool-approval__actions">
+        {rejectOptions.map((option, index) => (
+          <button
+            type="button"
+            className="agent-tool-approval__deny"
+            // biome-ignore lint/a11y/noAutofocus: Permission dialogs put keyboard focus on the safe default.
+            autoFocus={index === 0}
+            disabled={resolving}
+            key={option.optionId}
+            onClick={() => onResolve({ kind: "tool_approval", optionId: option.optionId })}
+          >
+            {option.kind === "reject_once" ? "Deny" : option.name}
+          </button>
+        ))}
+        {primaryAllow && (
+          <div className="agent-tool-approval__allow">
             <button
               type="button"
-              // biome-ignore lint/a11y/noAutofocus: Permission dialogs put keyboard focus on the safe default.
-              autoFocus={index === 0}
+              className="agent-tool-approval__allow-primary"
               disabled={resolving}
-              key={option.optionId}
-              onClick={() => onResolve({ kind: "tool_approval", optionId: option.optionId })}
+              onClick={() => onResolve({ kind: "tool_approval", optionId: primaryAllow.optionId })}
             >
-              {option.name}
+              {resolving ? "Sending…" : primaryAllow.name}
             </button>
-          ))}
-          {allowOptions.map((option) => (
-            <button
-              type="button"
-              className="is-primary"
-              disabled={resolving}
-              key={option.optionId}
-              onClick={() => onResolve({ kind: "tool_approval", optionId: option.optionId })}
-            >
-              {resolving ? "Sending…" : option.name}
-            </button>
-          ))}
-        </footer>
-      </dialog>
-    </div>
+            {allowOptions.length > 1 && (
+              <>
+                <button
+                  type="button"
+                  className="agent-tool-approval__allow-menu-trigger"
+                  aria-label="More allow options"
+                  aria-haspopup="menu"
+                  aria-expanded={allowMenuOpen}
+                  disabled={resolving}
+                  onClick={() => setAllowMenuOpen((current) => !current)}
+                >
+                  <ChevronDown aria-hidden="true" />
+                </button>
+                {allowMenuOpen && (
+                  <div className="agent-tool-approval__allow-menu" role="menu">
+                    {allowOptions.map((option) => (
+                      <button
+                        type="button"
+                        role="menuitem"
+                        key={option.optionId}
+                        onClick={() => {
+                          setAllowMenuOpen(false);
+                          onResolve({ kind: "tool_approval", optionId: option.optionId });
+                        }}
+                      >
+                        {option.name}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        )}
+      </footer>
+    </dialog>
   );
 }
 

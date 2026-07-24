@@ -1051,3 +1051,60 @@ available content column while retaining the source density and rhythm.
   suites and build remained green.
 
 final result: passed
+
+---
+
+# Design QA: Composer tool approval panel
+
+- Source visual truth: `/var/folders/dc/cbvy15k16vz7s8mls82v1ng80000gn/T/codex-clipboard-6212b430-d12f-4191-a2db-ae2b1a3a2d13.png`
+- Implementation screenshot: `/Users/tcztzy/.codex/visualizations/2026/07/20/019f7e5a-55c2-7db3-9cde-f759f90104c9/swarmx-approval-implementation-1x.png`
+- Open-menu screenshot: `/Users/tcztzy/.codex/visualizations/2026/07/20/019f7e5a-55c2-7db3-9cde-f759f90104c9/swarmx-approval-menu-1x.png`
+- Full-view comparison: `/Users/tcztzy/.codex/visualizations/2026/07/20/019f7e5a-55c2-7db3-9cde-f759f90104c9/swarmx-approval-full-comparison.png`
+- Focused comparison: `/Users/tcztzy/.codex/visualizations/2026/07/20/019f7e5a-55c2-7db3-9cde-f759f90104c9/swarmx-approval-focused-comparison.png`
+- Viewport: source 1494 x 932 physical pixels on a Retina display; implementation 747 x 466 CSS pixels
+- State: macOS light theme, long terminal command collapsed, approval menu closed and open
+
+## Full-view comparison evidence
+
+The normalized comparison places the complete Codex reference beside a browser-rendered instance of the real SwarmX `AgentInteractionDialog` and production stylesheet. The reference contains two stacked task approvals, while the implementation fixture isolates the active task state requested here. In both, the approval surface is a rounded, near-full-width card anchored at the bottom interaction area, without a full-screen backdrop or a left-biased fixed-width modal.
+
+The implementation deliberately inherits the existing Composer's 960 px content measure and dock padding. This makes the approval panel replace the Composer exactly inside SwarmX rather than adopting the wider measure of a different product.
+
+## Focused comparison evidence
+
+The focused comparison keeps the terminal label, approval title, collapsed monospaced command, Expand action, Deny button, and split Allow control legible together. The final pass matches the reference's hierarchy, corner radius, restrained border/shadow, bottom-right action alignment, and compact vertical rhythm. No additional focused crop was needed because the entire approval card fits at readable scale in this comparison.
+
+## Required fidelity surfaces
+
+- Fonts and typography: the existing Inter/system and SF Mono stacks are preserved. The title was reduced to 17 px/600 weight after the first pass; the command uses a muted 13 px/1.48 monospace rhythm and wraps without horizontal overflow.
+- Spacing and layout rhythm: the panel replaces the Composer dock, remains centered on the same content axis, uses a 22 px radius, and keeps command expansion and decisions aligned to the right. The compact pass reduced header, summary, and action gaps to match the source density.
+- Colors and visual tokens: the implementation uses SwarmX's card, foreground, muted, border, primary, ring, and shadow tokens in both color schemes rather than screenshot-specific colors.
+- Image quality and asset fidelity: the scoped surface has no raster art or custom illustration. The terminal and chevron controls use the installed Lucide icon family and remain vector-sharp.
+- Copy and content: title, command summary, and option names remain driven by the real interaction payload; only the safe one-time rejection label is normalized to `Deny` to match the reference.
+
+## Interaction and accessibility evidence
+
+- The native nonmodal `dialog` is labelled by the approval title and is rendered in the Composer dock rather than a body-level modal portal.
+- Long commands toggle between Expand and Collapse while remaining bounded.
+- The split Allow control executes the preferred one-time option directly; its menu exposes every offered allow option, closes on Escape/outside pointer, and returned the exact selected option in tests.
+- The safe Deny action receives initial keyboard focus, and all controls retain visible focus treatment.
+- Clean browser pass: menu and expansion interactions succeeded; console errors and warnings were `[]`.
+
+## Comparison history
+
+1. Initial focused pass found a P2 density mismatch: the implementation title was heavier and the card was about 29 logical pixels taller than the Retina-normalized reference.
+2. Fix: reduced title size/weight, header gap, summary margin and line height, and action padding.
+3. Post-fix evidence: the revised focused comparison shows the same content hierarchy and card rhythm with no remaining P0, P1, or P2 issue.
+
+## Follow-up polish
+
+- P3: the Allow menu opens upward because the SwarmX panel is anchored at the bottom of the window; the reference can open downward because more content follows it.
+- P3: SwarmX keeps a visible accent focus ring on the auto-focused safe action for keyboard clarity.
+
+## Verification
+
+- Desktop production build: passed.
+- Desktop test suite: passed, 34 files and 326 tests.
+- Targeted Biome check and Git whitespace check: passed.
+
+final result: passed

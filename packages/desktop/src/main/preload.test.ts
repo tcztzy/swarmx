@@ -177,13 +177,13 @@ describe("preload API", () => {
     expect(electron.invoke).toHaveBeenCalledWith("activity:profile");
   });
 
-  it("bridges local task rename, pin, delete, and generated titles", async () => {
+  it("bridges local task rename, pin, archive, and generated titles", async () => {
     electron.invoke.mockResolvedValue({ id: "session-1", title: "Renamed" });
 
     await exposedApi().renameSession("session-1", "Renamed");
     await exposedApi().setSessionPinned("session-1", true);
     await exposedApi().generateSessionTitle("session-1", "Fix the title");
-    await exposedApi().deleteSession("session-1");
+    await exposedApi().archiveSession("session-1");
 
     expect(electron.invoke).toHaveBeenNthCalledWith(1, "session:rename", {
       id: "session-1",
@@ -197,7 +197,7 @@ describe("preload API", () => {
       id: "session-1",
       userText: "Fix the title",
     });
-    expect(electron.invoke).toHaveBeenNthCalledWith(4, "session:delete", "session-1");
+    expect(electron.invoke).toHaveBeenNthCalledWith(4, "session:archive", "session-1");
   });
 
   it("exposes the workspace root needed for local mention completion", async () => {
@@ -446,6 +446,22 @@ describe("preload API", () => {
     expect(electron.invoke).toHaveBeenNthCalledWith(3, "customAgent:remove", { id: agent.id });
   });
 
+  it("exposes narrow Composer preference persistence methods", async () => {
+    electron.invoke.mockResolvedValue({ selectionsByHarness: {} });
+    const selection = {
+      harnessId: "codex",
+      modelId: "gpt-5.6-sol",
+      modelSupplyId: "catalog:codex:gpt-5.6-sol",
+      effort: "high",
+    };
+
+    await exposedApi().getComposerPreferences();
+    await exposedApi().saveComposerPreference(selection);
+
+    expect(electron.invoke).toHaveBeenNthCalledWith(1, "composerPreferences:get");
+    expect(electron.invoke).toHaveBeenNthCalledWith(2, "composerPreferences:save", selection);
+  });
+
   it("exposes permission status and personal policy updates through narrow IPC methods", async () => {
     electron.invoke.mockResolvedValue({ layers: [] });
     const policy = { mode: "restricted", deniedTools: ["Bash"] };
@@ -489,7 +505,7 @@ function exposedApi(): {
   renameSession(id: string, title: string): Promise<unknown>;
   setSessionPinned(id: string, pinned: boolean): Promise<unknown>;
   generateSessionTitle(id: string, userText: string): Promise<unknown>;
-  deleteSession(id: string): Promise<unknown>;
+  archiveSession(id: string): Promise<unknown>;
   workspaceRoot(): Promise<unknown>;
   listProjects(): Promise<unknown>;
   getActivityProfile(): Promise<unknown>;
@@ -554,6 +570,13 @@ function exposedApi(): {
   listCustomAgents(): Promise<unknown>;
   saveCustomAgent(input: unknown): Promise<unknown>;
   removeCustomAgent(id: string): Promise<unknown>;
+  getComposerPreferences(): Promise<unknown>;
+  saveComposerPreference(input: {
+    harnessId: string;
+    modelId?: string;
+    modelSupplyId?: string;
+    effort?: string;
+  }): Promise<unknown>;
   getPermissionStatus(params?: {
     cwd?: string;
     agentId?: string;

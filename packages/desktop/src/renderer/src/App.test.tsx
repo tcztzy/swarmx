@@ -30,7 +30,7 @@ vi.mock("@xterm/xterm", () => ({
   },
 }));
 
-type MessageKind = "message" | "thinking" | "tool_call" | "tool_result";
+type MessageKind = "message" | "thinking" | "tool_call" | "tool_progress" | "tool_result";
 
 interface MessageChunk {
   role: string;
@@ -54,6 +54,7 @@ interface MessageChunk {
     status?: string;
     startedAt?: string;
   };
+  structuredContent?: unknown;
   swarmEvent?: string;
   toolName?: string;
 }
@@ -91,76 +92,6 @@ interface ProjectData {
   pinned: boolean;
   createdAt: string;
   updatedAt: string;
-}
-
-interface DesktopApiMock {
-  initialProjects?: ProjectData[];
-  sendMessage: ReturnType<typeof vi.fn>;
-  onAgentChunk: ReturnType<typeof vi.fn>;
-  onAgentInteraction: ReturnType<typeof vi.fn>;
-  onSessionMessages: ReturnType<typeof vi.fn>;
-  resolveAgentInteraction: ReturnType<typeof vi.fn>;
-  cancelMessage: ReturnType<typeof vi.fn>;
-  createSession: ReturnType<typeof vi.fn>;
-  saveSession: ReturnType<typeof vi.fn>;
-  loadSession: ReturnType<typeof vi.fn>;
-  loadDiscoveredSession: ReturnType<typeof vi.fn>;
-  listSessions: ReturnType<typeof vi.fn>;
-  getActivityProfile: ReturnType<typeof vi.fn>;
-  listProjects: ReturnType<typeof vi.fn>;
-  addExistingProject: ReturnType<typeof vi.fn>;
-  createScratchProject: ReturnType<typeof vi.fn>;
-  setProjectPinned: ReturnType<typeof vi.fn>;
-  renameProject: ReturnType<typeof vi.fn>;
-  revealProject: ReturnType<typeof vi.fn>;
-  archiveProjectTasks: ReturnType<typeof vi.fn>;
-  removeProject: ReturnType<typeof vi.fn>;
-  listGroupedSessions: ReturnType<typeof vi.fn>;
-  deleteSession: ReturnType<typeof vi.fn>;
-  renameSession: ReturnType<typeof vi.fn>;
-  setSessionPinned: ReturnType<typeof vi.fn>;
-  generateSessionTitle: ReturnType<typeof vi.fn>;
-  appendMessages: ReturnType<typeof vi.fn>;
-  importN8nWorkflow: ReturnType<typeof vi.fn>;
-  listExtensions: ReturnType<typeof vi.fn>;
-  getExtensionManagementState: ReturnType<typeof vi.fn>;
-  saveExtensionSource: ReturnType<typeof vi.fn>;
-  refreshExtensionSource: ReturnType<typeof vi.fn>;
-  removeExtensionSource: ReturnType<typeof vi.fn>;
-  applyExtensionAction: ReturnType<typeof vi.fn>;
-  saveSkillEvolutionPolicy: ReturnType<typeof vi.fn>;
-  listCustomAgents: ReturnType<typeof vi.fn>;
-  saveCustomAgent: ReturnType<typeof vi.fn>;
-  removeCustomAgent: ReturnType<typeof vi.fn>;
-  getPermissionStatus: ReturnType<typeof vi.fn>;
-  savePersonalPermissionPolicy: ReturnType<typeof vi.fn>;
-  savePermissionProfileAvailability: ReturnType<typeof vi.fn>;
-  workspaceRoot: ReturnType<typeof vi.fn>;
-  createTerminal: ReturnType<typeof vi.fn>;
-  writeTerminal: ReturnType<typeof vi.fn>;
-  resizeTerminal: ReturnType<typeof vi.fn>;
-  killTerminal: ReturnType<typeof vi.fn>;
-  onTerminalData: ReturnType<typeof vi.fn>;
-  onTerminalExit: ReturnType<typeof vi.fn>;
-  selectFilesAndFolders: ReturnType<typeof vi.fn>;
-  refreshModelCatalog: ReturnType<typeof vi.fn>;
-  addManualModel: ReturnType<typeof vi.fn>;
-  removeManualModel: ReturnType<typeof vi.fn>;
-  saveProvider: ReturnType<typeof vi.fn>;
-  removeProvider: ReturnType<typeof vi.fn>;
-  resetProviderKey: ReturnType<typeof vi.fn>;
-  refreshProviderUsage: ReturnType<typeof vi.fn>;
-  getUpdateState: ReturnType<typeof vi.fn>;
-  startUpdate: ReturnType<typeof vi.fn>;
-  onUpdateState: ReturnType<typeof vi.fn>;
-  getHarnessEnvironment: ReturnType<typeof vi.fn>;
-  getHarnessVersion: ReturnType<typeof vi.fn>;
-  inspectDoctor: ReturnType<typeof vi.fn>;
-  fixDoctor: ReturnType<typeof vi.fn>;
-  setupHarnessEnvironment: ReturnType<typeof vi.fn>;
-  lspComplete: ReturnType<typeof vi.fn>;
-  lspStop: ReturnType<typeof vi.fn>;
-  loadImageDataUrl: ReturnType<typeof vi.fn>;
 }
 
 const localSession: SessionData = {
@@ -2391,6 +2322,102 @@ describe("App user workflow", () => {
     });
   });
 
+  it("uses the canonical newest Model when no user preference exists", async () => {
+    const api = createDesktopApiMock();
+    const inventory = await api.listExtensions();
+    api.listExtensions.mockResolvedValue({
+      ...inventory,
+      harnesses: inventory.harnesses.map((harness) =>
+        harness.id === "swarmx"
+          ? {
+              ...harness,
+              supportedModelApis: ["openai_chat", "openai_responses"],
+            }
+          : harness,
+      ),
+      models: [
+        {
+          id: "gpt-5.4",
+          label: "GPT 5.4",
+          runtimeModel: "gpt-5.4",
+          apiProtocols: ["openai_responses"],
+        },
+        {
+          id: "gpt-5.6-sol",
+          label: "GPT 5.6 Sol",
+          runtimeModel: "gpt-5.6-sol",
+          apiProtocols: ["openai_responses"],
+        },
+      ],
+      modelSupplies: [],
+      providers: [],
+    });
+
+    await renderApp(api);
+
+    const trigger = await screen.findByRole("button", { name: "Choose agent" });
+    await waitFor(() => expect(within(trigger).getByText("5.6 Sol")).toBeTruthy());
+  });
+
+  it("restores and updates the user's latest Model preference", async () => {
+    const api = createDesktopApiMock({
+      getComposerPreferences: vi.fn(async () => ({
+        lastHarnessId: "swarmx",
+        selectionsByHarness: {
+          swarmx: { modelId: "gpt-5.4", effort: "high" },
+        },
+      })),
+    });
+    const inventory = await api.listExtensions();
+    api.listExtensions.mockResolvedValue({
+      ...inventory,
+      harnesses: inventory.harnesses.map((harness) =>
+        harness.id === "swarmx"
+          ? {
+              ...harness,
+              supportedModelApis: ["openai_chat", "openai_responses"],
+            }
+          : harness,
+      ),
+      models: [
+        {
+          id: "gpt-5.4",
+          label: "GPT 5.4",
+          runtimeModel: "gpt-5.4",
+          apiProtocols: ["openai_responses"],
+        },
+        {
+          id: "gpt-5.6-sol",
+          label: "GPT 5.6 Sol",
+          runtimeModel: "gpt-5.6-sol",
+          apiProtocols: ["openai_responses"],
+        },
+      ],
+      modelSupplies: [],
+      providers: [],
+    });
+    await renderApp(api);
+    const user = userEvent.setup();
+
+    const trigger = await screen.findByRole("button", { name: "Choose agent" });
+    await waitFor(() => {
+      expect(within(trigger).getByText("5.4")).toBeTruthy();
+      expect(within(trigger).getByText("High")).toBeTruthy();
+    });
+
+    await user.click(trigger);
+    await user.click(screen.getByRole("menuitem", { name: /ModelGPT 5\.4/i }));
+    await user.click(screen.getByRole("menuitemradio", { name: /GPT 5\.6 Sol/i }));
+
+    await waitFor(() =>
+      expect(api.saveComposerPreference).toHaveBeenCalledWith({
+        harnessId: "swarmx",
+        modelId: "gpt-5.6-sol",
+      }),
+    );
+    await waitFor(() => expect(within(trigger).getByText("5.6 Sol")).toBeTruthy());
+  });
+
   it("derives effort from the selected Harness and Model", async () => {
     const api = createDesktopApiMock();
     const inventory = await api.listExtensions();
@@ -2452,6 +2479,11 @@ describe("App user workflow", () => {
 
   it("resets effort to the official default when the selected model changes", async () => {
     const api = createDesktopApiMock();
+    api.getComposerPreferences.mockResolvedValue({
+      selectionsByHarness: {
+        swarmx: { modelId: "gpt-5" },
+      },
+    });
     const inventory = await api.listExtensions();
     api.listExtensions.mockResolvedValue({
       ...inventory,
@@ -3408,7 +3440,7 @@ describe("App user workflow", () => {
     await user.type(screen.getByRole("textbox"), "Inspect the message history");
     await user.click(screen.getByRole("button", { name: "Send message" }));
 
-    const working = await screen.findByRole("button", { name: "Working" });
+    const working = await screen.findByRole("button", { name: "Thinking" });
     expect(working.getAttribute("aria-expanded")).toBe("true");
     expect(screen.getByRole("status").textContent).toContain("Waiting for agent output");
 
@@ -3524,6 +3556,146 @@ describe("App user workflow", () => {
     expect(unsubscribe).toHaveBeenCalledTimes(1);
   }, 15_000);
 
+  it("V505 appends live terminal progress, auto-opens once, and collapses on completion", async () => {
+    const reply = deferred<{ success: boolean; messages: MessageChunk[] }>();
+    const api = createDesktopApiMock({
+      sendMessage: vi.fn(() => reply.promise),
+      onAgentChunk: vi.fn(() => () => undefined),
+    });
+    const user = userEvent.setup();
+
+    await renderApp(api);
+    await user.type(screen.getByRole("textbox"), "Run the command");
+    await user.click(screen.getByRole("button", { name: "Send message" }));
+
+    const requestId = api.sendMessage.mock.calls[0]?.[0]?.requestId as string;
+    const emitChunk = api.onAgentChunk.mock.calls[0]?.[0] as (event: {
+      requestId: string;
+      chunk: MessageChunk;
+    }) => void;
+    const call: MessageChunk = {
+      role: "assistant",
+      kind: "tool_call",
+      toolName: "exec_command",
+      content: JSON.stringify({ cmd: "echo one" }),
+      render: { invocationId: "call_terminal_1", status: "running" },
+    };
+    await act(async () => {
+      emitChunk({ requestId, chunk: call });
+      emitChunk({
+        requestId,
+        chunk: {
+          role: "tool",
+          kind: "tool_progress",
+          toolName: "exec_command",
+          content: "one\n",
+          structuredContent: { output: "one\n", stream: "stdout", mode: "append" },
+          render: { invocationId: "call_terminal_1", status: "running" },
+        },
+      });
+      emitChunk({
+        requestId,
+        chunk: {
+          role: "tool",
+          kind: "tool_progress",
+          toolName: "exec_command",
+          content: "two\n",
+          structuredContent: { output: "two\n", stream: "stdout", mode: "append" },
+          render: { invocationId: "call_terminal_1", status: "running" },
+        },
+      });
+    });
+
+    const running = screen.getByRole("button", { name: "Running echo one, in progress" });
+    await waitFor(() => expect(running.getAttribute("aria-expanded")).toBe("true"));
+    const activity = running.closest(".tool-activity");
+    if (!activity) throw new Error("Expected a live terminal activity");
+    expect(activity.querySelector(".tool-activity__terminal pre")?.textContent).toBe(
+      "$ echo one\none\ntwo\n",
+    );
+    expect(activity.querySelector(".tool-activity__cursor")).not.toBeNull();
+
+    const finalResult: MessageChunk = {
+      role: "tool",
+      kind: "tool_result",
+      toolName: "exec_command",
+      content: "done",
+      structuredContent: { output: "one\ntwo\n", status: "completed", exit_code: 0 },
+      render: { invocationId: "call_terminal_1", status: "succeeded" },
+    };
+    await act(async () => emitChunk({ requestId, chunk: finalResult }));
+    const completed = screen.getByRole("button", { name: "Ran echo one, complete" });
+    await waitFor(() => expect(completed.getAttribute("aria-expanded")).toBe("false"));
+
+    reply.resolve({
+      success: true,
+      messages: [
+        call,
+        finalResult,
+        { role: "assistant", kind: "message", content: "Command complete." },
+      ],
+    });
+    expect(await screen.findByText("Command complete.")).toBeTruthy();
+  }, 15_000);
+
+  it("V508 renders an actionable Provider notice and retries the exact prior request", async () => {
+    const providerMessage: MessageChunk = {
+      role: "system",
+      kind: "message",
+      content:
+        "The selected Provider is overloaded right now. Try again in a moment, or choose another model.",
+      structuredContent: {
+        type: "provider_error",
+        code: "overloaded",
+        title: "Provider is temporarily busy",
+        message:
+          "The selected Provider is overloaded right now. Try again in a moment, or choose another model.",
+        retryable: true,
+      },
+      render: { status: "failed" },
+    };
+    const api = createDesktopApiMock({
+      sendMessage: vi
+        .fn()
+        .mockResolvedValueOnce({
+          success: false,
+          error: providerMessage.content,
+          messages: [providerMessage],
+          sessionPersisted: false,
+        })
+        .mockResolvedValueOnce({
+          success: true,
+          messages: [{ role: "assistant", kind: "message", content: "Recovered." }],
+        }),
+    });
+    const user = userEvent.setup();
+    await renderApp(api);
+
+    fireEvent.change(screen.getByRole("textbox"), {
+      target: { value: "Retry this Provider request" },
+    });
+    await user.click(screen.getByRole("button", { name: "Send message" }));
+
+    const notice = await screen.findByRole("alert", { name: "Provider is temporarily busy" });
+    expect(within(notice).getByText("Provider issue")).toBeTruthy();
+    expect(notice.querySelector(".run-event__header")).toBeNull();
+    expect(notice.closest(".run-event--system")).toBeNull();
+    expect(document.body.textContent).not.toContain("SYSTEM");
+    expect(document.body.textContent).not.toContain("MESSAGE");
+
+    await user.click(within(notice).getByRole("button", { name: "Change model" }));
+    expect(screen.getByRole("menu", { name: "Agent composition" })).toBeTruthy();
+    expect(screen.getByTestId("agent-picker-primary").textContent).toContain("Model");
+    await user.click(screen.getByRole("button", { name: "Choose agent" }));
+
+    await user.click(within(notice).getByRole("button", { name: "Try again" }));
+    await waitFor(() => expect(api.sendMessage).toHaveBeenCalledTimes(2));
+    expect(api.sendMessage.mock.calls[1]?.[0]).toMatchObject({
+      userText: "Retry this Provider request",
+    });
+    expect(await screen.findByText("Recovered.")).toBeTruthy();
+  }, 15_000);
+
   it("V341/V352 persists timing and renders Worked reasoning as unboxed body text", async () => {
     const api = createDesktopApiMock({
       sendMessage: vi.fn(async () => ({
@@ -3608,9 +3780,8 @@ describe("App user workflow", () => {
     expect(screen.queryByRole("dialog", { name: "Rename task" })).toBeNull();
   });
 
-  it("V345 exposes pin, rename, and delete only in local task context menus", async () => {
+  it("V345 exposes pin, rename, and archive only in local task context menus", async () => {
     const api = createDesktopApiMock();
-    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
     await renderApp(api);
     const localTask = (await screen.findByText("Existing local run")).closest("button");
     const acpTask = screen.getByText("ACP investigation").closest("button");
@@ -3623,15 +3794,41 @@ describe("App user workflow", () => {
     let menu = screen.getByRole("menu", { name: "Task actions for Existing local run" });
     expect(within(menu).getByRole("menuitem", { name: "Pin task" })).toBeTruthy();
     expect(within(menu).getByRole("menuitem", { name: "Rename task" })).toBeTruthy();
-    expect(within(menu).getByRole("menuitem", { name: "Delete task" })).toBeTruthy();
+    expect(within(menu).getByRole("menuitem", { name: "Archive task" })).toBeTruthy();
     fireEvent.click(within(menu).getByRole("menuitem", { name: "Pin task" }));
     await waitFor(() => expect(api.setSessionPinned).toHaveBeenCalledWith("local-1", true));
 
     fireEvent.contextMenu(localTask, { clientX: 40, clientY: 40 });
     menu = screen.getByRole("menu", { name: "Task actions for Existing local run" });
-    fireEvent.click(within(menu).getByRole("menuitem", { name: "Delete task" }));
-    expect(confirm).toHaveBeenCalled();
-    await waitFor(() => expect(api.deleteSession).toHaveBeenCalledWith("local-1"));
+    fireEvent.click(within(menu).getByRole("menuitem", { name: "Archive task" }));
+    await waitFor(() => expect(api.archiveSession).toHaveBeenCalledWith("local-1"));
+  });
+
+  it("V345 disables archive while the selected local task is running", async () => {
+    const reply = deferred<{ success: boolean; messages: MessageChunk[] }>();
+    const api = createDesktopApiMock({
+      sendMessage: vi.fn(() => reply.promise),
+    });
+    const user = userEvent.setup();
+    await renderApp(api);
+    const localTask = (await screen.findByText("Existing local run")).closest("button");
+    if (!localTask) throw new Error("local task button was not rendered");
+
+    await user.click(localTask);
+    await screen.findByRole("heading", { name: "Existing local run" });
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "Keep running" } });
+    await user.click(screen.getByRole("button", { name: "Send message" }));
+    await screen.findByRole("button", { name: "Stop generating" });
+
+    fireEvent.contextMenu(localTask, { clientX: 40, clientY: 40 });
+    const menu = screen.getByRole("menu", { name: "Task actions for Existing local run" });
+    expect(
+      within(menu).getByRole("menuitem", { name: "Archive task" }).hasAttribute("disabled"),
+    ).toBe(true);
+    expect(api.archiveSession).not.toHaveBeenCalled();
+
+    reply.resolve({ success: true, messages: [] });
+    await screen.findByRole("button", { name: "Send message" });
   });
 
   it("groups sessions by project and keeps discovered ACP history read-only", async () => {
@@ -3727,18 +3924,17 @@ describe("App user workflow", () => {
     expect(document.body.textContent).not.toContain("[redacted]");
     expect(document.body.textContent).not.toContain("tool_result_terminal.json");
     await user.click(screen.getByRole("button", { name: "Command failed: curl, failed" }));
-    const terminalDetails = screen
-      .getByRole("heading", { name: "Terminal" })
-      .closest<HTMLElement>(".trace-card__special");
-    if (!terminalDetails) throw new Error("Terminal details are missing");
-    expect(within(terminalDetails).getByText("command")).toBeTruthy();
-    expect(within(terminalDetails).getByText("cwd")).toBeTruthy();
-    expect(within(terminalDetails).getByText("/Users/tcztzy/swarmx")).toBeTruthy();
-    expect(within(terminalDetails).getByText("exit")).toBeTruthy();
-    expect(screen.getAllByText("1").length).toBeGreaterThan(0);
-    expect(screen.getByText("downloaded 0 bytes")).toBeTruthy();
+    const activity = screen
+      .getByRole("button", { name: "Command failed: curl, failed" })
+      .closest<HTMLElement>(".tool-activity");
+    if (!activity) throw new Error("Tool activity is missing");
+    const terminal = activity.querySelector(".tool-activity__terminal pre");
+    if (!terminal) throw new Error("Terminal transcript is missing");
+    expect(terminal.textContent).toContain("$ curl");
+    expect(terminal.textContent).toContain("downloaded 0 bytes");
+    expect(terminal.textContent).toContain("curl failed");
+    expect(within(activity).getByText("exit 1")).toBeTruthy();
     expect(screen.getAllByText("truncated").length).toBeGreaterThan(0);
-    expect(screen.getByText("curl failed")).toBeTruthy();
     expect(screen.getByText("Artifacts")).toBeTruthy();
     expect(screen.getByText("terminal.log")).toBeTruthy();
     expect(screen.queryByText("Raw payload ref")).toBeNull();
@@ -3750,7 +3946,7 @@ describe("App user workflow", () => {
     expect(screen.queryByRole("button", { name: /reveal raw/i })).toBeNull();
   });
 
-  it("renders passive specialized trace presentations for common run artifacts", async () => {
+  it("renders tool calls as interactive shell transcripts", async () => {
     const sessionWithSpecializedTraces: SessionData = {
       ...acpSessionDetail,
       messages: [
@@ -3845,23 +4041,29 @@ describe("App user workflow", () => {
     const detailButtons = document.querySelectorAll<HTMLButtonElement>(
       ".tool-activity__summary:not(:disabled)",
     );
+    expect(detailButtons.length).toBeGreaterThan(0);
     for (const button of detailButtons) {
       await user.click(button);
     }
 
-    expect(screen.getByRole("heading", { name: "Diff" })).toBeTruthy();
-    expect(screen.getByRole("heading", { name: "File" })).toBeTruthy();
-    expect(screen.getByRole("heading", { name: "Test/check" })).toBeTruthy();
-    expect(screen.getByRole("heading", { name: "MCP" })).toBeTruthy();
-    expect(screen.getByRole("heading", { name: "Automation" })).toBeTruthy();
-    expect(screen.getByRole("heading", { name: "Generated media" })).toBeTruthy();
-    expect(screen.getByText("packages/core/src/rendering.ts")).toBeTruthy();
-    expect(screen.getByText("README.md")).toBeTruthy();
-    expect(screen.getByText("10-20")).toBeTruthy();
-    expect(screen.getByText("expected true to equal false")).toBeTruthy();
-    expect(screen.getAllByText("Read README.md").length).toBeGreaterThan(0);
-    expect(screen.getByText("https://example.test")).toBeTruthy();
-    expect(screen.getByText("button clicked")).toBeTruthy();
+    const text = document.body.textContent ?? "";
+    expect(text).toContain("$ apply_patch packages/core/src/rendering.ts");
+    expect(text).toContain("@@ -1 +1 @@");
+    expect(text).toContain("-old");
+    expect(text).toContain("+new");
+    expect(text).toContain("$ read_file README.md");
+    expect(text).toContain("SwarmX overview");
+    expect(text).toContain("$ vitest");
+    expect(text).toContain("1 failed, 12 passed");
+    expect(text).toContain("expected true to equal false");
+    expect(text).toContain("$ mcp.call read_file");
+    expect(text).toContain("Read README.md");
+    expect(text).toContain("$ playwright https://example.test");
+    expect(text).toContain("button clicked");
+    expect(text).toContain("$ image_generation");
+    expect(text).toContain("generated plot");
+    expect(screen.getByText("change.patch")).toBeTruthy();
+    expect(screen.getByText("screen.png")).toBeTruthy();
     expect(screen.getByText("plot.png")).toBeTruthy();
     const transcript = document.querySelector<HTMLElement>(".transcript-scroll");
     expect(transcript).not.toBeNull();
@@ -4285,7 +4487,7 @@ function permissionStatusFixture() {
   };
 }
 
-function createDesktopApiMock(overrides: Partial<DesktopApiMock> = {}): DesktopApiMock {
+function createDefaultDesktopApiMock() {
   return {
     initialProjects: [swarmxProject],
     sendMessage: vi.fn(async () => ({
@@ -4347,7 +4549,10 @@ function createDesktopApiMock(overrides: Partial<DesktopApiMock> = {}): DesktopA
       ],
       errors: [],
     })),
-    deleteSession: vi.fn(async () => true),
+    archiveSession: vi.fn(async () => ({
+      ...localSession,
+      archivedAt: "2026-07-22T00:00:00.000Z",
+    })),
     renameSession: vi.fn(async (_id: string, title: string) => ({ ...localSession, title })),
     setSessionPinned: vi.fn(async (_id: string, pinned: boolean) => ({
       ...localSession,
@@ -4489,6 +4694,19 @@ function createDesktopApiMock(overrides: Partial<DesktopApiMock> = {}): DesktopA
     listCustomAgents: vi.fn(async () => ({ agents: [] })),
     saveCustomAgent: vi.fn(async () => ({ agents: [] })),
     removeCustomAgent: vi.fn(async () => ({ agents: [] })),
+    getComposerPreferences: vi.fn(async () => ({ selectionsByHarness: {} })),
+    saveComposerPreference: vi.fn(async (input) => ({
+      lastHarnessId: input.harnessId,
+      selectionsByHarness: input.modelId
+        ? {
+            [input.harnessId]: {
+              modelId: input.modelId,
+              ...(input.modelSupplyId ? { modelSupplyId: input.modelSupplyId } : {}),
+              ...(input.effort ? { effort: input.effort } : {}),
+            },
+          }
+        : {},
+    })),
     getPermissionStatus: vi.fn(async () => permissionStatusFixture()),
     savePersonalPermissionPolicy: vi.fn(async () => permissionStatusFixture()),
     savePermissionProfileAvailability: vi.fn(async () => permissionStatusFixture()),
@@ -4821,8 +5039,13 @@ function createDesktopApiMock(overrides: Partial<DesktopApiMock> = {}): DesktopA
     lspComplete: vi.fn(async () => ({ serverId: "pyright", status: "ok", result: null })),
     lspStop: vi.fn(async () => ({ serverId: "pyright", stopped: true })),
     loadImageDataUrl: vi.fn(async () => null),
-    ...overrides,
   };
+}
+
+type DesktopApiMock = ReturnType<typeof createDefaultDesktopApiMock>;
+
+function createDesktopApiMock(overrides: Partial<DesktopApiMock> = {}): DesktopApiMock {
+  return { ...createDefaultDesktopApiMock(), ...overrides };
 }
 
 function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {

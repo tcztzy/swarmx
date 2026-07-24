@@ -9,8 +9,8 @@ import {
   Swarm,
   appendMessages,
   archiveProjectSessions,
+  archiveSession,
   createSession,
-  deleteSession,
   dismissProject,
   estimateModelTokenUsage,
   executeAgentComposition,
@@ -39,7 +39,6 @@ import type {
   AgentComposition,
   AgentCompositionPlan,
   AgentConfig,
-  ChatMessage,
   DiscoveredSession,
   ExtensionInventory,
   ListGroupedSessionsOptions,
@@ -50,7 +49,19 @@ import type {
   SessionPermissionMode,
   SwarmConfig,
 } from "@swarmx/core";
+import {
+  HarnessDoctor,
+  HarnessEnvironmentService,
+  type HarnessEnvironmentSetupRequest,
+  type HarnessEnvironmentStatus,
+  containerHostBridgeUrl,
+} from "@swarmx/runtime";
 import { type IpcMainInvokeEvent, dialog, ipcMain, safeStorage, shell } from "electron";
+import {
+  type AgentChunkPublisher,
+  type AgentChunkSender,
+  agentChunkPublisher,
+} from "./agent-chunk-publisher.js";
 import {
   AgentInteractionBroker,
   type DesktopAgentInteractionResolution,
@@ -62,15 +73,9 @@ import {
   ClaudeSessionRuntimeRegistry,
 } from "./claude-session-runtime.js";
 import { CodexAccessTokenResolver } from "./codex-auth.js";
+import { ComposerPreferenceService } from "./composer-preferences.js";
 import { CustomAgentService } from "./custom-agents.js";
 import { DesktopExtensionManager } from "./extension-manager.js";
-import {
-  HarnessDoctor,
-  HarnessEnvironmentService,
-  type HarnessEnvironmentSetupRequest,
-  type HarnessEnvironmentStatus,
-  containerHostBridgeUrl,
-} from "./harness-environment.js";
 import { type LspCompletionRequest, LspHost, type LspStopRequest } from "./lsp-host.js";
 import {
   type ManualModelInput,
@@ -80,6 +85,7 @@ import {
 } from "./model-catalog.js";
 import { PermissionService, type RecordPermissionDecisionInput } from "./permission-service.js";
 import { EncryptedFileProviderAuthStore } from "./provider-auth.js";
+import { providerErrorMessage } from "./provider-error.js";
 import {
   type ProviderKeyAttemptObservation,
   ProviderKeyPoolRuntime,
@@ -91,6 +97,12 @@ import {
   queryCodexAppServerRequest,
 } from "./provider-usage.js";
 import { DesktopRequestRegistry } from "./request-registry.js";
+import {
+  assertFinalAssistantMessage,
+  publishSessionMessages,
+  sessionChatMessages,
+  timedMessages,
+} from "./session-messages.js";
 import {
   SESSION_TITLE_MODEL_ID,
   generatedSessionTitle,
@@ -112,6 +124,10 @@ import {
   workspaceAgentTools,
   workspaceToolProfile,
 } from "./workspace-tools.js";
+
+export { agentChunkPublisher };
+export type { AgentChunkPublisher, AgentChunkSender };
+export { assertFinalAssistantMessage, sessionChatMessages };
 
 const MAX_INLINE_IMAGE_BYTES = 25 * 1024 * 1024;
 const SENSITIVE_PERMISSION_LABEL_PATTERN =
@@ -150,6 +166,7 @@ const modelCatalog = new ModelCatalogService({
   keyUsageStore: providerKeyUsageStore,
   settingsStore: desktopSettingsStore,
 });
+const composerPreferences = new ComposerPreferenceService(desktopSettingsStore);
 const customAgents = new CustomAgentService(desktopSettingsStore);
 const permissionService = new PermissionService(desktopSettingsStore);
 const extensionManager = new DesktopExtensionManager(desktopSettingsStore);
@@ -164,11 +181,6 @@ export interface RegisterIpcHandlersOptions {
   updateService?: DesktopUpdateServiceLike;
   broadcastUpdateState?: (state: DesktopUpdateState) => void;
   activityStore?: ActivityStore;
-}
-
-export interface AgentChunkSender {
-  isDestroyed(): boolean;
-  send(channel: string, payload: unknown): void;
 }
 
 async function executeWithProviderRuntime<T>(
@@ -196,64 +208,6 @@ async function executeWithProviderRuntime<T>(
     candidates: runtime.candidates,
     run: (candidate, observation) => run({ [runtime.providerId]: candidate.value }, observation),
   });
-}
-
-export function agentChunkPublisher(
-  sender: AgentChunkSender,
-  requestId: string,
-): (chunk: MessageChunk) => void {
-  return (chunk) => {
-    if (!sender.isDestroyed()) sender.send("agent:chunk", { requestId, chunk });
-  };
-}
-
-export function sessionChatMessages(session: SessionData | null): ChatMessage[] {
-  if (!session) return [];
-  return session.messages.flatMap((message): ChatMessage[] => {
-    if (message.kind !== "message") return [];
-    if (!isChatRole(message.role)) return [];
-    return [{ role: message.role, content: message.content }];
-  });
-}
-
-function isChatRole(role: string): role is ChatMessage["role"] {
-  return role === "user" || role === "assistant" || role === "system" || role === "tool";
-}
-
-function timedMessages(
-  messages: readonly MessageChunk[],
-  startedAtMs: number,
-  endedAtMs = Date.now(),
-): MessageChunk[] {
-  const startedAt = new Date(startedAtMs).toISOString();
-  const endedAt = new Date(endedAtMs).toISOString();
-  const durationMs = Math.max(1, endedAtMs - startedAtMs);
-  return messages.map((message) => ({
-    ...message,
-    render: {
-      ...(message.render ?? {}),
-      startedAt: message.render?.startedAt ?? startedAt,
-      endedAt: message.render?.endedAt ?? endedAt,
-      durationMs: message.render?.durationMs ?? durationMs,
-    },
-  }));
-}
-
-function publishSessionMessages(sender: AgentChunkSender, sessionId: string): void {
-  if (!sender.isDestroyed()) sender.send("session:messages", { sessionId });
-}
-
-export function assertFinalAssistantMessage(messages: readonly MessageChunk[]): void {
-  if (
-    !messages.some(
-      (message) =>
-        message.kind === "message" &&
-        message.role === "assistant" &&
-        message.content.trim().length > 0,
-    )
-  ) {
-    throw new Error("Agent run ended without a final assistant response.");
-  }
 }
 
 interface ActivityOutcomeInput {
@@ -339,6 +293,7 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
       const observedMessages: MessageChunk[] = [];
       const tokenUsages: ModelTokenUsage[] = [];
       let foregroundRuntime: ClaudeSessionRuntime | undefined;
+      let activeChunkPublisher: AgentChunkPublisher | undefined;
       const taskMetadata = {
         taskId: params.requestId,
         sessionId: params.sessionId,
@@ -346,12 +301,21 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
         modelId: stringProperty(params.agentComposition, "modelId"),
         reasoningEffort: stringProperty(params.agentComposition, "effort"),
       };
+      const desktopRequest = {
+        owner: event.sender,
+        requestId: params.requestId,
+        ...(params.sessionId ? { sessionId: params.sessionId } : {}),
+      };
       appendActivity(activityStore, { type: "task_started", ...taskMetadata });
       try {
-        const result = await agentRequests.run(event.sender, params.requestId, async () => {
+        if (params.sessionId && loadSession(params.sessionId)?.archivedAt) {
+          throw new Error(`Session "${params.sessionId}" is archived.`);
+        }
+        const result = await agentRequests.runForSession(desktopRequest, async () => {
           const publishChunk = agentChunkPublisher(event.sender, params.requestId);
+          activeChunkPublisher = publishChunk;
           const onChunk = (chunk: MessageChunk) => {
-            observedMessages.push(chunk);
+            if (chunk.kind !== "tool_progress") observedMessages.push(chunk);
             publishChunk(chunk);
             if (chunk.kind === "tool_call" && chunk.toolName) {
               appendActivity(activityStore, {
@@ -782,10 +746,15 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
           };
         }
         const error = err instanceof Error ? err.message : String(err);
-        const failedMessages = [
-          ...timedMessages(observedMessages, startedAt),
-          { role: "system", content: `Error: ${error}`, kind: "message" as const },
-        ];
+        const providerMessage = providerErrorMessage(err);
+        const terminalMessage =
+          providerMessage ??
+          ({
+            role: "system",
+            content: `Error: ${error}`,
+            kind: "message" as const,
+          } satisfies MessageChunk);
+        const failedMessages = [...timedMessages(observedMessages, startedAt), terminalMessage];
         const sessionPersisted = params.sessionId
           ? appendMessages(params.sessionId, failedMessages)
           : false;
@@ -799,10 +768,12 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
         });
         return {
           success: false,
-          error,
+          error: providerMessage?.content ?? error,
+          messages: failedMessages,
           sessionPersisted,
         };
       } finally {
+        activeChunkPublisher?.close();
         foregroundRuntime?.endForeground();
       }
     },
@@ -920,6 +891,16 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
     (_event: IpcMainInvokeEvent, params: { id: string }): number => {
       const project = listProjects().find((candidate) => candidate.id === params.id);
       if (!project) throw new Error(`Unknown project: ${params.id}`);
+      const runningSession = listSessions().find(
+        (session) =>
+          (session.projectId === project.id ||
+            (session.cwd && path.resolve(session.cwd) === path.resolve(project.cwd))) &&
+          (agentRequests.isSessionActive(session.id) ||
+            claudeSessionRuntimes.isRunning(session.id)),
+      );
+      if (runningSession) {
+        throw new Error("Stop all running tasks in this project before archiving them.");
+      }
       return archiveProjectSessions({ projectId: project.id, cwd: project.cwd });
     },
   );
@@ -955,9 +936,14 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
     },
   );
 
-  ipcMain.handle("session:delete", async (_event: IpcMainInvokeEvent, id: string) => {
+  ipcMain.handle("session:archive", async (_event: IpcMainInvokeEvent, id: string) => {
+    if (agentRequests.isSessionActive(id) || claudeSessionRuntimes.isRunning(id)) {
+      throw new Error("Stop the task before archiving it.");
+    }
+    const session = archiveSession(id);
+    if (!session) throw new Error(`Unknown session: ${id}`);
     await claudeSessionRuntimes.delete(id);
-    return deleteSession(id);
+    return session;
   });
 
   ipcMain.handle(
@@ -1109,6 +1095,12 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
       const inventory = await loadDesktopExtensionInventory();
       return extensionInventoryWithPlans(await modelCatalog.list(inventory));
     },
+  );
+
+  ipcMain.handle("composerPreferences:get", () => composerPreferences.get());
+
+  ipcMain.handle("composerPreferences:save", (_event: IpcMainInvokeEvent, input: unknown) =>
+    composerPreferences.save(input),
   );
 
   ipcMain.handle(
@@ -1697,6 +1689,14 @@ function stringProperty(value: unknown, key: string): string | undefined {
   if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
   const property = (value as Record<string, unknown>)[key];
   return typeof property === "string" && property.length > 0 ? property : undefined;
+}
+
+function recordProperty(value: unknown, key: string): Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  const property = (value as Record<string, unknown>)[key];
+  return property && typeof property === "object" && !Array.isArray(property)
+    ? (property as Record<string, unknown>)
+    : {};
 }
 
 async function recordPermissionDecision(input: RecordPermissionDecisionInput): Promise<void> {

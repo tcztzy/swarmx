@@ -53,7 +53,7 @@ G49: Desktop users can compose a reproducible Harness from Software, Extension-p
 G50: Desktop users can refresh marketplace sources, install and update plugins, preserve local Skill evolution overlays, evaluate candidates for a target Agent/Model, and roll back active revisions through explicit audited actions.
 G51: Desktop users can inspect project-scoped and user-scoped Codex and Claude Code Agent definitions through the same read-only Agent profile inventory without copying, activating, or rewriting native files.
 G52: A desktop task bound to a Project can identify that Project and inspect its contained text files through bounded read-only tools before answering repository questions.
-G53: Desktop task history exposes comprehensible work timing plus automatic, editable, pinnable, and deletable local task titles.
+G53: Desktop task history exposes comprehensible work timing plus automatic, editable, pinnable, and archivable local task titles.
 G54: A direct SwarmX task bound to a Project can inspect, edit, and validate that repository through host-provided coding tools with safety boundaries comparable to Claude Code and Codex.
 G55: Expanded Worked reasoning reads as part of the conversation body instead of as a nested card.
 G56: A running desktop task exposes its live reasoning, commentary, tool calls, and tool results, then collapses that work and leaves only the final answer visible when execution ends.
@@ -67,8 +67,10 @@ G63: Desktop users can choose their default direct-tool permission mode from Gen
 G64: Desktop permission controls match Codex's information architecture before SwarmX-specific expansion: General exposes Default permissions, Auto-review, and Full access as independent capabilities, each conversation has a compact local selector, and conservative/custom policy details remain in Advanced permissions.
 G65: New users can install `swarmx` from npm and launch Desktop by default, while macOS users can download matching install packages directly from GitHub Releases.
 G66: CLI and desktop users can select Pi as a built-in ACP coding Harness, use Pi-owned models and sessions, and diagnose or install its official CLI through shared Runtime surfaces.
-G67: CLI and desktop users can select Kimi Code as a built-in ACP coding Harness, reuse Kimi-owned authentication and configuration, and diagnose or install its official CLI through shared Runtime surfaces.
-G68: Publish the verified Kimi Code Harness as SwarmX 3.1.4 through aligned npm packages, Git tag, and GitHub Release.
+G67: Desktop users can follow long-running terminal stdout/stderr inside the active tool card without waiting for the command to finish or turning transient output into persisted conversation history.
+G68: Desktop users can distinguish retryable Provider failures from SwarmX system failures and recover through explicit retry or Model selection actions.
+G69: CLI and desktop users can select Kimi Code as a built-in ACP coding Harness, reuse Kimi-owned authentication and configuration, and diagnose or install its official CLI through shared Runtime surfaces.
+G70: Publish the verified Kimi Code Harness as SwarmX 3.1.4 through aligned npm packages, Git tag, and GitHub Release.
 
 ## §C
 C1: Reuse existing `SwarmConfig`; no second workflow DSL.
@@ -201,7 +203,7 @@ C127: Project-aware model tools are host-injected, bounded, and rooted at the se
 C128: A Project-bound prompt identifies the active Project and instructs the Agent to inspect relevant files, but file contents cross the model boundary only through explicit bounded tool calls.
 C129: Automatic task naming runs only for a placeholder title, uses the configured cheap title Model route, returns one sanitized short line, and never blocks or replaces a successful primary response when naming fails.
 C130: Manual rename and pin state belong to local Session persistence. ACP-discovered sessions stay read-only unless their Harness exposes an explicit mutation capability.
-C131: Session deletion remains an explicit destructive action with confirmation; a context-menu dismissal never deletes data.
+C131: Session archiving is non-destructive and allowed only after all foreground and background work for that Session has stopped; it persists `archivedAt`, preserves history, and stays absent from default Session discovery.
 C132: Work timing is persisted presentation metadata derived from request start/end timestamps; rendering does not fabricate provider execution telemetry.
 C133: Existing Project files require a complete prior read and an unchanged content digest before host-provided write or edit operations may replace them; writes are bounded UTF-8 and atomically renamed so stale model context never silently overwrites concurrent user changes.
 C134: Host-provided Shell execution starts in the active Project, has a bounded command, duration, and captured output, propagates request cancellation to the whole process group, and never inherits Provider credentials or arbitrary ambient environment variables.
@@ -228,7 +230,7 @@ C154: Claude `LSP` is projected only when a command-backed language server is co
 C155: Claude worktree state is request-scoped and operates only on the canonical `.claude/worktrees/<name>` path created or resumed by that request. Entering atomically rebinds guarded file, Shell, and LSP roots; exiting restores the original root. Removal refuses unverifiable state, uncommitted files, or commits after the entry baseline unless `discard_changes: true`, stops live processes rooted in the removed worktree, and never silently deletes an active worktree during manager cleanup.
 C156: Claude `Agent` is exposed only with a real child-composition runner. Each invocation uses an independent tool manager rooted at the parent's current dynamic Project root, inherits the selected composition and cancellation boundary, returns only after a real child model response, and stores bounded request-scoped conversation history for explicit resume. Unsupported background, team, cwd, model-switch, and isolation semantics fail instead of silently degrading.
 C157: `SendMessage` and `Workflow` remain unexposed until SwarmX has concurrent team mailboxes or the deterministic workflow VM required by their upstream contracts. `PowerShell` remains unexposed until a Windows-native sandboxed process host is available. Existing child resume, graph execution, and macOS background Shell polling are not presented as those missing semantics.
-C158: Direct desktop Claude sessions may own a session-scoped runtime keyed by persisted `sessionId`. It serializes foreground turns and automatic activations, retains one sandboxed Shell across request tool-manager cleanup, and is closed on session deletion, Project-root replacement, or app shutdown.
+C158: Direct desktop Claude sessions may own a session-scoped runtime keyed by persisted `sessionId`. It serializes foreground turns and automatic activations, retains one sandboxed Shell across request tool-manager cleanup, and is closed on session archive, Project-root replacement, or app shutdown.
 C159: Claude `Monitor` is exposed only through that session runtime. Monitor commands retain the Project sandbox, stream bounded stdout lines as untrusted task notifications, apply timeout/persistent lifecycle and output-rate controls, and remain stoppable through the same `TaskStop` task id.
 C160: Claude cron tools use the session runtime's local-time scheduler. Jobs are bounded, validated as standard five-field cron expressions with a next occurrence inside one year, serialized with foreground/monitor activations, and auto-delete after a one-shot fire. Session-only recurring jobs expire after three days. Durable jobs use the canonical Project's `.claude/scheduled_tasks.json`, survive session/app close, use Claude Code's seven-day recurring lifetime unless marked `permanent`, coordinate eligible execution through `.claude/scheduled_tasks.lock`, persist recurring `lastFiredAt`, and are visible/deletable from every session on that Project. A durable one-shot occurrence missed while SwarmX was closed is removed and converted to a confirmation-required activation instead of executing its original prompt automatically.
 C161: A 3.1.1 release keeps every workspace package version aligned, publishes dependency-first from one verified commit, creates one matching `v3.1.1` tag/release, excludes generated residue and secrets, and does not present the three remaining TODO tools as implemented.
@@ -249,8 +251,13 @@ C175: macOS release packaging covers Apple silicon and Intel, uses tag/manifests
 C176: Root README stays a short user entrypoint; detailed architecture, Provider, Extension, permission, and runtime material remains in `docs/`.
 C177: Pi integration uses a pinned `pi-acp` stdio adapter over Pi's official RPC mode; SwarmX does not embed Pi SDK packages, copy Pi provider auth, or persist Pi credentials.
 C178: Pi executes filesystem and terminal tools natively, exposes no permission popups, does not delegate ACP `fs/*` or `terminal/*`, and does not consume client-supplied MCP servers; SwarmX UI and docs must not claim otherwise.
-C179: Kimi Code integration uses the official `kimi acp` stdio entrypoint and remains native so its local authentication, provider config, plugins, tools, and sessions remain available; SwarmX does not embed Kimi packages, copy credentials, or rewrite Kimi config.
-C180: A 3.1.4 release keeps every workspace package version aligned, publishes dependency-first from one verified commit, creates one matching `v3.1.4` tag/release, and preserves unrelated user-owned workspace changes.
+C179: Native local tools and ACP terminal metadata map incremental output to one request-scoped `tool_progress` event keyed by the authoritative tool invocation id; progress is presentation-only and never enters returned or persisted Session messages.
+C180: Desktop coalesces terminal progress for 75ms, withholds it for the first 250ms so short commands render only their final result, and bounds each invocation to 1 MiB or 10,000 lines with one explicit truncation marker.
+C181: A running terminal card auto-opens on its first visible progress batch, appends output in emission order, follows the bottom only while the viewer remains pinned there, and collapses when the final tool result arrives; final status still derives only from structured result/error/exit state.
+C182: Provider error classification is allowlist-based and main-process owned. Structured notices contain bounded fixed copy only; raw Provider bodies, credentials, request ids, and secrets never cross IPC or persistence through that notice.
+C183: Provider recovery actions require an explicit user click, retry the exact prior user text at most once per click, never create an automatic retry loop, and keep ordinary system errors on the existing failure path.
+C184: Kimi Code integration uses the official `kimi acp` stdio entrypoint and remains native so its local authentication, provider config, plugins, tools, and sessions remain available; SwarmX does not embed Kimi packages, copy credentials, or rewrite Kimi config.
+C185: A 3.1.4 release keeps every workspace package version aligned, publishes dependency-first from one verified commit, creates one matching `v3.1.4` tag/release, and preserves unrelated user-owned workspace changes.
 
 ## §I
 I1: `packages/core/src/types.ts` `SwarmConfigSchema`.
@@ -492,8 +499,12 @@ I236: `docs/index.md` and `DESIGNS.md` Custom Provider and OpenCode Go key-pool 
 I237: `packages/core/src/harness.ts`, model-capability behavior, and focused tests built-in Pi ACP Harness registration and explicit model-route enforcement.
 I238: `packages/runtime/src/harness-environment.ts` and desktop Runtime tests Pi CLI detection, version reporting, confirmed official npm installation, and native-execution status.
 I239: Desktop Renderer Harness registry/icon assets/tests plus `docs/index.md`, `DESIGNS.md`, and third-party notices Pi selection, provenance, setup, ACP feature, and security-boundary presentation.
-I240: `packages/core/src/harness.ts`, `packages/runtime/src/harness-environment.ts`, Desktop Harness registry/backend inference/icon assets, focused tests, `docs/index.md`, `DESIGNS.md`, and third-party notices Kimi Code ACP registration, Runtime setup, selection, provenance, and ownership boundaries.
-I241: Root/workspace manifests, lockfile, runtime version, npm packages, Git `v3.1.4`, and GitHub Release are the 3.1.4 release surfaces.
+I240: `packages/core/src/types.ts`, `mcp.ts`, `native-model.ts`, `agent.ts`, and `acp.ts` request-scoped tool-progress schema, local-tool callback transport, invocation correlation, ACP terminal-delta mapping, and non-persistence behavior.
+I241: `packages/desktop/src/main/workspace-shell.ts`, `workspace-tools.ts`, and `ipc.ts` ordered stdout/stderr observation plus delayed, coalesced, bounded Renderer publication.
+I242: Desktop Renderer work-activity grouping, live terminal presentation/autoscroll styling, and focused Core/Main/Renderer regression tests.
+I243: `packages/desktop/src/main/provider-error.ts`, `ipc.ts`, Preload response transport, Renderer Provider notice/actions/styles, and focused Main/Renderer tests.
+I244: `packages/core/src/harness.ts`, `packages/runtime/src/harness-environment.ts`, Desktop Harness registry/backend inference/icon assets, focused tests, `docs/index.md`, `DESIGNS.md`, and third-party notices Kimi Code ACP registration, Runtime setup, selection, provenance, and ownership boundaries.
+I245: Root/workspace manifests, lockfile, runtime version, npm packages, Git `v3.1.4`, and GitHub Release are the 3.1.4 release surfaces.
 
 ## §V
 V1: Workflow JSON source of truth is `SwarmConfig`; UI preview, run badges, and send payload derive from parsed JSON.
@@ -840,7 +851,7 @@ V341: Every completed desktop request decorates its returned work/final chunks w
 V342: Expanded Worked content uses compact semantic reasoning/tool rows, avoids raw normalized Agent identifiers as the primary label, and never animates a completed reasoning indicator.
 V343: The first successful user request in a placeholder-titled local Session asks `gpt-5.4-mini` for a concise title, sanitizes it to one nonempty line of at most 60 characters, persists it, and leaves the primary response intact on title failure.
 V344: Double-clicking a writable local task or choosing Rename opens a centered rename dialog with selected current text; Save persists the trimmed title, while Cancel/Escape leaves it unchanged and a manual title is never replaced by automatic naming.
-V345: Right-clicking a local sidebar task opens a keyboard-accessible menu with Pin/Unpin, Rename, and Delete; pinned tasks persist and sort before unpinned siblings, Delete requires confirmation, and ACP tasks expose no unsupported mutation actions.
+V345: Right-clicking a local sidebar task opens a keyboard-accessible menu with Pin/Unpin, Rename, and Archive; pinned tasks persist and sort before unpinned siblings, Archive is disabled and rejected while that Session is running, successful Archive preserves persisted history through `archivedAt` and removes the task from default lists, and ACP tasks expose no unsupported mutation actions.
 V346: A direct SwarmX composition with a validated Project `cwd` receives `workspace_list_directory`, `workspace_read_file`, `workspace_write_file`, `workspace_edit_file`, and `workspace_shell`; a task without a validated `cwd`, or an ACP Claude Code/Codex task, receives none of these host tools.
 V347: A complete `workspace_read_file` result includes a content digest. Creating a new contained UTF-8 file succeeds atomically, while replacing an existing file without reading it first or after an external modification fails with an actionable stale-content error.
 V348: `workspace_edit_file` replaces one unique exact match by default, supports an explicit replace-all mode, rejects missing or ambiguous matches, and shares write size, root containment, symlink, and optimistic-concurrency protections.
@@ -925,7 +936,7 @@ V426: Monitor stdout is line-buffered, coalesced for at most 200ms, bounded per 
 V427: Conditional `CronCreate` uses strict `cron`, `prompt`, optional `recurring` (default true), and optional `durable` (default false), returns `id`, `humanSchedule`, `recurring`, and `durable`; `CronDelete` uses strict `{id}` and returns `{id}`; `CronList` uses strict `{}` and returns exact job fields.
 V428: Cron parsing supports wildcard, list, range, and step syntax in minute/hour/day-of-month/month/day-of-week local-time fields, including Sunday 0/7 and Vixie day-of-month/day-of-week OR behavior. Creation rejects malformed/no-next-year expressions and >50 combined jobs; one-shot jobs delete after firing, recurring session jobs re-arm and expire after three days, deletion cancels timers, and durable jobs follow the persistence and ownership contract in V432-V437.
 V429: Main-process successful foreground and automatic turns append messages atomically to the persisted session before publishing. Renderer success/background paths reload the authoritative session through removable preload transport instead of overwriting concurrent messages with stale snapshots.
-V430: Focused tests cover exact Monitor/Cron schemas and outputs, persistent borrowed-Shell cleanup, monitor line/event/timeout/TaskStop behavior, cron parsing/next-fire/delete/list/expiry/limits, foreground-event serialization, session deletion/shutdown, preload forwarding, and Renderer authoritative refresh.
+V430: Focused tests cover exact Monitor/Cron schemas and outputs, persistent borrowed-Shell cleanup, monitor line/event/timeout/TaskStop behavior, cron parsing/next-fire/delete/list/expiry/limits, foreground-event serialization, stopped-only session archive/shutdown, preload forwarding, and Renderer authoritative refresh.
 V431: New session-runtime, scheduler, monitor, transport, and regression code conforms to repository Biome formatting before full validation.
 V432: A durable Cron create writes the Claude Code-compatible `{ tasks: [...] }` document to `<Project>/.claude/scheduled_tasks.json` using an atomic private-file replacement. Each task has a raw eight-character UUID id plus `cron`, `prompt`, `createdAt`, optional true-only `recurring`, optional `lastFiredAt`/`permanent`, and creator session/process identity; the input-only `durable` flag is never persisted.
 V433: Scheduled-task reads treat a missing or invalid document as empty, skip malformed or invalid-cron entries, preserve the supported optional fields, serialize concurrent in-process mutations, and never expose or execute an entry before its required persistence mutation succeeds.
@@ -997,13 +1008,20 @@ V498: Documentation states Pi owns provider login, settings, Skills/extensions, 
 V499: Harness inventory UI tests derive expected rows and version checks from their supplied Harness fixture or assert stable ids; adding one built-in Harness must not require unrelated fixed-count rewrites.
 V500: Root release verification uses `pnpm run ci`; tracked runbooks and examples never prescribe bare `pnpm ci`, which pnpm 10 reserves as an unimplemented built-in command.
 V501: Tool-result rendering derives terminal status from explicit `render.status`/`isError` and structured `status` or `exit_code` before textual fallback; stdout containing words such as `error`, `failed`, or `exception` cannot turn `exit_code: 0` into failure, and a nonzero exit code cannot render as success across native Responses, Anthropic, or Chat paths.
-V502: Built-in `kimi` is a session Harness with `modelCompatibility=any`, explicit model-route requirement, and direct `kimi acp` backend; no Kimi SDK or CLI package becomes a SwarmX runtime dependency.
-V503: Runtime detects Kimi Code only through `kimi --version`, reports its normalized version, and offers the official self-contained install script only after existing explicit repair confirmation; docs keep official npm as a Node 22.19+ alternative and Kimi runs natively.
-V504: Kimi model and reasoning selection flows through ACP-advertised `model` and `thought_level` configuration, and a Model is executable only with `harnessRuntimeModels.kimi` or a ModelSupply whose runtime id explicitly names `kimi`; unsupported or absent routes fail closed.
-V505: Desktop and extension inventory expose Kimi Code as selectable, Runtime shows CLI health, backend inference recognizes `kimi acp`, and the revisioned upstream MIT SVG renders offline with deterministic fallback.
-V506: Documentation states Kimi owns login, provider config, Skills/plugins, tools, permission modes, and session files; Kimi ACP reuses local auth, runs shell locally, falls back to local files because SwarmX advertises no ACP FS capability, and receives no client MCP servers while SwarmX sends an empty MCP list.
-V507: Root runtime constant and all six publishable packages declare 3.1.4; packed workspace dependencies resolve to 3.1.4 and npm publication remains dependency-first before matching Git tag and GitHub Release.
-V508: Focused Core/Runtime/Renderer tests cover registry metadata, explicit model-route behavior, official install command, native status, backend inference, and icon provenance; `pnpm run ci` plus an installed-CLI ACP startup smoke pass before publication.
+V502: `MessageChunk` accepts request-scoped `tool_progress`; native Responses, Anthropic, and streaming Chat calls attach the provider invocation id to call/progress/result chunks, while ACP maps `_meta.terminal_output_delta.data` and `_meta.terminal_output.data` to the same correlated event.
+V503: Local tool execution forwards a typed progress callback without changing remote MCP requests. Sandboxed pipe and PTY commands report stdout/stderr in observed order, and progress stops with the tool invocation even when a yielded Shell session remains alive.
+V504: Main publishes terminal progress only after 250ms, coalesces batches for 75ms, caps each invocation at 1 MiB or 10,000 lines with one truncation marker, flushes before the matching terminal result, and excludes every progress chunk from observed/persisted messages.
+V505: Renderer groups progress by invocation id, incrementally updates the matching running terminal card, auto-opens once, follows output only while scrolled to the bottom, replaces live output with the final structured snapshot, and auto-collapses on completion without using output text to infer status.
+V506: Main classifies only allowlisted Provider overload, rate-limit, and temporary-unavailability signatures into a bounded `provider_error` notice; unrecognized local, tool, sandbox, and system failures remain generic errors.
+V507: Classified Provider failures persist and return the same fixed-copy structured notice without raw error text, while generic failures preserve existing system-error behavior and failure responses include their authoritative terminal message list.
+V508: Renderer presents `provider_error` as a compact Provider notice instead of `SYSTEM / MESSAGE`, exposes keyboard-reachable `Try again` and available `Change model` actions, retries the prior user text only on click, opens the Model picker on request, and stays usable at narrow widths.
+V509: Built-in `kimi` is a session Harness with `modelCompatibility=any`, explicit model-route requirement, and direct `kimi acp` backend; no Kimi SDK or CLI package becomes a SwarmX runtime dependency.
+V510: Runtime detects Kimi Code only through `kimi --version`, reports its normalized version, and offers the official self-contained install script only after existing explicit repair confirmation; docs keep official npm as a Node 22.19+ alternative and Kimi runs natively.
+V511: Kimi model and reasoning selection flows through ACP-advertised `model` and `thought_level` configuration, and a Model is executable only with `harnessRuntimeModels.kimi` or a ModelSupply whose runtime id explicitly names `kimi`; unsupported or absent routes fail closed.
+V512: Desktop and extension inventory expose Kimi Code as selectable, Runtime shows CLI health, backend inference recognizes `kimi acp`, and the revisioned upstream MIT SVG renders offline with deterministic fallback.
+V513: Documentation states Kimi owns login, provider config, Skills/plugins, tools, permission modes, and session files; Kimi ACP reuses local auth, runs shell locally, falls back to local files because SwarmX advertises no ACP FS capability, and receives no client MCP servers while SwarmX sends an empty MCP list.
+V514: Root runtime constant and all six publishable packages declare 3.1.4; packed workspace dependencies resolve to 3.1.4 and npm publication remains dependency-first before matching Git tag and GitHub Release.
+V515: Focused Core/Runtime/Renderer tests cover registry metadata, explicit model-route behavior, official install command, native status, backend inference, and icon provenance; `pnpm run ci` plus an installed-CLI ACP startup smoke pass before publication.
 
 ## §T
 |id|status|task|cites|
@@ -1172,7 +1190,7 @@ V508: Focused Core/Runtime/Renderer tests cover registry metadata, explicit mode
 |T162|x|inject bounded Project identity and workspace tools into direct SwarmX compositions|V339,V340,I187,I188|
 |T163|x|persist request timing and rebuild Worked disclosure presentation|V341,V342,I189,I191|
 |T164|x|add cheap-model automatic title generation and local Session mutation IPC|V343,V344,V345,I189,I190|
-|T165|x|add centered rename dialog, double-click rename, and task context menu with pin/delete|V344,V345,I191|
+|T165|x|add centered rename dialog, double-click rename, and task context menu with pin/archive|V344,V345,I191|
 |T166|x|run targeted/full validation and rendered desktop QA for Project-aware task lifecycle|V339,V340,V341,V342,V343,V344,V345,I187,I188,I189,I190,I191|
 |T167|x|backprop the missing direct SwarmX coding-tool contract and implement atomic Project write/edit with stale-content protection|V346,V347,V348,I192|
 |T168|x|implement fail-closed sandboxed Project Shell execution with limits, environment isolation, timeout, and cancellation|V349,V350,I193|
@@ -1214,8 +1232,11 @@ V508: Focused Core/Runtime/Renderer tests cover registry metadata, explicit mode
 |T204|x|implement Custom Provider exact discovery and OpenCode Go encrypted multi-key local-usage failover with Provider Settings UI|G43,G44,G46,G47,C3,C15,C47,C51,V236,V243,V245,V246,V282,V283,V284,V302,V482,V483,V484,V485,V486,I144,I151,I152,I153,I154,I159,I160,I161,I233,I234,I235,I236|
 |T205|x|add built-in Pi ACP Harness, Runtime setup, Desktop selection, tests, and boundary documentation|G66,C177,C178,V494,V495,V496,V497,V498,V499,I237,I238,I239|
 |T206|x|prepare 3.1.3 with Pi Harness after real smoke and full CI|V469,V470,V471,V476,V487,V493,V494,V495,V496,V497,V498,V499,V500,I237,I238,I239|
-|T207|x|add built-in Kimi Code ACP Harness, Runtime setup, Desktop selection, tests, and boundary documentation|G67,C179,V502,V503,V504,V505,V506,V508,I240|
-|T208|x|verify, version, publish, tag, and release SwarmX 3.1.4 with Kimi Code support|G68,C180,V469,V470,V487,V493,V507,V508,I241|
+|T207|x|stream bounded request-scoped terminal output through native/ACP execution into live Desktop tool cards|G67,C179,C180,C181,V502,V503,V504,V505,I240,I241,I242|
+|T208|x|classify and render friendly actionable Provider failures without exposing raw Provider errors|G68,C3,C182,C183,V506,V507,V508,I2,I3,I4,I5,I6,I243|
+|T209|x|replace Desktop Session deletion with stopped-only Archive and default archived-session filtering|G53,C130,C131,V345,V429,V430,I189,I190,I191,I216|
+|T210|x|add built-in Kimi Code ACP Harness, Runtime setup, Desktop selection, tests, and boundary documentation|G69,C184,V509,V510,V511,V512,V513,V515,I244|
+|T211|x|verify, version, publish, tag, and release SwarmX 3.1.4 with Kimi Code support|G70,C185,V469,V470,V487,V493,V514,V515,I245|
 
 ## §B
 |id|date|cause|fix|
@@ -1356,3 +1377,4 @@ V508: Focused Core/Runtime/Renderer tests cover registry metadata, explicit mode
 |B134|2026-07-23|B132 stable-ID assertion expected an absent optional refresh field on initial version checks|existing focused test|
 |B135|2026-07-23|the installed-CLI smoke script treated `AcpClient.listSessions()` as a response envelope instead of its normalized array return|existing TypeScript return contract|
 |B136|2026-07-24|the icon reconstruction script relied on variadic NumPy tuple inference and reused a loop variable across incompatible path states, so repository mypy rejected the release commit|construct fixed-arity tuples and keep traversal state explicitly typed|
+|B137|2026-07-22|desktop send failure handling collapsed every Provider exception into a raw red system message with no typed recovery action|V506,V507,V508|

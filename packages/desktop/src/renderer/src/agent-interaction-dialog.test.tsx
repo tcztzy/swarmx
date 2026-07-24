@@ -1,8 +1,10 @@
 // @vitest-environment jsdom
 
-import { fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { AgentInteractionDialog } from "./agent-interaction-dialog.js";
+
+afterEach(cleanup);
 
 describe("V390 AgentInteractionDialog", () => {
   it("V445-V447 returns one exact tool permission option without raw input", () => {
@@ -31,14 +33,57 @@ describe("V390 AgentInteractionDialog", () => {
     );
 
     expect(screen.getByText("Project-sandboxed shell command")).not.toBeNull();
-    expect(screen.getByText(/Allow once applies only to this request/)).not.toBeNull();
-    expect(screen.getByText(/does not expand the host OS sandbox/)).not.toBeNull();
-    expect(screen.getByText(/Policy: personal/)).not.toBeNull();
-    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Reject" }));
+    expect(
+      screen.getByRole("dialog", { name: "Allow SwarmX to run this command?" }),
+    ).not.toBeNull();
+    expect(document.querySelector(".agent-interaction-backdrop")).toBeNull();
+    expect(screen.getByRole("dialog").classList.contains("agent-tool-approval")).toBe(true);
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Deny" }));
     fireEvent.click(screen.getByRole("button", { name: "Allow once" }));
     expect(onResolve).toHaveBeenCalledWith({
       kind: "tool_approval",
       optionId: "allow_once",
+    });
+  });
+
+  it("keeps long commands compact and puts persistent allow choices in a menu", () => {
+    const onResolve = vi.fn();
+    render(
+      <AgentInteractionDialog
+        interaction={{
+          kind: "tool_approval",
+          requestId: "request-1",
+          interactionId: "approval-2",
+          title: "Allow SwarmX to run this command?",
+          toolKind: "execute",
+          summary: `node --input-type=module -e '${"inspect();".repeat(32)}'`,
+          options: [
+            { optionId: "reject_once", name: "Reject", kind: "reject_once" },
+            { optionId: "allow_once", name: "Allow once", kind: "allow_once" },
+            {
+              optionId: "allow_always",
+              name: "Allow similar commands",
+              kind: "allow_always",
+            },
+          ],
+        }}
+        resolving={false}
+        error={null}
+        onResolve={onResolve}
+        onStop={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("Terminal")).not.toBeNull();
+    expect(document.querySelector(".agent-tool-approval__summary pre.is-collapsed")).not.toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Expand" }));
+    expect(document.querySelector(".agent-tool-approval__summary pre.is-collapsed")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "More allow options" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Allow similar commands" }));
+    expect(onResolve).toHaveBeenCalledWith({
+      kind: "tool_approval",
+      optionId: "allow_always",
     });
   });
 

@@ -1,131 +1,40 @@
-export type DesktopIpcInvoke = (channel: string, ...args: unknown[]) => Promise<unknown>;
+import type { ProjectData } from "@swarmx/core";
+import type {
+  DesktopAgentChunkEvent,
+  DesktopAgentInteractionEvent,
+  DesktopAgentInteractionResponse,
+  DesktopBrowserBounds,
+  DesktopBrowserState,
+  DesktopMessageChunk,
+  DesktopSessionMessagesEvent,
+  DesktopTerminalDataEvent,
+  DesktopTerminalExitEvent,
+  DesktopUpdateState,
+  SwarmxAPI,
+} from "../shared/desktop-api.js";
+
+export type {
+  DesktopAgentChunkEvent,
+  DesktopAgentInteractionEvent,
+  DesktopAgentInteractionResponse,
+  DesktopBrowserBounds,
+  DesktopBrowserState,
+  DesktopSessionMessagesEvent,
+  DesktopTerminalDataEvent,
+  DesktopTerminalExitEvent,
+  DesktopUpdatePhase,
+  DesktopUpdateState,
+  SwarmxAPI,
+} from "../shared/desktop-api.js";
+
+export type DesktopIpcInvoke = <T>(channel: string, ...args: unknown[]) => Promise<T>;
 export type DesktopIpcSubscribe = (
   channel: string,
   listener: (value: unknown) => void,
 ) => () => void;
 
-export type DesktopUpdatePhase =
-  | "hidden"
-  | "available"
-  | "downloading"
-  | "installing"
-  | "restarting";
-
-export interface DesktopUpdateState {
-  phase: DesktopUpdatePhase;
-  currentVersion: string;
-  latestVersion?: string;
-  progress?: number;
-  error?: string;
-}
-
-export interface DesktopTerminalDataEvent {
-  id: string;
-  data: string;
-}
-
-export interface DesktopTerminalExitEvent {
-  id: string;
-  exitCode: number;
-  signal?: number;
-}
-
-export interface DesktopAgentMessageChunk {
-  role: string;
-  content: string;
-  kind: "message" | "thinking" | "tool_call" | "tool_result";
-  agent?: string;
-  render?: {
-    invocationId?: string;
-    status?: "queued" | "running" | "succeeded" | "failed" | "canceled" | "skipped" | "completed";
-  };
-  toolName?: string;
-}
-
-export interface DesktopAgentChunkEvent {
-  requestId: string;
-  chunk: DesktopAgentMessageChunk;
-}
-
-export interface DesktopSessionMessagesEvent {
-  sessionId: string;
-}
-
-export interface DesktopAgentQuestionOption {
-  label: string;
-  description: string;
-  preview?: string;
-}
-
-export interface DesktopAgentQuestion {
-  question: string;
-  header: string;
-  options: DesktopAgentQuestionOption[];
-  multiSelect: boolean;
-}
-
-export interface DesktopToolApprovalOption {
-  optionId: string;
-  name: string;
-  kind: "allow_once" | "allow_always" | "reject_once" | "reject_always";
-}
-
-export type DesktopAgentInteractionEvent =
-  | {
-      kind: "questions";
-      requestId: string;
-      interactionId: string;
-      questions: DesktopAgentQuestion[];
-    }
-  | {
-      kind: "plan_approval";
-      requestId: string;
-      interactionId: string;
-      plan: string;
-      filePath: string;
-    }
-  | {
-      kind: "tool_approval";
-      requestId: string;
-      interactionId: string;
-      title: string;
-      toolKind?: string;
-      source?: "direct" | "acp";
-      policySourceIds?: string[];
-      summary: string;
-      options: DesktopToolApprovalOption[];
-    };
-
-export type DesktopAgentInteractionResponse =
-  | { kind: "questions"; answers: Record<string, string> }
-  | { kind: "plan_approval"; approved: boolean; feedback?: string }
-  | { kind: "tool_approval"; optionId: string };
-
-export interface DesktopBrowserBounds {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-}
-
-export interface DesktopBrowserState {
-  id: string;
-  url: string;
-  title: string;
-  loading: boolean;
-  canGoBack: boolean;
-  canGoForward: boolean;
-  error?: string;
-}
-
-export interface DesktopProjectData {
-  id: string;
-  name: string;
-  cwd: string;
-  pinned: boolean;
-  createdAt: string;
-  updatedAt: string;
-}
+export type DesktopAgentMessageChunk = DesktopMessageChunk;
+export type DesktopProjectData = ProjectData;
 
 export interface DesktopBootstrapData {
   initialProjects?: readonly DesktopProjectData[];
@@ -140,22 +49,14 @@ export function createSwarmxDesktopApi(
   invoke: DesktopIpcInvoke,
   subscribe: DesktopIpcSubscribe = () => () => undefined,
   bootstrap: DesktopBootstrapData = {},
-) {
+): SwarmxAPI {
   const initialProjects = bootstrap.initialProjects
     ? Object.freeze(bootstrap.initialProjects.map((project) => Object.freeze({ ...project })))
     : undefined;
 
-  return Object.freeze({
+  const api: SwarmxAPI = {
     ...(initialProjects ? { initialProjects } : {}),
-    sendMessage: (params: {
-      requestId: string;
-      sessionId?: string;
-      harnessId: string;
-      userText: string;
-      agentComposition?: unknown;
-      swarmConfig?: unknown;
-      cwd?: string;
-    }) => invoke("agent:send", params),
+    sendMessage: (params) => invoke("agent:send", params),
 
     onAgentChunk: (listener: (event: DesktopAgentChunkEvent) => void) =>
       subscribe("agent:chunk", (value) => listener(value as DesktopAgentChunkEvent)),
@@ -166,38 +67,17 @@ export function createSwarmxDesktopApi(
     onSessionMessages: (listener: (event: DesktopSessionMessagesEvent) => void) =>
       subscribe("session:messages", (value) => listener(value as DesktopSessionMessagesEvent)),
 
-    resolveAgentInteraction: (params: {
-      requestId: string;
-      interactionId: string;
-      response: DesktopAgentInteractionResponse;
-    }) => invoke("agent:resolveInteraction", params),
+    resolveAgentInteraction: (params) => invoke("agent:resolveInteraction", params),
 
     cancelMessage: (requestId: string) => invoke("agent:cancel", { requestId }),
 
-    createSession: (params: {
-      agentName: string;
-      harness: string;
-      model?: string;
-      projectId?: string;
-      cwd?: string;
-      permissionMode?: "inherit" | "default" | "auto" | "plan" | "trusted";
-    }) => invoke("session:create", params),
+    createSession: (params) => invoke("session:create", params),
 
-    saveSession: (session: unknown) => invoke("session:save", session),
+    saveSession: (session) => invoke("session:save", session),
 
     loadSession: (id: string) => invoke("session:load", id),
 
-    loadDiscoveredSession: (session: {
-      id: string;
-      title: string;
-      projectId?: string;
-      cwd: string;
-      pinned?: boolean;
-      updatedAt?: string;
-      harnessId: string;
-      harnessLabel: string;
-      source: "local" | "acp";
-    }) => invoke("session:loadDiscovered", session),
+    loadDiscoveredSession: (session) => invoke("session:loadDiscovered", session),
 
     listSessions: () => invoke("session:list"),
 
@@ -225,7 +105,7 @@ export function createSwarmxDesktopApi(
       harnessIds?: string[];
     }) => invoke("session:listGrouped", params ?? {}),
 
-    deleteSession: (id: string) => invoke("session:delete", id),
+    archiveSession: (id: string) => invoke("session:archive", id),
 
     renameSession: (id: string, title: string) => invoke("session:rename", { id, title }),
 
@@ -251,16 +131,17 @@ export function createSwarmxDesktopApi(
 
     applyExtensionAction: (input: unknown) => invoke("extension:applyAction", input),
 
-    saveSkillEvolutionPolicy: (input: {
-      enabled: boolean;
-      promotionGate: "human" | "policy";
-    }) => invoke("extension:saveEvolutionPolicy", input),
+    saveSkillEvolutionPolicy: (input) => invoke("extension:saveEvolutionPolicy", input),
 
     listCustomAgents: () => invoke("customAgent:list"),
 
     saveCustomAgent: (input: unknown) => invoke("customAgent:save", input),
 
     removeCustomAgent: (id: string) => invoke("customAgent:remove", { id }),
+
+    getComposerPreferences: () => invoke("composerPreferences:get"),
+
+    saveComposerPreference: (input) => invoke("composerPreferences:save", input),
 
     getPermissionStatus: (params?: {
       cwd?: string;
@@ -278,7 +159,7 @@ export function createSwarmxDesktopApi(
       context?: { cwd?: string; agentId?: string; agentPolicy?: unknown },
     ) => invoke("permission:saveProfiles", { profileAvailability, ...context }),
 
-    workspaceRoot: () => invoke("workspace:root") as Promise<string>,
+    workspaceRoot: () => invoke("workspace:root"),
 
     getWorkspaceReview: (cwd?: string) => invoke("workspace:review", cwd ? { cwd } : {}),
 
@@ -288,16 +169,14 @@ export function createSwarmxDesktopApi(
     readWorkspaceFile: (path: string, cwd?: string) =>
       invoke("workspace:readFile", { path, ...(cwd ? { cwd } : {}) }),
 
-    createTerminal: (params: { id?: string; cwd: string; cols?: number; rows?: number }) =>
-      invoke("terminal:create", params) as Promise<{ id: string; pid: number }>,
+    createTerminal: (params) => invoke("terminal:create", params),
 
-    writeTerminal: (id: string, data: string) =>
-      invoke("terminal:write", { id, data }) as Promise<{ written: boolean }>,
+    writeTerminal: (id: string, data: string) => invoke("terminal:write", { id, data }),
 
     resizeTerminal: (id: string, cols: number, rows: number) =>
-      invoke("terminal:resize", { id, cols, rows }) as Promise<{ resized: boolean }>,
+      invoke("terminal:resize", { id, cols, rows }),
 
-    killTerminal: (id: string) => invoke("terminal:kill", { id }) as Promise<{ killed: boolean }>,
+    killTerminal: (id: string) => invoke("terminal:kill", { id }),
 
     onTerminalData: (listener: (event: DesktopTerminalDataEvent) => void) =>
       subscribe("terminal:data", (value) => listener(value as DesktopTerminalDataEvent)),
@@ -305,71 +184,43 @@ export function createSwarmxDesktopApi(
     onTerminalExit: (listener: (event: DesktopTerminalExitEvent) => void) =>
       subscribe("terminal:exit", (value) => listener(value as DesktopTerminalExitEvent)),
 
-    createBrowser: (
-      params: {
-        id?: string;
-        url?: string;
-        bounds?: DesktopBrowserBounds;
-        visible?: boolean;
-      } = {},
-    ) => invoke("browser:create", params) as Promise<DesktopBrowserState>,
+    createBrowser: (params = {}) => invoke("browser:create", params),
 
-    navigateBrowser: (id: string, url: string) =>
-      invoke("browser:navigate", { id, url }) as Promise<DesktopBrowserState>,
+    navigateBrowser: (id: string, url: string) => invoke("browser:navigate", { id, url }),
 
-    backBrowser: (id: string) => invoke("browser:back", { id }) as Promise<DesktopBrowserState>,
+    backBrowser: (id: string) => invoke("browser:back", { id }),
 
-    forwardBrowser: (id: string) =>
-      invoke("browser:forward", { id }) as Promise<DesktopBrowserState>,
+    forwardBrowser: (id: string) => invoke("browser:forward", { id }),
 
-    reloadBrowser: (id: string) => invoke("browser:reload", { id }) as Promise<DesktopBrowserState>,
+    reloadBrowser: (id: string) => invoke("browser:reload", { id }),
 
     setBrowserBounds: (id: string, bounds: DesktopBrowserBounds) =>
-      invoke("browser:setBounds", { id, bounds }) as Promise<{ updated: boolean }>,
+      invoke("browser:setBounds", { id, bounds }),
 
     setBrowserVisible: (id: string, visible: boolean) =>
-      invoke("browser:setVisible", { id, visible }) as Promise<{ updated: boolean }>,
+      invoke("browser:setVisible", { id, visible }),
 
-    destroyBrowser: (id: string) =>
-      invoke("browser:destroy", { id }) as Promise<{ destroyed: boolean }>,
+    destroyBrowser: (id: string) => invoke("browser:destroy", { id }),
 
     onBrowserState: (listener: (state: DesktopBrowserState) => void) =>
       subscribe("browser:state", (value) => listener(value as DesktopBrowserState)),
 
-    getUpdateState: () => invoke("appUpdate:getState") as Promise<DesktopUpdateState>,
+    getUpdateState: () => invoke("appUpdate:getState"),
 
-    startUpdate: () => invoke("appUpdate:install") as Promise<DesktopUpdateState>,
+    startUpdate: () => invoke("appUpdate:install"),
 
     onUpdateState: (listener: (state: DesktopUpdateState) => void) =>
       subscribe("appUpdate:state", (value) => listener(value as DesktopUpdateState)),
 
-    selectFilesAndFolders: () => invoke("workspace:selectFilesAndFolders") as Promise<string[]>,
+    selectFilesAndFolders: () => invoke("workspace:selectFilesAndFolders"),
 
     refreshModelCatalog: () => invoke("modelCatalog:refresh"),
 
-    addManualModel: (input: {
-      id: string;
-      label?: string;
-      runtimeModel?: string;
-      apiProtocol: "anthropic" | "openai_chat" | "openai_responses" | "ollama";
-    }) => invoke("modelCatalog:addManualModel", input),
+    addManualModel: (input) => invoke("modelCatalog:addManualModel", input),
 
     removeManualModel: (modelId: string) => invoke("modelCatalog:removeManualModel", { modelId }),
 
-    saveProvider: (input: {
-      id?: string;
-      label: string;
-      kind: "anthropic" | "openai_chat" | "openai_responses" | "ollama";
-      baseUrl: string;
-      authMode: "api_key" | "auth_token";
-      usageAdapter?: "new_api";
-      secret?: string;
-      accountAccessToken?: string;
-      accountUserId?: string;
-      clearAccountAccess?: boolean;
-      additionalApiKeys?: Array<{ label?: string; value: string }>;
-      removeApiKeyIds?: string[];
-    }) => invoke("modelCatalog:saveProvider", input),
+    saveProvider: (input) => invoke("modelCatalog:saveProvider", input),
 
     removeProvider: (providerId: string) => invoke("modelCatalog:removeProvider", { providerId }),
 
@@ -386,38 +237,21 @@ export function createSwarmxDesktopApi(
 
     getHarnessEnvironment: () => invoke("harnessEnvironment:get"),
 
-    getHarnessVersion: (params: { harnessId: string; refresh?: boolean }) =>
-      invoke("harnessEnvironment:version", params),
+    getHarnessVersion: (params) => invoke("harnessEnvironment:version", params),
 
     inspectDoctor: (params?: { harnessId?: string }) => invoke("doctor:inspect", params ?? {}),
 
-    fixDoctor: (params: { harnessId?: string; confirmed: boolean }) => invoke("doctor:fix", params),
+    fixDoctor: (params) => invoke("doctor:fix", params),
 
-    setupHarnessEnvironment: (params?: {
-      harnessId?: string;
-      harnessToolId?: string;
-      requirementIds?: string[];
-      containerRuntimeId?: string;
-      includeContainerRuntime?: boolean;
-    }) => invoke("harnessEnvironment:setup", params ?? {}),
+    setupHarnessEnvironment: (params) => invoke("harnessEnvironment:setup", params ?? {}),
 
-    lspComplete: (params: {
-      serverId: string;
-      workspaceRoot: string;
-      text: string;
-      position: { line: number; character: number };
-      documentUri?: string;
-      languageId?: string;
-      triggerCharacter?: string;
-      timeoutMs?: number;
-    }) => invoke("lsp:complete", params),
+    lspComplete: (params) => invoke("lsp:complete", params),
 
-    lspStop: (params: { serverId: string; workspaceRoot?: string }) => invoke("lsp:stop", params),
+    lspStop: (params) => invoke("lsp:stop", params),
 
-    loadImageDataUrl: (source: string) =>
-      invoke("asset:imageDataUrl", source) as Promise<string | null>,
-  });
+    loadImageDataUrl: (source: string) => invoke("asset:imageDataUrl", source),
+  };
+  return Object.freeze(api);
 }
 
-export type SwarmxDesktopApi = ReturnType<typeof createSwarmxDesktopApi>;
-export type SwarmxAPI = SwarmxDesktopApi;
+export type SwarmxDesktopApi = SwarmxAPI;

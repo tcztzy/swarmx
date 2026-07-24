@@ -13,7 +13,12 @@ import {
 } from "./code-highlighter.js";
 import "katex/dist/katex.min.css";
 
-export type MessageContentKind = "message" | "thinking" | "tool_call" | "tool_result";
+export type MessageContentKind =
+  | "message"
+  | "thinking"
+  | "tool_call"
+  | "tool_progress"
+  | "tool_result";
 
 interface MessageContentProps {
   kind: MessageContentKind;
