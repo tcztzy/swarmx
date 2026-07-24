@@ -25,6 +25,7 @@ import {
   type LocalMcpTool,
   type LocalTextTool,
   type LocalTool,
+  type LocalToolCallContext,
   type ModelApi,
   type ResolvedHarnessPermissionPolicy,
   ResolvedHarnessPermissionPolicySchema,
@@ -42,6 +43,7 @@ import {
   WORKSPACE_SHELL_DEFAULTS,
   WorkspaceShell,
   type WorkspaceShellExecResult,
+  type WorkspaceShellOutput,
   type WorkspaceShellResult,
   type WorkspaceShellSessionSnapshot,
 } from "./workspace-shell.js";
@@ -1550,18 +1552,18 @@ function permissionGuardedTool(
     const textTool = tool as LocalTextTool;
     return {
       ...textTool,
-      call: async (input: string) => {
+      call: async (input: string, context) => {
         await authorize(input);
-        return textTool.call(input);
+        return textTool.call(input, context);
       },
     };
   }
   const functionTool = tool as LocalMcpTool;
   return {
     ...functionTool,
-    call: async (input: Record<string, unknown>) => {
+    call: async (input: Record<string, unknown>, context) => {
       await authorize(input);
-      return functionTool.call(input);
+      return functionTool.call(input, context);
     },
   };
 }
@@ -1677,50 +1679,61 @@ function claudeCodeWorkspaceTools(
         required: ["command"],
       },
       dispose,
-      call: async (input) => {
-        planMode.assertCanMutate("Bash");
-        if (input.dangerouslyDisableSandbox === true) {
-          throw new Error("The Project sandbox cannot be disabled.");
-        }
-        const command = requiredToolText(input.command, "command");
-        const timeoutMs =
-          input.timeout === undefined
-            ? undefined
-            : requiredBoundedInteger(input.timeout, "timeout", 1, 600_000);
-        if (input.run_in_background === true) {
-          const result = await shell.startBackground(command, {
-            ...(timeoutMs === undefined ? {} : { timeoutMs }),
-          });
-          const structuredContent = claudeBashOutput(result, result.sessionId);
-          return localToolResult(
-            `Command running in background with ID: ${result.sessionId}`,
-            structuredContent,
+      call: async (input, context) => {
+        const progress = terminalProgressObserver(context);
+        try {
+          planMode.assertCanMutate("Bash");
+          if (input.dangerouslyDisableSandbox === true) {
+            throw new Error("The Project sandbox cannot be disabled.");
+          }
+          const command = requiredToolText(input.command, "command");
+          const timeoutMs =
+            input.timeout === undefined
+              ? undefined
+              : requiredBoundedInteger(input.timeout, "timeout", 1, 600_000);
+          if (input.run_in_background === true) {
+            const result = await shell.startBackground(command, {
+              ...(timeoutMs === undefined ? {} : { timeoutMs }),
+              ...(progress.onOutput ? { onOutput: progress.onOutput } : {}),
+            });
+            const structuredContent = claudeBashOutput(result, result.sessionId);
+            return localToolResult(
+              `Command running in background with ID: ${result.sessionId}`,
+              structuredContent,
+            );
+          }
+          if (startsWithSleepCommand(command)) {
+            const result = await shell.run(command, {
+              ...(input.timeout === undefined ? {} : { timeoutMs }),
+              ...(progress.onOutput ? { onOutput: progress.onOutput } : {}),
+            });
+            return localToolResult(
+              formatClaudeBashResult(result),
+              claudeBashOutput(result, undefined, timeoutMs),
+            );
+          }
+          const result = await shell.runWithBackgroundFallback(
+            command,
+            timeoutMs ?? WORKSPACE_SHELL_DEFAULTS.timeoutMs,
+            progress.onOutput ? { onOutput: progress.onOutput } : {},
           );
-        }
-        if (startsWithSleepCommand(command)) {
-          const result = await shell.run(command, {
-            ...(input.timeout === undefined ? {} : { timeoutMs }),
-          });
+          if (result.status === "running") {
+            const structuredContent = claudeBashOutput(result, result.sessionId);
+            return localToolResult(
+              formatClaudeBackgroundFallback(
+                result,
+                timeoutMs ?? WORKSPACE_SHELL_DEFAULTS.timeoutMs,
+              ),
+              structuredContent,
+            );
+          }
           return localToolResult(
             formatClaudeBashResult(result),
             claudeBashOutput(result, undefined, timeoutMs),
           );
+        } finally {
+          progress.close();
         }
-        const result = await shell.runWithBackgroundFallback(
-          command,
-          timeoutMs ?? WORKSPACE_SHELL_DEFAULTS.timeoutMs,
-        );
-        if (result.status === "running") {
-          const structuredContent = claudeBashOutput(result, result.sessionId);
-          return localToolResult(
-            formatClaudeBackgroundFallback(result, timeoutMs ?? WORKSPACE_SHELL_DEFAULTS.timeoutMs),
-            structuredContent,
-          );
-        }
-        return localToolResult(
-          formatClaudeBashResult(result),
-          claudeBashOutput(result, undefined, timeoutMs),
-        );
       },
     },
     ...worktreeTools,
@@ -2573,37 +2586,43 @@ function codexWorkspaceTools(
         required: ["cmd"],
       },
       dispose,
-      call: async (input) => {
+      call: async (input, context) => {
         if (input.sandbox_permissions === "require_escalated") {
           throw new Error("The Project sandbox cannot be escalated.");
         }
-        const result = await shell.exec(requiredToolText(input.cmd, "cmd"), {
-          ...(input.tty === undefined ? {} : { tty: requiredBoolean(input.tty, "tty") }),
-          ...(input.workdir === undefined
-            ? {}
-            : { workdir: requiredToolText(input.workdir, "workdir") }),
-          ...(input.yield_time_ms === undefined
-            ? {}
-            : {
-                yieldTimeMs: requiredBoundedInteger(
-                  input.yield_time_ms,
-                  "yield_time_ms",
-                  250,
-                  30_000,
-                ),
-              }),
-          ...(input.max_output_tokens === undefined
-            ? {}
-            : {
-                maxOutputTokens: requiredBoundedInteger(
-                  input.max_output_tokens,
-                  "max_output_tokens",
-                  1,
-                  50_000,
-                ),
-              }),
-        });
-        return codexExecToolResult(result);
+        const progress = terminalProgressObserver(context);
+        try {
+          const result = await shell.exec(requiredToolText(input.cmd, "cmd"), {
+            ...(input.tty === undefined ? {} : { tty: requiredBoolean(input.tty, "tty") }),
+            ...(input.workdir === undefined
+              ? {}
+              : { workdir: requiredToolText(input.workdir, "workdir") }),
+            ...(input.yield_time_ms === undefined
+              ? {}
+              : {
+                  yieldTimeMs: requiredBoundedInteger(
+                    input.yield_time_ms,
+                    "yield_time_ms",
+                    250,
+                    30_000,
+                  ),
+                }),
+            ...(input.max_output_tokens === undefined
+              ? {}
+              : {
+                  maxOutputTokens: requiredBoundedInteger(
+                    input.max_output_tokens,
+                    "max_output_tokens",
+                    1,
+                    50_000,
+                  ),
+                }),
+            ...(progress.onOutput ? { onOutput: progress.onOutput } : {}),
+          });
+          return codexExecToolResult(result);
+        } finally {
+          progress.close();
+        }
       },
     },
     {
@@ -2629,35 +2648,41 @@ function codexWorkspaceTools(
         },
         required: ["session_id"],
       },
-      call: async (input) => {
+      call: async (input, context) => {
         const chars = input.chars === undefined ? "" : requiredToolText(input.chars, "chars");
-        const result = await shell.writeStdin(
-          requiredBoundedInteger(input.session_id, "session_id", 1, Number.MAX_SAFE_INTEGER),
-          chars,
-          {
-            ...(input.yield_time_ms === undefined
-              ? {}
-              : {
-                  yieldTimeMs: requiredBoundedInteger(
-                    input.yield_time_ms,
-                    "yield_time_ms",
-                    0,
-                    chars ? 30_000 : 300_000,
-                  ),
-                }),
-            ...(input.max_output_tokens === undefined
-              ? {}
-              : {
-                  maxOutputTokens: requiredBoundedInteger(
-                    input.max_output_tokens,
-                    "max_output_tokens",
-                    1,
-                    50_000,
-                  ),
-                }),
-          },
-        );
-        return codexExecToolResult(result);
+        const progress = terminalProgressObserver(context);
+        try {
+          const result = await shell.writeStdin(
+            requiredBoundedInteger(input.session_id, "session_id", 1, Number.MAX_SAFE_INTEGER),
+            chars,
+            {
+              ...(input.yield_time_ms === undefined
+                ? {}
+                : {
+                    yieldTimeMs: requiredBoundedInteger(
+                      input.yield_time_ms,
+                      "yield_time_ms",
+                      0,
+                      chars ? 30_000 : 300_000,
+                    ),
+                  }),
+              ...(input.max_output_tokens === undefined
+                ? {}
+                : {
+                    maxOutputTokens: requiredBoundedInteger(
+                      input.max_output_tokens,
+                      "max_output_tokens",
+                      1,
+                      50_000,
+                    ),
+                  }),
+              ...(progress.onOutput ? { onOutput: progress.onOutput } : {}),
+            },
+          );
+          return codexExecToolResult(result);
+        } finally {
+          progress.close();
+        }
       },
     },
     applyPatch,
@@ -3501,6 +3526,7 @@ function codexExecToolResult(result: WorkspaceShellExecResult) {
   const structuredContent = {
     chunk_id: result.chunkId,
     wall_time_seconds: result.wallTimeSeconds,
+    status: result.status,
     ...(result.exitCode === undefined ? {} : { exit_code: result.exitCode }),
     ...(result.sessionId === undefined ? {} : { session_id: result.sessionId }),
     ...(result.originalTokenCount === undefined
@@ -3524,6 +3550,30 @@ function codexExecToolResult(result: WorkspaceShellExecResult) {
   return localToolResult(sections.join("\n"), structuredContent, {
     isError: result.exitCode !== undefined && result.exitCode !== 0,
   });
+}
+
+function terminalProgressObserver(context: LocalToolCallContext | undefined): {
+  close: () => void;
+  onOutput?: (output: WorkspaceShellOutput) => void;
+} {
+  if (!context?.onProgress) return { close: () => undefined };
+  let active = true;
+  return {
+    close: () => {
+      active = false;
+    },
+    onOutput: (output) => {
+      if (!active) return;
+      context.onProgress?.({
+        content: output.content,
+        structuredContent: {
+          output: output.content,
+          stream: output.stream,
+          mode: "append",
+        },
+      });
+    },
+  };
 }
 
 function formatCodexPatchResult(result: WorkspacePatchResult): string {

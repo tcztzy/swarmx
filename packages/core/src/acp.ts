@@ -150,13 +150,14 @@ export interface AcpPromptResult {
 export interface MessageChunk {
   role: string;
   content: string;
-  kind: "message" | "thinking" | "tool_call" | "tool_result";
+  kind: "message" | "thinking" | "tool_call" | "tool_progress" | "tool_result";
   agent?: string;
   render?: {
     invocationId?: string;
     status?: "queued" | "running" | "succeeded" | "failed" | "canceled" | "skipped" | "completed";
   };
   swarmEvent?: string;
+  structuredContent?: unknown;
   toolName?: string;
 }
 
@@ -261,7 +262,7 @@ export class AcpClient {
       const { connection, acp } = await this.spawnAndConnect(opts, (update) => {
         const msg = sessionUpdateToChunk(update);
         if (msg) {
-          chunks.push(msg);
+          if (msg.kind !== "tool_progress") chunks.push(msg);
           onChunk?.(msg);
         }
       });
@@ -380,7 +381,7 @@ export class AcpClient {
       const { connection, acp } = await this.spawnAndConnect(opts, (update) => {
         const msg = sessionUpdateToChunk(update);
         if (msg) {
-          chunks.push(msg);
+          if (msg.kind !== "tool_progress") chunks.push(msg);
           onChunk?.(msg);
         }
       });
@@ -731,6 +732,8 @@ function sessionUpdateToChunk(update: SessionUpdate): MessageChunk | null {
       const rawOutput = u.rawOutput ?? fields?.rawOutput;
       const status = u.status ?? fields?.status;
       const invocationId = stringValue(u.toolCallId) ?? stringValue(fields?.toolCallId);
+      const terminalProgress = acpTerminalProgress(u, fields, invocationId);
+      if (terminalProgress) return terminalProgress;
       const renderStatus = acpRenderStatus(status);
       const result =
         (rawOutput ? JSON.stringify(rawOutput) : "") || (status ? JSON.stringify(status) : "");
@@ -753,6 +756,35 @@ function sessionUpdateToChunk(update: SessionUpdate): MessageChunk | null {
     default:
       return null;
   }
+}
+
+function acpTerminalProgress(
+  update: Record<string, unknown>,
+  fields: Record<string, unknown> | undefined,
+  invocationId: string | undefined,
+): MessageChunk | null {
+  if (!invocationId) return null;
+  const meta = recordValue(update._meta) ?? recordValue(fields?._meta);
+  if (!meta) return null;
+  const delta = recordValue(meta.terminal_output_delta);
+  const snapshot = recordValue(meta.terminal_output);
+  const terminal = delta ?? snapshot;
+  const content = stringValue(terminal?.data);
+  if (!terminal || !content) return null;
+  const terminalId = stringValue(terminal.terminal_id);
+  return {
+    role: "tool",
+    content,
+    kind: "tool_progress",
+    toolName: stringValue(update.title) ?? stringValue(fields?.title) ?? "terminal",
+    structuredContent: {
+      output: content,
+      stream: "combined",
+      mode: delta ? "append" : "replace",
+      ...(terminalId ? { terminal_id: terminalId } : {}),
+    },
+    render: { invocationId, status: "running" },
+  };
 }
 
 function acpRenderStatus(

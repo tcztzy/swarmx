@@ -57,17 +57,28 @@ describe("request-scoped cancellation", () => {
       render?: { invocationId?: string; status?: string };
     }> = [];
 
-    await expect(
-      client.prompt(agentOptions("tools"), "hello", undefined, undefined, (chunk) => {
+    const result = await client.prompt(
+      agentOptions("tools"),
+      "hello",
+      undefined,
+      undefined,
+      (chunk) => {
         chunks.push(chunk);
-      }),
-    ).resolves.toMatchObject({ stopReason: "end_turn" });
+      },
+    );
+    expect(result).toMatchObject({ stopReason: "end_turn" });
 
     expect(chunks).toEqual([
       expect.objectContaining({
         content: JSON.stringify({ path: "README.md" }),
         kind: "tool_call",
         render: { invocationId: "call_readme_1", status: "running" },
+      }),
+      expect.objectContaining({
+        content: "first line\n",
+        kind: "tool_progress",
+        render: { invocationId: "call_readme_1", status: "running" },
+        structuredContent: expect.objectContaining({ mode: "append", stream: "combined" }),
       }),
       expect.objectContaining({
         content: JSON.stringify({ progress: "reading" }),
@@ -82,6 +93,7 @@ describe("request-scoped cancellation", () => {
       expect.objectContaining({ content: "done", kind: "message" }),
     ]);
     expect(chunks.map((chunk) => chunk.content)).not.toContain("call_readme_1");
+    expect(result.messages.some((chunk) => chunk.kind === "tool_progress")).toBe(false);
   });
 
   it("V446 cancels ACP permission by default and returns only an offered handled option", async () => {
@@ -391,6 +403,19 @@ function agentScript(mode: AgentMode): string {
               toolCallId: "call_readme_1",
               title: "workspace_read_file",
               rawInput: { path: "README.md" },
+            },
+          });
+          await connection.sessionUpdate({
+            sessionId: "test-session",
+            update: {
+              sessionUpdate: "tool_call_update",
+              toolCallId: "call_readme_1",
+              _meta: {
+                terminal_output_delta: {
+                  data: "first line\\n",
+                  terminal_id: "call_readme_1",
+                },
+              },
             },
           });
           await connection.sessionUpdate({

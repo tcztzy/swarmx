@@ -16,7 +16,7 @@ interface McpTool {
 export interface LocalMcpTool extends McpTool {
   kind?: "function";
   dispose?: () => Promise<void> | void;
-  call(arguments_: Record<string, unknown>): Promise<unknown>;
+  call(arguments_: Record<string, unknown>, context?: LocalToolCallContext): Promise<unknown>;
 }
 
 export interface LocalTextTool {
@@ -30,10 +30,20 @@ export interface LocalTextTool {
     syntax: "lark" | "regex";
     definition: string;
   };
-  call(input: string): Promise<unknown>;
+  call(input: string, context?: LocalToolCallContext): Promise<unknown>;
 }
 
 export type LocalTool = LocalMcpTool | LocalTextTool;
+
+export interface LocalToolProgress {
+  content: string;
+  structuredContent?: unknown;
+}
+
+export interface LocalToolCallContext {
+  invocationId?: string;
+  onProgress?: (progress: LocalToolProgress) => void;
+}
 
 export interface LocalToolResult {
   content: string;
@@ -575,7 +585,7 @@ export class McpManager {
   async callTool(
     name: string,
     arguments_: Record<string, unknown> | string,
-    _context?: Record<string, unknown>,
+    context?: LocalToolCallContext,
   ): Promise<ToolExecutionResult> {
     const localTextTool = this.localTextTools.get(name);
     if (localTextTool) {
@@ -585,7 +595,9 @@ export class McpManager {
       if (typeof arguments_ !== "string") {
         throw new Error(`Text tool ${name} requires freeform string input`);
       }
-      return executionResult(await localTextTool.call(arguments_));
+      return executionResult(
+        await (context ? localTextTool.call(arguments_, context) : localTextTool.call(arguments_)),
+      );
     }
 
     const localTool = this.localTools.get(name);
@@ -596,7 +608,9 @@ export class McpManager {
       if (typeof arguments_ === "string") {
         throw new Error(`Function tool ${name} requires object input`);
       }
-      const result = await localTool.call(arguments_);
+      const result = await (context
+        ? localTool.call(arguments_, context)
+        : localTool.call(arguments_));
       return executionResult(result);
     }
 

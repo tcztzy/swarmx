@@ -248,14 +248,25 @@ function buildSessionUpdate(msg: MessageChunk): SessionUpdate | null {
       return {
         sessionUpdate: "tool_call",
         title: msg.toolName ?? "tool",
-        toolCallId: msg.toolName ?? "tool",
+        toolCallId: msg.render?.invocationId ?? msg.toolName ?? "tool",
         rawInput: tryParseJson(msg.content),
+      };
+    case "tool_progress":
+      return {
+        sessionUpdate: "tool_call_update",
+        toolCallId: msg.render?.invocationId ?? msg.toolName ?? "tool",
+        _meta: {
+          terminal_output_delta: {
+            data: msg.content,
+            terminal_id: msg.render?.invocationId ?? msg.toolName ?? "tool",
+          },
+        },
       };
     case "tool_result":
       return {
         sessionUpdate: "tool_call_update",
         title: msg.toolName ?? "tool",
-        toolCallId: msg.toolName ?? "tool",
+        toolCallId: msg.render?.invocationId ?? msg.toolName ?? "tool",
         rawOutput: tryParseJson(msg.content),
         status: "completed",
       };

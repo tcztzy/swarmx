@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { RequestCancelledError, cancelAcpRequest, withAcpRequest } from "../src/acp.js";
 import { Agent, HookRef } from "../src/agent.js";
 import { McpManager, localToolResult } from "../src/mcp.js";
-import type { McpConnectionResult } from "../src/mcp.js";
+import type { LocalToolCallContext, McpConnectionResult } from "../src/mcp.js";
 import type { AgentConfig, MessageChunk } from "../src/types.js";
 
 describe("Agent", () => {
@@ -385,7 +385,11 @@ describe("Agent", () => {
         },
       ]),
     );
-    expect(callTool).toHaveBeenCalledWith("weather", { city: "Shanghai" });
+    expect(callTool).toHaveBeenCalledWith(
+      "weather",
+      { city: "Shanghai" },
+      expect.objectContaining({ invocationId: "call_1" }),
+    );
     expect(result.messages).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ kind: "thinking", content: "Check the weather tool." }),
@@ -465,7 +469,10 @@ describe("Agent", () => {
     expect(create.mock.calls[0]?.[0]?.tools).toContainEqual(
       expect.objectContaining({ name: "workspace_read_file" }),
     );
-    expect(readProjectFile).toHaveBeenCalledWith({ path: "README.md" });
+    expect(readProjectFile).toHaveBeenCalledWith(
+      { path: "README.md" },
+      expect.objectContaining({ invocationId: "call_project_read" }),
+    );
     expect(create.mock.calls[1]?.[0]?.input).toContainEqual({
       type: "function_call_output",
       call_id: "call_project_read",
@@ -547,12 +554,15 @@ describe("Agent", () => {
         definition: 'start: "*** Begin Patch"',
       },
     });
-    expect(applyPatch).toHaveBeenCalledWith(patch);
+    expect(applyPatch).toHaveBeenCalledWith(
+      patch,
+      expect.objectContaining({ invocationId: "call_apply_patch" }),
+    );
     expect(result.messages).toContainEqual(
       expect.objectContaining({
         kind: "tool_result",
         toolName: "apply_patch",
-        render: { status: "succeeded" },
+        render: { invocationId: "call_apply_patch", status: "succeeded" },
       }),
     );
     expect(create.mock.calls[1]?.[0]?.input).toContainEqual({
@@ -566,11 +576,17 @@ describe("Agent", () => {
   });
 
   it("V354 recovers a streamed Project tool call omitted from response.completed", async () => {
-    const readProjectFile = vi.fn().mockResolvedValue(
-      localToolResult("# Streamed Project", {
-        type: "text",
-        file: { filePath: "README.md", content: "# Streamed Project" },
-      }),
+    const readProjectFile = vi.fn(
+      async (_input: Record<string, unknown>, context?: LocalToolCallContext) => {
+        context?.onProgress?.({
+          content: "reading README\n",
+          structuredContent: { output: "reading README\n", stream: "stdout", mode: "append" },
+        });
+        return localToolResult("# Streamed Project", {
+          type: "text",
+          file: { filePath: "README.md", content: "# Streamed Project" },
+        });
+      },
     );
     const agent = new Agent(
       {
@@ -686,7 +702,10 @@ describe("Agent", () => {
       (chunk) => streamed.push(chunk),
     );
 
-    expect(readProjectFile).toHaveBeenCalledWith({ path: "README.md" });
+    expect(readProjectFile).toHaveBeenCalledWith(
+      { path: "README.md" },
+      expect.objectContaining({ invocationId: "call_streamed_read" }),
+    );
     expect(create.mock.calls[1]?.[0]?.input).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -702,6 +721,12 @@ describe("Agent", () => {
         expect.objectContaining({ kind: "thinking", content: "**Inspecting README**" }),
         expect.objectContaining({ kind: "tool_call", toolName: "workspace_read_file" }),
         expect.objectContaining({
+          kind: "tool_progress",
+          toolName: "workspace_read_file",
+          content: "reading README\n",
+          render: { invocationId: "call_streamed_read", status: "running" },
+        }),
+        expect.objectContaining({
           kind: "tool_result",
           toolName: "workspace_read_file",
           content: "# Streamed Project",
@@ -716,6 +741,7 @@ describe("Agent", () => {
     expect(result.messages.at(-1)).toEqual(
       expect.objectContaining({ kind: "message", content: "This is the streamed Project." }),
     );
+    expect(result.messages.some((chunk) => chunk.kind === "tool_progress")).toBe(false);
   });
 
   it("executes Codex Responses with SwarmX context and stateless encrypted continuation", async () => {
@@ -820,7 +846,11 @@ describe("Agent", () => {
     );
     expect(JSON.stringify(replayInput)).not.toContain("reason_1");
     expect(JSON.stringify(replayInput)).not.toContain("fc_1");
-    expect(callTool).toHaveBeenCalledWith("weather", { city: "Shanghai" });
+    expect(callTool).toHaveBeenCalledWith(
+      "weather",
+      { city: "Shanghai" },
+      expect.objectContaining({ invocationId: "call_1" }),
+    );
     expect(result.messages).toContainEqual(
       expect.objectContaining({ kind: "message", content: "It is sunny." }),
     );
@@ -961,7 +991,11 @@ describe("Agent", () => {
         },
       ]),
     );
-    expect(callTool).toHaveBeenCalledWith("weather", { city: "Shanghai" });
+    expect(callTool).toHaveBeenCalledWith(
+      "weather",
+      { city: "Shanghai" },
+      expect.objectContaining({ invocationId: "toolu_1" }),
+    );
     expect(result.messages).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ kind: "thinking", content: "Use the weather tool." }),
@@ -1203,7 +1237,13 @@ describe("Agent", () => {
       );
       expect(firstNames).toEqual(["ToolSearch"]);
       expect(secondNames).toEqual(["ToolSearch", "mcp__github__list_issues"]);
-      expect(callTool).toHaveBeenCalledWith("ToolSearch", { query: "issues" });
+      expect(callTool).toHaveBeenCalledWith(
+        "ToolSearch",
+        { query: "issues" },
+        expect.objectContaining({
+          invocationId: apiProtocol === "anthropic" ? "toolu_search" : "call_search",
+        }),
+      );
     },
   );
 
@@ -1424,7 +1464,7 @@ describe("Agent", () => {
           kind: "tool_result",
           content: "chat model text",
           structuredContent: { result: "structured" },
-          render: { status: "succeeded" },
+          render: { invocationId: "tool-1", status: "succeeded" },
         }),
       ]),
     );

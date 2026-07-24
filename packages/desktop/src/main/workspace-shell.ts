@@ -51,6 +51,8 @@ export interface WorkspaceShellRunOptions {
   tty?: boolean;
   /** Internal observer used by session-scoped tools such as Claude Monitor. */
   onStdout?: (chunk: string) => void;
+  /** Request-scoped observer for ordered terminal presentation updates. */
+  onOutput?: (output: WorkspaceShellOutput) => void;
   /** Internal lifecycle observer; callback failures never affect process cleanup. */
   onExit?: (snapshot: WorkspaceShellSessionSnapshot) => void;
   /** Keep the process alive until explicit stop or WorkspaceShell.close(). */
@@ -89,6 +91,12 @@ export interface WorkspaceShellExecOptions extends WorkspaceShellRunOptions {
 export interface WorkspaceShellInteractionOptions {
   yieldTimeMs?: number;
   maxOutputTokens?: number;
+  onOutput?: (output: WorkspaceShellOutput) => void;
+}
+
+export interface WorkspaceShellOutput {
+  content: string;
+  stream: "stdout" | "stderr";
 }
 
 export interface WorkspaceShellExecResult {
@@ -135,6 +143,7 @@ interface ManagedShellSession {
   requestSignal?: AbortSignal;
   onAbort?: () => void;
   onStdout?: (chunk: string) => void;
+  onOutput?: (output: WorkspaceShellOutput) => void;
   onExit?: (snapshot: WorkspaceShellSessionSnapshot) => void;
   done: Promise<void>;
   resolveDone: () => void;
@@ -176,6 +185,10 @@ export class WorkspaceShell {
     return this.#root;
   }
 
+  hasRunningSessions(): boolean {
+    return [...this.#sessions.values()].some((session) => session.status === "running");
+  }
+
   rebindRoot(root: string, additionalWritablePaths: readonly string[] = []): void {
     validateWorkspaceRoot(root);
     for (const writablePath of additionalWritablePaths) validateWorkspaceRoot(writablePath);
@@ -210,6 +223,7 @@ export class WorkspaceShell {
   async runWithBackgroundFallback(
     command: string,
     foregroundTimeoutMs: number = WORKSPACE_SHELL_DEFAULTS.timeoutMs,
+    options: WorkspaceShellRunOptions = {},
   ): Promise<WorkspaceShellSessionSnapshot> {
     const timeoutMs = boundedInteger(
       foregroundTimeoutMs,
@@ -218,7 +232,7 @@ export class WorkspaceShell {
       WORKSPACE_SHELL_HARD_LIMITS.timeoutMs,
       "timeout",
     );
-    const session = await this.#start(command, {}, true);
+    const session = await this.#start(command, options, true);
     await waitForSession(session, timeoutMs);
     if (session.cancellationReason !== undefined) {
       throw session.cancellationReason instanceof Error
@@ -261,8 +275,16 @@ export class WorkspaceShell {
     const yieldTimeMs = chars
       ? boundedInteger(options.yieldTimeMs, DEFAULT_WRITE_YIELD_MS, 0, 30_000, "yield_time_ms")
       : boundedInteger(options.yieldTimeMs, DEFAULT_POLL_YIELD_MS, 0, 300_000, "yield_time_ms");
-    await waitForSession(session, yieldTimeMs);
-    return this.#execResult(session, startedAt, options.maxOutputTokens);
+    const previousOutputObserver = session.onOutput;
+    if (options.onOutput) session.onOutput = options.onOutput;
+    try {
+      await waitForSession(session, yieldTimeMs);
+      return this.#execResult(session, startedAt, options.maxOutputTokens);
+    } finally {
+      if (options.onOutput && session.onOutput === options.onOutput) {
+        session.onOutput = previousOutputObserver;
+      }
+    }
   }
 
   async taskOutput(
@@ -380,6 +402,7 @@ export class WorkspaceShell {
       timeout: undefined,
       requestSignal,
       onStdout: options.onStdout,
+      onOutput: options.onOutput,
       onExit: options.onExit,
       done,
       resolveDone,
@@ -396,6 +419,7 @@ export class WorkspaceShell {
       shellProcess.child.stderr?.on("data", (chunk: Buffer | string) => {
         session.stderr.append(chunk);
         session.combined.append(chunk);
+        notifyOutput(session, "stderr", chunk);
       });
       shellProcess.child.once("error", (cause) => {
         session.spawnError = isFileNotFoundError(cause)
@@ -645,10 +669,26 @@ function sessionSnapshot(session: ManagedShellSession): WorkspaceShellSessionSna
 }
 
 function notifyStdout(session: ManagedShellSession, chunk: Buffer | string): void {
+  notifyOutput(session, "stdout", chunk);
   try {
     session.onStdout?.(typeof chunk === "string" ? chunk : chunk.toString("utf8"));
   } catch {
     // Observers must not interfere with process output collection.
+  }
+}
+
+function notifyOutput(
+  session: ManagedShellSession,
+  stream: WorkspaceShellOutput["stream"],
+  chunk: Buffer | string,
+): void {
+  try {
+    session.onOutput?.({
+      content: typeof chunk === "string" ? chunk : chunk.toString("utf8"),
+      stream,
+    });
+  } catch {
+    // Presentation observers must not interfere with process output collection.
   }
 }
 

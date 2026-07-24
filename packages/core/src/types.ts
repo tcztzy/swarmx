@@ -145,7 +145,7 @@ export const MessageRenderMetadataSchema = z
 export const MessageChunkSchema = z.object({
   role: z.string(),
   content: z.string(),
-  kind: z.enum(["message", "thinking", "tool_call", "tool_result"]),
+  kind: z.enum(["message", "thinking", "tool_call", "tool_progress", "tool_result"]),
   agent: z.string().optional(),
   swarmEvent: z.string().optional(),
   toolName: z.string().optional(),

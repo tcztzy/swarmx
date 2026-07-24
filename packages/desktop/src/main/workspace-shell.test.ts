@@ -48,6 +48,25 @@ describe("WorkspaceShell", () => {
   );
 
   it.runIf(process.platform === "darwin")(
+    "V503 observes pipe stdout and stderr while the command is running",
+    async () => {
+      const root = await temporaryDirectory();
+      const output: Array<{ content: string; stream: string }> = [];
+      const result = await new WorkspaceShell(root).run(
+        "printf stdout; sleep 0.05; printf stderr >&2",
+        { onOutput: (chunk) => output.push(chunk) },
+      );
+
+      expect(result.exitCode).toBe(0);
+      expect(output).toEqual([
+        { content: "stdout", stream: "stdout" },
+        { content: "stderr", stream: "stderr" },
+      ]);
+    },
+    30_000,
+  );
+
+  it.runIf(process.platform === "darwin")(
     "V350 denies writes outside the Project and through escaping symlinks",
     async () => {
       const parent = await temporaryDirectory();
@@ -187,6 +206,7 @@ describe("WorkspaceShell", () => {
           onExit: (snapshot) => exits.push(snapshot.status),
         });
         expect(started).toMatchObject({ status: "running", sessionId: expect.any(Number) });
+        expect(shell.hasRunningSessions()).toBe(true);
 
         const completed = await shell.taskOutput(started.sessionId, {
           block: true,
@@ -199,6 +219,7 @@ describe("WorkspaceShell", () => {
         });
         expect(stdout.join("")).toBe("startend");
         expect(exits).toEqual(["completed"]);
+        expect(shell.hasRunningSessions()).toBe(false);
 
         const longRunning = await shell.startBackground("sleep 5; printf late > late.txt");
         const stopped = await shell.stop(longRunning.sessionId);

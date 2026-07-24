@@ -1327,6 +1327,16 @@ Session=\${CLAUDE_SESSION_ID}
           wall_time_seconds: expect.any(Number),
         });
 
+        const progress: string[] = [];
+        await execCommand.call(
+          { cmd: "printf first; sleep 0.05; printf second", yield_time_ms: 2_000 },
+          {
+            invocationId: "exec-progress",
+            onProgress: (chunk) => progress.push(chunk.content),
+          },
+        );
+        expect(progress.join("")).toBe("firstsecond");
+
         const terminal = (await execCommand.call({
           cmd: 'test -t 0 && printf "terminal:%s" "$TERM"',
           tty: true,

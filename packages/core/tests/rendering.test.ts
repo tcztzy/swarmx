@@ -66,6 +66,27 @@ describe("normalized render events", () => {
     expect(JSON.stringify(event)).not.toContain('secret"}');
   });
 
+  it("V502 normalizes request-scoped tool progress as running output", () => {
+    const event = normalizeMessageChunk(
+      {
+        role: "tool",
+        kind: "tool_progress",
+        content: "building\n",
+        toolName: "exec_command",
+        structuredContent: { output: "building\n", stream: "stdout", mode: "append" },
+      },
+      { invocationId: "call_build" },
+    );
+
+    expect(event).toMatchObject({
+      invocationId: "call_build",
+      kind: "tool_progress",
+      status: "running",
+      title: "Tool progress: exec_command",
+      output: { output: "building\n", stream: "stdout", mode: "append" },
+    });
+  });
+
   it("keeps Agent provenance on Harness x Model identity", () => {
     expect(
       parseNormalizedRenderEvent({

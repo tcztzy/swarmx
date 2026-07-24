@@ -28,6 +28,7 @@ export const RenderEventKindSchema = z.enum([
   "message",
   "thinking",
   "tool_call",
+  "tool_progress",
   "tool_result",
   "trace",
   "artifact",
@@ -182,7 +183,7 @@ export function normalizeMessageChunk(
     content: kind === "message" || kind === "thinking" ? chunk.content : undefined,
     toolName: chunk.toolName,
     input: kind === "tool_call" ? sanitizedPayload : undefined,
-    output: kind === "tool_result" ? sanitizedPayload : undefined,
+    output: kind === "tool_progress" || kind === "tool_result" ? sanitizedPayload : undefined,
     artifacts: options.artifacts ?? [],
     rawPayloadRef: options.rawPayloadRef,
     provenance: sanitizeRenderPayload({
@@ -211,6 +212,7 @@ export function normalizeMessageChunks(
 
 function defaultStatusForChunk(chunk: MessageChunk): RenderEventStatus {
   if (chunk.kind === "tool_call") return "running";
+  if (chunk.kind === "tool_progress") return "running";
   if (chunk.kind === "tool_result") {
     const structuredFailure = explicitFailureStatus(chunk.structuredContent);
     if (structuredFailure !== undefined) return structuredFailure ? "failed" : "succeeded";
@@ -225,12 +227,19 @@ function titleForChunk(chunk: MessageChunk): string {
   if (chunk.kind === "tool_result") {
     return chunk.toolName ? `Tool result: ${chunk.toolName}` : "Tool result";
   }
+  if (chunk.kind === "tool_progress") {
+    return chunk.toolName ? `Tool progress: ${chunk.toolName}` : "Tool progress";
+  }
   if (chunk.kind === "thinking") return "Thinking";
   return chunk.agent ? `Message from ${chunk.agent}` : "Message";
 }
 
 function summarizeChunk(chunk: MessageChunk, payload: unknown): string {
-  if (chunk.kind === "tool_call" || chunk.kind === "tool_result") {
+  if (
+    chunk.kind === "tool_call" ||
+    chunk.kind === "tool_progress" ||
+    chunk.kind === "tool_result"
+  ) {
     const summary = typeof payload === "string" ? payload : stableJson(payload);
     return summary.length > 180 ? `${summary.slice(0, 177)}...` : summary;
   }

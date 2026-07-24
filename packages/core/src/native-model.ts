@@ -19,7 +19,12 @@ import type {
   Tool as ResponseTool,
 } from "openai/resources/responses/responses";
 import { currentRequestSignal, throwIfCurrentRequestCancelled } from "./acp.js";
-import type { NativeLocalToolDefinition, ToolExecutionResult } from "./mcp.js";
+import type {
+  LocalToolCallContext,
+  LocalToolProgress,
+  NativeLocalToolDefinition,
+  ToolExecutionResult,
+} from "./mcp.js";
 import type { ModelApiMode } from "./model-api.js";
 import { ModelTokenUsageSchema } from "./types.js";
 import type { MessageChunk, ModelTokenUsage } from "./types.js";
@@ -46,7 +51,11 @@ export interface NativeProtocolContext {
   openai: OpenAI;
   anthropic: Anthropic;
   tools: NativeLocalToolDefinition[] | (() => NativeLocalToolDefinition[]);
-  callTool(name: string, input: Record<string, unknown> | string): Promise<ToolExecutionResult>;
+  callTool(
+    name: string,
+    input: Record<string, unknown> | string,
+    context?: LocalToolCallContext,
+  ): Promise<ToolExecutionResult>;
   onUsage?: (usage: ModelTokenUsage) => void;
 }
 
@@ -106,17 +115,19 @@ export async function callOpenAIResponses(
       const name = responseToolCallName(call);
       const input = responseToolCallInput(call);
       const serializedInput = typeof input === "string" ? input : JSON.stringify(input);
-      const toolCallChunk = toolCallMessage(context.agentName, name, serializedInput);
+      const invocationId = call.call_id;
+      const toolCallChunk = toolCallMessage(context.agentName, name, serializedInput, invocationId);
       onChunk?.(toolCallChunk);
       allChunks.push(toolCallChunk);
 
-      const result = await executeTool(context, name, input);
+      const result = await executeTool(context, name, input, invocationId, onChunk);
       const toolResultChunk = toolResultMessage(
         context.agentName,
         name,
         result.output,
         result.structuredContent,
         result.failed,
+        invocationId,
       );
       onChunk?.(toolResultChunk);
       allChunks.push(toolResultChunk);
@@ -182,17 +193,30 @@ export async function callAnthropicMessages(
     const results: ToolResultBlockParam[] = [];
     for (const call of toolCalls) {
       const serializedInput = jsonString(call.input);
-      const toolCallChunk = toolCallMessage(context.agentName, call.name, serializedInput);
+      const invocationId = call.id;
+      const toolCallChunk = toolCallMessage(
+        context.agentName,
+        call.name,
+        serializedInput,
+        invocationId,
+      );
       onChunk?.(toolCallChunk);
       allChunks.push(toolCallChunk);
 
-      const result = await executeTool(context, call.name, objectValue(call.input));
+      const result = await executeTool(
+        context,
+        call.name,
+        objectValue(call.input),
+        invocationId,
+        onChunk,
+      );
       const toolResultChunk = toolResultMessage(
         context.agentName,
         call.name,
         result.output,
         result.structuredContent,
         result.failed,
+        invocationId,
       );
       onChunk?.(toolResultChunk);
       allChunks.push(toolResultChunk);
@@ -484,10 +508,22 @@ async function executeTool(
   context: NativeProtocolContext,
   name: string,
   input: Record<string, unknown> | string,
+  invocationId: string,
+  onChunk?: (chunk: MessageChunk) => void,
 ): Promise<{ output: string; structuredContent?: unknown; failed: boolean }> {
   try {
     throwIfCurrentRequestCancelled();
-    const result = normalizeToolExecutionResult(await context.callTool(name, input));
+    const result = normalizeToolExecutionResult(
+      await context.callTool(name, input, {
+        invocationId,
+        ...(onChunk
+          ? {
+              onProgress: (progress: LocalToolProgress) =>
+                onChunk(toolProgressMessage(context.agentName, name, progress, invocationId)),
+            }
+          : {}),
+      }),
+    );
     throwIfCurrentRequestCancelled();
     return {
       output: result.content,
@@ -633,8 +669,39 @@ function thinkingChunk(agent: string, content: string): MessageChunk {
   return { role: "assistant", content, kind: "thinking", agent };
 }
 
-function toolCallMessage(agent: string, toolName: string, content: string): MessageChunk {
-  return { role: "assistant", content, kind: "tool_call", toolName, agent };
+function toolCallMessage(
+  agent: string,
+  toolName: string,
+  content: string,
+  invocationId: string,
+): MessageChunk {
+  return {
+    role: "assistant",
+    content,
+    kind: "tool_call",
+    toolName,
+    agent,
+    render: { invocationId, status: "running" },
+  };
+}
+
+function toolProgressMessage(
+  agent: string,
+  toolName: string,
+  progress: LocalToolProgress,
+  invocationId: string,
+): MessageChunk {
+  return {
+    role: "tool",
+    content: progress.content,
+    kind: "tool_progress",
+    toolName,
+    agent,
+    render: { invocationId, status: "running" },
+    ...(progress.structuredContent === undefined
+      ? {}
+      : { structuredContent: progress.structuredContent }),
+  };
 }
 
 function toolResultMessage(
@@ -643,6 +710,7 @@ function toolResultMessage(
   content: string,
   structuredContent?: unknown,
   failed = false,
+  invocationId?: string,
 ): MessageChunk {
   return {
     role: "tool",
@@ -650,7 +718,10 @@ function toolResultMessage(
     kind: "tool_result",
     toolName,
     agent,
-    render: { status: failed ? "failed" : "succeeded" },
+    render: {
+      ...(invocationId ? { invocationId } : {}),
+      status: failed ? "failed" : "succeeded",
+    },
     ...(structuredContent === undefined ? {} : { structuredContent }),
   };
 }

@@ -7,7 +7,7 @@ import {
   throwIfCurrentRequestCancelled,
 } from "./acp.js";
 import type { AcpPermissionHandler } from "./acp.js";
-import { type LocalTool, McpManager } from "./mcp.js";
+import { type LocalTool, type LocalToolProgress, McpManager } from "./mcp.js";
 import { ModelApiModeSchema, ModelApiSchema } from "./model-api.js";
 import type { ModelApi, ModelApiMode } from "./model-api.js";
 import {
@@ -305,6 +305,7 @@ export class Agent {
               kind: "tool_call",
               toolName,
               agent: this.name,
+              render: { invocationId: tc.id, status: "running" },
             });
 
             let toolResult: string;
@@ -312,7 +313,9 @@ export class Agent {
             let toolFailed = false;
             try {
               throwIfCurrentRequestCancelled();
-              const result = await this.getMcp().callTool(toolName, toolArgs);
+              const result = await this.getMcp().callTool(toolName, toolArgs, {
+                invocationId: tc.id,
+              });
               throwIfCurrentRequestCancelled();
               toolResult = result.content;
               structuredContent = result.structuredContent;
@@ -330,7 +333,10 @@ export class Agent {
               kind: "tool_result",
               toolName,
               agent: this.name,
-              render: { status: toolFailed ? "failed" : "succeeded" },
+              render: {
+                invocationId: tc.id,
+                status: toolFailed ? "failed" : "succeeded",
+              },
               ...(structuredContent === undefined ? {} : { structuredContent }),
             });
 
@@ -512,6 +518,7 @@ export class Agent {
               kind: "tool_call",
               toolName: tc.function.name,
               agent: this.name,
+              render: { invocationId: tc.id, status: "running" },
             });
             allChunks.push({
               role: "assistant",
@@ -519,6 +526,7 @@ export class Agent {
               kind: "tool_call",
               toolName: tc.function.name,
               agent: this.name,
+              render: { invocationId: tc.id, status: "running" },
             });
 
             let toolArgs: Record<string, unknown>;
@@ -533,7 +541,11 @@ export class Agent {
             let toolFailed = false;
             try {
               throwIfCurrentRequestCancelled();
-              const result = await this.getMcp().callTool(tc.function.name, toolArgs);
+              const result = await this.getMcp().callTool(tc.function.name, toolArgs, {
+                invocationId: tc.id,
+                onProgress: (progress) =>
+                  onChunk(toolProgressChunk(this.name, tc.function.name, tc.id, progress)),
+              });
               throwIfCurrentRequestCancelled();
               toolResult = result.content;
               structuredContent = result.structuredContent;
@@ -551,7 +563,10 @@ export class Agent {
               kind: "tool_result",
               toolName: tc.function.name,
               agent: this.name,
-              render: { status: toolFailed ? "failed" : "succeeded" },
+              render: {
+                invocationId: tc.id,
+                status: toolFailed ? "failed" : "succeeded",
+              },
               ...(structuredContent === undefined ? {} : { structuredContent }),
             };
             onChunk(trChunk);
@@ -668,7 +683,7 @@ export class Agent {
       openai: this.client,
       anthropic: this.anthropicClient,
       tools: () => this.mcp?.toolsForNative() ?? [],
-      callTool: (name, input) => this.getMcp().callTool(name, input),
+      callTool: (name, input, context) => this.getMcp().callTool(name, input, context),
       onUsage,
     };
   }
@@ -947,6 +962,25 @@ function chatGptAccountId(accessToken: string): string | undefined {
   } catch {
     return undefined;
   }
+}
+
+function toolProgressChunk(
+  agent: string,
+  toolName: string,
+  invocationId: string,
+  progress: LocalToolProgress,
+): MessageChunk {
+  return {
+    role: "tool",
+    content: progress.content,
+    kind: "tool_progress",
+    toolName,
+    agent,
+    render: { invocationId, status: "running" },
+    ...(progress.structuredContent === undefined
+      ? {}
+      : { structuredContent: progress.structuredContent }),
+  };
 }
 
 function requestOptions(): { signal?: AbortSignal } | undefined {
