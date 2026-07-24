@@ -1,7 +1,11 @@
 import type { SessionInfo as AcpSessionInfo } from "@agentclientprotocol/sdk";
 import { AcpClient, type AcpClientOptions } from "./acp.js";
 import { HARNESSES } from "./harness.js";
-import { listSessions as listLocalSessions, loadSession as loadLocalSession } from "./session.js";
+import {
+  type SessionSummary,
+  listSessionSummaries as listLocalSessions,
+  loadSession as loadLocalSession,
+} from "./session.js";
 import { type MessageChunk, type SessionData, SessionDataSchema } from "./types.js";
 
 export type SessionGroupMode = "project" | "harness";
@@ -210,7 +214,7 @@ export function acpLoadedSessionToSessionData(
   });
 }
 
-function localSessionToDiscovered(session: SessionData): DiscoveredSession {
+function localSessionToDiscovered(session: SessionSummary): DiscoveredSession {
   const harness = HARNESSES[session.harness];
 
   return {

@@ -102,6 +102,10 @@ export interface DesktopSessionData {
   updatedAt: string;
 }
 
+export type DesktopSessionSummary = Omit<DesktopSessionData, "messages"> & {
+  messageCount: number;
+};
+
 export interface DesktopAgentChunkEvent {
   requestId: string;
   chunk: DesktopMessageChunk;
@@ -483,7 +487,7 @@ export interface SwarmxAPI {
     harnessLabel: string;
     source: "local" | "acp";
   }): Promise<DesktopSessionData | null>;
-  listSessions(): Promise<DesktopSessionData[]>;
+  listSessions(): Promise<DesktopSessionSummary[]>;
   getActivityProfile(): Promise<ActivityProfileSummary>;
   listProjects(): Promise<ProjectData[]>;
   addExistingProject(): Promise<ProjectData | null>;

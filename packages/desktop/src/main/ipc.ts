@@ -18,7 +18,7 @@ import {
   importN8nWorkflow,
   listGroupedSessions,
   listProjects,
-  listSessions,
+  listSessionSummaries,
   loadDiscoveredSession,
   loadExtensionInventory,
   loadSession,
@@ -47,6 +47,7 @@ import type {
   ProjectData,
   SessionData,
   SessionPermissionMode,
+  SessionSummary,
   SwarmConfig,
 } from "@swarmx/core";
 import {
@@ -828,7 +829,7 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
     return loadSession(id);
   });
 
-  ipcMain.handle("session:list", (): SessionData[] => listSessions());
+  ipcMain.handle("session:list", (): SessionSummary[] => listSessionSummaries());
 
   ipcMain.handle("project:list", (): ProjectData[] => {
     registerDefaultProject(desktopWorkspaceRoot);
@@ -892,7 +893,7 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
     (_event: IpcMainInvokeEvent, params: { id: string }): number => {
       const project = listProjects().find((candidate) => candidate.id === params.id);
       if (!project) throw new Error(`Unknown project: ${params.id}`);
-      const runningSession = listSessions().find(
+      const runningSession = listSessionSummaries().find(
         (session) =>
           (session.projectId === project.id ||
             (session.cwd && path.resolve(session.cwd) === path.resolve(project.cwd))) &&

@@ -60,6 +60,7 @@ export {
   createSession,
   saveSession,
   loadSession,
+  listSessionSummaries,
   listSessions,
   archiveSession,
   archiveProjectSessions,
@@ -67,6 +68,14 @@ export {
   setSessionPinned,
   updateSessionTitle,
   appendMessages,
+  migrateLegacySessions,
+} from "./session.js";
+export type {
+  SessionMigrationEntry,
+  SessionMigrationOptions,
+  SessionMigrationResult,
+  SessionMigrationStatus,
+  SessionSummary,
 } from "./session.js";
 export {
   ProjectDataSchema,

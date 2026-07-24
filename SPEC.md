@@ -511,6 +511,7 @@ I244: `packages/core/src/harness.ts`, `packages/runtime/src/harness-environment.
 I245: Root/workspace manifests, lockfile, runtime version, npm packages, Git `v3.1.4`, and GitHub Release are the 3.1.4 release surfaces.
 I246: `.github/workflows/release.yml`, `scripts/publish-npm.mjs`, publishable manifests, and `packages/swarmx/tests/launcher.test.ts` tag-to-npm release automation.
 I247: `packages/desktop/src/renderer/src/App.tsx` and `App.test.tsx` sidebar Project disclosure UI.
+I248: `packages/core/src/session.ts`, Core session tests, CLI migration command, npm launcher, and persistence documentation append-only local Session storage plus legacy migration.
 
 ## §V
 V1: Workflow JSON source of truth is `SwarmConfig`; UI preview, run badges, and send payload derive from parsed JSON.
@@ -1034,6 +1035,10 @@ V518: The root runtime constant and all six publishable packages declare 3.1.5; 
 V519: Each grouped sidebar Project main row is a keyboard-accessible disclosure excluding its right-side action buttons; click, Enter, or Space toggles only that Project's task list, `aria-expanded` matches visibility, expanded state uses Lucide `FolderOpen`, and collapsed state uses Lucide `Folder`.
 V520: A running desktop turn keeps Worked open as new commentary, reasoning, or tool activity arrives, including after a transient closed state; completion still collapses it, and live Worked labels update in the existing DOM node without replaying an entry transition.
 V521: A tool activity renders queued or running only while its parent desktop turn is the authoritative active request. A non-active turn with work but no final response is interrupted: unmatched tool calls become terminal without animation, the latest interrupted work stays open with an explicit Continue action, superseded interrupted work collapses, and Continue starts a new request without replaying unfinished tools.
+V522: Canonical local Sessions use one append-only `<id>.jsonl` event log per Session. Normal message and metadata updates append only their delta, preserve existing `SessionData` behavior, serialize per-Session writers, retain concurrently appended history when a stale metadata save arrives, and never rewrite prior valid event bytes.
+V523: New runtimes prefer JSONL but still read legacy `<id>.json` Sessions, including the released Rust desktop's snake_case Session and message schema. Explicit or lazy migration normalizes that schema, is idempotent, validates replay equivalence before moving the legacy file into a timestamped reversible backup, and never replaces an existing divergent JSONL log.
+V524: Session JSONL recovery accepts a single unterminated malformed tail as a torn final write and replays the valid prefix. A malformed newline-terminated or non-final record is reported as corruption, never silently skipped, and blocks further append until repaired.
+V525: A derived append-only Session index stores compact metadata, message count, and authoritative rollout byte length plus modification time. Listing surfaces use it without loading message bodies, reconcile missing or stale entries from rollout logs, and can rebuild it without changing canonical Session data.
 V526: Updating an existing user Provider without a new credential still fails closed when its encrypted credential is unreadable. Supplying an explicit replacement credential overwrites that unreadable entry, preserves normal credential rollback for readable entries, and returns no secret through inventory or IPC.
 
 ## §T
@@ -1255,6 +1260,7 @@ V526: Updating an existing user Provider without a new credential still fails cl
 |T214|x|implement Project main-row disclosure toggle, state icons, and renderer tests|G72,C187,V519,I247|
 |T215|x|backprop running Worked expansion and remove live-label transition flicker|G56,C138,C139,V353,V520,I191,I194|
 |T216|x|persist interrupted tool terminal state and implement safe desktop recovery display|V353,V429,V521,I191,I194|
+|T217|x|replace local Session rewrites with append-only JSONL, indexed summaries, compatible migration, and corruption recovery|V522,V523,V524,V525,I248|
 
 ## §B
 |id|date|cause|fix|
@@ -1404,4 +1410,5 @@ V526: Updating an existing user Provider without a new credential still fails cl
 |B143|2026-07-24|a local Core tarball integrity differed from the published clean-CI tarball because the dirty workspace retained obsolete untracked `dist/acp-server.*` outputs|compare unpacked contents before blaming archive metadata and keep publication on the exact clean tagged CI checkout|
 |B144|2026-07-24|Worked expansion lived as unsynchronized local state while its keyed live label replayed an opacity/translate entry animation, so an active turn could remain closed and visibly flash across status changes|V520|
 |B145|2026-07-24|desktop cancellation persisted timed work without terminalizing orphaned calls, while Renderer inferred every unmatched tool call as running even after its request no longer existed|V521|
+|B146|2026-07-24|local Session persistence rewrote the full JSON transcript on every update, multiplying write cost and exposing the entire conversation to truncation or concurrent overwrite|V522,V523,V524,V525|
 |B147|2026-07-24|Provider update always decrypted the persisted old credential before considering an explicit replacement, so one stale Keychain ciphertext made the repair form permanently unsavable|V526|

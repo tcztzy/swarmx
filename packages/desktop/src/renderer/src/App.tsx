@@ -105,6 +105,7 @@ import type {
   ProviderUsageSnapshot,
   ProviderUsageTarget,
   DesktopSessionData as SessionData,
+  DesktopSessionSummary as SessionSummary,
   UserProviderInput,
 } from "../../shared/desktop-api.js";
 import {
@@ -827,9 +828,9 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
     error: localSessionsError,
     isLoading: localSessionsLoading,
     mutate: mutateLocalSessions,
-  } = useSWR<SessionData[]>(
+  } = useSWR<SessionSummary[]>(
     LOCAL_SESSIONS_KEY,
-    () => api.listSessions() as Promise<SessionData[]>,
+    () => api.listSessions() as Promise<SessionSummary[]>,
     {
       dedupingInterval: SESSION_DEDUPING_INTERVAL_MS,
       revalidateOnFocus: false,
@@ -8814,7 +8815,7 @@ function preloadSessionCandidates(groups: SessionGroup[]): DiscoveredSession[] {
 
 function mergeLocalSessionsIntoGroups(
   groups: SessionGroup[],
-  sessions: SessionData[],
+  sessions: SessionSummary[],
   mode: SessionGroupMode,
 ): SessionGroup[] {
   const externalSessions = groups
@@ -8940,7 +8941,7 @@ function navigationEntryKey(session: DiscoveredSession | null): string {
   return session ? sessionCacheId(session) : "__new_session__";
 }
 
-function localSessionToDiscovered(session: SessionData): DiscoveredSession {
+function localSessionToDiscovered(session: SessionData | SessionSummary): DiscoveredSession {
   const harness = HARNESSES.find((item) => item.id === session.harness);
 
   return {

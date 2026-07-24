@@ -18,7 +18,7 @@ import {
 import {
   appendMessages,
   createSession,
-  listSessions as listSessionsFile,
+  listSessionSummaries as listSessionsFile,
   loadSession as loadSessionFile,
   saveSession,
 } from "./session.js";

@@ -25,6 +25,26 @@ Workflow panel:
 - `edges`: list of transitions, optionally with CEL `condition`
 - `mcpServers`: optional MCP server configuration
 
+## Local Session Storage
+
+SwarmX stores each local Session as an append-only JSONL rollout at
+`~/.swarmx/sessions/<id>.jsonl`. Normal message writes append only the new
+chunks. The derived `sessions.index.jsonl` contains compact list metadata and
+message counts, so Desktop and CLI task lists do not load every transcript.
+The index can be rebuilt from the canonical rollouts.
+
+Versions that predate JSONL remain supported: `<id>.json` files, including the
+former Rust desktop schema, are readable until migrated. Use
+`swarmx sessions migrate --dry-run` to validate a batch,
+then `swarmx sessions migrate` to convert it. Conversion is idempotent, checks
+that replayed JSONL equals the original Session, and moves legacy files to a
+timestamped reversible backup only after that check passes. npm also exposes
+the `swarmx-migrate-sessions` launcher.
+
+Readers recover the valid prefix of one malformed unterminated tail left by an
+interrupted append. A complete malformed or non-final record is corruption:
+SwarmX does not skip it or append new events after it.
+
 ## Extension Inventory
 
 SwarmX can load reusable extension bundles for downstream products such as
