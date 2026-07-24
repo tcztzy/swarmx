@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   appendMessages,
   archiveProjectSessions,
+  archiveSession,
   createSession,
   deleteSession,
   listSessions,
@@ -140,6 +141,22 @@ describe("Session", () => {
     );
   });
 
+  it("archives one task without deleting its persisted history", () => {
+    const session = createSession("archive", "swarmx");
+    savedIds.push(session.id);
+    session.messages.push({ role: "user", content: "keep me", kind: "message" });
+    saveSession(session);
+
+    const archived = archiveSession(session.id);
+
+    expect(archived?.archivedAt).toBeTruthy();
+    expect(loadSession(session.id)?.messages).toEqual(session.messages);
+    expect(listSessions().map((candidate) => candidate.id)).not.toContain(session.id);
+    expect(listSessions({ includeArchived: true }).map((candidate) => candidate.id)).toContain(
+      session.id,
+    );
+  });
+
   it("deletes a session", () => {
     const session = createSession("del", "swarmx");
     saveSession(session);
@@ -175,5 +192,9 @@ describe("Session", () => {
 
   it("returns false for deleting nonexistent session", () => {
     expect(deleteSession("nonexistent-id")).toBe(false);
+  });
+
+  it("returns null for archiving a nonexistent session", () => {
+    expect(archiveSession("nonexistent-id")).toBeNull();
   });
 });

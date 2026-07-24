@@ -163,6 +163,17 @@ export class ClaudeSessionRuntime implements ClaudeSessionToolBridge {
     void this.#pump();
   }
 
+  isRunning(): boolean {
+    return (
+      this.#foregroundActive ||
+      this.#pumping ||
+      this.#cronOperations.size > 0 ||
+      this.#activations.length > 0 ||
+      this.#monitors.size > 0 ||
+      this.shell.hasRunningSessions()
+    );
+  }
+
   async monitor(request: ClaudeMonitorInvocation): Promise<ClaudeMonitorResult> {
     this.#assertOpen();
     const record: MonitorRecord = {
@@ -715,6 +726,10 @@ export class ClaudeSessionRuntimeRegistry {
         .map(({ runtime }) => runtime.refreshScheduledTasks()),
     );
     await this.#releaseStore(entry.root);
+  }
+
+  isRunning(sessionId: string): boolean {
+    return this.#runtimes.get(sessionId)?.runtime.isRunning() ?? false;
   }
 
   async close(): Promise<void> {

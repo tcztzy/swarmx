@@ -66,6 +66,27 @@ describe("DesktopRequestRegistry", () => {
     await expect(registry.cancel(owner, "desktop-failure-cleanup")).resolves.toBe(false);
     expect(owner.listenerCount("destroyed")).toBe(0);
   });
+
+  it("tracks whether a session has an active request", async () => {
+    const registry = new DesktopRequestRegistry();
+    const owner = new FakeOwner(6);
+    const gate = deferred<string>();
+    const run = registry.runForSession(
+      {
+        owner,
+        requestId: "session-request",
+        sessionId: "session-1",
+      },
+      () => gate.promise,
+    );
+
+    expect(registry.isSessionActive("session-1")).toBe(true);
+    expect(registry.isSessionActive("session-2")).toBe(false);
+
+    gate.resolve("done");
+    await expect(run).resolves.toBe("done");
+    expect(registry.isSessionActive("session-1")).toBe(false);
+  });
 });
 
 class FakeOwner extends EventEmitter {

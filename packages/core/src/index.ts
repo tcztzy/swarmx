@@ -15,6 +15,8 @@ export type {
   LocalMcpTool,
   LocalTextTool,
   LocalTool,
+  LocalToolCallContext,
+  LocalToolProgress,
   LocalToolResult,
   ToolExecutionResult,
 } from "./mcp.js";
@@ -59,6 +61,7 @@ export {
   saveSession,
   loadSession,
   listSessions,
+  archiveSession,
   archiveProjectSessions,
   deleteSession,
   setSessionPinned,
@@ -368,6 +371,9 @@ export type {
   ParseNativeAgentDefinitionOptions,
 } from "./agent-profiles.js";
 export {
+  DesktopComposerPreferenceUpdateSchema,
+  DesktopComposerPreferencesSchema,
+  DesktopComposerSelectionSchema,
   DesktopExtensionSettingsSchema,
   DesktopPermissionProfileAvailabilitySchema,
   DesktopPermissionSettingsSchema,
@@ -391,6 +397,9 @@ export {
   resolveLocaleSelection,
 } from "./desktop-settings.js";
 export type {
+  DesktopComposerPreferenceUpdate,
+  DesktopComposerPreferences,
+  DesktopComposerSelection,
   DesktopExtensionSettings,
   DesktopPermissionProfileAvailability,
   DesktopPermissionSettings,

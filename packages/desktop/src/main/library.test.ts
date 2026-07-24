@@ -48,6 +48,7 @@ describe("desktop main library entry", () => {
     expect(desktopMain.HarnessDoctor).toBeTypeOf("function");
     expect(desktopMain.LspHost).toBeTypeOf("function");
     expect(desktopMain.ModelCatalogService).toBeTypeOf("function");
+    expect(desktopMain.ComposerPreferenceService).toBeTypeOf("function");
     expect(desktopMain.EncryptedFileProviderAuthStore).toBeTypeOf("function");
     expect(electron.handle).not.toHaveBeenCalled();
   });
@@ -72,6 +73,13 @@ describe("desktop main library entry", () => {
     ).resolves.toMatchObject({
       success: false,
       error: expect.stringContaining("requires an Agent Composition with an explicit Model"),
+      messages: [
+        expect.objectContaining({
+          role: "system",
+          kind: "message",
+          content: expect.stringContaining("requires an Agent Composition with an explicit Model"),
+        }),
+      ],
     });
 
     await expect(
@@ -220,6 +228,86 @@ describe("desktop main library entry", () => {
         { role: "assistant", kind: "message", content: "Complete." },
       ]),
     ).not.toThrow();
+  });
+
+  it("V504 delays and coalesces terminal progress while short commands keep only their result", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(0);
+    const send = vi.fn();
+    const publish = desktopIpc.agentChunkPublisher(
+      { isDestroyed: () => false, send },
+      "request-terminal-progress",
+    );
+    const call = (invocationId: string) => ({
+      role: "assistant",
+      kind: "tool_call" as const,
+      content: "{}",
+      toolName: "exec_command",
+      render: { invocationId, status: "running" as const },
+    });
+    const progress = (invocationId: string, content: string) => ({
+      role: "tool",
+      kind: "tool_progress" as const,
+      content,
+      toolName: "exec_command",
+      structuredContent: { output: content, stream: "stdout", mode: "append" },
+      render: { invocationId, status: "running" as const },
+    });
+    const result = (invocationId: string) => ({
+      role: "tool",
+      kind: "tool_result" as const,
+      content: "done",
+      toolName: "exec_command",
+      render: { invocationId, status: "succeeded" as const },
+    });
+
+    try {
+      publish(call("short"));
+      publish(progress("short", "too fast"));
+      vi.advanceTimersByTime(100);
+      publish(result("short"));
+      expect(send.mock.calls.map(([, payload]) => payload)).toEqual([
+        { requestId: "request-terminal-progress", chunk: call("short") },
+        { requestId: "request-terminal-progress", chunk: result("short") },
+      ]);
+
+      send.mockClear();
+      publish(call("long"));
+      publish(progress("long", "one\n"));
+      publish(progress("long", "two\n"));
+      vi.advanceTimersByTime(250);
+      expect(send).toHaveBeenLastCalledWith("agent:chunk", {
+        requestId: "request-terminal-progress",
+        chunk: expect.objectContaining({
+          kind: "tool_progress",
+          content: "one\ntwo\n",
+          structuredContent: expect.objectContaining({
+            output: "one\ntwo\n",
+            stream: "stdout",
+          }),
+        }),
+      });
+      publish(result("long"));
+      expect(send).toHaveBeenLastCalledWith("agent:chunk", {
+        requestId: "request-terminal-progress",
+        chunk: result("long"),
+      });
+
+      send.mockClear();
+      publish(call("bounded"));
+      publish(progress("bounded", "line\n".repeat(10_001)));
+      vi.advanceTimersByTime(250);
+      expect(send).toHaveBeenLastCalledWith("agent:chunk", {
+        requestId: "request-terminal-progress",
+        chunk: expect.objectContaining({
+          kind: "tool_progress",
+          content: expect.stringContaining("[live output truncated]"),
+        }),
+      });
+    } finally {
+      publish.close();
+      vi.useRealTimers();
+    }
   });
 
   it("opens the native file and folder picker only through an explicit IPC request", async () => {

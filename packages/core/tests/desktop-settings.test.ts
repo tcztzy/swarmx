@@ -40,6 +40,16 @@ describe("desktop settings primitives", () => {
       ui: {
         locale: "zh-CN",
         theme: "dark",
+        composer: {
+          lastHarnessId: "codex",
+          selectionsByHarness: {
+            codex: {
+              modelId: "gpt-5.6-sol",
+              modelSupplyId: "codex:gpt-5.6-sol",
+              effort: "high",
+            },
+          },
+        },
       },
       models: [
         {
@@ -115,6 +125,16 @@ describe("desktop settings primitives", () => {
       ui: {
         locale: "zh-CN",
         theme: "dark",
+        composer: {
+          lastHarnessId: "codex",
+          selectionsByHarness: {
+            codex: {
+              modelId: "gpt-5.6-sol",
+              modelSupplyId: "codex:gpt-5.6-sol",
+              effort: "high",
+            },
+          },
+        },
       },
       providers: [
         {
@@ -343,7 +363,7 @@ describe("desktop settings primitives", () => {
       schemaVersion: 1,
       desktop: {},
       server: {},
-      ui: { theme: "system" },
+      ui: { theme: "system", composer: { selectionsByHarness: {} } },
       providers: [],
       agents: [],
       extensions: {
@@ -367,5 +387,21 @@ describe("desktop settings primitives", () => {
         approvalReceipts: [],
       },
     });
+  });
+
+  it("defaults and validates per-Harness Composer preferences", () => {
+    expect(parseDesktopUiState({})).toEqual({
+      theme: "system",
+      composer: { selectionsByHarness: {} },
+    });
+    expect(() =>
+      parseDesktopUiState({
+        composer: {
+          selectionsByHarness: {
+            codex: { modelId: "gpt-5.6-sol", apiKey: "must-not-persist" },
+          },
+        },
+      }),
+    ).toThrow();
   });
 });

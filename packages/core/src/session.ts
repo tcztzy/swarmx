@@ -114,6 +114,16 @@ export function archiveProjectSessions(project: SessionProjectContext): number {
   return archived;
 }
 
+export function archiveSession(id: string): SessionData | null {
+  const session = loadSession(id);
+  if (!session) return null;
+  if (!session.archivedAt) {
+    session.archivedAt = new Date().toISOString();
+    saveSession(session);
+  }
+  return session;
+}
+
 export function deleteSession(id: string): boolean {
   ensureSessionsDir();
   const filePath = path.join(SESSIONS_DIR, `${id}.json`);

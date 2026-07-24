@@ -1,11 +1,11 @@
 /** Reusable Electron main-process integration. This entry does not start an app. */
 export {
-  agentChunkPublisher,
   assertFinalAssistantMessage,
   disposeDesktopTerminals,
   registerIpcHandlers,
 } from "./ipc.js";
-export type { AgentChunkSender } from "./ipc.js";
+export { agentChunkPublisher } from "./agent-chunk-publisher.js";
+export type { AgentChunkSender } from "./agent-chunk-publisher.js";
 export { BrowserHost, normalizeBrowserBounds, normalizeBrowserUrl } from "./browser-host.js";
 export type {
   BrowserBounds,
@@ -18,7 +18,7 @@ export {
   HarnessDoctor,
   HarnessEnvironmentService,
   configureDesktopHarnessEnvironment,
-} from "./harness-environment.js";
+} from "@swarmx/runtime";
 export type {
   ContainerRuntimeId,
   ContainerRuntimeStatus,
@@ -44,7 +44,7 @@ export type {
   HarnessRequirementStatus,
   HarnessRuntimeRequirement,
   ProtectedHarnessBackendResult,
-} from "./harness-environment.js";
+} from "@swarmx/runtime";
 export { LspHost } from "./lsp-host.js";
 export type {
   LspCompletionRequest,
@@ -88,6 +88,7 @@ export type {
   RecordPermissionDecisionInput,
   ResolveDesktopPermissionOptions,
 } from "./permission-service.js";
+export { ComposerPreferenceService } from "./composer-preferences.js";
 export { DesktopSettingsStore } from "./settings-store.js";
 export type {
   DesktopSettingsStoreLike,

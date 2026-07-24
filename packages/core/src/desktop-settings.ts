@@ -57,12 +57,49 @@ export const DesktopServerSettingsSchema = z.preprocess(
     .superRefine(addSecretIssues),
 );
 
+export const DesktopComposerSelectionSchema = z
+  .object({
+    modelId: z.string().min(1),
+    modelSupplyId: z.string().min(1).optional(),
+    effort: z.string().min(1).optional(),
+  })
+  .strict()
+  .superRefine(addSecretIssues);
+
+export const DesktopComposerPreferencesSchema = z
+  .object({
+    lastHarnessId: z.string().min(1).optional(),
+    selectionsByHarness: z.record(z.string().min(1), DesktopComposerSelectionSchema).default({}),
+  })
+  .strict()
+  .superRefine(addSecretIssues);
+
+export const DesktopComposerPreferenceUpdateSchema = z
+  .object({
+    harnessId: z.string().min(1),
+    modelId: z.string().min(1).optional(),
+    modelSupplyId: z.string().min(1).optional(),
+    effort: z.string().min(1).optional(),
+  })
+  .strict()
+  .superRefine((update, ctx) => {
+    if (!update.modelId && (update.modelSupplyId || update.effort)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: [update.modelSupplyId ? "modelSupplyId" : "effort"],
+        message: "Composer supply and effort preferences require a model id.",
+      });
+    }
+    addSecretIssues(update, ctx);
+  });
+
 export const DesktopUiStateSchema = z
   .object({
     locale: z.string().min(1).optional(),
     theme: z.enum(["system", "light", "dark"]).default("system"),
     lastView: z.string().min(1).optional(),
     sidebarCollapsed: z.boolean().optional(),
+    composer: DesktopComposerPreferencesSchema.default({}),
   })
   .passthrough()
   .superRefine(addSecretIssues);
@@ -219,6 +256,9 @@ export const ResolvedLocaleSelectionSchema = z.object({
 
 export type DesktopRootConfig = z.infer<typeof DesktopRootConfigSchema>;
 export type DesktopServerSettings = z.infer<typeof DesktopServerSettingsSchema>;
+export type DesktopComposerSelection = z.infer<typeof DesktopComposerSelectionSchema>;
+export type DesktopComposerPreferences = z.infer<typeof DesktopComposerPreferencesSchema>;
+export type DesktopComposerPreferenceUpdate = z.infer<typeof DesktopComposerPreferenceUpdateSchema>;
 export type DesktopUiState = z.infer<typeof DesktopUiStateSchema>;
 export type DesktopExtensionSettings = z.infer<typeof DesktopExtensionSettingsSchema>;
 export type DesktopPermissionProfileAvailability = z.infer<

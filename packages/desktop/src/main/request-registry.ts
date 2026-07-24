@@ -10,6 +10,16 @@ interface ActiveDesktopRequest {
   owner: RequestOwner;
   token: symbol;
   onDestroyed: () => void;
+  sessionId?: string;
+}
+
+export interface DesktopRequestContext {
+  sessionId?: string;
+}
+
+export interface DesktopSessionRequestContext extends DesktopRequestContext {
+  owner: RequestOwner;
+  requestId: string;
 }
 
 /**
@@ -20,7 +30,12 @@ interface ActiveDesktopRequest {
 export class DesktopRequestRegistry {
   private readonly active = new Map<string, ActiveDesktopRequest>();
 
-  async run<T>(owner: RequestOwner, requestId: string, run: () => Promise<T>): Promise<T> {
+  async run<T>(
+    owner: RequestOwner,
+    requestId: string,
+    run: () => Promise<T>,
+    context: DesktopRequestContext = {},
+  ): Promise<T> {
     if (this.active.has(requestId)) {
       throw new Error(`Request "${requestId}" is already active.`);
     }
@@ -32,6 +47,7 @@ export class DesktopRequestRegistry {
       onDestroyed: () => {
         void this.cancelEntry(requestId, token);
       },
+      ...(context.sessionId ? { sessionId: context.sessionId } : {}),
     };
     this.active.set(requestId, entry);
     owner.once("destroyed", entry.onDestroyed);
@@ -42,6 +58,14 @@ export class DesktopRequestRegistry {
       if (this.active.get(requestId)?.token === token) this.active.delete(requestId);
       owner.removeListener("destroyed", entry.onDestroyed);
     }
+  }
+
+  runForSession<T>(context: DesktopSessionRequestContext, run: () => Promise<T>): Promise<T> {
+    return this.run(context.owner, context.requestId, run, context);
+  }
+
+  isSessionActive(sessionId: string): boolean {
+    return [...this.active.values()].some((entry) => entry.sessionId === sessionId);
   }
 
   async cancel(owner: RequestOwner, requestId: string): Promise<boolean> {

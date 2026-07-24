@@ -392,6 +392,11 @@ describe("ClaudeSessionRuntime", () => {
     const registry = new ClaudeSessionRuntimeRegistry();
     const first = await registry.open("session-1", projectA);
     const same = await registry.open("session-1", projectA);
+    expect(registry.isRunning("session-1")).toBe(false);
+    await first.beginForeground();
+    expect(registry.isRunning("session-1")).toBe(true);
+    first.endForeground();
+    expect(registry.isRunning("session-1")).toBe(false);
     const replacement = await registry.open("session-1", projectB);
 
     expect(same).toBe(first);
