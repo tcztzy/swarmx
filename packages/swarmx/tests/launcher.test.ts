@@ -255,6 +255,7 @@ describe("npm launcher cold start", () => {
 
     expect(workflow).toContain("id-token: write");
     expect(workflow).toContain("needs: macos");
+    expect(workflow).toContain("NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}");
     expect(workflow).toContain("node scripts/publish-npm.mjs");
     expect(workflow).toContain("needs: [macos, npm]");
     expect(publisher).toContain('"packages/core"');

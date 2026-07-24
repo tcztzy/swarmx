@@ -157,6 +157,8 @@ jobs:
         run: pnpm -r build
 
       - name: Publish npm packages
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: node scripts/publish-npm.mjs
 
   github-release:

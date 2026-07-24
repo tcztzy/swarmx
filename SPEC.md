@@ -259,7 +259,7 @@ C182: Provider error classification is allowlist-based and main-process owned. S
 C183: Provider recovery actions require an explicit user click, retry the exact prior user text at most once per click, never create an automatic retry loop, and keep ordinary system errors on the existing failure path.
 C184: Kimi Code integration uses the official `kimi acp` stdio entrypoint and remains native so its local authentication, provider config, plugins, tools, and sessions remain available; SwarmX does not embed Kimi packages, copy credentials, or rewrite Kimi config.
 C185: A 3.1.4 release keeps every workspace package version aligned, publishes dependency-first from one verified commit, creates one matching `v3.1.4` tag/release, and preserves unrelated user-owned workspace changes.
-C186: npm release automation uses GitHub OIDC trusted publishing, packs workspace dependencies to exact release versions, publishes dependency-first, and treats an existing version as idempotent only when its registry integrity matches the locally packed tarball.
+C186: npm release automation prefers GitHub OIDC trusted publishing, accepts a repository-scoped npm automation token while trusted-publisher enrollment is bootstrapped, packs workspace dependencies to exact release versions, publishes dependency-first, and treats an existing version as idempotent only when its registry integrity matches the locally packed tarball.
 
 ## §I
 I1: `packages/core/src/types.ts` `SwarmConfigSchema`.
@@ -1025,7 +1025,7 @@ V512: Desktop and extension inventory expose Kimi Code as selectable, Runtime sh
 V513: Documentation states Kimi owns login, provider config, Skills/plugins, tools, permission modes, and session files; Kimi ACP reuses local auth, runs shell locally, falls back to local files because SwarmX advertises no ACP FS capability, and receives no client MCP servers while SwarmX sends an empty MCP list.
 V514: Root runtime constant and all six publishable packages declare 3.1.4; packed workspace dependencies resolve to 3.1.4 and npm publication remains dependency-first before matching Git tag and GitHub Release.
 V515: Focused Core/Runtime/Renderer tests cover registry metadata, explicit model-route behavior, official install command, native status, backend inference, and icon provenance; `pnpm run ci` plus an installed-CLI ACP startup smoke pass before publication.
-V516: A pushed stable `v<version>` tag runs an npm job from that exact tag after both macOS packages pass, grants only `contents: read` plus `id-token: write`, uses npm 11 trusted publishing, and publishes `@swarmx/core`, `@swarmx/runtime`, `@swarmx/acp-server`, `@swarmx/cli`, `@swarmx/desktop`, then `swarmx`.
+V516: A pushed stable `v<version>` tag runs an npm job from that exact tag after both macOS packages pass, grants only `contents: read` plus `id-token: write`, uses npm 11 with trusted publishing or the repository-scoped bootstrap token, and publishes `@swarmx/core`, `@swarmx/runtime`, `@swarmx/acp-server`, `@swarmx/cli`, `@swarmx/desktop`, then `swarmx`.
 V517: npm release packing rejects tag/manifest/runtime-version drift, unresolved `workspace:` dependencies, package name/version drift, and registry/local integrity mismatches; a matching existing tarball is the only allowed publish retry skip.
 V518: The root runtime constant and all six publishable packages declare 3.1.5; one verified tagged commit owns the matching npm versions and GitHub Release.
 
@@ -1388,3 +1388,4 @@ V518: The root runtime constant and all six publishable packages declare 3.1.5; 
 |B137|2026-07-22|desktop send failure handling collapsed every Provider exception into a raw red system message with no typed recovery action|V506,V507,V508|
 |B138|2026-07-24|the Release workflow built GitHub artifacts but never published npm, so 3.1.4 depended on an out-of-band manual publish while a stale local main obscured the committed version bump|V516,V517|
 |B139|2026-07-24|the first npm publisher implementation passed packing tests but left Node built-in imports and one runtime-version read outside Biome's canonical form|existing formatter gate|
+|B140|2026-07-24|npm trusted-publisher enrollment required an interactive WebAuthn account check that release automation could not complete unattended|keep OIDC permissions and use the existing repository-scoped automation token until enrollment is confirmed|
