@@ -1243,8 +1243,8 @@ V518: The root runtime constant and all six publishable packages declare 3.1.5; 
 |T209|x|replace Desktop Session deletion with stopped-only Archive and default archived-session filtering|G53,C130,C131,V345,V429,V430,I189,I190,I191,I216|
 |T210|x|add built-in Kimi Code ACP Harness, Runtime setup, Desktop selection, tests, and boundary documentation|G69,C184,V509,V510,V511,V512,V513,V515,I244|
 |T211|x|verify, version, publish, tag, and release SwarmX 3.1.4 with Kimi Code support|G70,C185,V469,V470,V487,V493,V514,V515,I245|
-|T212|x|add OIDC npm release automation with dependency ordering and integrity-safe retries|G71,C186,V516,V517,I246|
-|T213|~|align, verify, publish, tag, and release SwarmX 3.1.5|G71,V469,V470,V487,V493,V516,V517,V518,I246|
+|T212|x|add npm release automation with OIDC readiness, dependency ordering, and integrity-safe retries|G71,C186,V516,V517,I246|
+|T213|x|align, verify, publish, tag, and release SwarmX 3.1.5|G71,V469,V470,V487,V493,V516,V517,V518,I246|
 
 ## §B
 |id|date|cause|fix|
@@ -1389,3 +1389,6 @@ V518: The root runtime constant and all six publishable packages declare 3.1.5; 
 |B138|2026-07-24|the Release workflow built GitHub artifacts but never published npm, so 3.1.4 depended on an out-of-band manual publish while a stale local main obscured the committed version bump|V516,V517|
 |B139|2026-07-24|the first npm publisher implementation passed packing tests but left Node built-in imports and one runtime-version read outside Biome's canonical form|existing formatter gate|
 |B140|2026-07-24|npm trusted-publisher enrollment required an interactive WebAuthn account check that release automation could not complete unattended|keep OIDC permissions and use the existing repository-scoped automation token until enrollment is confirmed|
+|B141|2026-07-24|the local `gh run watch` connection hit a transient GitHub API TLS handshake timeout while the remote Release jobs remained healthy|re-query the authoritative run id with `gh run view` instead of inferring a workflow failure|
+|B142|2026-07-24|the first final verification query assumed an unsupported `gh release view` `isLatest` field and projected npm selected-field output as full metadata|request only advertised GitHub fields and project the full npm version document|
+|B143|2026-07-24|a local Core tarball integrity differed from the published clean-CI tarball because the dirty workspace retained obsolete untracked `dist/acp-server.*` outputs|compare unpacked contents before blaming archive metadata and keep publication on the exact clean tagged CI checkout|
