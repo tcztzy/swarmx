@@ -1,6 +1,6 @@
 {
   "name": "@swarmx/acp-server",
-  "version": "3.1.4",
+  "version": "3.1.5",
   "description": "ACP server adapter for SwarmX.",
   "license": "MIT",
   "repository": {

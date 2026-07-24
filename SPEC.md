@@ -1244,7 +1244,7 @@ V518: The root runtime constant and all six publishable packages declare 3.1.5; 
 |T210|x|add built-in Kimi Code ACP Harness, Runtime setup, Desktop selection, tests, and boundary documentation|G69,C184,V509,V510,V511,V512,V513,V515,I244|
 |T211|x|verify, version, publish, tag, and release SwarmX 3.1.4 with Kimi Code support|G70,C185,V469,V470,V487,V493,V514,V515,I245|
 |T212|x|add OIDC npm release automation with dependency ordering and integrity-safe retries|G71,C186,V516,V517,I246|
-|T213|.|align, verify, publish, tag, and release SwarmX 3.1.5|G71,V469,V470,V487,V493,V516,V517,V518,I246|
+|T213|~|align, verify, publish, tag, and release SwarmX 3.1.5|G71,V469,V470,V487,V493,V516,V517,V518,I246|
 
 ## §B
 |id|date|cause|fix|
