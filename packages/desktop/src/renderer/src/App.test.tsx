@@ -3464,6 +3464,167 @@ describe("App user workflow", () => {
     expect(screen.getByText("The final summary stays visible.")).toBeTruthy();
   });
 
+  it("V521 collapses superseded interrupted work and never leaves its tool spinning", async () => {
+    const interruptedSession: SessionData = {
+      ...localSession,
+      title: "Interrupted task",
+      messages: [
+        {
+          role: "user",
+          kind: "message",
+          content: "Trace the desktop request",
+        },
+        {
+          role: "assistant",
+          kind: "thinking",
+          content: "Tracing IPC",
+          render: {
+            startedAt: "2026-06-11T10:00:00.000Z",
+            endedAt: "2026-06-11T10:00:05.000Z",
+          },
+        },
+        {
+          role: "assistant",
+          kind: "tool_call",
+          toolName: "exec_command",
+          content: JSON.stringify({ cmd: "sed -n '1,20p' App.tsx" }),
+          render: {
+            startedAt: "2026-06-11T10:00:00.000Z",
+            endedAt: "2026-06-11T10:00:05.000Z",
+          },
+        },
+        {
+          role: "user",
+          kind: "message",
+          content: "Continue",
+        },
+        {
+          role: "assistant",
+          kind: "thinking",
+          content: "Verifying current state",
+        },
+        {
+          role: "assistant",
+          kind: "message",
+          content: "The recovery request completed.",
+        },
+      ],
+    };
+    const discoveredInterrupted = {
+      ...discoveredAcpSession,
+      id: interruptedSession.id,
+      title: interruptedSession.title,
+      harnessId: "swarmx",
+      harnessLabel: "SwarmX",
+      source: "local" as const,
+    };
+    const api = createDesktopApiMock({
+      listSessions: vi.fn(async () => [interruptedSession]),
+      listGroupedSessions: vi.fn(async () => ({
+        mode: "project",
+        groups: [{ id: "interrupted", label: "Interrupted", sessions: [discoveredInterrupted] }],
+        errors: [],
+      })),
+      loadDiscoveredSession: vi.fn(async () => interruptedSession),
+    });
+    const user = userEvent.setup();
+
+    await renderApp(api);
+    await user.click(await screen.findByText("Interrupted task"));
+
+    const firstTurn = screen.getByText("Trace the desktop request").closest(".conversation-turn");
+    if (!(firstTurn instanceof HTMLElement)) throw new Error("first turn was not rendered");
+    const interrupted = within(firstTurn).getByRole("button", {
+      name: "Interrupted after 5s",
+    });
+    expect(interrupted.getAttribute("aria-expanded")).toBe("false");
+    expect(screen.getByText("The recovery request completed.")).toBeTruthy();
+
+    await user.click(interrupted);
+    expect(within(firstTurn).getByRole("button", { name: /interrupted$/i })).toBeTruthy();
+    expect(firstTurn.querySelector(".tool-activity.is-running")).toBeNull();
+    expect(firstTurn.querySelector('[data-render-status="running"]')).toBeNull();
+    expect(within(firstTurn).queryByRole("button", { name: "Continue" })).toBeNull();
+  });
+
+  it("V521 keeps the latest interrupted work open and continues with a new safe request", async () => {
+    const interruptedSession: SessionData = {
+      ...localSession,
+      title: "Latest interrupted task",
+      messages: [
+        {
+          role: "user",
+          kind: "message",
+          content: "Inspect App rendering",
+        },
+        {
+          role: "assistant",
+          kind: "thinking",
+          content: "Inspecting the renderer",
+          render: {
+            startedAt: "2026-06-11T10:00:00.000Z",
+            endedAt: "2026-06-11T10:00:05.000Z",
+          },
+        },
+        {
+          role: "assistant",
+          kind: "tool_call",
+          toolName: "exec_command",
+          content: JSON.stringify({ cmd: "sed -n '1,20p' App.tsx" }),
+          render: {
+            startedAt: "2026-06-11T10:00:00.000Z",
+            endedAt: "2026-06-11T10:00:05.000Z",
+          },
+        },
+      ],
+    };
+    const discoveredInterrupted = {
+      ...discoveredAcpSession,
+      id: interruptedSession.id,
+      title: interruptedSession.title,
+      harnessId: "swarmx",
+      harnessLabel: "SwarmX",
+      source: "local" as const,
+    };
+    const reply = deferred<{ success: boolean; messages: MessageChunk[] }>();
+    const api = createDesktopApiMock({
+      listSessions: vi.fn(async () => [interruptedSession]),
+      listGroupedSessions: vi.fn(async () => ({
+        mode: "project",
+        groups: [{ id: "interrupted", label: "Interrupted", sessions: [discoveredInterrupted] }],
+        errors: [],
+      })),
+      loadDiscoveredSession: vi.fn(async () => interruptedSession),
+      sendMessage: vi.fn(() => reply.promise),
+    });
+    const user = userEvent.setup();
+
+    await renderApp(api);
+    await user.click(await screen.findByText("Latest interrupted task"));
+
+    const turn = screen.getByText("Inspect App rendering").closest(".conversation-turn");
+    if (!(turn instanceof HTMLElement)) throw new Error("interrupted turn was not rendered");
+    const interrupted = within(turn).getByRole("button", { name: "Interrupted after 5s" });
+    expect(interrupted.getAttribute("aria-expanded")).toBe("true");
+    expect(api.sendMessage).not.toHaveBeenCalled();
+    expect(turn.querySelector(".tool-activity.is-running")).toBeNull();
+
+    await user.click(within(turn).getByRole("button", { name: "Continue" }));
+    await waitFor(() => expect(api.sendMessage).toHaveBeenCalledTimes(1));
+    const continuedText = api.sendMessage.mock.calls[0]?.[0]?.userText as string;
+    expect(continuedText).toMatch(/^Continue the previous interrupted task\./);
+    expect(continuedText).toContain("Verify the current state");
+    expect(continuedText).not.toContain("sed -n");
+    expect(await screen.findByText(continuedText)).toBeTruthy();
+    await waitFor(() =>
+      expect(
+        within(turn)
+          .getByRole("button", { name: "Interrupted after 5s" })
+          .getAttribute("aria-expanded"),
+      ).toBe("false"),
+    );
+  });
+
   it("V353/V355/V520 streams stable open work live and collapses on completion", async () => {
     const reply = deferred<{ success: boolean; messages: MessageChunk[] }>();
     const unsubscribe = vi.fn();

@@ -99,6 +99,7 @@ import {
 import { DesktopRequestRegistry } from "./request-registry.js";
 import {
   assertFinalAssistantMessage,
+  interruptedMessages,
   publishSessionMessages,
   sessionChatMessages,
   timedMessages,
@@ -127,7 +128,7 @@ import {
 
 export { agentChunkPublisher };
 export type { AgentChunkPublisher, AgentChunkSender };
-export { assertFinalAssistantMessage, sessionChatMessages };
+export { assertFinalAssistantMessage, interruptedMessages, sessionChatMessages };
 
 const MAX_INLINE_IMAGE_BYTES = 25 * 1024 * 1024;
 const SENSITIVE_PERMISSION_LABEL_PATTERN =
@@ -726,7 +727,7 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
         return { ...result, messages: persistedMessages, sessionPersisted };
       } catch (err) {
         if (err instanceof RequestCancelledError) {
-          const canceledMessages = timedMessages(observedMessages, startedAt);
+          const canceledMessages = interruptedMessages(observedMessages, startedAt);
           const sessionPersisted = params.sessionId
             ? appendMessages(params.sessionId, canceledMessages)
             : false;
@@ -735,7 +736,7 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
             status: "canceled",
             startedAt,
             userText: params.userText,
-            messages: observedMessages,
+            messages: canceledMessages,
             tokenUsages,
           });
           return {

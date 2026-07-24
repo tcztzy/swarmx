@@ -9,7 +9,7 @@ import {
   parseExtensionBundle,
   removeProject,
 } from "@swarmx/core";
-import type { SessionData } from "@swarmx/core";
+import type { MessageChunk, SessionData } from "@swarmx/core";
 import { describe, expect, it, vi } from "vitest";
 
 const electron = vi.hoisted(() => ({
@@ -228,6 +228,49 @@ describe("desktop main library entry", () => {
         { role: "assistant", kind: "message", content: "Complete." },
       ]),
     ).not.toThrow();
+  });
+
+  it("V521 terminalizes only orphaned tool work when a request is interrupted", () => {
+    const messages: MessageChunk[] = [
+      {
+        role: "assistant",
+        kind: "tool_call",
+        toolName: "exec_command",
+        content: JSON.stringify({ cmd: "sed -n '1,20p' App.tsx" }),
+      },
+      {
+        role: "tool",
+        kind: "tool_progress",
+        toolName: "exec_command",
+        content: "partial output",
+      },
+      {
+        role: "assistant",
+        kind: "tool_call",
+        toolName: "read_file",
+        content: JSON.stringify({ path: "README.md" }),
+        render: { invocationId: "read-complete", status: "running" },
+      },
+      {
+        role: "tool",
+        kind: "tool_result",
+        toolName: "read_file",
+        content: "done",
+        render: { invocationId: "read-complete", status: "succeeded" },
+      },
+    ];
+
+    const interrupted = desktopIpc.interruptedMessages(messages, 1_000, 3_500);
+
+    expect(interrupted[0]?.render).toMatchObject({
+      status: "canceled",
+      durationMs: 2_500,
+      startedAt: "1970-01-01T00:00:01.000Z",
+      endedAt: "1970-01-01T00:00:03.500Z",
+    });
+    expect(interrupted[1]?.render?.status).toBe("canceled");
+    expect(interrupted[2]?.render?.status).toBe("running");
+    expect(interrupted[3]?.render?.status).toBe("succeeded");
   });
 
   it("V504 delays and coalesces terminal progress while short commands keep only their result", () => {

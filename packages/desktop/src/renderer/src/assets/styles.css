@@ -7573,7 +7573,16 @@ button.doctor-harness__version:focus-visible {
   border-bottom: 1px solid var(--border-subtle);
 }
 
+.work-disclosure__bar {
+  min-width: 0;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
 .work-disclosure__toggle {
+  min-width: 0;
   min-height: 38px;
   padding: 0 2px 12px;
   display: inline-flex;
@@ -7613,6 +7622,46 @@ button.doctor-harness__version:focus-visible {
   color: var(--muted);
 }
 
+.work-disclosure.is-interrupted .work-disclosure__toggle {
+  color: var(--muted);
+}
+
+.work-disclosure__continue {
+  min-height: 28px;
+  padding: 4px 9px;
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 560;
+  line-height: 1.2;
+}
+
+.work-disclosure__continue:hover:not(:disabled) {
+  color: var(--foreground);
+  background: var(--card-hover);
+}
+
+.work-disclosure__continue:focus-visible {
+  box-shadow: 0 0 0 3px var(--ring);
+}
+
+.work-disclosure__continue:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.work-disclosure__continue svg {
+  width: 13px;
+  height: 13px;
+}
+
 .work-disclosure__label {
   display: inline-block;
   min-width: 0;
@@ -7638,6 +7687,13 @@ button.doctor-harness__version:focus-visible {
 .work-disclosure__details {
   min-width: 0;
   padding: 3px 0 17px;
+}
+
+.work-disclosure__interruption {
+  margin: 0 0 11px;
+  color: var(--muted-foreground);
+  font-size: 12px;
+  line-height: 1.5;
 }
 
 .work-disclosure__events {
@@ -7809,6 +7865,11 @@ button.doctor-harness__version:focus-visible {
 .tool-activity.is-failed,
 .tool-activity.is-failed .tool-activity__status {
   color: var(--danger);
+}
+
+.tool-activity.is-interrupted,
+.tool-activity.is-interrupted .tool-activity__status {
+  color: var(--muted-foreground);
 }
 
 .tool-activity__label {

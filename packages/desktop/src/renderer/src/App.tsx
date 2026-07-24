@@ -343,6 +343,8 @@ const HARNESS_ENVIRONMENT_KEY = "harness:environment";
 const SESSION_DEDUPING_INTERVAL_MS = 10_000;
 const LOCAL_SESSION_PRELOAD_LIMIT = 24;
 const PANEL_EXIT_MS = 240;
+const INTERRUPTED_CONTINUE_PROMPT =
+  "Continue the previous interrupted task. Do not assume unfinished tool calls completed. Verify the current state before retrying any side-effecting action.";
 const LOCAL_FILES_LSP_ID = "swarmx.local-files";
 const SKILLS_LSP_ID = "swarmx.skills";
 const DEFAULT_MENTION_SERVERS = [
@@ -1554,6 +1556,18 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
     if (project) setActiveProjectId(project.id);
   }, [projects, selectedDiscoveredSession, selectedSessionData]);
 
+  const setVisibleSession = useCallback(
+    (session: SessionData) => {
+      setCurrentSession(session);
+      if (!selectedSessionKey || selectedDiscoveredSession?.id !== session.id) return;
+      void mutateSessionDetail(selectedSessionKey, session, {
+        populateCache: true,
+        revalidate: false,
+      });
+    },
+    [mutateSessionDetail, selectedDiscoveredSession?.id, selectedSessionKey],
+  );
+
   useEffect(() => {
     if (
       activeUiContributionId &&
@@ -2294,7 +2308,7 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
 
         const updatedMessages = [...session.messages, userChunk];
         pendingSession = { ...session, messages: updatedMessages };
-        setCurrentSession(pendingSession);
+        setVisibleSession(pendingSession);
         await api.saveSession(pendingSession);
         if (stoppedBeforeDispatch()) return;
 
@@ -2359,7 +2373,7 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
           const persisted = result.sessionPersisted ? await api.loadSession(session.id) : null;
           const updated = persisted ?? localUpdated;
           if (!persisted) await api.saveSession(updated);
-          setCurrentSession(updated);
+          setVisibleSession(updated);
           requestAutomaticSessionTitle(updated, text);
         } else if (result.canceled) {
           const canceledMessages = requestStartedAt
@@ -2369,7 +2383,7 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
           const persisted = result.sessionPersisted ? await api.loadSession(session.id) : null;
           const updated = persisted ?? localUpdated;
           if (!persisted) await api.saveSession(updated);
-          setCurrentSession(updated);
+          setVisibleSession(updated);
         } else if (result.error) {
           const workMessages = requestStartedAt
             ? withRequestTiming(streamedMessages, requestStartedAt, requestEndedAt)
@@ -2391,7 +2405,7 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
           const persisted = result.sessionPersisted ? await api.loadSession(session.id) : null;
           const updated = persisted ?? localUpdated;
           if (!persisted) await api.saveSession(updated);
-          setCurrentSession(updated);
+          setVisibleSession(updated);
         }
 
         await mutateLocalSessions();
@@ -2413,7 +2427,7 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
               { role: "system", content: message, kind: "message" as const },
             ],
           };
-          setCurrentSession(updated);
+          setVisibleSession(updated);
           try {
             await api.saveSession(updated);
           } catch {
@@ -2457,6 +2471,7 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
       openDoctorPanel,
       replaceCurrentNavigationEntry,
       requestAutomaticSessionTitle,
+      setVisibleSession,
     ],
   );
 
@@ -3399,6 +3414,11 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
                         messages={currentSession?.messages ?? []}
                         running={loading}
                         actionsDisabled={loading}
+                        onContinue={
+                          acpHistoryReadOnly
+                            ? undefined
+                            : () => void sendMessage(INTERRUPTED_CONTINUE_PROMPT)
+                        }
                         onRetry={(userText) => void sendMessage(userText)}
                         onChangeModel={
                           activeWorkflowConfig || activeExtensionAgent
@@ -7020,19 +7040,22 @@ function ConversationHistory({
   actionsDisabled,
   messages,
   onChangeModel,
+  onContinue,
   onRetry,
   running,
 }: {
   actionsDisabled: boolean;
   messages: MessageChunk[];
   onChangeModel?: () => void;
+  onContinue?: () => void;
   onRetry: (userText: string) => void;
   running: boolean;
 }) {
   const turns = useMemo(() => groupConversationTurns(messages), [messages]);
 
   return turns.map((turn, index) => {
-    const active = running && index === turns.length - 1;
+    const latest = index === turns.length - 1;
+    const active = running && latest;
     const visibleTurn =
       active && turn.finalMessage
         ? {
@@ -7041,12 +7064,19 @@ function ConversationHistory({
             finalMessage: null,
           }
         : turn;
+    const interrupted =
+      !active &&
+      !visibleTurn.finalMessage &&
+      (visibleTurn.userMessage !== null || visibleTurn.workMessages.length > 0);
     return (
       <ConversationTurnView
         active={active}
         actionsDisabled={actionsDisabled}
+        interrupted={interrupted}
         key={turn.id}
+        latest={latest}
         onChangeModel={onChangeModel}
+        onContinue={onContinue}
         onRetry={onRetry}
         turn={visibleTurn}
       />
@@ -7057,23 +7087,40 @@ function ConversationHistory({
 function ConversationTurnView({
   active,
   actionsDisabled,
+  interrupted,
+  latest,
   onChangeModel,
+  onContinue,
   onRetry,
   turn,
 }: {
   active: boolean;
   actionsDisabled: boolean;
+  interrupted: boolean;
+  latest: boolean;
   onChangeModel?: () => void;
+  onContinue?: () => void;
   onRetry: (userText: string) => void;
   turn: ConversationTurn;
 }) {
-  const hasWork = active || turn.workMessages.length > 0;
+  const hasWork = active || interrupted || turn.workMessages.length > 0;
   const retryText = turn.userMessage?.content;
+  const turnStatus = active ? "running" : interrupted ? "interrupted" : "completed";
 
   return (
-    <section className="conversation-turn" data-turn-status={active ? "running" : "completed"}>
+    <section className="conversation-turn" data-turn-status={turnStatus}>
       {turn.userMessage && <RunEvent msg={turn.userMessage} />}
-      {hasWork && <WorkDisclosure active={active} messages={turn.workMessages} turnId={turn.id} />}
+      {hasWork && (
+        <WorkDisclosure
+          active={active}
+          actionsDisabled={actionsDisabled}
+          interrupted={interrupted}
+          latest={latest}
+          messages={turn.workMessages}
+          onContinue={onContinue}
+          turnId={turn.id}
+        />
+      )}
       {turn.finalMessage && (
         <RunEvent
           actionsDisabled={actionsDisabled}
@@ -7088,17 +7135,26 @@ function ConversationTurnView({
 
 function WorkDisclosure({
   active,
+  actionsDisabled,
+  interrupted,
+  latest,
   messages,
+  onContinue,
   turnId,
 }: {
   active: boolean;
+  actionsDisabled: boolean;
+  interrupted: boolean;
+  latest: boolean;
   messages: MessageChunk[];
+  onContinue?: () => void;
   turnId: string;
 }) {
-  const [expanded, setExpanded] = useState(active);
+  const prominent = active || (interrupted && latest);
+  const [expanded, setExpanded] = useState(prominent);
   const toggleRef = useRef<HTMLButtonElement>(null);
   const detailsRef = useRef<HTMLDivElement>(null);
-  const wasActive = useRef(active);
+  const wasProminent = useRef(prominent);
   const workRevision =
     messages.length > 0
       ? `${messages.length}:${messageKey(messages[messages.length - 1] as MessageChunk)}`
@@ -7117,36 +7173,67 @@ function WorkDisclosure({
   const runningLabel = useRotatingLabel(runningLabels, active);
   const label = active
     ? (runningLabel ?? "Thinking")
-    : duration
-      ? `Worked for ${formatWorkDuration(duration)}`
-      : "Worked";
+    : interrupted
+      ? duration
+        ? `Interrupted after ${formatWorkDuration(duration)}`
+        : "Interrupted"
+      : duration
+        ? `Worked for ${formatWorkDuration(duration)}`
+        : "Worked";
 
   useLayoutEffect(() => {
     if (active) {
-      if (!wasActive.current || previousWorkRevision.current !== workRevision) setExpanded(true);
-    } else if (wasActive.current) {
+      if (!wasProminent.current || previousWorkRevision.current !== workRevision) setExpanded(true);
+    } else if (prominent && !wasProminent.current) {
+      setExpanded(true);
+    } else if (!prominent && wasProminent.current) {
       if (detailsRef.current?.contains(document.activeElement)) toggleRef.current?.focus();
       setExpanded(false);
     }
-    wasActive.current = active;
+    wasProminent.current = prominent;
     previousWorkRevision.current = workRevision;
-  }, [active, workRevision]);
+  }, [active, prominent, workRevision]);
 
   return (
-    <section className={cx("work-disclosure", active && "is-active", expanded && "is-open")}>
-      <button
-        type="button"
-        className="work-disclosure__toggle"
-        aria-controls={detailsId}
-        aria-expanded={expanded}
-        onClick={() => setExpanded((value) => !value)}
-        ref={toggleRef}
-      >
-        <span className="work-disclosure__label">{label}</span>
-        <ChevronRight aria-hidden="true" />
-      </button>
+    <section
+      className={cx(
+        "work-disclosure",
+        active && "is-active",
+        interrupted && "is-interrupted",
+        expanded && "is-open",
+      )}
+    >
+      <div className="work-disclosure__bar">
+        <button
+          type="button"
+          className="work-disclosure__toggle"
+          aria-controls={detailsId}
+          aria-expanded={expanded}
+          onClick={() => setExpanded((value) => !value)}
+          ref={toggleRef}
+        >
+          <span className="work-disclosure__label">{label}</span>
+          <ChevronRight aria-hidden="true" />
+        </button>
+        {interrupted && latest && onContinue && (
+          <button
+            type="button"
+            className="work-disclosure__continue"
+            disabled={actionsDisabled}
+            onClick={onContinue}
+          >
+            <RefreshCw aria-hidden="true" />
+            Continue
+          </button>
+        )}
+      </div>
       {expanded && (
         <div className="work-disclosure__details" id={detailsId} ref={detailsRef}>
+          {interrupted && (
+            <p className="work-disclosure__interruption">
+              This run ended before a final response. Unfinished tools were not resumed.
+            </p>
+          )}
           {messages.length > 0 ? (
             <div className="work-disclosure__events">
               {activities.map((activity) =>
@@ -7159,6 +7246,7 @@ function WorkDisclosure({
                 ) : (
                   <ToolActivityEvent
                     activity={activity.activity}
+                    interrupted={interrupted}
                     key={toolActivityKey(activity.activity)}
                   />
                 ),
@@ -7263,15 +7351,24 @@ function toolActivityKey(activity: ToolActivity): string {
     : `tool:${activity.sourceIndex}:${message ? messageKey(message) : "unknown"}`;
 }
 
-function ToolActivityEvent({ activity }: { activity: ToolActivity }) {
+function ToolActivityEvent({
+  activity,
+  interrupted,
+}: {
+  activity: ToolActivity;
+  interrupted: boolean;
+}) {
   const [expanded, setExpanded] = useState(false);
-  const event = mergedToolActivityEvent(activity);
-  const summary = describeToolActivity(event);
+  const mergedEvent = mergedToolActivityEvent(activity);
+  const interruptedTool =
+    interrupted && ["queued", "running", "canceled"].includes(mergedEvent.status);
+  const event = interruptedTool ? { ...mergedEvent, status: "canceled" as const } : mergedEvent;
+  const summary = describeToolActivity(event, interruptedTool);
   const transcript = toolActivityTranscript(event);
   const failure = toolFailureSummary(event);
   const hasDetails = !!transcript || event.artifacts.length > 0 || !!failure;
   const detailsId = `${event.eventId}-activity-details`;
-  const failed = event.status === "failed" || event.status === "canceled";
+  const failed = !interruptedTool && (event.status === "failed" || event.status === "canceled");
   const running = event.status === "queued" || event.status === "running";
   const hasProgress = Boolean(activity.progress?.content);
   const autoOpened = useRef(false);
@@ -7293,6 +7390,7 @@ function ToolActivityEvent({ activity }: { activity: ToolActivity }) {
         "tool-activity",
         running && "is-running",
         failed && "is-failed",
+        interruptedTool && "is-interrupted",
         expanded && "is-open",
       )}
       data-render-event-id={event.eventId}
@@ -7304,7 +7402,7 @@ function ToolActivityEvent({ activity }: { activity: ToolActivity }) {
         className="tool-activity__summary"
         aria-controls={hasDetails ? detailsId : undefined}
         aria-expanded={hasDetails ? expanded : undefined}
-        aria-label={`${summary}, ${humanToolStatus(event.status)}`}
+        aria-label={`${summary}, ${humanToolStatus(event.status, interruptedTool)}`}
         disabled={!hasDetails}
         onClick={() => hasDetails && setExpanded((value) => !value)}
       >
@@ -7457,7 +7555,7 @@ function mergedToolActivityEvent(activity: ToolActivity): NormalizedRenderEvent 
   };
 }
 
-function describeToolActivity(event: NormalizedRenderEvent): string {
+function describeToolActivity(event: NormalizedRenderEvent, interrupted = false): string {
   const payload = tracePayloadRecord(event) ?? {};
   const tool = (event.toolName ?? "tool").toLowerCase();
   const path = compactToolValue(
@@ -7476,6 +7574,34 @@ function describeToolActivity(event: NormalizedRenderEvent): string {
   );
   const running = event.status === "queued" || event.status === "running";
   const failed = event.status === "failed" || event.status === "canceled";
+
+  if (interrupted) {
+    if (/apply[_-]?patch|notebookedit|(^|[_-])(edit|patch)([_-]|$)/.test(tool)) {
+      return interruptedToolSummary("Edit interrupted", path);
+    }
+    if (/(^|[_-])(write|create)([_-]|$)/.test(tool)) {
+      return interruptedToolSummary("Write interrupted", path);
+    }
+    if (/(^|[_-])(read|open)([_-]|$)/.test(tool)) {
+      return interruptedToolSummary("Read interrupted", path);
+    }
+    if (/(^|[_-])(glob|grep|search|find)([_-]|$)|toolsearch/.test(tool)) {
+      return interruptedToolSummary("Search interrupted", query ? `“${query}”` : path);
+    }
+    if (/(^|[_-])(test|check|vitest|jest|pytest)([_-]|$)/.test(tool)) {
+      return "Tests interrupted";
+    }
+    if (/(^|[_-])(bash|shell|terminal|exec_command|powershell)([_-]|$)/.test(tool)) {
+      return interruptedToolSummary("Command interrupted", command);
+    }
+    if (/(^|[_-])(browser|chrome|playwright|computer[_-]?use)([_-]|$)/.test(tool)) {
+      return "Browser action interrupted";
+    }
+    if (/(^|[_-])(imagegen|image_generation|generate[_-]?image)([_-]|$)/.test(tool)) {
+      return "Image generation interrupted";
+    }
+    return `${humanizeToolName(event.toolName ?? "tool")} interrupted`;
+  }
 
   if (/apply[_-]?patch|notebookedit|(^|[_-])(edit|patch)([_-]|$)/.test(tool)) {
     return toolActionSummary("Editing", "Edited", "Couldn’t edit", path, running, failed);
@@ -7531,6 +7657,10 @@ function describeToolActivity(event: NormalizedRenderEvent): string {
   return running ? `Using ${label}` : failed ? `${label} failed` : `Used ${label}`;
 }
 
+function interruptedToolSummary(label: string, subject: string | undefined): string {
+  return subject ? `${label}: ${subject}` : label;
+}
+
 function toolActionSummary(
   pendingVerb: string,
   completedVerb: string,
@@ -7562,7 +7692,8 @@ function humanizeToolName(toolName: string): string {
     .replace(/^\w/, (character) => character.toUpperCase());
 }
 
-function humanToolStatus(status: NormalizedRenderEvent["status"]): string {
+function humanToolStatus(status: NormalizedRenderEvent["status"], interrupted = false): string {
+  if (interrupted) return "interrupted";
   if (status === "queued" || status === "running") return "in progress";
   if (status === "failed") return "failed";
   if (status === "canceled") return "canceled";
@@ -7626,6 +7757,19 @@ function groupConversationTurns(messages: MessageChunk[]): ConversationTurn[] {
     responseMessages.forEach((message, index) => {
       if (isFinalResponse(message)) finalMessageIndex = index;
     });
+    const finalWasSuperseded =
+      finalMessageIndex >= 0 &&
+      responseMessages.slice(finalMessageIndex + 1).some((message) => {
+        if (
+          message.kind === "thinking" ||
+          message.kind === "tool_call" ||
+          message.kind === "tool_progress"
+        ) {
+          return true;
+        }
+        return message.kind === "tool_result" && !isTerminalToolResult(message);
+      });
+    if (finalWasSuperseded) finalMessageIndex = -1;
     const finalMessage =
       finalMessageIndex >= 0 ? (responseMessages[finalMessageIndex] ?? null) : null;
     return {
