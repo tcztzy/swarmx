@@ -14,6 +14,18 @@ export interface ProviderAuthStore {
   delete(key: string): Promise<void>;
 }
 
+export class ProviderCredentialDecryptionError extends Error {
+  readonly credentialKey: string;
+
+  constructor(credentialKey: string) {
+    super(
+      `Provider credential "${credentialKey}" could not be decrypted. Edit the Provider and enter a new credential.`,
+    );
+    this.name = "ProviderCredentialDecryptionError";
+    this.credentialKey = credentialKey;
+  }
+}
+
 export function newApiAccountCredentialKey(providerId: string): string {
   return `${normalizeKey(providerId)}:new-api-account`;
 }
@@ -52,7 +64,7 @@ export class EncryptedFileProviderAuthStore implements ProviderAuthStore {
     try {
       return this.encryption.decrypt(Buffer.from(entry.ciphertext, "base64"));
     } catch {
-      throw new Error(`Provider credential "${normalizedKey}" could not be decrypted.`);
+      throw new ProviderCredentialDecryptionError(normalizedKey);
     }
   }
 

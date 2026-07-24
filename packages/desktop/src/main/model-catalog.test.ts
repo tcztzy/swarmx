@@ -12,6 +12,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { ModelCatalogService, humanReadableModelLabel } from "./model-catalog.js";
 import {
   type ProviderAuthStore,
+  ProviderCredentialDecryptionError,
   newApiAccountCredentialKey,
   providerPoolCredentialKey,
 } from "./provider-auth.js";
@@ -1122,6 +1123,47 @@ describe("ModelCatalogService", () => {
     expect(await authStore.get(accountKey)).toBeUndefined();
   });
 
+  it("V526 replaces an unreadable Provider credential only when a new value is explicit", async () => {
+    const paths = await catalogPaths();
+    const authStore = new UnreadableProviderAuthStore();
+    const service = new ModelCatalogService({
+      ...paths,
+      env: {},
+      authStore,
+      fetch: vi.fn().mockResolvedValue(response({ data: [] })),
+      now: fixedClock(),
+    });
+    const inventory = createExtensionInventory([]);
+    const saved = await service.saveProvider(inventory, {
+      label: "DeepSeek",
+      kind: "anthropic",
+      baseUrl: "https://api.deepseek.com/anthropic",
+      authMode: "auth_token",
+      secret: "stale-deepseek-key",
+    });
+    const providerId = saved.modelCatalog.userProviderIds[0] as string;
+    authStore.markUnreadable(providerId);
+    const update = {
+      id: providerId,
+      label: "DeepSeek",
+      kind: "anthropic" as const,
+      baseUrl: "https://api.deepseek.com/anthropic",
+      authMode: "auth_token" as const,
+    };
+
+    await expect(service.saveProvider(inventory, update)).rejects.toThrow(
+      `Provider credential "${providerId}" could not be decrypted. Edit the Provider and enter a new credential.`,
+    );
+
+    const repaired = await service.saveProvider(inventory, {
+      ...update,
+      secret: "replacement-deepseek-key",
+    });
+
+    expect(await authStore.get(providerId)).toBe("replacement-deepseek-key");
+    expect(JSON.stringify(repaired)).not.toContain("replacement-deepseek-key");
+  });
+
   it("requires a New API user id for a separate account access token", async () => {
     const paths = await catalogPaths();
     const service = new ModelCatalogService({
@@ -1386,5 +1428,31 @@ class OverlapDetectingAuthStore implements ProviderAuthStore {
     } finally {
       this.mutationsInFlight -= 1;
     }
+  }
+}
+
+class UnreadableProviderAuthStore implements ProviderAuthStore {
+  private readonly unreadableKeys = new Set<string>();
+  private readonly values = new Map<string, string>();
+
+  async get(key: string): Promise<string | undefined> {
+    if (this.unreadableKeys.has(key)) {
+      throw new ProviderCredentialDecryptionError(key);
+    }
+    return this.values.get(key);
+  }
+
+  async set(key: string, value: string): Promise<void> {
+    this.values.set(key, value);
+    this.unreadableKeys.delete(key);
+  }
+
+  async delete(key: string): Promise<void> {
+    this.values.delete(key);
+    this.unreadableKeys.delete(key);
+  }
+
+  markUnreadable(key: string): void {
+    this.unreadableKeys.add(key);
   }
 }

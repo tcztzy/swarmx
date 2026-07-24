@@ -20,7 +20,11 @@ import {
 } from "@swarmx/core";
 import type { CodexAccessTokenProvider } from "./codex-auth.js";
 import type { ProviderAuthStore } from "./provider-auth.js";
-import { newApiAccountCredentialKey, providerPoolCredentialKey } from "./provider-auth.js";
+import {
+  ProviderCredentialDecryptionError,
+  newApiAccountCredentialKey,
+  providerPoolCredentialKey,
+} from "./provider-auth.js";
 import {
   type ProviderKeyCandidate,
   type ProviderKeySlot,
@@ -358,13 +362,23 @@ export class ModelCatalogService {
       existing?.metadata,
     );
     const authStore = this.requireAuthStore();
-    const previousSecret = existing ? await authStore.get(existing.id) : undefined;
-    const accountCredentialKey = newApiAccountCredentialKey(provider.id);
-    const previousAccountAccessToken = existing
-      ? await authStore.get(accountCredentialKey)
-      : undefined;
     const secret = input.secret?.trim();
     const accountAccessToken = input.accountAccessToken?.trim();
+    const previousSecret = existing
+      ? await readProviderCredentialForUpdate(authStore, existing.id, !!secret)
+      : undefined;
+    const accountCredentialKey = newApiAccountCredentialKey(provider.id);
+    const accountCredentialWillChange =
+      !!accountAccessToken ||
+      input.clearAccountAccess === true ||
+      provider.usageAdapter !== "new_api";
+    const previousAccountAccessToken = existing
+      ? await readProviderCredentialForUpdate(
+          authStore,
+          accountCredentialKey,
+          accountCredentialWillChange,
+        )
+      : undefined;
     if (!secret && !previousSecret) {
       throw new Error(
         provider.authMode === "auth_token" ? "Auth token is required." : "API key is required.",
@@ -433,7 +447,12 @@ export class ModelCatalogService {
     }
 
     const previousAuthValues = new Map<string, string | undefined>();
-    for (const key of authChanges.keys()) previousAuthValues.set(key, await authStore.get(key));
+    for (const key of authChanges.keys()) {
+      if (existing && key === provider.id) previousAuthValues.set(key, previousSecret);
+      else if (existing && key === accountCredentialKey) {
+        previousAuthValues.set(key, previousAccountAccessToken);
+      } else previousAuthValues.set(key, await authStore.get(key));
+    }
     try {
       await applyProviderAuthChanges(authStore, authChanges);
       await this.settingsStore.update((current) => ({
@@ -1486,6 +1505,21 @@ async function applyProviderAuthChanges(
   for (const [key, value] of changes) {
     if (value) await authStore.set(key, value);
     else await authStore.delete(key);
+  }
+}
+
+async function readProviderCredentialForUpdate(
+  authStore: ProviderAuthStore,
+  key: string,
+  replacementIsExplicit: boolean,
+): Promise<string | undefined> {
+  try {
+    return await authStore.get(key);
+  } catch (error) {
+    if (replacementIsExplicit && error instanceof ProviderCredentialDecryptionError) {
+      return undefined;
+    }
+    throw error;
   }
 }
 

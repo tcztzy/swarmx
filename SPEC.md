@@ -1034,6 +1034,7 @@ V518: The root runtime constant and all six publishable packages declare 3.1.5; 
 V519: Each grouped sidebar Project main row is a keyboard-accessible disclosure excluding its right-side action buttons; click, Enter, or Space toggles only that Project's task list, `aria-expanded` matches visibility, expanded state uses Lucide `FolderOpen`, and collapsed state uses Lucide `Folder`.
 V520: A running desktop turn keeps Worked open as new commentary, reasoning, or tool activity arrives, including after a transient closed state; completion still collapses it, and live Worked labels update in the existing DOM node without replaying an entry transition.
 V521: A tool activity renders queued or running only while its parent desktop turn is the authoritative active request. A non-active turn with work but no final response is interrupted: unmatched tool calls become terminal without animation, the latest interrupted work stays open with an explicit Continue action, superseded interrupted work collapses, and Continue starts a new request without replaying unfinished tools.
+V526: Updating an existing user Provider without a new credential still fails closed when its encrypted credential is unreadable. Supplying an explicit replacement credential overwrites that unreadable entry, preserves normal credential rollback for readable entries, and returns no secret through inventory or IPC.
 
 ## §T
 |id|status|task|cites|
@@ -1403,3 +1404,4 @@ V521: A tool activity renders queued or running only while its parent desktop tu
 |B143|2026-07-24|a local Core tarball integrity differed from the published clean-CI tarball because the dirty workspace retained obsolete untracked `dist/acp-server.*` outputs|compare unpacked contents before blaming archive metadata and keep publication on the exact clean tagged CI checkout|
 |B144|2026-07-24|Worked expansion lived as unsynchronized local state while its keyed live label replayed an opacity/translate entry animation, so an active turn could remain closed and visibly flash across status changes|V520|
 |B145|2026-07-24|desktop cancellation persisted timed work without terminalizing orphaned calls, while Renderer inferred every unmatched tool call as running even after its request no longer existed|V521|
+|B147|2026-07-24|Provider update always decrypted the persisted old credential before considering an explicit replacement, so one stale Keychain ciphertext made the repair form permanently unsavable|V526|
