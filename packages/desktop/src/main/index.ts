@@ -1,7 +1,7 @@
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { configureDesktopHarnessEnvironment } from "@swarmx/runtime";
 import { BrowserWindow, type BrowserWindowConstructorOptions, app, nativeTheme } from "electron";
-import { configureDesktopHarnessEnvironment } from "./harness-environment.js";
 import { disposeDesktopTerminals, registerIpcHandlers } from "./ipc.js";
 import { NpmDesktopUpdateService } from "./updater.js";
 
@@ -16,6 +16,9 @@ if (requestedTheme === "light" || requestedTheme === "dark" || requestedTheme ==
 
 const MAIN_DIST = join(__dirname, "..");
 const RENDERER_DIST = join(__dirname, "../renderer");
+const APP_ICON_PATH = app.isPackaged
+  ? join(process.resourcesPath, "icon.png")
+  : join(MAIN_DIST, "../build/icon.png");
 
 const preloadPath = join(__dirname, "../preload/index.mjs");
 const rendererUrl =
@@ -45,6 +48,7 @@ function createWindow(): void {
     title: "SwarmX",
     show: false,
     backgroundColor: "#07080b",
+    ...(process.platform === "darwin" ? {} : { icon: APP_ICON_PATH }),
     ...(process.platform === "darwin"
       ? {
           frame: false,
@@ -75,6 +79,7 @@ function createWindow(): void {
 }
 
 app.whenReady().then(() => {
+  if (process.platform === "darwin") app.dock.setIcon(APP_ICON_PATH);
   registerIpcHandlers({
     updateService: desktopUpdater,
     broadcastUpdateState: (state) => {

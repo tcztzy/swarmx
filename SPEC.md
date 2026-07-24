@@ -1355,3 +1355,4 @@ V508: Focused Core/Runtime/Renderer tests cover registry metadata, explicit mode
 |B133|2026-07-23|B132 regression assertion exceeded Biome's canonical line width after the behavioral fix|existing formatter gate|
 |B134|2026-07-23|B132 stable-ID assertion expected an absent optional refresh field on initial version checks|existing focused test|
 |B135|2026-07-23|the installed-CLI smoke script treated `AcpClient.listSessions()` as a response envelope instead of its normalized array return|existing TypeScript return contract|
+|B136|2026-07-24|the icon reconstruction script relied on variadic NumPy tuple inference and reused a loop variable across incompatible path states, so repository mypy rejected the release commit|construct fixed-arity tuples and keep traversal state explicitly typed|

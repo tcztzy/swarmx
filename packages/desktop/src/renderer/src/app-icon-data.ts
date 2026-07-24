@@ -1,0 +1,135 @@
+const APP_ICON_SVG = `<svg
+  xmlns="http://www.w3.org/2000/svg"
+  width="1024"
+  height="1024"
+  viewBox="0 0 1024 1024"
+  role="img"
+  aria-labelledby="swarmx-title swarmx-description"
+>
+  <title id="swarmx-title">SwarmX</title>
+  <desc id="swarmx-description">
+    SwarmX application icon with three circulating folded ribbons.
+  </desc>
+
+  <defs>
+    <radialGradient id="background" cx="50%" cy="44%" r="74%">
+      <stop offset="0" stop-color="#111a38"/>
+      <stop offset="0.6" stop-color="#080e22"/>
+      <stop offset="1" stop-color="#03050c"/>
+    </radialGradient>
+    <linearGradient id="ribbon-gradient-0" x1="0" y1="0" x2="1" y2="1">
+      <stop class="ribbon-light phase-0" offset="0" color="#20f2e8" stop-color="currentColor"/>
+      <stop class="ribbon-dark phase-0" offset="1" color="#19cfe8" stop-color="currentColor"/>
+    </linearGradient>
+    <linearGradient id="ribbon-gradient-1" x1="0" y1="0" x2="1" y2="1">
+      <stop class="ribbon-light phase-1" offset="0" color="#35b9ff" stop-color="currentColor"/>
+      <stop class="ribbon-dark phase-1" offset="1" color="#2365f2" stop-color="currentColor"/>
+    </linearGradient>
+    <linearGradient id="ribbon-gradient-2" x1="0" y1="0" x2="1" y2="1">
+      <stop class="ribbon-light phase-2" offset="0" color="#9a76ff" stop-color="currentColor"/>
+      <stop class="ribbon-dark phase-2" offset="1" color="#6548ee" stop-color="currentColor"/>
+    </linearGradient>
+    <path id="ribbon" d="M300.338596 631.826942 300.338596 389.434307 423.004855 318.61291 634.842105 440.917203 634.842105 545.301532 678.842105 519.89812 678.842105 402.812085 412.004855 248.753527 223.338596 357.680042 223.338596 587.370971Z"/>
+  </defs>
+
+  <style>
+    :root {
+      --swarm-cycle: 3600ms;
+    }
+
+    .ribbon-light,
+    .ribbon-dark {
+      animation-duration: var(--swarm-cycle);
+      animation-iteration-count: infinite;
+      animation-timing-function: linear;
+    }
+
+    .ribbon-light {
+      animation-name: cycle-light;
+    }
+
+    .ribbon-dark {
+      animation-name: cycle-dark;
+    }
+
+    .phase-1 {
+      animation-delay: -1200ms;
+    }
+
+    .phase-2 {
+      animation-delay: -2400ms;
+    }
+
+    @keyframes cycle-light {
+      0%,
+      100% {
+        color: #20f2e8;
+      }
+
+      33.333% {
+        color: #35b9ff;
+      }
+
+      66.667% {
+        color: #9a76ff;
+      }
+    }
+
+    @keyframes cycle-dark {
+      0%,
+      100% {
+        color: #19cfe8;
+      }
+
+      33.333% {
+        color: #2365f2;
+      }
+
+      66.667% {
+        color: #6548ee;
+      }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .ribbon-light,
+      .ribbon-dark {
+        animation: none;
+      }
+    }
+  </style>
+
+  <rect
+    id="background-panel"
+    x="54"
+    y="52"
+    width="919"
+    height="920"
+    rx="220"
+    fill="url(#background)"
+  />
+
+  <g id="ribbons">
+    <use
+      id="ribbon-0"
+      class="ribbon"
+      href="#ribbon"
+      fill="url(#ribbon-gradient-0)"
+    />
+    <use
+      id="ribbon-1"
+      class="ribbon"
+      href="#ribbon"
+      fill="url(#ribbon-gradient-1)"
+      transform="rotate(120 512 512)"
+    />
+    <use
+      id="ribbon-2"
+      class="ribbon"
+      href="#ribbon"
+      fill="url(#ribbon-gradient-2)"
+      transform="rotate(240 512 512)"
+    />
+  </g>
+</svg>`;
+
+export const APP_ICON_URL = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(APP_ICON_SVG)}`;

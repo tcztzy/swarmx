@@ -1,0 +1,23 @@
+<svg
+  xmlns="http://www.w3.org/2000/svg"
+  width="1024"
+  height="1024"
+  viewBox="0 0 1024 1024"
+  role="img"
+  aria-labelledby="swarmx-title swarmx-description"
+>
+  <title id="swarmx-title">SwarmX</title>
+  <desc id="swarmx-description">
+    SwarmX black monochrome icon on a transparent background.
+  </desc>
+
+  <defs>
+    <path id="ribbon" d="M300.338596 631.826942 300.338596 389.434307 423.004855 318.61291 634.842105 440.917203 634.842105 545.301532 678.842105 519.89812 678.842105 402.812085 412.004855 248.753527 223.338596 357.680042 223.338596 587.370971Z"/>
+  </defs>
+
+  <g id="ribbons" fill="#0a0a0a">
+    <use id="ribbon-0" href="#ribbon"/>
+    <use id="ribbon-1" href="#ribbon" transform="rotate(120 512 512)"/>
+    <use id="ribbon-2" href="#ribbon" transform="rotate(240 512 512)"/>
+  </g>
+</svg>
