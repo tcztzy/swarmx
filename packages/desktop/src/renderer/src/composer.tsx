@@ -305,21 +305,21 @@ export function Composer({
     async (files: readonly globalThis.File[]) => {
       if (files.length === 0 || !importMediaAttachments) return;
       try {
-        const payload = await Promise.all(
-          files.map(
-            async (file): Promise<DesktopMediaImport> => ({
-              name: file.name,
-              mimeType: file.type || undefined,
-              bytes: new Uint8Array(await file.arrayBuffer()),
-            }),
-          ),
-        );
-        appendAttachments(await importMediaAttachments(payload, attachments));
+        let pending = attachments;
+        for (const file of files) {
+          const payload: DesktopMediaImport = {
+            name: file.name,
+            mimeType: file.type || undefined,
+            bytes: new Uint8Array(await file.arrayBuffer()),
+          };
+          pending = mergeAttachments(pending, await importMediaAttachments([payload], pending));
+          onAttachmentsChange?.(pending);
+        }
       } catch (error) {
         onContextError?.(error);
       }
     },
-    [appendAttachments, attachments, importMediaAttachments, onContextError],
+    [attachments, importMediaAttachments, onAttachmentsChange, onContextError],
   );
 
   const onKeyDown = useCallback(
@@ -543,6 +543,15 @@ function AttachmentIcon({
     return <FileText aria-hidden="true" />;
   }
   return <File aria-hidden="true" />;
+}
+
+function mergeAttachments(
+  existing: readonly DesktopMediaAttachment[],
+  next: readonly DesktopMediaAttachment[],
+): DesktopMediaAttachment[] {
+  const byId = new Map(existing.map((attachment) => [attachment.id, attachment]));
+  for (const attachment of next) byId.set(attachment.id, attachment);
+  return [...byId.values()];
 }
 
 function formatAttachmentSize(bytes: number): string {

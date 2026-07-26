@@ -1,6 +1,6 @@
 /** @vitest-environment jsdom */
 
-import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type React from "react";
 import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -187,6 +187,40 @@ describe("Composer", () => {
           bytes: new Uint8Array([4, 5]),
         }),
       ],
+      [diagram],
+    );
+  });
+
+  it("V559 imports multiple browser files sequentially to bound renderer memory", async () => {
+    const diagram = mediaAttachment();
+    const notes = { ...mediaAttachment(), id: "notes", name: "notes.txt", kind: "text" as const };
+    let resolveFirstImport: ((attachments: DesktopMediaAttachment[]) => void) | undefined;
+    const firstImport = new Promise<DesktopMediaAttachment[]>((resolve) => {
+      resolveFirstImport = resolve;
+    });
+    const importMediaAttachments = vi
+      .fn()
+      .mockReturnValueOnce(firstImport)
+      .mockResolvedValueOnce([notes]);
+    render(<TestComposer importMediaAttachments={importMediaAttachments} />);
+    const composer = screen.getByRole("textbox").closest(".composer");
+    const first = browserFile("diagram.png", [1, 2, 3]);
+    const second = browserFile("notes.txt", [4, 5]);
+
+    fireEvent.drop(composer as HTMLElement, {
+      dataTransfer: { types: ["Files"], files: [first, second], dropEffect: "none" },
+    });
+    await waitFor(() => expect(importMediaAttachments).toHaveBeenCalledTimes(1));
+
+    expect(first.arrayBuffer).toHaveBeenCalledTimes(1);
+    expect(second.arrayBuffer).not.toHaveBeenCalled();
+
+    resolveFirstImport?.([diagram]);
+    await screen.findByRole("button", { name: "Preview notes.txt" });
+    expect(second.arrayBuffer).toHaveBeenCalledTimes(1);
+    expect(importMediaAttachments).toHaveBeenNthCalledWith(
+      2,
+      [expect.objectContaining({ name: "notes.txt", bytes: new Uint8Array([4, 5]) })],
       [diagram],
     );
   });

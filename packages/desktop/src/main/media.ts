@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { constants, createReadStream } from "node:fs";
-import { copyFile, mkdir, open, readFile, realpath, stat, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, open, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -183,14 +183,26 @@ export class DesktopMediaService {
     sizeBytes: number,
     lastModifiedMs: number,
   ): Promise<MediaAttachment> {
-    const bytes = await readFile(filePath);
-    if (bytes.byteLength !== sizeBytes) throw new Error(`Attachment changed: ${filePath}`);
-    const digest = createHash("sha256").update(bytes).digest("hex");
+    const inspected = await inspectFileContent(filePath);
+    const afterRead = await stat(filePath).catch(() => null);
+    if (
+      !afterRead?.isFile() ||
+      afterRead.size !== sizeBytes ||
+      Math.floor(afterRead.mtimeMs) !== lastModifiedMs
+    ) {
+      throw new Error(`Attachment changed: ${filePath}`);
+    }
     const name = path.basename(filePath);
-    const mimeType = detectMediaMimeType(bytes.subarray(0, 64), name) ?? "application/octet-stream";
-    const target = await this.copyStoredFile(digest, name, filePath);
+    const mimeType = detectMediaMimeType(inspected.head, name) ?? "application/octet-stream";
+    const { target, created } = await this.copyStoredFile(inspected.digest, name, filePath);
+    try {
+      await this.inspectStoredPath(target, inspected.digest, sizeBytes);
+    } catch (error) {
+      if (created) await rm(target, { force: true });
+      throw error;
+    }
     return attachmentRecord({
-      digest,
+      digest: inspected.digest,
       name,
       mimeType,
       sizeBytes,
@@ -199,19 +211,26 @@ export class DesktopMediaService {
     });
   }
 
-  private async copyStoredFile(digest: string, name: string, source: string): Promise<string> {
+  private async copyStoredFile(
+    digest: string,
+    name: string,
+    source: string,
+  ): Promise<{ target: string; created: boolean }> {
     const target = await this.storedTarget(digest, name);
     const existing = await stat(target).catch(() => null);
+    let created = false;
     if (!existing?.isFile()) {
-      await copyFile(source, target, constants.COPYFILE_EXCL).catch(
-        async (error: NodeJS.ErrnoException) => {
+      await copyFile(source, target, constants.COPYFILE_EXCL)
+        .then(() => {
+          created = true;
+        })
+        .catch(async (error: NodeJS.ErrnoException) => {
           if (error.code !== "EEXIST" || !(await stat(target).catch(() => null))?.isFile()) {
             throw error;
           }
-        },
-      );
+        });
     }
-    return target;
+    return { target, created };
   }
 
   private async writeStoredFile(digest: string, name: string, bytes: Buffer): Promise<string> {
