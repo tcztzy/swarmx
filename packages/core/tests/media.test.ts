@@ -11,6 +11,7 @@ import {
   detectMediaMimeType,
   loadMediaAttachment,
   mediaKindFromMimeType,
+  validateMediaAttachments,
 } from "../src/media.js";
 import {
   type NativeProtocolContext,
@@ -106,6 +107,22 @@ describe("media attachments", () => {
     await writeFile(path.join(root, "note.txt"), "longer second value");
 
     await expect(loadMediaAttachment(attachment)).rejects.toThrow(/changed after it was added/i);
+  });
+
+  it("V561 validates unknown native-message attachments without a trusted type assertion", () => {
+    const untrusted: readonly unknown[] = [
+      {
+        id: "forged",
+        name: "forged.png",
+        kind: "image",
+        mimeType: "image/png",
+        sizeBytes: "not-a-number",
+        uri: "file:///tmp/forged.png",
+        source: "user",
+      },
+    ];
+
+    expect(() => validateMediaAttachments(untrusted)).toThrow();
   });
 
   it("maps image and file inputs for OpenAI Responses with explicit unsupported fallbacks", async () => {

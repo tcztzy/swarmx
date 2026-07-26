@@ -680,13 +680,14 @@ function rawMessages(arguments_: Record<string, unknown>): Array<{
     if (!message || typeof message !== "object" || Array.isArray(message)) return [];
     const record = message as Record<string, unknown>;
     if (typeof record.role !== "string") return [];
+    const attachments: readonly unknown[] = Array.isArray(record.attachments)
+      ? record.attachments
+      : [];
     return [
       {
         role: record.role,
         content: typeof record.content === "string" ? record.content : null,
-        attachments: validateMediaAttachments(
-          Array.isArray(record.attachments) ? (record.attachments as MediaAttachment[]) : [],
-        ),
+        attachments: validateMediaAttachments(attachments),
         ...(typeof record.tool_call_id === "string" ? { tool_call_id: record.tool_call_id } : {}),
       },
     ];

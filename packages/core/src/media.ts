@@ -177,7 +177,7 @@ export function attachmentFallbackText(attachment: MediaAttachment): string {
 }
 
 export function validateMediaAttachments(
-  attachments: readonly MediaAttachment[] | undefined,
+  attachments: readonly unknown[] | undefined,
 ): MediaAttachment[] {
   if (!attachments) return [];
   if (attachments.length > MAX_MEDIA_ATTACHMENTS) {
