@@ -5,6 +5,7 @@
   "description": "SwarmX multi-agent orchestration — Electron + Node.js edition",
   "scripts": {
     "build": "pnpm -r build",
+    "audit:prod": "pnpm audit --prod",
     "ci": "pnpm run ci:node && pnpm run ci:inspect",
     "ci:inspect": "uv sync --locked --group inspect && pnpm test:inspect",
     "ci:node": "pnpm lint && pnpm test && pnpm -r build",
@@ -20,6 +21,15 @@
     "@biomejs/biome": "^1.9.0",
     "typescript": "^5.7.0",
     "vitest": "^3.0.0"
+  },
+  "pnpm": {
+    "overrides": {
+      "@hono/node-server": "2.0.12",
+      "body-parser": "2.3.0",
+      "fast-uri": "3.1.4",
+      "hono": "4.12.32",
+      "lodash-es": "4.18.1"
+    }
   },
   "engines": {
     "node": ">=20.0.0",

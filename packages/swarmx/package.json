@@ -20,7 +20,7 @@
   "dependencies": {
     "@swarmx/cli": "workspace:*",
     "@swarmx/desktop": "workspace:*",
-    "electron": "^33.4.11"
+    "electron": "^39.8.10"
   },
   "engines": {
     "node": ">=20.0.0"

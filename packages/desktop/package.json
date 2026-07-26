@@ -77,7 +77,7 @@
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "@vitejs/plugin-react": "^4.0.0",
-    "electron": "^33.4.11",
+    "electron": "^39.8.10",
     "electron-builder": "^26.15.3",
     "electron-vite": "^5.0.0",
     "jsdom": "^29.1.1",
