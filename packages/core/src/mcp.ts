@@ -730,6 +730,7 @@ async function connectMcpServer(
     command: config.command,
     args: config.args ?? [],
     env: config.env,
+    cwd: config.cwd,
   });
   const client = new Client({ name: "swarmx", version: SWARMX_VERSION }, { capabilities: {} });
   let closed = false;

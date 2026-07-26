@@ -1,3 +1,4 @@
+import path from "node:path";
 import { Readable, Writable } from "node:stream";
 import {
   type Agent as AcpAgent,
@@ -27,6 +28,7 @@ import {
   ndJsonStream,
 } from "@agentclientprotocol/sdk";
 import {
+  RequestCancelledError,
   SWARMX_VERSION,
   Swarm,
   appendMessages,
@@ -34,19 +36,42 @@ import {
   listSessionSummaries as listSessionsFile,
   loadSession as loadSessionFile,
   saveSession,
+  withAcpRequest,
 } from "@swarmx/core";
-import type { MessageChunk, SessionData, SwarmConfig } from "@swarmx/core";
+import type {
+  McpServerConfig,
+  MessageChunk,
+  SessionData,
+  SwarmConfig,
+  SwarmNodeConfig,
+} from "@swarmx/core";
 
 interface SessionState {
   cwd: string;
-  mcpServers: McpServer[];
+  mcpServers: Record<string, McpServerConfig>;
   swarmConfig?: SwarmConfig;
-  sessionData?: SessionData;
+  sessionData: SessionData;
+}
+
+export interface SwarmExecutor {
+  execute(
+    arguments_: Record<string, unknown>,
+    context?: Record<string, unknown>,
+  ): Promise<MessageChunk[]>;
+}
+
+export interface SwarmXAgentOptions {
+  createSwarm?: (config: SwarmConfig) => SwarmExecutor;
 }
 
 export class SwarmXAgent implements AcpAgent {
   private sessions = new Map<string, SessionState>();
   private conn: AgentSideConnection | null = null;
+  private readonly createSwarm: (config: SwarmConfig) => SwarmExecutor;
+
+  constructor(options: SwarmXAgentOptions = {}) {
+    this.createSwarm = options.createSwarm ?? ((config) => new Swarm(config));
+  }
 
   setConnection(conn: AgentSideConnection): void {
     this.conn = conn;
@@ -60,7 +85,12 @@ export class SwarmXAgent implements AcpAgent {
         promptCapabilities: {
           image: false,
           audio: false,
-          embeddedContext: true,
+          embeddedContext: false,
+        },
+        sessionCapabilities: {
+          close: {},
+          list: {},
+          resume: {},
         },
       },
       agentInfo: {
@@ -73,17 +103,17 @@ export class SwarmXAgent implements AcpAgent {
   };
 
   newSession = async (request: NewSessionRequest): Promise<NewSessionResponse> => {
-    const sessionId = crypto.randomUUID().slice(0, 12);
-    const sessionData = createSession("swarmx", "swarmx");
-    sessionData.id = sessionId;
+    const cwd = normalizeAbsoluteCwd(request.cwd);
+    const mcpServers = projectMcpServers(request.mcpServers, cwd);
+    const sessionData = createSession("swarmx", "swarmx", undefined, { cwd });
     saveSession(sessionData);
 
-    this.sessions.set(sessionId, {
-      cwd: request.cwd ?? process.cwd(),
-      mcpServers: request.mcpServers ?? [],
+    this.sessions.set(sessionData.id, {
+      cwd,
+      mcpServers,
       sessionData,
     });
-    return { sessionId };
+    return { sessionId: sessionData.id };
   };
 
   loadSession = async (request: LoadSessionRequest): Promise<LoadSessionResponse> => {
@@ -93,9 +123,10 @@ export class SwarmXAgent implements AcpAgent {
       throw new Error(`Session ${sessionId} not found`);
     }
 
+    const cwd = bindPersistedCwd(sessionData, request.cwd);
     this.sessions.set(sessionId, {
-      cwd: request.cwd ?? process.cwd(),
-      mcpServers: request.mcpServers ?? [],
+      cwd,
+      mcpServers: projectMcpServers(request.mcpServers, cwd),
       sessionData,
     });
 
@@ -111,12 +142,18 @@ export class SwarmXAgent implements AcpAgent {
     return {};
   };
 
-  listSessions = async (_request: ListSessionsRequest): Promise<ListSessionsResponse> => {
-    const sessions = listSessionsFile();
+  listSessions = async (request: ListSessionsRequest): Promise<ListSessionsResponse> => {
+    const cwd = request.cwd ? normalizeAbsoluteCwd(request.cwd) : undefined;
+    const sessions = listSessionsFile().filter(
+      (session) =>
+        typeof session.cwd === "string" &&
+        path.isAbsolute(session.cwd) &&
+        (!cwd || path.normalize(session.cwd) === cwd),
+    );
     return {
       sessions: sessions.map((s) => ({
         sessionId: s.id,
-        cwd: process.cwd(),
+        cwd: path.normalize(s.cwd as string),
         title: s.title,
         updatedAt: s.updatedAt,
       })),
@@ -130,46 +167,61 @@ export class SwarmXAgent implements AcpAgent {
     const session = this.sessions.get(request.sessionId);
     if (!session) return { stopReason: "cancelled" };
 
-    let userText = "";
-    let swarmConfig: SwarmConfig | undefined = session.swarmConfig;
-
-    for (const block of request.prompt) {
-      if (block.type === "text") {
-        userText += block.text;
-        if (block._meta?.swarmConfig) {
-          swarmConfig = block._meta.swarmConfig as SwarmConfig;
-          session.swarmConfig = swarmConfig;
-        }
-      }
-    }
+    const userText = projectPromptBlocks(request.prompt);
+    const requestedSwarmConfig = request.prompt.find(
+      (block) => block.type === "text" && block._meta?.swarmConfig,
+    )?._meta?.swarmConfig as SwarmConfig | undefined;
+    if (requestedSwarmConfig) session.swarmConfig = requestedSwarmConfig;
 
     if (!userText.trim()) {
       return { stopReason: "end_turn" };
     }
 
     try {
-      const swarm = swarmConfig ? new Swarm(swarmConfig) : buildDefaultSwarm();
+      return await withAcpRequest(acpRequestId(request.sessionId), async () => {
+        const current = loadSessionFile(request.sessionId);
+        if (!current) throw new Error(`Session ${request.sessionId} not found`);
+        session.sessionData = current;
+        appendSessionMessages(request.sessionId, [
+          { role: "user", kind: "message", content: userText },
+        ]);
+        session.sessionData = requireSession(request.sessionId);
 
-      const result = await swarm.execute({
-        messages: [{ role: "user", content: userText }],
-      });
+        const config = applySessionRuntime(
+          session.swarmConfig ?? defaultSwarmConfig(),
+          session.cwd,
+          session.mcpServers,
+        );
+        const swarm = this.createSwarm(config);
+        const result = await swarm.execute(
+          { messages: session.sessionData.messages },
+          { cwd: session.cwd, sessionId: request.sessionId },
+        );
 
-      const updates: SessionUpdate[] = [];
-      for (const msg of result) {
-        const update = buildSessionUpdate(msg);
-        if (!update) continue;
-        updates.push(update);
-        const notification: SessionNotification = {
-          sessionId: request.sessionId,
-          update,
+        for (const msg of result) {
+          const update = buildSessionUpdate(msg);
+          if (!update) continue;
+          const notification: SessionNotification = {
+            sessionId: request.sessionId,
+            update,
+          };
+          await conn.sessionUpdate(notification);
+        }
+
+        appendSessionMessages(request.sessionId, result);
+        session.sessionData = requireSession(request.sessionId);
+        return {
+          stopReason: "end_turn",
+          ...(request.messageId ? { userMessageId: request.messageId } : {}),
         };
-        await conn.sessionUpdate(notification);
-      }
-
-      if (session.sessionData) {
-        appendMessages(session.sessionData.id, result);
-      }
+      });
     } catch (err: unknown) {
+      if (err instanceof RequestCancelledError) {
+        return {
+          stopReason: "cancelled",
+          ...(request.messageId ? { userMessageId: request.messageId } : {}),
+        };
+      }
       const errorMsg = err instanceof Error ? err.message : String(err);
       await conn.sessionUpdate({
         sessionId: request.sessionId,
@@ -182,9 +234,11 @@ export class SwarmXAgent implements AcpAgent {
           },
         },
       });
+      return {
+        stopReason: "refusal",
+        ...(request.messageId ? { userMessageId: request.messageId } : {}),
+      };
     }
-
-    return { stopReason: "end_turn" };
   };
 
   cancel = async (_params: CancelNotification): Promise<void> => {};
@@ -200,9 +254,10 @@ export class SwarmXAgent implements AcpAgent {
       throw new Error(`Session ${request.sessionId} not found`);
     }
 
+    const cwd = bindPersistedCwd(sessionData, request.cwd);
     this.sessions.set(request.sessionId, {
-      cwd: request.cwd ?? process.cwd(),
-      mcpServers: request.mcpServers ?? [],
+      cwd,
+      mcpServers: projectMcpServers(request.mcpServers ?? [], cwd),
       sessionData,
     });
 
@@ -214,8 +269,8 @@ export class SwarmXAgent implements AcpAgent {
   };
 }
 
-function buildDefaultSwarm(): Swarm {
-  return new Swarm({
+function defaultSwarmConfig(): SwarmConfig {
+  return {
     name: "default",
     root: "agent",
     nodes: {
@@ -228,7 +283,154 @@ function buildDefaultSwarm(): Swarm {
       },
     },
     edges: [],
+  };
+}
+
+function normalizeAbsoluteCwd(cwd: string): string {
+  if (!path.isAbsolute(cwd)) {
+    throw new Error(`ACP Session working directory must be absolute: ${cwd}`);
+  }
+  return path.normalize(cwd);
+}
+
+function bindPersistedCwd(session: SessionData, requestedCwd: string): string {
+  const cwd = normalizeAbsoluteCwd(requestedCwd);
+  if (session.cwd) {
+    const persistedCwd = normalizeAbsoluteCwd(session.cwd);
+    if (persistedCwd !== cwd) {
+      throw new Error(
+        `ACP Session working directory mismatch: expected ${persistedCwd}, received ${cwd}.`,
+      );
+    }
+    return persistedCwd;
+  }
+  session.cwd = cwd;
+  saveSession(session);
+  return cwd;
+}
+
+function projectMcpServers(
+  servers: readonly McpServer[],
+  cwd: string,
+): Record<string, McpServerConfig> {
+  const projected: Record<string, McpServerConfig> = {};
+  for (const server of servers) {
+    if (!("command" in server)) {
+      throw new Error(
+        `Unsupported ACP MCP transport "${server.type}" for "${server.name}". SwarmX ACP currently supports stdio MCP servers only.`,
+      );
+    }
+    const name = server.name.trim();
+    if (!name || projected[name]) {
+      throw new Error(
+        name ? `Duplicate ACP MCP server name: ${name}` : "ACP MCP server name is required.",
+      );
+    }
+    if (!server.command.trim()) {
+      throw new Error(`ACP MCP server "${name}" command is required.`);
+    }
+    const env: Record<string, string> = {};
+    for (const variable of server.env) {
+      if (Object.hasOwn(env, variable.name)) {
+        throw new Error(`Duplicate environment variable "${variable.name}" for ACP MCP "${name}".`);
+      }
+      env[variable.name] = variable.value;
+    }
+    projected[name] = {
+      type: "stdio",
+      command: server.command,
+      args: server.args,
+      ...(Object.keys(env).length > 0 ? { env } : {}),
+      cwd,
+    };
+  }
+  return projected;
+}
+
+function projectPromptBlocks(blocks: PromptRequest["prompt"]): string {
+  return blocks
+    .map((block) => {
+      switch (block.type) {
+        case "text":
+          return block.text;
+        case "resource_link": {
+          const details = [block.mimeType, block.size === undefined ? undefined : `${block.size} B`]
+            .filter((value): value is string => typeof value === "string")
+            .join(", ");
+          return `[Resource: ${block.name}](${block.uri}${details ? `; ${details}` : ""})`;
+        }
+        case "resource":
+          if ("text" in block.resource) {
+            const mime = block.resource.mimeType ? `; ${block.resource.mimeType}` : "";
+            return `[Embedded resource: ${block.resource.uri}${mime}]\n${block.resource.text}`;
+          }
+          return `[Embedded binary resource: ${block.resource.uri}${
+            block.resource.mimeType ? `; ${block.resource.mimeType}` : ""
+          }; ${block.resource.blob.length} base64 characters]`;
+        case "image":
+          return `[Image content: ${block.mimeType}; ${block.data.length} base64 characters${
+            block.uri ? `; ${block.uri}` : ""
+          }]`;
+        case "audio":
+          return `[Audio content: ${block.mimeType}; ${block.data.length} base64 characters]`;
+      }
+    })
+    .filter((text) => text.length > 0)
+    .join("\n");
+}
+
+function applySessionRuntime(
+  config: SwarmConfig,
+  cwd: string,
+  mcpServers: Record<string, McpServerConfig>,
+): SwarmConfig {
+  const applyAgent = (agent: NonNullable<SwarmConfig["queen"]>) => ({
+    ...agent,
+    process: { ...agent.process, currentDir: cwd },
+    mcpServers: { ...agent.mcpServers, ...mcpServers },
   });
+  const applyNode = (node: SwarmNodeConfig): SwarmNodeConfig => {
+    if (node.kind === "agent") return { ...node, agent: applyAgent(node.agent) };
+    if (node.kind === "tool") {
+      return {
+        ...node,
+        tool: {
+          ...node.tool,
+          mcpServers: { ...node.tool.mcpServers, ...mcpServers },
+        },
+      };
+    }
+    return {
+      ...node,
+      swarm: applySessionRuntime(node.swarm, cwd, mcpServers),
+    };
+  };
+
+  return {
+    ...config,
+    mcpServers: { ...config.mcpServers, ...mcpServers },
+    ...(config.queen ? { queen: applyAgent(config.queen) } : {}),
+    nodes: Object.fromEntries(
+      Object.entries(config.nodes).map(([name, node]) => [name, applyNode(node)]),
+    ),
+  };
+}
+
+function appendSessionMessages(sessionId: string, messages: MessageChunk[]): void {
+  if (messages.length === 0) return;
+  if (!appendMessages(sessionId, messages)) {
+    throw new Error(`Session ${sessionId} not found`);
+  }
+}
+
+function requireSession(sessionId: string): SessionData {
+  const session = loadSessionFile(sessionId);
+  if (!session) throw new Error(`Session ${sessionId} not found`);
+  return session;
+}
+
+function acpRequestId(sessionId: string): string {
+  return `acp-server:${sessionId}`;
 }
 
 function buildSessionUpdate(msg: MessageChunk): SessionUpdate | null {

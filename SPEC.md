@@ -273,6 +273,7 @@ C193: ACP video has no dedicated content block. Video remains a first-class Swar
 C194: Existing `@path` file/folder context references remain available. File attachments use a separate typed path, and directory selection never enters multimedia transport.
 C195: The Desktop main frame is the only caller of the privileged preload bridge. Main-process navigation, popup, and IPC authorization must fail closed before terminal, browser, filesystem, credential, or update handlers run.
 C196: Production and packaged Desktop dependency resolution must not retain a registry-known vulnerable version when a compatible patched release exists; transitive security floors are explicit and reproducible in the root lock policy.
+C197: The SwarmX ACP server must treat the persisted Core Session as the conversation authority. Advertised ACP capabilities must match implemented prompt content, lifecycle, cwd, and MCP behavior.
 
 ## §I
 I1: `packages/core/src/types.ts` `SwarmConfigSchema`.
@@ -534,6 +535,7 @@ I256: Desktop message attachment cards and a resizable right preview pane for im
 I257: `docs/multimedia.md`, `README.md`, `DESIGNS.md`, `docs/index.md`, and `design-qa.md` competitor evidence, capability matrix, security/limits, interaction design, and rendered validation.
 I258: `packages/desktop/src/main/window-security.ts`, `packages/desktop/src/main/index.ts`, `packages/desktop/src/main/ipc.ts`, `packages/desktop/src/preload/index.ts`, `packages/desktop/src/renderer/index.html`, and focused Main/Preload security tests enforce the Desktop trust boundary.
 I259: Root/package manifests and `pnpm-lock.yaml` keep Electron and transitive MCP/CEL dependency security floors aligned, with `pnpm audit --prod` as the repeatable production audit.
+I260: `packages/acp-server/src/server.ts` and its focused tests project ACP lifecycle, prompt blocks, cwd, and stdio MCP configuration into persisted Core Sessions and executable Swarm configuration.
 
 ## §V
 V1: Workflow JSON source of truth is `SwarmConfig`; UI preview, run badges, and send payload derive from parsed JSON.
@@ -1086,6 +1088,10 @@ V547: The main Desktop window accepts navigation only to its exact configured re
 V548: Every asynchronous privileged Desktop IPC handler and synchronous preload bootstrap request rejects a sender unless it is the configured renderer's main frame, before the registered operation executes.
 V549: The Desktop preload runs with Chromium sandboxing, imports no Node-backed project persistence module, receives its frozen initial Project snapshot through an authorized bootstrap IPC request, and ships a restrictive renderer Content Security Policy.
 V550: The resolved production graph uses Electron 39.8.10 or newer within the Node 20-compatible line, Hono 4.12.32 or newer, `@hono/node-server` 2.0.12 or newer, body-parser 2.3.0 or newer, fast-uri 3.1.4 or newer, and lodash-es 4.18.1 or newer; a fresh `pnpm audit --prod` reports zero known vulnerabilities.
+V551: ACP `session/new` persists its absolute cwd; each prompt persists the user turn before execution and the result after execution; later prompts receive the authoritative prior conversation; list/load/resume report or validate the persisted cwd.
+V552: ACP Prompt text and baseline resource links are represented explicitly in the persisted user turn and model input. The server does not advertise embedded context, image, or audio formats it cannot faithfully transport.
+V553: ACP stdio MCP definitions are validated, converted into Core MCP configuration with their session cwd and environment, and merged into executable Agent/Tool nodes. Unsupported HTTP, SSE, or ACP transports fail explicitly instead of being stored and ignored.
+V554: The ACP Server package has a runnable focused Vitest suite covering capabilities, lifecycle persistence, history, cwd filtering/validation, prompt-resource projection, MCP projection, load replay, resume, and close.
 
 ## §T
 |id|status|task|cites|
@@ -1314,6 +1320,7 @@ V550: The resolved production graph uses Electron 39.8.10 or newer within the No
 |T222|x|document competitor evidence, protocol/provider matrix, security limits, and run focused/full/rendered validation|G74,V545,V546,I257|
 |T223|x|lock Desktop navigation, popup, IPC, preload sandbox, bootstrap, and renderer CSP boundaries|C3,C195,V547,V548,V549,I258|
 |T224|x|upgrade vulnerable production dependencies and add a repeatable production audit command|C196,V550,I259|
+|T225|x|make ACP lifecycle, history, prompt resources, cwd, and MCP execution stateful and truthfully advertised|C197,V551,V552,V553,V554,I260|
 
 ## §B
 |id|date|cause|fix|
@@ -1468,3 +1475,4 @@ V550: The resolved production graph uses Electron 39.8.10 or newer within the No
 |B148|2026-07-26|parallel dependent-package builds let Desktop resolve stale Core declarations before Core emitted the new Session API|build dependency packages serially or use the recursive topological build|
 |B149|2026-07-26|the privileged Desktop preload was unsandboxed while top-level navigation and IPC registration trusted any renderer frame, so a navigated or injected document could reach terminal, filesystem, credential, browser, and update operations|V547,V548,V549|
 |B150|2026-07-26|the lockfile retained vulnerable Electron 33 and stale MCP/CEL transitive releases even though compatible patched versions were available, producing 33 production advisories including eight high-severity findings|V550|
+|B151|2026-07-26|the ACP server kept cwd and MCP only in an in-memory map, persisted only assistant results, rebuilt every prompt from the newest text, listed the process cwd, and advertised embedded context while dropping every non-text block|V551,V552,V553,V554|
