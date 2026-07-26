@@ -46,8 +46,13 @@ export interface ComposerProps {
     timeoutMs: number;
   }) => Promise<{ result: unknown }>;
   selectFilesAndFolders: () => Promise<string[]>;
-  selectMediaAttachments?: () => Promise<DesktopMediaAttachment[]>;
-  importMediaAttachments?: (files: DesktopMediaImport[]) => Promise<DesktopMediaAttachment[]>;
+  selectMediaAttachments?: (
+    existingAttachments: readonly DesktopMediaAttachment[],
+  ) => Promise<DesktopMediaAttachment[]>;
+  importMediaAttachments?: (
+    files: DesktopMediaImport[],
+    existingAttachments: readonly DesktopMediaAttachment[],
+  ) => Promise<DesktopMediaAttachment[]>;
   attachments?: DesktopMediaAttachment[];
   onAttachmentsChange?: (attachments: DesktopMediaAttachment[]) => void;
   onPreviewAttachment?: (attachment: DesktopMediaAttachment) => void;
@@ -288,13 +293,13 @@ export function Composer({
   const addMediaFiles = useCallback(async () => {
     if (!selectMediaAttachments) return;
     try {
-      appendAttachments(await selectMediaAttachments());
+      appendAttachments(await selectMediaAttachments(attachments));
     } catch (error) {
       onContextError?.(error);
     } finally {
       setContextMenuOpen(false);
     }
-  }, [appendAttachments, onContextError, selectMediaAttachments]);
+  }, [appendAttachments, attachments, onContextError, selectMediaAttachments]);
 
   const importBrowserFiles = useCallback(
     async (files: readonly globalThis.File[]) => {
@@ -309,12 +314,12 @@ export function Composer({
             }),
           ),
         );
-        appendAttachments(await importMediaAttachments(payload));
+        appendAttachments(await importMediaAttachments(payload, attachments));
       } catch (error) {
         onContextError?.(error);
       }
     },
-    [appendAttachments, importMediaAttachments, onContextError],
+    [appendAttachments, attachments, importMediaAttachments, onContextError],
   );
 
   const onKeyDown = useCallback(

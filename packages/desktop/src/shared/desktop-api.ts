@@ -725,8 +725,13 @@ export interface SwarmxAPI {
   startUpdate?(): Promise<DesktopUpdateState>;
   onUpdateState?(listener: (state: DesktopUpdateState) => void): () => void;
   selectFilesAndFolders(): Promise<string[]>;
-  selectMediaAttachments(): Promise<DesktopMediaAttachment[]>;
-  importMediaAttachments(files: DesktopMediaImport[]): Promise<DesktopMediaAttachment[]>;
+  selectMediaAttachments(
+    existingAttachments: readonly DesktopMediaAttachment[],
+  ): Promise<DesktopMediaAttachment[]>;
+  importMediaAttachments(
+    files: DesktopMediaImport[],
+    existingAttachments: readonly DesktopMediaAttachment[],
+  ): Promise<DesktopMediaAttachment[]>;
   previewMediaAttachment(attachment: DesktopMediaAttachment): Promise<DesktopMediaPreview>;
   openMediaAttachment(
     attachment: DesktopMediaAttachment,

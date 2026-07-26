@@ -139,7 +139,7 @@ describe("Composer", () => {
     fireEvent.click(screen.getByRole("button", { name: "Files and photos" }));
     await act(async () => undefined);
 
-    expect(selectMediaAttachments).toHaveBeenCalledTimes(1);
+    expect(selectMediaAttachments).toHaveBeenCalledWith([]);
     fireEvent.click(screen.getByRole("button", { name: "Preview diagram.png" }));
     expect(onPreviewAttachment).toHaveBeenCalledWith(attachment);
 
@@ -169,18 +169,26 @@ describe("Composer", () => {
     await screen.findByRole("button", { name: "Preview notes.txt" });
 
     expect(importMediaAttachments).toHaveBeenCalledTimes(2);
-    expect(importMediaAttachments).toHaveBeenNthCalledWith(1, [
-      expect.objectContaining({
-        name: "diagram.png",
-        bytes: new Uint8Array([1, 2, 3]),
-      }),
-    ]);
-    expect(importMediaAttachments).toHaveBeenNthCalledWith(2, [
-      expect.objectContaining({
-        name: "notes.txt",
-        bytes: new Uint8Array([4, 5]),
-      }),
-    ]);
+    expect(importMediaAttachments).toHaveBeenNthCalledWith(
+      1,
+      [
+        expect.objectContaining({
+          name: "diagram.png",
+          bytes: new Uint8Array([1, 2, 3]),
+        }),
+      ],
+      [],
+    );
+    expect(importMediaAttachments).toHaveBeenNthCalledWith(
+      2,
+      [
+        expect.objectContaining({
+          name: "notes.txt",
+          bytes: new Uint8Array([4, 5]),
+        }),
+      ],
+      [diagram],
+    );
   });
 });
 

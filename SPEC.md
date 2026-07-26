@@ -275,6 +275,7 @@ C195: The Desktop main frame is the only caller of the privileged preload bridge
 C196: Production and packaged Desktop dependency resolution must not retain a registry-known vulnerable version when a compatible patched release exists; transitive security floors are explicit and reproducible in the root lock policy.
 C197: The SwarmX ACP server must treat the persisted Core Session as the conversation authority. Advertised ACP capabilities must match implemented prompt content, lifecycle, cwd, and MCP behavior.
 C198: No release packaging or publication job may run until the exact tagged commit passes the repository Node quality gate and production dependency audit.
+C199: Desktop attachment limits apply to the complete pending turn, including attachments already present before a picker, drop, or paste import begins.
 
 ## §I
 I1: `packages/core/src/types.ts` `SwarmConfigSchema`.
@@ -540,6 +541,7 @@ I260: `packages/acp-server/src/server.ts` and its focused tests project ACP life
 I261: ACP `session/cancel` targets the same request key used by prompt execution and delegates cancellation to the Core request registry.
 I262: `packages/swarmx` owns a runnable package test script so recursive validation includes its launcher and release regression suite.
 I263: `.github/workflows/release.yml` has a tagged-commit quality job required by macOS packaging and therefore by downstream npm and GitHub publication.
+I264: Desktop media import APIs carry existing attachment metadata through Renderer, Preload, IPC, and Main so storage validates the combined count and byte budget before copying new content.
 
 ## §V
 V1: Workflow JSON source of truth is `SwarmConfig`; UI preview, run badges, and send payload derive from parsed JSON.
@@ -1099,6 +1101,7 @@ V554: The ACP Server package has a runnable focused Vitest suite covering capabi
 V555: ACP `session/cancel` aborts the active prompt's Core request signal and returns `cancelled`; it does not leave the registered execution running to completion.
 V556: `pnpm -r test` executes the `swarmx` launcher suite, whose Electron runtime assertions track the supported 39.x dependency line.
 V557: Release lint, tests, workspace build, and production audit run against `RELEASE_TAG` in a required quality job before either macOS architecture packages; npm and GitHub publication retain their downstream dependencies.
+V558: File picker, drop, and paste imports reject a combined pending turn above 20 attachments, any file above 100 MiB, or 500 MiB total before the new files are written to managed storage.
 
 ## §T
 |id|status|task|cites|
@@ -1331,6 +1334,7 @@ V557: Release lint, tests, workspace build, and production audit run against `RE
 |T226|x|route ACP cancellation through the Core request registry and prove cooperative prompt abort|C197,V555,I261|
 |T227|x|restore recursive launcher/release regression execution and align its Electron assertion|C196,V550,V556,I262|
 |T228|x|gate tagged release packaging and publication on Node quality checks and production audit|C198,V557,I263|
+|T229|x|enforce media count and byte limits across existing and newly imported attachments|C199,V558,I264|
 
 ## §B
 |id|date|cause|fix|
@@ -1489,3 +1493,4 @@ V557: Release lint, tests, workspace build, and production audit run against `RE
 |B152|2026-07-26|the ACP server registered prompt execution with the Core request registry but implemented `session/cancel` as an empty callback, so cooperative model, MCP, and subprocess cancellation was never signaled|V555|
 |B153|2026-07-26|the launcher regression still required Electron 33 after the security upgrade, while the package lacked a test script and was silently omitted by recursive workspace validation|V556|
 |B154|2026-07-26|tag pushes bypassed the main-branch CI trigger and the Release workflow ran only builds before packaging and publishing, so lint, tests, and production vulnerability audit were not release prerequisites|V557|
+|B155|2026-07-26|Desktop media import validated only each newly selected batch, so repeated picker, drop, or paste operations could exceed the turn count or aggregate-byte limit until send time after files were already copied|V558|

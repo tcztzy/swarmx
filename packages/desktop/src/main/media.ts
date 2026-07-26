@@ -11,6 +11,7 @@ import {
   MediaAttachmentSchema,
   detectMediaMimeType,
   mediaKindFromMimeType,
+  validateMediaAttachments,
 } from "@swarmx/core";
 import type { MediaAttachment } from "@swarmx/core";
 
@@ -38,8 +39,12 @@ export class DesktopMediaService {
     this.root = path.resolve(root);
   }
 
-  async importPaths(paths: readonly string[]): Promise<MediaAttachment[]> {
-    validateImportCount(paths.length);
+  async importPaths(
+    paths: readonly string[],
+    existingAttachments: readonly MediaAttachment[] = [],
+  ): Promise<MediaAttachment[]> {
+    const existing = validateMediaAttachments(existingAttachments);
+    validateImportCount(existing.length + paths.length);
     const infos = await Promise.all(
       paths.map(async (filePath) => {
         const absolute = path.resolve(filePath);
@@ -48,7 +53,10 @@ export class DesktopMediaService {
         return { absolute, info };
       }),
     );
-    validateImportBytes(infos.map(({ info }) => info.size));
+    validateImportBytes([
+      ...existing.map((attachment) => attachment.sizeBytes),
+      ...infos.map(({ info }) => info.size),
+    ]);
     return Promise.all(
       infos.map(({ absolute, info }) =>
         this.importFile(absolute, info.size, Math.floor(info.mtimeMs)),
@@ -56,9 +64,16 @@ export class DesktopMediaService {
     );
   }
 
-  async importBytes(files: readonly DesktopMediaImport[]): Promise<MediaAttachment[]> {
-    validateImportCount(files.length);
-    validateImportBytes(files.map((file) => file.bytes.byteLength));
+  async importBytes(
+    files: readonly DesktopMediaImport[],
+    existingAttachments: readonly MediaAttachment[] = [],
+  ): Promise<MediaAttachment[]> {
+    const existing = validateMediaAttachments(existingAttachments);
+    validateImportCount(existing.length + files.length);
+    validateImportBytes([
+      ...existing.map((attachment) => attachment.sizeBytes),
+      ...files.map((file) => file.bytes.byteLength),
+    ]);
     return Promise.all(
       files.map(async (file) => {
         if (!file.name.trim()) throw new Error("Attachment name cannot be empty.");

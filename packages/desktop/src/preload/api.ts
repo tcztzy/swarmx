@@ -257,9 +257,10 @@ export function createSwarmxDesktopApi(
 
     selectFilesAndFolders: () => invoke("workspace:selectFilesAndFolders"),
 
-    selectMediaAttachments: () => invoke("media:select"),
+    selectMediaAttachments: (existingAttachments) => invoke("media:select", existingAttachments),
 
-    importMediaAttachments: (files) => invoke("media:import", files),
+    importMediaAttachments: (files, existingAttachments) =>
+      invoke("media:import", files, existingAttachments),
 
     previewMediaAttachment: (attachment) => invoke("media:preview", attachment),
 

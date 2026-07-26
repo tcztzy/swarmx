@@ -1622,20 +1622,26 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
     return result.canceled ? [] : result.filePaths;
   });
 
-  ipcMain.handle("media:select", async () => {
-    const result = await dialog.showOpenDialog({
-      title: "Add files",
-      buttonLabel: "Add",
-      defaultPath: process.cwd(),
-      properties: ["openFile", "multiSelections"],
-    });
-    return result.canceled ? [] : mediaService.importPaths(result.filePaths);
-  });
+  ipcMain.handle(
+    "media:select",
+    async (_event: IpcMainInvokeEvent, existingAttachments: readonly MediaAttachment[] = []) => {
+      const result = await dialog.showOpenDialog({
+        title: "Add files",
+        buttonLabel: "Add",
+        defaultPath: process.cwd(),
+        properties: ["openFile", "multiSelections"],
+      });
+      return result.canceled ? [] : mediaService.importPaths(result.filePaths, existingAttachments);
+    },
+  );
 
   ipcMain.handle(
     "media:import",
-    (_event: IpcMainInvokeEvent, files: Parameters<DesktopMediaService["importBytes"]>[0]) =>
-      mediaService.importBytes(files),
+    (
+      _event: IpcMainInvokeEvent,
+      files: Parameters<DesktopMediaService["importBytes"]>[0],
+      existingAttachments: readonly MediaAttachment[] = [],
+    ) => mediaService.importBytes(files, existingAttachments),
   );
 
   ipcMain.handle("media:preview", (_event: IpcMainInvokeEvent, attachment: MediaAttachment) =>

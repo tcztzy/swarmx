@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import {
+  MAX_MEDIA_ATTACHMENTS,
   MAX_MEDIA_ATTACHMENT_BYTES,
   MAX_MEDIA_TURN_BYTES,
   type MediaAttachment,
@@ -138,6 +139,32 @@ describe("DesktopMediaService", () => {
         })),
       ),
     ).rejects.toThrow(/at most 20 files/i);
+  });
+
+  it("V558 applies count and byte limits to existing plus newly imported attachments", async () => {
+    const root = await temporaryDirectory();
+    const service = new DesktopMediaService(path.join(root, "media"));
+    const existing = Array.from({ length: MAX_MEDIA_ATTACHMENTS }, (_, index) => ({
+      id: `existing-${index}`,
+      name: `existing-${index}.txt`,
+      kind: "text" as const,
+      mimeType: "text/plain",
+      sizeBytes: 1,
+      uri: pathToFileURL(path.join(root, `existing-${index}.txt`)).href,
+      source: "user" as const,
+    }));
+    await expect(
+      service.importBytes([{ name: "one-too-many.txt", bytes: new Uint8Array() }], existing),
+    ).rejects.toThrow(/at most 20 files/i);
+    await expect(
+      service.importBytes(
+        [{ name: "over-total.bin", bytes: new Uint8Array([1]) }],
+        Array.from({ length: 5 }, (_, index) => ({
+          ...existing[index],
+          sizeBytes: MAX_MEDIA_ATTACHMENT_BYTES,
+        })) as MediaAttachment[],
+      ),
+    ).rejects.toThrow(/500 MiB or less/i);
   });
 
   it("enforces per-file and aggregate byte limits before copying browser data", async () => {

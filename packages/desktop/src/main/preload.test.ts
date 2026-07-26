@@ -325,12 +325,14 @@ describe("preload API", () => {
       text: "# Notes\n",
     });
 
-    await expect(exposedApi().importMediaAttachments(files)).resolves.toEqual([attachment]);
+    await expect(exposedApi().importMediaAttachments(files, [attachment])).resolves.toEqual([
+      attachment,
+    ]);
     await expect(exposedApi().previewMediaAttachment(attachment)).resolves.toMatchObject({
       status: "available",
       text: "# Notes\n",
     });
-    expect(electron.invoke).toHaveBeenNthCalledWith(1, "media:import", files);
+    expect(electron.invoke).toHaveBeenNthCalledWith(1, "media:import", files, [attachment]);
     expect(electron.invoke).toHaveBeenNthCalledWith(2, "media:preview", attachment);
   });
 
