@@ -31,7 +31,7 @@ import {
   Swarm,
   appendMessages,
   createSession,
-  listSessions as listSessionsFile,
+  listSessionSummaries as listSessionsFile,
   loadSession as loadSessionFile,
   saveSession,
 } from "@swarmx/core";

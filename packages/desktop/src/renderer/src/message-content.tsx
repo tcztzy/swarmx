@@ -1,6 +1,6 @@
 import { Check, Copy } from "lucide-react";
 import type React from "react";
-import { Fragment, createElement, isValidElement, useEffect, useState } from "react";
+import { Fragment, createElement, isValidElement, useEffect, useRef, useState } from "react";
 import ReactMarkdown, { defaultUrlTransform } from "react-markdown";
 import type { Components, UrlTransform } from "react-markdown";
 import rehypeKatex from "rehype-katex";
@@ -63,6 +63,50 @@ export function MessageContent({ kind, content }: MessageContentProps) {
       },
       prepareMathMarkdown(content),
     ),
+  );
+}
+
+export function MessageCopyButton({ content }: { content: string }) {
+  const [copied, setCopied] = useState(false);
+  const resetTimer = useRef<number | null>(null);
+
+  useEffect(
+    () => () => {
+      if (resetTimer.current !== null) window.clearTimeout(resetTimer.current);
+    },
+    [],
+  );
+
+  async function copyMessage() {
+    if (!content || typeof navigator === "undefined" || !navigator.clipboard?.writeText) {
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(content);
+    } catch {
+      return;
+    }
+
+    setCopied(true);
+    if (resetTimer.current !== null) window.clearTimeout(resetTimer.current);
+    resetTimer.current = window.setTimeout(() => {
+      setCopied(false);
+      resetTimer.current = null;
+    }, 1500);
+  }
+
+  const label = copied ? "Message copied" : "Copy message";
+  return createElement(
+    "button",
+    {
+      "aria-label": label,
+      className: "run-event__action",
+      disabled: !content,
+      onClick: copyMessage,
+      title: label,
+      type: "button",
+    },
+    createElement(copied ? Check : Copy, { "aria-hidden": true, size: 16 }),
   );
 }
 

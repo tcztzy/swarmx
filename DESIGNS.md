@@ -242,15 +242,38 @@ Five message types for rendering agent responses:
 
 ### Session Persistence
 
-Sessions stored as individual JSON files: `~/.swarmx/sessions/{id}.json`
-Each file is a serialized `Session` with:
+Canonical Sessions are append-only event logs:
+`~/.swarmx/sessions/{id}.jsonl`. Each line is one versioned
+`session_created`, `messages_appended`, `messages_replaced`, or
+`session_updated` event. The normal message path appends only new chunks; the
+replacement event exists solely to preserve the older public `saveSession()`
+contract when a caller intentionally rewrites history.
+
+`~/.swarmx/sessions/sessions.index.jsonl` is a rebuildable metadata projection
+with title, project, Harness, timestamps, pin/archive state, message count, and
+the source rollout byte length and modification time. Task lists read that
+index without loading message bodies; opening a task replays its canonical
+event log.
+
+The replayed `Session` contains:
 - Full message history (`ChatMessage[]`)
 - Agent metadata (label, command line, backend index)
 - Optional local Project identity and canonical working directory (`projectId`, `cwd`)
 - ACP session ID for resume support
 - Created/updated timestamps
 
-Legacy `~/.swarmx/sessions.json` (single file) is auto-migrated on startup.
+Legacy `~/.swarmx/sessions/{id}.json` remains readable, including files written
+by the former Rust desktop schema. A first write normalizes and migrates that
+Session lazily, or users can preview and batch the conversion with
+`swarmx sessions migrate --dry-run` followed by `swarmx sessions migrate`.
+Migration validates replay equivalence before moving legacy files into a
+timestamped `legacy-json-backups/` directory. The standalone npm launcher is
+`swarmx-migrate-sessions`.
+
+A single malformed unterminated final line is treated as a torn crash write and
+the valid prefix remains readable. Complete malformed or non-final records
+fail closed and block append; they are never silently skipped. The derived
+index may be rebuilt at any time without changing canonical Session logs.
 
 Desktop Projects are local folder bookmarks stored in
 `~/.swarmx/projects.json`. They group tasks and provide the working directory

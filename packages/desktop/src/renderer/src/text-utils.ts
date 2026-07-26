@@ -17,6 +17,26 @@ export function formatTimestamp(value: string): string {
   });
 }
 
+export function formatMessageTimestamp(value: string, now = new Date()): string | null {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+
+  const ageMs = Math.max(0, now.getTime() - date.getTime());
+  const time = `${twoDigits(date.getHours())}:${twoDigits(date.getMinutes())}`;
+  if (ageMs < 24 * 60 * 60 * 1_000) return time;
+  if (ageMs < 7 * 24 * 60 * 60 * 1_000) {
+    const weekday = new Intl.DateTimeFormat([], { weekday: "short" }).format(date);
+    return `${weekday} ${time}`;
+  }
+  return `${date.getFullYear()}-${twoDigits(date.getMonth() + 1)}-${twoDigits(date.getDate())} ${time}`;
+}
+
+export function formatFullMessageTimestamp(value: string): string | null {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  return `${date.getFullYear()}-${twoDigits(date.getMonth() + 1)}-${twoDigits(date.getDate())} ${twoDigits(date.getHours())}:${twoDigits(date.getMinutes())}`;
+}
+
 export function lines(value: string): string[] {
   return [
     ...new Set(
@@ -40,4 +60,8 @@ export function slugId(value: string, fallback: string): string {
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "");
   return slug || fallback;
+}
+
+function twoDigits(value: number): string {
+  return String(value).padStart(2, "0");
 }

@@ -49,6 +49,15 @@ describe("request-scoped cancellation", () => {
     });
   });
 
+  it("applies a preferred ACP mode when the session advertises it", async () => {
+    const client = new AcpClient();
+    await expect(
+      client.prompt({ ...agentOptions("session-mode"), preferredMode: "plan" }, "hello"),
+    ).resolves.toMatchObject({
+      messages: [expect.objectContaining({ content: "mode:plan" })],
+    });
+  });
+
   it("keeps ACP tool updates correlated without exposing their ids as content", async () => {
     const client = new AcpClient();
     const chunks: Array<{
@@ -282,6 +291,7 @@ type AgentMode =
   | "models"
   | "stable-config"
   | "grouped-config"
+  | "session-mode"
   | "tools"
   | "permission";
 
@@ -304,6 +314,7 @@ function agentScript(mode: AgentMode): string {
     let finishPrompt;
     let selectedModel = "default-model";
     let selectedEffort = "low";
+    let selectedMode = "default";
     const configChanges = [];
     const configOptions = () => {
       const modelValues = ${JSON.stringify(mode)} === "grouped-config"
@@ -356,6 +367,15 @@ function agentScript(mode: AgentMode): string {
               ],
             },
           } : {}),
+          ...(${JSON.stringify(mode)} === "session-mode" ? {
+            modes: {
+              currentModeId: selectedMode,
+              availableModes: [
+                { id: "default", name: "Default" },
+                { id: "plan", name: "Plan" },
+              ],
+            },
+          } : {}),
         };
       },
       async unstable_setSessionModel(params) {
@@ -367,6 +387,10 @@ function agentScript(mode: AgentMode): string {
         if (params.configId === "reasoning-effort") selectedEffort = params.value;
         configChanges.push(params.configId === "model" ? "model" : "effort");
         return { configOptions: configOptions() };
+      },
+      async setSessionMode(params) {
+        selectedMode = params.modeId;
+        return {};
       },
       async prompt() {
         if (${JSON.stringify(mode)} === "permission") {
@@ -468,6 +492,16 @@ function agentScript(mode: AgentMode): string {
             update: {
               sessionUpdate: "agent_message_chunk",
               content: { type: "text", text: "model:" + selectedModel },
+            },
+          });
+          return { stopReason: "end_turn" };
+        }
+        if (${JSON.stringify(mode)} === "session-mode") {
+          await connection.sessionUpdate({
+            sessionId: "test-session",
+            update: {
+              sessionUpdate: "agent_message_chunk",
+              content: { type: "text", text: "mode:" + selectedMode },
             },
           });
           return { stopReason: "end_turn" };

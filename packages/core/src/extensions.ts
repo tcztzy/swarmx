@@ -893,6 +893,7 @@ export interface ExecuteAgentCompositionOptions {
   cwd?: string;
   localTools?: readonly LocalTool[];
   acpPermissionHandler?: AcpPermissionHandler;
+  acpMode?: string;
   onChunk?: (chunk: MessageChunk) => void;
   onUsage?: (usage: ModelTokenUsage) => void;
 }
@@ -1570,6 +1571,7 @@ export async function executeAgentComposition(
       agent: {
         localTools: options.localTools,
         acpPermissionHandler: options.acpPermissionHandler,
+        acpMode: options.acpMode,
       },
     },
   );

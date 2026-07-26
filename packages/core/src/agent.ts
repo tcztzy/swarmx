@@ -18,7 +18,7 @@ import {
 import {
   appendMessages,
   createSession,
-  listSessions as listSessionsFile,
+  listSessionSummaries as listSessionsFile,
   loadSession as loadSessionFile,
   saveSession,
 } from "./session.js";
@@ -51,6 +51,7 @@ export interface AgentRuntimeOptions {
   createMcpManager?: () => McpManager;
   localTools?: readonly LocalTool[];
   acpPermissionHandler?: AcpPermissionHandler;
+  acpMode?: string;
 }
 
 interface AcpPromptClient {
@@ -63,6 +64,7 @@ interface AcpPromptClient {
       clearEnv?: boolean;
       model?: string;
       effort?: string;
+      preferredMode?: string;
       requestPermission?: AcpPermissionHandler;
     },
     userText: string,
@@ -93,6 +95,7 @@ export class Agent {
   private createMcpManager: () => McpManager;
   private localTools: readonly LocalTool[];
   private acpPermissionHandler?: AcpPermissionHandler;
+  private acpMode?: string;
   private configuredModel?: string;
   private maxOutputTokens: number;
 
@@ -125,6 +128,7 @@ export class Agent {
     this.createMcpManager = options.createMcpManager ?? (() => new McpManager());
     this.localTools = options.localTools ?? [];
     this.acpPermissionHandler = options.acpPermissionHandler;
+    this.acpMode = options.acpMode;
     this.maxOutputTokens = positiveInteger(clientConfig.maxOutputTokens) ?? 8192;
 
     const configuredApiKey = stringProperty(clientConfig, "apiKey");
@@ -783,6 +787,7 @@ export class Agent {
           clearEnv: this.processOptions?.clearEnv,
           ...(this.configuredModel ? { model: this.configuredModel } : {}),
           ...(this.configuredReasoningEffort() ? { effort: this.configuredReasoningEffort() } : {}),
+          ...(this.acpMode ? { preferredMode: this.acpMode } : {}),
           ...(this.acpPermissionHandler ? { requestPermission: this.acpPermissionHandler } : {}),
         },
         this.buildAcpPrompt(arguments_),

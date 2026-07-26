@@ -111,8 +111,19 @@ describe("npm launcher cold start", () => {
       readFileSync(new URL("../../cli/package.json", import.meta.url), "utf8"),
     ) as { bin: Record<string, string> };
 
-    expect(swarmxManifest.bin).toEqual({ swarmx: "./bin/swarmx.js" });
+    expect(swarmxManifest.bin).toEqual({
+      swarmx: "./bin/swarmx.js",
+      "swarmx-migrate-sessions": "./bin/migrate-sessions.js",
+    });
     expect(cliManifest.bin).toEqual({ "swarmx-cli": "./dist/cli.js" });
+  });
+
+  it("V523 ships a dedicated legacy Session migration launcher", () => {
+    const migrationLauncher = new URL("../bin/migrate-sessions.js", import.meta.url);
+    expect(existsSync(migrationLauncher)).toBe(true);
+    expect(readFileSync(migrationLauncher, "utf8")).toContain(
+      'process.argv.splice(2, 0, "sessions", "migrate")',
+    );
   });
 
   it("V476 creates macOS archives with host tools after app packaging", () => {

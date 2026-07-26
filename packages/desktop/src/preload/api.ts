@@ -7,6 +7,7 @@ import type {
   DesktopBrowserState,
   DesktopMessageChunk,
   DesktopSessionMessagesEvent,
+  DesktopSideChatChunkEvent,
   DesktopTerminalDataEvent,
   DesktopTerminalExitEvent,
   DesktopUpdateState,
@@ -20,6 +21,7 @@ export type {
   DesktopBrowserBounds,
   DesktopBrowserState,
   DesktopSessionMessagesEvent,
+  DesktopSideChatChunkEvent,
   DesktopTerminalDataEvent,
   DesktopTerminalExitEvent,
   DesktopUpdatePhase,
@@ -60,6 +62,37 @@ export function createSwarmxDesktopApi(
 
     onAgentChunk: (listener: (event: DesktopAgentChunkEvent) => void) =>
       subscribe("agent:chunk", (value) => listener(value as DesktopAgentChunkEvent)),
+
+    sendSideChatMessage: (params) => invoke("sideChat:send", params),
+
+    onSideChatChunk: (listener: (event: DesktopSideChatChunkEvent) => void) =>
+      subscribe("sideChat:chunk", (value) => listener(value as DesktopSideChatChunkEvent)),
+
+    listSideChats: (parentSessionId: string) => invoke("sideChat:list", parentSessionId),
+
+    createSideChat: (params) => invoke("sideChat:create", params),
+
+    updateSideChat: (params) => invoke("sideChat:update", params),
+
+    activateSideChat: (parentSessionId: string, sideChatId: string) =>
+      invoke("sideChat:activate", { parentSessionId, sideChatId }),
+
+    setSideChatHidden: (parentSessionId: string, hidden: boolean) =>
+      invoke("sideChat:setHidden", { parentSessionId, hidden }),
+
+    addSideChatContext: (parentSessionId: string, sideChatId: string, text: string) =>
+      invoke("sideChat:addContext", { parentSessionId, sideChatId, text }),
+
+    editSideChatMessage: (params) => invoke("sideChat:edit", params),
+
+    deleteSideChat: (parentSessionId: string, sideChatId: string) =>
+      invoke("sideChat:delete", { parentSessionId, sideChatId }),
+
+    promoteSideChat: (parentSessionId: string, sideChatId: string) =>
+      invoke("sideChat:promote", { parentSessionId, sideChatId }),
+
+    cancelSideChat: (parentSessionId: string, sideChatId: string, requestId: string) =>
+      invoke("sideChat:cancel", { parentSessionId, sideChatId, requestId }),
 
     onAgentInteraction: (listener: (event: DesktopAgentInteractionEvent) => void) =>
       subscribe("agent:interaction", (value) => listener(value as DesktopAgentInteractionEvent)),
@@ -116,6 +149,10 @@ export function createSwarmxDesktopApi(
 
     appendMessages: (params: { id: string; messages: unknown[] }) =>
       invoke("session:appendMessages", params),
+
+    editSessionUserMessage: (params) => invoke("session:editUserMessage", params),
+
+    forkSession: (params) => invoke("session:fork", params),
 
     importN8nWorkflow: (source: string) => invoke("workflow:importN8n", { source }),
 

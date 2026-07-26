@@ -60,6 +60,7 @@ export {
   createSession,
   saveSession,
   loadSession,
+  listSessionSummaries,
   listSessions,
   archiveSession,
   archiveProjectSessions,
@@ -67,6 +68,25 @@ export {
   setSessionPinned,
   updateSessionTitle,
   appendMessages,
+  appendTransientSessionMessages,
+  createTransientSessionFork,
+  editSessionUserMessage,
+  editTransientSessionUserMessage,
+  forkSession,
+  migrateLegacySessions,
+  promoteTransientSessionFork,
+  transientSessionModelMessages,
+} from "./session.js";
+export type {
+  CreateTransientSessionForkInput,
+  EditSessionUserMessageInput,
+  ForkSessionInput,
+  PromoteTransientSessionForkInput,
+  SessionMigrationEntry,
+  SessionMigrationOptions,
+  SessionMigrationResult,
+  SessionMigrationStatus,
+  SessionSummary,
 } from "./session.js";
 export {
   ProjectDataSchema,
@@ -905,6 +925,9 @@ export {
   EvalRunResultSchema,
   EvalTraceEventSchema,
   SessionPermissionModeSchema,
+  TransientSessionAnchorSchema,
+  TransientSessionContextChipSchema,
+  TransientSessionDataSchema,
 } from "./types.js";
 export type {
   AgentConfig,
@@ -918,6 +941,9 @@ export type {
   ProcessOptions,
   SessionData,
   SessionPermissionMode,
+  TransientSessionAnchor,
+  TransientSessionContextChip,
+  TransientSessionData,
   MessageChunk,
   EvalTraceEvent,
   EvalRunResult,

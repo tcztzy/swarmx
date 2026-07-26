@@ -6,10 +6,14 @@ import {
   ActivityStore,
   builtInExtensionBundle,
   createExtensionInventory,
+  createSession,
+  deleteSession,
+  listSessions,
   parseExtensionBundle,
   removeProject,
+  saveSession,
 } from "@swarmx/core";
-import type { SessionData } from "@swarmx/core";
+import type { MessageChunk, SessionData } from "@swarmx/core";
 import { describe, expect, it, vi } from "vitest";
 
 const electron = vi.hoisted(() => ({
@@ -120,6 +124,105 @@ describe("desktop main library entry", () => {
     });
   });
 
+  it("keeps side-chat CRUD outside ordinary Session IPC until promotion", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "swarmx-desktop-side-ipc-"));
+    const originalSessionsDir = process.env.SWARMX_SESSIONS_DIR;
+    let parentId: string | undefined;
+    let promotedId: string | undefined;
+    try {
+      process.env.SWARMX_SESSIONS_DIR = root;
+      const parent = createSession("agent", "swarmx");
+      parentId = parent.id;
+      parent.messages = [
+        { role: "user", kind: "message", content: "Parent question" },
+        { role: "assistant", kind: "message", content: "Parent answer" },
+      ];
+      saveSession(parent);
+      desktopMain.registerIpcHandlers();
+      const handler = (channel: string) =>
+        [...electron.handle.mock.calls]
+          .reverse()
+          .find(([registered]) => registered === channel)?.[1];
+      const createSide = handler("sideChat:create");
+      const listSide = handler("sideChat:list");
+      const sendSide = handler("sideChat:send");
+      const promoteSide = handler("sideChat:promote");
+      const deleteSide = handler("sideChat:delete");
+      if (
+        typeof createSide !== "function" ||
+        typeof listSide !== "function" ||
+        typeof sendSide !== "function" ||
+        typeof promoteSide !== "function" ||
+        typeof deleteSide !== "function"
+      ) {
+        throw new Error("Side-chat IPC handlers were not registered");
+      }
+
+      const side = createSide(
+        {},
+        {
+          parentSessionId: parent.id,
+          throughMessageIndex: 1,
+          expectedMessages: parent.messages,
+        },
+      );
+      expect(listSessions().map((session) => session.id)).toEqual([parent.id]);
+      expect(listSide({}, parent.id)).toMatchObject({
+        parentSessionId: parent.id,
+        activeSideChatId: side.id,
+        chats: [expect.objectContaining({ id: side.id, messages: [] })],
+      });
+
+      const sender = new EventEmitter();
+      Object.assign(sender, { id: 71 });
+      await expect(
+        sendSide(
+          { sender },
+          {
+            requestId: "side-workflow-rejected",
+            sessionId: parent.id,
+            sideChatId: side.id,
+            sideChatVisible: true,
+            harnessId: "swarmx",
+            userText: "Do not run this workflow",
+            swarmConfig: {
+              name: "forbidden",
+              root: "agent",
+              nodes: {},
+              edges: [],
+            },
+          },
+        ),
+      ).resolves.toMatchObject({
+        success: false,
+        error: expect.stringContaining("cannot execute workflows"),
+      });
+      expect(listSide({}, parent.id).chats[0].messages).toEqual([]);
+
+      const promoted = promoteSide(
+        {},
+        { parentSessionId: parent.id, sideChatId: side.id },
+      ) as SessionData;
+      promotedId = promoted.id;
+      expect(
+        listSessions()
+          .map((session) => session.id)
+          .sort(),
+      ).toEqual([parent.id, promoted.id].sort());
+      expect(promoted.forkedFrom).toMatchObject({ sessionId: parent.id, messageIndex: 1 });
+      expect(deleteSide({}, { parentSessionId: parent.id, sideChatId: side.id }).chats).toEqual([]);
+    } finally {
+      if (parentId) deleteSession(parentId);
+      if (promotedId) deleteSession(promotedId);
+      if (originalSessionsDir === undefined) {
+        Reflect.deleteProperty(process.env, "SWARMX_SESSIONS_DIR");
+      } else {
+        process.env.SWARMX_SESSIONS_DIR = originalSessionsDir;
+      }
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("records failed tasks and estimated token usage for the Profile summary", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "swarmx-desktop-activity-"));
     const activityStore = new ActivityStore({ filePath: path.join(root, "activity.jsonl") });
@@ -228,6 +331,66 @@ describe("desktop main library entry", () => {
         { role: "assistant", kind: "message", content: "Complete." },
       ]),
     ).not.toThrow();
+
+    const sideSend = vi.fn();
+    const publishSide = desktopIpc.agentChunkPublisher(
+      { isDestroyed: () => false, send: sideSend },
+      "request-side-work",
+      {
+        channel: "sideChat:chunk",
+        context: { parentSessionId: "parent-1", sideChatId: "side-1" },
+      },
+    );
+    publishSide(thought);
+    expect(sideSend).toHaveBeenCalledWith("sideChat:chunk", {
+      requestId: "request-side-work",
+      parentSessionId: "parent-1",
+      sideChatId: "side-1",
+      chunk: thought,
+    });
+  });
+
+  it("V521 terminalizes only orphaned tool work when a request is interrupted", () => {
+    const messages: MessageChunk[] = [
+      {
+        role: "assistant",
+        kind: "tool_call",
+        toolName: "exec_command",
+        content: JSON.stringify({ cmd: "sed -n '1,20p' App.tsx" }),
+      },
+      {
+        role: "tool",
+        kind: "tool_progress",
+        toolName: "exec_command",
+        content: "partial output",
+      },
+      {
+        role: "assistant",
+        kind: "tool_call",
+        toolName: "read_file",
+        content: JSON.stringify({ path: "README.md" }),
+        render: { invocationId: "read-complete", status: "running" },
+      },
+      {
+        role: "tool",
+        kind: "tool_result",
+        toolName: "read_file",
+        content: "done",
+        render: { invocationId: "read-complete", status: "succeeded" },
+      },
+    ];
+
+    const interrupted = desktopIpc.interruptedMessages(messages, 1_000, 3_500);
+
+    expect(interrupted[0]?.render).toMatchObject({
+      status: "canceled",
+      durationMs: 2_500,
+      startedAt: "1970-01-01T00:00:01.000Z",
+      endedAt: "1970-01-01T00:00:03.500Z",
+    });
+    expect(interrupted[1]?.render?.status).toBe("canceled");
+    expect(interrupted[2]?.render?.status).toBe("running");
+    expect(interrupted[3]?.render?.status).toBe("succeeded");
   });
 
   it("V504 delays and coalesces terminal progress while short commands keep only their result", () => {

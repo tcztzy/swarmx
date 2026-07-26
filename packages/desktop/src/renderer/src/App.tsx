@@ -45,8 +45,10 @@ import {
   Download,
   FileSearch,
   Folder,
+  FolderOpen,
   Gauge,
   GitBranch,
+  GitFork,
   Hammer,
   KeyRound,
   Loader2,
@@ -104,6 +106,9 @@ import type {
   ProviderUsageSnapshot,
   ProviderUsageTarget,
   DesktopSessionData as SessionData,
+  DesktopSessionSummary as SessionSummary,
+  DesktopSideChat as SideChat,
+  DesktopSideChatParentState as SideChatParentState,
   UserProviderInput,
 } from "../../shared/desktop-api.js";
 import {
@@ -137,7 +142,7 @@ import {
 import { ExtensionWorkspace } from "./extension-workspace.js";
 import { HARNESSES, type HarnessOption } from "./harness-presentation.js";
 import { RuntimeBottomPanel } from "./internal-terminal.js";
-import { MessageContent } from "./message-content.js";
+import { MessageContent, MessageCopyButton } from "./message-content.js";
 import { type ActivityProfileSummary, ProfileWorkspace } from "./profile-workspace.js";
 import {
   ProviderBrandIcon,
@@ -151,6 +156,8 @@ import { RuntimeSettings } from "./runtime-settings.js";
 import {
   capitalize,
   errorMessage,
+  formatFullMessageTimestamp,
+  formatMessageTimestamp,
   formatTimestamp,
   lines,
   projectName,
@@ -177,9 +184,26 @@ interface ProviderErrorNotice {
 interface ConversationTurn {
   id: string;
   userMessage: MessageChunk | null;
+  userMessageIndex: number | null;
   workMessages: MessageChunk[];
   finalMessage: MessageChunk | null;
+  finalMessageIndex: number | null;
 }
+
+interface MessageEditState {
+  messageIndex: number;
+  draft: string;
+  error: string | null;
+  expectedMessages: MessageChunk[];
+}
+
+interface SelectedTranscriptContext {
+  text: string;
+  x: number;
+  y: number;
+}
+
+type FocusedComposer = "main" | "side";
 
 interface ToolActivity {
   call?: MessageChunk;
@@ -342,6 +366,8 @@ const HARNESS_ENVIRONMENT_KEY = "harness:environment";
 const SESSION_DEDUPING_INTERVAL_MS = 10_000;
 const LOCAL_SESSION_PRELOAD_LIMIT = 24;
 const PANEL_EXIT_MS = 240;
+const INTERRUPTED_CONTINUE_PROMPT =
+  "Continue the previous interrupted task. Do not assume unfinished tool calls completed. Verify the current state before retrying any side-effecting action.";
 const LOCAL_FILES_LSP_ID = "swarmx.local-files";
 const SKILLS_LSP_ID = "swarmx.skills";
 const DEFAULT_MENTION_SERVERS = [
@@ -545,6 +571,11 @@ function parseDesktopSlashCommand(value: string): DesktopSlashCommand | null {
     : { kind, fix: false, ...(harnessId ? { harnessId } : {}) };
 }
 
+function parseSideChatCommand(value: string): string | null {
+  const match = value.trim().match(/^\/(?:side|btw)(?:\s+([\s\S]*))?$/i);
+  return match ? (match[1]?.trim() ?? "") : null;
+}
+
 export function createSwarmxDesktopApp(appProps: AppProps = {}): React.ComponentType {
   function SwarmxDesktopApp() {
     return <App {...appProps} />;
@@ -580,8 +611,18 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
     useState<DiscoveredSession | null>(null);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
+  const [activeRunStartedAt, setActiveRunStartedAt] = useState<number | null>(null);
   const [runState, setRunState] = useState<"idle" | "running" | "stopping">("idle");
   const [composerError, setComposerError] = useState<string | null>(null);
+  const [messageEdit, setMessageEdit] = useState<MessageEditState | null>(null);
+  const [sideChatState, setSideChatState] = useState<SideChatParentState | null>(null);
+  const [sideChatError, setSideChatError] = useState<string | null>(null);
+  const [sideMessageEdit, setSideMessageEdit] = useState<MessageEditState | null>(null);
+  const [sidePaneWidth, setSidePaneWidth] = useState(40);
+  const [selectedTranscriptContext, setSelectedTranscriptContext] =
+    useState<SelectedTranscriptContext | null>(null);
+  const [sideRunStartedAtById, setSideRunStartedAtById] = useState<Record<string, number>>({});
+  const [forkingMessageIndex, setForkingMessageIndex] = useState<number | null>(null);
   const activeRequestId = useRef<string | null>(null);
   const [agentInteractions, setAgentInteractions] = useState<AgentInteractionEvent[]>([]);
   const [resolvingInteractionId, setResolvingInteractionId] = useState<string | null>(null);
@@ -616,6 +657,7 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
   const [projectHeaderMenu, setProjectHeaderMenu] = useState<"organize" | "add" | null>(null);
   const [projectActionMenuId, setProjectActionMenuId] = useState<string | null>(null);
   const [projectPreview, setProjectPreview] = useState<ProjectPreviewState | null>(null);
+  const [projectExpandedById, setProjectExpandedById] = useState<Record<string, boolean>>({});
   const [projectOrganizationMode, setProjectOrganizationMode] =
     useState<ProjectOrganizationMode>("project");
   const [projectSortMode, setProjectSortMode] = useState<ProjectSortMode>("priority");
@@ -668,6 +710,11 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
   const rightPanelMounted = usePanelPresence(activeRightPanelKind !== null);
   const chatRef = useRef<HTMLDivElement>(null);
   const composerRef = useRef<HTMLTextAreaElement>(null);
+  const sideComposerRef = useRef<HTMLTextAreaElement>(null);
+  const sideChatScrollRef = useRef<HTMLDivElement>(null);
+  const sideChatStateRef = useRef<SideChatParentState | null>(null);
+  const focusedComposerRef = useRef<FocusedComposer>("main");
+  const sidePaneRef = useRef<HTMLElement>(null);
   const sidebarSearchRef = useRef<HTMLInputElement>(null);
   const projectHeaderMenuRef = useRef<HTMLDivElement>(null);
   const projectActionMenuRef = useRef<HTMLDivElement>(null);
@@ -690,6 +737,32 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
   const messageCount = currentSession?.messages.length ?? 0;
   const emptyRun = !currentSession || messageCount === 0;
   const acpHistoryReadOnly = Boolean(currentSession?.acpSessionId);
+  const activeSideChat =
+    sideChatState?.chats.find((chat) => chat.id === sideChatState.activeSideChatId) ?? null;
+  const sideChatPaneOpen = Boolean(
+    currentSession &&
+      sideChatState?.parentSessionId === currentSession.id &&
+      sideChatState.chats.length > 0 &&
+      !sideChatState.paneHidden,
+  );
+  const unreadSideChatCount =
+    currentSession && sideChatState?.parentSessionId === currentSession.id
+      ? sideChatState.chats.filter((chat) => chat.unread).length
+      : 0;
+  const currentParentHasRunningSideChat = Boolean(
+    currentSession &&
+      sideChatState?.parentSessionId === currentSession.id &&
+      sideChatState.chats.some((chat) => chat.runState !== "idle"),
+  );
+
+  useEffect(() => {
+    sideChatStateRef.current = sideChatState;
+  }, [sideChatState]);
+
+  const commitSideChatState = useCallback((state: SideChatParentState | null) => {
+    sideChatStateRef.current = state;
+    setSideChatState(state);
+  }, []);
 
   useEffect(
     () =>
@@ -823,9 +896,9 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
     error: localSessionsError,
     isLoading: localSessionsLoading,
     mutate: mutateLocalSessions,
-  } = useSWR<SessionData[]>(
+  } = useSWR<SessionSummary[]>(
     LOCAL_SESSIONS_KEY,
-    () => api.listSessions() as Promise<SessionData[]>,
+    () => api.listSessions() as Promise<SessionSummary[]>,
     {
       dedupingInterval: SESSION_DEDUPING_INTERVAL_MS,
       revalidateOnFocus: false,
@@ -1552,6 +1625,49 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
     if (project) setActiveProjectId(project.id);
   }, [projects, selectedDiscoveredSession, selectedSessionData]);
 
+  const setVisibleSession = useCallback(
+    (session: SessionData) => {
+      setCurrentSession(session);
+      if (!selectedSessionKey || selectedDiscoveredSession?.id !== session.id) return;
+      void mutateSessionDetail(selectedSessionKey, session, {
+        populateCache: true,
+        revalidate: false,
+      });
+    },
+    [mutateSessionDetail, selectedDiscoveredSession?.id, selectedSessionKey],
+  );
+
+  useEffect(() => {
+    const parentSessionId = currentSession?.id;
+    if (!parentSessionId || currentSession?.acpSessionId) {
+      commitSideChatState(null);
+      setSideChatError(null);
+      setSideMessageEdit(null);
+      return;
+    }
+    let disposed = false;
+    void api
+      .listSideChats(parentSessionId)
+      .then((state) => {
+        if (!disposed) commitSideChatState(state);
+      })
+      .catch((error) => {
+        if (!disposed) setSideChatError(`Could not restore side chats: ${errorMessage(error)}`);
+      });
+    return () => {
+      disposed = true;
+    };
+  }, [commitSideChatState, currentSession?.acpSessionId, currentSession?.id]);
+
+  useLayoutEffect(() => {
+    const scroll = sideChatScrollRef.current;
+    if (!scroll || !activeSideChat) return;
+    scroll.scrollTo({
+      top: scroll.scrollHeight,
+      behavior: prefersReducedMotion() ? "auto" : "smooth",
+    });
+  }, [activeSideChat]);
+
   useEffect(() => {
     if (
       activeUiContributionId &&
@@ -1585,6 +1701,7 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
     setSettingsSection(null);
     setDoctorPanelOpen(false);
     setComposerError(null);
+    setMessageEdit(null);
     if (session) {
       setCurrentSession(null);
       setSelectedDiscoveredSession(session);
@@ -2149,7 +2266,10 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
     const session = sessionContextMenu?.session;
     if (!session || session.source !== "local" || sessionActionPending) return;
     setSessionContextMenu(null);
-    if (runState !== "idle" && currentSession?.id === session.id) {
+    if (
+      currentSession?.id === session.id &&
+      (runState !== "idle" || currentParentHasRunningSideChat)
+    ) {
       setSessionActionError("Stop the task before archiving it.");
       return;
     }
@@ -2168,6 +2288,7 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
     }
   }, [
     currentSession?.id,
+    currentParentHasRunningSideChat,
     mutateGroupedSessions,
     mutateLocalSessions,
     recordNavigationEntry,
@@ -2218,11 +2339,471 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
     }
   }, []);
 
+  const replaceSideChat = useCallback((chat: SideChat | undefined) => {
+    if (!chat) return;
+    setSideChatState((current) => {
+      if (!current || current.parentSessionId !== chat.parentSessionId) return current;
+      const next = {
+        ...current,
+        chats: current.chats.some((candidate) => candidate.id === chat.id)
+          ? current.chats.map((candidate) => (candidate.id === chat.id ? chat : candidate))
+          : [...current.chats, chat],
+      };
+      sideChatStateRef.current = next;
+      return next;
+    });
+  }, []);
+
+  const createSideChat = useCallback(async (): Promise<SideChat | null> => {
+    const parent = currentSession;
+    if (!parent || parent.acpSessionId || parent.messages.length === 0) {
+      setSideChatError("Start a local task before opening a side chat.");
+      return null;
+    }
+    setSideChatError(null);
+    setRightPanelOpen(false);
+    setDoctorPanelOpen(false);
+    try {
+      const anchorParent = ((await api.loadSession(parent.id)) as SessionData | null) ?? parent;
+      if (anchorParent.messages.length === 0) {
+        throw new Error("The parent task has no persisted messages to anchor.");
+      }
+      const chat = (await api.createSideChat({
+        parentSessionId: parent.id,
+        throughMessageIndex: anchorParent.messages.length - 1,
+        expectedMessages: anchorParent.messages,
+      })) as SideChat;
+      const state = await api.listSideChats(parent.id);
+      commitSideChatState(state);
+      setSideMessageEdit(null);
+      window.requestAnimationFrame(() => sideComposerRef.current?.focus());
+      return chat;
+    } catch (error) {
+      setSideChatError(`Could not create side chat: ${errorMessage(error)}`);
+      return null;
+    }
+  }, [commitSideChatState, currentSession]);
+
+  const showSideChats = useCallback(async () => {
+    const parent = currentSession;
+    if (!parent || parent.acpSessionId) {
+      setSideChatError("Side chats are available for local tasks.");
+      return;
+    }
+    if (
+      !sideChatState ||
+      sideChatState.parentSessionId !== parent.id ||
+      sideChatState.chats.length === 0
+    ) {
+      await createSideChat();
+      return;
+    }
+    setRightPanelOpen(false);
+    setDoctorPanelOpen(false);
+    try {
+      commitSideChatState(await api.setSideChatHidden(parent.id, false));
+      window.requestAnimationFrame(() => sideComposerRef.current?.focus());
+    } catch (error) {
+      setSideChatError(`Could not show side chats: ${errorMessage(error)}`);
+    }
+  }, [commitSideChatState, createSideChat, currentSession, sideChatState]);
+
+  const changeSideChatDraft = useCallback(
+    (draft: string) => {
+      const parentSessionId = currentSession?.id;
+      const sideChatId = sideChatState?.activeSideChatId;
+      if (!parentSessionId || !sideChatId) return;
+      setSideChatState((current) =>
+        current
+          ? (() => {
+              const next = {
+                ...current,
+                chats: current.chats.map((chat) =>
+                  chat.id === sideChatId ? { ...chat, draft } : chat,
+                ),
+              };
+              sideChatStateRef.current = next;
+              return next;
+            })()
+          : current,
+      );
+      void api
+        .updateSideChat({ parentSessionId, sideChatId, draft })
+        .catch((error) => setSideChatError(`Could not save side draft: ${errorMessage(error)}`));
+    },
+    [currentSession?.id, sideChatState?.activeSideChatId],
+  );
+
+  const addSideChatAttachments = useCallback(
+    (paths: string[]) => {
+      const parentSessionId = currentSession?.id;
+      const chat = activeSideChat;
+      if (!parentSessionId || !chat || paths.length === 0) return;
+      const attachments = [...new Set([...chat.attachments, ...paths])];
+      replaceSideChat({ ...chat, attachments });
+      void api
+        .updateSideChat({
+          parentSessionId,
+          sideChatId: chat.id,
+          attachments,
+        })
+        .catch((error) =>
+          setSideChatError(`Could not save side attachments: ${errorMessage(error)}`),
+        );
+    },
+    [activeSideChat, currentSession?.id, replaceSideChat],
+  );
+
+  const sendSideChatMessage = useCallback(
+    async (textOverride?: string, chatOverride?: SideChat, editMessageIndex?: number) => {
+      const parent = currentSession;
+      const chat = chatOverride ?? activeSideChat;
+      const text = (textOverride ?? chat?.draft ?? "").trim();
+      if (!parent || !chat || !text || chat.runState !== "idle") return;
+      if (parseSideChatCommand(text) !== null) {
+        setSideChatError("Nested side chats are not supported.");
+        return;
+      }
+      if (manualCompositionNeedsModel) {
+        setSideChatError(modelUnavailableDiagnostic);
+        return;
+      }
+      if (selectedHarnessNeedsSetup) {
+        await openDoctorPanel({ mode: "doctor", harnessId: activeRunHarnessId });
+        return;
+      }
+
+      setSideChatError(null);
+      setSideMessageEdit(null);
+      const requestId = crypto.randomUUID();
+      const userMessage: MessageChunk = {
+        role: "user",
+        content: text,
+        kind: "message",
+        createdAt: new Date().toISOString(),
+      };
+      const baseMessages =
+        editMessageIndex === undefined
+          ? [...chat.messages, userMessage]
+          : [
+              ...chat.messages.slice(0, editMessageIndex),
+              { ...chat.messages[editMessageIndex], content: text },
+            ];
+      replaceSideChat({
+        ...chat,
+        messages: baseMessages,
+        draft: "",
+        attachments: [],
+        contextChips: editMessageIndex === undefined ? [] : chat.contextChips,
+        runState: "running",
+        requestId,
+        unread: false,
+      });
+      setSideRunStartedAtById((current) => ({ ...current, [chat.id]: Date.now() }));
+
+      let streamedMessages: MessageChunk[] = [];
+      const startedAt = new Date().toISOString();
+      const unsubscribe = api.onSideChatChunk((event) => {
+        if (
+          event.parentSessionId !== parent.id ||
+          event.sideChatId !== chat.id ||
+          event.requestId !== requestId
+        ) {
+          return;
+        }
+        streamedMessages = mergeStreamingMessage(streamedMessages, event.chunk);
+        setSideChatState((current) =>
+          current
+            ? (() => {
+                const next = {
+                  ...current,
+                  chats: current.chats.map((candidate) =>
+                    candidate.id === chat.id
+                      ? { ...candidate, messages: [...baseMessages, ...streamedMessages] }
+                      : candidate,
+                  ),
+                };
+                sideChatStateRef.current = next;
+                return next;
+              })()
+            : current,
+        );
+      });
+
+      try {
+        const agentComposition: AgentCompositionPayload = activeExtensionAgent
+          ? extensionAgentComposition(activeExtensionAgent)
+          : {
+              id: selectedModel ? `desktop-${selectedModel.id}` : `desktop-${selectedHarness}`,
+              harnessId: selectedHarness,
+              ...(selectedModel
+                ? {
+                    modelId: selectedModel.modelId,
+                    ...(selectedModel.modelSupplyId
+                      ? { modelSupplyId: selectedModel.modelSupplyId }
+                      : {}),
+                    ...(selectedEffort ? { effort: selectedEffort } : {}),
+                  }
+                : {}),
+              host: "local",
+            };
+        const visibleState = sideChatStateRef.current;
+        const result = await api.sendSideChatMessage({
+          requestId,
+          sessionId: parent.id,
+          sideChatId: chat.id,
+          sideChatVisible:
+            visibleState?.paneHidden === false &&
+            visibleState.activeSideChatId === chat.id &&
+            currentSession?.id === parent.id,
+          ...(editMessageIndex === undefined ? {} : { sideEditMessageIndex: editMessageIndex }),
+          harnessId: activeExtensionAgent?.harnessId ?? selectedHarness,
+          userText: text,
+          agentComposition,
+          ...(parent.cwd || composerWorkspaceRoot
+            ? { cwd: parent.cwd || composerWorkspaceRoot }
+            : {}),
+        });
+        const endedAt = new Date().toISOString();
+        let completed = result.sideChat as SideChat | undefined;
+        if (!completed) {
+          completed = {
+            ...chat,
+            messages: [...baseMessages, ...withRequestTiming(streamedMessages, startedAt, endedAt)],
+            runState: "idle",
+            requestId: undefined,
+          };
+        }
+        const currentState = sideChatStateRef.current;
+        const shouldMarkUnread =
+          currentState?.parentSessionId !== parent.id ||
+          currentState.paneHidden ||
+          currentState.activeSideChatId !== chat.id;
+        if (shouldMarkUnread && !completed.unread) {
+          const markedUnread = (await api.updateSideChat({
+            parentSessionId: parent.id,
+            sideChatId: chat.id,
+            unread: true,
+          })) as SideChat | undefined;
+          completed = markedUnread ?? { ...completed, unread: true };
+        }
+        replaceSideChat(completed);
+      } catch (error) {
+        setSideChatError(`Side chat failed: ${errorMessage(error)}`);
+        replaceSideChat({
+          ...chat,
+          messages: [
+            ...baseMessages,
+            ...streamedMessages,
+            {
+              role: "system",
+              content: `Error: ${errorMessage(error)}`,
+              kind: "message",
+              createdAt: new Date().toISOString(),
+            },
+          ],
+          runState: "idle",
+          requestId: undefined,
+        });
+      } finally {
+        unsubscribe();
+        setSideRunStartedAtById((current) => {
+          const next = { ...current };
+          delete next[chat.id];
+          return next;
+        });
+      }
+    },
+    [
+      activeExtensionAgent,
+      activeRunHarnessId,
+      activeSideChat,
+      composerWorkspaceRoot,
+      currentSession,
+      manualCompositionNeedsModel,
+      modelUnavailableDiagnostic,
+      openDoctorPanel,
+      replaceSideChat,
+      selectedEffort,
+      selectedHarness,
+      selectedHarnessNeedsSetup,
+      selectedModel,
+    ],
+  );
+
+  const activateSideChat = useCallback(
+    async (sideChatId: string) => {
+      if (!currentSession) return;
+      setSideMessageEdit(null);
+      try {
+        commitSideChatState(await api.activateSideChat(currentSession.id, sideChatId));
+        window.requestAnimationFrame(() => sideComposerRef.current?.focus());
+      } catch (error) {
+        setSideChatError(`Could not switch side chat: ${errorMessage(error)}`);
+      }
+    },
+    [commitSideChatState, currentSession],
+  );
+
+  const hideSideChats = useCallback(async () => {
+    if (!currentSession || !sideChatState) return;
+    focusedComposerRef.current = "main";
+    setSideMessageEdit(null);
+    try {
+      commitSideChatState(await api.setSideChatHidden(currentSession.id, true));
+      window.requestAnimationFrame(() => composerRef.current?.focus());
+    } catch (error) {
+      setSideChatError(`Could not hide side chats: ${errorMessage(error)}`);
+    }
+  }, [commitSideChatState, currentSession, sideChatState]);
+
+  const deleteActiveSideChat = useCallback(async () => {
+    if (!currentSession || !activeSideChat || activeSideChat.runState !== "idle") return;
+    try {
+      commitSideChatState(await api.deleteSideChat(currentSession.id, activeSideChat.id));
+      setSideMessageEdit(null);
+    } catch (error) {
+      setSideChatError(`Could not delete side chat: ${errorMessage(error)}`);
+    }
+  }, [activeSideChat, commitSideChatState, currentSession]);
+
+  const stopSideChat = useCallback(async () => {
+    if (!currentSession || !activeSideChat?.requestId || activeSideChat.runState !== "running") {
+      return;
+    }
+    const requestId = activeSideChat.requestId;
+    replaceSideChat({ ...activeSideChat, runState: "stopping" });
+    try {
+      const result = await api.cancelSideChat(currentSession.id, activeSideChat.id, requestId);
+      if (!result.canceled) replaceSideChat({ ...activeSideChat, runState: "running" });
+    } catch {
+      replaceSideChat({ ...activeSideChat, runState: "running" });
+    }
+  }, [activeSideChat, currentSession, replaceSideChat]);
+
+  const promoteActiveSideChat = useCallback(async () => {
+    if (!currentSession || !activeSideChat || activeSideChat.runState !== "idle") return;
+    setSideChatError(null);
+    try {
+      const promoted = (await api.promoteSideChat(
+        currentSession.id,
+        activeSideChat.id,
+      )) as SessionData;
+      const discovered = localSessionToDiscovered(promoted);
+      await mutateSessionDetail(sessionDetailKey(discovered), promoted, {
+        populateCache: true,
+        revalidate: false,
+      });
+      recordNavigationEntry(discovered);
+      setCurrentSession(promoted);
+      await Promise.all([mutateLocalSessions(), mutateGroupedSessions()]);
+    } catch (error) {
+      setSideChatError(`Could not promote side chat: ${errorMessage(error)}`);
+    }
+  }, [
+    activeSideChat,
+    currentSession,
+    mutateGroupedSessions,
+    mutateLocalSessions,
+    mutateSessionDetail,
+    recordNavigationEntry,
+  ]);
+
+  const addSelectionToSideChat = useCallback(async () => {
+    const selected = selectedTranscriptContext;
+    const parent = currentSession;
+    if (!selected || !parent) return;
+    let chat = activeSideChat;
+    if (!chat) chat = await createSideChat();
+    if (!chat) return;
+    try {
+      const updated = (await api.addSideChatContext(parent.id, chat.id, selected.text)) as SideChat;
+      replaceSideChat(updated);
+      setSelectedTranscriptContext(null);
+      window.getSelection()?.removeAllRanges();
+      window.requestAnimationFrame(() => sideComposerRef.current?.focus());
+    } catch (error) {
+      setSideChatError(`Could not add selected context: ${errorMessage(error)}`);
+    }
+  }, [activeSideChat, createSideChat, currentSession, replaceSideChat, selectedTranscriptContext]);
+
+  const captureTranscriptSelection = useCallback(() => {
+    const selection = window.getSelection();
+    const text = selection?.toString().trim() ?? "";
+    if (!selection || !text || selection.rangeCount === 0) {
+      setSelectedTranscriptContext(null);
+      return;
+    }
+    const range = selection.getRangeAt(0);
+    if (!chatRef.current?.contains(range.commonAncestorContainer)) {
+      setSelectedTranscriptContext(null);
+      return;
+    }
+    const rect = range.getBoundingClientRect();
+    setSelectedTranscriptContext({
+      text: text.slice(0, 8_000),
+      x: Math.min(window.innerWidth - 170, Math.max(12, rect.left + rect.width / 2 - 70)),
+      y: Math.max(12, rect.top - 40),
+    });
+  }, []);
+
+  const continueInNewChat = useCallback(
+    async (throughMessageIndex: number) => {
+      const source = currentSession;
+      if (!source || loading || forkingMessageIndex !== null || source.acpSessionId) return;
+
+      setComposerError(null);
+      setForkingMessageIndex(throughMessageIndex);
+      try {
+        const forked = (await api.forkSession({
+          id: source.id,
+          throughMessageIndex,
+          expectedMessages: source.messages,
+        })) as SessionData;
+        const discovered = localSessionToDiscovered(forked);
+        await mutateSessionDetail(sessionDetailKey(discovered), forked, {
+          populateCache: true,
+          revalidate: false,
+        });
+        recordNavigationEntry(discovered);
+        setCurrentSession(forked);
+        setInput("");
+        await Promise.all([mutateLocalSessions(), mutateGroupedSessions()]);
+        window.requestAnimationFrame(() => composerRef.current?.focus());
+      } catch (error) {
+        setComposerError(`Could not continue in a new chat: ${errorMessage(error)}`);
+      } finally {
+        setForkingMessageIndex(null);
+      }
+    },
+    [
+      currentSession,
+      forkingMessageIndex,
+      loading,
+      mutateGroupedSessions,
+      mutateLocalSessions,
+      mutateSessionDetail,
+      recordNavigationEntry,
+    ],
+  );
+
   const sendMessage = useCallback(
-    async (textOverride?: string) => {
+    async (
+      textOverride?: string,
+      editMessageIndex?: number,
+      editExpectedMessages?: MessageChunk[],
+    ) => {
       const text = (typeof textOverride === "string" ? textOverride : input).trim();
+      const editingExistingMessage = editMessageIndex !== undefined;
+      const sidePrompt = editingExistingMessage ? null : parseSideChatCommand(text);
+      if (sidePrompt !== null) {
+        setInput("");
+        const chat = await createSideChat();
+        if (chat && sidePrompt) await sendSideChatMessage(sidePrompt, chat);
+        return;
+      }
       if (!text || loading) return;
-      const slashCommand = parseDesktopSlashCommand(text);
+      const slashCommand = editingExistingMessage ? null : parseDesktopSlashCommand(text);
       if (slashCommand?.kind === "error") {
         setComposerError(slashCommand.message);
         return;
@@ -2245,9 +2826,15 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
         await openDoctorPanel({ mode: "doctor", harnessId: activeRunHarnessId });
         return;
       }
-      setInput("");
+      if (!editingExistingMessage) setInput("");
       setComposerError(null);
+      if (editingExistingMessage) {
+        setMessageEdit((current) =>
+          current?.messageIndex === editMessageIndex ? { ...current, error: null } : current,
+        );
+      }
       setLoading(true);
+      setActiveRunStartedAt(Date.now());
       setRunState("running");
       const requestId = crypto.randomUUID();
       activeRequestId.current = requestId;
@@ -2271,6 +2858,7 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
           role: "user",
           content: text,
           kind: "message",
+          createdAt: new Date().toISOString(),
         };
 
         let session: SessionData;
@@ -2290,10 +2878,26 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
           if (stoppedBeforeDispatch()) return;
         }
 
-        const updatedMessages = [...session.messages, userChunk];
-        pendingSession = { ...session, messages: updatedMessages };
-        setCurrentSession(pendingSession);
-        await api.saveSession(pendingSession);
+        let updatedMessages: MessageChunk[];
+        if (editingExistingMessage) {
+          const editedSession = (await api.editSessionUserMessage({
+            id: session.id,
+            messageIndex: editMessageIndex,
+            expectedMessages: editExpectedMessages ?? session.messages,
+            content: text,
+          })) as SessionData;
+          session = editedSession;
+          sessionForError = editedSession;
+          pendingSession = editedSession;
+          updatedMessages = editedSession.messages;
+          setVisibleSession(editedSession);
+          setMessageEdit(null);
+        } else {
+          updatedMessages = [...session.messages, userChunk];
+          pendingSession = { ...session, messages: updatedMessages };
+          setVisibleSession(pendingSession);
+          await api.saveSession(pendingSession);
+        }
         if (stoppedBeforeDispatch()) return;
 
         const sendParams: {
@@ -2357,7 +2961,7 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
           const persisted = result.sessionPersisted ? await api.loadSession(session.id) : null;
           const updated = persisted ?? localUpdated;
           if (!persisted) await api.saveSession(updated);
-          setCurrentSession(updated);
+          setVisibleSession(updated);
           requestAutomaticSessionTitle(updated, text);
         } else if (result.canceled) {
           const canceledMessages = requestStartedAt
@@ -2367,7 +2971,7 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
           const persisted = result.sessionPersisted ? await api.loadSession(session.id) : null;
           const updated = persisted ?? localUpdated;
           if (!persisted) await api.saveSession(updated);
-          setCurrentSession(updated);
+          setVisibleSession(updated);
         } else if (result.error) {
           const workMessages = requestStartedAt
             ? withRequestTiming(streamedMessages, requestStartedAt, requestEndedAt)
@@ -2389,13 +2993,21 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
           const persisted = result.sessionPersisted ? await api.loadSession(session.id) : null;
           const updated = persisted ?? localUpdated;
           if (!persisted) await api.saveSession(updated);
-          setCurrentSession(updated);
+          setVisibleSession(updated);
         }
 
         await mutateLocalSessions();
       } catch (error) {
         if (activeRequestId.current !== requestId) return;
         const message = `Error: ${errorMessage(error)}`;
+        if (editingExistingMessage && !pendingSession) {
+          setMessageEdit((current) =>
+            current?.messageIndex === editMessageIndex
+              ? { ...current, error: `Could not edit message: ${errorMessage(error)}` }
+              : current,
+          );
+          return;
+        }
         setComposerError(message);
         const session = pendingSession ?? sessionForError;
         if (session) {
@@ -2411,7 +3023,7 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
               { role: "system", content: message, kind: "message" as const },
             ],
           };
-          setCurrentSession(updated);
+          setVisibleSession(updated);
           try {
             await api.saveSession(updated);
           } catch {
@@ -2430,6 +3042,7 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
           requestDispatched.current = false;
           stopRequested.current = false;
           setLoading(false);
+          setActiveRunStartedAt(null);
           setRunState("idle");
         }
       }
@@ -2437,6 +3050,8 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
     [
       input,
       loading,
+      createSideChat,
+      sendSideChatMessage,
       currentSession,
       selectedHarness,
       activeWorkflowConfig,
@@ -2455,6 +3070,7 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
       openDoctorPanel,
       replaceCurrentNavigationEntry,
       requestAutomaticSessionTitle,
+      setVisibleSession,
     ],
   );
 
@@ -2499,6 +3115,47 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
       if (activeRequestId.current === requestId) setRunState("running");
     }
   }, [runState]);
+
+  useEffect(() => {
+    const routeKeyboard = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key === ";") {
+        event.preventDefault();
+        void showSideChats();
+        return;
+      }
+      if (event.key !== "Escape" || event.defaultPrevented) return;
+      if (focusedComposerRef.current === "side" && activeSideChat?.runState === "running") {
+        event.preventDefault();
+        void stopSideChat();
+        return;
+      }
+      if (focusedComposerRef.current === "main" && runState === "running") {
+        event.preventDefault();
+        void stopMessage();
+      }
+    };
+    window.addEventListener("keydown", routeKeyboard);
+    return () => window.removeEventListener("keydown", routeKeyboard);
+  }, [activeSideChat?.runState, runState, showSideChats, stopMessage, stopSideChat]);
+
+  const beginSidePaneResize = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    const pane = sidePaneRef.current;
+    const body = pane?.parentElement;
+    if (!body) return;
+    const update = (pointerEvent: PointerEvent) => {
+      const bounds = body.getBoundingClientRect();
+      if (bounds.width <= 0) return;
+      const next = ((bounds.right - pointerEvent.clientX) / bounds.width) * 100;
+      setSidePaneWidth(Math.max(34, Math.min(55, next)));
+    };
+    const finish = () => {
+      window.removeEventListener("pointermove", update);
+      window.removeEventListener("pointerup", finish);
+    };
+    window.addEventListener("pointermove", update);
+    window.addEventListener("pointerup", finish, { once: true });
+  }, []);
 
   const renderSidebarSessionItem = (session: DiscoveredSession) => {
     const isLocal = session.source === "local";
@@ -2617,6 +3274,27 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
             {!settingsSection && (
               <>
                 <Button
+                  variant={sideChatPaneOpen ? "secondary" : "ghost"}
+                  size="icon"
+                  onClick={() => void (sideChatPaneOpen ? hideSideChats() : showSideChats())}
+                  disabled={
+                    !currentSession ||
+                    Boolean(currentSession.acpSessionId) ||
+                    currentSession.messages.length === 0
+                  }
+                  title={
+                    sideChatPaneOpen ? "Hide side chats" : "Show side chats (Command/Ctrl + ;)"
+                  }
+                  aria-label={sideChatPaneOpen ? "Hide side chats" : "Show side chats"}
+                  aria-pressed={sideChatPaneOpen}
+                  className="side-chat-titlebar-button"
+                >
+                  <MessageSquarePlus data-icon aria-hidden="true" />
+                  {unreadSideChatCount > 0 && (
+                    <span className="side-chat-unread-badge">{unreadSideChatCount}</span>
+                  )}
+                </Button>
+                <Button
                   variant={pinnedSummaryOpen ? "secondary" : "ghost"}
                   size="icon"
                   onClick={() => setPinnedSummaryOpen((open) => !open)}
@@ -2644,6 +3322,7 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
                       setDoctorPanelOpen(false);
                       return;
                     }
+                    if (!rightPanelOpen && sideChatPaneOpen) void hideSideChats();
                     setRightPanelOpen((open) => !open);
                   }}
                   title={
@@ -2972,10 +3651,12 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
                 </div>
               ) : (
                 visibleDisplayGroups.map((group) => {
-                  const expanded =
-                    sidebarQuery.trim().length > 0 ||
-                    !group.project ||
-                    activeProjectId === group.project.id;
+                  const projectId = group.project?.id;
+                  const expanded = projectId
+                    ? sidebarQuery.trim().length > 0 ||
+                      (projectExpandedById[projectId] ?? activeProjectId === projectId)
+                    : true;
+                  const ProjectFolderIcon = expanded ? FolderOpen : Folder;
                   return (
                     <section
                       key={group.id}
@@ -2994,7 +3675,7 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
                             void commitProjectRename();
                           }}
                         >
-                          <Folder aria-hidden="true" />
+                          <ProjectFolderIcon aria-hidden="true" />
                           <input
                             ref={projectRenameInputRef}
                             aria-label={`Rename ${group.label}`}
@@ -3029,11 +3710,16 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
                             type="button"
                             className="project-group__trigger"
                             title={group.cwd || group.label}
+                            aria-expanded={group.project ? expanded : undefined}
                             onClick={() => {
-                              if (group.project) newSession(group.project);
+                              if (!projectId) return;
+                              setProjectExpandedById((current) => ({
+                                ...current,
+                                [projectId]: !expanded,
+                              }));
                             }}
                           >
-                            <Folder aria-hidden="true" />
+                            <ProjectFolderIcon aria-hidden="true" />
                             <span>{group.label}</span>
                           </button>
                           {group.project && (
@@ -3197,8 +3883,21 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
         )}
       </aside>
 
-      <main className={cx("runtime", rightPanelMounted && "runtime--right-panel")}>
-        <div className={cx("runtime__body", rightPanelMounted && "runtime__body--right-panel")}>
+      <main
+        className={cx(
+          "runtime",
+          rightPanelMounted && "runtime--right-panel",
+          sideChatPaneOpen && "runtime--side-chat",
+        )}
+        style={{ "--side-chat-width": `${sidePaneWidth}%` } as React.CSSProperties}
+      >
+        <div
+          className={cx(
+            "runtime__body",
+            rightPanelMounted && "runtime__body--right-panel",
+            sideChatPaneOpen && "runtime__body--side-chat",
+          )}
+        >
           <div className="runtime__content">
             {pinnedSummaryMounted && (
               <div
@@ -3374,7 +4073,12 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
                   activeWorkflowConfig={activeWorkflowConfig}
                 />
               ) : (
-                <div ref={chatRef} className="transcript-scroll">
+                <div
+                  ref={chatRef}
+                  className="transcript-scroll"
+                  onMouseUp={captureTranscriptSelection}
+                  onKeyUp={captureTranscriptSelection}
+                >
                   <div className={cx("transcript", emptyRun && "transcript--empty")}>
                     {emptyRun ? (
                       <EmptyRun
@@ -3387,9 +4091,43 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
                       />
                     ) : (
                       <ConversationHistory
+                        activeRunStartedAt={activeRunStartedAt}
                         messages={currentSession?.messages ?? []}
                         running={loading}
-                        actionsDisabled={loading}
+                        actionsDisabled={loading || forkingMessageIndex !== null}
+                        messageEdit={messageEdit}
+                        onBeginEdit={
+                          acpHistoryReadOnly
+                            ? undefined
+                            : (messageIndex, content) => {
+                                setComposerError(null);
+                                setMessageEdit({
+                                  messageIndex,
+                                  draft: content,
+                                  error: null,
+                                  expectedMessages: currentSession?.messages ?? [],
+                                });
+                              }
+                        }
+                        onCancelEdit={() => setMessageEdit(null)}
+                        onEditDraftChange={(draft) =>
+                          setMessageEdit((current) =>
+                            current ? { ...current, draft, error: null } : current,
+                          )
+                        }
+                        onSubmitEdit={(messageIndex, content) =>
+                          void sendMessage(content, messageIndex, messageEdit?.expectedMessages)
+                        }
+                        onContinue={
+                          acpHistoryReadOnly
+                            ? undefined
+                            : () => void sendMessage(INTERRUPTED_CONTINUE_PROMPT)
+                        }
+                        onContinueInNewChat={
+                          acpHistoryReadOnly
+                            ? undefined
+                            : (messageIndex) => void continueInNewChat(messageIndex)
+                        }
                         onRetry={(userText) => void sendMessage(userText)}
                         onChangeModel={
                           activeWorkflowConfig || activeExtensionAgent
@@ -3456,6 +4194,186 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
               )}
             </div>
           )}
+          {sideChatPaneOpen && activeSideChat && sideChatState && (
+            <aside
+              className="side-chat-pane"
+              ref={sidePaneRef}
+              aria-label="Side chats"
+              style={{ width: `${sidePaneWidth}%` }}
+            >
+              <div
+                className="side-chat-pane__resizer"
+                role="separator"
+                aria-label="Resize side chat"
+                aria-orientation="vertical"
+                aria-valuemin={34}
+                aria-valuemax={55}
+                aria-valuenow={Math.round(sidePaneWidth)}
+                tabIndex={0}
+                onPointerDown={beginSidePaneResize}
+                onKeyDown={(event) => {
+                  if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+                  event.preventDefault();
+                  setSidePaneWidth((width) =>
+                    Math.max(34, Math.min(55, width + (event.key === "ArrowLeft" ? 2 : -2))),
+                  );
+                }}
+              />
+              <header className="side-chat-pane__header">
+                <button
+                  type="button"
+                  className="side-chat-pane__back"
+                  onClick={() => void hideSideChats()}
+                >
+                  <ArrowLeft aria-hidden="true" />
+                  <span>Main chat</span>
+                </button>
+                <div className="side-chat-tabs" role="tablist" aria-label="Side chat tabs">
+                  {sideChatState.chats.map((chat) => (
+                    <button
+                      type="button"
+                      role="tab"
+                      aria-selected={chat.id === activeSideChat.id}
+                      className={cx("side-chat-tab", chat.id === activeSideChat.id && "is-active")}
+                      key={chat.id}
+                      onClick={() => void activateSideChat(chat.id)}
+                      title={chat.title}
+                    >
+                      <span>{chat.title}</span>
+                      {chat.runState !== "idle" && (
+                        <Loader2 className="side-chat-tab__running" aria-label="Running" />
+                      )}
+                      {chat.unread && (
+                        <span className="side-chat-tab__unread" aria-label="Unread" />
+                      )}
+                    </button>
+                  ))}
+                  <button
+                    type="button"
+                    className="side-chat-tabs__add"
+                    onClick={() => void createSideChat()}
+                    aria-label="New side chat"
+                    title="New side chat"
+                  >
+                    <Plus aria-hidden="true" />
+                  </button>
+                </div>
+                <div className="side-chat-pane__actions">
+                  <button
+                    type="button"
+                    onClick={() => void promoteActiveSideChat()}
+                    disabled={activeSideChat.runState !== "idle"}
+                    aria-label="Promote side chat to task"
+                    title="Continue in new chat / Promote to task"
+                  >
+                    <GitFork aria-hidden="true" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void deleteActiveSideChat()}
+                    disabled={activeSideChat.runState !== "idle"}
+                    aria-label="Delete current side chat"
+                    title="Delete current side chat"
+                  >
+                    <Trash2 aria-hidden="true" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void hideSideChats()}
+                    aria-label="Hide side chats"
+                    title="Hide side chats"
+                  >
+                    <PanelRight aria-hidden="true" />
+                  </button>
+                </div>
+              </header>
+              <div className="side-chat-pane__boundary">
+                <span>Transient fork</span>
+                <span>Anchored after parent message {activeSideChat.anchor.messageIndex + 1}</span>
+                <span>Read-only lane</span>
+              </div>
+              <div ref={sideChatScrollRef} className="side-chat-pane__transcript">
+                {activeSideChat.messages.length === 0 ? (
+                  <div className="side-chat-pane__empty">
+                    <MessageCircle aria-hidden="true" />
+                    <h2>Ask without derailing the task</h2>
+                    <p>
+                      This tab sees the parent transcript only up to its anchor. Its turns stay in
+                      memory until you promote them.
+                    </p>
+                  </div>
+                ) : (
+                  <ConversationHistory
+                    activeRunStartedAt={sideRunStartedAtById[activeSideChat.id] ?? null}
+                    messages={activeSideChat.messages}
+                    running={activeSideChat.runState !== "idle"}
+                    actionsDisabled={activeSideChat.runState !== "idle"}
+                    messageEdit={sideMessageEdit}
+                    onBeginEdit={(messageIndex, content) => {
+                      setSideChatError(null);
+                      setSideMessageEdit({
+                        messageIndex,
+                        draft: content,
+                        error: null,
+                        expectedMessages: activeSideChat.messages,
+                      });
+                    }}
+                    onCancelEdit={() => setSideMessageEdit(null)}
+                    onEditDraftChange={(draft) =>
+                      setSideMessageEdit((current) =>
+                        current ? { ...current, draft, error: null } : current,
+                      )
+                    }
+                    onSubmitEdit={(messageIndex, content) =>
+                      void sendSideChatMessage(content, activeSideChat, messageIndex)
+                    }
+                    onRetry={(userText) => void sendSideChatMessage(userText, activeSideChat)}
+                  />
+                )}
+              </div>
+              <footer className="side-chat-pane__composer">
+                {activeSideChat.contextChips.length > 0 && (
+                  <div className="side-chat-context-chips" aria-label="Selected side chat context">
+                    {activeSideChat.contextChips.map((chip) => (
+                      <span key={chip.id} title={chip.text}>
+                        <FileSearch aria-hidden="true" />
+                        {chip.text}
+                      </span>
+                    ))}
+                  </div>
+                )}
+                <Composer
+                  textareaRef={sideComposerRef}
+                  value={activeSideChat.draft}
+                  onChange={changeSideChatDraft}
+                  onFocus={() => {
+                    focusedComposerRef.current = "side";
+                  }}
+                  onSubmit={() => sendSideChatMessage(undefined, activeSideChat)}
+                  onStop={stopSideChat}
+                  placeholder="Ask in side chat"
+                  disabled={activeSideChat.runState !== "idle"}
+                  running={activeSideChat.runState !== "idle"}
+                  sendDisabled={
+                    activeSideChat.runState === "stopping" ||
+                    (activeSideChat.runState === "idle" && !activeSideChat.draft.trim())
+                  }
+                  error={sideChatError}
+                  workspaceRoot={composerWorkspaceRoot}
+                  mentionServers={composerMentionServers}
+                  completeMention={api.lspComplete}
+                  selectFilesAndFolders={api.selectFilesAndFolders}
+                  onFilesSelected={addSideChatAttachments}
+                  onContextError={(error) => setSideChatError(errorMessage(error))}
+                >
+                  <span className="side-chat-pane__mode">
+                    <ShieldCheck aria-hidden="true" />
+                    Read-only
+                  </span>
+                </Composer>
+              </footer>
+            </aside>
+          )}
         </div>
 
         {!settingsSection &&
@@ -3479,6 +4397,9 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
                   textareaRef={composerRef}
                   value={input}
                   onChange={setInput}
+                  onFocus={() => {
+                    focusedComposerRef.current = "main";
+                  }}
                   onSubmit={sendMessage}
                   onStop={stopMessage}
                   placeholder={
@@ -3597,6 +4518,24 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
           </div>
         </div>
       </main>
+      {selectedTranscriptContext
+        ? createPortal(
+            <button
+              type="button"
+              className="ask-in-side-chat-action"
+              style={{
+                left: selectedTranscriptContext.x,
+                top: selectedTranscriptContext.y,
+              }}
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => void addSelectionToSideChat()}
+            >
+              <MessageSquarePlus aria-hidden="true" />
+              Ask in side chat
+            </button>,
+            document.body,
+          )
+        : null}
       {activeAgentInteraction && activeAgentInteraction.kind !== "tool_approval"
         ? createPortal(
             <AgentInteractionDialog
@@ -3645,11 +4584,13 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
                 role="menuitem"
                 disabled={
                   sessionActionPending ||
-                  (runState !== "idle" && currentSession?.id === sessionContextMenu.session.id)
+                  (currentSession?.id === sessionContextMenu.session.id &&
+                    (runState !== "idle" || currentParentHasRunningSideChat))
                 }
                 onClick={() => void archiveSidebarSession()}
                 title={
-                  runState !== "idle" && currentSession?.id === sessionContextMenu.session.id
+                  currentSession?.id === sessionContextMenu.session.id &&
+                  (runState !== "idle" || currentParentHasRunningSideChat)
                     ? "Stop the task before archiving it"
                     : undefined
                 }
@@ -6887,15 +7828,21 @@ function WorkflowCanvas({
 
 function RunEvent({
   actionsDisabled = false,
+  createdAt,
   compact = false,
   msg,
   onChangeModel,
+  onContinueInNewChat,
+  onEdit,
   onRetry,
 }: {
   actionsDisabled?: boolean;
+  createdAt?: string;
   compact?: boolean;
   msg: MessageChunk;
   onChangeModel?: () => void;
+  onContinueInNewChat?: () => void;
+  onEdit?: () => void;
   onRetry?: () => void;
 }) {
   const providerNotice = providerErrorNotice(msg);
@@ -6919,6 +7866,19 @@ function RunEvent({
   const content = renderEventContent(msg, renderEvent);
   const showTraceCard = isTraceCardEvent(renderEvent);
   const plainNarrative = compact && (msg.kind === "thinking" || msg.kind === "message");
+  const showMessageCopy =
+    !compact &&
+    msg.kind === "message" &&
+    (msg.role === "user" || msg.role === "assistant") &&
+    content.length > 0;
+  const showMessageEdit =
+    !compact && msg.kind === "message" && msg.role === "user" && onEdit !== undefined;
+  const showContinueInNewChat =
+    !compact &&
+    msg.kind === "message" &&
+    msg.role === "assistant" &&
+    onContinueInNewChat !== undefined;
+  const messageTimestamp = createdAt ?? messageCreatedAt(msg);
   const displayContent = msg.kind === "thinking" ? normalizeThoughtMarkdown(content) : content;
 
   return (
@@ -6955,8 +7915,138 @@ function RunEvent({
             </div>
             {showTraceCard && <TraceCard event={renderEvent} />}
           </div>
+          {(showMessageCopy || showMessageEdit || showContinueInNewChat) && (
+            <div className="run-event__actions">
+              {msg.role === "user" && messageTimestamp && (
+                <MessageTimestamp createdAt={messageTimestamp} />
+              )}
+              {showMessageCopy && <MessageCopyButton content={content} />}
+              {showMessageEdit && (
+                <button
+                  aria-label="Edit message"
+                  className="run-event__action"
+                  disabled={actionsDisabled}
+                  onClick={onEdit}
+                  title="Edit message"
+                  type="button"
+                >
+                  <Pencil aria-hidden="true" />
+                </button>
+              )}
+              {showContinueInNewChat && (
+                <button
+                  aria-label="Continue in new chat"
+                  className="run-event__action"
+                  disabled={actionsDisabled}
+                  onClick={onContinueInNewChat}
+                  title="Continue in new chat"
+                  type="button"
+                >
+                  <GitFork aria-hidden="true" />
+                </button>
+              )}
+              {msg.role === "assistant" && messageTimestamp && (
+                <MessageTimestamp createdAt={messageTimestamp} />
+              )}
+            </div>
+          )}
         </>
       )}
+    </article>
+  );
+}
+
+function MessageTimestamp({ createdAt }: { createdAt: string }) {
+  const label = formatMessageTimestamp(createdAt);
+  const fullLabel = formatFullMessageTimestamp(createdAt);
+  if (!label || !fullLabel) return null;
+
+  return (
+    <time
+      aria-label={`Created ${fullLabel}`}
+      className="run-event__timestamp"
+      dateTime={createdAt}
+      title={fullLabel}
+    >
+      {label}
+    </time>
+  );
+}
+
+function EditableUserMessage({
+  actionsDisabled,
+  draft,
+  error,
+  onCancel,
+  onChange,
+  onSubmit,
+}: {
+  actionsDisabled: boolean;
+  draft: string;
+  error: string | null;
+  onCancel: () => void;
+  onChange: (draft: string) => void;
+  onSubmit: () => void;
+}) {
+  const noteId = useId();
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const canSubmit = !actionsDisabled && draft.trim().length > 0;
+
+  useEffect(() => {
+    textareaRef.current?.focus();
+  }, []);
+
+  return (
+    <article className="run-event run-event--user run-event--editing">
+      <div className="run-event__card">
+        <form
+          className="message-editor"
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (canSubmit) onSubmit();
+          }}
+        >
+          <textarea
+            aria-describedby={noteId}
+            aria-label="Edit message"
+            disabled={actionsDisabled}
+            onChange={(event) => onChange(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Escape") {
+                event.preventDefault();
+                if (!actionsDisabled) onCancel();
+                return;
+              }
+              if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+                event.preventDefault();
+                if (canSubmit) onSubmit();
+              }
+            }}
+            rows={3}
+            ref={textareaRef}
+            value={draft}
+          />
+          <div className="message-editor__footer">
+            <p id={noteId} className="message-editor__note">
+              This replaces the latest turn and generates a new reply.
+            </p>
+            <div className="message-editor__actions">
+              <button type="button" disabled={actionsDisabled} onClick={onCancel}>
+                Cancel
+              </button>
+              <button type="submit" disabled={!canSubmit}>
+                {actionsDisabled && <Loader2 aria-hidden="true" />}
+                Save &amp; resend
+              </button>
+            </div>
+          </div>
+          {error && (
+            <p className="message-editor__error" role="alert">
+              {error}
+            </p>
+          )}
+        </form>
+      </div>
     </article>
   );
 }
@@ -7008,22 +8098,39 @@ function ProviderErrorEvent({
 }
 
 function ConversationHistory({
+  activeRunStartedAt,
   actionsDisabled,
+  messageEdit,
   messages,
+  onBeginEdit,
+  onCancelEdit,
   onChangeModel,
+  onContinue,
+  onContinueInNewChat,
+  onEditDraftChange,
   onRetry,
+  onSubmitEdit,
   running,
 }: {
+  activeRunStartedAt: number | null;
   actionsDisabled: boolean;
+  messageEdit: MessageEditState | null;
   messages: MessageChunk[];
+  onBeginEdit?: (messageIndex: number, content: string) => void;
+  onCancelEdit: () => void;
   onChangeModel?: () => void;
+  onContinue?: () => void;
+  onContinueInNewChat?: (messageIndex: number) => void;
+  onEditDraftChange: (draft: string) => void;
   onRetry: (userText: string) => void;
+  onSubmitEdit: (messageIndex: number, content: string) => void;
   running: boolean;
 }) {
   const turns = useMemo(() => groupConversationTurns(messages), [messages]);
 
   return turns.map((turn, index) => {
-    const active = running && index === turns.length - 1;
+    const latest = index === turns.length - 1;
+    const active = running && latest;
     const visibleTurn =
       active && turn.finalMessage
         ? {
@@ -7032,13 +8139,27 @@ function ConversationHistory({
             finalMessage: null,
           }
         : turn;
+    const interrupted =
+      !active &&
+      !visibleTurn.finalMessage &&
+      (visibleTurn.userMessage !== null || visibleTurn.workMessages.length > 0);
     return (
       <ConversationTurnView
         active={active}
+        activeRunStartedAt={active ? activeRunStartedAt : null}
         actionsDisabled={actionsDisabled}
+        interrupted={interrupted}
         key={turn.id}
+        latest={latest}
+        messageEdit={messageEdit}
+        onBeginEdit={onBeginEdit}
+        onCancelEdit={onCancelEdit}
         onChangeModel={onChangeModel}
+        onContinue={onContinue}
+        onContinueInNewChat={onContinueInNewChat}
+        onEditDraftChange={onEditDraftChange}
         onRetry={onRetry}
+        onSubmitEdit={onSubmitEdit}
         turn={visibleTurn}
       />
     );
@@ -7047,29 +8168,91 @@ function ConversationHistory({
 
 function ConversationTurnView({
   active,
+  activeRunStartedAt,
   actionsDisabled,
+  interrupted,
+  latest,
+  messageEdit,
+  onBeginEdit,
+  onCancelEdit,
   onChangeModel,
+  onContinue,
+  onContinueInNewChat,
+  onEditDraftChange,
   onRetry,
+  onSubmitEdit,
   turn,
 }: {
   active: boolean;
+  activeRunStartedAt: number | null;
   actionsDisabled: boolean;
+  interrupted: boolean;
+  latest: boolean;
+  messageEdit: MessageEditState | null;
+  onBeginEdit?: (messageIndex: number, content: string) => void;
+  onCancelEdit: () => void;
   onChangeModel?: () => void;
+  onContinue?: () => void;
+  onContinueInNewChat?: (messageIndex: number) => void;
+  onEditDraftChange: (draft: string) => void;
   onRetry: (userText: string) => void;
+  onSubmitEdit: (messageIndex: number, content: string) => void;
   turn: ConversationTurn;
 }) {
-  const hasWork = active || turn.workMessages.length > 0;
+  const hasWork = active || interrupted || turn.workMessages.length > 0;
   const retryText = turn.userMessage?.content;
+  const turnStatus = active ? "running" : interrupted ? "interrupted" : "completed";
+  const editing =
+    turn.userMessageIndex !== null && messageEdit?.messageIndex === turn.userMessageIndex;
+  const userCreatedAt = turn.userMessage ? turnUserMessageCreatedAt(turn) : undefined;
 
   return (
-    <section className="conversation-turn" data-turn-status={active ? "running" : "completed"}>
-      {turn.userMessage && <RunEvent msg={turn.userMessage} />}
-      {hasWork && <WorkDisclosure active={active} messages={turn.workMessages} turnId={turn.id} />}
+    <section className="conversation-turn" data-turn-status={turnStatus}>
+      {turn.userMessage &&
+        (editing ? (
+          <EditableUserMessage
+            actionsDisabled={actionsDisabled}
+            draft={messageEdit.draft}
+            error={messageEdit.error}
+            onCancel={onCancelEdit}
+            onChange={onEditDraftChange}
+            onSubmit={() => onSubmitEdit(turn.userMessageIndex as number, messageEdit.draft)}
+          />
+        ) : (
+          <RunEvent
+            actionsDisabled={actionsDisabled}
+            createdAt={userCreatedAt}
+            msg={turn.userMessage}
+            onEdit={
+              latest && onBeginEdit && turn.userMessageIndex !== null
+                ? () =>
+                    onBeginEdit(turn.userMessageIndex as number, turn.userMessage?.content ?? "")
+                : undefined
+            }
+          />
+        ))}
+      {hasWork && (
+        <WorkDisclosure
+          active={active}
+          activeRunStartedAt={activeRunStartedAt}
+          actionsDisabled={actionsDisabled}
+          interrupted={interrupted}
+          latest={latest}
+          messages={turn.workMessages}
+          onContinue={onContinue}
+          turnId={turn.id}
+        />
+      )}
       {turn.finalMessage && (
         <RunEvent
           actionsDisabled={actionsDisabled}
           msg={turn.finalMessage}
           onChangeModel={onChangeModel}
+          onContinueInNewChat={
+            onContinueInNewChat && turn.finalMessageIndex !== null
+              ? () => onContinueInNewChat(turn.finalMessageIndex as number)
+              : undefined
+          }
           onRetry={retryText ? () => onRetry(retryText) : undefined}
         />
       )}
@@ -7079,59 +8262,100 @@ function ConversationTurnView({
 
 function WorkDisclosure({
   active,
+  activeRunStartedAt,
+  actionsDisabled,
+  interrupted,
+  latest,
   messages,
+  onContinue,
   turnId,
 }: {
   active: boolean;
+  activeRunStartedAt: number | null;
+  actionsDisabled: boolean;
+  interrupted: boolean;
+  latest: boolean;
   messages: MessageChunk[];
+  onContinue?: () => void;
   turnId: string;
 }) {
-  const [expanded, setExpanded] = useState(active);
+  const prominent = active || (interrupted && latest);
+  const [expanded, setExpanded] = useState(prominent);
   const toggleRef = useRef<HTMLButtonElement>(null);
   const detailsRef = useRef<HTMLDivElement>(null);
-  const wasActive = useRef(active);
+  const wasProminent = useRef(prominent);
+  const workRevision =
+    messages.length > 0
+      ? `${messages.length}:${messageKey(messages[messages.length - 1] as MessageChunk)}`
+      : "";
+  const previousWorkRevision = useRef(workRevision);
   const detailsId = `${turnId}-work-details`;
   const duration = workDurationMs(messages);
+  const activeDuration = useLiveWorkDuration(active, activeRunStartedAt);
   const activities = groupWorkActivities(messages);
-  const runningLabels = activities
-    .filter(
-      (activity): activity is Extract<WorkActivity, { kind: "tool" }> => activity.kind === "tool",
-    )
-    .map((activity) => mergedToolActivityEvent(activity.activity))
-    .filter((event) => event.status === "queued" || event.status === "running")
-    .map((event) => describeToolActivity(event));
-  const runningLabel = useRotatingLabel(runningLabels, active);
   const label = active
-    ? (runningLabel ?? "Thinking")
-    : duration
-      ? `Worked for ${formatWorkDuration(duration)}`
-      : "Worked";
+    ? `Working for ${formatLiveWorkDuration(activeDuration)}`
+    : interrupted
+      ? duration
+        ? `Interrupted after ${formatWorkDuration(duration)}`
+        : "Interrupted"
+      : duration
+        ? `Worked for ${formatWorkDuration(duration)}`
+        : "Worked";
 
   useLayoutEffect(() => {
-    if (wasActive.current && !active) {
+    if (active) {
+      if (!wasProminent.current || previousWorkRevision.current !== workRevision) setExpanded(true);
+    } else if (prominent && !wasProminent.current) {
+      setExpanded(true);
+    } else if (!prominent && wasProminent.current) {
       if (detailsRef.current?.contains(document.activeElement)) toggleRef.current?.focus();
       setExpanded(false);
     }
-    wasActive.current = active;
-  }, [active]);
+    wasProminent.current = prominent;
+    previousWorkRevision.current = workRevision;
+  }, [active, prominent, workRevision]);
 
   return (
-    <section className={cx("work-disclosure", active && "is-active", expanded && "is-open")}>
-      <button
-        type="button"
-        className="work-disclosure__toggle"
-        aria-controls={detailsId}
-        aria-expanded={expanded}
-        onClick={() => setExpanded((value) => !value)}
-        ref={toggleRef}
-      >
-        <span className="work-disclosure__label" key={label}>
-          {label}
-        </span>
-        <ChevronRight aria-hidden="true" />
-      </button>
+    <section
+      className={cx(
+        "work-disclosure",
+        active && "is-active",
+        interrupted && "is-interrupted",
+        expanded && "is-open",
+      )}
+    >
+      <div className="work-disclosure__bar">
+        <button
+          type="button"
+          className="work-disclosure__toggle"
+          aria-controls={detailsId}
+          aria-expanded={expanded}
+          onClick={() => setExpanded((value) => !value)}
+          ref={toggleRef}
+        >
+          <span className="work-disclosure__label">{label}</span>
+          <ChevronRight aria-hidden="true" />
+        </button>
+        {interrupted && latest && onContinue && (
+          <button
+            type="button"
+            className="work-disclosure__continue"
+            disabled={actionsDisabled}
+            onClick={onContinue}
+          >
+            <RefreshCw aria-hidden="true" />
+            Continue
+          </button>
+        )}
+      </div>
       {expanded && (
         <div className="work-disclosure__details" id={detailsId} ref={detailsRef}>
+          {interrupted && (
+            <p className="work-disclosure__interruption">
+              This run ended before a final response. Unfinished tools were not resumed.
+            </p>
+          )}
           {messages.length > 0 ? (
             <div className="work-disclosure__events">
               {activities.map((activity) =>
@@ -7144,6 +8368,7 @@ function WorkDisclosure({
                 ) : (
                   <ToolActivityEvent
                     activity={activity.activity}
+                    interrupted={interrupted}
                     key={toolActivityKey(activity.activity)}
                   />
                 ),
@@ -7161,17 +8386,17 @@ function WorkDisclosure({
   );
 }
 
-function useRotatingLabel(labels: readonly string[], active: boolean): string | undefined {
-  const [rotation, setRotation] = useState(0);
+function useLiveWorkDuration(active: boolean, startedAt: number | null): number {
+  const [now, setNow] = useState(() => Date.now());
 
   useEffect(() => {
-    if (!active || labels.length <= 1) return undefined;
-    const timer = window.setInterval(() => setRotation((value) => value + 1), 2600);
+    if (!active || startedAt === null) return undefined;
+    setNow(Date.now());
+    const timer = window.setInterval(() => setNow(Date.now()), 1_000);
     return () => window.clearInterval(timer);
-  }, [active, labels.length]);
+  }, [active, startedAt]);
 
-  if (labels.length === 0) return undefined;
-  return labels[labels.length - 1 - (rotation % labels.length)];
+  return startedAt === null ? 0 : Math.max(0, now - startedAt);
 }
 
 function groupWorkActivities(messages: readonly MessageChunk[]): WorkActivity[] {
@@ -7248,15 +8473,24 @@ function toolActivityKey(activity: ToolActivity): string {
     : `tool:${activity.sourceIndex}:${message ? messageKey(message) : "unknown"}`;
 }
 
-function ToolActivityEvent({ activity }: { activity: ToolActivity }) {
+function ToolActivityEvent({
+  activity,
+  interrupted,
+}: {
+  activity: ToolActivity;
+  interrupted: boolean;
+}) {
   const [expanded, setExpanded] = useState(false);
-  const event = mergedToolActivityEvent(activity);
-  const summary = describeToolActivity(event);
+  const mergedEvent = mergedToolActivityEvent(activity);
+  const interruptedTool =
+    interrupted && ["queued", "running", "canceled"].includes(mergedEvent.status);
+  const event = interruptedTool ? { ...mergedEvent, status: "canceled" as const } : mergedEvent;
+  const summary = describeToolActivity(event, interruptedTool);
   const transcript = toolActivityTranscript(event);
   const failure = toolFailureSummary(event);
   const hasDetails = !!transcript || event.artifacts.length > 0 || !!failure;
   const detailsId = `${event.eventId}-activity-details`;
-  const failed = event.status === "failed" || event.status === "canceled";
+  const failed = !interruptedTool && (event.status === "failed" || event.status === "canceled");
   const running = event.status === "queued" || event.status === "running";
   const hasProgress = Boolean(activity.progress?.content);
   const autoOpened = useRef(false);
@@ -7278,6 +8512,7 @@ function ToolActivityEvent({ activity }: { activity: ToolActivity }) {
         "tool-activity",
         running && "is-running",
         failed && "is-failed",
+        interruptedTool && "is-interrupted",
         expanded && "is-open",
       )}
       data-render-event-id={event.eventId}
@@ -7289,7 +8524,7 @@ function ToolActivityEvent({ activity }: { activity: ToolActivity }) {
         className="tool-activity__summary"
         aria-controls={hasDetails ? detailsId : undefined}
         aria-expanded={hasDetails ? expanded : undefined}
-        aria-label={`${summary}, ${humanToolStatus(event.status)}`}
+        aria-label={`${summary}, ${humanToolStatus(event.status, interruptedTool)}`}
         disabled={!hasDetails}
         onClick={() => hasDetails && setExpanded((value) => !value)}
       >
@@ -7442,7 +8677,7 @@ function mergedToolActivityEvent(activity: ToolActivity): NormalizedRenderEvent 
   };
 }
 
-function describeToolActivity(event: NormalizedRenderEvent): string {
+function describeToolActivity(event: NormalizedRenderEvent, interrupted = false): string {
   const payload = tracePayloadRecord(event) ?? {};
   const tool = (event.toolName ?? "tool").toLowerCase();
   const path = compactToolValue(
@@ -7461,6 +8696,34 @@ function describeToolActivity(event: NormalizedRenderEvent): string {
   );
   const running = event.status === "queued" || event.status === "running";
   const failed = event.status === "failed" || event.status === "canceled";
+
+  if (interrupted) {
+    if (/apply[_-]?patch|notebookedit|(^|[_-])(edit|patch)([_-]|$)/.test(tool)) {
+      return interruptedToolSummary("Edit interrupted", path);
+    }
+    if (/(^|[_-])(write|create)([_-]|$)/.test(tool)) {
+      return interruptedToolSummary("Write interrupted", path);
+    }
+    if (/(^|[_-])(read|open)([_-]|$)/.test(tool)) {
+      return interruptedToolSummary("Read interrupted", path);
+    }
+    if (/(^|[_-])(glob|grep|search|find)([_-]|$)|toolsearch/.test(tool)) {
+      return interruptedToolSummary("Search interrupted", query ? `“${query}”` : path);
+    }
+    if (/(^|[_-])(test|check|vitest|jest|pytest)([_-]|$)/.test(tool)) {
+      return "Tests interrupted";
+    }
+    if (/(^|[_-])(bash|shell|terminal|exec_command|powershell)([_-]|$)/.test(tool)) {
+      return interruptedToolSummary("Command interrupted", command);
+    }
+    if (/(^|[_-])(browser|chrome|playwright|computer[_-]?use)([_-]|$)/.test(tool)) {
+      return "Browser action interrupted";
+    }
+    if (/(^|[_-])(imagegen|image_generation|generate[_-]?image)([_-]|$)/.test(tool)) {
+      return "Image generation interrupted";
+    }
+    return `${humanizeToolName(event.toolName ?? "tool")} interrupted`;
+  }
 
   if (/apply[_-]?patch|notebookedit|(^|[_-])(edit|patch)([_-]|$)/.test(tool)) {
     return toolActionSummary("Editing", "Edited", "Couldn’t edit", path, running, failed);
@@ -7516,6 +8779,10 @@ function describeToolActivity(event: NormalizedRenderEvent): string {
   return running ? `Using ${label}` : failed ? `${label} failed` : `Used ${label}`;
 }
 
+function interruptedToolSummary(label: string, subject: string | undefined): string {
+  return subject ? `${label}: ${subject}` : label;
+}
+
 function toolActionSummary(
   pendingVerb: string,
   completedVerb: string,
@@ -7547,7 +8814,8 @@ function humanizeToolName(toolName: string): string {
     .replace(/^\w/, (character) => character.toUpperCase());
 }
 
-function humanToolStatus(status: NormalizedRenderEvent["status"]): string {
+function humanToolStatus(status: NormalizedRenderEvent["status"], interrupted = false): string {
+  if (interrupted) return "interrupted";
   if (status === "queued" || status === "running") return "in progress";
   if (status === "failed") return "failed";
   if (status === "canceled") return "canceled";
@@ -7580,7 +8848,9 @@ function groupConversationTurns(messages: MessageChunk[]): ConversationTurn[] {
   const grouped: Array<{
     id: string;
     userMessage: MessageChunk | null;
+    userMessageIndex: number | null;
     responseMessages: MessageChunk[];
+    responseMessageIndices: number[];
   }> = [];
   let current: (typeof grouped)[number] | null = null;
 
@@ -7589,7 +8859,9 @@ function groupConversationTurns(messages: MessageChunk[]): ConversationTurn[] {
       current = {
         id: `conversation-turn-${index}`,
         userMessage: message,
+        userMessageIndex: index,
         responseMessages: [],
+        responseMessageIndices: [],
       };
       grouped.push(current);
       return;
@@ -7599,30 +8871,73 @@ function groupConversationTurns(messages: MessageChunk[]): ConversationTurn[] {
       current = {
         id: "conversation-turn-opening",
         userMessage: null,
+        userMessageIndex: null,
         responseMessages: [],
+        responseMessageIndices: [],
       };
       grouped.push(current);
     }
     current.responseMessages.push(message);
+    current.responseMessageIndices.push(index);
   });
 
-  return grouped.map(({ id, userMessage, responseMessages }) => {
-    let finalMessageIndex = -1;
-    responseMessages.forEach((message, index) => {
-      if (isFinalResponse(message)) finalMessageIndex = index;
-    });
-    const finalMessage =
-      finalMessageIndex >= 0 ? (responseMessages[finalMessageIndex] ?? null) : null;
-    return {
-      id,
-      userMessage,
-      workMessages:
-        finalMessageIndex >= 0
-          ? responseMessages.filter((_message, index) => index !== finalMessageIndex)
-          : responseMessages,
-      finalMessage,
-    };
-  });
+  return grouped.map(
+    ({ id, userMessage, userMessageIndex, responseMessages, responseMessageIndices }) => {
+      let finalMessageIndex = -1;
+      responseMessages.forEach((message, index) => {
+        if (isFinalResponse(message)) finalMessageIndex = index;
+      });
+      const finalWasSuperseded =
+        finalMessageIndex >= 0 &&
+        responseMessages.slice(finalMessageIndex + 1).some((message) => {
+          if (
+            message.kind === "thinking" ||
+            message.kind === "tool_call" ||
+            message.kind === "tool_progress"
+          ) {
+            return true;
+          }
+          return message.kind === "tool_result" && !isTerminalToolResult(message);
+        });
+      if (finalWasSuperseded) finalMessageIndex = -1;
+      const finalMessage =
+        finalMessageIndex >= 0 ? (responseMessages[finalMessageIndex] ?? null) : null;
+      return {
+        id,
+        userMessage,
+        userMessageIndex,
+        workMessages:
+          finalMessageIndex >= 0
+            ? responseMessages.filter((_message, index) => index !== finalMessageIndex)
+            : responseMessages,
+        finalMessage,
+        finalMessageIndex:
+          finalMessageIndex >= 0 ? (responseMessageIndices[finalMessageIndex] ?? null) : null,
+      };
+    },
+  );
+}
+
+function messageCreatedAt(message: MessageChunk): string | undefined {
+  return (
+    message.createdAt ??
+    (message.role === "user"
+      ? (message.render?.startedAt ?? message.render?.endedAt)
+      : (message.render?.endedAt ?? message.render?.startedAt))
+  );
+}
+
+function turnUserMessageCreatedAt(turn: ConversationTurn): string | undefined {
+  if (!turn.userMessage) return undefined;
+  const direct = messageCreatedAt(turn.userMessage);
+  if (direct) return direct;
+
+  for (const response of [...turn.workMessages, turn.finalMessage]) {
+    if (!response) continue;
+    const timestamp = response.createdAt ?? response.render?.startedAt ?? response.render?.endedAt;
+    if (timestamp) return timestamp;
+  }
+  return undefined;
 }
 
 function isFinalResponse(message: MessageChunk): boolean {
@@ -7655,6 +8970,14 @@ function parseRenderTime(value: string | undefined): number | undefined {
 
 function formatWorkDuration(durationMs: number): string {
   const seconds = Math.max(1, Math.round(durationMs / 1000));
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  const remainder = seconds % 60;
+  return remainder === 0 ? `${minutes}m` : `${minutes}m ${remainder}s`;
+}
+
+function formatLiveWorkDuration(durationMs: number): string {
+  const seconds = Math.max(0, Math.floor(durationMs / 1000));
   if (seconds < 60) return `${seconds}s`;
   const minutes = Math.floor(seconds / 60);
   const remainder = seconds % 60;
@@ -8655,7 +9978,7 @@ function preloadSessionCandidates(groups: SessionGroup[]): DiscoveredSession[] {
 
 function mergeLocalSessionsIntoGroups(
   groups: SessionGroup[],
-  sessions: SessionData[],
+  sessions: SessionSummary[],
   mode: SessionGroupMode,
 ): SessionGroup[] {
   const externalSessions = groups
@@ -8781,7 +10104,7 @@ function navigationEntryKey(session: DiscoveredSession | null): string {
   return session ? sessionCacheId(session) : "__new_session__";
 }
 
-function localSessionToDiscovered(session: SessionData): DiscoveredSession {
+function localSessionToDiscovered(session: SessionData | SessionSummary): DiscoveredSession {
   const harness = HARNESSES.find((item) => item.id === session.harness);
 
   return {

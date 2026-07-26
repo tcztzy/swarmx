@@ -58,6 +58,16 @@ npx swarmx cli --help
 
 Use `npx swarmx desktop` as an explicit Desktop alias.
 
+Existing installs can preview and migrate legacy Session JSON files safely:
+
+```shell
+npx swarmx sessions migrate --dry-run
+npx swarmx sessions migrate
+```
+
+The migration supports both prior TypeScript and Rust desktop formats, verifies
+JSONL replay, then moves each old file into a timestamped backup.
+
 ## Develop from source
 
 ```shell

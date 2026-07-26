@@ -97,6 +97,71 @@ describe("preload API", () => {
     expect(electron.removeListener).toHaveBeenCalledWith("agent:chunk", wrapped);
   });
 
+  it("keeps transient side-chat sends, streams, and lifecycle operations on dedicated channels", async () => {
+    const api = exposedApi();
+    const send = {
+      requestId: "side-request",
+      sessionId: "parent-1",
+      sideChatId: "side-1",
+      sideChatVisible: false,
+      harnessId: "swarmx",
+      userText: "Explain this",
+      agentComposition: { id: "agent-1" },
+    };
+    electron.invoke.mockResolvedValue({ parentSessionId: "parent-1", chats: [] });
+
+    await api.sendSideChatMessage(send);
+    await api.listSideChats("parent-1");
+    await api.createSideChat({
+      parentSessionId: "parent-1",
+      throughMessageIndex: 2,
+      expectedMessages: [],
+    });
+    await api.setSideChatHidden("parent-1", true);
+    await api.deleteSideChat("parent-1", "side-1");
+    await api.promoteSideChat("parent-1", "side-1");
+    await api.cancelSideChat("parent-1", "side-1", "side-request");
+
+    expect(electron.invoke.mock.calls).toEqual([
+      ["sideChat:send", send],
+      ["sideChat:list", "parent-1"],
+      [
+        "sideChat:create",
+        {
+          parentSessionId: "parent-1",
+          throughMessageIndex: 2,
+          expectedMessages: [],
+        },
+      ],
+      ["sideChat:setHidden", { parentSessionId: "parent-1", hidden: true }],
+      ["sideChat:delete", { parentSessionId: "parent-1", sideChatId: "side-1" }],
+      ["sideChat:promote", { parentSessionId: "parent-1", sideChatId: "side-1" }],
+      [
+        "sideChat:cancel",
+        {
+          parentSessionId: "parent-1",
+          sideChatId: "side-1",
+          requestId: "side-request",
+        },
+      ],
+    ]);
+
+    const listener = vi.fn();
+    const unsubscribe = api.onSideChatChunk(listener);
+    const registration = electron.on.mock.calls.find(([channel]) => channel === "sideChat:chunk");
+    const wrapped = registration?.[1];
+    const event = {
+      requestId: "side-request",
+      parentSessionId: "parent-1",
+      sideChatId: "side-1",
+      chunk: { role: "assistant", kind: "thinking", content: "Inspecting" },
+    };
+    wrapped?.({}, event);
+    expect(listener).toHaveBeenCalledWith(event);
+    unsubscribe();
+    expect(electron.removeListener).toHaveBeenCalledWith("sideChat:chunk", wrapped);
+  });
+
   it("V429 exposes authoritative background session refresh events", () => {
     const listener = vi.fn();
     const unsubscribe = exposedApi().onSessionMessages(listener);
@@ -198,6 +263,36 @@ describe("preload API", () => {
       userText: "Fix the title",
     });
     expect(electron.invoke).toHaveBeenNthCalledWith(4, "session:archive", "session-1");
+  });
+
+  it("bridges conflict-safe user message edits through the isolated preload API", async () => {
+    const params = {
+      id: "session-1",
+      messageIndex: 0,
+      expectedMessages: [{ role: "user", kind: "message" as const, content: "Original" }],
+      content: "Revised",
+    };
+    electron.invoke.mockResolvedValue({ id: "session-1", messages: [params.expectedMessages[0]] });
+
+    await exposedApi().editSessionUserMessage(params);
+
+    expect(electron.invoke).toHaveBeenCalledWith("session:editUserMessage", params);
+  });
+
+  it("bridges conflict-safe Session forks through the isolated preload API", async () => {
+    const params = {
+      id: "session-1",
+      throughMessageIndex: 1,
+      expectedMessages: [
+        { role: "user", kind: "message" as const, content: "Question" },
+        { role: "assistant", kind: "message" as const, content: "Answer" },
+      ],
+    };
+    electron.invoke.mockResolvedValue({ id: "session-2", messages: params.expectedMessages });
+
+    await exposedApi().forkSession(params);
+
+    expect(electron.invoke).toHaveBeenCalledWith("session:fork", params);
   });
 
   it("exposes the workspace root needed for local mention completion", async () => {

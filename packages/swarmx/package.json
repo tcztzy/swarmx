@@ -1,6 +1,6 @@
 {
   "name": "swarmx",
-  "version": "3.1.5",
+  "version": "3.2.0",
   "description": "SwarmX desktop app and multi-agent orchestration CLI.",
   "license": "MIT",
   "repository": {
@@ -10,7 +10,8 @@
   },
   "type": "module",
   "bin": {
-    "swarmx": "./bin/swarmx.js"
+    "swarmx": "./bin/swarmx.js",
+    "swarmx-migrate-sessions": "./bin/migrate-sessions.js"
   },
   "files": ["bin"],
   "publishConfig": {

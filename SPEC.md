@@ -72,6 +72,8 @@ G68: Desktop users can distinguish retryable Provider failures from SwarmX syste
 G69: CLI and desktop users can select Kimi Code as a built-in ACP coding Harness, reuse Kimi-owned authentication and configuration, and diagnose or install its official CLI through shared Runtime surfaces.
 G70: Publish the verified Kimi Code Harness as SwarmX 3.1.4 through aligned npm packages, Git tag, and GitHub Release.
 G71: A release tag publishes every aligned SwarmX package to npm from that tagged commit before creating the matching GitHub Release.
+G72: Desktop users can collapse or expand each sidebar Project group from its main row and identify that state from matching folder icons.
+G73: Desktop users can ask parallel side questions from an anchored task snapshot without changing or persisting the parent conversation, then explicitly promote useful side work into a normal task.
 
 ## §C
 C1: Reuse existing `SwarmConfig`; no second workflow DSL.
@@ -260,6 +262,10 @@ C183: Provider recovery actions require an explicit user click, retry the exact 
 C184: Kimi Code integration uses the official `kimi acp` stdio entrypoint and remains native so its local authentication, provider config, plugins, tools, and sessions remain available; SwarmX does not embed Kimi packages, copy credentials, or rewrite Kimi config.
 C185: A 3.1.4 release keeps every workspace package version aligned, publishes dependency-first from one verified commit, creates one matching `v3.1.4` tag/release, and preserves unrelated user-owned workspace changes.
 C186: npm release automation prefers GitHub OIDC trusted publishing, accepts a repository-scoped npm automation token while trusted-publisher enrollment is bootstrapped, packs workspace dependencies to exact release versions, publishes dependency-first, and treats an existing version as idempotent only when its registry integrity matches the locally packed tarball.
+C187: Project disclosure changes task-list visibility only. The row's right-side options and new-task buttons retain independent actions.
+C188: A side chat is a Core-defined transient Session fork, never a renderer-fabricated `SessionData`. Its anchor uses the authoritative effective parent-message projection at creation, and its transcript cannot enter ordinary Session save, list, resume, or archive paths before explicit promotion.
+C189: Every side tab owns an independent in-memory transcript, draft, attachment set, context chips, request id, stream route, abort route, and transient runtime identity. Side execution is a read-only explanatory lane with no workflow execution, nested side chat, persistent ACP identity, permission escalation, or silent reuse of the parent's runtime identity.
+C190: Side-chat state is scoped by parent Session and application process. Hiding preserves tabs, deleting discards one tab, switching parents restores each parent's memory state, parent archive clears it, and process restart loses it.
 
 ## §I
 I1: `packages/core/src/types.ts` `SwarmConfigSchema`.
@@ -508,6 +514,11 @@ I243: `packages/desktop/src/main/provider-error.ts`, `ipc.ts`, Preload response 
 I244: `packages/core/src/harness.ts`, `packages/runtime/src/harness-environment.ts`, Desktop Harness registry/backend inference/icon assets, focused tests, `docs/index.md`, `DESIGNS.md`, and third-party notices Kimi Code ACP registration, Runtime setup, selection, provenance, and ownership boundaries.
 I245: Root/workspace manifests, lockfile, runtime version, npm packages, Git `v3.1.4`, and GitHub Release are the 3.1.4 release surfaces.
 I246: `.github/workflows/release.yml`, `scripts/publish-npm.mjs`, publishable manifests, and `packages/swarmx/tests/launcher.test.ts` tag-to-npm release automation.
+I247: `packages/desktop/src/renderer/src/App.tsx` and `App.test.tsx` sidebar Project disclosure UI.
+I248: `packages/core/src/session.ts`, Core session tests, CLI migration command, npm launcher, and persistence documentation append-only local Session storage plus legacy migration.
+I249: `packages/core/src/types.ts`, `session.ts`, exports, and Core session tests transient fork schemas, anchored projection, memory-only mutation, model projection, and explicit promotion.
+I250: `packages/desktop/src/main/side-chat-service.ts`, `ipc.ts`, chunk publisher, shared/preload API, and focused tests process-memory registry, independent request routing, read-only execution boundary, cleanup, and isolated Electron transport.
+I251: Desktop Renderer App, Composer, styles, and focused tests multi-tab side pane, commands, selection context, isolated composers, edit/stream/abort/unread routing, responsive layout, and promotion.
 
 ## §V
 V1: Workflow JSON source of truth is `SwarmConfig`; UI preview, run badges, and send payload derive from parsed JSON.
@@ -1027,7 +1038,24 @@ V514: Root runtime constant and all six publishable packages declare 3.1.4; pack
 V515: Focused Core/Runtime/Renderer tests cover registry metadata, explicit model-route behavior, official install command, native status, backend inference, and icon provenance; `pnpm run ci` plus an installed-CLI ACP startup smoke pass before publication.
 V516: A pushed stable `v<version>` tag runs an npm job from that exact tag after both macOS packages pass, grants only `contents: read` plus `id-token: write`, uses npm 11 with trusted publishing or the repository-scoped bootstrap token, and publishes `@swarmx/core`, `@swarmx/runtime`, `@swarmx/acp-server`, `@swarmx/cli`, `@swarmx/desktop`, then `swarmx`.
 V517: npm release packing rejects tag/manifest/runtime-version drift, unresolved `workspace:` dependencies, package name/version drift, and registry/local integrity mismatches; a matching existing tarball is the only allowed publish retry skip.
-V518: The root runtime constant and all six publishable packages declare 3.1.5; one verified tagged commit owns the matching npm versions and GitHub Release.
+V518: The root runtime constant and all six publishable packages declare 3.2.0; one verified tagged commit owns the matching npm versions and GitHub Release.
+V519: Each grouped sidebar Project main row is a keyboard-accessible disclosure excluding its right-side action buttons; click, Enter, or Space toggles only that Project's task list, `aria-expanded` matches visibility, expanded state uses Lucide `FolderOpen`, and collapsed state uses Lucide `Folder`.
+V520: A running desktop turn keeps Worked open as new commentary, reasoning, or tool activity arrives, including after a transient closed state; completion still collapses it, and live Worked labels update in the existing DOM node without replaying an entry transition.
+V521: A tool activity renders queued or running only while its parent desktop turn is the authoritative active request. A non-active turn with work but no final response is interrupted: unmatched tool calls become terminal without animation, the latest interrupted work stays open with an explicit Continue action, superseded interrupted work collapses, and Continue starts a new request without replaying unfinished tools.
+V522: Canonical local Sessions use one append-only `<id>.jsonl` event log per Session. Normal message and metadata updates append only their delta, preserve existing `SessionData` behavior, serialize per-Session writers, retain concurrently appended history when a stale metadata save arrives, and never rewrite prior valid event bytes.
+V523: New runtimes prefer JSONL but still read legacy `<id>.json` Sessions, including the released Rust desktop's snake_case Session and message schema. Explicit or lazy migration normalizes that schema, is idempotent, validates replay equivalence before moving the legacy file into a timestamped reversible backup, and never replaces an existing divergent JSONL log.
+V524: Session JSONL recovery accepts a single unterminated malformed tail as a torn final write and replays the valid prefix. A malformed newline-terminated or non-final record is reported as corruption, never silently skipped, and blocks further append until repaired.
+V525: A derived append-only Session index stores compact metadata, message count, and authoritative rollout byte length plus modification time. Listing surfaces use it without loading message bodies, reconcile missing or stale entries from rollout logs, and can rebuild it without changing canonical Session data.
+V526: Updating an existing user Provider without a new credential still fails closed when its encrypted credential is unreadable. Supplying an explicit replacement credential overwrites that unreadable entry, preserves normal credential rollback for readable entries, and returns no secret through inventory or IPC.
+V527: Creating a transient fork snapshots the authoritative projected parent prefix through the selected anchor, including `messages_replaced` semantics, and creates no Session JSONL/index/list entry. Later parent messages never enter that side chat automatically.
+V528: Multiple side tabs can run independently for one parent, and separate parents retain separate in-process tab sets. Each tab preserves messages, draft, attachments, pending selected-text context, timestamps, run state, request id, and unread state until deletion, parent archive, or process exit.
+V529: Main and side requests use distinct request-registry and runtime identities. Side chunks include parent and side ids, side cancellation cannot stop the parent, main cancellation cannot stop a side tab, and inactive or hidden completion marks only that tab unread.
+V530: Side execution accepts one explicit Agent Composition only, forces the conservative read-only/plan boundary where host tools exist, denies interactive/ACP permission requests and child agents, does not resume the parent's external ACP identity, and never persists side turns during start, streaming, success, cancellation, or failure.
+V531: Desktop presents side chats beside the visible parent at adjustable desktop width and as a clear-return overlay at narrow width. Tabs, `+`, hide, delete, read-only status, independent transcript/composer, selected-context chips, copy/time/edit actions, and responsive controls remain keyboard usable.
+V532: `/side <prompt>` and `/btw <prompt>` create and run a side tab without sending command text to the model or parent. Parent transcript selection exposes `Ask in side chat`, routes only the selected quote into the active/new side tab, and nested side commands are rejected.
+V533: Main and side drafts, file attachments, focus, send controls, streams, edits, and Escape targets remain isolated. Side editing replaces only the latest side user turn in memory and regenerates that side response without writing `messages_replaced` or any other parent event.
+V534: Hiding a side pane preserves its tabs, deleting removes only the selected idle tab, switching tasks restores tabs by parent id, and archiving a parent is blocked while one of its side tabs runs then clears all of that parent's side memory after success.
+V535: Explicit `Promote to task` creates one normal persistent fork containing the anchored effective parent prefix plus side transcript, records fork provenance, omits any external ACP Session identity, leaves the parent unchanged, and only then appears in ordinary Session list/resume surfaces.
 
 ## §T
 |id|status|task|cites|
@@ -1244,7 +1272,12 @@ V518: The root runtime constant and all six publishable packages declare 3.1.5; 
 |T210|x|add built-in Kimi Code ACP Harness, Runtime setup, Desktop selection, tests, and boundary documentation|G69,C184,V509,V510,V511,V512,V513,V515,I244|
 |T211|x|verify, version, publish, tag, and release SwarmX 3.1.4 with Kimi Code support|G70,C185,V469,V470,V487,V493,V514,V515,I245|
 |T212|x|add npm release automation with OIDC readiness, dependency ordering, and integrity-safe retries|G71,C186,V516,V517,I246|
-|T213|x|align, verify, publish, tag, and release SwarmX 3.1.5|G71,V469,V470,V487,V493,V516,V517,V518,I246|
+|T213|x|align, verify, publish, tag, and release SwarmX 3.2.0|G71,V469,V470,V487,V493,V516,V517,V518,I246|
+|T214|x|implement Project main-row disclosure toggle, state icons, and renderer tests|G72,C187,V519,I247|
+|T215|x|backprop running Worked expansion and remove live-label transition flicker|G56,C138,C139,V353,V520,I191,I194|
+|T216|x|persist interrupted tool terminal state and implement safe desktop recovery display|V353,V429,V521,I191,I194|
+|T217|x|replace local Session rewrites with append-only JSONL, indexed summaries, compatible migration, and corruption recovery|V522,V523,V524,V525,I248|
+|T218|x|implement anchored transient Side chat / BTW tabs, isolated runtime routing, responsive Desktop UX, explicit promotion, and regression coverage|G73,C188,C189,C190,V527,V528,V529,V530,V531,V532,V533,V534,V535,I249,I250,I251|
 
 ## §B
 |id|date|cause|fix|
@@ -1392,3 +1425,8 @@ V518: The root runtime constant and all six publishable packages declare 3.1.5; 
 |B141|2026-07-24|the local `gh run watch` connection hit a transient GitHub API TLS handshake timeout while the remote Release jobs remained healthy|re-query the authoritative run id with `gh run view` instead of inferring a workflow failure|
 |B142|2026-07-24|the first final verification query assumed an unsupported `gh release view` `isLatest` field and projected npm selected-field output as full metadata|request only advertised GitHub fields and project the full npm version document|
 |B143|2026-07-24|a local Core tarball integrity differed from the published clean-CI tarball because the dirty workspace retained obsolete untracked `dist/acp-server.*` outputs|compare unpacked contents before blaming archive metadata and keep publication on the exact clean tagged CI checkout|
+|B144|2026-07-24|Worked expansion lived as unsynchronized local state while its keyed live label replayed an opacity/translate entry animation, so an active turn could remain closed and visibly flash across status changes|V520|
+|B145|2026-07-24|desktop cancellation persisted timed work without terminalizing orphaned calls, while Renderer inferred every unmatched tool call as running even after its request no longer existed|V521|
+|B146|2026-07-24|local Session persistence rewrote the full JSON transcript on every update, multiplying write cost and exposing the entire conversation to truncation or concurrent overwrite|V522,V523,V524,V525|
+|B147|2026-07-24|Provider update always decrypted the persisted old credential before considering an explicit replacement, so one stale Keychain ciphertext made the repair form permanently unsavable|V526|
+|B148|2026-07-26|parallel dependent-package builds let Desktop resolve stale Core declarations before Core emitted the new Session API|build dependency packages serially or use the recursive topological build|

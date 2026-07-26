@@ -33,9 +33,11 @@ export interface ComposerProps {
     timeoutMs: number;
   }) => Promise<{ result: unknown }>;
   selectFilesAndFolders: () => Promise<string[]>;
+  onFilesSelected?: (paths: string[]) => void;
   onContextError?: (error: unknown) => void;
   error?: string | null;
   onChange: (value: string) => void;
+  onFocus?: () => void;
   onSubmit: () => void | Promise<void>;
   onStop: () => void | Promise<void>;
   children: React.ReactNode;
@@ -69,9 +71,11 @@ export function Composer({
   mentionServers,
   completeMention,
   selectFilesAndFolders,
+  onFilesSelected,
   onContextError,
   error,
   onChange,
+  onFocus,
   onSubmit,
   onStop,
   children,
@@ -224,6 +228,7 @@ export function Composer({
     try {
       const paths = await selectFilesAndFolders();
       if (paths.length === 0) return;
+      onFilesSelected?.(paths);
 
       const beforeCursor = value.slice(0, cursorOffset);
       const prefix = beforeCursor.length > 0 && !/\s$/.test(beforeCursor) ? " " : "";
@@ -237,7 +242,15 @@ export function Composer({
     } finally {
       setContextMenuOpen(false);
     }
-  }, [cursorOffset, focusAt, onChange, onContextError, selectFilesAndFolders, value]);
+  }, [
+    cursorOffset,
+    focusAt,
+    onChange,
+    onContextError,
+    onFilesSelected,
+    selectFilesAndFolders,
+    value,
+  ]);
 
   const onKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -331,7 +344,10 @@ export function Composer({
         }}
         onSelect={(event) => syncCursor(event.currentTarget)}
         onClick={(event) => syncCursor(event.currentTarget)}
-        onFocus={(event) => syncCursor(event.currentTarget)}
+        onFocus={(event) => {
+          syncCursor(event.currentTarget);
+          onFocus?.();
+        }}
         onCompositionStart={() => setIsComposing(true)}
         onCompositionEnd={(event) => {
           setIsComposing(false);

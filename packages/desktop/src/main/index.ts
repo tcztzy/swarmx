@@ -7,6 +7,8 @@ import { NpmDesktopUpdateService } from "./updater.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
+app.setName("SwarmX");
+
 process.env.APP_ROOT = join(__dirname, "..");
 configureDesktopHarnessEnvironment();
 const requestedTheme = process.env.SWARMX_THEME;

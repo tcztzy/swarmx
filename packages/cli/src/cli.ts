@@ -1,12 +1,13 @@
 #!/usr/bin/env node
 import { readFileSync } from "node:fs";
 import { createInterface } from "node:readline";
-import { HARNESSES, SWARMX_VERSION, Swarm, createServer, listSessions } from "@swarmx/core";
+import { HARNESSES, SWARMX_VERSION, Swarm, createServer, listSessionSummaries } from "@swarmx/core";
 import type { AgentConfig, MessageChunk, SwarmConfig } from "@swarmx/core";
 import { Command } from "commander";
 import { runDoctorCommand } from "./doctor.js";
 import { type EvalRunOptions, errorEvalResult, formatEvalResult, runEval } from "./eval-run.js";
 import { createSendSwarmConfig } from "./send-config.js";
+import { runSessionMigrationCommand } from "./session-migration.js";
 
 const program = new Command();
 
@@ -151,21 +152,38 @@ program
     },
   );
 
-program
-  .command("sessions")
-  .description("List local sessions")
-  .action(() => {
-    const sessions = listSessions();
-    if (sessions.length === 0) {
-      console.log("No sessions found.");
-      return;
-    }
-    for (const s of sessions) {
-      console.log(
-        `[${s.id.slice(0, 8)}] ${s.title} (${s.harness}) - ${s.messages.length} messages`,
-      );
-    }
-  });
+const sessionsCommand = program.command("sessions").description("List or migrate local sessions");
+
+sessionsCommand.action(() => {
+  const sessions = listSessionSummaries();
+  if (sessions.length === 0) {
+    console.log("No sessions found.");
+    return;
+  }
+  for (const s of sessions) {
+    console.log(`[${s.id.slice(0, 8)}] ${s.title} (${s.harness}) - ${s.messageCount} messages`);
+  }
+});
+
+sessionsCommand
+  .command("migrate")
+  .description("Migrate legacy Session JSON files to append-only JSONL")
+  .option("--dry-run", "Validate and report without changing files", false)
+  .option("--sessions-dir <path>", "Override the Session directory")
+  .option("--backup-dir <path>", "Write reversible legacy backups to this directory")
+  .option("--json", "Print a structured migration report", false)
+  .action(
+    (options: {
+      dryRun?: boolean;
+      sessionsDir?: string;
+      backupDir?: string;
+      json?: boolean;
+    }) => {
+      const command = runSessionMigrationCommand(options);
+      process.stdout.write(command.output);
+      if (command.exitCode !== 0) process.exitCode = command.exitCode;
+    },
+  );
 
 program
   .command("harnesses")

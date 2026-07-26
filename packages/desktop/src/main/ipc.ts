@@ -12,13 +12,15 @@ import {
   archiveSession,
   createSession,
   dismissProject,
+  editSessionUserMessage,
   estimateModelTokenUsage,
   executeAgentComposition,
+  forkSession,
   getHarness,
   importN8nWorkflow,
   listGroupedSessions,
   listProjects,
-  listSessions,
+  listSessionSummaries,
   loadDiscoveredSession,
   loadExtensionInventory,
   loadSession,
@@ -47,7 +49,9 @@ import type {
   ProjectData,
   SessionData,
   SessionPermissionMode,
+  SessionSummary,
   SwarmConfig,
+  TransientSessionData,
 } from "@swarmx/core";
 import {
   HarnessDoctor,
@@ -99,6 +103,7 @@ import {
 import { DesktopRequestRegistry } from "./request-registry.js";
 import {
   assertFinalAssistantMessage,
+  interruptedMessages,
   publishSessionMessages,
   sessionChatMessages,
   timedMessages,
@@ -111,6 +116,7 @@ import {
   sessionTitleMessages,
 } from "./session-title.js";
 import { DesktopSettingsStore } from "./settings-store.js";
+import { SideChatService } from "./side-chat-service.js";
 import { TerminalHost } from "./terminal-host.js";
 import {
   type DesktopUpdateServiceLike,
@@ -127,7 +133,7 @@ import {
 
 export { agentChunkPublisher };
 export type { AgentChunkPublisher, AgentChunkSender };
-export { assertFinalAssistantMessage, sessionChatMessages };
+export { assertFinalAssistantMessage, interruptedMessages, sessionChatMessages };
 
 const MAX_INLINE_IMAGE_BYTES = 25 * 1024 * 1024;
 const SENSITIVE_PERMISSION_LABEL_PATTERN =
@@ -136,6 +142,7 @@ const lspHost = new LspHost();
 const harnessEnvironment = new HarnessEnvironmentService();
 const harnessDoctor = new HarnessDoctor(harnessEnvironment);
 const agentRequests = new DesktopRequestRegistry();
+const sideChats = new SideChatService();
 const agentInteractions = new AgentInteractionBroker();
 const claudeSessionRuntimes = new ClaudeSessionRuntimeRegistry();
 const browserHost = new BrowserHost();
@@ -181,6 +188,20 @@ export interface RegisterIpcHandlersOptions {
   updateService?: DesktopUpdateServiceLike;
   broadcastUpdateState?: (state: DesktopUpdateState) => void;
   activityStore?: ActivityStore;
+}
+
+interface DesktopAgentSendParams {
+  requestId: string;
+  sessionId?: string;
+  sideChatId?: string;
+  sideChatVisible?: boolean;
+  sideEditMessageIndex?: number;
+  harnessId: string;
+  userText: string;
+  agentConfig?: AgentConfig;
+  agentComposition?: AgentComposition;
+  swarmConfig?: SwarmConfig;
+  cwd?: string;
 }
 
 async function executeWithProviderRuntime<T>(
@@ -274,314 +295,337 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
   const updateService = options.updateService ?? createDisabledDesktopUpdateService();
   const activityStore = options.activityStore ?? desktopActivity;
   if (options.broadcastUpdateState) updateService.subscribe(options.broadcastUpdateState);
-  ipcMain.handle(
-    "agent:send",
-    async (
-      event: IpcMainInvokeEvent,
-      params: {
-        requestId: string;
-        sessionId?: string;
-        harnessId: string;
-        userText: string;
-        agentConfig?: AgentConfig;
-        agentComposition?: AgentComposition;
-        swarmConfig?: SwarmConfig;
-        cwd?: string;
-      },
-    ) => {
-      const startedAt = Date.now();
-      const observedMessages: MessageChunk[] = [];
-      const tokenUsages: ModelTokenUsage[] = [];
-      let foregroundRuntime: ClaudeSessionRuntime | undefined;
-      let activeChunkPublisher: AgentChunkPublisher | undefined;
-      const taskMetadata = {
-        taskId: params.requestId,
-        sessionId: params.sessionId,
-        harnessId: params.harnessId,
-        modelId: stringProperty(params.agentComposition, "modelId"),
-        reasoningEffort: stringProperty(params.agentComposition, "effort"),
-      };
-      const desktopRequest = {
-        owner: event.sender,
-        requestId: params.requestId,
-        ...(params.sessionId ? { sessionId: params.sessionId } : {}),
-      };
-      appendActivity(activityStore, { type: "task_started", ...taskMetadata });
-      try {
-        if (params.sessionId && loadSession(params.sessionId)?.archivedAt) {
-          throw new Error(`Session "${params.sessionId}" is archived.`);
+  const handleAgentSend = async (event: IpcMainInvokeEvent, params: DesktopAgentSendParams) => {
+    const startedAt = Date.now();
+    const observedMessages: MessageChunk[] = [];
+    const tokenUsages: ModelTokenUsage[] = [];
+    let foregroundRuntime: ClaudeSessionRuntime | undefined;
+    let activeChunkPublisher: AgentChunkPublisher | undefined;
+    let activeSideChat: TransientSessionData | undefined;
+    const taskMetadata = {
+      taskId: params.requestId,
+      sessionId: params.sessionId,
+      harnessId: params.harnessId,
+      modelId: stringProperty(params.agentComposition, "modelId"),
+      reasoningEffort: stringProperty(params.agentComposition, "effort"),
+    };
+    const desktopRequest = {
+      owner: event.sender,
+      requestId: params.requestId,
+      ...(params.sideChatId
+        ? { sessionId: `side:${params.sideChatId}` }
+        : params.sessionId
+          ? { sessionId: params.sessionId }
+          : {}),
+    };
+    appendActivity(activityStore, { type: "task_started", ...taskMetadata });
+    try {
+      if (params.sessionId && loadSession(params.sessionId)?.archivedAt) {
+        throw new Error(`Session "${params.sessionId}" is archived.`);
+      }
+      if (params.sideChatId) {
+        if (!params.sessionId) throw new Error("Side chat sends require a parent Session.");
+        if (params.swarmConfig || params.agentConfig || !params.agentComposition) {
+          throw new Error(
+            "Side chats require one explicit Agent Composition and cannot execute workflows.",
+          );
         }
-        const result = await agentRequests.runForSession(desktopRequest, async () => {
-          const publishChunk = agentChunkPublisher(event.sender, params.requestId);
-          activeChunkPublisher = publishChunk;
-          const onChunk = (chunk: MessageChunk) => {
-            if (chunk.kind !== "tool_progress") observedMessages.push(chunk);
-            publishChunk(chunk);
-            if (chunk.kind === "tool_call" && chunk.toolName) {
-              appendActivity(activityStore, {
-                type: "tool_called",
-                ...taskMetadata,
-                name: chunk.toolName,
-              });
-            }
-          };
-          const acpPermissionHandler: AcpPermissionHandler = async (request) => {
-            const optionIds = request.options.map((option) => option.optionId);
-            if (optionIds.length === 0 || new Set(optionIds).size !== optionIds.length) {
-              return { outcome: { outcome: "cancelled" } };
-            }
-            const title = boundedPermissionLabel(request.toolCall.title ?? "ACP tool request");
-            const toolKind = request.toolCall.kind
-              ? boundedPermissionLabel(request.toolCall.kind)
-              : undefined;
-            try {
-              const response = await agentInteractions.request(event.sender, params.requestId, {
-                kind: "tool_approval",
-                title,
-                ...(toolKind ? { toolKind } : {}),
-                source: "acp",
-                summary:
-                  "An ACP Harness requested permission for this tool call. Raw input and output are not shown in the approval payload.",
-                options: request.options.map((option) => ({
-                  optionId: option.optionId,
-                  name: boundedPermissionLabel(option.name),
-                  kind: option.kind,
-                })),
-              });
-              if (response.kind !== "tool_approval") {
-                await recordPermissionDecision({
-                  source: "acp",
-                  toolName: title,
-                  ...(toolKind ? { toolKind } : {}),
-                  decision: "cancelled",
-                });
-                return { outcome: { outcome: "cancelled" } };
+        activeSideChat = sideChats.beginRun(
+          params.sessionId,
+          params.sideChatId,
+          params.requestId,
+          params.userText,
+          params.sideEditMessageIndex,
+        );
+      }
+      const result = await agentRequests.runForSession(desktopRequest, async () => {
+        const publishChunk = agentChunkPublisher(event.sender, params.requestId, {
+          ...(params.sideChatId
+            ? {
+                channel: "sideChat:chunk",
+                context: {
+                  sideChatId: params.sideChatId,
+                  parentSessionId: params.sessionId,
+                },
               }
-              const selected = request.options.find(
-                (option) => option.optionId === response.optionId,
-              );
-              await recordPermissionDecision({
-                source: "acp",
-                toolName: title,
-                ...(toolKind ? { toolKind } : {}),
-                decision: selected?.kind.startsWith("allow") ? "allowed" : "rejected",
-                ...(selected ? { optionKind: selected.kind } : {}),
-              });
-              return { outcome: { outcome: "selected", optionId: response.optionId } };
-            } catch (error) {
+            : {}),
+        });
+        activeChunkPublisher = publishChunk;
+        const onChunk = (chunk: MessageChunk) => {
+          if (chunk.kind !== "tool_progress") observedMessages.push(chunk);
+          publishChunk(chunk);
+          if (chunk.kind === "tool_call" && chunk.toolName) {
+            appendActivity(activityStore, {
+              type: "tool_called",
+              ...taskMetadata,
+              name: chunk.toolName,
+            });
+          }
+        };
+        const acpPermissionHandler: AcpPermissionHandler = async (request) => {
+          if (params.sideChatId) return { outcome: { outcome: "cancelled" } };
+          const optionIds = request.options.map((option) => option.optionId);
+          if (optionIds.length === 0 || new Set(optionIds).size !== optionIds.length) {
+            return { outcome: { outcome: "cancelled" } };
+          }
+          const title = boundedPermissionLabel(request.toolCall.title ?? "ACP tool request");
+          const toolKind = request.toolCall.kind
+            ? boundedPermissionLabel(request.toolCall.kind)
+            : undefined;
+          try {
+            const response = await agentInteractions.request(event.sender, params.requestId, {
+              kind: "tool_approval",
+              title,
+              ...(toolKind ? { toolKind } : {}),
+              source: "acp",
+              summary:
+                "An ACP Harness requested permission for this tool call. Raw input and output are not shown in the approval payload.",
+              options: request.options.map((option) => ({
+                optionId: option.optionId,
+                name: boundedPermissionLabel(option.name),
+                kind: option.kind,
+              })),
+            });
+            if (response.kind !== "tool_approval") {
               await recordPermissionDecision({
                 source: "acp",
                 toolName: title,
                 ...(toolKind ? { toolKind } : {}),
                 decision: "cancelled",
               });
+              return { outcome: { outcome: "cancelled" } };
+            }
+            const selected = request.options.find(
+              (option) => option.optionId === response.optionId,
+            );
+            await recordPermissionDecision({
+              source: "acp",
+              toolName: title,
+              ...(toolKind ? { toolKind } : {}),
+              decision: selected?.kind.startsWith("allow") ? "allowed" : "rejected",
+              ...(selected ? { optionKind: selected.kind } : {}),
+            });
+            return { outcome: { outcome: "selected", optionId: response.optionId } };
+          } catch (error) {
+            await recordPermissionDecision({
+              source: "acp",
+              toolName: title,
+              ...(toolKind ? { toolKind } : {}),
+              decision: "cancelled",
+            });
+            throw error;
+          }
+        };
+        let swarm: Swarm;
+        const cwd = await normalizeWorkingDirectory(params.cwd);
+
+        if (params.swarmConfig) {
+          assertDesktopSwarmModels(params.swarmConfig);
+          const config = cwd
+            ? swarmConfigWithWorkingDirectory(params.swarmConfig, cwd)
+            : params.swarmConfig;
+          swarm = new Swarm(await protectSwarmConfigBackends(config), {
+            agent: { acpPermissionHandler },
+          });
+        } else if (params.agentComposition) {
+          const inventory = await modelCatalog.list(await loadDesktopExtensionInventory());
+          const plan = resolveAgentCompositionPlan(params.agentComposition, inventory);
+          for (const skillId of new Set(plan.skills.map((skill) => skill.id))) {
+            appendActivity(activityStore, {
+              type: "skill_used",
+              ...taskMetadata,
+              name: skillId,
+            });
+          }
+          assertCompositionSupplyReady(inventory, plan, process.env);
+          const providerRuntime = plan.modelSupplyId
+            ? await modelCatalog.runtimeCredentialsForSupply(inventory, plan.modelSupplyId)
+            : undefined;
+          const protectedInventory = await protectCompositionHarness(inventory, plan.harnessId);
+          const projectTools =
+            cwd && compositionRuntimeHarnessId(inventory, plan) === "swarmx"
+              ? new WorkspaceTools(cwd)
+              : null;
+          const agentPermissionPolicy = HarnessPermissionPolicySchema.parse({
+            mode: plan.permissions?.mode ?? "default",
+            allowedTools: plan.permissions?.allowedTools ?? [],
+            deniedTools: plan.permissions?.deniedTools ?? [],
+          });
+          const permissionSession =
+            projectTools && params.sessionId && !params.sideChatId
+              ? loadSession(params.sessionId)
+              : undefined;
+          if (projectTools && params.sessionId && !params.sideChatId && !permissionSession) {
+            throw new Error(`Session ${params.sessionId} no longer exists.`);
+          }
+          const permissionPolicy = projectTools
+            ? await permissionService.resolve({
+                cwd,
+                agentId: plan.agentProfileId ?? plan.agentId,
+                agentPolicy: agentPermissionPolicy,
+                agentModeDeclared: Boolean(plan.permissions?.mode),
+                ...(params.sideChatId
+                  ? { sessionPermissionMode: "plan" as const }
+                  : permissionSession
+                    ? { sessionPermissionMode: permissionSession.permissionMode }
+                    : {}),
+              })
+            : undefined;
+          const selectedWorkspaceSkills = plan.skills.flatMap((skillRef) => {
+            if (skillRef.status !== "ok") return [];
+            const matches = inventory.skills.filter((skill) => skill.id === skillRef.id);
+            if (matches.length !== 1) return [];
+            const skill = matches[0];
+            const filePath = skill?.canonicalPath ?? skill?.path;
+            if (!skill || !filePath || !path.isAbsolute(filePath)) return [];
+            return [
+              {
+                id: skill.id,
+                ...(skill.name ? { name: skill.name } : {}),
+                filePath,
+                ...(skill.description ? { description: skill.description } : {}),
+              },
+            ];
+          });
+          const baseWorkspaceToolOptions: WorkspaceAgentToolOptions = {
+            ...((plan.modelId ?? plan.runtimeModel)
+              ? { model: [plan.modelId, plan.runtimeModel].filter(Boolean).join(" ") }
+              : {}),
+            ...(plan.apiProtocol ? { apiProtocol: plan.apiProtocol } : {}),
+            ...(selectedWorkspaceSkills.length > 0 ? { skills: selectedWorkspaceSkills } : {}),
+            ...(plan.effort ? { effort: plan.effort } : {}),
+            ...(permissionPolicy ? { permissionPolicy } : {}),
+            ...(projectTools && lspHost.supportsClaudeOperations(inventory)
+              ? {
+                  lsp: (request) => lspHost.operate(inventory, projectTools.root, request),
+                }
+              : {}),
+          };
+          const sessionRuntime =
+            projectTools &&
+            params.sessionId &&
+            !params.sideChatId &&
+            workspaceToolProfile(baseWorkspaceToolOptions) === "claude_code"
+              ? await claudeSessionRuntimes.open(params.sessionId, projectTools.root)
+              : undefined;
+          if (sessionRuntime && params.sessionId) {
+            const sessionId = params.sessionId;
+            sessionRuntime.configure({
+              activate: async (activation) => {
+                const activationMessage: MessageChunk = {
+                  role: "system",
+                  content: activation.prompt,
+                  kind: "message",
+                };
+                if (!appendMessages(sessionId, [activationMessage])) {
+                  throw new Error(`Session ${sessionId} no longer exists.`);
+                }
+                publishSessionMessages(event.sender, sessionId);
+                const persisted = loadSession(sessionId);
+                if (!persisted) throw new Error(`Session ${sessionId} no longer exists.`);
+                const backgroundTools = new WorkspaceTools(sessionRuntime.root);
+                const backgroundToolOptions: WorkspaceAgentToolOptions = {
+                  ...baseWorkspaceToolOptions,
+                  permissionPolicy: await permissionService.resolve({
+                    cwd: sessionRuntime.root,
+                    agentId: plan.agentProfileId ?? plan.agentId,
+                    agentPolicy: agentPermissionPolicy,
+                    agentModeDeclared: Boolean(plan.permissions?.mode),
+                    sessionPermissionMode: persisted.permissionMode,
+                  }),
+                  sessionId,
+                  sessionTools: sessionRuntime,
+                  borrowShell: true,
+                };
+                const messages = await executeWithProviderRuntime(
+                  providerRuntime,
+                  `${sessionId}:background`,
+                  (providerSecrets, observation) =>
+                    executeAgentComposition(
+                      params.agentComposition,
+                      [
+                        {
+                          role: "system",
+                          content: projectAgentContextMessage(
+                            sessionRuntime.root,
+                            backgroundToolOptions,
+                          ),
+                        },
+                        ...sessionChatMessages(persisted),
+                      ],
+                      {
+                        inventory: protectedInventory,
+                        providerSecrets,
+                        cwd: sessionRuntime.root,
+                        acpPermissionHandler,
+                        localTools: workspaceAgentTools(
+                          backgroundTools,
+                          sessionRuntime.shell,
+                          backgroundToolOptions,
+                        ),
+                        onChunk: () => observation.markOutput(),
+                        onUsage: (usage) => observation.recordUsage(usage),
+                      },
+                    ),
+                );
+                assertFinalAssistantMessage(messages);
+                if (!appendMessages(sessionId, messages)) {
+                  throw new Error(`Session ${sessionId} no longer exists.`);
+                }
+                publishSessionMessages(event.sender, sessionId);
+              },
+              onActivationError: (_activation, error) => {
+                const message: MessageChunk = {
+                  role: "system",
+                  content: `Background activation failed: ${errorMessage(error)}`,
+                  kind: "message",
+                };
+                if (appendMessages(sessionId, [message])) {
+                  publishSessionMessages(event.sender, sessionId);
+                }
+              },
+            });
+            await sessionRuntime.beginForeground();
+            foregroundRuntime = sessionRuntime;
+          }
+          const interactWithPermissionReceipts: NonNullable<
+            WorkspaceAgentToolOptions["interact"]
+          > = async (request) => {
+            try {
+              const response = await agentInteractions.request(
+                event.sender,
+                params.requestId,
+                request,
+              );
+              if (request.kind === "tool_approval" && response.kind === "tool_approval") {
+                const selected = request.options.find(
+                  (option) => option.optionId === response.optionId,
+                );
+                await recordPermissionDecision({
+                  source: request.source ?? "direct",
+                  toolName: request.title,
+                  ...(request.toolKind ? { toolKind: request.toolKind } : {}),
+                  decision: selected?.kind.startsWith("allow") ? "allowed" : "rejected",
+                  ...(selected ? { optionKind: selected.kind } : {}),
+                  policySourceIds: request.policySourceIds ?? [],
+                });
+              }
+              return response;
+            } catch (error) {
+              if (request.kind === "tool_approval") {
+                await recordPermissionDecision({
+                  source: request.source ?? "direct",
+                  toolName: request.title,
+                  ...(request.toolKind ? { toolKind: request.toolKind } : {}),
+                  decision: "cancelled",
+                  policySourceIds: request.policySourceIds ?? [],
+                });
+              }
               throw error;
             }
           };
-          let swarm: Swarm;
-          const cwd = await normalizeWorkingDirectory(params.cwd);
-
-          if (params.swarmConfig) {
-            assertDesktopSwarmModels(params.swarmConfig);
-            const config = cwd
-              ? swarmConfigWithWorkingDirectory(params.swarmConfig, cwd)
-              : params.swarmConfig;
-            swarm = new Swarm(await protectSwarmConfigBackends(config), {
-              agent: { acpPermissionHandler },
-            });
-          } else if (params.agentComposition) {
-            const inventory = await modelCatalog.list(await loadDesktopExtensionInventory());
-            const plan = resolveAgentCompositionPlan(params.agentComposition, inventory);
-            for (const skillId of new Set(plan.skills.map((skill) => skill.id))) {
-              appendActivity(activityStore, {
-                type: "skill_used",
-                ...taskMetadata,
-                name: skillId,
-              });
-            }
-            assertCompositionSupplyReady(inventory, plan, process.env);
-            const providerRuntime = plan.modelSupplyId
-              ? await modelCatalog.runtimeCredentialsForSupply(inventory, plan.modelSupplyId)
-              : undefined;
-            const protectedInventory = await protectCompositionHarness(inventory, plan.harnessId);
-            const projectTools =
-              cwd && compositionRuntimeHarnessId(inventory, plan) === "swarmx"
-                ? new WorkspaceTools(cwd)
-                : null;
-            const agentPermissionPolicy = HarnessPermissionPolicySchema.parse({
-              mode: plan.permissions?.mode ?? "default",
-              allowedTools: plan.permissions?.allowedTools ?? [],
-              deniedTools: plan.permissions?.deniedTools ?? [],
-            });
-            const permissionSession =
-              projectTools && params.sessionId ? loadSession(params.sessionId) : undefined;
-            if (projectTools && params.sessionId && !permissionSession) {
-              throw new Error(`Session ${params.sessionId} no longer exists.`);
-            }
-            const permissionPolicy = projectTools
-              ? await permissionService.resolve({
-                  cwd,
-                  agentId: plan.agentProfileId ?? plan.agentId,
-                  agentPolicy: agentPermissionPolicy,
-                  agentModeDeclared: Boolean(plan.permissions?.mode),
-                  ...(permissionSession
-                    ? { sessionPermissionMode: permissionSession.permissionMode }
-                    : {}),
-                })
-              : undefined;
-            const selectedWorkspaceSkills = plan.skills.flatMap((skillRef) => {
-              if (skillRef.status !== "ok") return [];
-              const matches = inventory.skills.filter((skill) => skill.id === skillRef.id);
-              if (matches.length !== 1) return [];
-              const skill = matches[0];
-              const filePath = skill?.canonicalPath ?? skill?.path;
-              if (!skill || !filePath || !path.isAbsolute(filePath)) return [];
-              return [
-                {
-                  id: skill.id,
-                  ...(skill.name ? { name: skill.name } : {}),
-                  filePath,
-                  ...(skill.description ? { description: skill.description } : {}),
-                },
-              ];
-            });
-            const baseWorkspaceToolOptions: WorkspaceAgentToolOptions = {
-              ...((plan.modelId ?? plan.runtimeModel)
-                ? { model: [plan.modelId, plan.runtimeModel].filter(Boolean).join(" ") }
-                : {}),
-              ...(plan.apiProtocol ? { apiProtocol: plan.apiProtocol } : {}),
-              ...(selectedWorkspaceSkills.length > 0 ? { skills: selectedWorkspaceSkills } : {}),
-              ...(plan.effort ? { effort: plan.effort } : {}),
-              ...(permissionPolicy ? { permissionPolicy } : {}),
-              ...(projectTools && lspHost.supportsClaudeOperations(inventory)
-                ? {
-                    lsp: (request) => lspHost.operate(inventory, projectTools.root, request),
-                  }
-                : {}),
-            };
-            const sessionRuntime =
-              projectTools &&
-              params.sessionId &&
-              workspaceToolProfile(baseWorkspaceToolOptions) === "claude_code"
-                ? await claudeSessionRuntimes.open(params.sessionId, projectTools.root)
-                : undefined;
-            if (sessionRuntime && params.sessionId) {
-              const sessionId = params.sessionId;
-              sessionRuntime.configure({
-                activate: async (activation) => {
-                  const activationMessage: MessageChunk = {
-                    role: "system",
-                    content: activation.prompt,
-                    kind: "message",
-                  };
-                  if (!appendMessages(sessionId, [activationMessage])) {
-                    throw new Error(`Session ${sessionId} no longer exists.`);
-                  }
-                  publishSessionMessages(event.sender, sessionId);
-                  const persisted = loadSession(sessionId);
-                  if (!persisted) throw new Error(`Session ${sessionId} no longer exists.`);
-                  const backgroundTools = new WorkspaceTools(sessionRuntime.root);
-                  const backgroundToolOptions: WorkspaceAgentToolOptions = {
-                    ...baseWorkspaceToolOptions,
-                    permissionPolicy: await permissionService.resolve({
-                      cwd: sessionRuntime.root,
-                      agentId: plan.agentProfileId ?? plan.agentId,
-                      agentPolicy: agentPermissionPolicy,
-                      agentModeDeclared: Boolean(plan.permissions?.mode),
-                      sessionPermissionMode: persisted.permissionMode,
-                    }),
-                    sessionId,
-                    sessionTools: sessionRuntime,
-                    borrowShell: true,
-                  };
-                  const messages = await executeWithProviderRuntime(
-                    providerRuntime,
-                    `${sessionId}:background`,
-                    (providerSecrets, observation) =>
-                      executeAgentComposition(
-                        params.agentComposition,
-                        [
-                          {
-                            role: "system",
-                            content: projectAgentContextMessage(
-                              sessionRuntime.root,
-                              backgroundToolOptions,
-                            ),
-                          },
-                          ...sessionChatMessages(persisted),
-                        ],
-                        {
-                          inventory: protectedInventory,
-                          providerSecrets,
-                          cwd: sessionRuntime.root,
-                          acpPermissionHandler,
-                          localTools: workspaceAgentTools(
-                            backgroundTools,
-                            sessionRuntime.shell,
-                            backgroundToolOptions,
-                          ),
-                          onChunk: () => observation.markOutput(),
-                          onUsage: (usage) => observation.recordUsage(usage),
-                        },
-                      ),
-                  );
-                  assertFinalAssistantMessage(messages);
-                  if (!appendMessages(sessionId, messages)) {
-                    throw new Error(`Session ${sessionId} no longer exists.`);
-                  }
-                  publishSessionMessages(event.sender, sessionId);
-                },
-                onActivationError: (_activation, error) => {
-                  const message: MessageChunk = {
-                    role: "system",
-                    content: `Background activation failed: ${errorMessage(error)}`,
-                    kind: "message",
-                  };
-                  if (appendMessages(sessionId, [message])) {
-                    publishSessionMessages(event.sender, sessionId);
-                  }
-                },
-              });
-              await sessionRuntime.beginForeground();
-              foregroundRuntime = sessionRuntime;
-            }
-            const interactWithPermissionReceipts: NonNullable<
-              WorkspaceAgentToolOptions["interact"]
-            > = async (request) => {
-              try {
-                const response = await agentInteractions.request(
-                  event.sender,
-                  params.requestId,
-                  request,
-                );
-                if (request.kind === "tool_approval" && response.kind === "tool_approval") {
-                  const selected = request.options.find(
-                    (option) => option.optionId === response.optionId,
-                  );
-                  await recordPermissionDecision({
-                    source: request.source ?? "direct",
-                    toolName: request.title,
-                    ...(request.toolKind ? { toolKind: request.toolKind } : {}),
-                    decision: selected?.kind.startsWith("allow") ? "allowed" : "rejected",
-                    ...(selected ? { optionKind: selected.kind } : {}),
-                    policySourceIds: request.policySourceIds ?? [],
-                  });
-                }
-                return response;
-              } catch (error) {
-                if (request.kind === "tool_approval") {
-                  await recordPermissionDecision({
-                    source: request.source ?? "direct",
-                    toolName: request.title,
-                    ...(request.toolKind ? { toolKind: request.toolKind } : {}),
-                    decision: "cancelled",
-                    policySourceIds: request.policySourceIds ?? [],
-                  });
-                }
-                throw error;
-              }
-            };
-            const childAgentHost = projectTools
+          const childAgentHost =
+            projectTools && !params.sideChatId
               ? new ClaudeChildAgentHost({
                   parentModel: [plan.modelId, plan.runtimeModel].filter(Boolean).join(" "),
                   root: () => projectTools.root,
@@ -625,159 +669,214 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
                   },
                 })
               : null;
-            const workspaceToolOptions: WorkspaceAgentToolOptions = {
-              ...baseWorkspaceToolOptions,
-              sessionId: params.sessionId ?? params.requestId,
-              ...(sessionRuntime ? { sessionTools: sessionRuntime, borrowShell: true } : {}),
-              ...(childAgentHost ? { agent: (request) => childAgentHost.run(request) } : {}),
-              interact: interactWithPermissionReceipts,
-              closeInteractions: () => {
-                childAgentHost?.close();
-                agentInteractions.cancelRequest(event.sender, params.requestId);
-              },
-            };
-            const sessionMessages = params.sessionId
-              ? sessionChatMessages(loadSession(params.sessionId))
-              : [];
-            const messages = await executeWithProviderRuntime(
-              providerRuntime,
-              params.sessionId ?? params.requestId,
-              (providerSecrets, observation) =>
-                executeAgentComposition(
-                  params.agentComposition,
-                  [
-                    ...(projectTools
-                      ? [
-                          {
-                            role: "system" as const,
-                            content: projectAgentContextMessage(
-                              cwd ?? desktopWorkspaceRoot,
-                              workspaceToolOptions,
-                            ),
-                          },
-                        ]
-                      : []),
-                    ...(sessionMessages.length > 0
-                      ? sessionMessages
-                      : [{ role: "user" as const, content: params.userText }]),
-                  ],
-                  {
-                    inventory: protectedInventory,
-                    providerSecrets,
-                    cwd,
-                    acpPermissionHandler,
-                    ...(projectTools
-                      ? {
-                          localTools: workspaceAgentTools(
-                            projectTools,
-                            sessionRuntime?.shell,
+          const workspaceToolOptions: WorkspaceAgentToolOptions = {
+            ...baseWorkspaceToolOptions,
+            sessionId: params.sideChatId ?? params.sessionId ?? params.requestId,
+            ...(sessionRuntime ? { sessionTools: sessionRuntime, borrowShell: true } : {}),
+            ...(childAgentHost ? { agent: (request) => childAgentHost.run(request) } : {}),
+            interact: params.sideChatId
+              ? async () => {
+                  throw new Error("Interactive actions are unavailable in read-only side chat.");
+                }
+              : interactWithPermissionReceipts,
+            closeInteractions: () => {
+              childAgentHost?.close();
+              agentInteractions.cancelRequest(event.sender, params.requestId);
+            },
+          };
+          const sessionMessages =
+            params.sideChatId && params.sessionId
+              ? sideChats.modelMessages(params.sessionId, params.sideChatId)
+              : params.sessionId
+                ? sessionChatMessages(loadSession(params.sessionId))
+                : [];
+          const sideChatBoundaryMessage = params.sideChatId
+            ? [
+                {
+                  role: "system" as const,
+                  content:
+                    "You are in a transient read-only side chat fork. Explain, inspect, and answer without modifying files, running mutating commands, requesting permissions, or creating nested side chats. This transcript must not affect the parent task.",
+                },
+              ]
+            : [];
+          const messages = await executeWithProviderRuntime(
+            providerRuntime,
+            params.sideChatId ?? params.sessionId ?? params.requestId,
+            (providerSecrets, observation) =>
+              executeAgentComposition(
+                params.agentComposition,
+                [
+                  ...sideChatBoundaryMessage,
+                  ...(projectTools
+                    ? [
+                        {
+                          role: "system" as const,
+                          content: projectAgentContextMessage(
+                            cwd ?? desktopWorkspaceRoot,
                             workspaceToolOptions,
                           ),
-                        }
-                      : {}),
-                    onChunk: (chunk) => {
-                      observation.markOutput();
-                      onChunk(chunk);
-                    },
-                    onUsage: (usage) => {
-                      tokenUsages.push(usage);
-                      observation.recordUsage(usage);
-                    },
+                        },
+                      ]
+                    : []),
+                  ...(sessionMessages.length > 0
+                    ? sessionMessages
+                    : [{ role: "user" as const, content: params.userText }]),
+                ],
+                {
+                  inventory: protectedInventory,
+                  providerSecrets,
+                  cwd,
+                  acpPermissionHandler,
+                  ...(params.sideChatId ? { acpMode: "plan" } : {}),
+                  ...(projectTools
+                    ? {
+                        localTools: workspaceAgentTools(
+                          projectTools,
+                          sessionRuntime?.shell,
+                          workspaceToolOptions,
+                        ),
+                      }
+                    : {}),
+                  onChunk: (chunk) => {
+                    observation.markOutput();
+                    onChunk(chunk);
                   },
-                ),
-            );
-            assertFinalAssistantMessage(messages);
-            return { success: true, messages };
-          } else if (params.agentConfig) {
-            throw new Error(
-              "Inline agentConfig is not accepted by the desktop runtime; use Agent Composition.",
-            );
-          } else {
-            const harness = getHarness(params.harnessId);
-            if (!harness) throw new Error(`Unknown harness: ${params.harnessId}`);
-            throw new Error(
-              `Harness "${params.harnessId}" requires an Agent Composition with an explicit Model.`,
-            );
-          }
-
-          const result = await swarm.execute(
-            {
-              messages: [{ role: "user", content: params.userText }],
-            },
-            undefined,
-            onChunk,
-            (usage) => tokenUsages.push(usage),
+                  onUsage: (usage) => {
+                    tokenUsages.push(usage);
+                    observation.recordUsage(usage);
+                  },
+                },
+              ),
           );
+          assertFinalAssistantMessage(messages);
+          return { success: true, messages };
+        } else if (params.agentConfig) {
+          throw new Error(
+            "Inline agentConfig is not accepted by the desktop runtime; use Agent Composition.",
+          );
+        } else {
+          const harness = getHarness(params.harnessId);
+          if (!harness) throw new Error(`Unknown harness: ${params.harnessId}`);
+          throw new Error(
+            `Harness "${params.harnessId}" requires an Agent Composition with an explicit Model.`,
+          );
+        }
 
-          return { success: true, messages: result };
-        });
-        const persistedMessages = timedMessages(result.messages, startedAt);
-        const sessionPersisted = params.sessionId
+        const result = await swarm.execute(
+          {
+            messages: [{ role: "user", content: params.userText }],
+          },
+          undefined,
+          onChunk,
+          (usage) => tokenUsages.push(usage),
+        );
+
+        return { success: true, messages: result };
+      });
+      const persistedMessages = timedMessages(result.messages, startedAt);
+      const sessionPersisted =
+        params.sessionId && !params.sideChatId
           ? appendMessages(params.sessionId, persistedMessages)
           : false;
-        recordActivityOutcome(activityStore, {
-          ...taskMetadata,
-          status: "completed",
-          startedAt,
-          userText: params.userText,
-          messages: persistedMessages,
-          tokenUsages,
-        });
-        return { ...result, messages: persistedMessages, sessionPersisted };
-      } catch (err) {
-        if (err instanceof RequestCancelledError) {
-          const canceledMessages = timedMessages(observedMessages, startedAt);
-          const sessionPersisted = params.sessionId
+      const sideChat =
+        params.sideChatId && params.sessionId
+          ? sideChats.finishRun(
+              params.sessionId,
+              params.sideChatId,
+              params.requestId,
+              persistedMessages,
+              { unread: params.sideChatVisible === false },
+            )
+          : undefined;
+      recordActivityOutcome(activityStore, {
+        ...taskMetadata,
+        status: "completed",
+        startedAt,
+        userText: params.userText,
+        messages: persistedMessages,
+        tokenUsages,
+      });
+      return { ...result, messages: persistedMessages, sessionPersisted, sideChat };
+    } catch (err) {
+      if (err instanceof RequestCancelledError) {
+        const canceledMessages = interruptedMessages(observedMessages, startedAt);
+        const sessionPersisted =
+          params.sessionId && !params.sideChatId
             ? appendMessages(params.sessionId, canceledMessages)
             : false;
-          recordActivityOutcome(activityStore, {
-            ...taskMetadata,
-            status: "canceled",
-            startedAt,
-            userText: params.userText,
-            messages: observedMessages,
-            tokenUsages,
-          });
-          return {
-            success: false,
-            canceled: true,
-            requestId: params.requestId,
-            sessionPersisted,
-          };
-        }
-        const error = err instanceof Error ? err.message : String(err);
-        const providerMessage = providerErrorMessage(err);
-        const terminalMessage =
-          providerMessage ??
-          ({
-            role: "system",
-            content: `Error: ${error}`,
-            kind: "message" as const,
-          } satisfies MessageChunk);
-        const failedMessages = [...timedMessages(observedMessages, startedAt), terminalMessage];
-        const sessionPersisted = params.sessionId
-          ? appendMessages(params.sessionId, failedMessages)
-          : false;
+        const sideChat =
+          params.sideChatId && params.sessionId && activeSideChat
+            ? sideChats.finishRun(
+                params.sessionId,
+                params.sideChatId,
+                params.requestId,
+                canceledMessages,
+                { unread: params.sideChatVisible === false },
+              )
+            : undefined;
         recordActivityOutcome(activityStore, {
           ...taskMetadata,
-          status: "failed",
+          status: "canceled",
           startedAt,
           userText: params.userText,
-          messages: observedMessages,
+          messages: canceledMessages,
           tokenUsages,
         });
         return {
           success: false,
-          error: providerMessage?.content ?? error,
-          messages: failedMessages,
+          canceled: true,
+          requestId: params.requestId,
           sessionPersisted,
+          sideChat,
         };
-      } finally {
-        activeChunkPublisher?.close();
-        foregroundRuntime?.endForeground();
       }
-    },
-  );
+      const error = err instanceof Error ? err.message : String(err);
+      const providerMessage = providerErrorMessage(err);
+      const terminalMessage =
+        providerMessage ??
+        ({
+          role: "system",
+          content: `Error: ${error}`,
+          kind: "message" as const,
+        } satisfies MessageChunk);
+      const failedMessages = [...timedMessages(observedMessages, startedAt), terminalMessage];
+      const sessionPersisted =
+        params.sessionId && !params.sideChatId
+          ? appendMessages(params.sessionId, failedMessages)
+          : false;
+      const sideChat =
+        params.sideChatId && params.sessionId && activeSideChat
+          ? sideChats.finishRun(
+              params.sessionId,
+              params.sideChatId,
+              params.requestId,
+              failedMessages,
+              { unread: params.sideChatVisible === false },
+            )
+          : undefined;
+      recordActivityOutcome(activityStore, {
+        ...taskMetadata,
+        status: "failed",
+        startedAt,
+        userText: params.userText,
+        messages: observedMessages,
+        tokenUsages,
+      });
+      return {
+        success: false,
+        error: providerMessage?.content ?? error,
+        messages: failedMessages,
+        sessionPersisted,
+        sideChat,
+      };
+    } finally {
+      activeChunkPublisher?.close();
+      foregroundRuntime?.endForeground();
+    }
+  };
+
+  ipcMain.handle("agent:send", handleAgentSend);
+  ipcMain.handle("sideChat:send", handleAgentSend);
 
   ipcMain.handle("activity:profile", () => activityStore.summary());
 
@@ -787,6 +886,113 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
       requestId: params.requestId,
       canceled: await agentRequests.cancel(event.sender, params.requestId),
     }),
+  );
+
+  ipcMain.handle("sideChat:list", (_event: IpcMainInvokeEvent, parentSessionId: string) =>
+    sideChats.list(parentSessionId),
+  );
+
+  ipcMain.handle(
+    "sideChat:create",
+    (
+      _event: IpcMainInvokeEvent,
+      params: {
+        parentSessionId: string;
+        throughMessageIndex: number;
+        expectedMessages: MessageChunk[];
+        title?: string;
+      },
+    ) => sideChats.create(params),
+  );
+
+  ipcMain.handle(
+    "sideChat:update",
+    (
+      _event: IpcMainInvokeEvent,
+      params: {
+        parentSessionId: string;
+        sideChatId: string;
+        draft?: string;
+        attachments?: string[];
+        title?: string;
+        unread?: boolean;
+      },
+    ) => sideChats.update(params),
+  );
+
+  ipcMain.handle(
+    "sideChat:activate",
+    (_event: IpcMainInvokeEvent, params: { parentSessionId: string; sideChatId: string }) =>
+      sideChats.activate(params.parentSessionId, params.sideChatId),
+  );
+
+  ipcMain.handle(
+    "sideChat:setHidden",
+    (_event: IpcMainInvokeEvent, params: { parentSessionId: string; hidden: boolean }) =>
+      sideChats.setPaneHidden(params.parentSessionId, params.hidden),
+  );
+
+  ipcMain.handle(
+    "sideChat:addContext",
+    (
+      _event: IpcMainInvokeEvent,
+      params: { parentSessionId: string; sideChatId: string; text: string },
+    ) => sideChats.addContext(params.parentSessionId, params.sideChatId, params.text),
+  );
+
+  ipcMain.handle(
+    "sideChat:edit",
+    (
+      _event: IpcMainInvokeEvent,
+      params: {
+        parentSessionId: string;
+        sideChatId: string;
+        messageIndex: number;
+        content: string;
+      },
+    ) =>
+      sideChats.edit(
+        params.parentSessionId,
+        params.sideChatId,
+        params.messageIndex,
+        params.content,
+      ),
+  );
+
+  ipcMain.handle(
+    "sideChat:delete",
+    (_event: IpcMainInvokeEvent, params: { parentSessionId: string; sideChatId: string }) =>
+      sideChats.delete(params.parentSessionId, params.sideChatId),
+  );
+
+  ipcMain.handle(
+    "sideChat:promote",
+    (_event: IpcMainInvokeEvent, params: { parentSessionId: string; sideChatId: string }) =>
+      sideChats.promote(params.parentSessionId, params.sideChatId),
+  );
+
+  ipcMain.handle(
+    "sideChat:cancel",
+    async (
+      event: IpcMainInvokeEvent,
+      params: { parentSessionId: string; sideChatId: string; requestId: string },
+    ) => {
+      sideChats.markStopping(params.parentSessionId, params.sideChatId, params.requestId);
+      try {
+        const canceled = await agentRequests.cancel(event.sender, params.requestId);
+        if (!canceled) {
+          sideChats.markRunning(params.parentSessionId, params.sideChatId, params.requestId);
+        }
+        return {
+          requestId: params.requestId,
+          sideChatId: params.sideChatId,
+          canceled,
+        };
+      } catch (error) {
+        sideChats.markRunning(params.parentSessionId, params.sideChatId, params.requestId);
+        throw error;
+      }
+    },
   );
 
   ipcMain.handle(
@@ -827,7 +1033,7 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
     return loadSession(id);
   });
 
-  ipcMain.handle("session:list", (): SessionData[] => listSessions());
+  ipcMain.handle("session:list", (): SessionSummary[] => listSessionSummaries());
 
   ipcMain.handle("project:list", (): ProjectData[] => {
     registerDefaultProject(desktopWorkspaceRoot);
@@ -891,17 +1097,27 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
     (_event: IpcMainInvokeEvent, params: { id: string }): number => {
       const project = listProjects().find((candidate) => candidate.id === params.id);
       if (!project) throw new Error(`Unknown project: ${params.id}`);
-      const runningSession = listSessions().find(
+      const runningSession = listSessionSummaries().find(
         (session) =>
           (session.projectId === project.id ||
             (session.cwd && path.resolve(session.cwd) === path.resolve(project.cwd))) &&
           (agentRequests.isSessionActive(session.id) ||
-            claudeSessionRuntimes.isRunning(session.id)),
+            claudeSessionRuntimes.isRunning(session.id) ||
+            sideChats.isParentRunning(session.id)),
       );
       if (runningSession) {
         throw new Error("Stop all running tasks in this project before archiving them.");
       }
-      return archiveProjectSessions({ projectId: project.id, cwd: project.cwd });
+      const parentIds = listSessionSummaries()
+        .filter(
+          (session) =>
+            session.projectId === project.id ||
+            (session.cwd && path.resolve(session.cwd) === path.resolve(project.cwd)),
+        )
+        .map((session) => session.id);
+      const archived = archiveProjectSessions({ projectId: project.id, cwd: project.cwd });
+      for (const parentId of parentIds) sideChats.clearParent(parentId);
+      return archived;
     },
   );
 
@@ -937,12 +1153,17 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
   );
 
   ipcMain.handle("session:archive", async (_event: IpcMainInvokeEvent, id: string) => {
-    if (agentRequests.isSessionActive(id) || claudeSessionRuntimes.isRunning(id)) {
+    if (
+      agentRequests.isSessionActive(id) ||
+      claudeSessionRuntimes.isRunning(id) ||
+      sideChats.isParentRunning(id)
+    ) {
       throw new Error("Stop the task before archiving it.");
     }
     const session = archiveSession(id);
     if (!session) throw new Error(`Unknown session: ${id}`);
     await claudeSessionRuntimes.delete(id);
+    sideChats.clearParent(id);
     return session;
   });
 
@@ -1027,6 +1248,39 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
     "session:appendMessages",
     (_event: IpcMainInvokeEvent, params: { id: string; messages: MessageChunk[] }): boolean =>
       appendMessages(params.id, params.messages),
+  );
+
+  ipcMain.handle(
+    "session:editUserMessage",
+    (
+      _event: IpcMainInvokeEvent,
+      params: {
+        id: string;
+        messageIndex: number;
+        expectedMessages: MessageChunk[];
+        content: string;
+      },
+    ): SessionData => {
+      const session = editSessionUserMessage(params);
+      if (!session) throw new Error(`Session "${params.id}" was not found.`);
+      return session;
+    },
+  );
+
+  ipcMain.handle(
+    "session:fork",
+    (
+      _event: IpcMainInvokeEvent,
+      params: {
+        id: string;
+        throughMessageIndex: number;
+        expectedMessages: MessageChunk[];
+      },
+    ): SessionData => {
+      const session = forkSession(params);
+      if (!session) throw new Error(`Session "${params.id}" was not found.`);
+      return session;
+    },
   );
 
   ipcMain.handle("workflow:importN8n", (_event: IpcMainInvokeEvent, params: { source: string }) => {
@@ -1403,6 +1657,7 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
 
 export function disposeDesktopTerminals(): void {
   void claudeSessionRuntimes.close();
+  sideChats.clear();
   browserHost.dispose();
   terminalHost.dispose();
   interactiveOwnerIds.clear();
