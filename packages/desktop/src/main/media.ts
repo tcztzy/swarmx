@@ -31,9 +31,25 @@ export interface DesktopMediaPreview {
 
 const MAX_TEXT_PREVIEW_BYTES = 512 * 1024;
 const HASH_PATTERN = /^[a-f0-9]{64}$/;
+const MAX_PREVIEW_RECEIPTS = 64;
+const PREVIEW_RECEIPT_TTL_MS = 30_000;
+
+interface StoredFileFingerprint {
+  dev: number;
+  ino: number;
+  size: number;
+  mtimeMs: number;
+  ctimeMs: number;
+}
+
+interface PreviewReceipt {
+  expiresAt: number;
+  fingerprint: StoredFileFingerprint;
+}
 
 export class DesktopMediaService {
   readonly root: string;
+  readonly #previewReceipts = new Map<string, PreviewReceipt>();
 
   constructor(root = path.join(homedir(), ".swarmx", "media")) {
     this.root = path.resolve(root);
@@ -97,7 +113,8 @@ export class DesktopMediaService {
   async preview(input: MediaAttachment): Promise<DesktopMediaPreview> {
     const attachment = MediaAttachmentSchema.parse(input);
     try {
-      const filePath = await this.validatedStoredPath(attachment);
+      const hasProtocolPreview = attachment.kind !== "text" && attachment.kind !== "file";
+      const filePath = await this.validatedStoredPath(attachment, hasProtocolPreview);
       if (attachment.kind === "text") {
         const previewSize = Math.min(attachment.sizeBytes, MAX_TEXT_PREVIEW_BYTES);
         const bytes = Buffer.alloc(previewSize);
@@ -128,7 +145,7 @@ export class DesktopMediaService {
     }
   }
 
-  async validatedStoredPath(input: MediaAttachment): Promise<string> {
+  async validatedStoredPath(input: MediaAttachment, rememberForProtocol = false): Promise<string> {
     const attachment = MediaAttachmentSchema.parse(input);
     const filePath = fileURLToPath(attachment.uri);
     const resolved = path.resolve(filePath);
@@ -149,6 +166,9 @@ export class DesktopMediaService {
       detectMediaMimeType(inspected.head, attachment.name) ?? "application/octet-stream";
     if (detectedMime !== attachment.mimeType) {
       throw new Error(`Attachment "${attachment.name}" no longer matches its media type.`);
+    }
+    if (rememberForProtocol) {
+      this.rememberPreviewReceipt(inspected.filePath, inspected.fingerprint);
     }
     return inspected.filePath;
   }
@@ -175,6 +195,8 @@ export class DesktopMediaService {
     }
     const candidate = path.join(this.root, digest, name);
     if (!isInside(this.root, candidate)) throw new Error("Invalid media preview path.");
+    const receiptPath = await this.consumePreviewReceipt(candidate);
+    if (receiptPath) return receiptPath;
     return (await this.inspectStoredPath(candidate, digest)).filePath;
   }
 
@@ -256,7 +278,7 @@ export class DesktopMediaService {
     candidate: string,
     expectedDigest: string,
     expectedSize?: number,
-  ): Promise<{ filePath: string; head: Buffer }> {
+  ): Promise<{ filePath: string; fingerprint: StoredFileFingerprint; head: Buffer }> {
     const canonicalRoot = await realpath(this.root);
     const canonicalFile = await realpath(candidate).catch(() => null);
     if (!canonicalFile || !isInside(canonicalRoot, canonicalFile)) {
@@ -274,13 +296,52 @@ export class DesktopMediaService {
     const after = await stat(canonicalFile).catch(() => null);
     if (
       !after?.isFile() ||
-      after.size !== before.size ||
-      after.mtimeMs !== before.mtimeMs ||
+      !sameFingerprint(fileFingerprint(after), fileFingerprint(before)) ||
       inspected.digest !== expectedDigest
     ) {
       throw new Error("Managed media changed after it was imported.");
     }
-    return { filePath: canonicalFile, head: inspected.head };
+    return {
+      filePath: canonicalFile,
+      fingerprint: fileFingerprint(after),
+      head: inspected.head,
+    };
+  }
+
+  private rememberPreviewReceipt(filePath: string, fingerprint: StoredFileFingerprint): void {
+    const now = Date.now();
+    for (const [key, receipt] of this.#previewReceipts) {
+      if (receipt.expiresAt <= now) this.#previewReceipts.delete(key);
+    }
+    this.#previewReceipts.delete(filePath);
+    while (this.#previewReceipts.size >= MAX_PREVIEW_RECEIPTS) {
+      const oldest = this.#previewReceipts.keys().next().value;
+      if (typeof oldest !== "string") break;
+      this.#previewReceipts.delete(oldest);
+    }
+    this.#previewReceipts.set(filePath, {
+      expiresAt: now + PREVIEW_RECEIPT_TTL_MS,
+      fingerprint,
+    });
+  }
+
+  private async consumePreviewReceipt(candidate: string): Promise<string | null> {
+    const canonicalRoot = await realpath(this.root);
+    const canonicalFile = await realpath(candidate).catch(() => null);
+    if (!canonicalFile || !isInside(canonicalRoot, canonicalFile)) return null;
+    const receipt = this.#previewReceipts.get(canonicalFile);
+    if (!receipt) return null;
+    this.#previewReceipts.delete(canonicalFile);
+    if (receipt.expiresAt <= Date.now()) return null;
+    const info = await stat(canonicalFile).catch(() => null);
+    if (
+      !info?.isFile() ||
+      info.size > MAX_MEDIA_ATTACHMENT_BYTES ||
+      !sameFingerprint(fileFingerprint(info), receipt.fingerprint)
+    ) {
+      return null;
+    }
+    return canonicalFile;
   }
 }
 
@@ -354,4 +415,30 @@ async function inspectFileContent(filePath: string): Promise<{ digest: string; h
     }
   }
   return { digest: hash.digest("hex"), head };
+}
+
+function fileFingerprint(info: {
+  dev: number;
+  ino: number;
+  size: number;
+  mtimeMs: number;
+  ctimeMs: number;
+}): StoredFileFingerprint {
+  return {
+    dev: info.dev,
+    ino: info.ino,
+    size: info.size,
+    mtimeMs: info.mtimeMs,
+    ctimeMs: info.ctimeMs,
+  };
+}
+
+function sameFingerprint(left: StoredFileFingerprint, right: StoredFileFingerprint): boolean {
+  return (
+    left.dev === right.dev &&
+    left.ino === right.ino &&
+    left.size === right.size &&
+    left.mtimeMs === right.mtimeMs &&
+    left.ctimeMs === right.ctimeMs
+  );
 }
