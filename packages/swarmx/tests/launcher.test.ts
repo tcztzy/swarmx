@@ -278,4 +278,16 @@ describe("npm launcher cold start", () => {
     expect(publisher).toContain("workspace:");
     expect(publisher).toContain("dist.integrity");
   });
+
+  it("V557 blocks release packaging and publishing on the tagged commit quality gate", () => {
+    const workflow = readFileSync(
+      new URL("../../../.github/workflows/release.yml", import.meta.url),
+      "utf8",
+    );
+
+    expect(workflow).toMatch(/\n {2}quality:\n/);
+    expect(workflow).toContain("run: pnpm run ci:node");
+    expect(workflow).toContain("run: pnpm run audit:prod");
+    expect(workflow).toMatch(/\n {2}macos:\n(?:.*\n)*? {4}needs: quality\n/);
+  });
 });

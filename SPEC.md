@@ -274,6 +274,7 @@ C194: Existing `@path` file/folder context references remain available. File att
 C195: The Desktop main frame is the only caller of the privileged preload bridge. Main-process navigation, popup, and IPC authorization must fail closed before terminal, browser, filesystem, credential, or update handlers run.
 C196: Production and packaged Desktop dependency resolution must not retain a registry-known vulnerable version when a compatible patched release exists; transitive security floors are explicit and reproducible in the root lock policy.
 C197: The SwarmX ACP server must treat the persisted Core Session as the conversation authority. Advertised ACP capabilities must match implemented prompt content, lifecycle, cwd, and MCP behavior.
+C198: No release packaging or publication job may run until the exact tagged commit passes the repository Node quality gate and production dependency audit.
 
 ## §I
 I1: `packages/core/src/types.ts` `SwarmConfigSchema`.
@@ -538,6 +539,7 @@ I259: Root/package manifests and `pnpm-lock.yaml` keep Electron and transitive M
 I260: `packages/acp-server/src/server.ts` and its focused tests project ACP lifecycle, prompt blocks, cwd, and stdio MCP configuration into persisted Core Sessions and executable Swarm configuration.
 I261: ACP `session/cancel` targets the same request key used by prompt execution and delegates cancellation to the Core request registry.
 I262: `packages/swarmx` owns a runnable package test script so recursive validation includes its launcher and release regression suite.
+I263: `.github/workflows/release.yml` has a tagged-commit quality job required by macOS packaging and therefore by downstream npm and GitHub publication.
 
 ## §V
 V1: Workflow JSON source of truth is `SwarmConfig`; UI preview, run badges, and send payload derive from parsed JSON.
@@ -1096,6 +1098,7 @@ V553: ACP stdio MCP definitions are validated, converted into Core MCP configura
 V554: The ACP Server package has a runnable focused Vitest suite covering capabilities, lifecycle persistence, history, cwd filtering/validation, prompt-resource projection, MCP projection, load replay, resume, and close.
 V555: ACP `session/cancel` aborts the active prompt's Core request signal and returns `cancelled`; it does not leave the registered execution running to completion.
 V556: `pnpm -r test` executes the `swarmx` launcher suite, whose Electron runtime assertions track the supported 39.x dependency line.
+V557: Release lint, tests, workspace build, and production audit run against `RELEASE_TAG` in a required quality job before either macOS architecture packages; npm and GitHub publication retain their downstream dependencies.
 
 ## §T
 |id|status|task|cites|
@@ -1327,6 +1330,7 @@ V556: `pnpm -r test` executes the `swarmx` launcher suite, whose Electron runtim
 |T225|x|make ACP lifecycle, history, prompt resources, cwd, and MCP execution stateful and truthfully advertised|C197,V551,V552,V553,V554,I260|
 |T226|x|route ACP cancellation through the Core request registry and prove cooperative prompt abort|C197,V555,I261|
 |T227|x|restore recursive launcher/release regression execution and align its Electron assertion|C196,V550,V556,I262|
+|T228|x|gate tagged release packaging and publication on Node quality checks and production audit|C198,V557,I263|
 
 ## §B
 |id|date|cause|fix|
@@ -1484,3 +1488,4 @@ V556: `pnpm -r test` executes the `swarmx` launcher suite, whose Electron runtim
 |B151|2026-07-26|the ACP server kept cwd and MCP only in an in-memory map, persisted only assistant results, rebuilt every prompt from the newest text, listed the process cwd, and advertised embedded context while dropping every non-text block|V551,V552,V553,V554|
 |B152|2026-07-26|the ACP server registered prompt execution with the Core request registry but implemented `session/cancel` as an empty callback, so cooperative model, MCP, and subprocess cancellation was never signaled|V555|
 |B153|2026-07-26|the launcher regression still required Electron 33 after the security upgrade, while the package lacked a test script and was silently omitted by recursive workspace validation|V556|
+|B154|2026-07-26|tag pushes bypassed the main-branch CI trigger and the Release workflow ran only builds before packaging and publishing, so lint, tests, and production vulnerability audit were not release prerequisites|V557|
