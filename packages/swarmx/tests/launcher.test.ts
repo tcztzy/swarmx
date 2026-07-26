@@ -290,4 +290,18 @@ describe("npm launcher cold start", () => {
     expect(workflow).toContain("run: pnpm run audit:prod");
     expect(workflow).toMatch(/\n {2}macos:\n(?:.*\n)*? {4}needs: quality\n/);
   });
+
+  it("V562 makes coverage thresholds part of primary CI and the release quality gate", () => {
+    const rootManifest = JSON.parse(
+      readFileSync(new URL("../../../package.json", import.meta.url), "utf8"),
+    ) as { scripts: Record<string, string> };
+    const ciWorkflow = readFileSync(
+      new URL("../../../.github/workflows/ci.yml", import.meta.url),
+      "utf8",
+    );
+
+    expect(rootManifest.scripts["test:coverage"]).toBe("vitest run --coverage");
+    expect(rootManifest.scripts["ci:node"]).toContain("pnpm test:coverage");
+    expect(ciWorkflow).toContain("run: pnpm test:coverage");
+  });
 });

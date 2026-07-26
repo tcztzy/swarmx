@@ -279,6 +279,7 @@ C199: Desktop attachment limits apply to the complete pending turn, including at
 C200: Desktop media ingestion must keep peak memory bounded by one browser file and streaming filesystem reads rather than materializing a selected batch or local file in full.
 C201: Binary media preview integrity is checked once per immediate preview load without allowing a changed file to reuse a prior validation.
 C202: Runtime provider message attachments remain unknown until the canonical media schema validates them; no type assertion may stand in for that boundary.
+C203: Primary CI and tagged-release quality checks must fail when coverage of audited ACP, media, or Desktop trust-boundary code falls below the checked-in baseline.
 
 ## §I
 I1: `packages/core/src/types.ts` `SwarmConfigSchema`.
@@ -548,6 +549,7 @@ I264: Desktop media import APIs carry existing attachment metadata through Rende
 I265: `Composer` imports dropped/pasted browser files serially; `DesktopMediaService` hashes selected paths through streams and verifies the copied content-addressed file before returning metadata.
 I266: `DesktopMediaService` issues a bounded, short-lived, single-use protocol receipt keyed by canonical path and device/inode/size/mtime/ctime after preview validation.
 I267: `validateMediaAttachments` accepts unknown arrays and returns schema-derived `MediaAttachment[]`; native message normalization passes its explicitly unknown input directly.
+I268: Root Vitest coverage configuration, `@vitest/coverage-v8`, CI scripts, and release quality reuse enforce global and per-file statement, branch, function, and line floors for the audited high-risk surfaces.
 
 ## §V
 V1: Workflow JSON source of truth is `SwarmConfig`; UI preview, run badges, and send payload derive from parsed JSON.
@@ -1111,6 +1113,7 @@ V558: File picker, drop, and paste imports reject a combined pending turn above 
 V559: A multi-file browser import does not request the next `File.arrayBuffer()` until the prior IPC import completes; selected local paths are hashed with a read stream, copied without an in-memory whole-file buffer, and the stored digest is verified before use.
 V560: Opening a binary preview and resolving its immediate `swarmx-media` request performs one content-stream hash. The receipt is capped at 64 entries, expires after 30 seconds, is consumed once, and falls back to a full digest check when file identity changes.
 V561: Core builds with native provider attachments typed `readonly unknown[]`, rejects malformed metadata at runtime, and returns typed attachments only from `MediaAttachmentSchema.parse`.
+V562: `pnpm test:coverage` runs the complete root suite with V8 coverage, enforces aggregate 85/70/90/85 statement/branch/function/line floors plus checked-in per-file floors for ACP Server, Core media, Desktop media, and Desktop window security, and is required by primary CI and `ci:node`.
 
 ## §T
 |id|status|task|cites|
@@ -1347,6 +1350,7 @@ V561: Core builds with native provider attachments typed `readonly unknown[]`, r
 |T230|x|bound browser and selected-path media ingestion memory and verify copied content|C200,V559,I265|
 |T231|x|deduplicate immediate binary preview hashing with identity-bound single-use receipts|C201,V560,I266|
 |T232|x|make unknown native-message attachment validation explicit at the Core type boundary|C202,V561,I267|
+|T233|x|enforce audited-surface coverage floors in primary CI and tagged release quality|C203,V562,I268|
 
 ## §B
 |id|date|cause|fix|
@@ -1509,3 +1513,4 @@ V561: Core builds with native provider attachments typed `readonly unknown[]`, r
 |B156|2026-07-26|drop/paste used `Promise.all` over every browser `File.arrayBuffer()` and selected-path import used `readFile`, so a legal 500 MiB turn could materialize the full batch and duplicate large buffers across Renderer and Main|V559|
 |B157|2026-07-26|binary preview hashed the full managed file in `media:preview` and immediately hashed it again when Chromium resolved the returned protocol URL|V560|
 |B158|2026-07-26|native provider message normalization cast an untrusted runtime array to `MediaAttachment[]` before calling the schema validator, making the boundary's type contract falsely claim the input was already trusted|V561|
+|B159|2026-07-26|the repository ran hundreds of tests but had no coverage provider, report, threshold, or CI gate, so a high-risk branch could become untested without changing build status|V562|

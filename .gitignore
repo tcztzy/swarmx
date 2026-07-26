@@ -139,4 +139,5 @@ node_modules/
 packages/*/dist/
 packages/desktop/out/
 packages/desktop/release/
+coverage/
 *.tsbuildinfo

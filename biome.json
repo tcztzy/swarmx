@@ -6,7 +6,12 @@
     "useIgnoreFile": true
   },
   "files": {
-    "ignore": ["packages/*/dist/**", "packages/desktop/out/**", "packages/desktop/release/**"]
+    "ignore": [
+      "packages/*/dist/**",
+      "packages/desktop/out/**",
+      "packages/desktop/release/**",
+      "coverage/**"
+    ]
   },
   "organizeImports": { "enabled": true },
   "formatter": {

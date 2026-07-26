@@ -62,8 +62,13 @@ jobs:
         if: matrix.primary
         run: pnpm lint
 
-      - name: Test
+      - name: Test on Node 20
+        if: ${{ !matrix.primary }}
         run: pnpm test
+
+      - name: Test with coverage thresholds
+        if: matrix.primary
+        run: pnpm test:coverage
 
       - name: Build
         run: pnpm -r build

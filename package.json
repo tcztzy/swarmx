@@ -8,17 +8,19 @@
     "audit:prod": "pnpm audit --prod",
     "ci": "pnpm run ci:node && pnpm run ci:inspect",
     "ci:inspect": "uv sync --locked --group inspect && pnpm test:inspect",
-    "ci:node": "pnpm lint && pnpm test && pnpm -r build",
+    "ci:node": "pnpm lint && pnpm test:coverage && pnpm -r build",
     "dev": "pnpm -r dev",
     "eval:inspect": "uv run --locked --group inspect inspect eval evals/inspect/tasks.py@swarmx_smoke --model none",
     "lint": "biome check .",
     "format": "biome format --write .",
     "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
     "test:inspect": "uv run --locked --group inspect python -m unittest discover -s evals/inspect -p '*_test.py' && pnpm eval:inspect",
     "test:watch": "vitest"
   },
   "devDependencies": {
     "@biomejs/biome": "^1.9.0",
+    "@vitest/coverage-v8": "3.2.4",
     "typescript": "^5.7.0",
     "vitest": "^3.0.0"
   },
