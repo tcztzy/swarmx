@@ -281,6 +281,7 @@ C201: Binary media preview integrity is checked once per immediate preview load 
 C202: Runtime provider message attachments remain unknown until the canonical media schema validates them; no type assertion may stand in for that boundary.
 C203: Primary CI and tagged-release quality checks must fail when coverage of audited ACP, media, or Desktop trust-boundary code falls below the checked-in baseline.
 C204: Focused Renderer extraction must preserve attachment card behavior while reducing `App.tsx` size and local branch complexity.
+C205: Running the tracked Inspect smoke gate must not leave generated evaluation logs as source changes.
 
 ## §I
 I1: `packages/core/src/types.ts` `SwarmConfigSchema`.
@@ -552,6 +553,7 @@ I266: `DesktopMediaService` issues a bounded, short-lived, single-use protocol r
 I267: `validateMediaAttachments` accepts unknown arrays and returns schema-derived `MediaAttachment[]`; native message normalization passes its explicitly unknown input directly.
 I268: Root Vitest coverage configuration, `@vitest/coverage-v8`, CI scripts, and release quality reuse enforce global and per-file statement, branch, function, and line floors for the audited high-risk surfaces.
 I269: `message-attachments.tsx` owns typed attachment icon selection, byte formatting, preview routing, and its focused component tests outside the application shell.
+I270: Root `.gitignore` excludes Inspect's root `logs/` evaluation output, with a release regression assertion.
 
 ## §V
 V1: Workflow JSON source of truth is `SwarmConfig`; UI preview, run badges, and send payload derive from parsed JSON.
@@ -1117,6 +1119,7 @@ V560: Opening a binary preview and resolving its immediate `swarmx-media` reques
 V561: Core builds with native provider attachments typed `readonly unknown[]`, rejects malformed metadata at runtime, and returns typed attachments only from `MediaAttachmentSchema.parse`.
 V562: `pnpm test:coverage` runs the complete root suite with V8 coverage, enforces aggregate 85/70/90/85 statement/branch/function/line floors plus checked-in per-file floors for ACP Server, Core media, Desktop media, and Desktop window security, and is required by primary CI and `ci:node`.
 V563: Extracting message attachments reduces formatted `App.tsx` from 10,399 lines/380,923 bytes/413 branch tokens to 10,346 lines/379,434 bytes/411 branch tokens; production lines across the shell plus extracted component fall by three, and dedicated tests cover kinds, size labels, disabled state, and preview routing.
+V564: `pnpm eval:inspect` may write timestamped `.eval` files under root `logs/`, and those generated artifacts remain absent from Git status after the gate.
 
 ## §T
 |id|status|task|cites|
@@ -1355,6 +1358,7 @@ V563: Extracting message attachments reduces formatted `App.tsx` from 10,399 lin
 |T232|x|make unknown native-message attachment validation explicit at the Core type boundary|C202,V561,I267|
 |T233|x|enforce audited-surface coverage floors in primary CI and tagged release quality|C203,V562,I268|
 |T234|x|extract and directly test message attachment rendering from the Renderer application shell|C204,V563,I269|
+|T235|x|keep generated Inspect smoke evaluation logs out of verified source status|C205,V564,I270|
 
 ## §B
 |id|date|cause|fix|
@@ -1519,3 +1523,4 @@ V563: Extracting message attachments reduces formatted `App.tsx` from 10,399 lin
 |B158|2026-07-26|native provider message normalization cast an untrusted runtime array to `MediaAttachment[]` before calling the schema validator, making the boundary's type contract falsely claim the input was already trusted|V561|
 |B159|2026-07-26|the repository ran hundreds of tests but had no coverage provider, report, threshold, or CI gate, so a high-risk branch could become untested without changing build status|V562|
 |B160|2026-07-26|message attachment icon branching, size formatting, and interaction remained embedded in the 10,399-line Renderer application shell with no focused component test|V563|
+|B161|2026-07-26|the full Inspect smoke gate wrote timestamped evaluation output to an unignored root `logs/` directory, leaving an otherwise verified working tree dirty|V564|

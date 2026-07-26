@@ -304,4 +304,10 @@ describe("npm launcher cold start", () => {
     expect(rootManifest.scripts["ci:node"]).toContain("pnpm test:coverage");
     expect(ciWorkflow).toContain("run: pnpm test:coverage");
   });
+
+  it("V564 keeps Inspect smoke output from dirtying a verified source tree", () => {
+    const gitignore = readFileSync(new URL("../../../.gitignore", import.meta.url), "utf8");
+
+    expect(gitignore).toContain("/logs/");
+  });
 });
