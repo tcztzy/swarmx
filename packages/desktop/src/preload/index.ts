@@ -1,14 +1,18 @@
-import { listProjects } from "@swarmx/core/project";
 import { type IpcRendererEvent, contextBridge, ipcRenderer } from "electron";
-import { createSwarmxDesktopApi } from "./api.js";
+import {
+  type DesktopBootstrapData,
+  createSwarmxDesktopApi,
+  parseDesktopBootstrapData,
+} from "./api.js";
 
-let initialProjects: ReturnType<typeof listProjects> | undefined;
+let bootstrap: DesktopBootstrapData = {};
 try {
-  initialProjects = listProjects();
+  bootstrap = parseDesktopBootstrapData({
+    initialProjects: ipcRenderer.sendSync("bootstrap:get"),
+  });
 } catch {
-  initialProjects = undefined;
+  bootstrap = {};
 }
-
 const api = createSwarmxDesktopApi(
   (channel, ...args) => ipcRenderer.invoke(channel, ...args),
   (channel, listener) => {
@@ -16,7 +20,7 @@ const api = createSwarmxDesktopApi(
     ipcRenderer.on(channel, wrapped);
     return () => ipcRenderer.removeListener(channel, wrapped);
   },
-  initialProjects ? { initialProjects } : {},
+  bootstrap,
 );
 
 contextBridge.exposeInMainWorld("swarmxAPI", api);

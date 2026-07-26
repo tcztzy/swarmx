@@ -18,6 +18,7 @@ import { describe, expect, it, vi } from "vitest";
 
 const electron = vi.hoisted(() => ({
   handle: vi.fn(),
+  on: vi.fn(),
   showOpenDialog: vi.fn(),
   showSaveDialog: vi.fn(),
   showItemInFolder: vi.fn(),
@@ -27,7 +28,7 @@ const electron = vi.hoisted(() => ({
 }));
 
 vi.mock("electron", () => ({
-  ipcMain: { handle: electron.handle },
+  ipcMain: { handle: electron.handle, on: electron.on },
   dialog: {
     showOpenDialog: electron.showOpenDialog,
     showSaveDialog: electron.showSaveDialog,
@@ -42,6 +43,7 @@ vi.mock("electron", () => ({
 
 const desktopMain = await import("./library.js");
 const desktopIpc = await import("./ipc.js");
+const trustedIpc = { authorizeIpcSender: () => true };
 
 describe("desktop main library entry", () => {
   it("exports host integration without registering handlers on import", () => {
@@ -57,8 +59,34 @@ describe("desktop main library entry", () => {
     expect(electron.handle).not.toHaveBeenCalled();
   });
 
-  it("refuses a desktop send without an explicit Harness x Model composition", async () => {
+  it("V548 rejects privileged IPC from an untrusted renderer before dispatch", () => {
     desktopMain.registerIpcHandlers();
+    const registration = electron.handle.mock.calls.find(
+      ([channel]) => channel === "activity:profile",
+    );
+    const handler = registration?.[1];
+    const bootstrapRegistration = electron.on.mock.calls.find(
+      ([channel]) => channel === "bootstrap:get",
+    );
+    const bootstrapHandler = bootstrapRegistration?.[1];
+    if (typeof handler !== "function") throw new Error("activity handler was not registered");
+    if (typeof bootstrapHandler !== "function") {
+      throw new Error("bootstrap handler was not registered");
+    }
+
+    try {
+      expect(() => handler({ sender: new EventEmitter() })).toThrow("Untrusted desktop IPC sender");
+      expect(() => bootstrapHandler({ sender: new EventEmitter() })).toThrow(
+        "Untrusted desktop IPC sender",
+      );
+    } finally {
+      electron.handle.mockClear();
+      electron.on.mockClear();
+    }
+  });
+
+  it("refuses a desktop send without an explicit Harness x Model composition", async () => {
+    desktopMain.registerIpcHandlers(trustedIpc);
     const registration = electron.handle.mock.calls.find(([channel]) => channel === "agent:send");
     const handler = registration?.[1];
     if (typeof handler !== "function") throw new Error("agent:send handler was not registered");
@@ -138,7 +166,7 @@ describe("desktop main library entry", () => {
         { role: "assistant", kind: "message", content: "Parent answer" },
       ];
       saveSession(parent);
-      desktopMain.registerIpcHandlers();
+      desktopMain.registerIpcHandlers(trustedIpc);
       const handler = (channel: string) =>
         [...electron.handle.mock.calls]
           .reverse()
@@ -228,7 +256,7 @@ describe("desktop main library entry", () => {
     const activityStore = new ActivityStore({ filePath: path.join(root, "activity.jsonl") });
 
     try {
-      desktopMain.registerIpcHandlers({ activityStore });
+      desktopMain.registerIpcHandlers({ ...trustedIpc, activityStore });
       const sendRegistration = [...electron.handle.mock.calls]
         .reverse()
         .find(([channel]) => channel === "agent:send");
@@ -478,7 +506,7 @@ describe("desktop main library entry", () => {
       canceled: false,
       filePaths: ["/workspace/src/App.tsx", "/workspace/docs"],
     });
-    desktopMain.registerIpcHandlers();
+    desktopMain.registerIpcHandlers(trustedIpc);
     const registration = electron.handle.mock.calls.find(
       ([channel]) => channel === "workspace:selectFilesAndFolders",
     );
@@ -498,7 +526,7 @@ describe("desktop main library entry", () => {
     let projectId: string | undefined;
     try {
       electron.showOpenDialog.mockResolvedValue({ canceled: false, filePaths: [root] });
-      desktopMain.registerIpcHandlers();
+      desktopMain.registerIpcHandlers(trustedIpc);
       const registration = electron.handle.mock.calls.find(
         ([channel]) => channel === "project:addExisting",
       );
@@ -569,7 +597,11 @@ describe("desktop main library entry", () => {
       }),
     };
     const broadcastUpdateState = vi.fn();
-    desktopMain.registerIpcHandlers({ updateService, broadcastUpdateState });
+    desktopMain.registerIpcHandlers({
+      ...trustedIpc,
+      updateService,
+      broadcastUpdateState,
+    });
     const stateHandler = electron.handle.mock.calls
       .filter(([channel]) => channel === "appUpdate:getState")
       .at(-1)?.[1];

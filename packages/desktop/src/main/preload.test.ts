@@ -4,6 +4,7 @@ import { createSwarmxDesktopApi } from "../preload/api.js";
 const electron = vi.hoisted(() => ({
   exposeInMainWorld: vi.fn(),
   invoke: vi.fn(),
+  sendSync: vi.fn(),
   on: vi.fn(),
   removeListener: vi.fn(),
 }));
@@ -19,19 +20,17 @@ const projectBootstrap = vi.hoisted(() => ({
     },
   ],
 }));
+electron.sendSync.mockReturnValue(projectBootstrap.projects);
 
 vi.mock("electron", () => ({
   contextBridge: { exposeInMainWorld: electron.exposeInMainWorld },
   ipcRenderer: {
     invoke: electron.invoke,
+    sendSync: electron.sendSync,
     on: electron.on,
     removeListener: electron.removeListener,
   },
 }));
-vi.mock("@swarmx/core/project", () => ({
-  listProjects: vi.fn(() => projectBootstrap.projects),
-}));
-
 await import("../preload/index.js");
 
 describe("preload API", () => {
@@ -50,6 +49,7 @@ describe("preload API", () => {
     expect(Object.isFrozen(exposedApi().initialProjects)).toBe(true);
     expect(Object.isFrozen(exposedApi().initialProjects[0])).toBe(true);
     expect(electron.invoke).not.toHaveBeenCalled();
+    expect(electron.sendSync).toHaveBeenCalledWith("bootstrap:get");
   });
 
   it("forwards stable request IDs without renderer mutation", async () => {

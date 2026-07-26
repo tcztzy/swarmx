@@ -271,6 +271,7 @@ C191: Canonical conversation records persist bounded attachment metadata and loc
 C192: Electron isolation remains authoritative for multimedia: Renderer code cannot read arbitrary files directly, remote media stays blocked by default, and Main validates path, size, MIME, and file state before returning preview or transport data.
 C193: ACP video has no dedicated content block. Video remains a first-class SwarmX preview/resource attachment, but transport must use a resource link or explicit unsupported state instead of mislabeling it as image or audio.
 C194: Existing `@path` file/folder context references remain available. File attachments use a separate typed path, and directory selection never enters multimedia transport.
+C195: The Desktop main frame is the only caller of the privileged preload bridge. Main-process navigation, popup, and IPC authorization must fail closed before terminal, browser, filesystem, credential, or update handlers run.
 
 ## §I
 I1: `packages/core/src/types.ts` `SwarmConfigSchema`.
@@ -530,6 +531,7 @@ I254: `packages/desktop/src/main/media.ts`, IPC, Preload API, and tests file sel
 I255: `packages/desktop/src/renderer/src/composer.tsx`, `App.tsx`, styles, and tests attachment tray, multi-file picker, drag/drop, paste, remove, send, edit, retry, and Session persistence.
 I256: Desktop message attachment cards and a resizable right preview pane for images, PDFs, audio, video, text, and general-file metadata, with keyboard and narrow-width behavior.
 I257: `docs/multimedia.md`, `README.md`, `DESIGNS.md`, `docs/index.md`, and `design-qa.md` competitor evidence, capability matrix, security/limits, interaction design, and rendered validation.
+I258: `packages/desktop/src/main/window-security.ts`, `packages/desktop/src/main/index.ts`, `packages/desktop/src/main/ipc.ts`, `packages/desktop/src/preload/index.ts`, `packages/desktop/src/renderer/index.html`, and focused Main/Preload security tests enforce the Desktop trust boundary.
 
 ## §V
 V1: Workflow JSON source of truth is `SwarmConfig`; UI preview, run badges, and send payload derive from parsed JSON.
@@ -1078,6 +1080,9 @@ V543: The preview pane has a labeled close control, keyboard focus restoration, 
 V544: Remote URLs remain blocked in message and attachment previews. Attachment IPC accepts local `file:` URIs created by Main inspection, never returns raw bytes for unsupported/unbounded content, and cannot be used as a generic renderer filesystem oracle.
 V545: Focused Core/Main/Preload/Renderer tests cover schema persistence, capability negotiation, every provider mapping, input limits, drag/paste/remove/send, card/preview variants, unavailable files, keyboard behavior, and preservation of existing text-only and `@path` flows.
 V546: Documentation cites official ACP, OpenAI, Anthropic, Codex, and Claude sources; records that ACP has no video block; and distinguishes SwarmX preview support from model-understanding support.
+V547: The main Desktop window accepts navigation only to its exact configured renderer entry, denies every popup and webview attachment, and opens only rejected HTTP(S) destinations in the operating-system browser.
+V548: Every asynchronous privileged Desktop IPC handler and synchronous preload bootstrap request rejects a sender unless it is the configured renderer's main frame, before the registered operation executes.
+V549: The Desktop preload runs with Chromium sandboxing, imports no Node-backed project persistence module, receives its frozen initial Project snapshot through an authorized bootstrap IPC request, and ships a restrictive renderer Content Security Policy.
 
 ## §T
 |id|status|task|cites|
@@ -1304,6 +1309,7 @@ V546: Documentation cites official ACP, OpenAI, Anthropic, Codex, and Claude sou
 |T220|x|add isolated Desktop media inspection/preview IPC and Composer multi-input attachment flow|G74,C192,C194,V537,V538,V544,I254,I255|
 |T221|x|render message attachment cards and accessible responsive right-side multimedia preview|G74,V542,V543,I256|
 |T222|x|document competitor evidence, protocol/provider matrix, security limits, and run focused/full/rendered validation|G74,V545,V546,I257|
+|T223|x|lock Desktop navigation, popup, IPC, preload sandbox, bootstrap, and renderer CSP boundaries|C3,C195,V547,V548,V549,I258|
 
 ## §B
 |id|date|cause|fix|
@@ -1456,3 +1462,4 @@ V546: Documentation cites official ACP, OpenAI, Anthropic, Codex, and Claude sou
 |B146|2026-07-24|local Session persistence rewrote the full JSON transcript on every update, multiplying write cost and exposing the entire conversation to truncation or concurrent overwrite|V522,V523,V524,V525|
 |B147|2026-07-24|Provider update always decrypted the persisted old credential before considering an explicit replacement, so one stale Keychain ciphertext made the repair form permanently unsavable|V526|
 |B148|2026-07-26|parallel dependent-package builds let Desktop resolve stale Core declarations before Core emitted the new Session API|build dependency packages serially or use the recursive topological build|
+|B149|2026-07-26|the privileged Desktop preload was unsandboxed while top-level navigation and IPC registration trusted any renderer frame, so a navigated or injected document could reach terminal, filesystem, credential, browser, and update operations|V547,V548,V549|

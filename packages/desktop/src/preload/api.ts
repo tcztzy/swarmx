@@ -42,6 +42,12 @@ export interface DesktopBootstrapData {
   initialProjects?: readonly DesktopProjectData[];
 }
 
+export function parseDesktopBootstrapData(value: unknown): DesktopBootstrapData {
+  if (!isRecord(value) || !Array.isArray(value.initialProjects)) return {};
+  const initialProjects = value.initialProjects.filter(isDesktopProjectData);
+  return initialProjects.length === value.initialProjects.length ? { initialProjects } : {};
+}
+
 /**
  * Creates the renderer-facing desktop bridge without importing Electron.
  * Hosts can supply their own invoke transport and expose the returned object
@@ -299,6 +305,26 @@ export function createSwarmxDesktopApi(
     loadImageDataUrl: (source: string) => invoke("asset:imageDataUrl", source),
   };
   return Object.freeze(api);
+}
+
+function isDesktopProjectData(value: unknown): value is DesktopProjectData {
+  return (
+    isRecord(value) &&
+    typeof value.id === "string" &&
+    value.id.length > 0 &&
+    typeof value.name === "string" &&
+    value.name.length > 0 &&
+    typeof value.cwd === "string" &&
+    value.cwd.length > 0 &&
+    typeof value.pinned === "boolean" &&
+    typeof value.createdAt === "string" &&
+    typeof value.updatedAt === "string" &&
+    (value.removedAt === undefined || typeof value.removedAt === "string")
+  );
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 export type SwarmxDesktopApi = SwarmxAPI;

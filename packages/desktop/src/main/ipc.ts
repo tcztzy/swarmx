@@ -62,7 +62,13 @@ import {
   type HarnessEnvironmentStatus,
   containerHostBridgeUrl,
 } from "@swarmx/runtime";
-import { type IpcMainInvokeEvent, dialog, ipcMain, safeStorage, shell } from "electron";
+import {
+  type IpcMainInvokeEvent,
+  dialog,
+  ipcMain as electronIpcMain,
+  safeStorage,
+  shell,
+} from "electron";
 import {
   type AgentChunkPublisher,
   type AgentChunkSender,
@@ -126,6 +132,7 @@ import {
   type DesktopUpdateState,
   createDisabledDesktopUpdateService,
 } from "./updater.js";
+import type { RendererIpcEvent } from "./window-security.js";
 import {
   type WorkspaceAgentToolOptions,
   WorkspaceTools,
@@ -196,6 +203,7 @@ export interface RegisterIpcHandlersOptions {
   updateService?: DesktopUpdateServiceLike;
   broadcastUpdateState?: (state: DesktopUpdateState) => void;
   activityStore?: ActivityStore;
+  authorizeIpcSender?: (event: RendererIpcEvent) => boolean;
 }
 
 interface DesktopAgentSendParams {
@@ -302,6 +310,20 @@ async function loadDesktopExtensionInventory(): Promise<ExtensionInventory> {
 export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): void {
   const updateService = options.updateService ?? createDisabledDesktopUpdateService();
   const activityStore = options.activityStore ?? desktopActivity;
+  const authorizeIpcSender = options.authorizeIpcSender ?? (() => false);
+  const assertAuthorized = (event: RendererIpcEvent): void => {
+    if (!authorizeIpcSender(event)) throw new Error("Untrusted desktop IPC sender.");
+  };
+  const handle: typeof electronIpcMain.handle = (channel, listener) =>
+    electronIpcMain.handle(channel, (event, ...args) => {
+      assertAuthorized(event);
+      return listener(event, ...args);
+    });
+  const ipcMain = { handle };
+  electronIpcMain.on("bootstrap:get", (event) => {
+    assertAuthorized(event);
+    event.returnValue = listProjects();
+  });
   if (options.broadcastUpdateState) updateService.subscribe(options.broadcastUpdateState);
   const handleAgentSend = async (event: IpcMainInvokeEvent, params: DesktopAgentSendParams) => {
     const startedAt = Date.now();

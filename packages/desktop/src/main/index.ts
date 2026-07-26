@@ -8,6 +8,7 @@ import {
   app,
   nativeTheme,
   protocol,
+  shell,
 } from "electron";
 import {
   disposeDesktopTerminals,
@@ -15,6 +16,11 @@ import {
   resolveDesktopMediaProtocolUrl,
 } from "./ipc.js";
 import { NpmDesktopUpdateService } from "./updater.js";
+import {
+  installMainWindowNavigationGuards,
+  isTrustedRendererIpcEvent,
+  secureMainWindowWebPreferences,
+} from "./window-security.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -80,15 +86,13 @@ function createWindow(): void {
           trafficLightPosition: { x: 16, y: 17 },
         }
       : {}),
-    webPreferences: {
-      preload: preloadPath,
-      contextIsolation: true,
-      nodeIntegration: false,
-      sandbox: false,
-    },
+    webPreferences: secureMainWindowWebPreferences(preloadPath),
   };
 
   mainWindow = new BrowserWindow(opts);
+  installMainWindowNavigationGuards(mainWindow.webContents, rendererUrl, (url) =>
+    shell.openExternal(url),
+  );
   if (process.platform === "darwin") mainWindow.setWindowButtonVisibility(true);
 
   mainWindow.on("ready-to-show", () => {
@@ -113,6 +117,7 @@ app.whenReady().then(() => {
   });
   if (process.platform === "darwin") app.dock.setIcon(APP_ICON_PATH);
   registerIpcHandlers({
+    authorizeIpcSender: (event) => isTrustedRendererIpcEvent(event, rendererUrl),
     updateService: desktopUpdater,
     broadcastUpdateState: (state) => {
       for (const window of BrowserWindow.getAllWindows()) {
