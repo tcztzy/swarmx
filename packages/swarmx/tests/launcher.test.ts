@@ -59,10 +59,10 @@ describe("npm launcher cold start", () => {
     expect(swarmxManifest.dependencies).toMatchObject({
       "@swarmx/cli": "workspace:*",
       "@swarmx/desktop": "workspace:*",
-      electron: expect.stringMatching(/^\^33\./),
+      electron: expect.stringMatching(/^\^39\./),
     });
     expect(desktopManifest.dependencies.electron).toBeUndefined();
-    expect(desktopManifest.devDependencies.electron).toMatch(/^\^33\./);
+    expect(desktopManifest.devDependencies.electron).toMatch(/^\^39\./);
   });
 
   it("V469 gates dual-architecture DMG and ZIP releases on the tag version", () => {

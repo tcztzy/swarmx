@@ -9,6 +9,9 @@
     "directory": "packages/swarmx"
   },
   "type": "module",
+  "scripts": {
+    "test": "vitest run"
+  },
   "bin": {
     "swarmx": "./bin/swarmx.js",
     "swarmx-migrate-sessions": "./bin/migrate-sessions.js"
