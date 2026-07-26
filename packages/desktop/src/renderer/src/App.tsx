@@ -43,12 +43,7 @@ import {
   Clock3,
   Code2,
   Download,
-  File,
-  FileAudio,
-  FileImage,
   FileSearch,
-  FileText,
-  FileVideo,
   Folder,
   FolderOpen,
   Gauge,
@@ -149,6 +144,7 @@ import { ExtensionWorkspace } from "./extension-workspace.js";
 import { HARNESSES, type HarnessOption } from "./harness-presentation.js";
 import { RuntimeBottomPanel } from "./internal-terminal.js";
 import { MediaPreviewPanel } from "./media-preview.js";
+import { MessageAttachments } from "./message-attachments.js";
 import { MessageContent, MessageCopyButton } from "./message-content.js";
 import { type ActivityProfileSummary, ProfileWorkspace } from "./profile-workspace.js";
 import {
@@ -8065,55 +8061,6 @@ function RunEvent({
       )}
     </article>
   );
-}
-
-function MessageAttachments({
-  attachments,
-  onPreview,
-}: {
-  attachments: DesktopMediaAttachment[];
-  onPreview?: (attachment: DesktopMediaAttachment) => void;
-}) {
-  return (
-    <div className="message-attachments" aria-label="Message attachments">
-      {attachments.map((attachment) => {
-        const Icon =
-          attachment.kind === "image"
-            ? FileImage
-            : attachment.kind === "audio"
-              ? FileAudio
-              : attachment.kind === "video"
-                ? FileVideo
-                : attachment.kind === "pdf" || attachment.kind === "text"
-                  ? FileText
-                  : File;
-        return (
-          <button
-            key={attachment.id}
-            type="button"
-            className="message-attachment"
-            onClick={() => onPreview?.(attachment)}
-            disabled={!onPreview}
-            aria-label={`Preview ${attachment.name}`}
-          >
-            <Icon aria-hidden="true" />
-            <span>
-              <strong>{attachment.name}</strong>
-              <small>
-                {attachment.kind} · {formatMediaBytes(attachment.sizeBytes)}
-              </small>
-            </span>
-          </button>
-        );
-      })}
-    </div>
-  );
-}
-
-function formatMediaBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${Math.ceil(bytes / 1024)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(bytes < 10 * 1024 * 1024 ? 1 : 0)} MB`;
 }
 
 function MessageTimestamp({ createdAt }: { createdAt: string }) {
