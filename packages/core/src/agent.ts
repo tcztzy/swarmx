@@ -6,8 +6,14 @@ import {
   currentRequestSignal,
   throwIfCurrentRequestCancelled,
 } from "./acp.js";
-import type { AcpPermissionHandler } from "./acp.js";
+import type { AcpPermissionHandler, AcpPromptInput } from "./acp.js";
 import { type LocalTool, type LocalToolProgress, McpManager } from "./mcp.js";
+import {
+  MAX_INLINE_MEDIA_BYTES,
+  attachmentFallbackText,
+  loadMediaAttachment,
+  validateMediaAttachments,
+} from "./media.js";
 import { ModelApiModeSchema, ModelApiSchema } from "./model-api.js";
 import type { ModelApi, ModelApiMode } from "./model-api.js";
 import {
@@ -26,6 +32,7 @@ import type {
   AgentBackend,
   AgentConfig,
   McpServerConfig,
+  MediaAttachment,
   MessageChunk,
   ModelTokenUsage,
   ProcessOptions,
@@ -67,7 +74,7 @@ interface AcpPromptClient {
       preferredMode?: string;
       requestPermission?: AcpPermissionHandler;
     },
-    userText: string,
+    input: AcpPromptInput,
     swarmConfig?: unknown,
     sessionId?: string,
     onChunk?: (chunk: MessageChunk) => void,
@@ -232,7 +239,7 @@ export class Agent {
         throw new Error(`SwarmX does not natively execute ${this.apiProtocol} Models.`);
       }
 
-      const messages = this.buildMessages(arguments_);
+      const messages = await this.buildMessages(arguments_);
       const allChunks: MessageChunk[] = [];
       const maxSteps = 20;
       let steps = 0;
@@ -399,7 +406,7 @@ export class Agent {
         throw new Error(`SwarmX does not natively execute ${this.apiProtocol} Models.`);
       }
 
-      const messages = this.buildMessages(arguments_);
+      const messages = await this.buildMessages(arguments_);
       const allChunks: MessageChunk[] = [];
       const maxSteps = 20;
       let steps = 0;
@@ -692,8 +699,9 @@ export class Agent {
     };
   }
 
-  private buildMessages(arguments_: Record<string, unknown>): ChatMsg[] {
+  private async buildMessages(arguments_: Record<string, unknown>): Promise<ChatMsg[]> {
     const msgs: ChatMsg[] = [];
+    const mediaBudget = { loadedBytes: 0 };
 
     if (this.instructions) {
       msgs.push({ role: "system", content: this.instructions });
@@ -705,6 +713,7 @@ export class Agent {
           content: string | null;
           tool_calls?: unknown[];
           tool_call_id?: string;
+          attachments?: MediaAttachment[];
         }>
       | undefined;
 
@@ -724,6 +733,13 @@ export class Agent {
             tool_call_id: m.tool_call_id,
           });
         } else if (m.role === "user" || m.role === "assistant" || m.role === "system") {
+          if (m.role === "user" && m.attachments?.length) {
+            msgs.push({
+              role: "user",
+              content: await openAIChatUserContent(m.content ?? "", m.attachments, mediaBudget),
+            });
+            continue;
+          }
           msgs.push({
             role: m.role,
             content: m.content ?? "",
@@ -807,10 +823,13 @@ export class Agent {
     }
   }
 
-  private buildAcpPrompt(arguments_: Record<string, unknown>): string {
+  private buildAcpPrompt(arguments_: Record<string, unknown>): AcpPromptInput {
     const request = latestUserContent(arguments_);
-    if (!this.instructions.trim()) return request;
-    return `Agent instructions:\n${this.instructions.trim()}\n\nUser request:\n${request}`;
+    const text = this.instructions.trim()
+      ? `Agent instructions:\n${this.instructions.trim()}\n\nUser request:\n${request}`
+      : request;
+    const attachments = latestUserAttachments(arguments_);
+    return { text, ...(attachments.length > 0 ? { attachments } : {}) };
   }
 
   private configuredReasoningEffort(): string | undefined {
@@ -896,6 +915,73 @@ function latestUserContent(arguments_: Record<string, unknown>): string {
   }
 
   return "";
+}
+
+function latestUserAttachments(arguments_: Record<string, unknown>): MediaAttachment[] {
+  const raw = arguments_.messages as
+    | Array<{
+        role: string;
+        attachments?: MediaAttachment[];
+      }>
+    | undefined;
+  for (const message of [...(raw ?? [])].reverse()) {
+    if (message.role === "user") return message.attachments ?? [];
+  }
+  return [];
+}
+
+async function openAIChatUserContent(
+  text: string,
+  attachments: readonly MediaAttachment[],
+  mediaBudget: { loadedBytes: number },
+): Promise<OpenAI.Chat.Completions.ChatCompletionContentPart[]> {
+  const validatedAttachments = validateMediaAttachments(attachments);
+  const content: OpenAI.Chat.Completions.ChatCompletionContentPart[] = [];
+  if (text) content.push({ type: "text", text });
+  for (const attachment of validatedAttachments) {
+    if (
+      attachment.kind === "video" ||
+      (attachment.kind === "audio" &&
+        attachment.mimeType !== "audio/mpeg" &&
+        attachment.mimeType !== "audio/wav")
+    ) {
+      content.push({ type: "text", text: attachmentFallbackText(attachment) });
+      continue;
+    }
+    const loaded = await loadMediaAttachment(
+      attachment,
+      Math.max(0, MAX_INLINE_MEDIA_BYTES - mediaBudget.loadedBytes),
+    );
+    mediaBudget.loadedBytes += loaded.bytes.byteLength;
+    if (attachment.kind === "image") {
+      content.push({
+        type: "image_url",
+        image_url: {
+          url: `data:${attachment.mimeType};base64,${loaded.base64}`,
+          detail: "auto",
+        },
+      });
+      continue;
+    }
+    if (attachment.kind === "audio") {
+      content.push({
+        type: "input_audio",
+        input_audio: {
+          data: loaded.base64,
+          format: attachment.mimeType === "audio/wav" ? "wav" : "mp3",
+        },
+      });
+      continue;
+    }
+    content.push({
+      type: "file",
+      file: {
+        filename: attachment.name,
+        file_data: `data:${attachment.mimeType};base64,${loaded.base64}`,
+      },
+    });
+  }
+  return content;
 }
 
 function errorMessage(error: unknown): string {

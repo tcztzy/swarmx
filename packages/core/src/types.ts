@@ -122,9 +122,25 @@ export const SwarmConfigSchema = z.object({
 
 // ── Messages ──────────────────────────────────────────────────���──────────────
 
+export const MediaAttachmentKindSchema = z.enum(["image", "pdf", "audio", "video", "text", "file"]);
+
+export const MediaAttachmentSourceSchema = z.enum(["user", "agent", "tool"]);
+
+export const MediaAttachmentSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1).max(512),
+  kind: MediaAttachmentKindSchema,
+  mimeType: z.string().min(1).max(255),
+  sizeBytes: z.number().int().nonnegative(),
+  uri: z.string().min(1),
+  source: MediaAttachmentSourceSchema.default("user"),
+  lastModifiedMs: z.number().int().nonnegative().optional(),
+});
+
 export const ChatMessageSchema = z.object({
   role: z.enum(["user", "assistant", "system", "tool"]),
   content: z.string(),
+  attachments: z.array(MediaAttachmentSchema).max(20).optional(),
 });
 
 export const MessageRenderMetadataSchema = z
@@ -152,6 +168,7 @@ export const MessageChunkSchema = z.object({
   toolName: z.string().optional(),
   structuredContent: z.unknown().optional(),
   render: MessageRenderMetadataSchema.optional(),
+  attachments: z.array(MediaAttachmentSchema).max(20).optional(),
 });
 
 export const ModelTokenUsageSchema = z.object({
@@ -275,6 +292,9 @@ export type SwarmNodeConfig = z.infer<typeof SwarmNodeConfigSchema>;
 export type SwarmConfig = z.infer<typeof SwarmConfigSchema>;
 export type EdgeConfig = z.infer<typeof EdgeConfigSchema>;
 export type ChatMessage = z.infer<typeof ChatMessageSchema>;
+export type MediaAttachmentKind = z.infer<typeof MediaAttachmentKindSchema>;
+export type MediaAttachmentSource = z.infer<typeof MediaAttachmentSourceSchema>;
+export type MediaAttachment = z.infer<typeof MediaAttachmentSchema>;
 export type MessageRenderMetadata = z.infer<typeof MessageRenderMetadataSchema>;
 export type MessageChunk = z.infer<typeof MessageChunkSchema>;
 export type ModelTokenUsage = z.infer<typeof ModelTokenUsageSchema>;

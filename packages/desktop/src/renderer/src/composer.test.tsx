@@ -4,6 +4,7 @@ import { act, cleanup, fireEvent, render, screen, within } from "@testing-librar
 import type React from "react";
 import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { DesktopMediaAttachment } from "../../shared/desktop-api.js";
 import { Composer } from "./composer.js";
 
 afterEach(() => {
@@ -33,7 +34,7 @@ describe("Composer", () => {
     expect(input.value).toBe("");
     expect(selectFilesAndFolders).not.toHaveBeenCalled();
     expect(screen.getByText("Add")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Files and folders" }));
+    fireEvent.click(screen.getByRole("button", { name: "File or folder context" }));
     await act(async () => undefined);
     expect(selectFilesAndFolders).toHaveBeenCalledTimes(1);
     expect(input.value).toBe('@/workspace/src/App.tsx @"/tmp/My Note.md"');
@@ -122,16 +123,82 @@ describe("Composer", () => {
     fireEvent.keyDown(input, { key: "Enter" });
     expect(input.value).toBe("$geepilot.memory");
   });
+
+  it("adds, previews, and removes typed media attachments", async () => {
+    const attachment = mediaAttachment();
+    const selectMediaAttachments = vi.fn(async () => [attachment]);
+    const onPreviewAttachment = vi.fn();
+    render(
+      <TestComposer
+        selectMediaAttachments={selectMediaAttachments}
+        onPreviewAttachment={onPreviewAttachment}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Add context" }));
+    fireEvent.click(screen.getByRole("button", { name: "Files and photos" }));
+    await act(async () => undefined);
+
+    expect(selectMediaAttachments).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole("button", { name: "Preview diagram.png" }));
+    expect(onPreviewAttachment).toHaveBeenCalledWith(attachment);
+
+    fireEvent.click(screen.getByRole("button", { name: "Remove diagram.png" }));
+    expect(screen.queryByRole("button", { name: "Preview diagram.png" })).toBeNull();
+  });
+
+  it("imports files from drag/drop and clipboard paste", async () => {
+    const diagram = mediaAttachment();
+    const notes = { ...mediaAttachment(), id: "notes", name: "notes.txt", kind: "text" as const };
+    const importMediaAttachments = vi
+      .fn()
+      .mockResolvedValueOnce([diagram])
+      .mockResolvedValueOnce([notes]);
+    render(<TestComposer importMediaAttachments={importMediaAttachments} />);
+    const input = screen.getByRole("textbox");
+    const composer = input.closest(".composer");
+    const dropped = browserFile("diagram.png", [1, 2, 3]);
+    const pasted = browserFile("notes.txt", [4, 5]);
+
+    fireEvent.drop(composer as HTMLElement, {
+      dataTransfer: { types: ["Files"], files: [dropped], dropEffect: "none" },
+    });
+    await screen.findByRole("button", { name: "Preview diagram.png" });
+
+    fireEvent.paste(input, { clipboardData: { files: [pasted] } });
+    await screen.findByRole("button", { name: "Preview notes.txt" });
+
+    expect(importMediaAttachments).toHaveBeenCalledTimes(2);
+    expect(importMediaAttachments).toHaveBeenNthCalledWith(1, [
+      expect.objectContaining({
+        name: "diagram.png",
+        bytes: new Uint8Array([1, 2, 3]),
+      }),
+    ]);
+    expect(importMediaAttachments).toHaveBeenNthCalledWith(2, [
+      expect.objectContaining({
+        name: "notes.txt",
+        bytes: new Uint8Array([4, 5]),
+      }),
+    ]);
+  });
 });
 
 function TestComposer({
   completeMention = vi.fn(async () => ({ result: { items: [] } })),
   selectFilesAndFolders = vi.fn(async () => []),
+  selectMediaAttachments = vi.fn(async () => []),
+  importMediaAttachments = vi.fn(async () => []),
+  onPreviewAttachment = vi.fn(),
 }: {
   completeMention?: ReturnType<typeof vi.fn>;
   selectFilesAndFolders?: ReturnType<typeof vi.fn>;
+  selectMediaAttachments?: ReturnType<typeof vi.fn>;
+  importMediaAttachments?: ReturnType<typeof vi.fn>;
+  onPreviewAttachment?: ReturnType<typeof vi.fn>;
 }): React.JSX.Element {
   const [value, setValue] = useState("");
+  const [attachments, setAttachments] = useState<DesktopMediaAttachment[]>([]);
   return (
     <Composer
       value={value}
@@ -150,6 +217,11 @@ function TestComposer({
       ]}
       completeMention={completeMention}
       selectFilesAndFolders={selectFilesAndFolders}
+      selectMediaAttachments={selectMediaAttachments}
+      importMediaAttachments={importMediaAttachments}
+      attachments={attachments}
+      onAttachmentsChange={setAttachments}
+      onPreviewAttachment={onPreviewAttachment}
       onChange={setValue}
       onSubmit={() => undefined}
       onStop={() => undefined}
@@ -157,4 +229,24 @@ function TestComposer({
       <span>Model</span>
     </Composer>
   );
+}
+
+function browserFile(name: string, bytes: number[]): File {
+  const file = new File([new Uint8Array(bytes)], name, { type: "application/octet-stream" });
+  Object.defineProperty(file, "arrayBuffer", {
+    value: vi.fn(async () => new Uint8Array(bytes).buffer),
+  });
+  return file;
+}
+
+function mediaAttachment(): DesktopMediaAttachment {
+  return {
+    id: "diagram",
+    name: "diagram.png",
+    kind: "image",
+    mimeType: "image/png",
+    sizeBytes: 1234,
+    uri: "file:///managed/diagram.png",
+    source: "user",
+  };
 }

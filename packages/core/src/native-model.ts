@@ -25,9 +25,15 @@ import type {
   NativeLocalToolDefinition,
   ToolExecutionResult,
 } from "./mcp.js";
+import {
+  MAX_INLINE_MEDIA_BYTES,
+  attachmentFallbackText,
+  loadMediaAttachment,
+  validateMediaAttachments,
+} from "./media.js";
 import type { ModelApiMode } from "./model-api.js";
 import { ModelTokenUsageSchema } from "./types.js";
-import type { MessageChunk, ModelTokenUsage } from "./types.js";
+import type { MediaAttachment, MessageChunk, ModelTokenUsage } from "./types.js";
 
 const MAX_TOOL_STEPS = 20;
 const OPENAI_RESPONSES_EFFORTS = new Set([
@@ -64,7 +70,7 @@ export async function callOpenAIResponses(
   arguments_: Record<string, unknown>,
   onChunk?: (chunk: MessageChunk) => void,
 ): Promise<{ messages: MessageChunk[] }> {
-  const input = responseInput(arguments_);
+  const input = await responseInput(arguments_);
   const reasoning = responseReasoning(context.parameters, context.apiMode);
   const allChunks: MessageChunk[] = [];
 
@@ -160,7 +166,7 @@ export async function callAnthropicMessages(
   arguments_: Record<string, unknown>,
   onChunk?: (chunk: MessageChunk) => void,
 ): Promise<{ messages: MessageChunk[] }> {
-  const built = anthropicInput(context.instructions, arguments_);
+  const built = await anthropicInput(context.instructions, arguments_);
   const messages = built.messages;
   const outputConfig = anthropicOutputConfig(context.parameters);
   const allChunks: MessageChunk[] = [];
@@ -332,31 +338,65 @@ async function streamAnthropicMessage(
   return message;
 }
 
-function responseInput(arguments_: Record<string, unknown>): ResponseInputItem[] {
-  return rawMessages(arguments_).flatMap((message): ResponseInputItem[] => {
+async function responseInput(arguments_: Record<string, unknown>): Promise<ResponseInputItem[]> {
+  const input: ResponseInputItem[] = [];
+  let loadedBytes = 0;
+  for (const message of rawMessages(arguments_)) {
     if (message.role === "tool" && message.tool_call_id) {
-      return [
-        {
-          type: "function_call_output",
-          call_id: message.tool_call_id,
-          output: message.content ?? "",
-        },
-      ];
+      input.push({
+        type: "function_call_output",
+        call_id: message.tool_call_id,
+        output: message.content ?? "",
+      });
+      continue;
     }
-    if (!["user", "assistant", "system"].includes(message.role)) return [];
-    return [
-      {
+    if (!["user", "assistant", "system"].includes(message.role)) continue;
+    if (message.role !== "user" || message.attachments.length === 0) {
+      input.push({
         role: message.role as "user" | "assistant" | "system",
         content: message.content ?? "",
-      },
-    ];
-  });
+      });
+      continue;
+    }
+    const content: Array<
+      | { type: "input_text"; text: string }
+      | { type: "input_image"; detail: "auto"; image_url: string }
+      | { type: "input_file"; filename: string; file_data: string }
+    > = [];
+    if (message.content) content.push({ type: "input_text", text: message.content });
+    for (const attachment of message.attachments) {
+      if (attachment.kind === "audio" || attachment.kind === "video") {
+        content.push({ type: "input_text", text: attachmentFallbackText(attachment) });
+        continue;
+      }
+      const loaded = await loadMediaAttachment(
+        attachment,
+        Math.max(0, MAX_INLINE_MEDIA_BYTES - loadedBytes),
+      );
+      loadedBytes += loaded.bytes.byteLength;
+      if (attachment.kind === "image") {
+        content.push({
+          type: "input_image",
+          detail: "auto",
+          image_url: `data:${attachment.mimeType};base64,${loaded.base64}`,
+        });
+      } else {
+        content.push({
+          type: "input_file",
+          filename: attachment.name,
+          file_data: `data:${attachment.mimeType};base64,${loaded.base64}`,
+        });
+      }
+    }
+    input.push({ role: "user", content });
+  }
+  return input;
 }
 
-function anthropicInput(
+async function anthropicInput(
   instructions: string,
   arguments_: Record<string, unknown>,
-): { system?: string; messages: MessageParam[] } {
+): Promise<{ system?: string; messages: MessageParam[] }> {
   const system = [
     instructions.trim() || undefined,
     ...rawMessages(arguments_)
@@ -365,24 +405,88 @@ function anthropicInput(
   ]
     .filter((value): value is string => !!value)
     .join("\n\n");
-  const messages = rawMessages(arguments_).flatMap((message): MessageParam[] => {
+  const messages: MessageParam[] = [];
+  let loadedBytes = 0;
+  for (const message of rawMessages(arguments_)) {
     if (message.role === "tool" && message.tool_call_id) {
-      return [
-        {
-          role: "user",
-          content: [
-            {
-              type: "tool_result",
-              tool_use_id: message.tool_call_id,
-              content: message.content ?? "",
-            },
-          ],
-        },
-      ];
+      messages.push({
+        role: "user",
+        content: [
+          {
+            type: "tool_result",
+            tool_use_id: message.tool_call_id,
+            content: message.content ?? "",
+          },
+        ],
+      });
+      continue;
     }
-    if (message.role !== "user" && message.role !== "assistant") return [];
-    return [{ role: message.role, content: message.content ?? "" }];
-  });
+    if (message.role !== "user" && message.role !== "assistant") continue;
+    if (message.role !== "user" || message.attachments.length === 0) {
+      messages.push({ role: message.role, content: message.content ?? "" });
+      continue;
+    }
+    const content: ContentBlockParam[] = [];
+    for (const attachment of message.attachments) {
+      if (attachment.kind === "image" && ANTHROPIC_IMAGE_MIME_TYPES.has(attachment.mimeType)) {
+        const loaded = await loadMediaAttachment(
+          attachment,
+          Math.max(0, MAX_INLINE_MEDIA_BYTES - loadedBytes),
+        );
+        loadedBytes += loaded.bytes.byteLength;
+        content.push({
+          type: "image",
+          source: {
+            type: "base64",
+            media_type: attachment.mimeType as
+              | "image/jpeg"
+              | "image/png"
+              | "image/gif"
+              | "image/webp",
+            data: loaded.base64,
+          },
+        });
+        continue;
+      }
+      if (attachment.kind === "pdf") {
+        const loaded = await loadMediaAttachment(
+          attachment,
+          Math.max(0, MAX_INLINE_MEDIA_BYTES - loadedBytes),
+        );
+        loadedBytes += loaded.bytes.byteLength;
+        content.push({
+          type: "document",
+          title: attachment.name,
+          source: {
+            type: "base64",
+            media_type: "application/pdf",
+            data: loaded.base64,
+          },
+        });
+        continue;
+      }
+      if (attachment.kind === "text") {
+        const loaded = await loadMediaAttachment(
+          attachment,
+          Math.min(5 * 1024 * 1024, Math.max(0, MAX_INLINE_MEDIA_BYTES - loadedBytes)),
+        );
+        loadedBytes += loaded.bytes.byteLength;
+        content.push({
+          type: "document",
+          title: attachment.name,
+          source: {
+            type: "text",
+            media_type: "text/plain",
+            data: loaded.bytes.toString("utf8"),
+          },
+        });
+        continue;
+      }
+      content.push({ type: "text", text: attachmentFallbackText(attachment) });
+    }
+    if (message.content) content.push({ type: "text", text: message.content });
+    messages.push({ role: "user", content });
+  }
   return { ...(system ? { system } : {}), messages };
 }
 
@@ -568,6 +672,7 @@ function rawMessages(arguments_: Record<string, unknown>): Array<{
   role: string;
   content: string | null;
   tool_call_id?: string;
+  attachments: MediaAttachment[];
 }> {
   const messages = arguments_.messages;
   if (!Array.isArray(messages)) return [];
@@ -579,11 +684,16 @@ function rawMessages(arguments_: Record<string, unknown>): Array<{
       {
         role: record.role,
         content: typeof record.content === "string" ? record.content : null,
+        attachments: validateMediaAttachments(
+          Array.isArray(record.attachments) ? (record.attachments as MediaAttachment[]) : [],
+        ),
         ...(typeof record.tool_call_id === "string" ? { tool_call_id: record.tool_call_id } : {}),
       },
     ];
   });
 }
+
+const ANTHROPIC_IMAGE_MIME_TYPES = new Set(["image/jpeg", "image/png", "image/gif", "image/webp"]);
 
 function isResponseFunctionCall(item: ResponseOutputItem): item is ResponseFunctionToolCall {
   return item.type === "function_call";

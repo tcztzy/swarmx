@@ -1,6 +1,19 @@
-import { ArrowUp, Paperclip, Plus, Square } from "lucide-react";
+import {
+  ArrowUp,
+  File,
+  FileAudio,
+  FileImage,
+  FileText,
+  FileVideo,
+  FolderOpen,
+  Paperclip,
+  Plus,
+  Square,
+  X,
+} from "lucide-react";
 import type React from "react";
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import type { DesktopMediaAttachment, DesktopMediaImport } from "../../shared/desktop-api.js";
 
 const COMPOSER_MIN_HEIGHT = 48;
 const COMPOSER_MAX_HEIGHT = 240;
@@ -33,6 +46,11 @@ export interface ComposerProps {
     timeoutMs: number;
   }) => Promise<{ result: unknown }>;
   selectFilesAndFolders: () => Promise<string[]>;
+  selectMediaAttachments?: () => Promise<DesktopMediaAttachment[]>;
+  importMediaAttachments?: (files: DesktopMediaImport[]) => Promise<DesktopMediaAttachment[]>;
+  attachments?: DesktopMediaAttachment[];
+  onAttachmentsChange?: (attachments: DesktopMediaAttachment[]) => void;
+  onPreviewAttachment?: (attachment: DesktopMediaAttachment) => void;
   onFilesSelected?: (paths: string[]) => void;
   onContextError?: (error: unknown) => void;
   error?: string | null;
@@ -71,6 +89,11 @@ export function Composer({
   mentionServers,
   completeMention,
   selectFilesAndFolders,
+  selectMediaAttachments,
+  importMediaAttachments,
+  attachments = [],
+  onAttachmentsChange,
+  onPreviewAttachment,
   onFilesSelected,
   onContextError,
   error,
@@ -252,6 +275,48 @@ export function Composer({
     value,
   ]);
 
+  const appendAttachments = useCallback(
+    (next: DesktopMediaAttachment[]) => {
+      if (!onAttachmentsChange) return;
+      const byId = new Map(attachments.map((attachment) => [attachment.id, attachment]));
+      for (const attachment of next) byId.set(attachment.id, attachment);
+      onAttachmentsChange([...byId.values()]);
+    },
+    [attachments, onAttachmentsChange],
+  );
+
+  const addMediaFiles = useCallback(async () => {
+    if (!selectMediaAttachments) return;
+    try {
+      appendAttachments(await selectMediaAttachments());
+    } catch (error) {
+      onContextError?.(error);
+    } finally {
+      setContextMenuOpen(false);
+    }
+  }, [appendAttachments, onContextError, selectMediaAttachments]);
+
+  const importBrowserFiles = useCallback(
+    async (files: readonly globalThis.File[]) => {
+      if (files.length === 0 || !importMediaAttachments) return;
+      try {
+        const payload = await Promise.all(
+          files.map(
+            async (file): Promise<DesktopMediaImport> => ({
+              name: file.name,
+              mimeType: file.type || undefined,
+              bytes: new Uint8Array(await file.arrayBuffer()),
+            }),
+          ),
+        );
+        appendAttachments(await importMediaAttachments(payload));
+      } catch (error) {
+        onContextError?.(error);
+      }
+    },
+    [appendAttachments, importMediaAttachments, onContextError],
+  );
+
   const onKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
       if (isComposing || event.nativeEvent.isComposing) return;
@@ -307,7 +372,22 @@ export function Composer({
   );
 
   return (
-    <div className="composer">
+    <div
+      className={cx("composer", attachments.length > 0 && "composer--with-attachments")}
+      onDragOver={(event) => {
+        if (importMediaAttachments && event.dataTransfer.types.includes("Files")) {
+          event.preventDefault();
+          event.dataTransfer.dropEffect = "copy";
+        }
+      }}
+      onDrop={(event) => {
+        if (!importMediaAttachments) return;
+        const files = [...event.dataTransfer.files];
+        if (files.length === 0) return;
+        event.preventDefault();
+        void importBrowserFiles(files);
+      }}
+    >
       {mentionMenuOpen && (
         <div className="composer__mentions" id={mentionListId} aria-label="Mention suggestions">
           {mentionItems.length > 0 ? (
@@ -335,6 +415,39 @@ export function Composer({
           )}
         </div>
       )}
+      {attachments.length > 0 && (
+        <div className="composer__attachments" aria-label="Attached files">
+          {attachments.map((attachment) => (
+            <div className="composer-attachment" key={attachment.id}>
+              <button
+                type="button"
+                className="composer-attachment__preview"
+                onClick={() => onPreviewAttachment?.(attachment)}
+                disabled={!onPreviewAttachment}
+                aria-label={`Preview ${attachment.name}`}
+              >
+                <AttachmentIcon attachment={attachment} />
+                <span>
+                  <strong>{attachment.name}</strong>
+                  <small>{formatAttachmentSize(attachment.sizeBytes)}</small>
+                </span>
+              </button>
+              <button
+                type="button"
+                className="composer-attachment__remove"
+                onClick={() =>
+                  onAttachmentsChange?.(
+                    attachments.filter((candidate) => candidate.id !== attachment.id),
+                  )
+                }
+                aria-label={`Remove ${attachment.name}`}
+              >
+                <X aria-hidden="true" />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
       <textarea
         ref={assignTextareaRef}
         value={value}
@@ -352,6 +465,13 @@ export function Composer({
         onCompositionEnd={(event) => {
           setIsComposing(false);
           syncCursor(event.currentTarget);
+        }}
+        onPaste={(event) => {
+          if (!importMediaAttachments) return;
+          const files = [...event.clipboardData.files];
+          if (files.length === 0) return;
+          event.preventDefault();
+          void importBrowserFiles(files);
         }}
         onKeyDown={onKeyDown}
         placeholder={placeholder}
@@ -378,9 +498,15 @@ export function Composer({
         {contextMenuOpen && (
           <section className="composer__context-menu" aria-label="Add context">
             <p className="composer__context-menu-title">Add</p>
+            {selectMediaAttachments && (
+              <button type="button" onClick={() => void addMediaFiles()}>
+                <Paperclip aria-hidden="true" />
+                <span>Files and photos</span>
+              </button>
+            )}
             <button type="button" onClick={() => void addFilesAndFolders()}>
-              <Paperclip aria-hidden="true" />
-              <span>Files and folders</span>
+              <FolderOpen aria-hidden="true" />
+              <span>File or folder context</span>
             </button>
           </section>
         )}
@@ -398,6 +524,30 @@ export function Composer({
       </div>
     </div>
   );
+}
+
+function AttachmentIcon({
+  attachment,
+}: {
+  attachment: DesktopMediaAttachment;
+}): React.JSX.Element {
+  if (attachment.kind === "image") return <FileImage aria-hidden="true" />;
+  if (attachment.kind === "audio") return <FileAudio aria-hidden="true" />;
+  if (attachment.kind === "video") return <FileVideo aria-hidden="true" />;
+  if (attachment.kind === "pdf" || attachment.kind === "text") {
+    return <FileText aria-hidden="true" />;
+  }
+  return <File aria-hidden="true" />;
+}
+
+function formatAttachmentSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${Math.ceil(bytes / 1024)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(bytes < 10 * 1024 * 1024 ? 1 : 0)} MB`;
+}
+
+function cx(...classes: Array<string | false | null | undefined>): string {
+  return classes.filter(Boolean).join(" ");
 }
 
 function getMentionContext(text: string, cursorOffset: number): MentionContext | null {

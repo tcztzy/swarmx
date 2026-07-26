@@ -302,6 +302,38 @@ describe("preload API", () => {
     expect(electron.invoke).toHaveBeenCalledWith("workspace:root");
   });
 
+  it("bridges media import and preview through typed isolated IPC calls", async () => {
+    const attachment = {
+      id: "notes",
+      name: "notes.md",
+      kind: "text" as const,
+      mimeType: "text/markdown",
+      sizeBytes: 8,
+      uri: "file:///managed/notes.md",
+      source: "user" as const,
+    };
+    const files = [
+      {
+        name: "notes.md",
+        mimeType: "text/markdown",
+        bytes: new Uint8Array([35, 32, 78, 111, 116, 101, 115, 10]),
+      },
+    ];
+    electron.invoke.mockResolvedValueOnce([attachment]).mockResolvedValueOnce({
+      status: "available",
+      attachment,
+      text: "# Notes\n",
+    });
+
+    await expect(exposedApi().importMediaAttachments(files)).resolves.toEqual([attachment]);
+    await expect(exposedApi().previewMediaAttachment(attachment)).resolves.toMatchObject({
+      status: "available",
+      text: "# Notes\n",
+    });
+    expect(electron.invoke).toHaveBeenNthCalledWith(1, "media:import", files);
+    expect(electron.invoke).toHaveBeenNthCalledWith(2, "media:preview", attachment);
+  });
+
   it("bridges project selection without exposing filesystem access", async () => {
     electron.invoke.mockResolvedValue({ id: "project-1", cwd: "/workspace/project-1" });
 

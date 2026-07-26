@@ -74,6 +74,7 @@ G70: Publish the verified Kimi Code Harness as SwarmX 3.1.4 through aligned npm 
 G71: A release tag publishes every aligned SwarmX package to npm from that tagged commit before creating the matching GitHub Release.
 G72: Desktop users can collapse or expand each sidebar Project group from its main row and identify that state from matching folder icons.
 G73: Desktop users can ask parallel side questions from an anchored task snapshot without changing or persisting the parent conversation, then explicitly promote useful side work into a normal task.
+G74: Desktop users can attach, persist, transmit, render, and preview images, PDFs, audio, video, text, and general files through one capability-aware multimedia model spanning Core, ACP, native Providers, and Desktop.
 
 ## §C
 C1: Reuse existing `SwarmConfig`; no second workflow DSL.
@@ -266,6 +267,10 @@ C187: Project disclosure changes task-list visibility only. The row's right-side
 C188: A side chat is a Core-defined transient Session fork, never a renderer-fabricated `SessionData`. Its anchor uses the authoritative effective parent-message projection at creation, and its transcript cannot enter ordinary Session save, list, resume, or archive paths before explicit promotion.
 C189: Every side tab owns an independent in-memory transcript, draft, attachment set, context chips, request id, stream route, abort route, and transient runtime identity. Side execution is a read-only explanatory lane with no workflow execution, nested side chat, persistent ACP identity, permission escalation, or silent reuse of the parent's runtime identity.
 C190: Side-chat state is scoped by parent Session and application process. Hiding preserves tabs, deleting discards one tab, switching parents restores each parent's memory state, parent archive clears it, and process restart loses it.
+C191: Canonical conversation records persist bounded attachment metadata and local URIs, never inline base64 payloads; transport-specific binary encoding is request-scoped.
+C192: Electron isolation remains authoritative for multimedia: Renderer code cannot read arbitrary files directly, remote media stays blocked by default, and Main validates path, size, MIME, and file state before returning preview or transport data.
+C193: ACP video has no dedicated content block. Video remains a first-class SwarmX preview/resource attachment, but transport must use a resource link or explicit unsupported state instead of mislabeling it as image or audio.
+C194: Existing `@path` file/folder context references remain available. File attachments use a separate typed path, and directory selection never enters multimedia transport.
 
 ## §I
 I1: `packages/core/src/types.ts` `SwarmConfigSchema`.
@@ -519,6 +524,12 @@ I248: `packages/core/src/session.ts`, Core session tests, CLI migration command,
 I249: `packages/core/src/types.ts`, `session.ts`, exports, and Core session tests transient fork schemas, anchored projection, memory-only mutation, model projection, and explicit promotion.
 I250: `packages/desktop/src/main/side-chat-service.ts`, `ipc.ts`, chunk publisher, shared/preload API, and focused tests process-memory registry, independent request routing, read-only execution boundary, cleanup, and isolated Electron transport.
 I251: Desktop Renderer App, Composer, styles, and focused tests multi-tab side pane, commands, selection context, isolated composers, edit/stream/abort/unread routing, responsive layout, and promotion.
+I252: `packages/core/src/types.ts`, browser-safe exports, Session projection, and tests canonical media attachment metadata on chat and rendered message records.
+I253: `packages/core/src/media.ts`, `acp.ts`, `agent.ts`, `native-model.ts`, and focused tests bounded local attachment loading plus ACP, OpenAI Responses/Chat, and Anthropic request mapping.
+I254: `packages/desktop/src/main/media.ts`, IPC, Preload API, and tests file selection, clipboard/path import, MIME inspection, bounded preview loading, and renderer-safe attachment responses.
+I255: `packages/desktop/src/renderer/src/composer.tsx`, `App.tsx`, styles, and tests attachment tray, multi-file picker, drag/drop, paste, remove, send, edit, retry, and Session persistence.
+I256: Desktop message attachment cards and a resizable right preview pane for images, PDFs, audio, video, text, and general-file metadata, with keyboard and narrow-width behavior.
+I257: `docs/multimedia.md`, `README.md`, `DESIGNS.md`, `docs/index.md`, and `design-qa.md` competitor evidence, capability matrix, security/limits, interaction design, and rendered validation.
 
 ## §V
 V1: Workflow JSON source of truth is `SwarmConfig`; UI preview, run badges, and send payload derive from parsed JSON.
@@ -1056,6 +1067,17 @@ V532: `/side <prompt>` and `/btw <prompt>` create and run a side tab without sen
 V533: Main and side drafts, file attachments, focus, send controls, streams, edits, and Escape targets remain isolated. Side editing replaces only the latest side user turn in memory and regenerates that side response without writing `messages_replaced` or any other parent event.
 V534: Hiding a side pane preserves its tabs, deleting removes only the selected idle tab, switching tasks restores tabs by parent id, and archiving a parent is blocked while one of its side tabs runs then clears all of that parent's side memory after success.
 V535: Explicit `Promote to task` creates one normal persistent fork containing the anchored effective parent prefix plus side transcript, records fork provenance, omits any external ACP Session identity, leaves the parent unchanged, and only then appears in ordinary Session list/resume surfaces.
+V536: One canonical attachment record carries stable id, display name, kind, MIME type, byte size, local file URI, and source. `ChatMessage` and `MessageChunk` preserve ordered attachments through append-only Session save, replay, edit, fork, retry, and direct execution without embedding binary data.
+V537: Desktop accepts multiple files from the Add menu, drag/drop, and clipboard image paste; validates at most 20 attachments, 100 MiB per file, and 500 MiB per turn; shows a removable attachment tray before send; and keeps folder selection on the existing `@path` context path.
+V538: Main detects supported image, PDF, audio, video, text, and general-file MIME from bounded signatures plus conservative extension fallback, rejects missing/directories/oversized files, and exposes only validated attachment metadata plus bounded preview data through Preload.
+V539: ACP initialization retains `promptCapabilities`. Text and resource links use the baseline, images and audio are base64 blocks only when advertised, embedded files use resource blobs only when advertised and within the transport limit, and every other attachment becomes a named resource link; no attachment is silently discarded.
+V540: Native OpenAI Responses maps images to `input_image`, PDFs/text/general files to `input_file`, and unsupported audio/video to explicit text/resource context. OpenAI Chat maps images, supported MP3/WAV audio, and files to user content parts. Anthropic maps supported images and PDFs to image/document blocks and represents other attachments explicitly without invented media support.
+V541: Binary loading is lazy and request-scoped, revalidates file size and MIME before encoding, caps aggregate inline transport at 50 MiB, and returns an actionable error if an attachment changed, disappeared, or exceeds the selected transport boundary.
+V542: Sent user messages render ordered attachment cards independently of Markdown. Activating a card opens a right preview pane: images fit without cropping, PDFs use Chromium's local viewer, audio/video use native controls, text uses a bounded readable excerpt, and unknown files show metadata plus an explicit open/reveal action.
+V543: The preview pane has a labeled close control, keyboard focus restoration, resizable desktop width, and narrow-width overlay behavior. Missing or changed local files show a stable unavailable state without corrupting Session history.
+V544: Remote URLs remain blocked in message and attachment previews. Attachment IPC accepts local `file:` URIs created by Main inspection, never returns raw bytes for unsupported/unbounded content, and cannot be used as a generic renderer filesystem oracle.
+V545: Focused Core/Main/Preload/Renderer tests cover schema persistence, capability negotiation, every provider mapping, input limits, drag/paste/remove/send, card/preview variants, unavailable files, keyboard behavior, and preservation of existing text-only and `@path` flows.
+V546: Documentation cites official ACP, OpenAI, Anthropic, Codex, and Claude sources; records that ACP has no video block; and distinguishes SwarmX preview support from model-understanding support.
 
 ## §T
 |id|status|task|cites|
@@ -1278,6 +1300,10 @@ V535: Explicit `Promote to task` creates one normal persistent fork containing t
 |T216|x|persist interrupted tool terminal state and implement safe desktop recovery display|V353,V429,V521,I191,I194|
 |T217|x|replace local Session rewrites with append-only JSONL, indexed summaries, compatible migration, and corruption recovery|V522,V523,V524,V525,I248|
 |T218|x|implement anchored transient Side chat / BTW tabs, isolated runtime routing, responsive Desktop UX, explicit promotion, and regression coverage|G73,C188,C189,C190,V527,V528,V529,V530,V531,V532,V533,V534,V535,I249,I250,I251|
+|T219|x|add canonical attachment schemas, Session projection, bounded media loading, and ACP/native Provider mappings|G74,C191,C193,V536,V539,V540,V541,I252,I253|
+|T220|x|add isolated Desktop media inspection/preview IPC and Composer multi-input attachment flow|G74,C192,C194,V537,V538,V544,I254,I255|
+|T221|x|render message attachment cards and accessible responsive right-side multimedia preview|G74,V542,V543,I256|
+|T222|x|document competitor evidence, protocol/provider matrix, security limits, and run focused/full/rendered validation|G74,V545,V546,I257|
 
 ## §B
 |id|date|cause|fix|

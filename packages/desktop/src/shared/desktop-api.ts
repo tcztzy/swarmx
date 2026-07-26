@@ -12,6 +12,7 @@ import type {
   HarnessPermissionPolicyLayer,
   HarnessRecipe,
   InstalledExtension,
+  MediaAttachment,
   Model,
   ModelSupply,
   PermissionApprovalReceipt,
@@ -84,6 +85,23 @@ export interface DesktopMessageChunk {
   structuredContent?: unknown;
   swarmEvent?: string;
   toolName?: string;
+  attachments?: DesktopMediaAttachment[];
+}
+
+export type DesktopMediaAttachment = MediaAttachment;
+
+export interface DesktopMediaImport {
+  name: string;
+  mimeType?: string;
+  bytes: Uint8Array;
+}
+
+export interface DesktopMediaPreview {
+  status: "available" | "unavailable";
+  attachment: DesktopMediaAttachment;
+  previewUrl?: string;
+  text?: string;
+  error?: string;
 }
 
 export interface DesktopSessionData {
@@ -506,6 +524,7 @@ export interface SwarmxAPI {
     sessionId?: string;
     harnessId: string;
     userText: string;
+    attachments?: DesktopMediaAttachment[];
     agentComposition?: unknown;
     swarmConfig?: unknown;
     cwd?: string;
@@ -706,6 +725,13 @@ export interface SwarmxAPI {
   startUpdate?(): Promise<DesktopUpdateState>;
   onUpdateState?(listener: (state: DesktopUpdateState) => void): () => void;
   selectFilesAndFolders(): Promise<string[]>;
+  selectMediaAttachments(): Promise<DesktopMediaAttachment[]>;
+  importMediaAttachments(files: DesktopMediaImport[]): Promise<DesktopMediaAttachment[]>;
+  previewMediaAttachment(attachment: DesktopMediaAttachment): Promise<DesktopMediaPreview>;
+  openMediaAttachment(
+    attachment: DesktopMediaAttachment,
+  ): Promise<{ opened: boolean; error?: string }>;
+  revealMediaAttachment(attachment: DesktopMediaAttachment): Promise<{ revealed: boolean }>;
   refreshModelCatalog(): Promise<ExtensionCapabilityInventory | null>;
   addManualModel(input: ManualModelInput): Promise<ExtensionCapabilityInventory | null>;
   removeManualModel(modelId: string): Promise<ExtensionCapabilityInventory | null>;

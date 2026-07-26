@@ -106,6 +106,7 @@ pnpm --filter @swarmx/desktop dist:mac
 - [Architecture and design](DESIGNS.md)
 - [Full documentation](docs/index.md)
 - [Extensions and Custom Agents](docs/extensions-custom-agents.md)
+- [Multimedia attachments and previews](docs/multimedia.md)
 
 ## License
 

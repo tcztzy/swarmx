@@ -1108,3 +1108,51 @@ The focused comparison keeps the terminal label, approval title, collapsed monos
 - Targeted Biome check and Git whitespace check: passed.
 
 final result: passed
+
+---
+
+# Design QA: Codex-first multimedia attachments
+
+- Codex reference: `/Users/tcztzy/.codex/visualizations/2026/07/26/019f9d56-5f9e-74f3-88a2-8ef736e4ae8b/multimedia-competitor-audit/04-codex-sidebar-preview.png`
+- Claude Add menu: `/Users/tcztzy/.codex/visualizations/2026/07/26/019f9d56-5f9e-74f3-88a2-8ef736e4ae8b/multimedia-competitor-audit/01-claude-add-menu.png`
+- Claude attachment card: `/Users/tcztzy/.codex/visualizations/2026/07/26/019f9d56-5f9e-74f3-88a2-8ef736e4ae8b/multimedia-competitor-audit/02-claude-attachment-card.png`
+- Claude image preview: `/Users/tcztzy/.codex/visualizations/2026/07/26/019f9d56-5f9e-74f3-88a2-8ef736e4ae8b/multimedia-competitor-audit/03-claude-image-preview.png`
+- SwarmX implementation: `/Users/tcztzy/.codex/visualizations/2026/07/26/019f9d56-5f9e-74f3-88a2-8ef736e4ae8b/multimedia-competitor-audit/05-swarmx-codex-preview.png`
+- Codex/SwarmX comparison: `/Users/tcztzy/.codex/visualizations/2026/07/26/019f9d56-5f9e-74f3-88a2-8ef736e4ae8b/multimedia-competitor-audit/06-codex-swarmx-comparison.png`
+- Viewport: 1280 x 720 px, light theme
+- State: sent text attachment reopened from the conversation in the right workspace
+
+## Findings and design choice
+
+The same-input comparison places the captured Codex sidebar preview beside the
+real SwarmX renderer. SwarmX follows the Codex relationship: the conversation
+remains visible, the selected asset occupies the existing right workspace, and
+the divider is resizable. Claude's compact Add menu and removable pre-send card
+informed the Composer, but its modal-first image viewer was not adopted.
+
+The final implementation keeps the existing SwarmX typography, neutral surface,
+Lucide icon family, panel controls, and spacing tokens. The attachment entry is
+restrained, sent files remain attached to their conversation turn, and the
+preview header exposes Reveal, Open, and Close without introducing a second
+navigation model.
+
+## Interaction and accessibility evidence
+
+- Add menu, attachment-only send, conversation card reopening, and right-panel
+  close were exercised in the live renderer.
+- Pointer and keyboard divider resizing preserve at least 320 px for both the
+  conversation and preview at desktop widths.
+- Escape closes the preview and restores focus to the attachment card that
+  opened it.
+- Automated preview tests cover image, PDF, audio, video, text, general-file,
+  unavailable, open/reveal, and keyboard-close states.
+- The combined visual pass found no remaining P0, P1, or P2 issue in the
+  attachment and preview surface.
+
+## Verification
+
+- Renderer visual comparison: passed.
+- Focused Core/Main/Preload/Renderer multimedia tests: passed.
+- Full lint, test, and production build: passed.
+
+final result: passed

@@ -1,13 +1,35 @@
 import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { configureDesktopHarnessEnvironment } from "@swarmx/runtime";
-import { BrowserWindow, type BrowserWindowConstructorOptions, app, nativeTheme } from "electron";
-import { disposeDesktopTerminals, registerIpcHandlers } from "./ipc.js";
+import {
+  net,
+  BrowserWindow,
+  type BrowserWindowConstructorOptions,
+  app,
+  nativeTheme,
+  protocol,
+} from "electron";
+import {
+  disposeDesktopTerminals,
+  registerIpcHandlers,
+  resolveDesktopMediaProtocolUrl,
+} from "./ipc.js";
 import { NpmDesktopUpdateService } from "./updater.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 app.setName("SwarmX");
+protocol.registerSchemesAsPrivileged([
+  {
+    scheme: "swarmx-media",
+    privileges: {
+      standard: true,
+      secure: true,
+      supportFetchAPI: true,
+      stream: true,
+    },
+  },
+]);
 
 process.env.APP_ROOT = join(__dirname, "..");
 configureDesktopHarnessEnvironment();
@@ -81,6 +103,14 @@ function createWindow(): void {
 }
 
 app.whenReady().then(() => {
+  protocol.handle("swarmx-media", async (request) => {
+    try {
+      const filePath = await resolveDesktopMediaProtocolUrl(request.url);
+      return net.fetch(pathToFileURL(filePath).href, { headers: request.headers });
+    } catch {
+      return new Response("Media preview unavailable.", { status: 404 });
+    }
+  });
   if (process.platform === "darwin") app.dock.setIcon(APP_ICON_PATH);
   registerIpcHandlers({
     updateService: desktopUpdater,

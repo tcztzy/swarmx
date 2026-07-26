@@ -33,6 +33,7 @@ import {
   setProjectPinned,
   setSessionPinned,
   updateSessionTitle,
+  validateMediaAttachments,
 } from "@swarmx/core";
 import type {
   AcpPermissionHandler,
@@ -44,6 +45,7 @@ import type {
   DiscoveredSession,
   ExtensionInventory,
   ListGroupedSessionsOptions,
+  MediaAttachment,
   MessageChunk,
   ModelTokenUsage,
   ProjectData,
@@ -81,6 +83,7 @@ import { ComposerPreferenceService } from "./composer-preferences.js";
 import { CustomAgentService } from "./custom-agents.js";
 import { DesktopExtensionManager } from "./extension-manager.js";
 import { type LspCompletionRequest, LspHost, type LspStopRequest } from "./lsp-host.js";
+import { DesktopMediaService } from "./media.js";
 import {
   type ManualModelInput,
   ModelCatalogService,
@@ -176,6 +179,11 @@ const modelCatalog = new ModelCatalogService({
 const composerPreferences = new ComposerPreferenceService(desktopSettingsStore);
 const customAgents = new CustomAgentService(desktopSettingsStore);
 const permissionService = new PermissionService(desktopSettingsStore);
+const mediaService = new DesktopMediaService(
+  process.env.NODE_ENV === "test"
+    ? path.join(tmpdir(), `swarmx-media-test-${process.pid}`)
+    : undefined,
+);
 const extensionManager = new DesktopExtensionManager(desktopSettingsStore);
 const providerUsage = new ProviderUsageService({ authStore: providerAuthStore });
 const desktopActivity = new ActivityStore(
@@ -1025,7 +1033,8 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
     },
   );
 
-  ipcMain.handle("session:save", (_event: IpcMainInvokeEvent, session: SessionData): void => {
+  ipcMain.handle("session:save", async (_event: IpcMainInvokeEvent, session: SessionData) => {
+    await validateMessageAttachments(session.messages);
     saveSession(session);
   });
 
@@ -1246,8 +1255,46 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
 
   ipcMain.handle(
     "session:appendMessages",
-    (_event: IpcMainInvokeEvent, params: { id: string; messages: MessageChunk[] }): boolean =>
-      appendMessages(params.id, params.messages),
+    async (
+      _event: IpcMainInvokeEvent,
+      params: { id: string; messages: MessageChunk[] },
+    ): Promise<boolean> => {
+      await validateMessageAttachments(params.messages);
+      return appendMessages(params.id, params.messages);
+    },
+  );
+
+  ipcMain.handle(
+    "session:editUserMessage",
+    (
+      _event: IpcMainInvokeEvent,
+      params: {
+        id: string;
+        messageIndex: number;
+        expectedMessages: MessageChunk[];
+        content: string;
+      },
+    ): SessionData => {
+      const session = editSessionUserMessage(params);
+      if (!session) throw new Error(`Session "${params.id}" was not found.`);
+      return session;
+    },
+  );
+
+  ipcMain.handle(
+    "session:fork",
+    (
+      _event: IpcMainInvokeEvent,
+      params: {
+        id: string;
+        throughMessageIndex: number;
+        expectedMessages: MessageChunk[];
+      },
+    ): SessionData => {
+      const session = forkSession(params);
+      if (!session) throw new Error(`Session "${params.id}" was not found.`);
+      return session;
+    },
   );
 
   ipcMain.handle(
@@ -1553,6 +1600,45 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
     return result.canceled ? [] : result.filePaths;
   });
 
+  ipcMain.handle("media:select", async () => {
+    const result = await dialog.showOpenDialog({
+      title: "Add files",
+      buttonLabel: "Add",
+      defaultPath: process.cwd(),
+      properties: ["openFile", "multiSelections"],
+    });
+    return result.canceled ? [] : mediaService.importPaths(result.filePaths);
+  });
+
+  ipcMain.handle(
+    "media:import",
+    (_event: IpcMainInvokeEvent, files: Parameters<DesktopMediaService["importBytes"]>[0]) =>
+      mediaService.importBytes(files),
+  );
+
+  ipcMain.handle("media:preview", (_event: IpcMainInvokeEvent, attachment: MediaAttachment) =>
+    mediaService.preview(attachment),
+  );
+
+  ipcMain.handle("media:open", async (_event: IpcMainInvokeEvent, attachment: MediaAttachment) => {
+    try {
+      const filePath = await mediaService.validatedStoredPath(attachment);
+      const error = await shell.openPath(filePath);
+      return error ? { opened: false, error } : { opened: true };
+    } catch (error) {
+      return { opened: false, error: errorMessage(error) };
+    }
+  });
+
+  ipcMain.handle(
+    "media:reveal",
+    async (_event: IpcMainInvokeEvent, attachment: MediaAttachment) => {
+      const filePath = await mediaService.validatedStoredPath(attachment);
+      shell.showItemInFolder(filePath);
+      return { revealed: true };
+    },
+  );
+
   ipcMain.handle("modelCatalog:refresh", async () => {
     const inventory = await loadDesktopExtensionInventory();
     return extensionInventoryWithPlans(await modelCatalog.refresh(inventory));
@@ -1661,6 +1747,10 @@ export function disposeDesktopTerminals(): void {
   browserHost.dispose();
   terminalHost.dispose();
   interactiveOwnerIds.clear();
+}
+
+export function resolveDesktopMediaProtocolUrl(url: string): Promise<string> {
+  return mediaService.resolveProtocolUrl(url);
 }
 
 function requiredBrowserState(ownerId: number, id: string) {
@@ -1971,6 +2061,24 @@ function boundedPermissionLabel(value: string): string {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+async function validateDesktopAttachments(
+  attachments: readonly MediaAttachment[],
+): Promise<MediaAttachment[]> {
+  const validated = validateMediaAttachments(attachments);
+  await Promise.all(validated.map((attachment) => mediaService.validatedStoredPath(attachment)));
+  return validated;
+}
+
+async function validateMessageAttachments(messages: readonly MessageChunk[]): Promise<void> {
+  await Promise.all(
+    messages.flatMap((message) =>
+      validateMediaAttachments(message.attachments).map((attachment) =>
+        mediaService.validatedStoredPath(attachment),
+      ),
+    ),
+  );
 }
 
 function detectImageMimeType(bytes: Buffer): string | null {

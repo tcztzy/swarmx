@@ -31,9 +31,28 @@ export {
   throwIfCurrentRequestCancelled,
   withAcpRequest,
 } from "./acp.js";
-export type { AcpClientOptions, AcpPromptResult, MessageChunk as AcpMessageChunk } from "./acp.js";
+export type {
+  AcpClientOptions,
+  AcpPromptInput,
+  AcpPromptResult,
+  MessageChunk as AcpMessageChunk,
+} from "./acp.js";
 export { MessageRenderMetadataSchema, ModelTokenUsageSchema } from "./types.js";
 export type { ModelTokenUsage } from "./types.js";
+export {
+  MAX_INLINE_MEDIA_BYTES,
+  MAX_MEDIA_ATTACHMENT_BYTES,
+  MAX_MEDIA_ATTACHMENTS,
+  MAX_MEDIA_TURN_BYTES,
+  attachmentFallbackText,
+  buildAcpPromptContent,
+  detectMediaMimeType,
+  loadMediaAttachment,
+  mediaAttachmentFilePath,
+  mediaKindFromMimeType,
+  validateMediaAttachments,
+} from "./media.js";
+export type { AcpPromptContentInput, LoadedMediaAttachment } from "./media.js";
 export {
   ActivityDaySchema,
   ActivityEventSchema,
@@ -924,6 +943,9 @@ export type {
 export {
   EvalRunResultSchema,
   EvalTraceEventSchema,
+  MediaAttachmentKindSchema,
+  MediaAttachmentSchema,
+  MediaAttachmentSourceSchema,
   SessionPermissionModeSchema,
   TransientSessionAnchorSchema,
   TransientSessionContextChipSchema,
@@ -945,6 +967,9 @@ export type {
   TransientSessionContextChip,
   TransientSessionData,
   MessageChunk,
+  MediaAttachment,
+  MediaAttachmentKind,
+  MediaAttachmentSource,
   EvalTraceEvent,
   EvalRunResult,
   ChatMessage,

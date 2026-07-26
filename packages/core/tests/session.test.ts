@@ -108,6 +108,33 @@ describe("Session", () => {
     expect(loaded.agentName).toBe("test");
   });
 
+  it("persists canonical attachment metadata with user messages", () => {
+    const session = createSession("media", "swarmx");
+    savedIds.push(session.id);
+    session.messages.push({
+      role: "user",
+      content: "Review this diagram",
+      kind: "message",
+      attachments: [
+        {
+          id: "diagram",
+          name: "diagram.png",
+          kind: "image",
+          mimeType: "image/png",
+          sizeBytes: 42,
+          uri: "file:///managed/diagram.png",
+          source: "user",
+        },
+      ],
+    });
+
+    saveSession(session);
+
+    expect(loadSession(session.id)?.messages[0]?.attachments).toEqual(
+      session.messages[0]?.attachments,
+    );
+  });
+
   it("lists all sessions", () => {
     const s1 = createSession("a", "swarmx");
     const s2 = createSession("b", "claude_code");

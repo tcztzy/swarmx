@@ -1,6 +1,7 @@
 import OpenAI from "openai";
 import { describe, expect, it, vi } from "vitest";
 import { RequestCancelledError, cancelAcpRequest, withAcpRequest } from "../src/acp.js";
+import type { AcpPromptInput } from "../src/acp.js";
 import { Agent, HookRef } from "../src/agent.js";
 import { McpManager, localToolResult } from "../src/mcp.js";
 import type { LocalToolCallContext, McpConnectionResult } from "../src/mcp.js";
@@ -174,7 +175,7 @@ describe("Agent", () => {
             clearEnv?: boolean;
             preferredMode?: string;
           };
-          prompt: string;
+          prompt: AcpPromptInput;
         }
       | undefined;
     const streamed: MessageChunk[] = [];
@@ -236,7 +237,9 @@ describe("Agent", () => {
         clearEnv: true,
         preferredMode: "plan",
       },
-      prompt: "Agent instructions:\nPlan with evidence.\n\nUser request:\nlatest request",
+      prompt: {
+        text: "Agent instructions:\nPlan with evidence.\n\nUser request:\nlatest request",
+      },
     });
     expect(agent.model).toBeUndefined();
     expect(

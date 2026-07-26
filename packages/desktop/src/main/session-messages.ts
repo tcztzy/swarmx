@@ -7,7 +7,13 @@ export function sessionChatMessages(session: SessionData | null): ChatMessage[] 
   return session.messages.flatMap((message): ChatMessage[] => {
     if (message.kind !== "message") return [];
     if (!isChatRole(message.role)) return [];
-    return [{ role: message.role, content: message.content }];
+    return [
+      {
+        role: message.role,
+        content: message.content,
+        ...(message.attachments?.length ? { attachments: message.attachments } : {}),
+      },
+    ];
   });
 }
 

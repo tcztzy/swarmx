@@ -58,6 +58,15 @@ interface MessageChunk {
   structuredContent?: unknown;
   swarmEvent?: string;
   toolName?: string;
+  attachments?: Array<{
+    id: string;
+    name: string;
+    kind: "image" | "pdf" | "audio" | "video" | "text" | "file";
+    mimeType: string;
+    sizeBytes: number;
+    uri: string;
+    source: "user" | "agent" | "tool";
+  }>;
 }
 
 interface SessionData {
@@ -250,6 +259,73 @@ describe("App user workflow", () => {
     reply.resolve({ success: true, messages: [] });
     await screen.findByRole("button", { name: "Send message" });
   }, 15_000);
+
+  it("sends attachment-only turns and previews them in the Codex-style right workspace", async () => {
+    const attachment = {
+      id: "notes",
+      name: "notes.md",
+      kind: "text" as const,
+      mimeType: "text/markdown",
+      sizeBytes: 8,
+      uri: "file:///managed/notes.md",
+      source: "user" as const,
+    };
+    const api = createDesktopApiMock({
+      selectMediaAttachments: vi.fn(async () => [attachment]),
+      previewMediaAttachment: vi.fn(async () => ({
+        status: "available" as const,
+        attachment,
+        text: "# Notes\n",
+      })),
+    });
+    const user = userEvent.setup();
+    await renderApp(api);
+
+    await user.click(screen.getByRole("button", { name: "Add context" }));
+    await user.click(screen.getByRole("button", { name: "Files and photos" }));
+    const previewTrigger = await screen.findByRole("button", { name: "Preview notes.md" });
+    await user.click(previewTrigger);
+
+    expect(await screen.findByRole("complementary", { name: "Preview notes.md" })).toBeTruthy();
+    expect(screen.getByText("# Notes")).toBeTruthy();
+    expect(api.previewMediaAttachment).toHaveBeenCalledWith(attachment);
+
+    const separator = screen.getByRole("separator", { name: "Resize right panel" });
+    const body = separator.closest(".runtime__body") as HTMLElement;
+    vi.spyOn(body, "getBoundingClientRect").mockReturnValue({
+      bottom: 720,
+      height: 720,
+      left: 0,
+      right: 1000,
+      top: 0,
+      width: 1000,
+      x: 0,
+      y: 0,
+      toJSON: () => undefined,
+    });
+    fireEvent.keyDown(separator, { key: "ArrowLeft" });
+    await waitFor(() => expect(separator.getAttribute("aria-valuenow")).toBe("524"));
+
+    await user.keyboard("{Escape}");
+    await waitFor(() =>
+      expect(screen.queryByRole("complementary", { name: "Preview notes.md" })).toBeNull(),
+    );
+    expect(document.activeElement).toBe(previewTrigger);
+    await user.click(screen.getByRole("button", { name: "Send message" }));
+
+    await waitFor(() =>
+      expect(api.sendMessage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          userText: "",
+          attachments: [attachment],
+        }),
+      ),
+    );
+
+    await user.click(await screen.findByRole("button", { name: "Edit message" }));
+    const resend = screen.getByRole("button", { name: "Save & resend" });
+    expect(resend.hasAttribute("disabled")).toBe(false);
+  });
 
   it("V461 persists a conversation permission choice for new and existing tasks", async () => {
     const api = createDesktopApiMock();
@@ -5558,6 +5634,15 @@ function createDefaultDesktopApiMock() {
     onTerminalData: vi.fn(() => () => undefined),
     onTerminalExit: vi.fn(() => () => undefined),
     selectFilesAndFolders: vi.fn(async () => []),
+    selectMediaAttachments: vi.fn(async () => []),
+    importMediaAttachments: vi.fn(async () => []),
+    previewMediaAttachment: vi.fn(async (attachment) => ({
+      status: "unavailable" as const,
+      attachment,
+      error: "Preview unavailable in test.",
+    })),
+    openMediaAttachment: vi.fn(async () => ({ opened: true })),
+    revealMediaAttachment: vi.fn(async () => ({ revealed: true })),
     refreshModelCatalog: vi.fn(async () => null),
     addManualModel: vi.fn(async () => null),
     removeManualModel: vi.fn(async () => null),

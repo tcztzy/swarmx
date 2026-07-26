@@ -7,6 +7,11 @@ An extreme simple framework exploring ergonomic, lightweight multi-agent orchest
 2. MCP servers support
 3. OpenAI-compatible streaming-server
 4. Workflow import/export in JSON format
+5. Typed multimedia attachments with a Codex-style right-workspace preview
+
+See [Multimedia attachments and previews](./multimedia.md) for the Desktop
+workflow, ACP capability negotiation, provider matrix, limits, and security
+boundary.
 
 ![asciicast](./demo.svg)
 

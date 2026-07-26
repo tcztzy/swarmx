@@ -15,19 +15,32 @@ function ruleBody(selector: string, occurrence = 0): string {
 }
 
 describe("workspace panel layout contracts", () => {
-  it("keeps the primary workspace and right panel at equal width", () => {
+  it("defaults to an equal split while allowing the right panel to resize", () => {
     const body = ruleBody(".runtime__body--right-panel");
     const panel = ruleBody(".panel-transition--right");
 
-    expect(body).toMatch(/padding-right:\s*50%/);
-    expect(panel).toMatch(/width:\s*50%/);
+    expect(body).toMatch(/padding-right:\s*var\(--right-panel-width,\s*50%\)/);
+    expect(panel).toMatch(/width:\s*var\(--right-panel-width,\s*50%\)/);
     expect(panel).toMatch(/position:\s*absolute/);
-    expect(styles).toMatch(/\.runtime--right-panel > \.composer-dock,[\s\S]*?width:\s*50%/);
+    expect(styles).toMatch(
+      /\.runtime--right-panel > \.composer-dock,[\s\S]*?width:\s*calc\(100% - var\(--right-panel-width,\s*50%\)\)/,
+    );
+    expect(ruleBody(".right-panel-resize")).toMatch(/cursor:\s*col-resize/);
   });
 
   it("does not fall back to a narrow fixed-width drawer", () => {
     expect(styles).not.toMatch(/\.panel-transition--right\s*\{[^}]*width:\s*min\(310px/s);
     expect(styles).not.toMatch(/\.runtime__body--right-panel\s*\{[^}]*minmax\(260px,\s*310px\)/s);
+  });
+
+  it("uses an overlay instead of squeezing the conversation at narrow widths", () => {
+    const narrow = styles.slice(styles.lastIndexOf("@media (max-width: 680px)"));
+
+    expect(narrow).toMatch(/\.runtime__body--right-panel\s*\{[^}]*padding-right:\s*0[^}]*\}/s);
+    expect(narrow).toMatch(
+      /\.panel-transition--right\s*\{[^}]*width:\s*min\(100%,\s*var\(--right-panel-width,\s*100%\)\)/s,
+    );
+    expect(narrow).toMatch(/\.runtime--right-panel > \.composer-dock,[\s\S]*?width:\s*100%/);
   });
 
   it("centers the compact prompt set in two wider columns", () => {

@@ -43,7 +43,12 @@ import {
   Clock3,
   Code2,
   Download,
+  File,
+  FileAudio,
+  FileImage,
   FileSearch,
+  FileText,
+  FileVideo,
   Folder,
   FolderOpen,
   Gauge,
@@ -88,6 +93,7 @@ import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useSta
 import { createPortal } from "react-dom";
 import useSWR, { useSWRConfig } from "swr";
 import type {
+  DesktopMediaAttachment,
   DesktopPermissionStatus,
   DesktopUpdateState,
   ExtensionCapabilityInventory,
@@ -142,6 +148,7 @@ import {
 import { ExtensionWorkspace } from "./extension-workspace.js";
 import { HARNESSES, type HarnessOption } from "./harness-presentation.js";
 import { RuntimeBottomPanel } from "./internal-terminal.js";
+import { MediaPreviewPanel } from "./media-preview.js";
 import { MessageContent, MessageCopyButton } from "./message-content.js";
 import { type ActivityProfileSummary, ProfileWorkspace } from "./profile-workspace.js";
 import {
@@ -610,6 +617,7 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
   const [selectedDiscoveredSession, setSelectedDiscoveredSession] =
     useState<DiscoveredSession | null>(null);
   const [input, setInput] = useState("");
+  const [attachments, setAttachments] = useState<DesktopMediaAttachment[]>([]);
   const [loading, setLoading] = useState(false);
   const [activeRunStartedAt, setActiveRunStartedAt] = useState<number | null>(null);
   const [runState, setRunState] = useState<"idle" | "running" | "stopping">("idle");
@@ -682,6 +690,8 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
   const [pinnedSummaryOpen, setPinnedSummaryOpen] = useState(false);
   const [bottomPanelOpen, setBottomPanelOpen] = useState(false);
   const [rightPanelOpen, setRightPanelOpen] = useState(false);
+  const [previewAttachment, setPreviewAttachment] = useState<DesktopMediaAttachment | null>(null);
+  const [rightPanelWidth, setRightPanelWidth] = useState<number | null>(null);
   const [workflowPanelOpen, setWorkflowPanelOpen] = useState(false);
   const [doctorPanelOpen, setDoctorPanelOpen] = useState(false);
   const [doctorPanelMode, setDoctorPanelMode] = useState<DoctorPanelMode>("doctor");
@@ -701,15 +711,22 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
   const [workflowImportStatus, setWorkflowImportStatus] = useState<WorkflowImportStatus | null>(
     null,
   );
-  const activeRightPanelKind = doctorPanelOpen ? "doctor" : rightPanelOpen ? "tools" : null;
-  const [renderedRightPanelKind, setRenderedRightPanelKind] = useState<"doctor" | "tools">(
-    activeRightPanelKind ?? "tools",
-  );
+  const activeRightPanelKind = previewAttachment
+    ? "media"
+    : doctorPanelOpen
+      ? "doctor"
+      : rightPanelOpen
+        ? "tools"
+        : null;
+  const [renderedRightPanelKind, setRenderedRightPanelKind] = useState<
+    "doctor" | "tools" | "media"
+  >(activeRightPanelKind ?? "tools");
   const displayedRightPanelKind = activeRightPanelKind ?? renderedRightPanelKind;
   const pinnedSummaryMounted = usePanelPresence(pinnedSummaryOpen);
   const rightPanelMounted = usePanelPresence(activeRightPanelKind !== null);
   const chatRef = useRef<HTMLDivElement>(null);
   const composerRef = useRef<HTMLTextAreaElement>(null);
+  const previewReturnFocusRef = useRef<HTMLElement | null>(null);
   const sideComposerRef = useRef<HTMLTextAreaElement>(null);
   const sideChatScrollRef = useRef<HTMLDivElement>(null);
   const sideChatStateRef = useRef<SideChatParentState | null>(null);
@@ -890,6 +907,23 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
   useEffect(() => {
     if (activeRightPanelKind) setRenderedRightPanelKind(activeRightPanelKind);
   }, [activeRightPanelKind]);
+
+  const openMediaPreview = useCallback((attachment: DesktopMediaAttachment) => {
+    previewReturnFocusRef.current =
+      document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    setDoctorPanelOpen(false);
+    setRightPanelOpen(false);
+    setPreviewAttachment(attachment);
+  }, []);
+
+  const closeMediaPreview = useCallback(() => {
+    const returnTarget = previewReturnFocusRef.current;
+    setPreviewAttachment(null);
+    returnTarget?.focus();
+    window.requestAnimationFrame(() => {
+      if (document.activeElement !== returnTarget) returnTarget?.focus();
+    });
+  }, []);
 
   const {
     data: sessions = [],
@@ -1753,6 +1787,8 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
     (project: ProjectData | null = selectedProject) => {
       if (project) setActiveProjectId(project.id);
       setInput("");
+      setAttachments([]);
+      setPreviewAttachment(null);
       setSidebarQuery("");
       setSidebarSearchOpen(false);
       setProjectError(null);
@@ -2792,18 +2828,26 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
       textOverride?: string,
       editMessageIndex?: number,
       editExpectedMessages?: MessageChunk[],
+      attachmentOverride?: DesktopMediaAttachment[],
     ) => {
       const text = (typeof textOverride === "string" ? textOverride : input).trim();
       const editingExistingMessage = editMessageIndex !== undefined;
-      const sidePrompt = editingExistingMessage ? null : parseSideChatCommand(text);
+      let requestAttachments = editingExistingMessage
+        ? (currentSession?.messages[editMessageIndex]?.attachments ?? [])
+        : (attachmentOverride ?? attachments);
+      const sidePrompt =
+        editingExistingMessage || requestAttachments.length > 0 ? null : parseSideChatCommand(text);
       if (sidePrompt !== null) {
         setInput("");
         const chat = await createSideChat();
         if (chat && sidePrompt) await sendSideChatMessage(sidePrompt, chat);
         return;
       }
-      if (!text || loading) return;
-      const slashCommand = editingExistingMessage ? null : parseDesktopSlashCommand(text);
+      if ((!text && requestAttachments.length === 0) || loading) return;
+      const slashCommand =
+        editingExistingMessage || requestAttachments.length > 0
+          ? null
+          : parseDesktopSlashCommand(text);
       if (slashCommand?.kind === "error") {
         setComposerError(slashCommand.message);
         return;
@@ -2826,7 +2870,10 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
         await openDoctorPanel({ mode: "doctor", harnessId: activeRunHarnessId });
         return;
       }
-      if (!editingExistingMessage) setInput("");
+      if (!editingExistingMessage) {
+        setInput("");
+        setAttachments([]);
+      }
       setComposerError(null);
       if (editingExistingMessage) {
         setMessageEdit((current) =>
@@ -2859,6 +2906,7 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
           content: text,
           kind: "message",
           createdAt: new Date().toISOString(),
+          ...(requestAttachments.length > 0 ? { attachments: requestAttachments } : {}),
         };
 
         let session: SessionData;
@@ -2890,6 +2938,7 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
           sessionForError = editedSession;
           pendingSession = editedSession;
           updatedMessages = editedSession.messages;
+          requestAttachments = editedSession.messages[editMessageIndex]?.attachments ?? [];
           setVisibleSession(editedSession);
           setMessageEdit(null);
         } else {
@@ -2908,11 +2957,13 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
           agentComposition?: AgentCompositionPayload;
           swarmConfig?: SwarmConfig;
           cwd?: string;
+          attachments?: DesktopMediaAttachment[];
         } = {
           requestId,
           sessionId: session.id,
           harnessId: activeExtensionAgent?.harnessId ?? selectedHarness,
           userText: text,
+          ...(requestAttachments.length > 0 ? { attachments: requestAttachments } : {}),
           ...(session.cwd || composerWorkspaceRoot
             ? { cwd: session.cwd || composerWorkspaceRoot }
             : {}),
@@ -2962,7 +3013,10 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
           const updated = persisted ?? localUpdated;
           if (!persisted) await api.saveSession(updated);
           setVisibleSession(updated);
-          requestAutomaticSessionTitle(updated, text);
+          requestAutomaticSessionTitle(
+            updated,
+            text || requestAttachments.map((attachment) => attachment.name).join(", "),
+          );
         } else if (result.canceled) {
           const canceledMessages = requestStartedAt
             ? withRequestTiming(streamedMessages, requestStartedAt, requestEndedAt)
@@ -3049,6 +3103,7 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
     },
     [
       input,
+      attachments,
       loading,
       createSideChat,
       sendSideChatMessage,
@@ -3315,9 +3370,13 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
                   <PanelBottom data-icon aria-hidden="true" />
                 </Button>
                 <Button
-                  variant={rightPanelOpen || doctorPanelOpen ? "secondary" : "ghost"}
+                  variant={activeRightPanelKind ? "secondary" : "ghost"}
                   size="icon"
                   onClick={() => {
+                    if (previewAttachment) {
+                      closeMediaPreview();
+                      return;
+                    }
                     if (doctorPanelOpen) {
                       setDoctorPanelOpen(false);
                       return;
@@ -3325,13 +3384,9 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
                     if (!rightPanelOpen && sideChatPaneOpen) void hideSideChats();
                     setRightPanelOpen((open) => !open);
                   }}
-                  title={
-                    rightPanelOpen || doctorPanelOpen ? "Hide right panel" : "Show right panel"
-                  }
-                  aria-label={
-                    rightPanelOpen || doctorPanelOpen ? "Hide right panel" : "Show right panel"
-                  }
-                  aria-pressed={rightPanelOpen || doctorPanelOpen}
+                  title={activeRightPanelKind ? "Hide right panel" : "Show right panel"}
+                  aria-label={activeRightPanelKind ? "Hide right panel" : "Show right panel"}
+                  aria-pressed={Boolean(activeRightPanelKind)}
                 >
                   <PanelRight data-icon aria-hidden="true" />
                 </Button>
@@ -4128,7 +4183,10 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
                             ? undefined
                             : (messageIndex) => void continueInNewChat(messageIndex)
                         }
-                        onRetry={(userText) => void sendMessage(userText)}
+                        onRetry={(userText, retryAttachments) =>
+                          void sendMessage(userText, undefined, undefined, retryAttachments)
+                        }
+                        onPreviewAttachment={openMediaPreview}
                         onChangeModel={
                           activeWorkflowConfig || activeExtensionAgent
                             ? undefined
@@ -4154,6 +4212,41 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
               aria-hidden={activeRightPanelKind === null}
               inert={activeRightPanelKind === null}
             >
+              <div
+                className="right-panel-resize"
+                role="separator"
+                tabIndex={0}
+                aria-label="Resize right panel"
+                aria-orientation="vertical"
+                aria-valuenow={rightPanelWidth ?? undefined}
+                onPointerDown={(event) => {
+                  event.currentTarget.setPointerCapture(event.pointerId);
+                }}
+                onPointerMove={(event) => {
+                  if (!event.currentTarget.hasPointerCapture(event.pointerId)) return;
+                  const body = event.currentTarget.closest<HTMLElement>(".runtime__body");
+                  if (!body) return;
+                  const bounds = body.getBoundingClientRect();
+                  setRightPanelWidth(
+                    clampRightPanelWidth(bounds.width, bounds.right - event.clientX),
+                  );
+                }}
+                onPointerUp={(event) => {
+                  if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+                    event.currentTarget.releasePointerCapture(event.pointerId);
+                  }
+                }}
+                onKeyDown={(event) => {
+                  if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+                  event.preventDefault();
+                  const body = event.currentTarget.closest<HTMLElement>(".runtime__body");
+                  if (!body) return;
+                  const bodyWidth = body.getBoundingClientRect().width;
+                  const current = rightPanelWidth ?? Math.round(bodyWidth / 2);
+                  const delta = event.key === "ArrowLeft" ? 24 : -24;
+                  setRightPanelWidth(clampRightPanelWidth(bodyWidth, current + delta));
+                }}
+              />
               {displayedRightPanelKind === "doctor" ? (
                 <DoctorPanel
                   mode={doctorPanelMode}
@@ -4184,6 +4277,12 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
                     void checkDoctorHarnessVersion(harnessId, true);
                   }}
                   onClose={() => setDoctorPanelOpen(false)}
+                />
+              ) : displayedRightPanelKind === "media" && previewAttachment ? (
+                <MediaPreviewPanel
+                  api={api}
+                  attachment={previewAttachment}
+                  onClose={closeMediaPreview}
                 />
               ) : (
                 <WorkspacePanel
@@ -4412,7 +4511,9 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
                   sendDisabled={
                     runState === "stopping" ||
                     (runState === "idle" &&
-                      (!input.trim() || manualCompositionNeedsModel || acpHistoryReadOnly))
+                      ((!input.trim() && attachments.length === 0) ||
+                        manualCompositionNeedsModel ||
+                        acpHistoryReadOnly))
                   }
                   sendTitle={
                     acpHistoryReadOnly
@@ -4426,6 +4527,11 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
                   mentionServers={composerMentionServers}
                   completeMention={api.lspComplete}
                   selectFilesAndFolders={api.selectFilesAndFolders}
+                  selectMediaAttachments={api.selectMediaAttachments}
+                  importMediaAttachments={api.importMediaAttachments}
+                  attachments={attachments}
+                  onAttachmentsChange={setAttachments}
+                  onPreviewAttachment={openMediaPreview}
                   onContextError={(error) => setComposerError(errorMessage(error))}
                 >
                   <ConversationPermissionPicker
@@ -7834,6 +7940,7 @@ function RunEvent({
   onChangeModel,
   onContinueInNewChat,
   onEdit,
+  onPreviewAttachment,
   onRetry,
 }: {
   actionsDisabled?: boolean;
@@ -7843,6 +7950,7 @@ function RunEvent({
   onChangeModel?: () => void;
   onContinueInNewChat?: () => void;
   onEdit?: () => void;
+  onPreviewAttachment?: (attachment: DesktopMediaAttachment) => void;
   onRetry?: () => void;
 }) {
   const providerNotice = providerErrorNotice(msg);
@@ -7913,6 +8021,9 @@ function RunEvent({
             <div className="run-event__content">
               <MessageContent kind={msg.kind} content={content} />
             </div>
+            {msg.attachments && msg.attachments.length > 0 && (
+              <MessageAttachments attachments={msg.attachments} onPreview={onPreviewAttachment} />
+            )}
             {showTraceCard && <TraceCard event={renderEvent} />}
           </div>
           {(showMessageCopy || showMessageEdit || showContinueInNewChat) && (
@@ -7956,6 +8067,55 @@ function RunEvent({
   );
 }
 
+function MessageAttachments({
+  attachments,
+  onPreview,
+}: {
+  attachments: DesktopMediaAttachment[];
+  onPreview?: (attachment: DesktopMediaAttachment) => void;
+}) {
+  return (
+    <div className="message-attachments" aria-label="Message attachments">
+      {attachments.map((attachment) => {
+        const Icon =
+          attachment.kind === "image"
+            ? FileImage
+            : attachment.kind === "audio"
+              ? FileAudio
+              : attachment.kind === "video"
+                ? FileVideo
+                : attachment.kind === "pdf" || attachment.kind === "text"
+                  ? FileText
+                  : File;
+        return (
+          <button
+            key={attachment.id}
+            type="button"
+            className="message-attachment"
+            onClick={() => onPreview?.(attachment)}
+            disabled={!onPreview}
+            aria-label={`Preview ${attachment.name}`}
+          >
+            <Icon aria-hidden="true" />
+            <span>
+              <strong>{attachment.name}</strong>
+              <small>
+                {attachment.kind} · {formatMediaBytes(attachment.sizeBytes)}
+              </small>
+            </span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function formatMediaBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${Math.ceil(bytes / 1024)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(bytes < 10 * 1024 * 1024 ? 1 : 0)} MB`;
+}
+
 function MessageTimestamp({ createdAt }: { createdAt: string }) {
   const label = formatMessageTimestamp(createdAt);
   const fullLabel = formatFullMessageTimestamp(createdAt);
@@ -7977,6 +8137,7 @@ function EditableUserMessage({
   actionsDisabled,
   draft,
   error,
+  hasAttachments,
   onCancel,
   onChange,
   onSubmit,
@@ -7984,13 +8145,14 @@ function EditableUserMessage({
   actionsDisabled: boolean;
   draft: string;
   error: string | null;
+  hasAttachments: boolean;
   onCancel: () => void;
   onChange: (draft: string) => void;
   onSubmit: () => void;
 }) {
   const noteId = useId();
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const canSubmit = !actionsDisabled && draft.trim().length > 0;
+  const canSubmit = !actionsDisabled && (draft.trim().length > 0 || hasAttachments);
 
   useEffect(() => {
     textareaRef.current?.focus();
@@ -8108,6 +8270,7 @@ function ConversationHistory({
   onContinue,
   onContinueInNewChat,
   onEditDraftChange,
+  onPreviewAttachment,
   onRetry,
   onSubmitEdit,
   running,
@@ -8122,7 +8285,8 @@ function ConversationHistory({
   onContinue?: () => void;
   onContinueInNewChat?: (messageIndex: number) => void;
   onEditDraftChange: (draft: string) => void;
-  onRetry: (userText: string) => void;
+  onPreviewAttachment?: (attachment: DesktopMediaAttachment) => void;
+  onRetry: (userText: string, attachments?: DesktopMediaAttachment[]) => void;
   onSubmitEdit: (messageIndex: number, content: string) => void;
   running: boolean;
 }) {
@@ -8158,6 +8322,7 @@ function ConversationHistory({
         onContinue={onContinue}
         onContinueInNewChat={onContinueInNewChat}
         onEditDraftChange={onEditDraftChange}
+        onPreviewAttachment={onPreviewAttachment}
         onRetry={onRetry}
         onSubmitEdit={onSubmitEdit}
         turn={visibleTurn}
@@ -8179,6 +8344,7 @@ function ConversationTurnView({
   onContinue,
   onContinueInNewChat,
   onEditDraftChange,
+  onPreviewAttachment,
   onRetry,
   onSubmitEdit,
   turn,
@@ -8195,12 +8361,15 @@ function ConversationTurnView({
   onContinue?: () => void;
   onContinueInNewChat?: (messageIndex: number) => void;
   onEditDraftChange: (draft: string) => void;
-  onRetry: (userText: string) => void;
+  onPreviewAttachment?: (attachment: DesktopMediaAttachment) => void;
+  onRetry: (userText: string, attachments?: DesktopMediaAttachment[]) => void;
   onSubmitEdit: (messageIndex: number, content: string) => void;
   turn: ConversationTurn;
 }) {
   const hasWork = active || interrupted || turn.workMessages.length > 0;
-  const retryText = turn.userMessage?.content;
+  const retryText = turn.userMessage?.content ?? "";
+  const retryAttachments = turn.userMessage?.attachments;
+  const canRetry = Boolean(retryText || retryAttachments?.length);
   const turnStatus = active ? "running" : interrupted ? "interrupted" : "completed";
   const editing =
     turn.userMessageIndex !== null && messageEdit?.messageIndex === turn.userMessageIndex;
@@ -8214,6 +8383,7 @@ function ConversationTurnView({
             actionsDisabled={actionsDisabled}
             draft={messageEdit.draft}
             error={messageEdit.error}
+            hasAttachments={Boolean(turn.userMessage.attachments?.length)}
             onCancel={onCancelEdit}
             onChange={onEditDraftChange}
             onSubmit={() => onSubmitEdit(turn.userMessageIndex as number, messageEdit.draft)}
@@ -8223,6 +8393,7 @@ function ConversationTurnView({
             actionsDisabled={actionsDisabled}
             createdAt={userCreatedAt}
             msg={turn.userMessage}
+            onPreviewAttachment={onPreviewAttachment}
             onEdit={
               latest && onBeginEdit && turn.userMessageIndex !== null
                 ? () =>
@@ -8253,7 +8424,8 @@ function ConversationTurnView({
               ? () => onContinueInNewChat(turn.finalMessageIndex as number)
               : undefined
           }
-          onRetry={retryText ? () => onRetry(retryText) : undefined}
+          onPreviewAttachment={onPreviewAttachment}
+          onRetry={canRetry ? () => onRetry(retryText, retryAttachments) : undefined}
         />
       )}
     </section>
@@ -10219,4 +10391,9 @@ function prefersReducedMotion(): boolean {
     typeof window.matchMedia === "function" &&
     window.matchMedia("(prefers-reduced-motion: reduce)").matches
   );
+}
+
+function clampRightPanelWidth(containerWidth: number, desiredWidth: number): number {
+  const maximum = Math.max(320, Math.min(containerWidth * 0.7, containerWidth - 320));
+  return Math.round(Math.min(maximum, Math.max(320, desiredWidth)));
 }

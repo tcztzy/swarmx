@@ -17,6 +17,8 @@ import type {
   SessionNotification,
   SessionUpdate,
 } from "@agentclientprotocol/sdk";
+import { buildAcpPromptContent } from "./media.js";
+import type { MediaAttachment } from "./types.js";
 import { SWARMX_VERSION } from "./version.js";
 
 let _acp: typeof import("@agentclientprotocol/sdk") | null = null;
@@ -38,6 +40,11 @@ export class RequestCancelledError extends Error {
     super(requestId ? `Request "${requestId}" was cancelled.` : "Request was cancelled.");
     this.name = "RequestCancelledError";
   }
+}
+
+export interface AcpPromptInput {
+  text: string;
+  attachments?: readonly MediaAttachment[];
 }
 
 /**
@@ -254,7 +261,7 @@ export class AcpClient {
 
   async prompt(
     opts: AcpClientOptions,
-    userText: string,
+    input: string | AcpPromptInput,
     swarmConfig?: unknown,
     sessionId?: string,
     onChunk?: (chunk: MessageChunk) => void,
@@ -276,6 +283,7 @@ export class AcpClient {
         clientInfo: { name: "swarmx", title: "SwarmX", version: SWARMX_VERSION },
       });
       this.throwIfCancelled();
+      const promptInput = typeof input === "string" ? { text: input } : input;
 
       let sid: string;
       let advertisedModels: {
@@ -326,15 +334,14 @@ export class AcpClient {
         meta.swarmConfig = swarmConfig;
       }
 
-      const promptBlock: PromptRequest["prompt"][number] = {
-        type: "text",
-        text: userText,
-        ...(Object.keys(meta).length > 0 ? { _meta: meta } : {}),
-      };
-
       const promptReq: PromptRequest = {
         sessionId: sid,
-        prompt: [promptBlock],
+        prompt: await buildAcpPromptContent({
+          text: promptInput.text,
+          attachments: promptInput.attachments,
+          promptCapabilities: initialized.agentCapabilities?.promptCapabilities,
+          meta,
+        }),
       };
 
       this.promptActive = true;

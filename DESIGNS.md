@@ -240,6 +240,19 @@ Five message types for rendering agent responses:
 | `ToolCall` | Card with collapsible | Wrench + badge | Expanded |
 | `ToolResult` | Muted container | FileText | — |
 
+User and agent message chunks may also carry canonical typed attachment
+metadata (`image`, `pdf`, `audio`, `video`, `text`, or `file`). Attachment
+bytes live in Desktop's content-addressed managed media store, not in Session
+JSONL. The main process validates managed paths before send/save/preview; the
+renderer receives only metadata and a bounded `swarmx-media` preview URL.
+
+ACP sends capability-gated image/audio/embedded-resource blocks and otherwise
+retains a `resource_link`; native providers map only their supported input
+blocks and emit explicit fallback text for unsupported modalities. Desktop
+opens conversation assets in the resizable right workspace so context stays
+visible. The complete matrix and limits are documented in
+[Multimedia attachments and previews](docs/multimedia.md).
+
 ### Session Persistence
 
 Canonical Sessions are append-only event logs:
