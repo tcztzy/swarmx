@@ -9,6 +9,9 @@ import {
   type SessionData,
   SessionDataSchema,
   type SessionPermissionMode,
+  type TransientSessionContextChip,
+  type TransientSessionData,
+  TransientSessionDataSchema,
 } from "./types.js";
 
 const SESSION_SCHEMA_VERSION = 1;
@@ -77,6 +80,9 @@ interface MessagesReplacedEvent {
   type: "messages_replaced";
   timestamp: string;
   messages: MessageChunk[];
+  reason?: "edit_last_user_message";
+  replacedFromIndex?: number;
+  replacedMessageCount?: number;
 }
 
 interface SessionUpdatedEvent {
@@ -180,6 +186,31 @@ export interface SessionProjectContext {
   projectId?: string;
   cwd?: string;
   permissionMode?: SessionPermissionMode;
+}
+
+export interface EditSessionUserMessageInput {
+  id: string;
+  messageIndex: number;
+  expectedMessages: MessageChunk[];
+  content: string;
+}
+
+export interface ForkSessionInput {
+  id: string;
+  throughMessageIndex: number;
+  expectedMessages: MessageChunk[];
+}
+
+export interface CreateTransientSessionForkInput {
+  id: string;
+  throughMessageIndex: number;
+  expectedMessages: MessageChunk[];
+  title?: string;
+}
+
+export interface PromoteTransientSessionForkInput {
+  transient: TransientSessionData;
+  title?: string;
 }
 
 export function createSession(
@@ -429,8 +460,13 @@ export function appendMessages(id: string, messages: MessageChunk[]): boolean {
     if (!fs.existsSync(paths.jsonl)) return false;
 
     const current = readSessionLog(paths.jsonl, { rejectTornTail: true });
-    const parsedMessages = messages.map((message) => MessageChunkSchema.parse(message));
     const now = new Date().toISOString();
+    const parsedMessages = messages.map((message) =>
+      MessageChunkSchema.parse({
+        ...message,
+        createdAt: message.createdAt ?? now,
+      }),
+    );
     const next = SessionDataSchema.parse({
       ...current,
       messages: [...current.messages, ...parsedMessages],
@@ -445,6 +481,305 @@ export function appendMessages(id: string, messages: MessageChunk[]): boolean {
     indexSession(next, paths.jsonl, "jsonl", sessionsDir);
     return true;
   });
+}
+
+export function editSessionUserMessage(input: EditSessionUserMessageInput): SessionData | null {
+  const sessionsDir = ensureSessionsDir();
+  const paths = sessionPaths(input.id, sessionsDir);
+  return withSessionLock(paths.jsonl, () => {
+    if (!fs.existsSync(paths.jsonl) && fs.existsSync(paths.json)) {
+      const migration = migrateLegacySessionFile(paths.json, sessionsDir);
+      if (migration.status === "failed") {
+        throw new Error(migration.error ?? `Failed to migrate legacy Session ${input.id}.`);
+      }
+    }
+    if (!fs.existsSync(paths.jsonl)) return null;
+
+    const current = readSessionLog(paths.jsonl, { rejectTornTail: true });
+    const expectedMessages = input.expectedMessages.map((message) =>
+      MessageChunkSchema.parse(message),
+    );
+    if (!sameValue(current.messages, expectedMessages)) {
+      throw new Error("Session history changed before the message edit could be saved.");
+    }
+    if (
+      !Number.isInteger(input.messageIndex) ||
+      input.messageIndex < 0 ||
+      input.messageIndex >= current.messages.length
+    ) {
+      throw new Error("Edited message index is outside the current Session history.");
+    }
+
+    const message = current.messages[input.messageIndex];
+    if (message?.role !== "user" || message.kind !== "message") {
+      throw new Error("Only user messages can be edited.");
+    }
+    if (input.messageIndex !== lastUserMessageIndex(current.messages)) {
+      throw new Error("Only the latest user message can be edited.");
+    }
+    const content = input.content.trim();
+    if (!content) throw new Error("Edited message content cannot be empty.");
+
+    const now = new Date().toISOString();
+    const replacedMessageCount = current.messages.length - input.messageIndex;
+    const next = SessionDataSchema.parse({
+      ...current,
+      messages: [
+        ...current.messages.slice(0, input.messageIndex),
+        { ...message, content, createdAt: message.createdAt ?? now },
+      ],
+      updatedAt: now,
+    });
+    appendSessionEvents(paths.jsonl, [
+      messagesReplacedEvent(next.messages, now, {
+        reason: "edit_last_user_message",
+        replacedFromIndex: input.messageIndex,
+        replacedMessageCount,
+      }),
+    ]);
+    cacheSession(paths.jsonl, next);
+    indexSession(next, paths.jsonl, "jsonl", sessionsDir);
+    return next;
+  });
+}
+
+export function forkSession(input: ForkSessionInput): SessionData | null {
+  const sessionsDir = ensureSessionsDir();
+  const paths = sessionPaths(input.id, sessionsDir);
+  return withSessionLock(paths.jsonl, () => {
+    if (!fs.existsSync(paths.jsonl) && fs.existsSync(paths.json)) {
+      const migration = migrateLegacySessionFile(paths.json, sessionsDir);
+      if (migration.status === "failed") {
+        throw new Error(migration.error ?? `Failed to migrate legacy Session ${input.id}.`);
+      }
+    }
+    if (!fs.existsSync(paths.jsonl)) return null;
+
+    const current = readSessionLog(paths.jsonl, { rejectTornTail: true });
+    const expectedMessages = input.expectedMessages.map((message) =>
+      MessageChunkSchema.parse(message),
+    );
+    if (!sameValue(current.messages, expectedMessages)) {
+      throw new Error("Session history changed before the new chat could be created.");
+    }
+    if (
+      !Number.isInteger(input.throughMessageIndex) ||
+      input.throughMessageIndex < 0 ||
+      input.throughMessageIndex >= current.messages.length
+    ) {
+      throw new Error("Fork message index is outside the current Session history.");
+    }
+    const checkpoint = current.messages[input.throughMessageIndex];
+    if (checkpoint?.role !== "assistant" || checkpoint.kind !== "message") {
+      throw new Error("A new chat can continue only from a completed assistant message.");
+    }
+
+    const now = new Date().toISOString();
+    const forked = SessionDataSchema.parse({
+      id: uuidv4(),
+      title: continuedSessionTitle(current.title),
+      forkedFrom: {
+        sessionId: current.id,
+        messageIndex: input.throughMessageIndex,
+        createdAt: now,
+      },
+      ...(current.projectId ? { projectId: current.projectId } : {}),
+      ...(current.cwd ? { cwd: current.cwd } : {}),
+      agentName: current.agentName,
+      harness: current.harness,
+      ...(current.model ? { model: current.model } : {}),
+      permissionMode: current.permissionMode,
+      pinned: false,
+      messages: current.messages.slice(0, input.throughMessageIndex + 1),
+      createdAt: now,
+      updatedAt: now,
+    });
+    saveSession(forked);
+    return forked;
+  });
+}
+
+export function createTransientSessionFork(
+  input: CreateTransientSessionForkInput,
+): TransientSessionData | null {
+  const sessionsDir = ensureSessionsDir();
+  const paths = sessionPaths(input.id, sessionsDir);
+  return withSessionLock(paths.jsonl, () => {
+    if (!fs.existsSync(paths.jsonl) && fs.existsSync(paths.json)) {
+      const migration = migrateLegacySessionFile(paths.json, sessionsDir);
+      if (migration.status === "failed") {
+        throw new Error(migration.error ?? `Failed to migrate legacy Session ${input.id}.`);
+      }
+    }
+    if (!fs.existsSync(paths.jsonl)) return null;
+
+    const current = readSessionLog(paths.jsonl, { rejectTornTail: true });
+    const expectedMessages = input.expectedMessages.map((message) =>
+      MessageChunkSchema.parse(message),
+    );
+    if (!sameValue(current.messages, expectedMessages)) {
+      throw new Error("Session history changed before the side chat could be created.");
+    }
+    if (
+      !Number.isInteger(input.throughMessageIndex) ||
+      input.throughMessageIndex < 0 ||
+      input.throughMessageIndex >= current.messages.length
+    ) {
+      throw new Error("Side chat anchor is outside the current Session history.");
+    }
+
+    const now = new Date().toISOString();
+    const anchorMessages = current.messages.slice(0, input.throughMessageIndex + 1);
+    return TransientSessionDataSchema.parse({
+      id: uuidv4(),
+      parentSessionId: current.id,
+      title: input.title?.trim() || nextSideChatTitle(1),
+      anchor: {
+        parentSessionId: current.id,
+        messageIndex: input.throughMessageIndex,
+        messageCount: anchorMessages.length,
+        createdAt: now,
+      },
+      anchorMessages,
+      messages: [],
+      draft: "",
+      attachments: [],
+      contextChips: [],
+      agentName: current.agentName,
+      harness: current.harness,
+      ...(current.model ? { model: current.model } : {}),
+      ...(current.projectId ? { projectId: current.projectId } : {}),
+      ...(current.cwd ? { cwd: current.cwd } : {}),
+      permissionMode: current.permissionMode,
+      runState: "idle",
+      unread: false,
+      createdAt: now,
+      updatedAt: now,
+    });
+  });
+}
+
+export function appendTransientSessionMessages(
+  transient: TransientSessionData,
+  messages: MessageChunk[],
+  options: {
+    contextChips?: TransientSessionContextChip[];
+    unread?: boolean;
+  } = {},
+): TransientSessionData {
+  const current = TransientSessionDataSchema.parse(transient);
+  const now = new Date().toISOString();
+  const parsedMessages = messages.map((message) =>
+    MessageChunkSchema.parse({
+      ...message,
+      createdAt: message.createdAt ?? now,
+    }),
+  );
+  const contextChips = (options.contextChips ?? []).map((chip) => ({
+    id: chip.id,
+    text: chip.text.trim(),
+    createdAt: chip.createdAt,
+  }));
+  const firstUserMessageIndex = parsedMessages.findIndex(
+    (message) => message.role === "user" && message.kind === "message",
+  );
+  if (contextChips.length > 0 && firstUserMessageIndex >= 0) {
+    const message = parsedMessages[firstUserMessageIndex];
+    if (message) {
+      parsedMessages[firstUserMessageIndex] = MessageChunkSchema.parse({
+        ...message,
+        structuredContent: {
+          ...recordValue(message.structuredContent),
+          sideChatContext: contextChips,
+        },
+      });
+    }
+  }
+  return TransientSessionDataSchema.parse({
+    ...current,
+    messages: [...current.messages, ...parsedMessages],
+    contextChips: contextChips.length > 0 ? [] : current.contextChips,
+    unread: options.unread ?? current.unread,
+    updatedAt: now,
+  });
+}
+
+export function editTransientSessionUserMessage(
+  transient: TransientSessionData,
+  messageIndex: number,
+  content: string,
+): TransientSessionData {
+  const current = TransientSessionDataSchema.parse(transient);
+  if (
+    !Number.isInteger(messageIndex) ||
+    messageIndex < 0 ||
+    messageIndex >= current.messages.length
+  ) {
+    throw new Error("Edited side chat message index is outside the transcript.");
+  }
+  const message = current.messages[messageIndex];
+  if (message?.role !== "user" || message.kind !== "message") {
+    throw new Error("Only side chat user messages can be edited.");
+  }
+  if (messageIndex !== lastUserMessageIndex(current.messages)) {
+    throw new Error("Only the latest side chat user message can be edited.");
+  }
+  const nextContent = content.trim();
+  if (!nextContent) throw new Error("Edited side chat message content cannot be empty.");
+  return TransientSessionDataSchema.parse({
+    ...current,
+    messages: [...current.messages.slice(0, messageIndex), { ...message, content: nextContent }],
+    updatedAt: new Date().toISOString(),
+  });
+}
+
+export function transientSessionModelMessages(
+  transient: TransientSessionData,
+): Array<{ role: "user" | "assistant" | "system"; content: string }> {
+  const current = TransientSessionDataSchema.parse(transient);
+  return [...current.anchorMessages, ...current.messages].flatMap((message) => {
+    if (
+      message.kind !== "message" ||
+      (message.role !== "user" && message.role !== "assistant" && message.role !== "system")
+    ) {
+      return [];
+    }
+    const chips = transientContextChips(message);
+    const content =
+      chips.length > 0 && message.role === "user"
+        ? `${chips.map((chip) => `<side_context>\n${chip.text}\n</side_context>`).join("\n\n")}\n\n${message.content}`
+        : message.content;
+    return [{ role: message.role, content }];
+  });
+}
+
+export function promoteTransientSessionFork(input: PromoteTransientSessionForkInput): SessionData {
+  const transient = TransientSessionDataSchema.parse(input.transient);
+  if (transient.runState !== "idle") {
+    throw new Error("Stop the side chat before promoting it to a task.");
+  }
+  const now = new Date().toISOString();
+  const promoted = SessionDataSchema.parse({
+    id: uuidv4(),
+    title: input.title?.trim() || promotedSideChatTitle(transient.title),
+    forkedFrom: {
+      sessionId: transient.parentSessionId,
+      messageIndex: transient.anchor.messageIndex,
+      createdAt: now,
+    },
+    ...(transient.projectId ? { projectId: transient.projectId } : {}),
+    ...(transient.cwd ? { cwd: transient.cwd } : {}),
+    agentName: transient.agentName,
+    harness: transient.harness,
+    ...(transient.model ? { model: transient.model } : {}),
+    permissionMode: transient.permissionMode,
+    pinned: false,
+    messages: [...transient.anchorMessages, ...transient.messages],
+    createdAt: now,
+    updatedAt: now,
+  });
+  saveSession(promoted);
+  return promoted;
 }
 
 export function migrateLegacySessions(
@@ -924,6 +1259,28 @@ function parseSessionEvent(input: unknown): SessionEvent {
   if (record.type === "messages_appended" || record.type === "messages_replaced") {
     if (!Array.isArray(record.messages)) throw new Error(`${record.type} requires messages.`);
     const messages = record.messages.map((message) => MessageChunkSchema.parse(message));
+    if (record.type === "messages_replaced" && record.reason !== undefined) {
+      if (record.reason !== "edit_last_user_message") {
+        throw new Error(`Unknown messages_replaced reason: ${String(record.reason)}`);
+      }
+      if (
+        !Number.isInteger(record.replacedFromIndex) ||
+        (record.replacedFromIndex as number) < 0 ||
+        !Number.isInteger(record.replacedMessageCount) ||
+        (record.replacedMessageCount as number) < 1
+      ) {
+        throw new Error("Edited messages_replaced events require a valid replaced range.");
+      }
+      return {
+        schemaVersion: SESSION_SCHEMA_VERSION,
+        type: "messages_replaced",
+        timestamp: record.timestamp,
+        messages,
+        reason: record.reason,
+        replacedFromIndex: record.replacedFromIndex as number,
+        replacedMessageCount: record.replacedMessageCount as number,
+      };
+    }
     return {
       schemaVersion: SESSION_SCHEMA_VERSION,
       type: record.type,
@@ -990,12 +1347,20 @@ function messagesAppendedEvent(messages: MessageChunk[], timestamp: string): Mes
   };
 }
 
-function messagesReplacedEvent(messages: MessageChunk[], timestamp: string): MessagesReplacedEvent {
+function messagesReplacedEvent(
+  messages: MessageChunk[],
+  timestamp: string,
+  replacement: Pick<
+    MessagesReplacedEvent,
+    "reason" | "replacedFromIndex" | "replacedMessageCount"
+  > = {},
+): MessagesReplacedEvent {
   return {
     schemaVersion: SESSION_SCHEMA_VERSION,
     type: "messages_replaced",
     timestamp,
     messages,
+    ...replacement,
   };
 }
 
@@ -1283,6 +1648,49 @@ function isMessagePrefix(current: MessageChunk[], next: MessageChunk[]): boolean
 
 function sameValue(left: unknown, right: unknown): boolean {
   return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function lastUserMessageIndex(messages: MessageChunk[]): number {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (message?.role === "user" && message.kind === "message") return index;
+  }
+  return -1;
+}
+
+function continuedSessionTitle(title: string): string {
+  const normalized = title.trim() || "New Session";
+  return `${normalized} (continued)`;
+}
+
+function nextSideChatTitle(index: number): string {
+  return `Side chat ${index}`;
+}
+
+function promotedSideChatTitle(title: string): string {
+  const normalized = title.trim() || "Side chat";
+  return `${normalized} (promoted)`;
+}
+
+function recordValue(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function transientContextChips(message: MessageChunk): TransientSessionContextChip[] {
+  const value = recordValue(message.structuredContent).sideChatContext;
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((item) => {
+    const parsed = z
+      .object({
+        id: z.string().min(1),
+        text: z.string().min(1),
+        createdAt: z.string().min(1),
+      })
+      .safeParse(item);
+    return parsed.success ? [parsed.data] : [];
+  });
 }
 
 function sortSessions<T extends Pick<SessionSummary, "pinned" | "updatedAt">>(sessions: T[]): T[] {

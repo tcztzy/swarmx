@@ -13,6 +13,7 @@ import type {
   RequestPermissionRequest,
   RequestPermissionResponse,
   SessionConfigOption,
+  SessionModeState,
   SessionNotification,
   SessionUpdate,
 } from "@agentclientprotocol/sdk";
@@ -131,6 +132,8 @@ export interface AcpClientOptions {
   model?: string;
   /** Requested ACP reasoning/thought level. Applied after model selection. */
   effort?: string;
+  /** Preferred ACP session mode. Applied when the server advertises a matching mode. */
+  preferredMode?: string;
   /** Optional host-owned interactive authorization bridge. Missing handlers fail closed. */
   requestPermission?: AcpPermissionHandler;
 }
@@ -279,6 +282,7 @@ export class AcpClient {
         currentModelId: string;
         availableModels: Array<{ modelId: string }>;
       } | null = null;
+      let advertisedModes: SessionModeState | null = null;
       let configOptions: SessionConfigOption[] | null = null;
       if (sessionId) {
         sid = sessionId;
@@ -289,6 +293,7 @@ export class AcpClient {
             mcpServers: [],
           });
           advertisedModels = loaded.models ?? null;
+          advertisedModes = loaded.modes ?? null;
           configOptions = loaded.configOptions ?? null;
         }
       } else {
@@ -298,6 +303,7 @@ export class AcpClient {
         });
         sid = resp.sessionId;
         advertisedModels = resp.models ?? null;
+        advertisedModes = resp.modes ?? null;
         configOptions = resp.configOptions ?? null;
       }
       this.sessionId = sid;
@@ -308,6 +314,8 @@ export class AcpClient {
         sid,
         configOptions,
         advertisedModels,
+        advertisedModes,
+        opts.preferredMode,
         opts.model,
         opts.effort,
         () => this.throwIfCancelled(),
@@ -508,11 +516,42 @@ async function applySessionSelections(
   sessionId: string,
   initialConfigOptions: SessionConfigOption[] | null,
   legacyModels: LegacyModelState | null,
+  legacyModes: SessionModeState | null,
+  preferredMode: string | undefined,
   model: string | undefined,
   effort: string | undefined,
   checkCancelled: () => void,
 ): Promise<void> {
   let configOptions = initialConfigOptions ?? [];
+
+  if (preferredMode) {
+    const normalizedMode = normalizeConfigName(preferredMode);
+    const advertisedMode = legacyModes?.availableModes.find(
+      (mode) =>
+        normalizeConfigName(mode.id) === normalizedMode ||
+        normalizeConfigName(mode.name) === normalizedMode,
+    );
+    if (advertisedMode && legacyModes?.currentModeId !== advertisedMode.id) {
+      await connection.setSessionMode({ sessionId, modeId: advertisedMode.id });
+      checkCancelled();
+    } else if (!advertisedMode) {
+      const modeOption = findSessionConfigSelect(configOptions, "mode", [
+        "mode",
+        "session_mode",
+        "permission_mode",
+      ]);
+      const modeValue = modeOption ? findSessionConfigValue(modeOption, preferredMode) : undefined;
+      if (modeOption && modeValue && modeOption.currentValue !== modeValue) {
+        const response = await connection.setSessionConfigOption({
+          sessionId,
+          configId: modeOption.id,
+          value: modeValue,
+        });
+        configOptions = response.configOptions;
+        checkCancelled();
+      }
+    }
+  }
 
   if (model) {
     const modelOption = findSessionConfigSelect(configOptions, "model", [
@@ -579,7 +618,7 @@ async function applySessionSelections(
 /** Find a stable ACP select option by category, with id/name fallback for category-less agents. */
 export function findSessionConfigSelect(
   configOptions: readonly SessionConfigOption[],
-  category: "model" | "thought_level",
+  category: "mode" | "model" | "thought_level",
   fallbackNames: readonly string[],
 ): Extract<SessionConfigOption, { type: "select" }> | undefined {
   const selects = configOptions.filter(

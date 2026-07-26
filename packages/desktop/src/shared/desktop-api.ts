@@ -79,6 +79,7 @@ export interface DesktopMessageChunk {
   content: string;
   kind: "message" | "thinking" | "tool_call" | "tool_progress" | "tool_result";
   agent?: string;
+  createdAt?: string;
   render?: DesktopMessageRenderMetadata;
   structuredContent?: unknown;
   swarmEvent?: string;
@@ -89,6 +90,11 @@ export interface DesktopSessionData {
   id: string;
   title: string;
   acpSessionId?: string;
+  forkedFrom?: {
+    sessionId: string;
+    messageIndex: number;
+    createdAt: string;
+  };
   projectId?: string;
   cwd?: string;
   agentName: string;
@@ -109,6 +115,52 @@ export type DesktopSessionSummary = Omit<DesktopSessionData, "messages"> & {
 export interface DesktopAgentChunkEvent {
   requestId: string;
   chunk: DesktopMessageChunk;
+}
+
+export interface DesktopSideChatContextChip {
+  id: string;
+  text: string;
+  createdAt: string;
+}
+
+export interface DesktopSideChat {
+  id: string;
+  parentSessionId: string;
+  title: string;
+  anchor: {
+    parentSessionId: string;
+    messageIndex: number;
+    messageCount: number;
+    createdAt: string;
+  };
+  anchorMessages: DesktopMessageChunk[];
+  messages: DesktopMessageChunk[];
+  draft: string;
+  attachments: string[];
+  contextChips: DesktopSideChatContextChip[];
+  agentName: string;
+  harness: string;
+  model?: string;
+  projectId?: string;
+  cwd?: string;
+  permissionMode?: SessionPermissionMode;
+  runState: "idle" | "running" | "stopping";
+  requestId?: string;
+  unread: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface DesktopSideChatParentState {
+  parentSessionId: string;
+  activeSideChatId: string | null;
+  paneHidden: boolean;
+  chats: DesktopSideChat[];
+}
+
+export interface DesktopSideChatChunkEvent extends DesktopAgentChunkEvent {
+  parentSessionId: string;
+  sideChatId: string;
 }
 
 export interface DesktopSessionMessagesEvent {
@@ -444,6 +496,7 @@ export interface DesktopSendMessageResult {
   canceled?: boolean;
   requestId?: string;
   sessionPersisted?: boolean;
+  sideChat?: DesktopSideChat;
 }
 
 export interface SwarmxAPI {
@@ -458,6 +511,56 @@ export interface SwarmxAPI {
     cwd?: string;
   }): Promise<DesktopSendMessageResult>;
   onAgentChunk(listener: (event: DesktopAgentChunkEvent) => void): () => void;
+  sendSideChatMessage(params: {
+    requestId: string;
+    sessionId: string;
+    sideChatId: string;
+    sideChatVisible: boolean;
+    sideEditMessageIndex?: number;
+    harnessId: string;
+    userText: string;
+    agentComposition?: unknown;
+    cwd?: string;
+  }): Promise<DesktopSendMessageResult>;
+  onSideChatChunk(listener: (event: DesktopSideChatChunkEvent) => void): () => void;
+  listSideChats(parentSessionId: string): Promise<DesktopSideChatParentState>;
+  createSideChat(params: {
+    parentSessionId: string;
+    throughMessageIndex: number;
+    expectedMessages: DesktopMessageChunk[];
+    title?: string;
+  }): Promise<DesktopSideChat>;
+  updateSideChat(params: {
+    parentSessionId: string;
+    sideChatId: string;
+    draft?: string;
+    attachments?: string[];
+    title?: string;
+    unread?: boolean;
+  }): Promise<DesktopSideChat>;
+  activateSideChat(
+    parentSessionId: string,
+    sideChatId: string,
+  ): Promise<DesktopSideChatParentState>;
+  setSideChatHidden(parentSessionId: string, hidden: boolean): Promise<DesktopSideChatParentState>;
+  addSideChatContext(
+    parentSessionId: string,
+    sideChatId: string,
+    text: string,
+  ): Promise<DesktopSideChat>;
+  editSideChatMessage(params: {
+    parentSessionId: string;
+    sideChatId: string;
+    messageIndex: number;
+    content: string;
+  }): Promise<DesktopSideChat>;
+  deleteSideChat(parentSessionId: string, sideChatId: string): Promise<DesktopSideChatParentState>;
+  promoteSideChat(parentSessionId: string, sideChatId: string): Promise<DesktopSessionData>;
+  cancelSideChat(
+    parentSessionId: string,
+    sideChatId: string,
+    requestId: string,
+  ): Promise<{ requestId: string; sideChatId: string; canceled: boolean }>;
   onAgentInteraction(listener: (event: DesktopAgentInteractionEvent) => void): () => void;
   onSessionMessages?(listener: (event: DesktopSessionMessagesEvent) => void): () => void;
   resolveAgentInteraction(params: {
@@ -525,6 +628,17 @@ export interface SwarmxAPI {
   setSessionPinned(id: string, pinned: boolean): Promise<DesktopSessionData>;
   generateSessionTitle(id: string, userText: string): Promise<{ title: string; updated: boolean }>;
   appendMessages(params: { id: string; messages: unknown[] }): Promise<boolean>;
+  editSessionUserMessage(params: {
+    id: string;
+    messageIndex: number;
+    expectedMessages: DesktopMessageChunk[];
+    content: string;
+  }): Promise<DesktopSessionData>;
+  forkSession(params: {
+    id: string;
+    throughMessageIndex: number;
+    expectedMessages: DesktopMessageChunk[];
+  }): Promise<DesktopSessionData>;
   importN8nWorkflow(source: string): Promise<DesktopN8nImportResponse>;
   listExtensions(): Promise<ExtensionCapabilityInventory>;
   getExtensionManagementState(): Promise<ExtensionManagementState>;

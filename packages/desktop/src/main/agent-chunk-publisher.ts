@@ -16,6 +16,11 @@ export interface AgentChunkPublisher {
   close(): void;
 }
 
+export interface AgentChunkPublisherOptions {
+  channel?: string;
+  context?: Record<string, unknown>;
+}
+
 interface PendingTerminalProgress {
   bytes: number;
   content: string;
@@ -31,11 +36,18 @@ interface PendingTerminalProgress {
 export function agentChunkPublisher(
   sender: AgentChunkSender,
   requestId: string,
+  options: AgentChunkPublisherOptions = {},
 ): AgentChunkPublisher {
   const progress = new Map<string, PendingTerminalProgress>();
   const startedAt = new Map<string, number>();
   const send = (chunk: MessageChunk): void => {
-    if (!sender.isDestroyed()) sender.send("agent:chunk", { requestId, chunk });
+    if (!sender.isDestroyed()) {
+      sender.send(options.channel ?? "agent:chunk", {
+        ...options.context,
+        requestId,
+        chunk,
+      });
+    }
   };
   const discard = (invocationId: string): void => {
     const pending = progress.get(invocationId);

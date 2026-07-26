@@ -147,6 +147,7 @@ export const MessageChunkSchema = z.object({
   content: z.string(),
   kind: z.enum(["message", "thinking", "tool_call", "tool_progress", "tool_result"]),
   agent: z.string().optional(),
+  createdAt: z.string().min(1).optional(),
   swarmEvent: z.string().optional(),
   toolName: z.string().optional(),
   structuredContent: z.unknown().optional(),
@@ -202,10 +203,17 @@ export const SessionPermissionModeSchema = z.enum([
   "trusted",
 ]);
 
+export const SessionForkSourceSchema = z.object({
+  sessionId: z.string().min(1),
+  messageIndex: z.number().int().nonnegative(),
+  createdAt: z.string().min(1),
+});
+
 export const SessionDataSchema = z.object({
   id: z.string(),
   title: z.string(),
   acpSessionId: z.string().optional(),
+  forkedFrom: SessionForkSourceSchema.optional(),
   projectId: z.string().optional(),
   cwd: z.string().optional(),
   agentName: z.string(),
@@ -217,6 +225,42 @@ export const SessionDataSchema = z.object({
   archivedAt: z.string().optional(),
   createdAt: z.string(),
   updatedAt: z.string(),
+});
+
+export const TransientSessionContextChipSchema = z.object({
+  id: z.string().min(1),
+  text: z.string().min(1),
+  createdAt: z.string().min(1),
+});
+
+export const TransientSessionAnchorSchema = z.object({
+  parentSessionId: z.string().min(1),
+  messageIndex: z.number().int().nonnegative(),
+  messageCount: z.number().int().positive(),
+  createdAt: z.string().min(1),
+});
+
+export const TransientSessionDataSchema = z.object({
+  id: z.string().min(1),
+  parentSessionId: z.string().min(1),
+  title: z.string().min(1),
+  anchor: TransientSessionAnchorSchema,
+  anchorMessages: z.array(MessageChunkSchema),
+  messages: z.array(MessageChunkSchema),
+  draft: z.string().default(""),
+  attachments: z.array(z.string().min(1)).default([]),
+  contextChips: z.array(TransientSessionContextChipSchema).default([]),
+  agentName: z.string().min(1),
+  harness: z.string().min(1),
+  model: z.string().optional(),
+  projectId: z.string().optional(),
+  cwd: z.string().optional(),
+  permissionMode: SessionPermissionModeSchema.default("inherit"),
+  runState: z.enum(["idle", "running", "stopping"]).default("idle"),
+  requestId: z.string().min(1).optional(),
+  unread: z.boolean().default(false),
+  createdAt: z.string().min(1),
+  updatedAt: z.string().min(1),
 });
 
 // ── Inferred Types ───────────────────────────────────────────────────────────
@@ -237,4 +281,8 @@ export type ModelTokenUsage = z.infer<typeof ModelTokenUsageSchema>;
 export type EvalTraceEvent = z.infer<typeof EvalTraceEventSchema>;
 export type EvalRunResult = z.infer<typeof EvalRunResultSchema>;
 export type SessionPermissionMode = z.infer<typeof SessionPermissionModeSchema>;
+export type SessionForkSource = z.infer<typeof SessionForkSourceSchema>;
 export type SessionData = z.infer<typeof SessionDataSchema>;
+export type TransientSessionContextChip = z.infer<typeof TransientSessionContextChipSchema>;
+export type TransientSessionAnchor = z.infer<typeof TransientSessionAnchorSchema>;
+export type TransientSessionData = z.infer<typeof TransientSessionDataSchema>;

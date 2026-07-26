@@ -37,6 +37,7 @@ interface MessageChunk {
   content: string;
   kind: MessageKind;
   agent?: string;
+  createdAt?: string;
   render?: {
     artifacts?: Array<{
       artifactId?: string;
@@ -62,6 +63,12 @@ interface MessageChunk {
 interface SessionData {
   id: string;
   title: string;
+  acpSessionId?: string;
+  forkedFrom?: {
+    sessionId: string;
+    messageIndex: number;
+    createdAt: string;
+  };
   projectId?: string;
   cwd?: string;
   agentName: string;
@@ -69,6 +76,30 @@ interface SessionData {
   permissionMode?: "inherit" | "default" | "auto" | "plan" | "trusted";
   pinned?: boolean;
   messages: MessageChunk[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface SideChat {
+  id: string;
+  parentSessionId: string;
+  title: string;
+  anchor: {
+    parentSessionId: string;
+    messageIndex: number;
+    messageCount: number;
+    createdAt: string;
+  };
+  anchorMessages: MessageChunk[];
+  messages: MessageChunk[];
+  draft: string;
+  attachments: string[];
+  contextChips: Array<{ id: string; text: string; createdAt: string }>;
+  agentName: string;
+  harness: string;
+  runState: "idle" | "running" | "stopping";
+  requestId?: string;
+  unread: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -110,6 +141,33 @@ const localSession: SessionData = {
   updatedAt: "2026-06-11T09:05:00.000Z",
 };
 
+function sideChatFixture(
+  overrides: Partial<SideChat> & Pick<SideChat, "id" | "parentSessionId">,
+): SideChat {
+  const now = "2026-07-26T02:00:00.000Z";
+  return {
+    title: "Side chat 1",
+    anchor: {
+      parentSessionId: overrides.parentSessionId,
+      messageIndex: 0,
+      messageCount: 1,
+      createdAt: now,
+    },
+    anchorMessages: [localSession.messages[0] as MessageChunk],
+    messages: [],
+    draft: "",
+    attachments: [],
+    contextChips: [],
+    agentName: "agent",
+    harness: "swarmx",
+    runState: "idle",
+    unread: false,
+    createdAt: now,
+    updatedAt: now,
+    ...overrides,
+  };
+}
+
 const discoveredAcpSession: DiscoveredSession = {
   id: "acp-1",
   title: "ACP investigation",
@@ -140,12 +198,14 @@ const acpSessionDetail: SessionData = {
       role: "user",
       kind: "message",
       content: "Inspect the failing UI path",
+      createdAt: "2026-06-11T09:59:00.000Z",
     },
     {
       role: "assistant",
       kind: "message",
       agent: "codex",
       content: "Previous ACP answer",
+      createdAt: "2026-06-11T10:05:00.000Z",
     },
   ],
   createdAt: "2026-06-11T10:00:00.000Z",
@@ -180,6 +240,7 @@ describe("App user workflow", () => {
     await user.click(emptySend);
 
     const stop = await screen.findByRole("button", { name: "Stop generating" });
+    expect(screen.getByRole("button", { name: /^Working for \d+s$/ })).toBeTruthy();
     const requestId = api.sendMessage.mock.calls[0]?.[0]?.requestId;
     expect(requestId).toEqual(expect.any(String));
     await user.click(stop);
@@ -3464,6 +3525,695 @@ describe("App user workflow", () => {
     expect(screen.getByText("The final summary stays visible.")).toBeTruthy();
   });
 
+  it("copies top-level user and assistant messages from their role-aligned controls", async () => {
+    const api = createDesktopApiMock();
+    const user = userEvent.setup();
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText },
+    });
+
+    await renderApp(api);
+    await user.click(await screen.findByRole("button", { name: /ACP investigation/i }));
+
+    const userEventNode = screen.getByText("Inspect the failing UI path").closest(".run-event");
+    const assistantEventNode = screen.getByText("Previous ACP answer").closest(".run-event");
+    expect(userEventNode?.classList.contains("run-event--user")).toBe(true);
+    expect(assistantEventNode?.classList.contains("run-event--assistant")).toBe(true);
+    expect(screen.getAllByRole("button", { name: "Copy message" })).toHaveLength(2);
+    expect(screen.queryByRole("button", { name: "Edit message" })).toBeNull();
+
+    const userCopy = within(userEventNode as HTMLElement).getByRole("button", {
+      name: "Copy message",
+    });
+    const assistantCopy = within(assistantEventNode as HTMLElement).getByRole("button", {
+      name: "Copy message",
+    });
+    const userActions = userCopy.closest(".run-event__actions") as HTMLElement;
+    const assistantActions = assistantCopy.closest(".run-event__actions") as HTMLElement;
+    const userTimestamp = userActions.querySelector("time");
+    const assistantTimestamp = assistantActions.querySelector("time");
+    expect(userTimestamp?.getAttribute("datetime")).toBe("2026-06-11T09:59:00.000Z");
+    expect(assistantTimestamp?.getAttribute("datetime")).toBe("2026-06-11T10:05:00.000Z");
+    expect(userActions.firstElementChild).toBe(userTimestamp);
+    expect(userTimestamp?.nextElementSibling).toBe(userCopy);
+    expect(assistantActions.firstElementChild).toBe(assistantCopy);
+    expect(assistantCopy.nextElementSibling).toBe(assistantTimestamp);
+
+    await user.click(userCopy);
+    await waitFor(() => {
+      expect(writeText).toHaveBeenLastCalledWith("Inspect the failing UI path");
+      expect(
+        within(userEventNode as HTMLElement).getByRole("button", { name: "Message copied" }),
+      ).toBeTruthy();
+    });
+
+    await user.click(assistantCopy);
+    await waitFor(() => {
+      expect(writeText).toHaveBeenLastCalledWith("Previous ACP answer");
+      expect(
+        within(assistantEventNode as HTMLElement).getByRole("button", {
+          name: "Message copied",
+        }),
+      ).toBeTruthy();
+    });
+  });
+
+  it("edits only the latest local user turn, logically replaces its reply, and resends", async () => {
+    const editableSession: SessionData = {
+      ...localSession,
+      title: "Editable task",
+      messages: [
+        {
+          role: "user",
+          kind: "message",
+          content: "Original request",
+          createdAt: "2026-06-11T09:00:00.000Z",
+        },
+        {
+          role: "assistant",
+          kind: "message",
+          content: "Original reply",
+          createdAt: "2026-06-11T09:01:00.000Z",
+        },
+        {
+          role: "user",
+          kind: "message",
+          content: "Later request",
+          createdAt: "2026-06-11T09:02:00.000Z",
+        },
+        {
+          role: "assistant",
+          kind: "message",
+          content: "Later reply",
+          createdAt: "2026-06-11T09:03:00.000Z",
+        },
+      ],
+    };
+    const editSessionUserMessage = vi.fn(
+      async (params: {
+        id: string;
+        messageIndex: number;
+        expectedMessages: MessageChunk[];
+        content: string;
+      }) => ({
+        ...editableSession,
+        messages: [
+          ...editableSession.messages.slice(0, params.messageIndex),
+          {
+            ...(editableSession.messages[params.messageIndex] as MessageChunk),
+            content: params.content.trim(),
+          },
+        ],
+      }),
+    );
+    const api = createDesktopApiMock({
+      listSessions: vi.fn(async () => [editableSession]),
+      listGroupedSessions: vi.fn(async () => ({
+        mode: "project",
+        groups: [],
+        errors: [],
+      })),
+      loadDiscoveredSession: vi.fn(async () => editableSession),
+      editSessionUserMessage,
+      sendMessage: vi.fn(async () => ({
+        success: true,
+        messages: [{ role: "assistant", kind: "message", content: "Revised reply" }],
+      })),
+    });
+    const user = userEvent.setup();
+
+    await renderApp(api);
+    await user.click(await screen.findByRole("button", { name: /Editable task/i }));
+
+    const originalEvent = screen.getByText("Original request").closest(".run-event");
+    const latestEvent = screen.getByText("Later request").closest(".run-event");
+    expect(
+      Array.from(latestEvent?.querySelector(".run-event__actions")?.children ?? []).map(
+        (element) =>
+          element.tagName === "TIME" ? "TIME" : (element.getAttribute("aria-label") ?? ""),
+      ),
+    ).toEqual(["TIME", "Copy message", "Edit message"]);
+    expect(
+      within(originalEvent as HTMLElement).queryByRole("button", { name: "Edit message" }),
+    ).toBeNull();
+    expect(screen.getAllByRole("button", { name: "Edit message" })).toHaveLength(1);
+    await user.click(
+      within(latestEvent as HTMLElement).getByRole("button", { name: "Edit message" }),
+    );
+    expect(
+      (screen.getByRole("textbox", { name: "Edit message" }) as HTMLTextAreaElement).value,
+    ).toBe("Later request");
+    expect(
+      screen.getByText("This replaces the latest turn and generates a new reply."),
+    ).toBeTruthy();
+    expect(screen.getByText("Original reply")).toBeTruthy();
+
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByRole("textbox", { name: "Edit message" })).toBeNull();
+    expect(editSessionUserMessage).not.toHaveBeenCalled();
+
+    await user.click(
+      within(screen.getByText("Later request").closest(".run-event") as HTMLElement).getByRole(
+        "button",
+        { name: "Edit message" },
+      ),
+    );
+    fireEvent.change(screen.getByRole("textbox", { name: "Edit message" }), {
+      target: { value: "Revised request" },
+    });
+    await user.click(screen.getByRole("button", { name: "Save & resend" }));
+
+    await waitFor(() => {
+      expect(editSessionUserMessage).toHaveBeenCalledWith({
+        id: editableSession.id,
+        messageIndex: 2,
+        expectedMessages: editableSession.messages,
+        content: "Revised request",
+      });
+      expect(api.sendMessage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          sessionId: editableSession.id,
+          userText: "Revised request",
+        }),
+      );
+    });
+    expect(await screen.findByText("Revised request")).toBeTruthy();
+    expect(await screen.findByText("Revised reply")).toBeTruthy();
+    expect(screen.getByText("Original request")).toBeTruthy();
+    expect(screen.getByText("Original reply")).toBeTruthy();
+    expect(screen.queryByText("Later request")).toBeNull();
+    expect(screen.queryByText("Later reply")).toBeNull();
+  });
+
+  it("continues from a completed assistant reply in a separate local chat", async () => {
+    const sourceSession: SessionData = {
+      ...localSession,
+      title: "Forkable task",
+      messages: [
+        { role: "user", kind: "message", content: "First request" },
+        { role: "assistant", kind: "message", content: "First reply" },
+        { role: "user", kind: "message", content: "Later request" },
+        { role: "assistant", kind: "message", content: "Later reply" },
+      ],
+    };
+    const forkedSession: SessionData = {
+      ...sourceSession,
+      id: "local-fork-1",
+      title: "Forkable task (continued)",
+      forkedFrom: {
+        sessionId: sourceSession.id,
+        messageIndex: 1,
+        createdAt: "2026-07-26T01:00:00.000Z",
+      },
+      messages: sourceSession.messages.slice(0, 2),
+    };
+    const forkSession = vi.fn(async () => forkedSession);
+    const api = createDesktopApiMock({
+      listSessions: vi.fn(async () => [sourceSession]),
+      listGroupedSessions: vi.fn(async () => ({
+        mode: "project",
+        groups: [],
+        errors: [],
+      })),
+      loadDiscoveredSession: vi.fn(async (session: DiscoveredSession) =>
+        session.id === forkedSession.id ? forkedSession : sourceSession,
+      ),
+      forkSession,
+    });
+    const user = userEvent.setup();
+
+    await renderApp(api);
+    await user.click(await screen.findByRole("button", { name: /Forkable task/i }));
+
+    const firstReply = screen.getByText("First reply").closest(".run-event") as HTMLElement;
+    expect(screen.getAllByRole("button", { name: "Continue in new chat" })).toHaveLength(2);
+    await user.click(
+      within(firstReply).getByRole("button", {
+        name: "Continue in new chat",
+      }),
+    );
+
+    await waitFor(() => {
+      expect(forkSession).toHaveBeenCalledWith({
+        id: sourceSession.id,
+        throughMessageIndex: 1,
+        expectedMessages: sourceSession.messages,
+      });
+    });
+    expect(await screen.findByText("Forkable task (continued)")).toBeTruthy();
+    expect(screen.getByText("First request")).toBeTruthy();
+    expect(screen.getByText("First reply")).toBeTruthy();
+    expect(screen.queryByText("Later request")).toBeNull();
+    expect(screen.queryByText("Later reply")).toBeNull();
+  });
+
+  it("opens /side and /btw as transient runs without sending the command to the parent", async () => {
+    const sourceSession: SessionData = {
+      ...localSession,
+      title: "Side command task",
+      messages: [
+        { role: "user", kind: "message", content: "Parent question" },
+        { role: "assistant", kind: "message", content: "Parent answer" },
+      ],
+    };
+    let chat: SideChat | null = null;
+    const sendSideChatMessage = vi.fn(async (params: { userText: string; sideChatId: string }) => {
+      chat = {
+        ...(chat as SideChat),
+        messages: [
+          { role: "user", kind: "message", content: params.userText },
+          { role: "assistant", kind: "message", content: "Side answer" },
+        ],
+        runState: "idle",
+      };
+      return { success: true, messages: [], sideChat: chat };
+    });
+    const api = createDesktopApiMock({
+      listSessions: vi.fn(async () => [sourceSession]),
+      listGroupedSessions: vi.fn(async () => ({ mode: "project", groups: [], errors: [] })),
+      loadDiscoveredSession: vi.fn(async () => sourceSession),
+      listSideChats: vi.fn(async () => ({
+        parentSessionId: sourceSession.id,
+        activeSideChatId: chat?.id ?? null,
+        paneHidden: chat === null,
+        chats: chat ? [chat] : [],
+      })),
+      createSideChat: vi.fn(async () => {
+        chat = sideChatFixture({
+          id: "side-command-1",
+          parentSessionId: sourceSession.id,
+          anchorMessages: sourceSession.messages,
+          anchor: {
+            parentSessionId: sourceSession.id,
+            messageIndex: 1,
+            messageCount: 2,
+            createdAt: "2026-07-26T02:00:00.000Z",
+          },
+        });
+        return chat;
+      }),
+      sendSideChatMessage,
+    });
+    const user = userEvent.setup();
+
+    await renderApp(api);
+    await user.click(await screen.findByRole("button", { name: /Side command task/i }));
+    const parentComposer = screen.getByRole("textbox");
+    fireEvent.change(parentComposer, { target: { value: "/btw Why is this safe?" } });
+    await user.click(screen.getByRole("button", { name: "Send message" }));
+
+    await waitFor(() =>
+      expect(sendSideChatMessage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          sessionId: sourceSession.id,
+          sideChatId: "side-command-1",
+          userText: "Why is this safe?",
+          sideChatVisible: true,
+        }),
+      ),
+    );
+    expect(api.sendMessage).not.toHaveBeenCalled();
+    expect(screen.queryByText("/btw Why is this safe?")).toBeNull();
+    expect(await screen.findByText("Side answer")).toBeTruthy();
+    expect(screen.getByText("Parent answer")).toBeTruthy();
+
+    const pane = screen.getByLabelText("Side chats");
+    fireEvent.change(within(pane).getByPlaceholderText("Ask in side chat"), {
+      target: { value: "/side nested" },
+    });
+    await user.click(within(pane).getByRole("button", { name: "Send message" }));
+    expect(sendSideChatMessage).toHaveBeenCalledTimes(1);
+    expect(within(pane).getByRole("alert").textContent).toContain(
+      "Nested side chats are not supported",
+    );
+  });
+
+  it("routes selected parent transcript text into a side-only context chip", async () => {
+    const sourceSession: SessionData = {
+      ...localSession,
+      title: "Selection task",
+      messages: [
+        { role: "user", kind: "message", content: "Parent question" },
+        { role: "assistant", kind: "message", content: "Select this parent answer" },
+      ],
+    };
+    let chat: SideChat | null = null;
+    const addSideChatContext = vi.fn(async (_parentId, _sideId, text: string) => {
+      chat = {
+        ...(chat as SideChat),
+        contextChips: [
+          {
+            id: "selected-context-1",
+            text,
+            createdAt: "2026-07-26T02:30:00.000Z",
+          },
+        ],
+      };
+      return chat;
+    });
+    const api = createDesktopApiMock({
+      listSessions: vi.fn(async () => [sourceSession]),
+      listGroupedSessions: vi.fn(async () => ({ mode: "project", groups: [], errors: [] })),
+      loadDiscoveredSession: vi.fn(async () => sourceSession),
+      listSideChats: vi.fn(async () => ({
+        parentSessionId: sourceSession.id,
+        activeSideChatId: chat?.id ?? null,
+        paneHidden: chat === null,
+        chats: chat ? [chat] : [],
+      })),
+      createSideChat: vi.fn(async () => {
+        chat = sideChatFixture({
+          id: "side-selection-1",
+          parentSessionId: sourceSession.id,
+          anchorMessages: sourceSession.messages,
+        });
+        return chat;
+      }),
+      addSideChatContext,
+    });
+    const user = userEvent.setup();
+
+    await renderApp(api);
+    await user.click(await screen.findByRole("button", { name: /Selection task/i }));
+    const selectedNode = screen.getByText("Select this parent answer").firstChild as Node;
+    vi.spyOn(window, "getSelection").mockReturnValue({
+      toString: () => "Select this parent answer",
+      rangeCount: 1,
+      getRangeAt: () => ({
+        commonAncestorContainer: selectedNode,
+        getBoundingClientRect: () => ({ left: 120, top: 180, width: 120 }),
+      }),
+      removeAllRanges: vi.fn(),
+    } as unknown as Selection);
+    fireEvent.mouseUp(screen.getByText("Select this parent answer"));
+    await user.click(await screen.findByRole("button", { name: "Ask in side chat" }));
+
+    expect(addSideChatContext).toHaveBeenCalledWith(
+      sourceSession.id,
+      "side-selection-1",
+      "Select this parent answer",
+    );
+    expect(await screen.findByText("Select this parent answer", { selector: "span" })).toBeTruthy();
+    expect(
+      (document.querySelector(".composer-dock .composer__textarea") as HTMLTextAreaElement).value,
+    ).toBe("");
+  });
+
+  it("keeps side tab drafts isolated and distinguishes hide from delete", async () => {
+    const sourceSession: SessionData = {
+      ...localSession,
+      title: "Side tabs task",
+      messages: [
+        { role: "user", kind: "message", content: "Parent question" },
+        { role: "assistant", kind: "message", content: "Parent answer" },
+      ],
+    };
+    const chats: SideChat[] = [];
+    let activeSideChatId: string | null = null;
+    let paneHidden = true;
+    const parentState = () => ({
+      parentSessionId: sourceSession.id,
+      activeSideChatId,
+      paneHidden,
+      chats: chats.map((chat) => ({ ...chat })),
+    });
+    const api = createDesktopApiMock({
+      listSessions: vi.fn(async () => [sourceSession]),
+      listGroupedSessions: vi.fn(async () => ({ mode: "project", groups: [], errors: [] })),
+      loadDiscoveredSession: vi.fn(async () => sourceSession),
+      listSideChats: vi.fn(async () => parentState()),
+      createSideChat: vi.fn(async () => {
+        const chat = sideChatFixture({
+          id: `side-tab-${chats.length + 1}`,
+          parentSessionId: sourceSession.id,
+          title: `Side chat ${chats.length + 1}`,
+          anchorMessages: sourceSession.messages,
+        });
+        chats.push(chat);
+        activeSideChatId = chat.id;
+        paneHidden = false;
+        return chat;
+      }),
+      updateSideChat: vi.fn(async ({ sideChatId, draft, unread }) => {
+        const index = chats.findIndex((chat) => chat.id === sideChatId);
+        const updated = {
+          ...(chats[index] as SideChat),
+          ...(draft === undefined ? {} : { draft }),
+          ...(unread === undefined ? {} : { unread }),
+        };
+        chats[index] = updated;
+        return updated;
+      }),
+      activateSideChat: vi.fn(async (_parentSessionId, sideChatId) => {
+        activeSideChatId = sideChatId;
+        paneHidden = false;
+        return parentState();
+      }),
+      setSideChatHidden: vi.fn(async (_parentSessionId, hidden) => {
+        paneHidden = hidden;
+        return parentState();
+      }),
+      deleteSideChat: vi.fn(async (_parentSessionId, sideChatId) => {
+        const index = chats.findIndex((chat) => chat.id === sideChatId);
+        chats.splice(index, 1);
+        activeSideChatId = chats.at(-1)?.id ?? null;
+        paneHidden = chats.length === 0;
+        return parentState();
+      }),
+    });
+    const user = userEvent.setup();
+
+    await renderApp(api);
+    await user.click(await screen.findByRole("button", { name: /Side tabs task/i }));
+    await user.click(screen.getByRole("button", { name: "Show side chats" }));
+    fireEvent.change(await screen.findByPlaceholderText("Ask in side chat"), {
+      target: { value: "First draft" },
+    });
+    await user.click(screen.getByRole("button", { name: "New side chat" }));
+    fireEvent.change(await screen.findByPlaceholderText("Ask in side chat"), {
+      target: { value: "Second draft" },
+    });
+
+    await user.click(screen.getByRole("tab", { name: /Side chat 1/ }));
+    expect((screen.getByPlaceholderText("Ask in side chat") as HTMLTextAreaElement).value).toBe(
+      "First draft",
+    );
+    await user.click(screen.getAllByRole("button", { name: "Hide side chats" })[0] as HTMLElement);
+    expect(screen.queryByPlaceholderText("Ask in side chat")).toBeNull();
+    expect(chats).toHaveLength(2);
+
+    await user.click(screen.getByRole("button", { name: "Show side chats" }));
+    expect(await screen.findByDisplayValue("First draft")).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Delete current side chat" }));
+    expect(chats).toHaveLength(1);
+    expect(screen.queryByRole("tab", { name: /Side chat 1/ })).toBeNull();
+    expect(await screen.findByDisplayValue("Second draft")).toBeTruthy();
+  });
+
+  it("routes Escape to the focused side run and marks its hidden completion unread", async () => {
+    const sourceSession: SessionData = {
+      ...localSession,
+      title: "Parallel side task",
+      messages: [
+        { role: "user", kind: "message", content: "Parent question" },
+        { role: "assistant", kind: "message", content: "Parent answer" },
+      ],
+    };
+    const parentReply = deferred<{ success: boolean; messages: MessageChunk[] }>();
+    const sideReply = deferred<{
+      success: boolean;
+      canceled: boolean;
+      sideChat: SideChat;
+    }>();
+    let paneHidden = true;
+    let chat: SideChat | null = null;
+    const sideState = () => ({
+      parentSessionId: sourceSession.id,
+      activeSideChatId: chat?.id ?? null,
+      paneHidden,
+      chats: chat ? [chat] : [],
+    });
+    const api = createDesktopApiMock({
+      listSessions: vi.fn(async () => [sourceSession]),
+      listGroupedSessions: vi.fn(async () => ({ mode: "project", groups: [], errors: [] })),
+      loadDiscoveredSession: vi.fn(async () => sourceSession),
+      loadSession: vi.fn(async () => sourceSession),
+      sendMessage: vi.fn(() => parentReply.promise),
+      listSideChats: vi.fn(async () => sideState()),
+      createSideChat: vi.fn(async () => {
+        paneHidden = false;
+        chat = sideChatFixture({
+          id: "side-parallel-1",
+          parentSessionId: sourceSession.id,
+          anchorMessages: sourceSession.messages,
+        });
+        return chat;
+      }),
+      updateSideChat: vi.fn(async ({ draft, unread }) => {
+        chat = {
+          ...(chat as SideChat),
+          ...(draft === undefined ? {} : { draft }),
+          ...(unread === undefined ? {} : { unread }),
+        };
+        return chat;
+      }),
+      setSideChatHidden: vi.fn(async (_parentSessionId, hidden) => {
+        paneHidden = hidden;
+        return sideState();
+      }),
+      sendSideChatMessage: vi.fn(() => sideReply.promise),
+    });
+    const user = userEvent.setup();
+
+    await renderApp(api);
+    await user.click(await screen.findByRole("button", { name: /Parallel side task/i }));
+    fireEvent.change(screen.getByRole("textbox"), {
+      target: { value: "Keep the parent running" },
+    });
+    await user.click(screen.getByRole("button", { name: "Send message" }));
+    await user.click(screen.getByRole("button", { name: "Show side chats" }));
+    const pane = await screen.findByLabelText("Side chats");
+    const sideComposer = within(pane).getByPlaceholderText("Ask in side chat");
+    fireEvent.change(sideComposer, { target: { value: "Parallel side question" } });
+    await user.click(within(pane).getByRole("button", { name: "Send message" }));
+    await user.click(sideComposer);
+    fireEvent.keyDown(sideComposer, { key: "Escape" });
+
+    await waitFor(() =>
+      expect(api.cancelSideChat).toHaveBeenCalledWith(
+        sourceSession.id,
+        "side-parallel-1",
+        expect.any(String),
+      ),
+    );
+    expect(api.cancelMessage).not.toHaveBeenCalled();
+    await user.click(screen.getAllByRole("button", { name: "Hide side chats" })[0] as HTMLElement);
+
+    const completedSide = {
+      ...(chat as SideChat),
+      messages: [
+        { role: "user", kind: "message", content: "Parallel side question" },
+        { role: "assistant", kind: "message", content: "Stopped side answer" },
+      ],
+      draft: "",
+      runState: "idle" as const,
+      requestId: undefined,
+      unread: false,
+    };
+    sideReply.resolve({ success: false, canceled: true, sideChat: completedSide });
+    parentReply.resolve({
+      success: true,
+      messages: [{ role: "assistant", kind: "message", content: "Parent completed" }],
+    });
+
+    await waitFor(() =>
+      expect(api.updateSideChat).toHaveBeenCalledWith(
+        expect.objectContaining({
+          parentSessionId: sourceSession.id,
+          sideChatId: "side-parallel-1",
+          unread: true,
+        }),
+      ),
+    );
+    expect(await screen.findByText("1", { selector: ".side-chat-unread-badge" })).toBeTruthy();
+    expect(await screen.findByText("Parent completed")).toBeTruthy();
+  });
+
+  it("promotes a transient side transcript only after the explicit user action", async () => {
+    const sourceSession: SessionData = {
+      ...localSession,
+      title: "Promote source",
+      messages: [
+        { role: "user", kind: "message", content: "Parent question" },
+        { role: "assistant", kind: "message", content: "Parent answer" },
+      ],
+    };
+    const chat = sideChatFixture({
+      id: "side-promote-1",
+      parentSessionId: sourceSession.id,
+      messages: [
+        { role: "user", kind: "message", content: "Side question" },
+        { role: "assistant", kind: "message", content: "Side answer" },
+      ],
+    });
+    const promoted: SessionData = {
+      ...sourceSession,
+      id: "promoted-1",
+      title: "Side chat 1 (promoted)",
+      forkedFrom: {
+        sessionId: sourceSession.id,
+        messageIndex: 0,
+        createdAt: "2026-07-26T03:00:00.000Z",
+      },
+      messages: [...chat.anchorMessages, ...chat.messages],
+    };
+    const api = createDesktopApiMock({
+      listSessions: vi.fn(async () => [sourceSession]),
+      listGroupedSessions: vi.fn(async () => ({ mode: "project", groups: [], errors: [] })),
+      loadDiscoveredSession: vi.fn(async () => sourceSession),
+      listSideChats: vi.fn(async () => ({
+        parentSessionId: sourceSession.id,
+        activeSideChatId: chat.id,
+        paneHidden: false,
+        chats: [chat],
+      })),
+      promoteSideChat: vi.fn(async () => promoted),
+    });
+    const user = userEvent.setup();
+
+    await renderApp(api);
+    await user.click(await screen.findByRole("button", { name: /Promote source/i }));
+    expect(api.promoteSideChat).not.toHaveBeenCalled();
+    await user.click(await screen.findByRole("button", { name: "Promote side chat to task" }));
+
+    await waitFor(() =>
+      expect(api.promoteSideChat).toHaveBeenCalledWith(sourceSession.id, chat.id),
+    );
+    expect(await screen.findByText("Side chat 1 (promoted)")).toBeTruthy();
+    expect(screen.getAllByText("Side answer")).toHaveLength(1);
+  });
+
+  it("keeps the inline editor open when message history changed before save", async () => {
+    const editableSession: SessionData = {
+      ...localSession,
+      title: "Conflicted edit",
+      messages: [
+        { role: "user", kind: "message", content: "Original request" },
+        { role: "assistant", kind: "message", content: "Original reply" },
+      ],
+    };
+    const api = createDesktopApiMock({
+      listSessions: vi.fn(async () => [editableSession]),
+      listGroupedSessions: vi.fn(async () => ({
+        mode: "project",
+        groups: [],
+        errors: [],
+      })),
+      loadDiscoveredSession: vi.fn(async () => editableSession),
+      editSessionUserMessage: vi.fn(async () => {
+        throw new Error("Session history changed before the message edit could be saved.");
+      }),
+    });
+    const user = userEvent.setup();
+
+    await renderApp(api);
+    await user.click(await screen.findByRole("button", { name: /Conflicted edit/i }));
+    await user.click(screen.getByRole("button", { name: "Edit message" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Edit message" }), {
+      target: { value: "Revised request" },
+    });
+    await user.click(screen.getByRole("button", { name: "Save & resend" }));
+
+    expect((await screen.findByRole("alert")).textContent).toContain("Session history changed");
+    expect(
+      (screen.getByRole("textbox", { name: "Edit message" }) as HTMLTextAreaElement).value,
+    ).toBe("Revised request");
+    expect(screen.getByText("Original reply")).toBeTruthy();
+    expect(api.sendMessage).not.toHaveBeenCalled();
+  });
+
   it("V521 collapses superseded interrupted work and never leaves its tool spinning", async () => {
     const interruptedSession: SessionData = {
       ...localSession,
@@ -3638,11 +4388,15 @@ describe("App user workflow", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "Send message" }));
 
-    const working = await screen.findByRole("button", { name: "Thinking" });
+    const working = await screen.findByRole("button", { name: /^Working for \d+s$/ });
     expect(working.getAttribute("aria-expanded")).toBe("true");
     expect(screen.getByRole("status").textContent).toContain("Waiting for agent output");
     const initialLabel = working.querySelector(".work-disclosure__label");
     expect(initialLabel).not.toBeNull();
+    const initialText = initialLabel?.textContent;
+    await waitFor(() => expect(initialLabel?.textContent).not.toBe(initialText), {
+      timeout: 2_500,
+    });
 
     fireEvent.click(working);
     expect(working.getAttribute("aria-expanded")).toBe("false");
@@ -3681,7 +4435,7 @@ describe("App user workflow", () => {
       });
     });
 
-    const activeWork = screen.getByRole("button", { name: "Reading README.md" });
+    const activeWork = screen.getByRole("button", { name: /^Working for \d+s$/ });
     expect(activeWork.getAttribute("aria-expanded")).toBe("true");
     expect(activeWork.querySelector(".work-disclosure__label")).toBe(initialLabel);
     const thought = screen.getByText("Inspecting README");
@@ -4701,6 +5455,30 @@ function createDefaultDesktopApiMock() {
       messages: [],
     })),
     onAgentChunk: vi.fn(() => () => undefined),
+    sendSideChatMessage: vi.fn(async () => ({
+      success: true,
+      messages: [],
+    })),
+    onSideChatChunk: vi.fn(() => () => undefined),
+    listSideChats: vi.fn(async (parentSessionId: string) => ({
+      parentSessionId,
+      activeSideChatId: null,
+      paneHidden: true,
+      chats: [],
+    })),
+    createSideChat: vi.fn(async () => undefined),
+    updateSideChat: vi.fn(async () => undefined),
+    activateSideChat: vi.fn(async () => undefined),
+    setSideChatHidden: vi.fn(async () => undefined),
+    addSideChatContext: vi.fn(async () => undefined),
+    editSideChatMessage: vi.fn(async () => undefined),
+    deleteSideChat: vi.fn(async () => undefined),
+    promoteSideChat: vi.fn(async () => undefined),
+    cancelSideChat: vi.fn(async (_parentSessionId, sideChatId, requestId) => ({
+      requestId,
+      sideChatId,
+      canceled: true,
+    })),
     onAgentInteraction: vi.fn(() => () => undefined),
     onSessionMessages: vi.fn(() => () => undefined),
     resolveAgentInteraction: vi.fn(
@@ -4766,6 +5544,8 @@ function createDefaultDesktopApiMock() {
     })),
     generateSessionTitle: vi.fn(async () => ({ title: "Generated task title", updated: false })),
     appendMessages: vi.fn(async () => true),
+    editSessionUserMessage: vi.fn(async () => localSession),
+    forkSession: vi.fn(async () => localSession),
     importN8nWorkflow: vi.fn(async () => ({
       success: false,
       error: "No n8n workflow imported.",

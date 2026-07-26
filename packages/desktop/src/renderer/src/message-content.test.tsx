@@ -4,7 +4,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { MessageContent } from "./message-content.js";
+import { MessageContent, MessageCopyButton } from "./message-content.js";
 
 vi.mock("./code-highlighter.js", () => ({
   highlightCodeBlock: vi.fn(async (codeText: string, language: string) => {
@@ -122,6 +122,44 @@ describe("MessageContent", () => {
       expect(screen.getByRole("button", { name: "Code copied" })).toBeTruthy();
     });
   }, 20_000);
+
+  it("copies the exact full message and confirms success", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText },
+    });
+
+    render(
+      createElement(MessageCopyButton, {
+        content: "Keep **Markdown** and `inline code`.",
+      }),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Copy message" }));
+
+    await waitFor(() => {
+      expect(writeText).toHaveBeenCalledWith("Keep **Markdown** and `inline code`.");
+      expect(screen.getByRole("button", { name: "Message copied" })).toBeTruthy();
+    });
+  });
+
+  it("does not report success when copying a message fails", async () => {
+    const writeText = vi.fn().mockRejectedValue(new Error("clipboard unavailable"));
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText },
+    });
+
+    render(createElement(MessageCopyButton, { content: "Do not lose this text." }));
+    fireEvent.click(screen.getByRole("button", { name: "Copy message" }));
+
+    await waitFor(() => {
+      expect(writeText).toHaveBeenCalledWith("Do not lose this text.");
+    });
+    expect(screen.getByRole("button", { name: "Copy message" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Message copied" })).toBeNull();
+  });
 
   it("enhances known-language code blocks with offline highlighting after fallback render", async () => {
     const { container } = render(

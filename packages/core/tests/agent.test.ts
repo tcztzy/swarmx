@@ -172,6 +172,7 @@ describe("Agent", () => {
             cwd?: string;
             env?: Record<string, string>;
             clearEnv?: boolean;
+            preferredMode?: string;
           };
           prompt: string;
         }
@@ -189,6 +190,7 @@ describe("Agent", () => {
         },
       },
       {
+        acpMode: "plan",
         createAcpClient: () => ({
           async prompt(opts, prompt, _swarmConfig, _sessionId, onChunk) {
             seen = { opts, prompt };
@@ -232,6 +234,7 @@ describe("Agent", () => {
         cwd: "/tmp/project",
         env: { OPENAI_MODEL: "gpt-5" },
         clearEnv: true,
+        preferredMode: "plan",
       },
       prompt: "Agent instructions:\nPlan with evidence.\n\nUser request:\nlatest request",
     });

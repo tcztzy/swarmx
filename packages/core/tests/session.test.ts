@@ -4,16 +4,23 @@ import * as path from "node:path";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import {
   appendMessages,
+  appendTransientSessionMessages,
   archiveProjectSessions,
   archiveSession,
   createSession,
+  createTransientSessionFork,
   deleteSession,
+  editSessionUserMessage,
+  editTransientSessionUserMessage,
+  forkSession,
   listSessionSummaries,
   listSessions,
   loadSession,
   migrateLegacySessions,
+  promoteTransientSessionFork,
   saveSession,
   setSessionPinned,
+  transientSessionModelMessages,
 } from "../src/session.js";
 import type { MessageChunk } from "../src/types.js";
 
@@ -198,6 +205,8 @@ describe("Session", () => {
     expect(loaded.messages).toHaveLength(2);
     expect(loaded.messages[0].content).toBe("hello");
     expect(loaded.messages[1].content).toBe("hi there");
+    expect(loaded.messages[0].createdAt).toBeTruthy();
+    expect(loaded.messages[1].createdAt).toBe(loaded.messages[0].createdAt);
   });
 
   it("V522 appends message deltas without rewriting prior Session JSONL bytes", () => {
@@ -230,6 +239,327 @@ describe("Session", () => {
       title: "Metadata from stale writer",
       messages: [{ role: "user", content: "concurrent append", kind: "message" }],
     });
+  });
+
+  it("edits only the latest user turn while preserving prior JSONL bytes for analysis", () => {
+    const session = createSession("editing", "swarmx");
+    savedIds.push(session.id);
+    session.messages = [
+      { role: "user", content: "Original request", kind: "message" },
+      { role: "assistant", content: "Original reply", kind: "message" },
+      { role: "user", content: "Later request", kind: "message" },
+      { role: "assistant", content: "Later reply", kind: "message" },
+    ];
+    saveSession(session);
+    const rolloutPath = path.join(sessionsDir, `${session.id}.jsonl`);
+    const before = fs.readFileSync(rolloutPath);
+
+    const edited = editSessionUserMessage({
+      id: session.id,
+      messageIndex: 2,
+      expectedMessages: session.messages,
+      content: "  Revised request  ",
+    });
+
+    expect(edited?.messages).toMatchObject([
+      { role: "user", content: "Original request", kind: "message" },
+      { role: "assistant", content: "Original reply", kind: "message" },
+      { role: "user", content: "Revised request", kind: "message" },
+    ]);
+    expect(edited?.messages[2]?.createdAt).toBeTruthy();
+    expect(loadSession(session.id)?.messages).toEqual(edited?.messages);
+    const after = fs.readFileSync(rolloutPath);
+    expect(after.subarray(0, before.length)).toEqual(before);
+    const finalRecord = JSON.parse(after.toString("utf8").trim().split("\n").at(-1) ?? "{}") as {
+      type?: string;
+      reason?: string;
+      replacedFromIndex?: number;
+      replacedMessageCount?: number;
+    };
+    expect(finalRecord).toMatchObject({
+      type: "messages_replaced",
+      reason: "edit_last_user_message",
+      replacedFromIndex: 2,
+      replacedMessageCount: 2,
+    });
+    expect(after.toString("utf8")).toContain("Later reply");
+  });
+
+  it("rejects edits to an older user turn", () => {
+    const session = createSession("editing-history", "swarmx");
+    savedIds.push(session.id);
+    session.messages = [
+      { role: "user", content: "Original request", kind: "message" },
+      { role: "assistant", content: "Original reply", kind: "message" },
+      { role: "user", content: "Latest request", kind: "message" },
+      { role: "assistant", content: "Latest reply", kind: "message" },
+    ];
+    saveSession(session);
+
+    expect(() =>
+      editSessionUserMessage({
+        id: session.id,
+        messageIndex: 0,
+        expectedMessages: session.messages,
+        content: "Revised old request",
+      }),
+    ).toThrow("Only the latest user message");
+    expect(loadSession(session.id)?.messages).toEqual(session.messages);
+  });
+
+  it("refuses to edit stale history without overwriting concurrent messages", () => {
+    const session = createSession("editing-conflict", "swarmx");
+    savedIds.push(session.id);
+    session.messages = [{ role: "user", content: "Original request", kind: "message" }];
+    saveSession(session);
+    const expectedMessages = [...session.messages];
+    appendMessages(session.id, [
+      { role: "assistant", content: "Concurrent reply", kind: "message" },
+    ]);
+
+    expect(() =>
+      editSessionUserMessage({
+        id: session.id,
+        messageIndex: 0,
+        expectedMessages,
+        content: "Revised request",
+      }),
+    ).toThrow("Session history changed");
+    expect(loadSession(session.id)?.messages).toMatchObject([
+      { role: "user", content: "Original request", kind: "message" },
+      { role: "assistant", content: "Concurrent reply", kind: "message" },
+    ]);
+  });
+
+  it("rejects empty edits and non-user message targets", () => {
+    const session = createSession("editing-validation", "swarmx");
+    savedIds.push(session.id);
+    session.messages = [
+      { role: "user", content: "Original request", kind: "message" },
+      { role: "assistant", content: "Original reply", kind: "message" },
+    ];
+    saveSession(session);
+
+    expect(() =>
+      editSessionUserMessage({
+        id: session.id,
+        messageIndex: 0,
+        expectedMessages: session.messages,
+        content: "   ",
+      }),
+    ).toThrow("cannot be empty");
+    expect(() =>
+      editSessionUserMessage({
+        id: session.id,
+        messageIndex: 1,
+        expectedMessages: session.messages,
+        content: "Revised reply",
+      }),
+    ).toThrow("Only user messages");
+  });
+
+  it("continues from a completed assistant message in a separate local Session", () => {
+    const source = createSession("forking", "swarmx", "model-1", {
+      projectId: "project-1",
+      cwd: "/workspace/project-1",
+      permissionMode: "auto",
+    });
+    savedIds.push(source.id);
+    source.title = "Original task";
+    source.acpSessionId = "runtime-owned-session";
+    source.pinned = true;
+    source.messages = [
+      { role: "user", content: "First request", kind: "message" },
+      { role: "assistant", content: "First reply", kind: "message" },
+      { role: "user", content: "Later request", kind: "message" },
+      { role: "assistant", content: "Later reply", kind: "message" },
+    ];
+    saveSession(source);
+
+    const forked = forkSession({
+      id: source.id,
+      throughMessageIndex: 1,
+      expectedMessages: source.messages,
+    });
+    if (!forked) throw new Error("forked Session was not created");
+    savedIds.push(forked.id);
+
+    expect(forked).toMatchObject({
+      title: "Original task (continued)",
+      agentName: source.agentName,
+      harness: source.harness,
+      model: source.model,
+      projectId: source.projectId,
+      cwd: source.cwd,
+      permissionMode: "auto",
+      pinned: false,
+      forkedFrom: {
+        sessionId: source.id,
+        messageIndex: 1,
+      },
+      messages: source.messages.slice(0, 2),
+    });
+    expect(forked.id).not.toBe(source.id);
+    expect(forked.acpSessionId).toBeUndefined();
+    expect(loadSession(source.id)?.messages).toEqual(source.messages);
+    expect(loadSession(forked.id)?.messages).toEqual(source.messages.slice(0, 2));
+  });
+
+  it("creates an anchored transient fork without writing or listing another Session", () => {
+    const source = createSession("side-chat", "swarmx", "model-1");
+    savedIds.push(source.id);
+    source.messages = [
+      { role: "user", content: "First request", kind: "message" },
+      { role: "assistant", content: "First reply", kind: "message" },
+      { role: "user", content: "Second request", kind: "message" },
+      { role: "assistant", content: "Second reply", kind: "message" },
+    ];
+    saveSession(source);
+    const filesBefore = fs.readdirSync(sessionsDir).sort();
+    const listedBefore = listSessions().map((session) => session.id);
+
+    const transient = createTransientSessionFork({
+      id: source.id,
+      throughMessageIndex: 1,
+      expectedMessages: source.messages,
+    });
+
+    expect(transient).toMatchObject({
+      parentSessionId: source.id,
+      anchor: {
+        parentSessionId: source.id,
+        messageIndex: 1,
+        messageCount: 2,
+      },
+      anchorMessages: source.messages.slice(0, 2),
+      messages: [],
+      runState: "idle",
+    });
+    expect(fs.readdirSync(sessionsDir).sort()).toEqual(filesBefore);
+    expect(listSessions().map((session) => session.id)).toEqual(listedBefore);
+  });
+
+  it("anchors the effective projection so an edited message never revives in a side chat", () => {
+    const source = createSession("side-projection", "swarmx");
+    savedIds.push(source.id);
+    source.messages = [
+      { role: "user", content: "Old request", kind: "message" },
+      { role: "assistant", content: "Old reply", kind: "message" },
+    ];
+    saveSession(source);
+    const edited = editSessionUserMessage({
+      id: source.id,
+      messageIndex: 0,
+      expectedMessages: source.messages,
+      content: "Replacement request",
+    });
+    if (!edited) throw new Error("edited Session was not created");
+
+    const transient = createTransientSessionFork({
+      id: source.id,
+      throughMessageIndex: 0,
+      expectedMessages: edited.messages,
+    });
+
+    expect(transient?.anchorMessages).toEqual([
+      expect.objectContaining({ content: "Replacement request" }),
+    ]);
+    expect(JSON.stringify(transient)).not.toContain("Old request");
+    expect(JSON.stringify(transient)).not.toContain("Old reply");
+  });
+
+  it("keeps multiple transient forks and their edits independently in memory", () => {
+    const source = createSession("side-independent", "swarmx");
+    savedIds.push(source.id);
+    source.messages = [
+      { role: "user", content: "Parent request", kind: "message" },
+      { role: "assistant", content: "Parent reply", kind: "message" },
+    ];
+    saveSession(source);
+    const first = createTransientSessionFork({
+      id: source.id,
+      throughMessageIndex: 1,
+      expectedMessages: source.messages,
+    });
+    const second = createTransientSessionFork({
+      id: source.id,
+      throughMessageIndex: 1,
+      expectedMessages: source.messages,
+    });
+    if (!first || !second) throw new Error("transient forks were not created");
+    const firstWithTurn = appendTransientSessionMessages(first, [
+      { role: "user", content: "First side question", kind: "message" },
+      { role: "assistant", content: "First side answer", kind: "message" },
+    ]);
+    const secondWithTurn = appendTransientSessionMessages(
+      second,
+      [{ role: "user", content: "Second side question", kind: "message" }],
+      {
+        contextChips: [
+          {
+            id: "selection-1",
+            text: "Selected parent text",
+            createdAt: "2026-07-26T00:00:00.000Z",
+          },
+        ],
+      },
+    );
+    const editedFirst = editTransientSessionUserMessage(firstWithTurn, 0, "Revised first question");
+
+    expect(first.id).not.toBe(second.id);
+    expect(editedFirst.messages).toEqual([
+      expect.objectContaining({ content: "Revised first question" }),
+    ]);
+    expect(secondWithTurn.messages).toHaveLength(1);
+    expect(transientSessionModelMessages(secondWithTurn).at(-1)?.content).toContain(
+      "Selected parent text",
+    );
+    expect(JSON.stringify(secondWithTurn)).not.toContain("First side");
+  });
+
+  it("persists only after promotion and leaves the parent projection unchanged", () => {
+    const source = createSession("side-promote", "swarmx", "model-1", {
+      projectId: "project-1",
+      cwd: "/workspace/project-1",
+      permissionMode: "auto",
+    });
+    savedIds.push(source.id);
+    source.messages = [
+      { role: "user", content: "Parent request", kind: "message" },
+      { role: "assistant", content: "Parent reply", kind: "message" },
+      { role: "user", content: "Later parent request", kind: "message" },
+    ];
+    saveSession(source);
+    const transient = createTransientSessionFork({
+      id: source.id,
+      throughMessageIndex: 1,
+      expectedMessages: source.messages,
+    });
+    if (!transient) throw new Error("transient fork was not created");
+    const completed = appendTransientSessionMessages(transient, [
+      { role: "user", content: "Side request", kind: "message" },
+      { role: "assistant", content: "Side reply", kind: "message" },
+    ]);
+    expect(listSessions().map((session) => session.id)).toEqual([source.id]);
+
+    const promoted = promoteTransientSessionFork({ transient: completed });
+    savedIds.push(promoted.id);
+
+    expect(promoted).toMatchObject({
+      forkedFrom: { sessionId: source.id, messageIndex: 1 },
+      projectId: source.projectId,
+      cwd: source.cwd,
+      permissionMode: source.permissionMode,
+      messages: [...source.messages.slice(0, 2), ...completed.messages],
+    });
+    expect(promoted.acpSessionId).toBeUndefined();
+    expect(loadSession(promoted.id)?.messages).toEqual(promoted.messages);
+    expect(loadSession(source.id)?.messages).toEqual(source.messages);
+    expect(
+      listSessions()
+        .map((session) => session.id)
+        .sort(),
+    ).toEqual([source.id, promoted.id].sort());
   });
 
   it("V523 reads legacy JSON and migrates it once with a reversible backup", () => {
