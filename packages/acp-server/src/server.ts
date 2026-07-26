@@ -32,6 +32,7 @@ import {
   SWARMX_VERSION,
   Swarm,
   appendMessages,
+  cancelAcpRequest,
   createSession,
   listSessionSummaries as listSessionsFile,
   loadSession as loadSessionFile,
@@ -241,7 +242,9 @@ export class SwarmXAgent implements AcpAgent {
     }
   };
 
-  cancel = async (_params: CancelNotification): Promise<void> => {};
+  cancel = async (params: CancelNotification): Promise<void> => {
+    await cancelAcpRequest(acpRequestId(params.sessionId));
+  };
   authenticate = async (_request: AuthenticateRequest): Promise<AuthenticateResponse> => {
     throw new Error("not supported");
   };

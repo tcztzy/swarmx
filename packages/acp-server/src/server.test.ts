@@ -207,4 +207,44 @@ describe("SwarmXAgent", () => {
 
     expect(observedSignal).toBeDefined();
   });
+
+  it("V555 cancels the active prompt through the Core request signal", async () => {
+    let observedSignal: AbortSignal | undefined;
+    let markStarted: (() => void) | undefined;
+    const started = new Promise<void>((resolve) => {
+      markStarted = resolve;
+    });
+    const agent = new SwarmXAgent({
+      createSwarm: () => ({
+        execute: async () => {
+          observedSignal = currentRequestSignal();
+          markStarted?.();
+          await new Promise<void>((resolve, reject) => {
+            const timer = setTimeout(resolve, 100);
+            observedSignal?.addEventListener(
+              "abort",
+              () => {
+                clearTimeout(timer);
+                reject(observedSignal?.reason);
+              },
+              { once: true },
+            );
+          });
+          return [];
+        },
+      }),
+    } as never);
+    agent.setConnection({ sessionUpdate: vi.fn(async () => undefined) } as never);
+    const created = await agent.newSession({ cwd, mcpServers: [] });
+
+    const pendingPrompt = agent.prompt({
+      sessionId: created.sessionId,
+      prompt: [{ type: "text", text: "cancel me" }],
+    });
+    await started;
+    await agent.cancel({ sessionId: created.sessionId });
+
+    await expect(pendingPrompt).resolves.toMatchObject({ stopReason: "cancelled" });
+    expect(observedSignal?.aborted).toBe(true);
+  });
 });

@@ -536,6 +536,7 @@ I257: `docs/multimedia.md`, `README.md`, `DESIGNS.md`, `docs/index.md`, and `des
 I258: `packages/desktop/src/main/window-security.ts`, `packages/desktop/src/main/index.ts`, `packages/desktop/src/main/ipc.ts`, `packages/desktop/src/preload/index.ts`, `packages/desktop/src/renderer/index.html`, and focused Main/Preload security tests enforce the Desktop trust boundary.
 I259: Root/package manifests and `pnpm-lock.yaml` keep Electron and transitive MCP/CEL dependency security floors aligned, with `pnpm audit --prod` as the repeatable production audit.
 I260: `packages/acp-server/src/server.ts` and its focused tests project ACP lifecycle, prompt blocks, cwd, and stdio MCP configuration into persisted Core Sessions and executable Swarm configuration.
+I261: ACP `session/cancel` targets the same request key used by prompt execution and delegates cancellation to the Core request registry.
 
 ## §V
 V1: Workflow JSON source of truth is `SwarmConfig`; UI preview, run badges, and send payload derive from parsed JSON.
@@ -1092,6 +1093,7 @@ V551: ACP `session/new` persists its absolute cwd; each prompt persists the user
 V552: ACP Prompt text and baseline resource links are represented explicitly in the persisted user turn and model input. The server does not advertise embedded context, image, or audio formats it cannot faithfully transport.
 V553: ACP stdio MCP definitions are validated, converted into Core MCP configuration with their session cwd and environment, and merged into executable Agent/Tool nodes. Unsupported HTTP, SSE, or ACP transports fail explicitly instead of being stored and ignored.
 V554: The ACP Server package has a runnable focused Vitest suite covering capabilities, lifecycle persistence, history, cwd filtering/validation, prompt-resource projection, MCP projection, load replay, resume, and close.
+V555: ACP `session/cancel` aborts the active prompt's Core request signal and returns `cancelled`; it does not leave the registered execution running to completion.
 
 ## §T
 |id|status|task|cites|
@@ -1321,6 +1323,7 @@ V554: The ACP Server package has a runnable focused Vitest suite covering capabi
 |T223|x|lock Desktop navigation, popup, IPC, preload sandbox, bootstrap, and renderer CSP boundaries|C3,C195,V547,V548,V549,I258|
 |T224|x|upgrade vulnerable production dependencies and add a repeatable production audit command|C196,V550,I259|
 |T225|x|make ACP lifecycle, history, prompt resources, cwd, and MCP execution stateful and truthfully advertised|C197,V551,V552,V553,V554,I260|
+|T226|x|route ACP cancellation through the Core request registry and prove cooperative prompt abort|C197,V555,I261|
 
 ## §B
 |id|date|cause|fix|
@@ -1476,3 +1479,4 @@ V554: The ACP Server package has a runnable focused Vitest suite covering capabi
 |B149|2026-07-26|the privileged Desktop preload was unsandboxed while top-level navigation and IPC registration trusted any renderer frame, so a navigated or injected document could reach terminal, filesystem, credential, browser, and update operations|V547,V548,V549|
 |B150|2026-07-26|the lockfile retained vulnerable Electron 33 and stale MCP/CEL transitive releases even though compatible patched versions were available, producing 33 production advisories including eight high-severity findings|V550|
 |B151|2026-07-26|the ACP server kept cwd and MCP only in an in-memory map, persisted only assistant results, rebuilt every prompt from the newest text, listed the process cwd, and advertised embedded context while dropping every non-text block|V551,V552,V553,V554|
+|B152|2026-07-26|the ACP server registered prompt execution with the Core request registry but implemented `session/cancel` as an empty callback, so cooperative model, MCP, and subprocess cancellation was never signaled|V555|
