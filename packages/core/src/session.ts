@@ -282,10 +282,18 @@ function saveSessionLocked(
   } else if (isMessagePrefix(next.messages, current.messages)) {
     effective = SessionDataSchema.parse({ ...next, messages: current.messages });
   } else if (!sameValue(current.messages, next.messages)) {
-    events.push(messagesReplacedEvent(next.messages, now));
+    effective = SessionDataSchema.parse({
+      ...next,
+      externalAcpSession: undefined,
+    });
+    events.push(sessionUpdatedEvent(effective, now));
+    events.push(messagesReplacedEvent(effective.messages, now));
   }
 
-  if (metadataChanged || events.length === 0) {
+  if (
+    (metadataChanged && !events.some((event) => event.type === "session_updated")) ||
+    events.length === 0
+  ) {
     events.push(sessionUpdatedEvent(effective, now));
   }
 
@@ -524,6 +532,7 @@ export function editSessionUserMessage(input: EditSessionUserMessageInput): Sess
     const replacedMessageCount = current.messages.length - input.messageIndex;
     const next = SessionDataSchema.parse({
       ...current,
+      externalAcpSession: undefined,
       messages: [
         ...current.messages.slice(0, input.messageIndex),
         { ...message, content, createdAt: message.createdAt ?? now },
@@ -531,6 +540,7 @@ export function editSessionUserMessage(input: EditSessionUserMessageInput): Sess
       updatedAt: now,
     });
     appendSessionEvents(paths.jsonl, [
+      sessionUpdatedEvent(next, now),
       messagesReplacedEvent(next.messages, now, {
         reason: "edit_last_user_message",
         replacedFromIndex: input.messageIndex,

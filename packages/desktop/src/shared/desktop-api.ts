@@ -8,6 +8,7 @@ import type {
   ExtensionCandidate,
   ExtensionInventory,
   ExtensionMarketplaceSource,
+  ExternalAcpSessionBinding,
   HarnessPermissionMode,
   HarnessPermissionPolicyLayer,
   HarnessRecipe,
@@ -108,6 +109,7 @@ export interface DesktopSessionData {
   id: string;
   title: string;
   acpSessionId?: string;
+  externalAcpSession?: ExternalAcpSessionBinding;
   forkedFrom?: {
     sessionId: string;
     messageIndex: number;

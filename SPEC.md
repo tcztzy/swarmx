@@ -554,6 +554,7 @@ I267: `validateMediaAttachments` accepts unknown arrays and returns schema-deriv
 I268: Root Vitest coverage configuration, `@vitest/coverage-v8`, CI scripts, and release quality reuse enforce global and per-file statement, branch, function, and line floors for the audited high-risk surfaces.
 I269: `message-attachments.tsx` owns typed attachment icon selection, byte formatting, preview routing, and its focused component tests outside the application shell.
 I270: Root `.gitignore` excludes Inspect's root `logs/` evaluation output, with a release regression assertion.
+I271: `packages/core/src/acp.ts`, `agent.ts`, `extensions.ts`, `types.ts`, `session.ts`, Desktop ACP Session runtime/IPC, focused tests, and ACP/multimedia documentation own resumable external Session binding plus attachment isolation.
 
 ## §V
 V1: Workflow JSON source of truth is `SwarmConfig`; UI preview, run badges, and send payload derive from parsed JSON.
@@ -1120,6 +1121,11 @@ V561: Core builds with native provider attachments typed `readonly unknown[]`, r
 V562: `pnpm test:coverage` runs the complete root suite with V8 coverage, enforces aggregate 85/70/90/85 statement/branch/function/line floors plus checked-in per-file floors for ACP Server, Core media, Desktop media, and Desktop window security, and is required by primary CI and `ci:node`.
 V563: Extracting message attachments reduces formatted `App.tsx` from 10,399 lines/380,923 bytes/413 branch tokens to 10,346 lines/379,434 bytes/411 branch tokens; production lines across the shell plus extracted component fall by three, and dedicated tests cover kinds, size labels, disabled state, and preview routing.
 V564: `pnpm eval:inspect` may write timestamped `.eval` files under root `logs/`, and those generated artifacts remain absent from Git status after the gate.
+V565: A writable main Desktop task may persist one external ACP Session binding separately from imported read-only `acpSessionId`; the binding matches exact Harness adapter, Model, Agent profile, and canonical cwd, reaches `AcpClient.prompt` as the existing Session id, and records a newly created id before its first prompt.
+V566: Reusing an unavailable external ACP Session clears that binding and retries once with a new Session only before prompt output; a new Session bootstraps canonical local text history without replaying historical attachment bytes, while a valid reused Session receives only the latest user turn.
+V567: A turn whose latest user message carries attachments never loads or persists a long-lived external ACP Session binding and invalidates any prior binding before execution. Side chats, child Agents, background activations, workflows, forks, and promoted tasks never inherit the main task's external binding.
+V568: A native Codex ACP attachment turn uses an exact private temporary `CODEX_HOME`, copies only bounded required config/auth plus read-only Agent/Skill/rule inputs when available, and removes that exact root after execution. Protected Codex attachment turns rely on the existing removable container and never persist a host binding.
+V569: SwarmX Session JSONL, index, Renderer IPC, activity records, and external-binding metadata contain no attachment Base64. Focused tests prove text reuse, identity mismatch, unavailable-session recovery, attachment isolation, exact temporary-home cleanup, and unchanged fork/side isolation.
 
 ## §T
 |id|status|task|cites|
@@ -1359,6 +1365,7 @@ V564: `pnpm eval:inspect` may write timestamped `.eval` files under root `logs/`
 |T233|x|enforce audited-surface coverage floors in primary CI and tagged release quality|C203,V562,I268|
 |T234|x|extract and directly test message attachment rendering from the Renderer application shell|C204,V563,I269|
 |T235|x|keep generated Inspect smoke evaluation logs out of verified source status|C205,V564,I270|
+|T236|x|persist safe main-task ACP Session bindings and isolate attachment-bearing Codex execution|V565,V566,V567,V568,V569,I271|
 
 ## §B
 |id|date|cause|fix|
@@ -1524,3 +1531,4 @@ V564: `pnpm eval:inspect` may write timestamped `.eval` files under root `logs/`
 |B159|2026-07-26|the repository ran hundreds of tests but had no coverage provider, report, threshold, or CI gate, so a high-risk branch could become untested without changing build status|V562|
 |B160|2026-07-26|message attachment icon branching, size formatting, and interaction remained embedded in the 10,399-line Renderer application shell with no focused component test|V563|
 |B161|2026-07-26|the full Inspect smoke gate wrote timestamped evaluation output to an unignored root `logs/` directory, leaving an otherwise verified working tree dirty|V564|
+|B162|2026-07-27|Desktop ACP composition omitted the existing Session id on every invocation, while attachment-capable Codex sessions persisted request Base64 into long-lived rollout logs that compaction and subagents could duplicate without a SwarmX isolation boundary|V565,V566,V567,V568,V569|

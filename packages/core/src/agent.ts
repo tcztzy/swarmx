@@ -2,6 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import OpenAI from "openai";
 import {
   AcpClient,
+  AcpSessionUnavailableError,
   RequestCancelledError,
   currentRequestSignal,
   throwIfCurrentRequestCancelled,
@@ -59,6 +60,8 @@ export interface AgentRuntimeOptions {
   localTools?: readonly LocalTool[];
   acpPermissionHandler?: AcpPermissionHandler;
   acpMode?: string;
+  acpSessionId?: string;
+  onAcpSessionId?: (sessionId: string | undefined) => void | Promise<void>;
 }
 
 interface AcpPromptClient {
@@ -73,6 +76,7 @@ interface AcpPromptClient {
       effort?: string;
       preferredMode?: string;
       requestPermission?: AcpPermissionHandler;
+      onSessionId?: (sessionId: string) => void | Promise<void>;
     },
     input: AcpPromptInput,
     swarmConfig?: unknown,
@@ -103,6 +107,8 @@ export class Agent {
   private localTools: readonly LocalTool[];
   private acpPermissionHandler?: AcpPermissionHandler;
   private acpMode?: string;
+  private acpSessionId?: string;
+  private onAcpSessionId?: (sessionId: string | undefined) => void | Promise<void>;
   private configuredModel?: string;
   private maxOutputTokens: number;
 
@@ -136,6 +142,8 @@ export class Agent {
     this.localTools = options.localTools ?? [];
     this.acpPermissionHandler = options.acpPermissionHandler;
     this.acpMode = options.acpMode;
+    this.acpSessionId = options.acpSessionId;
+    this.onAcpSessionId = options.onAcpSessionId;
     this.maxOutputTokens = positiveInteger(clientConfig.maxOutputTokens) ?? 8192;
 
     const configuredApiKey = stringProperty(clientConfig, "apiKey");
@@ -791,13 +799,14 @@ export class Agent {
     if (this.backend.type !== "custom") {
       throw new Error(`Agent "${this.name}" backend is not an ACP custom backend.`);
     }
+    const backend = this.backend;
 
-    const client = this.createAcpClient();
-    try {
-      const result = await client.prompt(
+    let client = this.createAcpClient();
+    const prompt = (activeClient: AcpPromptClient, sessionId?: string) =>
+      activeClient.prompt(
         {
-          command: this.backend.program,
-          args: this.backend.args ?? [],
+          command: backend.program,
+          args: backend.args ?? [],
           cwd: this.processOptions?.currentDir,
           env: this.processOptions?.env,
           clearEnv: this.processOptions?.clearEnv,
@@ -805,12 +814,30 @@ export class Agent {
           ...(this.configuredReasoningEffort() ? { effort: this.configuredReasoningEffort() } : {}),
           ...(this.acpMode ? { preferredMode: this.acpMode } : {}),
           ...(this.acpPermissionHandler ? { requestPermission: this.acpPermissionHandler } : {}),
+          ...(!sessionId && this.onAcpSessionId
+            ? {
+                onSessionId: async (createdSessionId: string) => {
+                  await this.onAcpSessionId?.(createdSessionId);
+                },
+              }
+            : {}),
         },
-        this.buildAcpPrompt(arguments_),
+        this.buildAcpPrompt(arguments_, !sessionId),
         undefined,
-        undefined,
+        sessionId,
         onChunk,
       );
+
+    try {
+      let result: Awaited<ReturnType<AcpPromptClient["prompt"]>>;
+      try {
+        result = await prompt(client, this.acpSessionId);
+      } catch (error) {
+        if (!this.acpSessionId || !(error instanceof AcpSessionUnavailableError)) throw error;
+        await this.onAcpSessionId?.(undefined);
+        client = this.createAcpClient();
+        result = await prompt(client);
+      }
       throwIfCurrentRequestCancelled();
       return { messages: result.messages };
     } catch (error) {
@@ -823,11 +850,20 @@ export class Agent {
     }
   }
 
-  private buildAcpPrompt(arguments_: Record<string, unknown>): AcpPromptInput {
+  private buildAcpPrompt(
+    arguments_: Record<string, unknown>,
+    includeHistory: boolean,
+  ): AcpPromptInput {
     const request = latestUserContent(arguments_);
+    const history = includeHistory ? acpConversationHistory(arguments_) : "";
+    const requestText = history
+      ? `Conversation history from the canonical SwarmX Session:\n${history}\n\nCurrent user request:\n${request}`
+      : `User request:\n${request}`;
     const text = this.instructions.trim()
-      ? `Agent instructions:\n${this.instructions.trim()}\n\nUser request:\n${request}`
-      : request;
+      ? `Agent instructions:\n${this.instructions.trim()}\n\n${requestText}`
+      : history
+        ? requestText
+        : request;
     const attachments = latestUserAttachments(arguments_);
     return { text, ...(attachments.length > 0 ? { attachments } : {}) };
   }
@@ -915,6 +951,40 @@ function latestUserContent(arguments_: Record<string, unknown>): string {
   }
 
   return "";
+}
+
+function acpConversationHistory(arguments_: Record<string, unknown>): string {
+  const raw = arguments_.messages as
+    | Array<{
+        role: string;
+        content: string | null;
+        attachments?: MediaAttachment[];
+      }>
+    | undefined;
+  const messages = raw ?? [];
+  let latestUserIndex = -1;
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    if (messages[index]?.role === "user") {
+      latestUserIndex = index;
+      break;
+    }
+  }
+  if (latestUserIndex <= 0) return "";
+
+  return messages
+    .slice(0, latestUserIndex)
+    .filter((message) => ["user", "assistant", "system", "tool"].includes(message.role))
+    .map((message) => {
+      const attachments = (message.attachments ?? [])
+        .map(
+          (attachment) =>
+            `${attachment.name} (${attachment.mimeType}, ${attachment.sizeBytes} bytes)`,
+        )
+        .join(", ");
+      const attachmentLine = attachments ? `\nAttachments (metadata only): ${attachments}` : "";
+      return `[${message.role}]\n${message.content ?? ""}${attachmentLine}`;
+    })
+    .join("\n\n");
 }
 
 function latestUserAttachments(arguments_: Record<string, unknown>): MediaAttachment[] {

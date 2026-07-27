@@ -277,6 +277,14 @@ describe("Session", () => {
       { role: "user", content: "Later request", kind: "message" },
       { role: "assistant", content: "Later reply", kind: "message" },
     ];
+    session.externalAcpSession = {
+      sessionId: "editing-external-session",
+      harnessId: "codex",
+      modelId: "gpt-5",
+      agentProfileId: "desktop-gpt-5",
+      createdAt: "2026-07-27T00:00:00.000Z",
+      updatedAt: "2026-07-27T00:00:00.000Z",
+    };
     saveSession(session);
     const rolloutPath = path.join(sessionsDir, `${session.id}.jsonl`);
     const before = fs.readFileSync(rolloutPath);
@@ -294,6 +302,7 @@ describe("Session", () => {
       { role: "user", content: "Revised request", kind: "message" },
     ]);
     expect(edited?.messages[2]?.createdAt).toBeTruthy();
+    expect(edited?.externalAcpSession).toBeUndefined();
     expect(loadSession(session.id)?.messages).toEqual(edited?.messages);
     const after = fs.readFileSync(rolloutPath);
     expect(after.subarray(0, before.length)).toEqual(before);
@@ -394,6 +403,15 @@ describe("Session", () => {
     savedIds.push(source.id);
     source.title = "Original task";
     source.acpSessionId = "runtime-owned-session";
+    source.externalAcpSession = {
+      sessionId: "external-session",
+      harnessId: "codex",
+      modelId: "model-1",
+      agentProfileId: "desktop-model-1",
+      cwd: "/workspace/project-1",
+      createdAt: "2026-07-27T00:00:00.000Z",
+      updatedAt: "2026-07-27T00:00:00.000Z",
+    };
     source.pinned = true;
     source.messages = [
       { role: "user", content: "First request", kind: "message" },
@@ -428,6 +446,7 @@ describe("Session", () => {
     });
     expect(forked.id).not.toBe(source.id);
     expect(forked.acpSessionId).toBeUndefined();
+    expect(forked.externalAcpSession).toBeUndefined();
     expect(loadSession(source.id)?.messages).toEqual(source.messages);
     expect(loadSession(forked.id)?.messages).toEqual(source.messages.slice(0, 2));
   });

@@ -227,10 +227,22 @@ export const SessionForkSourceSchema = z.object({
   createdAt: z.string().min(1),
 });
 
+export const ExternalAcpSessionBindingSchema = z.object({
+  sessionId: z.string().min(1),
+  harnessId: z.string().min(1),
+  modelId: z.string().min(1),
+  modelSupplyId: z.string().min(1).optional(),
+  agentProfileId: z.string().min(1).optional(),
+  cwd: z.string().min(1).optional(),
+  createdAt: z.string().min(1),
+  updatedAt: z.string().min(1),
+});
+
 export const SessionDataSchema = z.object({
   id: z.string(),
   title: z.string(),
   acpSessionId: z.string().optional(),
+  externalAcpSession: ExternalAcpSessionBindingSchema.optional(),
   forkedFrom: SessionForkSourceSchema.optional(),
   projectId: z.string().optional(),
   cwd: z.string().optional(),
@@ -303,6 +315,7 @@ export type EvalTraceEvent = z.infer<typeof EvalTraceEventSchema>;
 export type EvalRunResult = z.infer<typeof EvalRunResultSchema>;
 export type SessionPermissionMode = z.infer<typeof SessionPermissionModeSchema>;
 export type SessionForkSource = z.infer<typeof SessionForkSourceSchema>;
+export type ExternalAcpSessionBinding = z.infer<typeof ExternalAcpSessionBindingSchema>;
 export type SessionData = z.infer<typeof SessionDataSchema>;
 export type TransientSessionContextChip = z.infer<typeof TransientSessionContextChipSchema>;
 export type TransientSessionAnchor = z.infer<typeof TransientSessionAnchorSchema>;

@@ -1,6 +1,11 @@
 import OpenAI from "openai";
 import { describe, expect, it, vi } from "vitest";
-import { RequestCancelledError, cancelAcpRequest, withAcpRequest } from "../src/acp.js";
+import {
+  AcpSessionUnavailableError,
+  RequestCancelledError,
+  cancelAcpRequest,
+  withAcpRequest,
+} from "../src/acp.js";
 import type { AcpPromptInput } from "../src/acp.js";
 import { Agent, HookRef } from "../src/agent.js";
 import { McpManager, localToolResult } from "../src/mcp.js";
@@ -176,6 +181,7 @@ describe("Agent", () => {
             preferredMode?: string;
           };
           prompt: AcpPromptInput;
+          sessionId?: string;
         }
       | undefined;
     const streamed: MessageChunk[] = [];
@@ -193,8 +199,8 @@ describe("Agent", () => {
       {
         acpMode: "plan",
         createAcpClient: () => ({
-          async prompt(opts, prompt, _swarmConfig, _sessionId, onChunk) {
-            seen = { opts, prompt };
+          async prompt(opts, prompt, _swarmConfig, sessionId, onChunk) {
+            seen = { opts, prompt, sessionId };
             const chunk: MessageChunk = {
               role: "assistant",
               content: "working",
@@ -238,8 +244,13 @@ describe("Agent", () => {
         preferredMode: "plan",
       },
       prompt: {
-        text: "Agent instructions:\nPlan with evidence.\n\nUser request:\nlatest request",
+        text:
+          "Agent instructions:\nPlan with evidence.\n\n" +
+          "Conversation history from the canonical SwarmX Session:\n" +
+          "[user]\nfirst request\n\n[assistant]\nmiddle\n\n" +
+          "Current user request:\nlatest request",
       },
+      sessionId: undefined,
     });
     expect(agent.model).toBeUndefined();
     expect(
@@ -251,6 +262,111 @@ describe("Agent", () => {
     expect(result.messages).toEqual([
       { role: "assistant", content: "done", kind: "message", agent: "codex_agent" },
     ]);
+  });
+
+  it("V565 reuses a bound ACP Session and sends only the latest user turn", async () => {
+    const sessionIds: Array<string | undefined> = [];
+    const prompts: AcpPromptInput[] = [];
+    const agent = new Agent(
+      {
+        name: "bound_agent",
+        backend: { type: "custom", program: "test-acp" },
+      },
+      {
+        acpSessionId: "external-session-1",
+        onAcpSessionId: (sessionId) => sessionIds.push(sessionId),
+        createAcpClient: () => ({
+          async prompt(_opts, prompt, _swarmConfig, sessionId) {
+            sessionIds.push(sessionId);
+            prompts.push(prompt);
+            return {
+              messages: [{ role: "assistant", content: "continued", kind: "message" }],
+            };
+          },
+        }),
+      },
+    );
+
+    await expect(
+      agent.call({
+        messages: [
+          { role: "user", content: "old request" },
+          { role: "assistant", content: "old answer" },
+          { role: "user", content: "new request" },
+        ],
+      }),
+    ).resolves.toMatchObject({
+      messages: [{ role: "assistant", content: "continued", kind: "message" }],
+    });
+    expect(sessionIds).toEqual(["external-session-1"]);
+    expect(prompts).toEqual([{ text: "new request" }]);
+  });
+
+  it("V566 replaces an unavailable binding before retrying with text-only history", async () => {
+    const bindingChanges: Array<string | undefined> = [];
+    const attempts: Array<{ sessionId?: string; prompt: AcpPromptInput }> = [];
+    let clientCount = 0;
+    const agent = new Agent(
+      {
+        name: "recovering_agent",
+        backend: { type: "custom", program: "test-acp" },
+      },
+      {
+        acpSessionId: "missing-session",
+        onAcpSessionId: (sessionId) => bindingChanges.push(sessionId),
+        createAcpClient: () => {
+          clientCount += 1;
+          return {
+            async prompt(opts, prompt, _swarmConfig, sessionId) {
+              attempts.push({ prompt, sessionId });
+              if (sessionId) throw new AcpSessionUnavailableError(sessionId);
+              await opts.onSessionId?.("replacement-session");
+              return {
+                messages: [{ role: "assistant", content: "recovered", kind: "message" }],
+              };
+            },
+          };
+        },
+      },
+    );
+
+    await expect(
+      agent.call({
+        messages: [
+          {
+            role: "user",
+            content: "inspect image",
+            attachments: [
+              {
+                id: "media-1",
+                name: "evidence.png",
+                kind: "image",
+                mimeType: "image/png",
+                sizeBytes: 128,
+                uri: "file:///tmp/evidence.png",
+                source: "user",
+              },
+            ],
+          },
+          { role: "assistant", content: "old answer" },
+          { role: "user", content: "continue without replaying bytes" },
+        ],
+      }),
+    ).resolves.toMatchObject({
+      messages: [{ role: "assistant", content: "recovered", kind: "message" }],
+    });
+    expect(clientCount).toBe(2);
+    expect(bindingChanges).toEqual([undefined, "replacement-session"]);
+    expect(attempts[0]).toEqual({
+      sessionId: "missing-session",
+      prompt: { text: "continue without replaying bytes" },
+    });
+    expect(attempts[1]?.sessionId).toBeUndefined();
+    expect(attempts[1]?.prompt.attachments).toBeUndefined();
+    expect(attempts[1]?.prompt.text).toContain(
+      "Attachments (metadata only): evidence.png (image/png, 128 bytes)",
+    );
+    expect(attempts[1]?.prompt.text).not.toContain("base64");
   });
 
   it("does not continue after a custom backend confirms cancellation", async () => {

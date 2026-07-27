@@ -1,4 +1,4 @@
-import { mkdir, readFile, stat } from "node:fs/promises";
+import { mkdir, readFile, realpath, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -44,6 +44,7 @@ import type {
   AgentConfig,
   DiscoveredSession,
   ExtensionInventory,
+  ExternalAcpSessionBinding,
   ListGroupedSessionsOptions,
   MediaAttachment,
   MessageChunk,
@@ -69,6 +70,14 @@ import {
   safeStorage,
   shell,
 } from "electron";
+import {
+  type ExternalAcpSessionIdentity,
+  createEphemeralCodexHome,
+  createExternalAcpSessionBinding,
+  externalAcpSessionIdentity,
+  latestUserMessageHasAttachments,
+  matchingExternalAcpSessionId,
+} from "./acp-session-runtime.js";
 import {
   type AgentChunkPublisher,
   type AgentChunkSender,
@@ -332,6 +341,7 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
     let foregroundRuntime: ClaudeSessionRuntime | undefined;
     let activeChunkPublisher: AgentChunkPublisher | undefined;
     let activeSideChat: TransientSessionData | undefined;
+    let ephemeralCodexHome: Awaited<ReturnType<typeof createEphemeralCodexHome>> | undefined;
     const taskMetadata = {
       taskId: params.requestId,
       sessionId: params.sessionId,
@@ -450,6 +460,9 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
         const cwd = await normalizeWorkingDirectory(params.cwd);
 
         if (params.swarmConfig) {
+          if (params.sessionId && !params.sideChatId) {
+            clearExternalAcpSession(params.sessionId);
+          }
           assertDesktopSwarmModels(params.swarmConfig);
           const config = cwd
             ? swarmConfigWithWorkingDirectory(params.swarmConfig, cwd)
@@ -472,10 +485,65 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
             ? await modelCatalog.runtimeCredentialsForSupply(inventory, plan.modelSupplyId)
             : undefined;
           const protectedInventory = await protectCompositionHarness(inventory, plan.harnessId);
-          const projectTools =
-            cwd && compositionRuntimeHarnessId(inventory, plan) === "swarmx"
-              ? new WorkspaceTools(cwd)
+          let executionInventory = protectedInventory;
+          const runtimeHarnessId = compositionRuntimeHarnessId(inventory, plan);
+          const protectedHarness = protectedInventory.harnesses.find(
+            (harness) => harness.id === plan.harnessId,
+          );
+          const compositionBackend = protectedHarness?.backend;
+          const compositionUsesAcp = compositionBackend?.type === "custom";
+          const compositionIsProtected =
+            compositionBackend?.type === "custom" && compositionBackend.program === "container";
+          const mainSession =
+            params.sessionId && !params.sideChatId ? loadSession(params.sessionId) : null;
+          const hasAttachments = mainSession ? latestUserMessageHasAttachments(mainSession) : false;
+          const identity =
+            runtimeHarnessId && compositionUsesAcp
+              ? externalAcpSessionIdentity(plan, runtimeHarnessId, cwd)
               : null;
+          let acpSessionId: string | undefined;
+          let onAcpSessionId: ((sessionId: string | undefined) => void | Promise<void>) | undefined;
+          let compositionEnv: NodeJS.ProcessEnv | undefined;
+          const localSessionId = params.sessionId;
+
+          if (mainSession && localSessionId) {
+            const canPersistAcpSession =
+              Boolean(identity) && compositionUsesAcp && !compositionIsProtected && !hasAttachments;
+            if (canPersistAcpSession && identity) {
+              acpSessionId = matchingExternalAcpSessionId(mainSession, identity);
+              if (mainSession.externalAcpSession && !acpSessionId) {
+                clearExternalAcpSession(localSessionId);
+              }
+              onAcpSessionId = (externalSessionId) => {
+                if (externalSessionId) {
+                  persistExternalAcpSession(localSessionId, identity, externalSessionId);
+                } else {
+                  clearExternalAcpSession(localSessionId);
+                }
+              };
+            } else {
+              clearExternalAcpSession(localSessionId);
+            }
+
+            if (
+              runtimeHarnessId === "codex" &&
+              compositionUsesAcp &&
+              !compositionIsProtected &&
+              hasAttachments
+            ) {
+              ephemeralCodexHome = await createEphemeralCodexHome({
+                sourceHome: process.env.CODEX_HOME,
+              });
+              compositionEnv = { ...process.env, ...ephemeralCodexHome.env };
+              executionInventory = inventoryWithHarnessRuntimeEnv(
+                protectedInventory,
+                plan.harnessId,
+                Object.keys(ephemeralCodexHome.env),
+              );
+            }
+          }
+          const projectTools =
+            cwd && runtimeHarnessId === "swarmx" ? new WorkspaceTools(cwd) : null;
           const agentPermissionPolicy = HarnessPermissionPolicySchema.parse({
             mode: plan.permissions?.mode ?? "default",
             allowedTools: plan.permissions?.allowedTools ?? [],
@@ -753,10 +821,13 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
                     : [{ role: "user" as const, content: params.userText }]),
                 ],
                 {
-                  inventory: protectedInventory,
+                  inventory: executionInventory,
+                  env: compositionEnv,
                   providerSecrets,
                   cwd,
                   acpPermissionHandler,
+                  acpSessionId,
+                  onAcpSessionId,
                   ...(params.sideChatId ? { acpMode: "plan" } : {}),
                   ...(projectTools
                     ? {
@@ -902,6 +973,7 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
     } finally {
       activeChunkPublisher?.close();
       foregroundRuntime?.endForeground();
+      await ephemeralCodexHome?.cleanup();
     }
   };
 
@@ -1810,6 +1882,64 @@ export function compositionRuntimeHarnessId(
   return harness?.runtimeHarnessId ?? harness?.id ?? plan.harnessId;
 }
 
+function inventoryWithHarnessRuntimeEnv(
+  inventory: ExtensionInventory,
+  harnessId: string | undefined,
+  names: readonly string[],
+): ExtensionInventory {
+  if (!harnessId || names.length === 0) return inventory;
+  return {
+    ...inventory,
+    harnesses: inventory.harnesses.map((harness) =>
+      harness.id === harnessId
+        ? {
+            ...harness,
+            passthroughEnv: [...new Set([...(harness.passthroughEnv ?? []), ...names])],
+          }
+        : harness,
+    ),
+  };
+}
+
+function persistExternalAcpSession(
+  localSessionId: string,
+  identity: ExternalAcpSessionIdentity,
+  externalSessionId: string,
+): void {
+  const session = loadSession(localSessionId);
+  if (!session) throw new Error(`Session ${localSessionId} no longer exists.`);
+  const binding = createExternalAcpSessionBinding(
+    identity,
+    externalSessionId,
+    session.externalAcpSession,
+  );
+  if (sameExternalAcpSessionBinding(session.externalAcpSession, binding)) return;
+  session.externalAcpSession = binding;
+  saveSession(session);
+}
+
+function clearExternalAcpSession(localSessionId: string): void {
+  const session = loadSession(localSessionId);
+  if (!session?.externalAcpSession) return;
+  session.externalAcpSession = undefined;
+  saveSession(session);
+}
+
+function sameExternalAcpSessionBinding(
+  left: ExternalAcpSessionBinding | undefined,
+  right: ExternalAcpSessionBinding,
+): boolean {
+  return Boolean(
+    left &&
+      left.sessionId === right.sessionId &&
+      left.harnessId === right.harnessId &&
+      left.modelId === right.modelId &&
+      left.modelSupplyId === right.modelSupplyId &&
+      left.agentProfileId === right.agentProfileId &&
+      left.cwd === right.cwd,
+  );
+}
+
 export function assertDesktopSwarmModels(config: SwarmConfig): void {
   if (config.queen && !config.queen.model) {
     throw new Error(`Swarm "${config.name}" queen requires an explicit Model.`);
@@ -1975,7 +2105,7 @@ async function normalizeWorkingDirectory(cwd?: string): Promise<string | undefin
   const resolved = path.resolve(cwd);
   const info = await stat(resolved);
   if (!info.isDirectory()) throw new Error(`Working directory must be a directory: ${resolved}`);
-  return resolved;
+  return realpath(resolved);
 }
 
 function workspaceToolsFor(cwd?: string): WorkspaceTools {

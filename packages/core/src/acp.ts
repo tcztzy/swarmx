@@ -42,6 +42,17 @@ export class RequestCancelledError extends Error {
   }
 }
 
+export class AcpSessionUnavailableError extends Error {
+  readonly sessionId: string;
+
+  constructor(sessionId: string, cause?: unknown) {
+    const detail = cause instanceof Error && cause.message ? `: ${cause.message}` : "";
+    super(`ACP session "${sessionId}" is unavailable${detail}`, { cause });
+    this.name = "AcpSessionUnavailableError";
+    this.sessionId = sessionId;
+  }
+}
+
 export interface AcpPromptInput {
   text: string;
   attachments?: readonly MediaAttachment[];
@@ -143,6 +154,8 @@ export interface AcpClientOptions {
   preferredMode?: string;
   /** Optional host-owned interactive authorization bridge. Missing handlers fail closed. */
   requestPermission?: AcpPermissionHandler;
+  /** Called after a new Session exists and before its first prompt begins. */
+  onSessionId?: (sessionId: string) => void | Promise<void>;
 }
 
 export type AcpPermissionRequest = RequestPermissionRequest;
@@ -267,9 +280,11 @@ export class AcpClient {
     onChunk?: (chunk: MessageChunk) => void,
   ): Promise<AcpPromptResult> {
     const chunks: MessageChunk[] = [];
+    let promptUpdatesActive = false;
 
     try {
       const { connection, acp } = await this.spawnAndConnect(opts, (update) => {
+        if (!promptUpdatesActive) return;
         const msg = sessionUpdateToChunk(update);
         if (msg) {
           if (msg.kind !== "tool_progress") chunks.push(msg);
@@ -294,7 +309,13 @@ export class AcpClient {
       let configOptions: SessionConfigOption[] | null = null;
       if (sessionId) {
         sid = sessionId;
-        if (initialized.agentCapabilities?.loadSession) {
+        if (!initialized.agentCapabilities?.loadSession) {
+          throw new AcpSessionUnavailableError(
+            sessionId,
+            new Error("ACP backend does not advertise session/load support."),
+          );
+        }
+        try {
           const loaded = await connection.loadSession({
             sessionId,
             cwd: opts.cwd ?? process.cwd(),
@@ -303,6 +324,9 @@ export class AcpClient {
           advertisedModels = loaded.models ?? null;
           advertisedModes = loaded.modes ?? null;
           configOptions = loaded.configOptions ?? null;
+        } catch (error) {
+          if (error instanceof AcpSessionUnavailableError) throw error;
+          throw new AcpSessionUnavailableError(sessionId, error);
         }
       } else {
         const resp = await connection.newSession({
@@ -313,6 +337,7 @@ export class AcpClient {
         advertisedModels = resp.models ?? null;
         advertisedModes = resp.modes ?? null;
         configOptions = resp.configOptions ?? null;
+        await opts.onSessionId?.(sid);
       }
       this.sessionId = sid;
       this.throwIfCancelled();
@@ -344,6 +369,7 @@ export class AcpClient {
         }),
       };
 
+      promptUpdatesActive = true;
       this.promptActive = true;
       const promptResp = await connection.prompt(promptReq);
       this.promptActive = false;

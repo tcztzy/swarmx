@@ -252,13 +252,20 @@ checks `sessionCapabilities.list` for listing and `loadSession` for loading
 before it calls either method. Missing capabilities produce a bounded
 diagnostic rather than an optimistic request or startup noise.
 
-Loaded ACP history is currently a **read-only view** in the desktop. The public
-preload send shape does not expose `sessionId`: SwarmX does not yet perform the
-required load/resume-plus-prompt sequence on one ACP connection, so the
-Composer disables continuation instead of treating an ACP ID as a local
-session ID or starting an unrelated new turn. Harness-level resume support in
-the matrix below is therefore product/adapter evidence, not a wired SwarmX
-desktop capability.
+ACP history discovered from another Harness remains a **read-only view** in the
+desktop: its `acpSessionId` identifies imported history and is never repurposed
+as writable local state. A writable SwarmX task instead owns a separate,
+identity-matched external ACP Session binding. Text-only main turns load that
+Session before prompting; a missing external Session clears the binding and
+retries once before any prompt output. Side chats, child Agents, background
+activations, workflows, forks, and promoted tasks do not inherit it.
+
+Attachment turns deliberately do not reuse or create that long-lived binding.
+Native Codex attachment execution uses a private temporary `CODEX_HOME` that is
+removed after the request; protected Codex uses its existing removable
+container. This boundary is necessary because the pinned adapter converts
+file-backed ACP image blocks to data URLs and does not expose Codex App Server's
+ephemeral-thread flag through ACP `session/new`.
 
 ## Harness capability matrix
 
@@ -353,7 +360,9 @@ bundles a compatible `@openai/codex` ^0.144.0; `CODEX_PATH` can override it:
 - [adapter README](https://github.com/agentclientprotocol/codex-acp/blob/v1.1.2/README.md)
 - [package metadata](https://github.com/agentclientprotocol/codex-acp/blob/v1.1.2/package.json)
 - [session/cancel implementation](https://github.com/agentclientprotocol/codex-acp/blob/v1.1.2/src/CodexAcpServer.ts)
+- [adapter Session-to-thread mapping](https://github.com/agentclientprotocol/codex-acp/blob/v1.1.2/src/CodexAcpClient.ts)
 - [model and reasoning configuration](https://github.com/agentclientprotocol/codex-acp/blob/v1.1.2/src/ModelConfigOption.ts)
+- [Codex App Server thread lifecycle and ephemeral threads](https://github.com/openai/codex/blob/main/codex-rs/app-server/README.md#lifecycle-overview)
 
 The adapter gets models and their real supported reasoning choices from Codex
 App Server. It exposes model, reasoning, fast mode, approval, and sandbox as ACP
@@ -363,6 +372,16 @@ harness-managed: no static Model/Effort menu is shown and the adapter's
 negotiated default is used. The correct future design is handshake-driven
 configuration, with any extension policy acting only as a configured upper
 bound—not a fabricated Codex model list.
+
+For Session storage, the adapter's `newSession` starts a durable Codex thread
+and file-backed image blocks become Base64 data URLs. SwarmX therefore persists
+adapter Session IDs only for text-only main tasks. Attachment turns use the
+temporary-home/removable-container isolation documented in
+[Multimedia attachments and previews](./multimedia.md), while canonical SwarmX
+history keeps attachment metadata only. Codex App Server documents
+`thread/start` with `ephemeral: true`, but the audited adapter does not project
+that option from ACP; the host-side isolation remains the compatibility
+boundary until it does.
 
 ### OpenCode
 

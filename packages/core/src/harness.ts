@@ -65,7 +65,16 @@ export const HARNESSES: Record<string, HarnessConfig> = {
     modelCompatibility: "any",
     supportedModelApis: ["openai_responses", "openai_chat", "anthropic", "ollama"],
     requiresExplicitModelRoute: true,
-    passthroughEnv: ["PATH", "HOME", "LANG", "USER", "SHELL", "TERM"],
+    passthroughEnv: [
+      "PATH",
+      "HOME",
+      "LANG",
+      "USER",
+      "SHELL",
+      "TERM",
+      "CODEX_HOME",
+      "APP_SERVER_LOGS",
+    ],
     backend: {
       type: "custom",
       program: "npx",

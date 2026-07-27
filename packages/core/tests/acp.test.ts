@@ -2,6 +2,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import {
   AcpClient,
+  AcpSessionUnavailableError,
   RequestCancelledError,
   cancelAcpRequest,
   currentRequestSignal,
@@ -56,6 +57,39 @@ describe("request-scoped cancellation", () => {
     ).resolves.toMatchObject({
       messages: [expect.objectContaining({ content: "mode:plan" })],
     });
+  });
+
+  it("V565 reports a new ACP Session before its first prompt", async () => {
+    const events: string[] = [];
+    const client = new AcpClient();
+    const result = await client.prompt(
+      {
+        ...agentOptions("complete"),
+        onSessionId: (sessionId) => events.push(`session:${sessionId}`),
+      },
+      "hello",
+      undefined,
+      undefined,
+      (chunk) => events.push(`chunk:${chunk.content}`),
+    );
+
+    expect(result.sessionId).toBe("test-session");
+    expect(events).toEqual(["session:test-session", "chunk:started"]);
+  });
+
+  it("V565 suppresses loaded history while continuing an existing ACP Session", async () => {
+    const client = new AcpClient();
+    await expect(
+      client.prompt(agentOptions("load"), "hello", undefined, "stored-session"),
+    ).resolves.toMatchObject({
+      sessionId: "stored-session",
+      messages: [expect.objectContaining({ content: "current" })],
+    });
+
+    const unsupported = new AcpClient();
+    await expect(
+      unsupported.prompt(agentOptions("complete"), "hello", undefined, "stored-session"),
+    ).rejects.toBeInstanceOf(AcpSessionUnavailableError);
   });
 
   it("keeps ACP tool updates correlated without exposing their ids as content", async () => {
@@ -293,7 +327,8 @@ type AgentMode =
   | "grouped-config"
   | "session-mode"
   | "tools"
-  | "permission";
+  | "permission"
+  | "load";
 
 function agentOptions(mode: AgentMode) {
   return {
@@ -350,7 +385,13 @@ function agentScript(mode: AgentMode): string {
     };
     new AgentSideConnection((connection) => ({
       async initialize(params) {
-        return { protocolVersion: params.protocolVersion, agentCapabilities: {}, authMethods: [] };
+        return {
+          protocolVersion: params.protocolVersion,
+          agentCapabilities: {
+            ...(${JSON.stringify(mode)} === "load" ? { loadSession: true } : {}),
+          },
+          authMethods: [],
+        };
       },
       async newSession() {
         return {
@@ -380,6 +421,17 @@ function agentScript(mode: AgentMode): string {
       },
       async unstable_setSessionModel(params) {
         selectedModel = params.modelId;
+        return {};
+      },
+      async loadSession(params) {
+        if (${JSON.stringify(mode)} !== "load") throw new Error("load unsupported");
+        await connection.sessionUpdate({
+          sessionId: params.sessionId,
+          update: {
+            sessionUpdate: "agent_message_chunk",
+            content: { type: "text", text: "historical" },
+          },
+        });
         return {};
       },
       async setSessionConfigOption(params) {
@@ -502,6 +554,16 @@ function agentScript(mode: AgentMode): string {
             update: {
               sessionUpdate: "agent_message_chunk",
               content: { type: "text", text: "mode:" + selectedMode },
+            },
+          });
+          return { stopReason: "end_turn" };
+        }
+        if (${JSON.stringify(mode)} === "load") {
+          await connection.sessionUpdate({
+            sessionId: "stored-session",
+            update: {
+              sessionUpdate: "agent_message_chunk",
+              content: { type: "text", text: "current" },
             },
           });
           return { stopReason: "end_turn" };

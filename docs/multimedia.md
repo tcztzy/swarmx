@@ -105,6 +105,28 @@ The original source is copied. Editing or deleting it after attachment does
 not mutate an already-imported conversation asset. This also makes retry,
 message history, and Session replay deterministic.
 
+Base64 is request-scoped transport only. SwarmX never stores it in Session
+JSONL, the Session index, activity records, or external ACP Session binding
+metadata.
+
+Writable main tasks reuse one external ACP Session only for text-only turns,
+and only while Harness adapter, Model, ModelSupply, Agent profile, and canonical
+working directory still match. Editing history, switching that identity, or
+sending an attachment invalidates the binding. A new text Session rebuilds
+context from canonical text history and attachment metadata, never historical
+attachment bytes. Side chats, child Agents, background activations, workflows,
+forks, and promoted tasks do not inherit the binding.
+
+An attachment-bearing native Codex ACP turn runs with a private temporary
+`CODEX_HOME` below `~/.swarmx/acp-ephemeral/`. SwarmX copies bounded auth/config
+inputs and bounded read-only Agent/Skill/rule inputs, points adapter logs into
+that same root, and removes the exact root after the request. A later attachment
+turn also removes crash residue older than 24 hours. Protected Codex runs use
+the existing `container run --rm` boundary instead. This prevents adapter
+rollouts containing inline image data from entering the user's long-lived
+`~/.codex/sessions`; it intentionally does not delete pre-existing Codex
+history.
+
 ## Degradation and compatibility
 
 - Unsupported provider modalities are represented by explicit fallback text or

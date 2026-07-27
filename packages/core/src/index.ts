@@ -22,6 +22,7 @@ export type {
 } from "./mcp.js";
 export { QuotaManager } from "./quota.js";
 export {
+  AcpSessionUnavailableError,
   AcpClient,
   RequestCancelledError,
   cancelAcpRequest,
@@ -943,6 +944,7 @@ export type {
 export {
   EvalRunResultSchema,
   EvalTraceEventSchema,
+  ExternalAcpSessionBindingSchema,
   MediaAttachmentKindSchema,
   MediaAttachmentSchema,
   MediaAttachmentSourceSchema,
@@ -958,6 +960,7 @@ export type {
   SwarmNodeConfig,
   ToolConfig,
   EdgeConfig,
+  ExternalAcpSessionBinding,
   McpServerConfig,
   HookConfig,
   ProcessOptions,
