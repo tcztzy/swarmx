@@ -8,6 +8,7 @@ import {
   MAX_MEDIA_ATTACHMENTS,
   MAX_MEDIA_ATTACHMENT_BYTES,
   MAX_MEDIA_TURN_BYTES,
+  MEDIA_SNIFF_BYTES,
   MediaAttachmentSchema,
   detectMediaMimeType,
   mediaKindFromMimeType,
@@ -15,6 +16,7 @@ import {
 } from "@swarmx/core";
 import type { MediaAttachment } from "@swarmx/core";
 
+// Duplicated in shared/desktop-api.ts: tsconfig.main-lib rootDir forbids importing ../shared.
 export interface DesktopMediaImport {
   name: string;
   mimeType?: string;
@@ -95,7 +97,8 @@ export class DesktopMediaService {
         if (!file.name.trim()) throw new Error("Attachment name cannot be empty.");
         const bytes = Buffer.from(file.bytes);
         const mimeType =
-          detectMediaMimeType(bytes.subarray(0, 64), file.name) ?? "application/octet-stream";
+          detectMediaMimeType(bytes.subarray(0, MEDIA_SNIFF_BYTES), file.name) ??
+          "application/octet-stream";
         const digest = createHash("sha256").update(bytes).digest("hex");
         const target = await this.writeStoredFile(digest, file.name, bytes);
         return attachmentRecord({
@@ -410,8 +413,8 @@ async function inspectFileContent(filePath: string): Promise<{ digest: string; h
   for await (const chunk of createReadStream(filePath)) {
     const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
     hash.update(bytes);
-    if (head.byteLength < 64) {
-      head = Buffer.concat([head, bytes.subarray(0, 64 - head.byteLength)]);
+    if (head.byteLength < MEDIA_SNIFF_BYTES) {
+      head = Buffer.concat([head, bytes.subarray(0, MEDIA_SNIFF_BYTES - head.byteLength)]);
     }
   }
   return { digest: hash.digest("hex"), head };

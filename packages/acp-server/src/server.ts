@@ -178,11 +178,9 @@ export class SwarmXAgent implements AcpAgent {
       return { stopReason: "end_turn" };
     }
 
+    const echoedMessageId = request.messageId ? { userMessageId: request.messageId } : {};
     try {
       return await withAcpRequest(acpRequestId(request.sessionId), async () => {
-        const current = loadSessionFile(request.sessionId);
-        if (!current) throw new Error(`Session ${request.sessionId} not found`);
-        session.sessionData = current;
         appendSessionMessages(request.sessionId, [
           { role: "user", kind: "message", content: userText },
         ]);
@@ -213,14 +211,14 @@ export class SwarmXAgent implements AcpAgent {
         session.sessionData = requireSession(request.sessionId);
         return {
           stopReason: "end_turn",
-          ...(request.messageId ? { userMessageId: request.messageId } : {}),
+          ...echoedMessageId,
         };
       });
     } catch (err: unknown) {
       if (err instanceof RequestCancelledError) {
         return {
           stopReason: "cancelled",
-          ...(request.messageId ? { userMessageId: request.messageId } : {}),
+          ...echoedMessageId,
         };
       }
       const errorMsg = err instanceof Error ? err.message : String(err);
@@ -237,7 +235,7 @@ export class SwarmXAgent implements AcpAgent {
       });
       return {
         stopReason: "refusal",
-        ...(request.messageId ? { userMessageId: request.messageId } : {}),
+        ...echoedMessageId,
       };
     }
   };

@@ -42,18 +42,25 @@ export { MessageRenderMetadataSchema, ModelTokenUsageSchema } from "./types.js";
 export type { ModelTokenUsage } from "./types.js";
 export {
   MAX_INLINE_MEDIA_BYTES,
+  MAX_INLINE_TEXT_DOCUMENT_BYTES,
   MAX_MEDIA_ATTACHMENT_BYTES,
   MAX_MEDIA_ATTACHMENTS,
   MAX_MEDIA_TURN_BYTES,
+  MEDIA_SNIFF_BYTES,
   attachmentFallbackText,
   buildAcpPromptContent,
+  createInlineMediaLoader,
   detectMediaMimeType,
   loadMediaAttachment,
   mediaAttachmentFilePath,
   mediaKindFromMimeType,
   validateMediaAttachments,
 } from "./media.js";
-export type { AcpPromptContentInput, LoadedMediaAttachment } from "./media.js";
+export type {
+  AcpPromptContentInput,
+  InlineMediaLoader,
+  LoadedMediaAttachment,
+} from "./media.js";
 export {
   ActivityDaySchema,
   ActivityEventSchema,

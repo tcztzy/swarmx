@@ -35,7 +35,7 @@ export function MessageAttachments({
   );
 }
 
-function attachmentIcon(attachment: DesktopMediaAttachment): LucideIcon {
+export function attachmentIcon(attachment: DesktopMediaAttachment): LucideIcon {
   if (attachment.kind === "image") return FileImage;
   if (attachment.kind === "audio") return FileAudio;
   if (attachment.kind === "video") return FileVideo;
@@ -43,7 +43,7 @@ function attachmentIcon(attachment: DesktopMediaAttachment): LucideIcon {
   return File;
 }
 
-function formatMediaBytes(bytes: number): string {
+export function formatMediaBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${Math.ceil(bytes / 1024)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(bytes < 10 * 1024 * 1024 ? 1 : 0)} MB`;

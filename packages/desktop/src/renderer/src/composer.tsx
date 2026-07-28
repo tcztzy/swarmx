@@ -1,19 +1,9 @@
-import {
-  ArrowUp,
-  File,
-  FileAudio,
-  FileImage,
-  FileText,
-  FileVideo,
-  FolderOpen,
-  Paperclip,
-  Plus,
-  Square,
-  X,
-} from "lucide-react";
+import { ArrowUp, FolderOpen, Paperclip, Plus, Square, X } from "lucide-react";
 import type React from "react";
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import type { DesktopMediaAttachment, DesktopMediaImport } from "../../shared/desktop-api.js";
+import { attachmentIcon, formatMediaBytes } from "./message-attachments.js";
+import { cx } from "./ui-primitives.js";
 
 const COMPOSER_MIN_HEIGHT = 48;
 const COMPOSER_MAX_HEIGHT = 240;
@@ -282,10 +272,7 @@ export function Composer({
 
   const appendAttachments = useCallback(
     (next: DesktopMediaAttachment[]) => {
-      if (!onAttachmentsChange) return;
-      const byId = new Map(attachments.map((attachment) => [attachment.id, attachment]));
-      for (const attachment of next) byId.set(attachment.id, attachment);
-      onAttachmentsChange([...byId.values()]);
+      onAttachmentsChange?.(mergeAttachments(attachments, next));
     },
     [attachments, onAttachmentsChange],
   );
@@ -422,35 +409,38 @@ export function Composer({
       )}
       {attachments.length > 0 && (
         <div className="composer__attachments" aria-label="Attached files">
-          {attachments.map((attachment) => (
-            <div className="composer-attachment" key={attachment.id}>
-              <button
-                type="button"
-                className="composer-attachment__preview"
-                onClick={() => onPreviewAttachment?.(attachment)}
-                disabled={!onPreviewAttachment}
-                aria-label={`Preview ${attachment.name}`}
-              >
-                <AttachmentIcon attachment={attachment} />
-                <span>
-                  <strong>{attachment.name}</strong>
-                  <small>{formatAttachmentSize(attachment.sizeBytes)}</small>
-                </span>
-              </button>
-              <button
-                type="button"
-                className="composer-attachment__remove"
-                onClick={() =>
-                  onAttachmentsChange?.(
-                    attachments.filter((candidate) => candidate.id !== attachment.id),
-                  )
-                }
-                aria-label={`Remove ${attachment.name}`}
-              >
-                <X aria-hidden="true" />
-              </button>
-            </div>
-          ))}
+          {attachments.map((attachment) => {
+            const Icon = attachmentIcon(attachment);
+            return (
+              <div className="composer-attachment" key={attachment.id}>
+                <button
+                  type="button"
+                  className="composer-attachment__preview"
+                  onClick={() => onPreviewAttachment?.(attachment)}
+                  disabled={!onPreviewAttachment}
+                  aria-label={`Preview ${attachment.name}`}
+                >
+                  <Icon aria-hidden="true" />
+                  <span>
+                    <strong>{attachment.name}</strong>
+                    <small>{formatMediaBytes(attachment.sizeBytes)}</small>
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  className="composer-attachment__remove"
+                  onClick={() =>
+                    onAttachmentsChange?.(
+                      attachments.filter((candidate) => candidate.id !== attachment.id),
+                    )
+                  }
+                  aria-label={`Remove ${attachment.name}`}
+                >
+                  <X aria-hidden="true" />
+                </button>
+              </div>
+            );
+          })}
         </div>
       )}
       <textarea
@@ -531,20 +521,6 @@ export function Composer({
   );
 }
 
-function AttachmentIcon({
-  attachment,
-}: {
-  attachment: DesktopMediaAttachment;
-}): React.JSX.Element {
-  if (attachment.kind === "image") return <FileImage aria-hidden="true" />;
-  if (attachment.kind === "audio") return <FileAudio aria-hidden="true" />;
-  if (attachment.kind === "video") return <FileVideo aria-hidden="true" />;
-  if (attachment.kind === "pdf" || attachment.kind === "text") {
-    return <FileText aria-hidden="true" />;
-  }
-  return <File aria-hidden="true" />;
-}
-
 function mergeAttachments(
   existing: readonly DesktopMediaAttachment[],
   next: readonly DesktopMediaAttachment[],
@@ -552,16 +528,6 @@ function mergeAttachments(
   const byId = new Map(existing.map((attachment) => [attachment.id, attachment]));
   for (const attachment of next) byId.set(attachment.id, attachment);
   return [...byId.values()];
-}
-
-function formatAttachmentSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${Math.ceil(bytes / 1024)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(bytes < 10 * 1024 * 1024 ? 1 : 0)} MB`;
-}
-
-function cx(...classes: Array<string | false | null | undefined>): string {
-  return classes.filter(Boolean).join(" ");
 }
 
 function getMentionContext(text: string, cursorOffset: number): MentionContext | null {

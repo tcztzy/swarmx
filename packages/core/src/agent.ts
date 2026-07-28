@@ -10,11 +10,11 @@ import {
 import type { AcpPermissionHandler, AcpPromptInput } from "./acp.js";
 import { type LocalTool, type LocalToolProgress, McpManager } from "./mcp.js";
 import {
-  MAX_INLINE_MEDIA_BYTES,
   attachmentFallbackText,
-  loadMediaAttachment,
+  createInlineMediaLoader,
   validateMediaAttachments,
 } from "./media.js";
+import type { InlineMediaLoader } from "./media.js";
 import { ModelApiModeSchema, ModelApiSchema } from "./model-api.js";
 import type { ModelApi, ModelApiMode } from "./model-api.js";
 import {
@@ -709,7 +709,7 @@ export class Agent {
 
   private async buildMessages(arguments_: Record<string, unknown>): Promise<ChatMsg[]> {
     const msgs: ChatMsg[] = [];
-    const mediaBudget = { loadedBytes: 0 };
+    const mediaBudget = createInlineMediaLoader();
 
     if (this.instructions) {
       msgs.push({ role: "system", content: this.instructions });
@@ -814,13 +814,7 @@ export class Agent {
           ...(this.configuredReasoningEffort() ? { effort: this.configuredReasoningEffort() } : {}),
           ...(this.acpMode ? { preferredMode: this.acpMode } : {}),
           ...(this.acpPermissionHandler ? { requestPermission: this.acpPermissionHandler } : {}),
-          ...(!sessionId && this.onAcpSessionId
-            ? {
-                onSessionId: async (createdSessionId: string) => {
-                  await this.onAcpSessionId?.(createdSessionId);
-                },
-              }
-            : {}),
+          ...(!sessionId && this.onAcpSessionId ? { onSessionId: this.onAcpSessionId } : {}),
         },
         this.buildAcpPrompt(arguments_, !sessionId),
         undefined,
@@ -1003,7 +997,7 @@ function latestUserAttachments(arguments_: Record<string, unknown>): MediaAttach
 async function openAIChatUserContent(
   text: string,
   attachments: readonly MediaAttachment[],
-  mediaBudget: { loadedBytes: number },
+  mediaBudget: InlineMediaLoader,
 ): Promise<OpenAI.Chat.Completions.ChatCompletionContentPart[]> {
   const validatedAttachments = validateMediaAttachments(attachments);
   const content: OpenAI.Chat.Completions.ChatCompletionContentPart[] = [];
@@ -1018,11 +1012,7 @@ async function openAIChatUserContent(
       content.push({ type: "text", text: attachmentFallbackText(attachment) });
       continue;
     }
-    const loaded = await loadMediaAttachment(
-      attachment,
-      Math.max(0, MAX_INLINE_MEDIA_BYTES - mediaBudget.loadedBytes),
-    );
-    mediaBudget.loadedBytes += loaded.bytes.byteLength;
+    const loaded = await mediaBudget(attachment);
     if (attachment.kind === "image") {
       content.push({
         type: "image_url",

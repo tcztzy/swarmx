@@ -777,6 +777,18 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
     setSideChatState(state);
   }, []);
 
+  const updateSideChatState = useCallback(
+    (update: (current: SideChatParentState) => SideChatParentState) => {
+      setSideChatState((current) => {
+        if (!current) return current;
+        const next = update(current);
+        sideChatStateRef.current = next;
+        return next;
+      });
+    },
+    [],
+  );
+
   useEffect(
     () =>
       api.onAgentInteraction((interaction) => {
@@ -2371,20 +2383,22 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
     }
   }, []);
 
-  const replaceSideChat = useCallback((chat: SideChat | undefined) => {
-    if (!chat) return;
-    setSideChatState((current) => {
-      if (!current || current.parentSessionId !== chat.parentSessionId) return current;
-      const next = {
-        ...current,
-        chats: current.chats.some((candidate) => candidate.id === chat.id)
-          ? current.chats.map((candidate) => (candidate.id === chat.id ? chat : candidate))
-          : [...current.chats, chat],
-      };
-      sideChatStateRef.current = next;
-      return next;
-    });
-  }, []);
+  const replaceSideChat = useCallback(
+    (chat: SideChat | undefined) => {
+      if (!chat) return;
+      updateSideChatState((current) =>
+        current.parentSessionId !== chat.parentSessionId
+          ? current
+          : {
+              ...current,
+              chats: current.chats.some((candidate) => candidate.id === chat.id)
+                ? current.chats.map((candidate) => (candidate.id === chat.id ? chat : candidate))
+                : [...current.chats, chat],
+            },
+      );
+    },
+    [updateSideChatState],
+  );
 
   const createSideChat = useCallback(async (): Promise<SideChat | null> => {
     const parent = currentSession;
@@ -2445,25 +2459,15 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
       const parentSessionId = currentSession?.id;
       const sideChatId = sideChatState?.activeSideChatId;
       if (!parentSessionId || !sideChatId) return;
-      setSideChatState((current) =>
-        current
-          ? (() => {
-              const next = {
-                ...current,
-                chats: current.chats.map((chat) =>
-                  chat.id === sideChatId ? { ...chat, draft } : chat,
-                ),
-              };
-              sideChatStateRef.current = next;
-              return next;
-            })()
-          : current,
-      );
+      updateSideChatState((current) => ({
+        ...current,
+        chats: current.chats.map((chat) => (chat.id === sideChatId ? { ...chat, draft } : chat)),
+      }));
       void api
         .updateSideChat({ parentSessionId, sideChatId, draft })
         .catch((error) => setSideChatError(`Could not save side draft: ${errorMessage(error)}`));
     },
-    [currentSession?.id, sideChatState?.activeSideChatId],
+    [currentSession?.id, sideChatState?.activeSideChatId, updateSideChatState],
   );
 
   const addSideChatAttachments = useCallback(
@@ -2544,22 +2548,14 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
           return;
         }
         streamedMessages = mergeStreamingMessage(streamedMessages, event.chunk);
-        setSideChatState((current) =>
-          current
-            ? (() => {
-                const next = {
-                  ...current,
-                  chats: current.chats.map((candidate) =>
-                    candidate.id === chat.id
-                      ? { ...candidate, messages: [...baseMessages, ...streamedMessages] }
-                      : candidate,
-                  ),
-                };
-                sideChatStateRef.current = next;
-                return next;
-              })()
-            : current,
-        );
+        updateSideChatState((current) => ({
+          ...current,
+          chats: current.chats.map((candidate) =>
+            candidate.id === chat.id
+              ? { ...candidate, messages: [...baseMessages, ...streamedMessages] }
+              : candidate,
+          ),
+        }));
       });
 
       try {
@@ -2660,6 +2656,7 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
       selectedHarness,
       selectedHarnessNeedsSetup,
       selectedModel,
+      updateSideChatState,
     ],
   );
 
@@ -9088,15 +9085,14 @@ function parseRenderTime(value: string | undefined): number | undefined {
 }
 
 function formatWorkDuration(durationMs: number): string {
-  const seconds = Math.max(1, Math.round(durationMs / 1000));
-  if (seconds < 60) return `${seconds}s`;
-  const minutes = Math.floor(seconds / 60);
-  const remainder = seconds % 60;
-  return remainder === 0 ? `${minutes}m` : `${minutes}m ${remainder}s`;
+  return formatWorkSeconds(Math.max(1, Math.round(durationMs / 1000)));
 }
 
 function formatLiveWorkDuration(durationMs: number): string {
-  const seconds = Math.max(0, Math.floor(durationMs / 1000));
+  return formatWorkSeconds(Math.max(0, Math.floor(durationMs / 1000)));
+}
+
+function formatWorkSeconds(seconds: number): string {
   if (seconds < 60) return `${seconds}s`;
   const minutes = Math.floor(seconds / 60);
   const remainder = seconds % 60;

@@ -1,20 +1,12 @@
-import {
-  ExternalLink,
-  File,
-  FileAudio,
-  FileImage,
-  FileText,
-  FileVideo,
-  FolderOpen,
-  Loader2,
-  X,
-} from "lucide-react";
+import { ExternalLink, File, FileAudio, FolderOpen, Loader2, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type {
   DesktopMediaAttachment,
   DesktopMediaPreview,
   SwarmxAPI,
 } from "../../shared/desktop-api.js";
+import { attachmentIcon, formatMediaBytes } from "./message-attachments.js";
+import { errorMessage } from "./text-utils.js";
 
 export function MediaPreviewPanel({
   api,
@@ -43,7 +35,7 @@ export function MediaPreviewPanel({
         setPreview({
           status: "unavailable",
           attachment,
-          error: error instanceof Error ? error.message : String(error),
+          error: errorMessage(error),
         });
       });
     return () => {
@@ -78,7 +70,7 @@ export function MediaPreviewPanel({
         setActionError(result.error);
       }
     } catch (error) {
-      setActionError(error instanceof Error ? error.message : String(error));
+      setActionError(errorMessage(error));
     }
   }
 
@@ -163,7 +155,7 @@ export function MediaPreviewPanel({
             <File aria-hidden="true" />
             <strong>{attachment.name}</strong>
             <span>{attachment.mimeType}</span>
-            <span>{formatBytes(attachment.sizeBytes)}</span>
+            <span>{formatMediaBytes(attachment.sizeBytes)}</span>
             <button
               type="button"
               onClick={() => void runMediaAction(() => api.openMediaAttachment(attachment))}
@@ -182,22 +174,7 @@ export function MediaPreviewPanel({
   );
 }
 
-function MediaIcon({
-  attachment,
-}: {
-  attachment: DesktopMediaAttachment;
-}) {
-  if (attachment.kind === "image") return <FileImage aria-hidden="true" />;
-  if (attachment.kind === "audio") return <FileAudio aria-hidden="true" />;
-  if (attachment.kind === "video") return <FileVideo aria-hidden="true" />;
-  if (attachment.kind === "pdf" || attachment.kind === "text") {
-    return <FileText aria-hidden="true" />;
-  }
-  return <File aria-hidden="true" />;
-}
-
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${Math.ceil(bytes / 1024)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(bytes < 10 * 1024 * 1024 ? 1 : 0)} MB`;
+function MediaIcon({ attachment }: { attachment: DesktopMediaAttachment }) {
+  const Icon = attachmentIcon(attachment);
+  return <Icon aria-hidden="true" />;
 }

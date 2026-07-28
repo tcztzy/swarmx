@@ -140,7 +140,7 @@ export function resolveCodexHome(value: string | undefined, userHome = homedir()
   return path.resolve(configured);
 }
 
-function sameExternalAcpSessionIdentity(
+export function sameExternalAcpSessionIdentity(
   binding: ExternalAcpSessionBinding,
   identity: ExternalAcpSessionIdentity,
 ): boolean {

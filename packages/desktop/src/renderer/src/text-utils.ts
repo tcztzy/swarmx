@@ -17,6 +17,8 @@ export function formatTimestamp(value: string): string {
   });
 }
 
+const SHORT_WEEKDAY_FORMAT = new Intl.DateTimeFormat([], { weekday: "short" });
+
 export function formatMessageTimestamp(value: string, now = new Date()): string | null {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return null;
@@ -25,10 +27,9 @@ export function formatMessageTimestamp(value: string, now = new Date()): string 
   const time = `${twoDigits(date.getHours())}:${twoDigits(date.getMinutes())}`;
   if (ageMs < 24 * 60 * 60 * 1_000) return time;
   if (ageMs < 7 * 24 * 60 * 60 * 1_000) {
-    const weekday = new Intl.DateTimeFormat([], { weekday: "short" }).format(date);
-    return `${weekday} ${time}`;
+    return `${SHORT_WEEKDAY_FORMAT.format(date)} ${time}`;
   }
-  return `${date.getFullYear()}-${twoDigits(date.getMonth() + 1)}-${twoDigits(date.getDate())} ${time}`;
+  return formatFullMessageTimestamp(value);
 }
 
 export function formatFullMessageTimestamp(value: string): string | null {

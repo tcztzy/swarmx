@@ -9,11 +9,32 @@ export const MAX_MEDIA_ATTACHMENT_BYTES = 100 * 1024 * 1024;
 export const MAX_MEDIA_ATTACHMENTS = 20;
 export const MAX_MEDIA_TURN_BYTES = 500 * 1024 * 1024;
 export const MAX_INLINE_MEDIA_BYTES = 50 * 1024 * 1024;
+export const MAX_INLINE_TEXT_DOCUMENT_BYTES = 5 * 1024 * 1024;
+export const MEDIA_SNIFF_BYTES = 64;
 
 export interface LoadedMediaAttachment {
   attachment: MediaAttachment;
   bytes: Buffer;
   base64: string;
+}
+
+export type InlineMediaLoader = (
+  attachment: MediaAttachment,
+  capBytes?: number,
+) => Promise<LoadedMediaAttachment>;
+
+/** Budgeted loader: tracks cumulative inline bytes across attachments for one turn. */
+export function createInlineMediaLoader(budgetBytes = MAX_INLINE_MEDIA_BYTES): InlineMediaLoader {
+  let loadedBytes = 0;
+  return async (attachment, capBytes) => {
+    const remaining = Math.max(0, budgetBytes - loadedBytes);
+    const loaded = await loadMediaAttachment(
+      attachment,
+      capBytes === undefined ? remaining : Math.min(capBytes, remaining),
+    );
+    loadedBytes += loaded.bytes.byteLength;
+    return loaded;
+  };
 }
 
 export interface AcpPromptContentInput {
@@ -59,15 +80,11 @@ export async function buildAcpPromptContent(input: AcpPromptContentInput): Promi
       ...(input.meta && Object.keys(input.meta).length > 0 ? { _meta: input.meta } : {}),
     },
   ];
-  let inlineBytes = 0;
+  const loadInline = createInlineMediaLoader();
 
   for (const attachment of attachments) {
     if (attachment.kind === "image" && input.promptCapabilities?.image) {
-      const loaded = await loadMediaAttachment(
-        attachment,
-        Math.max(0, MAX_INLINE_MEDIA_BYTES - inlineBytes),
-      );
-      inlineBytes += loaded.bytes.byteLength;
+      const loaded = await loadInline(attachment);
       prompt.push({
         type: "image",
         data: loaded.base64,
@@ -77,11 +94,7 @@ export async function buildAcpPromptContent(input: AcpPromptContentInput): Promi
       continue;
     }
     if (attachment.kind === "audio" && input.promptCapabilities?.audio) {
-      const loaded = await loadMediaAttachment(
-        attachment,
-        Math.max(0, MAX_INLINE_MEDIA_BYTES - inlineBytes),
-      );
-      inlineBytes += loaded.bytes.byteLength;
+      const loaded = await loadInline(attachment);
       prompt.push({
         type: "audio",
         data: loaded.base64,
@@ -90,11 +103,7 @@ export async function buildAcpPromptContent(input: AcpPromptContentInput): Promi
       continue;
     }
     if (input.promptCapabilities?.embeddedContext) {
-      const loaded = await loadMediaAttachment(
-        attachment,
-        Math.max(0, MAX_INLINE_MEDIA_BYTES - inlineBytes),
-      );
-      inlineBytes += loaded.bytes.byteLength;
+      const loaded = await loadInline(attachment);
       prompt.push({
         type: "resource",
         resource: {

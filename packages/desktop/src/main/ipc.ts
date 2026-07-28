@@ -11,6 +11,7 @@ import {
   archiveProjectSessions,
   archiveSession,
   createSession,
+  detectMediaMimeType,
   dismissProject,
   editSessionUserMessage,
   estimateModelTokenUsage,
@@ -77,6 +78,7 @@ import {
   externalAcpSessionIdentity,
   latestUserMessageHasAttachments,
   matchingExternalAcpSessionId,
+  sameExternalAcpSessionIdentity,
 } from "./acp-session-runtime.js";
 import {
   type AgentChunkPublisher,
@@ -359,6 +361,16 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
           : {}),
     };
     appendActivity(activityStore, { type: "task_started", ...taskMetadata });
+    const persistOutcome = (messages: MessageChunk[], sideChatReady = true) => ({
+      sessionPersisted:
+        params.sessionId && !params.sideChatId ? appendMessages(params.sessionId, messages) : false,
+      sideChat:
+        params.sideChatId && params.sessionId && sideChatReady
+          ? sideChats.finishRun(params.sessionId, params.sideChatId, params.requestId, messages, {
+              unread: params.sideChatVisible === false,
+            })
+          : undefined,
+    });
     try {
       if (params.sessionId && loadSession(params.sessionId)?.archivedAt) {
         throw new Error(`Session "${params.sessionId}" is archived.`);
@@ -875,20 +887,7 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
         return { success: true, messages: result };
       });
       const persistedMessages = timedMessages(result.messages, startedAt);
-      const sessionPersisted =
-        params.sessionId && !params.sideChatId
-          ? appendMessages(params.sessionId, persistedMessages)
-          : false;
-      const sideChat =
-        params.sideChatId && params.sessionId
-          ? sideChats.finishRun(
-              params.sessionId,
-              params.sideChatId,
-              params.requestId,
-              persistedMessages,
-              { unread: params.sideChatVisible === false },
-            )
-          : undefined;
+      const { sessionPersisted, sideChat } = persistOutcome(persistedMessages);
       recordActivityOutcome(activityStore, {
         ...taskMetadata,
         status: "completed",
@@ -901,20 +900,10 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
     } catch (err) {
       if (err instanceof RequestCancelledError) {
         const canceledMessages = interruptedMessages(observedMessages, startedAt);
-        const sessionPersisted =
-          params.sessionId && !params.sideChatId
-            ? appendMessages(params.sessionId, canceledMessages)
-            : false;
-        const sideChat =
-          params.sideChatId && params.sessionId && activeSideChat
-            ? sideChats.finishRun(
-                params.sessionId,
-                params.sideChatId,
-                params.requestId,
-                canceledMessages,
-                { unread: params.sideChatVisible === false },
-              )
-            : undefined;
+        const { sessionPersisted, sideChat } = persistOutcome(
+          canceledMessages,
+          Boolean(activeSideChat),
+        );
         recordActivityOutcome(activityStore, {
           ...taskMetadata,
           status: "canceled",
@@ -941,20 +930,10 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
           kind: "message" as const,
         } satisfies MessageChunk);
       const failedMessages = [...timedMessages(observedMessages, startedAt), terminalMessage];
-      const sessionPersisted =
-        params.sessionId && !params.sideChatId
-          ? appendMessages(params.sessionId, failedMessages)
-          : false;
-      const sideChat =
-        params.sideChatId && params.sessionId && activeSideChat
-          ? sideChats.finishRun(
-              params.sessionId,
-              params.sideChatId,
-              params.requestId,
-              failedMessages,
-              { unread: params.sideChatVisible === false },
-            )
-          : undefined;
+      const { sessionPersisted, sideChat } = persistOutcome(
+        failedMessages,
+        Boolean(activeSideChat),
+      );
       recordActivityOutcome(activityStore, {
         ...taskMetadata,
         status: "failed",
@@ -1355,39 +1334,6 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
     ): Promise<boolean> => {
       await validateMessageAttachments(params.messages);
       return appendMessages(params.id, params.messages);
-    },
-  );
-
-  ipcMain.handle(
-    "session:editUserMessage",
-    (
-      _event: IpcMainInvokeEvent,
-      params: {
-        id: string;
-        messageIndex: number;
-        expectedMessages: MessageChunk[];
-        content: string;
-      },
-    ): SessionData => {
-      const session = editSessionUserMessage(params);
-      if (!session) throw new Error(`Session "${params.id}" was not found.`);
-      return session;
-    },
-  );
-
-  ipcMain.handle(
-    "session:fork",
-    (
-      _event: IpcMainInvokeEvent,
-      params: {
-        id: string;
-        throughMessageIndex: number;
-        expectedMessages: MessageChunk[];
-      },
-    ): SessionData => {
-      const session = forkSession(params);
-      if (!session) throw new Error(`Session "${params.id}" was not found.`);
-      return session;
     },
   );
 
@@ -1930,13 +1876,7 @@ function sameExternalAcpSessionBinding(
   right: ExternalAcpSessionBinding,
 ): boolean {
   return Boolean(
-    left &&
-      left.sessionId === right.sessionId &&
-      left.harnessId === right.harnessId &&
-      left.modelId === right.modelId &&
-      left.modelSupplyId === right.modelSupplyId &&
-      left.agentProfileId === right.agentProfileId &&
-      left.cwd === right.cwd,
+    left && left.sessionId === right.sessionId && sameExternalAcpSessionIdentity(left, right),
   );
 }
 
@@ -2155,8 +2095,8 @@ async function loadImageDataUrl(source: string): Promise<string | null> {
     const bytes = await readFile(filePath);
     if (bytes.byteLength > MAX_INLINE_IMAGE_BYTES) return null;
 
-    const mimeType = detectImageMimeType(bytes);
-    if (!mimeType) return null;
+    const mimeType = detectMediaMimeType(bytes);
+    if (!mimeType?.startsWith("image/")) return null;
 
     return `data:${mimeType};base64,${bytes.toString("base64")}`;
   } catch {
@@ -2221,14 +2161,6 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-async function validateDesktopAttachments(
-  attachments: readonly MediaAttachment[],
-): Promise<MediaAttachment[]> {
-  const validated = validateMediaAttachments(attachments);
-  await Promise.all(validated.map((attachment) => mediaService.validatedStoredPath(attachment)));
-  return validated;
-}
-
 async function validateMessageAttachments(messages: readonly MessageChunk[]): Promise<void> {
   await Promise.all(
     messages.flatMap((message) =>
@@ -2237,39 +2169,4 @@ async function validateMessageAttachments(messages: readonly MessageChunk[]): Pr
       ),
     ),
   );
-}
-
-function detectImageMimeType(bytes: Buffer): string | null {
-  if (
-    bytes.length >= 8 &&
-    bytes[0] === 0x89 &&
-    bytes[1] === 0x50 &&
-    bytes[2] === 0x4e &&
-    bytes[3] === 0x47 &&
-    bytes[4] === 0x0d &&
-    bytes[5] === 0x0a &&
-    bytes[6] === 0x1a &&
-    bytes[7] === 0x0a
-  ) {
-    return "image/png";
-  }
-
-  if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) {
-    return "image/jpeg";
-  }
-
-  const gifHeader = bytes.subarray(0, 6).toString("ascii");
-  if (gifHeader === "GIF87a" || gifHeader === "GIF89a") {
-    return "image/gif";
-  }
-
-  if (
-    bytes.length >= 12 &&
-    bytes.subarray(0, 4).toString("ascii") === "RIFF" &&
-    bytes.subarray(8, 12).toString("ascii") === "WEBP"
-  ) {
-    return "image/webp";
-  }
-
-  return null;
 }

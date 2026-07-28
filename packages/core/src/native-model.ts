@@ -26,9 +26,9 @@ import type {
   ToolExecutionResult,
 } from "./mcp.js";
 import {
-  MAX_INLINE_MEDIA_BYTES,
+  MAX_INLINE_TEXT_DOCUMENT_BYTES,
   attachmentFallbackText,
-  loadMediaAttachment,
+  createInlineMediaLoader,
   validateMediaAttachments,
 } from "./media.js";
 import type { ModelApiMode } from "./model-api.js";
@@ -340,7 +340,7 @@ async function streamAnthropicMessage(
 
 async function responseInput(arguments_: Record<string, unknown>): Promise<ResponseInputItem[]> {
   const input: ResponseInputItem[] = [];
-  let loadedBytes = 0;
+  const loadInline = createInlineMediaLoader();
   for (const message of rawMessages(arguments_)) {
     if (message.role === "tool" && message.tool_call_id) {
       input.push({
@@ -369,11 +369,7 @@ async function responseInput(arguments_: Record<string, unknown>): Promise<Respo
         content.push({ type: "input_text", text: attachmentFallbackText(attachment) });
         continue;
       }
-      const loaded = await loadMediaAttachment(
-        attachment,
-        Math.max(0, MAX_INLINE_MEDIA_BYTES - loadedBytes),
-      );
-      loadedBytes += loaded.bytes.byteLength;
+      const loaded = await loadInline(attachment);
       if (attachment.kind === "image") {
         content.push({
           type: "input_image",
@@ -406,7 +402,7 @@ async function anthropicInput(
     .filter((value): value is string => !!value)
     .join("\n\n");
   const messages: MessageParam[] = [];
-  let loadedBytes = 0;
+  const loadInline = createInlineMediaLoader();
   for (const message of rawMessages(arguments_)) {
     if (message.role === "tool" && message.tool_call_id) {
       messages.push({
@@ -429,11 +425,7 @@ async function anthropicInput(
     const content: ContentBlockParam[] = [];
     for (const attachment of message.attachments) {
       if (attachment.kind === "image" && ANTHROPIC_IMAGE_MIME_TYPES.has(attachment.mimeType)) {
-        const loaded = await loadMediaAttachment(
-          attachment,
-          Math.max(0, MAX_INLINE_MEDIA_BYTES - loadedBytes),
-        );
-        loadedBytes += loaded.bytes.byteLength;
+        const loaded = await loadInline(attachment);
         content.push({
           type: "image",
           source: {
@@ -449,11 +441,7 @@ async function anthropicInput(
         continue;
       }
       if (attachment.kind === "pdf") {
-        const loaded = await loadMediaAttachment(
-          attachment,
-          Math.max(0, MAX_INLINE_MEDIA_BYTES - loadedBytes),
-        );
-        loadedBytes += loaded.bytes.byteLength;
+        const loaded = await loadInline(attachment);
         content.push({
           type: "document",
           title: attachment.name,
@@ -466,11 +454,7 @@ async function anthropicInput(
         continue;
       }
       if (attachment.kind === "text") {
-        const loaded = await loadMediaAttachment(
-          attachment,
-          Math.min(5 * 1024 * 1024, Math.max(0, MAX_INLINE_MEDIA_BYTES - loadedBytes)),
-        );
-        loadedBytes += loaded.bytes.byteLength;
+        const loaded = await loadInline(attachment, MAX_INLINE_TEXT_DOCUMENT_BYTES);
         content.push({
           type: "document",
           title: attachment.name,

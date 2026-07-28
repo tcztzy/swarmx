@@ -23,6 +23,8 @@ import type {
   SessionPermissionMode,
   SkillCapability,
   SwarmConfig,
+  TransientSessionContextChip,
+  TransientSessionData,
 } from "@swarmx/core";
 import type {
   NormalizeMessageChunkOptions,
@@ -137,39 +139,12 @@ export interface DesktopAgentChunkEvent {
   chunk: DesktopMessageChunk;
 }
 
-export interface DesktopSideChatContextChip {
-  id: string;
-  text: string;
-  createdAt: string;
-}
+export type DesktopSideChatContextChip = TransientSessionContextChip;
 
-export interface DesktopSideChat {
-  id: string;
-  parentSessionId: string;
-  title: string;
-  anchor: {
-    parentSessionId: string;
-    messageIndex: number;
-    messageCount: number;
-    createdAt: string;
-  };
+export type DesktopSideChat = Omit<TransientSessionData, "messages" | "anchorMessages"> & {
   anchorMessages: DesktopMessageChunk[];
   messages: DesktopMessageChunk[];
-  draft: string;
-  attachments: string[];
-  contextChips: DesktopSideChatContextChip[];
-  agentName: string;
-  harness: string;
-  model?: string;
-  projectId?: string;
-  cwd?: string;
-  permissionMode?: SessionPermissionMode;
-  runState: "idle" | "running" | "stopping";
-  requestId?: string;
-  unread: boolean;
-  createdAt: string;
-  updatedAt: string;
-}
+};
 
 export interface DesktopSideChatParentState {
   parentSessionId: string;
