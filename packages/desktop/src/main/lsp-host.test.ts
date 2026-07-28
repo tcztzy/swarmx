@@ -549,7 +549,9 @@ function completionItems(result: unknown): Array<Record<string, unknown>> {
 
 const FAKE_LSP_SERVER = `
 const documents = new Map();
+const deferredMessages = [];
 let buffer = Buffer.alloc(0);
+let configurationReady = false;
 
 process.stdin.on("data", (chunk) => {
   buffer = Buffer.concat([buffer, chunk]);
@@ -579,6 +581,18 @@ function send(message) {
 }
 
 function handleMessage(message) {
+  if (message.id === "server-configuration" && !message.method) {
+    if (
+      !Array.isArray(message.result) ||
+      message.result.length !== 2 ||
+      message.result.some((value) => value !== null)
+    ) {
+      process.exit(3);
+    }
+    configurationReady = true;
+    for (const deferred of deferredMessages.splice(0)) handleMessage(deferred);
+    return;
+  }
   if (message.method === "initialize") {
     send({
       jsonrpc: "2.0",
@@ -590,6 +604,16 @@ function handleMessage(message) {
         }
       }
     });
+    send({
+      jsonrpc: "2.0",
+      id: "server-configuration",
+      method: "workspace/configuration",
+      params: { items: [{ section: "fake.one" }, { section: "fake.two" }] }
+    });
+    return;
+  }
+  if (!configurationReady) {
+    deferredMessages.push(message);
     return;
   }
   if (message.method === "initialized") return;

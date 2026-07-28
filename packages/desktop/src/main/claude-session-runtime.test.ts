@@ -110,6 +110,7 @@ describe("ClaudeSessionRuntime", () => {
 
     expect(() => parseCronExpression("* * *")).toThrow(/expected 5 fields/i);
     expect(() => parseCronExpression("60 * * * *")).toThrow(/outside 0\.\.59/i);
+    expect(() => parseCronExpression("0 0 L * *")).toThrow(/only wildcard, list, range, step/i);
     await expect(
       runtime.createCron({
         cron: "0 0 31 2 *",
@@ -370,11 +371,10 @@ describe("ClaudeSessionRuntime", () => {
 
   it("V428 parses lists, ranges, steps, aliases, Sunday 7, and Vixie day OR semantics", () => {
     const parsed = parseCronExpression("*/15 9-10 1,15 jan,mar 0,7");
-    expect([...parsed.minute.values]).toEqual([0, 15, 30, 45]);
-    expect([...parsed.hour.values]).toEqual([9, 10]);
-    expect([...parsed.dayOfMonth.values]).toEqual([1, 15]);
-    expect([...parsed.month.values]).toEqual([1, 3]);
-    expect([...parsed.dayOfWeek.values]).toEqual([0]);
+    expect(cronExpressionMatches(parsed, new Date(2026, 0, 1, 9, 15))).toBe(true);
+    expect(cronExpressionMatches(parsed, new Date(2026, 2, 15, 10, 30))).toBe(true);
+    expect(cronExpressionMatches(parsed, new Date(2026, 1, 15, 10, 30))).toBe(false);
+    expect(cronExpressionMatches(parsed, new Date(2026, 0, 1, 11, 15))).toBe(false);
 
     const dayOrWeek = parseCronExpression("0 9 1 jan mon");
     expect(cronExpressionMatches(dayOrWeek, new Date(2026, 0, 1, 9, 0))).toBe(true);

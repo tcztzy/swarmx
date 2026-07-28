@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import path from "node:path";
+import { CronExpressionParser } from "cron-parser";
 import {
   type ClaudeScheduledTask,
   type ClaudeScheduledTaskOwner,
@@ -19,7 +20,7 @@ import type {
 const MAX_CRON_JOBS = 50;
 const CRON_MAX_AGE_MS = 3 * 24 * 60 * 60 * 1_000;
 const DURABLE_CRON_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1_000;
-const CRON_SEARCH_MINUTES = 366 * 24 * 60;
+const CRON_SEARCH_WINDOW_MS = 366 * 24 * 60 * 60 * 1_000;
 const MAX_TIMER_DELAY_MS = 2_147_000_000;
 const CRON_LOCK_RETRY_MS = 5_000;
 const MONITOR_FLUSH_MS = 200;
@@ -74,18 +75,8 @@ interface MonitorRecord {
   exited: boolean;
 }
 
-interface ParsedCronField {
-  values: Set<number>;
-  wildcard: boolean;
-}
-
 interface ParsedCronExpression {
   source: string;
-  minute: ParsedCronField;
-  hour: ParsedCronField;
-  dayOfMonth: ParsedCronField;
-  month: ParsedCronField;
-  dayOfWeek: ParsedCronField;
 }
 
 export class ClaudeSessionRuntime implements ClaudeSessionToolBridge {
@@ -756,82 +747,64 @@ export function parseCronExpression(source: string): ParsedCronExpression {
   if (fields.length !== 5) {
     throw new Error(`Invalid cron expression '${source}'. Expected 5 fields: M H DoM Mon DoW.`);
   }
-  const [minute, hour, dayOfMonth, month, dayOfWeek] = fields;
-  return {
-    source: fields.join(" "),
-    minute: parseCronField(minute ?? "", 0, 59),
-    hour: parseCronField(hour ?? "", 0, 23),
-    dayOfMonth: parseCronField(dayOfMonth ?? "", 1, 31),
-    month: parseCronField(month ?? "", 1, 12, MONTH_NAMES),
-    dayOfWeek: parseCronField(dayOfWeek ?? "", 0, 7, DAY_NAMES, (value) => value % 7),
-  };
-}
-
-function parseCronField(
-  source: string,
-  minimum: number,
-  maximum: number,
-  aliases: ReadonlyMap<string, number> = new Map(),
-  normalize: (value: number) => number = (value) => value,
-): ParsedCronField {
-  if (!source) throw new Error("Cron fields cannot be empty.");
-  const values = new Set<number>();
-  for (const item of source.toLowerCase().split(",")) {
-    if (!item) throw new Error(`Invalid empty cron list item in '${source}'.`);
-    const [rangeSource, stepSource, extra] = item.split("/");
-    if (extra !== undefined) throw new Error(`Invalid cron step '${item}'.`);
-    const step = stepSource === undefined ? 1 : cronNumber(stepSource, aliases);
-    if (step <= 0) throw new Error(`Cron step must be positive in '${item}'.`);
-    let start: number;
-    let end: number;
-    if (rangeSource === "*") {
-      start = minimum;
-      end = maximum;
-    } else if (rangeSource?.includes("-")) {
-      const range = rangeSource.split("-");
-      if (range.length !== 2) throw new Error(`Invalid cron range '${rangeSource}'.`);
-      start = cronNumber(range[0] ?? "", aliases);
-      end = cronNumber(range[1] ?? "", aliases);
-    } else {
-      start = cronNumber(rangeSource ?? "", aliases);
-      end = stepSource === undefined ? start : maximum;
-    }
-    if (start < minimum || start > maximum || end < minimum || end > maximum || start > end) {
-      throw new Error(`Cron value '${item}' is outside ${minimum}..${maximum}.`);
-    }
-    for (let value = start; value <= end; value += step) values.add(normalize(value));
+  const normalized = fields.join(" ");
+  const numericSyntax = normalized.replace(
+    /\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|sun|mon|tue|wed|thu|fri|sat)\b/gi,
+    "1",
+  );
+  if (!/^[\d\s*,/-]+$/.test(numericSyntax)) {
+    throw new Error(
+      `Invalid cron expression '${source}'. Only wildcard, list, range, step, month, and weekday fields are supported.`,
+    );
   }
-  return { values, wildcard: source === "*" };
-}
-
-function cronNumber(source: string, aliases: ReadonlyMap<string, number>): number {
-  const alias = aliases.get(source.toLowerCase());
-  if (alias !== undefined) return alias;
-  if (!/^\d+$/.test(source)) throw new Error(`Invalid cron value '${source}'.`);
-  return Number(source);
+  try {
+    CronExpressionParser.parse(normalized);
+    return { source: normalized };
+  } catch (error) {
+    throw cronParseError(source, error);
+  }
 }
 
 function nextCronTime(parsed: ParsedCronExpression, now: number): number | null {
-  const candidate = new Date(now);
-  candidate.setSeconds(0, 0);
-  if (candidate.getTime() <= now) candidate.setMinutes(candidate.getMinutes() + 1);
-  for (let index = 0; index < CRON_SEARCH_MINUTES; index++) {
-    if (cronExpressionMatches(parsed, candidate)) return candidate.getTime();
-    candidate.setMinutes(candidate.getMinutes() + 1);
+  try {
+    return CronExpressionParser.parse(parsed.source, {
+      currentDate: new Date(now),
+      endDate: new Date(now + CRON_SEARCH_WINDOW_MS),
+    })
+      .next()
+      .getTime();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (
+      message === "Out of the time span range" ||
+      message === "Invalid expression, loop limit exceeded" ||
+      message === "Invalid explicit day of month definition"
+    ) {
+      return null;
+    }
+    throw error;
   }
-  return null;
+}
+
+function cronParseError(source: string, error: unknown): Error {
+  const message = error instanceof Error ? error.message : String(error);
+  const range = /expected range (\d+)-(\d+)/i.exec(message);
+  if (range) {
+    return new Error(`Cron value in '${source}' is outside ${range[1]}..${range[2]}.`, {
+      cause: error,
+    });
+  }
+  if (message === "Invalid explicit day of month definition") {
+    return new Error(
+      `Cron expression '${source}' does not match any calendar date in the next year.`,
+      { cause: error },
+    );
+  }
+  return new Error(`Invalid cron expression '${source}': ${message}.`, { cause: error });
 }
 
 export function cronExpressionMatches(parsed: ParsedCronExpression, date: Date): boolean {
-  if (!parsed.minute.values.has(date.getMinutes())) return false;
-  if (!parsed.hour.values.has(date.getHours())) return false;
-  if (!parsed.month.values.has(date.getMonth() + 1)) return false;
-  const dayOfMonth = parsed.dayOfMonth.values.has(date.getDate());
-  const dayOfWeek = parsed.dayOfWeek.values.has(date.getDay());
-  if (parsed.dayOfMonth.wildcard && parsed.dayOfWeek.wildcard) return true;
-  if (parsed.dayOfMonth.wildcard) return dayOfWeek;
-  if (parsed.dayOfWeek.wildcard) return dayOfMonth;
-  return dayOfMonth || dayOfWeek;
+  return CronExpressionParser.parse(parsed.source).includesDate(date);
 }
 
 function humanCronSchedule(parsed: ParsedCronExpression): string {
@@ -891,28 +864,3 @@ function escapeTag(value: string): string {
 function truncateText(value: string, maximum: number): string {
   return value.length <= maximum ? value : `${value.slice(0, maximum - 14)}...(truncated)`;
 }
-
-const MONTH_NAMES = new Map([
-  ["jan", 1],
-  ["feb", 2],
-  ["mar", 3],
-  ["apr", 4],
-  ["may", 5],
-  ["jun", 6],
-  ["jul", 7],
-  ["aug", 8],
-  ["sep", 9],
-  ["oct", 10],
-  ["nov", 11],
-  ["dec", 12],
-]);
-
-const DAY_NAMES = new Map([
-  ["sun", 0],
-  ["mon", 1],
-  ["tue", 2],
-  ["wed", 3],
-  ["thu", 4],
-  ["fri", 5],
-  ["sat", 6],
-]);

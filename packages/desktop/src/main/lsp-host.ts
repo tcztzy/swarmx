@@ -11,6 +11,13 @@ import {
   type SkillCapability,
   currentRequestSignal,
 } from "@swarmx/core";
+import {
+  CancellationTokenSource,
+  type MessageConnection,
+  StreamMessageReader,
+  StreamMessageWriter,
+  createMessageConnection,
+} from "vscode-jsonrpc/node";
 
 const DEFAULT_LSP_TIMEOUT_MS = 15_000;
 const SHUTDOWN_TIMEOUT_MS = 3_000;
@@ -86,25 +93,6 @@ interface LspCommand {
   program: string;
   args: string[];
   cwd: string;
-}
-
-type JsonRpcId = number | string | null;
-
-interface JsonRpcMessage {
-  jsonrpc: "2.0";
-  id?: JsonRpcId;
-  method?: string;
-  params?: unknown;
-  result?: unknown;
-  error?: { code: number; message: string; data?: unknown };
-}
-
-interface PendingRequest {
-  method: string;
-  resolve: (value: unknown) => void;
-  reject: (reason: Error) => void;
-  timeout: ReturnType<typeof setTimeout>;
-  cleanup: () => void;
 }
 
 export class LspHost {
@@ -191,7 +179,7 @@ export class LspHost {
       env: process.env,
       stdio: ["pipe", "pipe", "pipe"],
     });
-    const connection = new JsonRpcConnection(server.id, child);
+    const connection = new LspRpcConnection(server.id, child);
     const session = new LspSession(server, workspaceRoot, connection);
     this.sessions.set(key, session);
     connection.onClosed(() => {
@@ -211,7 +199,7 @@ class LspSession {
   constructor(
     private readonly server: LspCapability,
     private readonly workspaceRoot: string,
-    private readonly connection: JsonRpcConnection,
+    private readonly connection: LspRpcConnection,
   ) {}
 
   isAlive(): boolean {
@@ -396,13 +384,12 @@ class LspSession {
   }
 }
 
-class JsonRpcConnection {
-  private buffer = Buffer.alloc(0);
-  private nextId = 1;
-  private stderr = "";
+class LspRpcConnection {
+  private readonly rpc: MessageConnection;
+  private stderr = Buffer.alloc(0);
   private closed = false;
+  private failure?: Error;
   private closedCallbacks: Array<() => void> = [];
-  private readonly pending = new Map<JsonRpcId, PendingRequest>();
   private readonly exitPromise: Promise<void>;
   private resolveExit!: () => void;
 
@@ -413,9 +400,26 @@ class JsonRpcConnection {
     this.exitPromise = new Promise((resolve) => {
       this.resolveExit = resolve;
     });
-    child.stdout.on("data", (chunk: Buffer) => this.handleStdout(chunk));
+    this.rpc = createMessageConnection(
+      new StreamMessageReader(child.stdout),
+      new StreamMessageWriter(child.stdin),
+    );
+    this.rpc.onRequest("workspace/configuration", (params: unknown) => {
+      const items = isRecord(params) && Array.isArray(params.items) ? params.items : [];
+      return items.map(() => null);
+    });
+    this.rpc.onRequest(() => null);
+    this.rpc.onError(([error]) => this.terminate(error));
+    this.rpc.onClose(() => {
+      this.terminate(new Error(`LSP server "${this.serverId}" closed its JSON-RPC transport.`));
+    });
+    this.rpc.listen();
+
     child.stderr.on("data", (chunk: Buffer) => this.appendStderr(chunk));
-    child.once("error", (error) => this.close(error));
+    child.once("error", (error) => {
+      this.terminate(error);
+      this.resolveExit();
+    });
     child.once("exit", (code, signal) => {
       const reason = new Error(
         `LSP server "${this.serverId}" exited with code ${code ?? "null"} and signal ${
@@ -423,10 +427,15 @@ class JsonRpcConnection {
         }.${this.stderrSummary()}`,
       );
       this.close(reason);
+      this.resolveExit();
     });
   }
 
   onClosed(callback: () => void): void {
+    if (this.closed) {
+      callback();
+      return;
+    }
     this.closedCallbacks.push(callback);
   }
 
@@ -434,56 +443,86 @@ class JsonRpcConnection {
     return !this.closed && this.child.exitCode === null && !this.child.killed;
   }
 
-  sendRequest(
+  async sendRequest(
     method: string,
     params: unknown,
     timeoutMs: number,
     signal?: AbortSignal,
   ): Promise<unknown> {
     if (!this.isAlive()) {
-      return Promise.reject(new Error(`LSP server "${this.serverId}" is not running.`));
+      throw new Error(`LSP server "${this.serverId}" is not running.`);
     }
     if (signal?.aborted) {
-      return Promise.reject(lspAbortReason(signal));
+      throw lspAbortReason(signal);
     }
 
-    const id = this.nextId++;
-    return new Promise((resolve, reject) => {
-      const cleanup = (): void => signal?.removeEventListener("abort", abort);
-      const timeout = setTimeout(() => {
-        this.pending.delete(id);
-        cleanup();
-        reject(
-          new Error(
-            `LSP request "${method}" to server "${this.serverId}" timed out after ${timeoutMs} ms.${this.stderrSummary()}`,
-          ),
-        );
-      }, timeoutMs);
-      const abort = (): void => {
-        if (!this.pending.delete(id)) return;
-        clearTimeout(timeout);
-        cleanup();
-        reject(lspAbortReason(signal));
-      };
-      this.pending.set(id, { method, resolve, reject, timeout, cleanup });
-      signal?.addEventListener("abort", abort, { once: true });
-      this.send({ jsonrpc: "2.0", id, method, params });
+    const cancellation = new CancellationTokenSource();
+    let timeoutError: Error | undefined;
+    let timedOut = false;
+    let rejectInterruption!: (reason: Error) => void;
+    const interrupted = new Promise<never>((_resolve, reject) => {
+      rejectInterruption = reject;
     });
+    const abort = (): void => {
+      const reason = lspAbortReason(signal);
+      cancellation.cancel();
+      rejectInterruption(reason);
+      this.terminate(reason);
+    };
+    const timeout = setTimeout(() => {
+      timedOut = true;
+      timeoutError = new Error(
+        `LSP request "${method}" to server "${this.serverId}" timed out after ${timeoutMs} ms.${this.stderrSummary()}`,
+      );
+      cancellation.cancel();
+      rejectInterruption(timeoutError);
+      this.terminate(timeoutError);
+    }, timeoutMs);
+    signal?.addEventListener("abort", abort, { once: true });
+
+    try {
+      const response =
+        params === null || params === undefined
+          ? this.rpc.sendRequest<unknown>(method, cancellation.token)
+          : this.rpc.sendRequest<unknown>(method, params, cancellation.token);
+      return await Promise.race([response, interrupted]);
+    } catch (error) {
+      if (signal?.aborted) throw lspAbortReason(signal);
+      if (timedOut && timeoutError) throw timeoutError;
+      const failure = this.failure ?? error;
+      throw new Error(
+        `LSP request "${method}" to server "${this.serverId}" failed: ${
+          failure instanceof Error ? failure.message : String(failure)
+        }.${this.stderrSummary()}`,
+        { cause: failure },
+      );
+    } finally {
+      clearTimeout(timeout);
+      signal?.removeEventListener("abort", abort);
+      cancellation.dispose();
+    }
   }
 
   sendNotification(method: string, params: unknown): void {
     if (!this.isAlive()) return;
-    this.send({ jsonrpc: "2.0", method, params });
+    try {
+      void this.rpc.sendNotification(method, params).catch((error) => {
+        this.terminate(error instanceof Error ? error : new Error(String(error)));
+      });
+    } catch (error) {
+      this.terminate(error instanceof Error ? error : new Error(String(error)));
+    }
   }
 
   async waitForExit(timeoutMs: number): Promise<void> {
-    if (!this.isAlive()) return;
-    await Promise.race([
-      this.exitPromise,
-      new Promise<void>((resolve) => {
-        setTimeout(resolve, timeoutMs);
-      }),
-    ]);
+    if (this.child.exitCode !== null) return;
+    await new Promise<void>((resolve) => {
+      const timeout = setTimeout(resolve, timeoutMs);
+      void this.exitPromise.then(() => {
+        clearTimeout(timeout);
+        resolve();
+      });
+    });
   }
 
   kill(): void {
@@ -492,107 +531,33 @@ class JsonRpcConnection {
     }
   }
 
-  private handleStdout(chunk: Buffer): void {
-    this.buffer = Buffer.concat([this.buffer, chunk]);
-
-    while (true) {
-      const headerEnd = this.buffer.indexOf("\r\n\r\n");
-      if (headerEnd < 0) return;
-
-      const header = this.buffer.subarray(0, headerEnd).toString("ascii");
-      const lengthMatch = /Content-Length:\s*(\d+)/i.exec(header);
-      if (!lengthMatch) {
-        this.close(
-          new Error(`LSP server "${this.serverId}" sent a message without Content-Length.`),
-        );
-        return;
-      }
-
-      const contentLength = Number.parseInt(lengthMatch[1], 10);
-      const bodyStart = headerEnd + 4;
-      const bodyEnd = bodyStart + contentLength;
-      if (this.buffer.length < bodyEnd) return;
-
-      const body = this.buffer.subarray(bodyStart, bodyEnd).toString("utf8");
-      this.buffer = this.buffer.subarray(bodyEnd);
-      try {
-        this.handleMessage(JSON.parse(body) as JsonRpcMessage);
-      } catch (error) {
-        this.close(
-          new Error(
-            `LSP server "${this.serverId}" sent invalid JSON-RPC: ${
-              error instanceof Error ? error.message : String(error)
-            }.`,
-          ),
-        );
-        return;
-      }
-    }
-  }
-
-  private handleMessage(message: JsonRpcMessage): void {
-    if (message.method && hasOwn(message, "id")) {
-      this.handleServerRequest(message);
-      return;
-    }
-
-    if (!hasOwn(message, "id")) return;
-    const pending = this.pending.get(message.id ?? null);
-    if (!pending) return;
-
-    clearTimeout(pending.timeout);
-    pending.cleanup();
-    this.pending.delete(message.id ?? null);
-    if (message.error) {
-      pending.reject(
-        new Error(
-          `LSP request "${pending.method}" to server "${this.serverId}" failed: ${message.error.message}.${this.stderrSummary()}`,
-        ),
-      );
-      return;
-    }
-    pending.resolve(message.result);
-  }
-
-  private handleServerRequest(message: JsonRpcMessage): void {
-    let result: unknown = null;
-    if (message.method === "workspace/configuration") {
-      const params = message.params as { items?: unknown[] } | undefined;
-      result = Array.isArray(params?.items) ? params.items.map(() => null) : [];
-    }
-    this.send({ jsonrpc: "2.0", id: message.id ?? null, result });
-  }
-
-  private send(message: JsonRpcMessage): void {
-    const body = JSON.stringify(message);
-    const header = `Content-Length: ${Buffer.byteLength(body, "utf8")}\r\n\r\n`;
-    this.child.stdin.write(`${header}${body}`);
-  }
-
   private appendStderr(chunk: Buffer): void {
-    this.stderr = `${this.stderr}${chunk.toString("utf8")}`;
-    if (Buffer.byteLength(this.stderr, "utf8") > STDERR_LIMIT_BYTES) {
-      this.stderr = this.stderr.slice(-STDERR_LIMIT_BYTES);
+    this.stderr = Buffer.concat([this.stderr, chunk]);
+    if (this.stderr.byteLength > STDERR_LIMIT_BYTES) {
+      this.stderr = this.stderr.subarray(this.stderr.byteLength - STDERR_LIMIT_BYTES);
     }
   }
 
   private close(reason: Error): void {
+    this.failure = reason;
     if (this.closed) return;
     this.closed = true;
-    for (const pending of this.pending.values()) {
-      clearTimeout(pending.timeout);
-      pending.cleanup();
-      pending.reject(reason);
-    }
-    this.pending.clear();
+    this.rpc.dispose();
     for (const callback of this.closedCallbacks) {
       callback();
     }
-    this.resolveExit();
+    this.closedCallbacks = [];
+  }
+
+  private terminate(reason: Error): void {
+    this.close(reason);
+    if (this.child.exitCode === null && !this.child.killed) {
+      this.child.kill();
+    }
   }
 
   private stderrSummary(): string {
-    const trimmed = this.stderr.trim();
+    const trimmed = this.stderr.toString("utf8").trim();
     return trimmed ? ` Stderr: ${trimmed}` : "";
   }
 }
@@ -1203,8 +1168,4 @@ function documentUriFromRequest(request: LspCompletionRequest, workspaceRoot: st
 
 function sessionKey(serverId: string, workspaceRoot: string): string {
   return `${serverId}\0${workspaceRoot}`;
-}
-
-function hasOwn(value: object, key: string): boolean {
-  return Object.prototype.hasOwnProperty.call(value, key);
 }

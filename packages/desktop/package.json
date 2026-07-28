@@ -55,6 +55,7 @@
     "@swarmx/runtime": "workspace:*",
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/xterm": "^6.0.0",
+    "cron-parser": "5.6.2",
     "katex": "^0.17.0",
     "lucide-react": "^1.17.0",
     "node-pty": "^1.1.0",
@@ -64,6 +65,7 @@
     "remark-math": "^6.0.0",
     "shiki": "^4.3.1",
     "swr": "^2.4.1",
+    "vscode-jsonrpc": "9.0.1",
     "zod": "^3.24.0"
   },
   "peerDependencies": {
