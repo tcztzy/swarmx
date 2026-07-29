@@ -27,6 +27,20 @@ const localeRegistry = {
 };
 
 describe("desktop settings primitives", () => {
+  it("V570 defaults and validates the built-in tool style", () => {
+    expect(createDefaultDesktopSettings().runtime.builtinTools.style).toBe("auto");
+    expect(
+      parseDesktopSettingsDocument({
+        runtime: { builtinTools: { style: "kimi_code" } },
+      }).runtime.builtinTools.style,
+    ).toBe("kimi_code");
+    expect(() =>
+      parseDesktopSettingsDocument({
+        runtime: { builtinTools: { style: "unknown" } },
+      }),
+    ).toThrow();
+  });
+
   it("parses settings documents with provider and agent metadata kept separate", () => {
     const settings = parseDesktopSettingsDocument({
       schema_version: 1,

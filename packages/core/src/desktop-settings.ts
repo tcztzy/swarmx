@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { AgentProfileMetadataSchema } from "./agent-profiles.js";
+import { BuiltinToolStylePreferenceSchema } from "./builtin-tools.js";
 import {
   ExtensionCandidateSchema,
   ExtensionMarketplaceSourceSchema,
@@ -56,6 +57,18 @@ export const DesktopServerSettingsSchema = z.preprocess(
     .passthrough()
     .superRefine(addSecretIssues),
 );
+
+export const DesktopBuiltinToolSettingsSchema = z
+  .object({
+    style: BuiltinToolStylePreferenceSchema.default("auto"),
+  })
+  .strict();
+
+export const DesktopRuntimeSettingsSchema = z
+  .object({
+    builtinTools: DesktopBuiltinToolSettingsSchema.default({}),
+  })
+  .strict();
 
 export const DesktopComposerSelectionSchema = z
   .object({
@@ -172,6 +185,7 @@ export const DesktopSettingsDocumentSchema: z.ZodType<
       schemaVersion: z.literal(1).default(1),
       desktop: DesktopRootConfigSchema.default({}),
       server: DesktopServerSettingsSchema.default({}),
+      runtime: DesktopRuntimeSettingsSchema.default({}),
       ui: DesktopUiStateSchema.default({}),
       models: z.array(ModelSchema).default([]),
       modelSupplies: z.array(ModelSupplySchema).default([]),
@@ -259,6 +273,8 @@ export type DesktopServerSettings = z.infer<typeof DesktopServerSettingsSchema>;
 export type DesktopComposerSelection = z.infer<typeof DesktopComposerSelectionSchema>;
 export type DesktopComposerPreferences = z.infer<typeof DesktopComposerPreferencesSchema>;
 export type DesktopComposerPreferenceUpdate = z.infer<typeof DesktopComposerPreferenceUpdateSchema>;
+export type DesktopBuiltinToolSettings = z.infer<typeof DesktopBuiltinToolSettingsSchema>;
+export type DesktopRuntimeSettings = z.infer<typeof DesktopRuntimeSettingsSchema>;
 export type DesktopUiState = z.infer<typeof DesktopUiStateSchema>;
 export type DesktopExtensionSettings = z.infer<typeof DesktopExtensionSettingsSchema>;
 export type DesktopPermissionProfileAvailability = z.infer<
@@ -273,6 +289,7 @@ export interface DesktopSettingsDocument {
   schemaVersion: 1;
   desktop: DesktopRootConfig;
   server: DesktopServerSettings;
+  runtime: DesktopRuntimeSettings;
   ui: DesktopUiState;
   models: Array<z.infer<typeof ModelSchema>>;
   modelSupplies: Array<z.infer<typeof ModelSupplySchema>>;
@@ -323,6 +340,7 @@ export function createDefaultDesktopSettings(
     schemaVersion: 1,
     desktop: {},
     server: {},
+    runtime: {},
     ui: {},
     models: [],
     modelSupplies: [],

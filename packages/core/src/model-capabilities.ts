@@ -1,7 +1,19 @@
 import { z } from "zod";
+import { BuiltinToolStyleSchema } from "./builtin-tools.js";
 import { HARNESSES } from "./harness.js";
 import { ModelApiSchema } from "./model-api.js";
 import type { ModelApi } from "./model-api.js";
+
+const CLAUDE_CODE_BUILTIN_TOOL_MODEL_IDS = new Set([
+  "claude-opus-4-5",
+  "claude-opus-4-6",
+  "claude-sonnet-4-6",
+  "claude-fable-5",
+  "claude-mythos-5",
+  "claude-opus-4-7",
+  "claude-opus-4-8",
+  "claude-sonnet-5",
+]);
 
 export const ModelReasoningControlSchema = z.enum([
   "none",
@@ -146,6 +158,7 @@ export const ModelSchema = z
     capabilityIds: z.array(z.string().min(1)).default([]),
     reasoningCapabilities: z.array(ModelCapabilitySchema).default([]),
     harnessRuntimeModels: z.record(z.string().min(1)).default({}),
+    preferredBuiltinToolStyle: BuiltinToolStyleSchema.optional(),
     enabled: z.boolean().optional(),
     readOnly: z.boolean().optional(),
   })
@@ -941,6 +954,9 @@ function buildModelCatalog(capabilities: readonly ModelCapability[]): Model[] {
       runtimeModel: id,
       apiProtocols: entry.apiProtocols,
       capabilityIds: entry.capabilityIds,
+      ...(CLAUDE_CODE_BUILTIN_TOOL_MODEL_IDS.has(id)
+        ? { preferredBuiltinToolStyle: "claude_code" as const }
+        : {}),
       ...(id === "deepseek-v4-pro"
         ? { harnessRuntimeModels: { claude_code: "deepseek-v4-pro[1m]" } }
         : {}),

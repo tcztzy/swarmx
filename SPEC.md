@@ -75,6 +75,7 @@ G71: A release tag publishes every aligned SwarmX package to npm from that tagge
 G72: Desktop users can collapse or expand each sidebar Project group from its main row and identify that state from matching folder icons.
 G73: Desktop users can ask parallel side questions from an anchored task snapshot without changing or persisting the parent conversation, then explicitly promote useful side work into a normal task.
 G74: Desktop users can attach, persist, transmit, render, and preview images, PDFs, audio, video, text, and general files through one capability-aware multimedia model spanning Core, ACP, native Providers, and Desktop.
+G75: Desktop users can configure the direct SwarmX built-in coding-tool contract as automatic, Claude Code, Codex, or Kimi Code from persistent Settings without changing external ACP Harness tool ownership.
 
 ## §C
 C1: Reuse existing `SwarmConfig`; no second workflow DSL.
@@ -282,6 +283,10 @@ C202: Runtime provider message attachments remain unknown until the canonical me
 C203: Primary CI and tagged-release quality checks must fail when coverage of audited ACP, media, or Desktop trust-boundary code falls below the checked-in baseline.
 C204: Focused Renderer extraction must preserve attachment card behavior while reducing `App.tsx` size and local branch complexity.
 C205: Running the tracked Inspect smoke gate must not leave generated evaluation logs as source changes.
+C206: Built-in tool style is a global Settings default for direct SwarmX tasks, not a Composer or Custom Agent control. External ACP Harnesses remain host-native and receive no duplicate SwarmX tools.
+C207: A concrete Settings style wins. `auto` uses explicit Model compatibility metadata and otherwise preserves the Codex fallback. The resolved style and contract revision are fixed on first direct execution of a persisted Session.
+C208: Style adapters may change public names, descriptions, schemas, model-facing results, and lifecycle semantics, but they dispatch through the same bounded Project file, search, Shell, permission, cancellation, and output controls.
+C209: Kimi Code style exposes only implemented Kimi contracts. It does not advertise unsupported media, web, collaboration, Skill, plan, or cron behavior as placeholder tools.
 
 ## §I
 I1: `packages/core/src/types.ts` `SwarmConfigSchema`.
@@ -555,6 +560,9 @@ I268: Root Vitest coverage configuration, `@vitest/coverage-v8`, CI scripts, and
 I269: `message-attachments.tsx` owns typed attachment icon selection, byte formatting, preview routing, and its focused component tests outside the application shell.
 I270: Root `.gitignore` excludes Inspect's root `logs/` evaluation output, with a release regression assertion.
 I271: `packages/core/src/acp.ts`, `agent.ts`, `extensions.ts`, `types.ts`, `session.ts`, Desktop ACP Session runtime/IPC, focused tests, and ACP/multimedia documentation own resumable external Session binding plus attachment isolation.
+I272: `packages/core/src/builtin-tools.ts`, `desktop-settings.ts`, `model-capabilities.ts`, `types.ts`, exports, and focused tests own style preferences, explicit Model compatibility, deterministic resolution, and persisted Session binding.
+I273: `packages/desktop/src/main/workspace-tools.ts`, `ipc.ts`, focused tests, and native-tool compatibility docs own Claude Code, Codex, and Kimi Code style projection plus direct-only runtime injection.
+I274: Desktop atomic Settings service, shared/preload API, General Settings UI, styles, and focused tests own narrow read/write persistence for the global built-in tool style.
 
 ## §V
 V1: Workflow JSON source of truth is `SwarmConfig`; UI preview, run badges, and send payload derive from parsed JSON.
@@ -1126,6 +1134,12 @@ V566: Reusing an unavailable external ACP Session clears that binding and retrie
 V567: A turn whose latest user message carries attachments never loads or persists a long-lived external ACP Session binding and invalidates any prior binding before execution. Side chats, child Agents, background activations, workflows, forks, and promoted tasks never inherit the main task's external binding.
 V568: A native Codex ACP attachment turn uses an exact private temporary `CODEX_HOME`, copies only bounded required config/auth plus read-only Agent/Skill/rule inputs when available, and removes that exact root after execution. Protected Codex attachment turns rely on the existing removable container and never persist a host binding.
 V569: SwarmX Session JSONL, index, Renderer IPC, activity records, and external-binding metadata contain no attachment Base64. Focused tests prove text reuse, identity mismatch, unavailable-session recovery, attachment isolation, exact temporary-home cleanup, and unchanged fork/side isolation.
+V570: Desktop Settings parses `runtime.builtinTools.style` as `auto | claude_code | codex | kimi_code`, defaults missing legacy documents to `auto`, rejects unknown values, and updates it atomically without replacing unrelated sections.
+V571: Direct style resolution is deterministic: a persisted Session binding wins, a concrete Settings value binds that style, `auto` uses the selected Model's explicit `preferredBuiltinToolStyle`, and missing metadata binds `codex`. The binding records contract revision and source and survives Session save, fork, side-chat promotion, and restart.
+V572: Kimi Code style exposes `Bash`, `Read`, `Write`, `Edit`, `Grep`, `Glob`, `TodoList`, `TaskList`, `TaskOutput`, and `TaskStop` with Kimi field names and principal defaults. Calls preserve Project containment, stale-read mutation checks, permission classification, cancellation, bounded output, and background task cleanup.
+V573: `workspaceAgentTools` and Project instructions use exactly one resolved style. External ACP compositions still receive no local tools, and changing Settings cannot alter an already-bound persisted Session mid-conversation.
+V574: General Settings renders one keyboard-usable Built-in tool style control with Auto, Claude Code, Codex, and Kimi Code choices, explains direct-only scope and new-conversation behavior, and persists through narrow typed IPC without exposing the complete Settings document.
+V575: Core, Main, Preload, Workspace tool, and Renderer tests cover defaults/rejection, atomic persistence, resolution precedence, Session carry-forward, exact Kimi names/principal schemas, bounded dispatch, IPC routing, UI save behavior, and unchanged Claude/Codex plus ACP ownership.
 
 ## §T
 |id|status|task|cites|
@@ -1366,6 +1380,10 @@ V569: SwarmX Session JSONL, index, Renderer IPC, activity records, and external-
 |T234|x|extract and directly test message attachment rendering from the Renderer application shell|C204,V563,I269|
 |T235|x|keep generated Inspect smoke evaluation logs out of verified source status|C205,V564,I270|
 |T236|x|persist safe main-task ACP Session bindings and isolate attachment-bearing Codex execution|V565,V566,V567,V568,V569,I271|
+|T237|x|add Core built-in tool style Settings, Model metadata, resolver, Session binding, and tests|G75,C206,C207,V570,V571,I272|
+|T238|.|implement Kimi Code workspace-tool projection and focused contract/dispatch tests|G75,C208,C209,V572,V573,I273|
+|T239|.|wire atomic Settings IPC, General UI, direct runtime Session binding, and focused tests|G75,C206,C207,V570,V571,V573,V574,V575,I272,I273,I274|
+|T240|.|document compatibility and run targeted, recursive build, test, and lint validation|G75,C206,C207,C208,C209,V570,V571,V572,V573,V574,V575,I272,I273,I274|
 
 ## §B
 |id|date|cause|fix|
@@ -1532,3 +1550,5 @@ V569: SwarmX Session JSONL, index, Renderer IPC, activity records, and external-
 |B160|2026-07-26|message attachment icon branching, size formatting, and interaction remained embedded in the 10,399-line Renderer application shell with no focused component test|V563|
 |B161|2026-07-26|the full Inspect smoke gate wrote timestamped evaluation output to an unignored root `logs/` directory, leaving an otherwise verified working tree dirty|V564|
 |B162|2026-07-27|Desktop ACP composition omitted the existing Session id on every invocation, while attachment-capable Codex sessions persisted request Base64 into long-lived rollout logs that compaction and subagents could duplicate without a SwarmX isolation boundary|V565,V566,V567,V568,V569|
+|B163|2026-07-29|the first Model tool-style metadata patch declared its lookup set after eager `MODELS` initialization and triggered a module-load temporal dead zone|move the lookup before eager catalog initialization|
+|B164|2026-07-29|the first built-in tool style Core patch left two new declarations outside Biome's canonical single-line formatting|apply the repository formatter before task completion|

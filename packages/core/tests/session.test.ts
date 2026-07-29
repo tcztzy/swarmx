@@ -402,6 +402,7 @@ describe("Session", () => {
     });
     savedIds.push(source.id);
     source.title = "Original task";
+    source.builtinTools = { style: "kimi_code", revision: 1, source: "settings" };
     source.acpSessionId = "runtime-owned-session";
     source.externalAcpSession = {
       sessionId: "external-session",
@@ -434,6 +435,7 @@ describe("Session", () => {
       agentName: source.agentName,
       harness: source.harness,
       model: source.model,
+      builtinTools: source.builtinTools,
       projectId: source.projectId,
       cwd: source.cwd,
       permissionMode: "auto",
@@ -570,6 +572,7 @@ describe("Session", () => {
       permissionMode: "auto",
     });
     savedIds.push(source.id);
+    source.builtinTools = { style: "claude_code", revision: 1, source: "model" };
     source.messages = [
       { role: "user", content: "Parent request", kind: "message" },
       { role: "assistant", content: "Parent reply", kind: "message" },
@@ -596,6 +599,7 @@ describe("Session", () => {
       projectId: source.projectId,
       cwd: source.cwd,
       permissionMode: source.permissionMode,
+      builtinTools: source.builtinTools,
       messages: [...source.messages.slice(0, 2), ...completed.messages],
     });
     expect(promoted.acpSessionId).toBeUndefined();

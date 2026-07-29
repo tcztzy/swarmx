@@ -7,6 +7,21 @@ export type {
   AcpPermissionResponse,
 } from "./acp.js";
 export type { SwarmRuntimeOptions } from "./swarm.js";
+export {
+  BUILTIN_TOOL_CONTRACT_REVISION,
+  BuiltinToolStylePreferenceSchema,
+  BuiltinToolStyleResolutionSourceSchema,
+  BuiltinToolStyleSchema,
+  SessionBuiltinToolBindingSchema,
+  resolveBuiltinToolStyle,
+} from "./builtin-tools.js";
+export type {
+  BuiltinToolStyle,
+  BuiltinToolStylePreference,
+  BuiltinToolStyleResolutionSource,
+  ResolveBuiltinToolStyleOptions,
+  SessionBuiltinToolBinding,
+} from "./builtin-tools.js";
 export { Edge } from "./edge.js";
 export { Hook } from "./hook.js";
 export { Tool } from "./tool.js";
@@ -418,6 +433,7 @@ export type {
   ParseNativeAgentDefinitionOptions,
 } from "./agent-profiles.js";
 export {
+  DesktopBuiltinToolSettingsSchema,
   DesktopComposerPreferenceUpdateSchema,
   DesktopComposerPreferencesSchema,
   DesktopComposerSelectionSchema,
@@ -426,6 +442,7 @@ export {
   DesktopPermissionSettingsSchema,
   DesktopRootConfigSchema,
   DesktopRootSourceSchema,
+  DesktopRuntimeSettingsSchema,
   DesktopServerSettingsSchema,
   DesktopSettingsDocumentSchema,
   DesktopUiStateSchema,
@@ -444,6 +461,7 @@ export {
   resolveLocaleSelection,
 } from "./desktop-settings.js";
 export type {
+  DesktopBuiltinToolSettings,
   DesktopComposerPreferenceUpdate,
   DesktopComposerPreferences,
   DesktopComposerSelection,
@@ -452,6 +470,7 @@ export type {
   DesktopPermissionSettings,
   DesktopRootConfig,
   DesktopRootSource,
+  DesktopRuntimeSettings,
   DesktopServerSettings,
   DesktopSettingsDocument,
   DesktopUiState,

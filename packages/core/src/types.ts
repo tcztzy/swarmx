@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { SessionBuiltinToolBindingSchema } from "./builtin-tools.js";
 
 // ── McpServer ────────────────────────────────────────────────────────────────
 
@@ -249,6 +250,7 @@ export const SessionDataSchema = z.object({
   agentName: z.string(),
   harness: z.string(),
   model: z.string().optional(),
+  builtinTools: SessionBuiltinToolBindingSchema.optional(),
   permissionMode: SessionPermissionModeSchema.default("inherit"),
   pinned: z.boolean().default(false),
   messages: z.array(MessageChunkSchema),
@@ -283,6 +285,7 @@ export const TransientSessionDataSchema = z.object({
   agentName: z.string().min(1),
   harness: z.string().min(1),
   model: z.string().optional(),
+  builtinTools: SessionBuiltinToolBindingSchema.optional(),
   projectId: z.string().optional(),
   cwd: z.string().optional(),
   permissionMode: SessionPermissionModeSchema.default("inherit"),

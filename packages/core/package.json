@@ -48,6 +48,10 @@
       "types": "./dist/model-capabilities.d.ts",
       "import": "./dist/model-capabilities.js"
     },
+    "./builtin-tools": {
+      "types": "./dist/builtin-tools.d.ts",
+      "import": "./dist/builtin-tools.js"
+    },
     "./harness-management": {
       "types": "./dist/harness-management.d.ts",
       "import": "./dist/harness-management.js"
