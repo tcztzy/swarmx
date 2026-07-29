@@ -19,6 +19,7 @@ import {
 import { tmpdir } from "node:os";
 import path from "node:path";
 import {
+  type BuiltinToolStyle,
   type HarnessPermissionPolicy,
   HarnessPermissionPolicySchema,
   type HarnessToolAccess,
@@ -189,10 +190,11 @@ export interface WorkspaceSearchResult {
   appliedOffset?: number;
 }
 
-export type WorkspaceToolProfile = "claude_code" | "codex";
+export type WorkspaceToolProfile = BuiltinToolStyle;
 
 export interface WorkspaceAgentToolOptions {
   model?: string;
+  toolStyle?: WorkspaceToolProfile;
   apiProtocol?: ModelApi;
   skills?: readonly WorkspaceAgentSkill[];
   effort?: string;
@@ -1509,10 +1511,13 @@ export function workspaceAgentTools(
   shell = new WorkspaceShell(tools.root),
   options: WorkspaceAgentToolOptions = {},
 ): LocalTool[] {
+  const profile = workspaceToolProfile(options);
   const profileTools =
-    workspaceToolProfile(options) === "claude_code"
+    profile === "claude_code"
       ? claudeCodeWorkspaceTools(tools, shell, options)
-      : codexWorkspaceTools(tools, shell, options.apiProtocol);
+      : profile === "kimi_code"
+        ? kimiCodeWorkspaceTools(tools, shell, options)
+        : codexWorkspaceTools(tools, shell, options.apiProtocol);
   if (!options.permissionPolicy) return profileTools;
   const layered = ResolvedHarnessPermissionPolicySchema.safeParse(options.permissionPolicy);
   const policy = layered.success
@@ -1536,6 +1541,7 @@ const READ_ONLY_PERMISSION_TOOLS = new Set([
   "TaskList",
   "TaskOutput",
   "TaskUpdate",
+  "TodoList",
   "TodoWrite",
 ]);
 
@@ -1638,7 +1644,7 @@ function boundedApprovalText(value: string): string {
 export function workspaceToolProfile(
   options: WorkspaceAgentToolOptions = {},
 ): WorkspaceToolProfile {
-  return /(?:claude|sonnet|opus|haiku|fable)/i.test(options.model ?? "") ? "claude_code" : "codex";
+  return options.toolStyle ?? "codex";
 }
 
 function claudeCodeWorkspaceTools(
@@ -2513,6 +2519,401 @@ function claudeInteractionTools(
   ];
 }
 
+function kimiCodeWorkspaceTools(
+  tools: WorkspaceTools,
+  shell: WorkspaceShell,
+  options: WorkspaceAgentToolOptions,
+): LocalMcpTool[] {
+  const dispose = async (): Promise<void> => {
+    options.closeInteractions?.();
+    if (!options.borrowShell) await shell.close();
+  };
+  let todos: Array<{ title: string; status: "pending" | "in_progress" | "done" }> = [];
+  return [
+    {
+      name: "Bash",
+      description:
+        "Execute a command in the Project sandbox. Foreground commands default to 60 seconds and may continue as a bounded background task.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          command: { type: "string", description: "The shell command to execute." },
+          cwd: { type: "string", description: "Working directory inside the Project." },
+          timeout: {
+            type: "number",
+            description: "Foreground timeout in milliseconds, up to 300000.",
+          },
+          run_in_background: { type: "boolean" },
+          description: {
+            type: "string",
+            description: "Required short description for a background task.",
+          },
+          disable_timeout: {
+            type: "boolean",
+            description: "Unsupported by bounded SwarmX execution; must remain false.",
+          },
+        },
+        required: ["command"],
+      },
+      dispose,
+      call: async (input, context) => {
+        if (input.disable_timeout === true) {
+          throw new Error("SwarmX cannot disable the bounded Project command timeout.");
+        }
+        const command = requiredToolText(input.command, "command");
+        const workdir = input.cwd === undefined ? undefined : requiredToolText(input.cwd, "cwd");
+        const runInBackground = optionalToolBoolean(input.run_in_background, "run_in_background");
+        const timeoutMs =
+          input.timeout === undefined
+            ? runInBackground
+              ? 600_000
+              : 60_000
+            : requiredBoundedInteger(
+                input.timeout,
+                "timeout",
+                1,
+                runInBackground ? 600_000 : 300_000,
+              );
+        if (runInBackground) {
+          requiredNonemptyToolText(input.description, "description");
+        }
+        const progress = terminalProgressObserver(context);
+        try {
+          if (runInBackground) {
+            const result = await shell.startBackground(command, {
+              timeoutMs,
+              ...(workdir ? { workdir } : {}),
+              ...(progress.onOutput ? { onOutput: progress.onOutput } : {}),
+            });
+            return localToolResult(`Background task ${result.sessionId} started.`, {
+              task_id: String(result.sessionId),
+              status: result.status,
+              command: result.command,
+              cwd: result.cwd,
+            });
+          }
+          const result = await shell.runWithBackgroundFallback(command, timeoutMs, {
+            ...(workdir ? { workdir } : {}),
+            ...(progress.onOutput ? { onOutput: progress.onOutput } : {}),
+          });
+          if (result.status === "running") {
+            return localToolResult(
+              [
+                [result.stdout, result.stderr].filter(Boolean).join("\n"),
+                `Command continued as background task ${result.sessionId}.`,
+              ]
+                .filter(Boolean)
+                .join("\n"),
+              {
+                task_id: String(result.sessionId),
+                status: result.status,
+                command: result.command,
+                cwd: result.cwd,
+              },
+            );
+          }
+          return localToolResult(formatClaudeBashResult(result), {
+            status: result.status,
+            command: result.command,
+            cwd: result.cwd,
+            exit_code: result.exitCode,
+            stdout: result.stdout,
+            stderr: result.stderr,
+            duration_ms: result.durationMs,
+            truncated: result.truncated,
+          });
+        } finally {
+          progress.close();
+        }
+      },
+    },
+    {
+      name: "Read",
+      description:
+        "Read a bounded UTF-8 Project file by path, optional starting line, and maximum line count.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          path: { type: "string", description: "Project-relative or absolute Project path." },
+          line_offset: {
+            type: "number",
+            description: "Starting line; negative values count from the end.",
+          },
+          n_lines: { type: "number", description: "Maximum lines to return, up to 1000." },
+        },
+        required: ["path"],
+      },
+      call: async (input) => {
+        const result = await tools.readFile(
+          workspaceRelativePath(tools.root, requiredToolPath(input.path), false),
+        );
+        const lines = fileLines(result.content);
+        const lineOffset = optionalInteger(input.line_offset, "line_offset") ?? 1;
+        const startIndex =
+          lineOffset < 0 ? Math.max(0, lines.length + lineOffset) : Math.max(0, lineOffset - 1);
+        const requestedLines =
+          input.n_lines === undefined
+            ? 1000
+            : requiredBoundedInteger(input.n_lines, "n_lines", 1, 1000);
+        const selected = lines.slice(startIndex, startIndex + requestedLines);
+        const bounded = truncateUtf8(selected.join("\n"), 100 * 1024);
+        const content = [
+          bounded.value,
+          ...(bounded.truncated || startIndex + requestedLines < lines.length
+            ? ["[Output truncated; call Read again with a later line_offset.]"]
+            : []),
+        ]
+          .filter(Boolean)
+          .join("\n");
+        return localToolResult(content || "File is empty.", {
+          path: path.resolve(tools.root, result.path),
+          line_offset: startIndex + 1,
+          n_lines: selected.length,
+          total_lines: lines.length,
+          truncated: result.truncated || bounded.truncated || selected.length < lines.length,
+        });
+      },
+    },
+    {
+      name: "Write",
+      description:
+        "Create, overwrite, or append UTF-8 content to a Project file using Kimi Code arguments.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          path: { type: "string", description: "Project-relative or absolute Project path." },
+          content: { type: "string", description: "Content to write." },
+          mode: { type: "string", enum: ["overwrite", "append"] },
+        },
+        required: ["path", "content"],
+      },
+      call: async (input) => {
+        const filePath = workspaceRelativePath(tools.root, requiredToolPath(input.path), false);
+        const content = requiredToolText(input.content, "content");
+        const mode = optionalEnum(
+          input.mode,
+          ["overwrite", "append"] as const,
+          "mode",
+          "overwrite",
+        );
+        const result = await writeForKimi(tools, filePath, content, mode);
+        return localToolResult(
+          `${mode === "append" ? "Appended to" : result.created ? "Created" : "Updated"} ${path.resolve(tools.root, result.path)}.`,
+          {
+            path: path.resolve(tools.root, result.path),
+            mode,
+            created: result.created,
+            size: result.size,
+          },
+        );
+      },
+    },
+    {
+      name: "Edit",
+      description:
+        "Replace one unique exact string, or every match when replace_all is true, in a Project file.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          path: { type: "string", description: "Project-relative or absolute Project path." },
+          old_string: { type: "string", description: "Exact text to replace." },
+          new_string: { type: "string", description: "Replacement text." },
+          replace_all: { type: "boolean" },
+        },
+        required: ["path", "old_string", "new_string"],
+      },
+      call: async (input) => {
+        const filePath = workspaceRelativePath(tools.root, requiredToolPath(input.path), false);
+        const oldString = requiredToolText(input.old_string, "old_string");
+        const newString = requiredToolText(input.new_string, "new_string");
+        if (oldString === newString) {
+          throw new Error("old_string and new_string must be different.");
+        }
+        await tools.readFile(filePath);
+        const replaceAll = optionalToolBoolean(input.replace_all, "replace_all");
+        const result = await tools.editFile(filePath, oldString, newString, replaceAll);
+        return localToolResult(
+          `Updated ${path.resolve(tools.root, result.path)} (${result.replacements} replacement${result.replacements === 1 ? "" : "s"}).`,
+          {
+            path: path.resolve(tools.root, result.path),
+            replacements: result.replacements,
+            replace_all: replaceAll,
+          },
+        );
+      },
+    },
+    {
+      name: "Grep",
+      description:
+        "Search Project file contents with ripgrep using Kimi Code filters, context, and pagination fields.",
+      inputSchema: {
+        ...CLAUDE_GREP_INPUT_SCHEMA,
+        properties: {
+          ...CLAUDE_GREP_INPUT_SCHEMA.properties,
+          output_mode: {
+            type: "string",
+            enum: ["files_with_matches", "content", "count_matches"],
+          },
+          include_ignored: { type: "boolean" },
+        },
+      },
+      call: async (input) => {
+        const outputMode = optionalEnum(
+          input.output_mode,
+          ["files_with_matches", "content", "count_matches"] as const,
+          "output_mode",
+          "files_with_matches",
+        );
+        const result = await tools.grep({
+          ...input,
+          output_mode: outputMode === "count_matches" ? "count" : outputMode,
+          ...(input.path === undefined
+            ? {}
+            : {
+                path: workspaceRelativePath(tools.root, requiredToolText(input.path, "path"), true),
+              }),
+        });
+        return localToolResult(result.output || "No matches found.", {
+          output_mode: outputMode,
+          content: result.output,
+          filenames: result.filenames ?? [],
+          total_files: result.totalFiles,
+          total_lines: result.totalLines,
+          offset: result.appliedOffset,
+          head_limit: result.appliedLimit,
+          truncated: result.truncated,
+        });
+      },
+    },
+    {
+      name: "Glob",
+      description:
+        "Find up to 100 Project files by glob pattern, sorted by modification time descending.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          pattern: { type: "string", description: "Glob pattern." },
+          path: { type: "string", description: "Directory to search." },
+          include_ignored: { type: "boolean" },
+        },
+        required: ["pattern"],
+      },
+      call: async (input) => {
+        const result = await tools.glob(
+          requiredToolText(input.pattern, "pattern"),
+          input.path === undefined
+            ? ""
+            : workspaceRelativePath(tools.root, requiredToolText(input.path, "path"), true),
+        );
+        const filenames = (result.filenames ?? []).map((file) =>
+          path.resolve(tools.root, normalizedSearchPath(file)),
+        );
+        return localToolResult(filenames.join("\n") || "No files found.", {
+          filenames,
+          total_matches: result.totalFiles ?? filenames.length,
+          truncated: result.truncated,
+        });
+      },
+    },
+    {
+      name: "TodoList",
+      description:
+        "Query or replace the current task todo list with title and pending, in_progress, or done status.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          todos: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                title: { type: "string" },
+                status: { type: "string", enum: ["pending", "in_progress", "done"] },
+              },
+              required: ["title", "status"],
+            },
+          },
+        },
+      },
+      call: async (input) => {
+        if (input.todos !== undefined) todos = parseKimiTodos(input.todos);
+        const content =
+          todos.length === 0
+            ? "Todo list is empty."
+            : todos.map((todo) => `[${todo.status}] ${todo.title}`).join("\n");
+        return localToolResult(content, { todos: todos.map((todo) => ({ ...todo })) });
+      },
+    },
+    {
+      name: "TaskList",
+      description: "List bounded background Bash tasks.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          active_only: { type: "boolean" },
+          limit: { type: "number" },
+        },
+      },
+      call: async (input) => {
+        const activeOnly =
+          input.active_only === undefined
+            ? true
+            : requiredBoolean(input.active_only, "active_only");
+        const limit =
+          input.limit === undefined ? 20 : requiredBoundedInteger(input.limit, "limit", 1, 100);
+        const tasks = shell.listTasks({ activeOnly, limit });
+        return localToolResult(formatKimiTaskList(tasks), {
+          tasks: tasks.map(kimiTaskOutput),
+        });
+      },
+    },
+    {
+      name: "TaskOutput",
+      description: "Return status and recent bounded output for a background task.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          task_id: { type: "string" },
+          block: { type: "boolean" },
+          timeout: { type: "number", description: "Wait timeout in seconds, up to 3600." },
+        },
+        required: ["task_id"],
+      },
+      call: async (input) => {
+        const taskId = requiredTaskId(input.task_id);
+        const block = input.block === undefined ? false : requiredBoolean(input.block, "block");
+        const timeoutSeconds =
+          input.timeout === undefined
+            ? 30
+            : requiredBoundedInteger(input.timeout, "timeout", 0, 3600);
+        const result = await shell.taskOutput(taskId, {
+          block,
+          timeoutMs: Math.max(1, timeoutSeconds * 1000),
+        });
+        return localToolResult(formatKimiTaskOutput(result), kimiTaskOutput(result));
+      },
+    },
+    {
+      name: "TaskStop",
+      description: "Stop a running background task.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          task_id: { type: "string" },
+          reason: { type: "string" },
+        },
+        required: ["task_id"],
+      },
+      call: async (input) => {
+        const taskId = requiredTaskId(input.task_id);
+        if (input.reason !== undefined) requiredToolText(input.reason, "reason");
+        const result = await shell.stop(taskId);
+        return localToolResult(`Task ${taskId} is ${result.status}.`, kimiTaskOutput(result));
+      },
+    },
+  ];
+}
+
 function codexWorkspaceTools(
   tools: WorkspaceTools,
   shell: WorkspaceShell,
@@ -2722,7 +3123,9 @@ export function projectAgentContextMessage(
   const toolNames =
     profile === "claude_code"
       ? `${claudeToolNames.slice(0, -1).join(", ")}, and ${claudeToolNames.at(-1)}`
-      : "exec_command, write_stdin, and apply_patch";
+      : profile === "kimi_code"
+        ? "Bash, Read, Write, Edit, Grep, Glob, TodoList, TaskList, TaskOutput, and TaskStop"
+        : "exec_command, write_stdin, and apply_patch";
   return [
     `Active Project: ${projectName}`,
     `Project root: ${path.resolve(root)}`,
@@ -2730,7 +3133,9 @@ export function projectAgentContextMessage(
     "For questions about this Project, inspect relevant files before answering. Start with README or a package manifest when appropriate.",
     profile === "claude_code"
       ? "Read every existing file completely before replacing or editing it. Prefer Edit for focused changes, then use Bash for bounded builds or tests."
-      : "Use apply_patch for focused file changes and exec_command for bounded inspection, builds, or tests.",
+      : profile === "kimi_code"
+        ? "Use Read before reasoning about files, Edit for focused replacements, Write for create/overwrite/append, and Bash for bounded builds or tests."
+        : "Use apply_patch for focused file changes and exec_command for bounded inspection, builds, or tests.",
     "The command sandbox denies network access and writes outside this Project.",
     "Never claim that Project files are unavailable before attempting the workspace tools.",
   ].join("\n");
@@ -3522,6 +3927,74 @@ function formatClaudeTaskOutput(result: WorkspaceShellSessionSnapshot): string {
   ].join("\n");
 }
 
+async function writeForKimi(
+  tools: WorkspaceTools,
+  filePath: string,
+  content: string,
+  mode: "overwrite" | "append",
+): Promise<WorkspaceWriteResult> {
+  try {
+    const current = await tools.readFile(filePath);
+    if (current.truncated) {
+      throw new Error("Existing files must fit within the bounded Read limit before writing.");
+    }
+    return tools.writeFile(filePath, mode === "append" ? `${current.content}${content}` : content);
+  } catch (cause) {
+    if (!isFileNotFoundError(cause)) throw cause;
+    return tools.writeFile(filePath, content);
+  }
+}
+
+function parseKimiTodos(
+  value: unknown,
+): Array<{ title: string; status: "pending" | "in_progress" | "done" }> {
+  if (!Array.isArray(value)) throw new Error("todos must be an array.");
+  if (value.length > 100) throw new Error("todos must contain at most 100 items.");
+  return value.map((item, index) => {
+    if (!isToolRecord(item)) throw new Error(`todos[${index}] must be an object.`);
+    const status = optionalStringEnum(
+      item.status,
+      ["pending", "in_progress", "done"] as const,
+      `todos[${index}].status`,
+    );
+    if (!status) throw new Error(`todos[${index}].status is required.`);
+    return {
+      title: requiredNonemptyToolText(item.title, `todos[${index}].title`),
+      status,
+    };
+  });
+}
+
+function kimiTaskOutput(result: WorkspaceShellSessionSnapshot) {
+  return {
+    task_id: String(result.sessionId),
+    status: result.status,
+    command: result.command,
+    cwd: result.cwd,
+    exit_code: result.exitCode,
+    stdout: result.stdout,
+    stderr: result.stderr,
+    duration_ms: result.durationMs,
+    truncated: result.truncated,
+  };
+}
+
+function formatKimiTaskOutput(result: WorkspaceShellSessionSnapshot): string {
+  const output = [result.stdout, result.stderr].filter(Boolean).join("\n");
+  return [
+    `Task ${result.sessionId}: ${result.status}`,
+    ...(result.exitCode === null ? [] : [`Exit code: ${result.exitCode}`]),
+    output,
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+function formatKimiTaskList(tasks: readonly WorkspaceShellSessionSnapshot[]): string {
+  if (tasks.length === 0) return "No background tasks.";
+  return tasks.map((task) => `${task.sessionId} [${task.status}] ${task.command}`).join("\n");
+}
+
 function codexExecToolResult(result: WorkspaceShellExecResult) {
   const structuredContent = {
     chunk_id: result.chunkId,
@@ -3705,6 +4178,12 @@ function requiredBoundedInteger(
   if (!Number.isSafeInteger(value) || (value as number) < minimum || (value as number) > maximum) {
     throw new Error(`${name} must be an integer between ${minimum} and ${maximum}.`);
   }
+  return value as number;
+}
+
+function optionalInteger(value: unknown, name: string): number | undefined {
+  if (value === undefined) return undefined;
+  if (!Number.isSafeInteger(value)) throw new Error(`${name} must be an integer.`);
   return value as number;
 }
 

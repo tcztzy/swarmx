@@ -1381,7 +1381,7 @@ V575: Core, Main, Preload, Workspace tool, and Renderer tests cover defaults/rej
 |T235|x|keep generated Inspect smoke evaluation logs out of verified source status|C205,V564,I270|
 |T236|x|persist safe main-task ACP Session bindings and isolate attachment-bearing Codex execution|V565,V566,V567,V568,V569,I271|
 |T237|x|add Core built-in tool style Settings, Model metadata, resolver, Session binding, and tests|G75,C206,C207,V570,V571,I272|
-|T238|.|implement Kimi Code workspace-tool projection and focused contract/dispatch tests|G75,C208,C209,V572,V573,I273|
+|T238|x|implement Kimi Code workspace-tool projection and focused contract/dispatch tests|G75,C208,C209,V572,V573,I273|
 |T239|.|wire atomic Settings IPC, General UI, direct runtime Session binding, and focused tests|G75,C206,C207,V570,V571,V573,V574,V575,I272,I273,I274|
 |T240|.|document compatibility and run targeted, recursive build, test, and lint validation|G75,C206,C207,C208,C209,V570,V571,V572,V573,V574,V575,I272,I273,I274|
 
@@ -1552,3 +1552,4 @@ V575: Core, Main, Preload, Workspace tool, and Renderer tests cover defaults/rej
 |B162|2026-07-27|Desktop ACP composition omitted the existing Session id on every invocation, while attachment-capable Codex sessions persisted request Base64 into long-lived rollout logs that compaction and subagents could duplicate without a SwarmX isolation boundary|V565,V566,V567,V568,V569|
 |B163|2026-07-29|the first Model tool-style metadata patch declared its lookup set after eager `MODELS` initialization and triggered a module-load temporal dead zone|move the lookup before eager catalog initialization|
 |B164|2026-07-29|the first built-in tool style Core patch left two new declarations outside Biome's canonical single-line formatting|apply the repository formatter before task completion|
+|B165|2026-07-29|the first Kimi workspace adapter passed behavior and type checks but retained three files outside Biome's canonical wrapping|apply the repository formatter before task completion|

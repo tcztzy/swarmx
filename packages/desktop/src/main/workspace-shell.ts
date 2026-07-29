@@ -299,6 +299,21 @@ export class WorkspaceShell {
     return sessionSnapshot(session);
   }
 
+  listTasks(
+    options: {
+      activeOnly?: boolean;
+      limit?: number;
+    } = {},
+  ): WorkspaceShellSessionSnapshot[] {
+    const activeOnly = options.activeOnly ?? true;
+    const limit = boundedInteger(options.limit, 20, 1, 100, "limit");
+    return [...this.#sessions.values()]
+      .filter((session) => !activeOnly || session.status === "running")
+      .sort((left, right) => right.id - left.id)
+      .slice(0, limit)
+      .map(sessionSnapshot);
+  }
+
   async stop(sessionId: number): Promise<WorkspaceShellSessionSnapshot> {
     const session = this.#requiredSession(sessionId);
     if (session.status === "running") {

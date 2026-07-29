@@ -36,6 +36,7 @@ describe("WorkspaceTools", () => {
     const root = await temporaryDirectory();
     const withoutBridge = workspaceAgentTools(new WorkspaceTools(root), undefined, {
       model: "claude-sonnet-4-6",
+      toolStyle: "claude_code",
       permissionPolicy: { mode: "default", allowedTools: [], deniedTools: [] },
     });
     const blockedWrite = withoutBridge.find((tool) => tool.name === "Write") as LocalMcpTool;
@@ -49,6 +50,7 @@ describe("WorkspaceTools", () => {
       .mockResolvedValueOnce({ kind: "tool_approval", optionId: "allow_once" });
     const approvedTools = workspaceAgentTools(new WorkspaceTools(root), undefined, {
       model: "claude-sonnet-4-6",
+      toolStyle: "claude_code",
       permissionPolicy: { mode: "default", allowedTools: [], deniedTools: [] },
       interact,
     });
@@ -71,6 +73,7 @@ describe("WorkspaceTools", () => {
 
     const planTools = workspaceAgentTools(new WorkspaceTools(root), undefined, {
       model: "claude-sonnet-4-6",
+      toolStyle: "claude_code",
       permissionPolicy: { mode: "plan", allowedTools: ["Write"], deniedTools: [] },
       interact,
     });
@@ -180,7 +183,10 @@ describe("WorkspaceTools", () => {
     const root = await temporaryDirectory();
     await writeFile(path.join(root, "README.md"), "# Workspace fixture\n");
     const workspace = new WorkspaceTools(root);
-    const claude = workspaceAgentTools(workspace, undefined, { model: "claude-sonnet-4-6" });
+    const claude = workspaceAgentTools(workspace, undefined, {
+      model: "claude-sonnet-4-6",
+      toolStyle: "claude_code",
+    });
     const codex = workspaceAgentTools(workspace, undefined, {
       model: "gpt-5.4",
       apiProtocol: "openai_responses",
@@ -197,9 +203,12 @@ describe("WorkspaceTools", () => {
       | LocalMcpTool
       | undefined;
 
-    expect(projectAgentContextMessage(root, { model: "claude-opus-4-6" })).toContain(
-      `Active Project: ${path.basename(root)}`,
-    );
+    expect(
+      projectAgentContextMessage(root, {
+        model: "claude-opus-4-6",
+        toolStyle: "claude_code",
+      }),
+    ).toContain(`Active Project: ${path.basename(root)}`);
     expect(projectAgentContextMessage(root, { model: "gpt-5.4" })).toContain(
       "exec_command, write_stdin, and apply_patch",
     );
@@ -304,6 +313,91 @@ describe("WorkspaceTools", () => {
     ).rejects.toThrow(/cannot be escalated/i);
   });
 
+  it("V572 exposes and dispatches the implemented Kimi Code contract", async () => {
+    const root = await temporaryDirectory();
+    const workspace = new WorkspaceTools(root);
+    const kimi = workspaceAgentTools(workspace, undefined, {
+      model: "kimi-k3",
+      toolStyle: "kimi_code",
+    });
+
+    expect(kimi.map((tool) => tool.name)).toEqual([
+      "Bash",
+      "Read",
+      "Write",
+      "Edit",
+      "Grep",
+      "Glob",
+      "TodoList",
+      "TaskList",
+      "TaskOutput",
+      "TaskStop",
+    ]);
+    expect(projectAgentContextMessage(root, { toolStyle: "kimi_code" })).toContain(
+      "TodoList, TaskList, TaskOutput, and TaskStop",
+    );
+
+    const byName = (name: string) =>
+      kimi.find((tool) => tool.name === name) as LocalMcpTool | undefined;
+    expect(Object.keys(byName("Read")?.inputSchema.properties as object)).toEqual([
+      "path",
+      "line_offset",
+      "n_lines",
+    ]);
+    expect(Object.keys(byName("Write")?.inputSchema.properties as object)).toEqual([
+      "path",
+      "content",
+      "mode",
+    ]);
+    expect(Object.keys(byName("Bash")?.inputSchema.properties as object)).toEqual([
+      "command",
+      "cwd",
+      "timeout",
+      "run_in_background",
+      "description",
+      "disable_timeout",
+    ]);
+
+    await expect(
+      byName("Write")?.call({ path: "notes.txt", content: "one\ntwo\n", mode: "overwrite" }),
+    ).resolves.toMatchObject({ structuredContent: { mode: "overwrite", created: true } });
+    await expect(
+      byName("Write")?.call({ path: "notes.txt", content: "three\n", mode: "append" }),
+    ).resolves.toMatchObject({ structuredContent: { mode: "append", created: false } });
+    await expect(
+      byName("Edit")?.call({
+        path: "notes.txt",
+        old_string: "two",
+        new_string: "second",
+      }),
+    ).resolves.toMatchObject({ structuredContent: { replacements: 1, replace_all: false } });
+    await expect(
+      byName("Read")?.call({ path: "notes.txt", line_offset: -1, n_lines: 1 }),
+    ).resolves.toMatchObject({
+      content: expect.stringContaining("three"),
+      structuredContent: {
+        path: path.join(root, "notes.txt"),
+        line_offset: 3,
+        n_lines: 1,
+        total_lines: 3,
+        truncated: true,
+      },
+    });
+    await expect(
+      byName("TodoList")?.call({
+        todos: [{ title: "Verify Kimi contract", status: "in_progress" }],
+      }),
+    ).resolves.toMatchObject({
+      structuredContent: {
+        todos: [{ title: "Verify Kimi contract", status: "in_progress" }],
+      },
+    });
+    await expect(byName("TaskList")?.call({})).resolves.toMatchObject({
+      content: "No background tasks.",
+      structuredContent: { tasks: [] },
+    });
+  });
+
   it("V408-V413 enters, rebinds, preserves, and guardedly removes Claude worktrees", async () => {
     const root = await temporaryDirectory();
     await git(root, "init", "-b", "main");
@@ -325,6 +419,7 @@ describe("WorkspaceTools", () => {
     const lspRoots: string[] = [];
     const tools = workspaceAgentTools(workspace, shell, {
       model: "claude-sonnet-4-6",
+      toolStyle: "claude_code",
       lsp: async (request) => {
         lspRoots.push(workspace.root);
         return {
@@ -488,7 +583,10 @@ describe("WorkspaceTools", () => {
     );
     const workspace = new WorkspaceTools(root);
     const shell = new WorkspaceShell(root);
-    const tools = workspaceAgentTools(workspace, shell, { model: "claude-sonnet-4-6" });
+    const tools = workspaceAgentTools(workspace, shell, {
+      model: "claude-sonnet-4-6",
+      toolStyle: "claude_code",
+    });
     const bash = tools.find((tool) => tool.name === "Bash") as LocalMcpTool;
     const enter = tools.find((tool) => tool.name === "EnterWorktree") as LocalMcpTool;
     const write = tools.find((tool) => tool.name === "Write") as LocalMcpTool;
@@ -518,6 +616,7 @@ describe("WorkspaceTools", () => {
     });
     const claude = workspaceAgentTools(new WorkspaceTools(root), undefined, {
       model: "claude-sonnet-4-6",
+      toolStyle: "claude_code",
       lsp,
     });
     const codex = workspaceAgentTools(new WorkspaceTools(root), undefined, {
@@ -527,7 +626,13 @@ describe("WorkspaceTools", () => {
     const tool = claude.find((candidate) => candidate.name === "LSP") as LocalMcpTool;
 
     expect(codex.some((candidate) => candidate.name === "LSP")).toBe(false);
-    expect(projectAgentContextMessage(root, { model: "claude-opus-4-6", lsp })).toContain("LSP");
+    expect(
+      projectAgentContextMessage(root, {
+        model: "claude-opus-4-6",
+        toolStyle: "claude_code",
+        lsp,
+      }),
+    ).toContain("LSP");
     expect(tool.inputSchema).toMatchObject({
       required: ["operation", "filePath", "line", "character"],
       properties: {
@@ -596,6 +701,7 @@ describe("WorkspaceTools", () => {
     });
     const claude = workspaceAgentTools(new WorkspaceTools(root), undefined, {
       model: "claude-sonnet-4-6",
+      toolStyle: "claude_code",
       agent,
     });
     const codex = workspaceAgentTools(new WorkspaceTools(root), undefined, {
@@ -605,9 +711,13 @@ describe("WorkspaceTools", () => {
     const tool = claude.find((candidate) => candidate.name === "Agent") as LocalMcpTool;
 
     expect(codex.some((candidate) => candidate.name === "Agent")).toBe(false);
-    expect(projectAgentContextMessage(root, { model: "claude-opus-4-6", agent })).toContain(
-      "Agent, Bash",
-    );
+    expect(
+      projectAgentContextMessage(root, {
+        model: "claude-opus-4-6",
+        toolStyle: "claude_code",
+        agent,
+      }),
+    ).toContain("Agent, Bash");
     expect(tool.inputSchema).toMatchObject({
       required: ["description", "prompt"],
       properties: {
@@ -673,6 +783,7 @@ describe("WorkspaceTools", () => {
     const root = await temporaryDirectory();
     const tools = workspaceAgentTools(new WorkspaceTools(root), undefined, {
       model: "claude-sonnet-4-6",
+      toolStyle: "claude_code",
     });
     const taskCreate = tools.find((tool) => tool.name === "TaskCreate") as LocalMcpTool;
     const taskGet = tools.find((tool) => tool.name === "TaskGet") as LocalMcpTool;
@@ -775,6 +886,7 @@ Session=\${CLAUDE_SESSION_ID}
     const canonicalSkillDirectory = path.dirname(canonicalSkillPath);
     const tools = workspaceAgentTools(new WorkspaceTools(root), undefined, {
       model: "claude-sonnet-4-6",
+      toolStyle: "claude_code",
       effort: "high",
       sessionId: "session-123",
       skills: [
@@ -846,6 +958,7 @@ Session=\${CLAUDE_SESSION_ID}
     };
     const tools = workspaceAgentTools(new WorkspaceTools(root), undefined, {
       model: "claude-opus-4-6",
+      toolStyle: "claude_code",
       interact,
       closeInteractions,
     });
@@ -1012,6 +1125,7 @@ Session=\${CLAUDE_SESSION_ID}
     const close = vi.spyOn(shell, "close");
     const tools = workspaceAgentTools(new WorkspaceTools(root), shell, {
       model: "claude-opus-4-6",
+      toolStyle: "claude_code",
       sessionTools: bridge,
       borrowShell: true,
     });
@@ -1074,6 +1188,7 @@ Session=\${CLAUDE_SESSION_ID}
     const root = await temporaryDirectory();
     const tools = workspaceAgentTools(new WorkspaceTools(root), undefined, {
       model: "claude-opus-4-6",
+      toolStyle: "claude_code",
     });
     const todoWrite = tools.find((tool) => tool.name === "TodoWrite") as LocalMcpTool;
     const reportFindings = tools.find((tool) => tool.name === "ReportFindings") as LocalMcpTool;
@@ -1172,6 +1287,7 @@ Session=\${CLAUDE_SESSION_ID}
     );
     const tools = workspaceAgentTools(new WorkspaceTools(root), undefined, {
       model: "claude-sonnet-4-6",
+      toolStyle: "claude_code",
     });
     const notebookEdit = tools.find((tool) => tool.name === "NotebookEdit") as LocalMcpTool;
 
@@ -1238,6 +1354,7 @@ Session=\${CLAUDE_SESSION_ID}
       const root = await temporaryDirectory();
       const claude = workspaceAgentTools(new WorkspaceTools(root), undefined, {
         model: "claude-sonnet-4-6",
+        toolStyle: "claude_code",
       });
       const bash = claude.find((tool) => tool.name === "Bash") as LocalMcpTool;
       const taskOutput = claude.find((tool) => tool.name === "TaskOutput") as LocalMcpTool;
@@ -1407,6 +1524,7 @@ Session=\${CLAUDE_SESSION_ID}
     await writeFile(path.join(root, "src", "two.md"), "trainedTool\n");
     const tools = workspaceAgentTools(new WorkspaceTools(root), undefined, {
       model: "claude-haiku-4-5",
+      toolStyle: "claude_code",
     });
     const glob = tools.find((tool) => tool.name === "Glob") as LocalMcpTool | undefined;
     const grep = tools.find((tool) => tool.name === "Grep") as LocalMcpTool | undefined;
@@ -1446,6 +1564,7 @@ Session=\${CLAUDE_SESSION_ID}
     await utimes(oldest, new Date(0), new Date(0));
     const glob = workspaceAgentTools(new WorkspaceTools(root), undefined, {
       model: "claude-haiku-4-5",
+      toolStyle: "claude_code",
     }).find((tool) => tool.name === "Glob") as LocalMcpTool;
 
     const result = (await glob.call({ pattern: "**/*.ts" })) as LocalToolResult;
