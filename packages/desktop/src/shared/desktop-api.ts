@@ -23,7 +23,6 @@ import type {
   SessionPermissionMode,
   SkillCapability,
   SwarmConfig,
-  TransientSessionContextChip,
   TransientSessionData,
 } from "@swarmx/core";
 import type {
@@ -138,8 +137,6 @@ export interface DesktopAgentChunkEvent {
   requestId: string;
   chunk: DesktopMessageChunk;
 }
-
-export type DesktopSideChatContextChip = TransientSessionContextChip;
 
 export type DesktopSideChat = Omit<TransientSessionData, "messages" | "anchorMessages"> & {
   anchorMessages: DesktopMessageChunk[];

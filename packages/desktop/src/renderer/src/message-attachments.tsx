@@ -10,32 +10,34 @@ export function MessageAttachments({
 }) {
   return (
     <div className="message-attachments" aria-label="Message attachments">
-      {attachments.map((attachment) => {
-        const Icon = attachmentIcon(attachment);
-        return (
-          <button
-            key={attachment.id}
-            type="button"
-            className="message-attachment"
-            onClick={() => onPreview?.(attachment)}
-            disabled={!onPreview}
-            aria-label={`Preview ${attachment.name}`}
-          >
-            <Icon aria-hidden="true" />
-            <span>
-              <strong>{attachment.name}</strong>
-              <small>
-                {attachment.kind} · {formatMediaBytes(attachment.sizeBytes)}
-              </small>
-            </span>
-          </button>
-        );
-      })}
+      {attachments.map((attachment) => (
+        <button
+          key={attachment.id}
+          type="button"
+          className="message-attachment"
+          onClick={() => onPreview?.(attachment)}
+          disabled={!onPreview}
+          aria-label={`Preview ${attachment.name}`}
+        >
+          <AttachmentIcon attachment={attachment} />
+          <span>
+            <strong>{attachment.name}</strong>
+            <small>
+              {attachment.kind} · {formatMediaBytes(attachment.sizeBytes)}
+            </small>
+          </span>
+        </button>
+      ))}
     </div>
   );
 }
 
-export function attachmentIcon(attachment: DesktopMediaAttachment): LucideIcon {
+export function AttachmentIcon({ attachment }: { attachment: DesktopMediaAttachment }) {
+  const Icon = attachmentIcon(attachment);
+  return <Icon aria-hidden="true" />;
+}
+
+function attachmentIcon(attachment: DesktopMediaAttachment): LucideIcon {
   if (attachment.kind === "image") return FileImage;
   if (attachment.kind === "audio") return FileAudio;
   if (attachment.kind === "video") return FileVideo;

@@ -253,12 +253,7 @@ function saveSessionLocked(
   sessionsDir: string,
   now: string,
 ): void {
-  if (!fs.existsSync(paths.jsonl) && fs.existsSync(paths.json)) {
-    const migration = migrateLegacySessionFile(paths.json, sessionsDir);
-    if (migration.status === "failed") {
-      throw new Error(migration.error ?? `Failed to migrate legacy Session ${next.id}.`);
-    }
-  }
+  migrateLegacySessionLog(next.id, paths, sessionsDir);
 
   if (!fs.existsSync(paths.jsonl)) {
     createSessionLog(next, paths.jsonl);
@@ -456,38 +451,56 @@ export function setSessionPinned(id: string, pinned: boolean): SessionData | nul
 }
 
 export function appendMessages(id: string, messages: MessageChunk[]): boolean {
+  return (
+    withMigratedSessionLog(id, (current, paths, sessionsDir) => {
+      const now = new Date().toISOString();
+      const parsedMessages = messages.map((message) =>
+        MessageChunkSchema.parse({
+          ...message,
+          createdAt: message.createdAt ?? now,
+        }),
+      );
+      const next = SessionDataSchema.parse({
+        ...current,
+        messages: [...current.messages, ...parsedMessages],
+        updatedAt: now,
+      });
+      const event =
+        parsedMessages.length > 0
+          ? messagesAppendedEvent(parsedMessages, now)
+          : sessionUpdatedEvent(next, now);
+      appendSessionEvents(paths.jsonl, [event]);
+      cacheSession(paths.jsonl, next);
+      indexSession(next, paths.jsonl, "jsonl", sessionsDir);
+      return true;
+    }) ?? false
+  );
+}
+
+function migrateLegacySessionLog(
+  id: string,
+  paths: ReturnType<typeof sessionPaths>,
+  sessionsDir: string,
+): void {
+  if (!fs.existsSync(paths.jsonl) && fs.existsSync(paths.json)) {
+    const migration = migrateLegacySessionFile(paths.json, sessionsDir);
+    if (migration.status === "failed") {
+      throw new Error(migration.error ?? `Failed to migrate legacy Session ${id}.`);
+    }
+  }
+}
+
+function withMigratedSessionLog<T>(
+  id: string,
+  fn: (current: SessionData, paths: ReturnType<typeof sessionPaths>, sessionsDir: string) => T,
+): T | null {
   const sessionsDir = ensureSessionsDir();
   const paths = sessionPaths(id, sessionsDir);
   return withSessionLock(paths.jsonl, () => {
-    if (!fs.existsSync(paths.jsonl) && fs.existsSync(paths.json)) {
-      const migration = migrateLegacySessionFile(paths.json, sessionsDir);
-      if (migration.status === "failed") {
-        throw new Error(migration.error ?? `Failed to migrate legacy Session ${id}.`);
-      }
-    }
-    if (!fs.existsSync(paths.jsonl)) return false;
-
+    migrateLegacySessionLog(id, paths, sessionsDir);
+    if (!fs.existsSync(paths.jsonl)) return null;
     const current = readSessionLog(paths.jsonl, { rejectTornTail: true });
-    const now = new Date().toISOString();
-    const parsedMessages = messages.map((message) =>
-      MessageChunkSchema.parse({
-        ...message,
-        createdAt: message.createdAt ?? now,
-      }),
-    );
-    const next = SessionDataSchema.parse({
-      ...current,
-      messages: [...current.messages, ...parsedMessages],
-      updatedAt: now,
-    });
-    const event =
-      parsedMessages.length > 0
-        ? messagesAppendedEvent(parsedMessages, now)
-        : sessionUpdatedEvent(next, now);
-    appendSessionEvents(paths.jsonl, [event]);
-    cacheSession(paths.jsonl, next);
-    indexSession(next, paths.jsonl, "jsonl", sessionsDir);
-    return true;
+    return fn(current, paths, sessionsDir);
   });
 }
 
@@ -496,24 +509,9 @@ function withVerifiedSessionSnapshot<T>(
   expectedMessages: readonly MessageChunk[],
   index: number,
   errors: { mismatch: string; badIndex: string },
-  fn: (
-    current: SessionData,
-    paths: ReturnType<typeof sessionPaths>,
-    sessionsDir: string,
-  ) => T | null,
+  fn: (current: SessionData, paths: ReturnType<typeof sessionPaths>, sessionsDir: string) => T,
 ): T | null {
-  const sessionsDir = ensureSessionsDir();
-  const paths = sessionPaths(id, sessionsDir);
-  return withSessionLock(paths.jsonl, () => {
-    if (!fs.existsSync(paths.jsonl) && fs.existsSync(paths.json)) {
-      const migration = migrateLegacySessionFile(paths.json, sessionsDir);
-      if (migration.status === "failed") {
-        throw new Error(migration.error ?? `Failed to migrate legacy Session ${id}.`);
-      }
-    }
-    if (!fs.existsSync(paths.jsonl)) return null;
-
-    const current = readSessionLog(paths.jsonl, { rejectTornTail: true });
+  return withMigratedSessionLog(id, (current, paths, sessionsDir) => {
     const parsedExpected = expectedMessages.map((message) => MessageChunkSchema.parse(message));
     if (!sameValue(current.messages, parsedExpected)) {
       throw new Error(errors.mismatch);

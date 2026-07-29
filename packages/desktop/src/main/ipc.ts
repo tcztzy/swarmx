@@ -361,11 +361,11 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
           : {}),
     };
     appendActivity(activityStore, { type: "task_started", ...taskMetadata });
-    const persistOutcome = (messages: MessageChunk[], sideChatReady = true) => ({
+    const persistOutcome = (messages: MessageChunk[]) => ({
       sessionPersisted:
         params.sessionId && !params.sideChatId ? appendMessages(params.sessionId, messages) : false,
       sideChat:
-        params.sideChatId && params.sessionId && sideChatReady
+        params.sideChatId && params.sessionId && activeSideChat
           ? sideChats.finishRun(params.sessionId, params.sideChatId, params.requestId, messages, {
               unread: params.sideChatVisible === false,
             })
@@ -900,10 +900,7 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
     } catch (err) {
       if (err instanceof RequestCancelledError) {
         const canceledMessages = interruptedMessages(observedMessages, startedAt);
-        const { sessionPersisted, sideChat } = persistOutcome(
-          canceledMessages,
-          Boolean(activeSideChat),
-        );
+        const { sessionPersisted, sideChat } = persistOutcome(canceledMessages);
         recordActivityOutcome(activityStore, {
           ...taskMetadata,
           status: "canceled",
@@ -930,10 +927,7 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
           kind: "message" as const,
         } satisfies MessageChunk);
       const failedMessages = [...timedMessages(observedMessages, startedAt), terminalMessage];
-      const { sessionPersisted, sideChat } = persistOutcome(
-        failedMessages,
-        Boolean(activeSideChat),
-      );
+      const { sessionPersisted, sideChat } = persistOutcome(failedMessages);
       recordActivityOutcome(activityStore, {
         ...taskMetadata,
         status: "failed",

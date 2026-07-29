@@ -25,9 +25,15 @@ export type InlineMediaLoader = (
 
 /** Budgeted loader: tracks cumulative inline bytes across attachments for one turn. */
 export function createInlineMediaLoader(budgetBytes = MAX_INLINE_MEDIA_BYTES): InlineMediaLoader {
+  const limitBytes = Math.max(0, Math.min(budgetBytes, MAX_INLINE_MEDIA_BYTES));
   let loadedBytes = 0;
   return async (attachment, capBytes) => {
-    const remaining = Math.max(0, budgetBytes - loadedBytes);
+    const remaining = limitBytes - loadedBytes;
+    if (attachment.sizeBytes > remaining) {
+      throw new Error(
+        `Inline attachments for this turn exceed the ${formatBytes(limitBytes)} total limit.`,
+      );
+    }
     const loaded = await loadMediaAttachment(
       attachment,
       capBytes === undefined ? remaining : Math.min(capBytes, remaining),
@@ -143,7 +149,8 @@ export function mediaAttachmentFilePath(uri: string): string {
   throw new Error("Attachment URI must be an absolute local path or file URI.");
 }
 
-export function detectMediaMimeType(bytes: Uint8Array, filename = ""): string | null {
+export function detectMediaMimeType(input: Uint8Array, filename = ""): string | null {
+  const bytes = input.subarray(0, MEDIA_SNIFF_BYTES);
   if (startsWith(bytes, [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])) return "image/png";
   if (startsWith(bytes, [0xff, 0xd8, 0xff])) return "image/jpeg";
   if (ascii(bytes, 0, 6) === "GIF87a" || ascii(bytes, 0, 6) === "GIF89a") return "image/gif";
@@ -234,6 +241,8 @@ function fileExtension(filename: string): string {
 }
 
 function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${Math.floor(bytes / 1024)} KiB`;
   return `${Math.floor(bytes / (1024 * 1024))} MiB`;
 }
 

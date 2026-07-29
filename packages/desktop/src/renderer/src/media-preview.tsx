@@ -5,7 +5,7 @@ import type {
   DesktopMediaPreview,
   SwarmxAPI,
 } from "../../shared/desktop-api.js";
-import { attachmentIcon, formatMediaBytes } from "./message-attachments.js";
+import { AttachmentIcon, formatMediaBytes } from "./message-attachments.js";
 import { errorMessage } from "./text-utils.js";
 
 export function MediaPreviewPanel({
@@ -78,7 +78,7 @@ export function MediaPreviewPanel({
     <aside className="runtime-right-panel media-preview" aria-label={`Preview ${attachment.name}`}>
       <header className="media-preview__header">
         <span className="media-preview__kind">
-          <MediaIcon attachment={attachment} />
+          <AttachmentIcon attachment={attachment} />
         </span>
         <span className="media-preview__title">
           <small>Preview</small>
@@ -122,7 +122,7 @@ export function MediaPreviewPanel({
           </div>
         ) : preview.status === "unavailable" ? (
           <output className="media-preview__state media-preview__state--error">
-            <MediaIcon attachment={attachment} />
+            <AttachmentIcon attachment={attachment} />
             <strong>Preview unavailable</strong>
             <span>{preview.error ?? "The local file is no longer available."}</span>
           </output>
@@ -172,9 +172,4 @@ export function MediaPreviewPanel({
       </div>
     </aside>
   );
-}
-
-function MediaIcon({ attachment }: { attachment: DesktopMediaAttachment }) {
-  const Icon = attachmentIcon(attachment);
-  return <Icon aria-hidden="true" />;
 }

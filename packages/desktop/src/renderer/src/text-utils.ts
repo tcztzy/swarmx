@@ -29,12 +29,16 @@ export function formatMessageTimestamp(value: string, now = new Date()): string 
   if (ageMs < 7 * 24 * 60 * 60 * 1_000) {
     return `${SHORT_WEEKDAY_FORMAT.format(date)} ${time}`;
   }
-  return formatFullMessageTimestamp(value);
+  return fullTimestamp(date);
 }
 
 export function formatFullMessageTimestamp(value: string): string | null {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return null;
+  return fullTimestamp(date);
+}
+
+function fullTimestamp(date: Date): string {
   return `${date.getFullYear()}-${twoDigits(date.getMonth() + 1)}-${twoDigits(date.getDate())} ${twoDigits(date.getHours())}:${twoDigits(date.getMinutes())}`;
 }
 

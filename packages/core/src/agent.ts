@@ -10,11 +10,11 @@ import {
 import type { AcpPermissionHandler, AcpPromptInput } from "./acp.js";
 import { type LocalTool, type LocalToolProgress, McpManager } from "./mcp.js";
 import {
+  type InlineMediaLoader,
   attachmentFallbackText,
   createInlineMediaLoader,
   validateMediaAttachments,
 } from "./media.js";
-import type { InlineMediaLoader } from "./media.js";
 import { ModelApiModeSchema, ModelApiSchema } from "./model-api.js";
 import type { ModelApi, ModelApiMode } from "./model-api.js";
 import {
@@ -709,7 +709,7 @@ export class Agent {
 
   private async buildMessages(arguments_: Record<string, unknown>): Promise<ChatMsg[]> {
     const msgs: ChatMsg[] = [];
-    const mediaBudget = createInlineMediaLoader();
+    const loadInline = createInlineMediaLoader();
 
     if (this.instructions) {
       msgs.push({ role: "system", content: this.instructions });
@@ -744,7 +744,7 @@ export class Agent {
           if (m.role === "user" && m.attachments?.length) {
             msgs.push({
               role: "user",
-              content: await openAIChatUserContent(m.content ?? "", m.attachments, mediaBudget),
+              content: await openAIChatUserContent(m.content ?? "", m.attachments, loadInline),
             });
             continue;
           }
@@ -997,7 +997,7 @@ function latestUserAttachments(arguments_: Record<string, unknown>): MediaAttach
 async function openAIChatUserContent(
   text: string,
   attachments: readonly MediaAttachment[],
-  mediaBudget: InlineMediaLoader,
+  loadInline: InlineMediaLoader,
 ): Promise<OpenAI.Chat.Completions.ChatCompletionContentPart[]> {
   const validatedAttachments = validateMediaAttachments(attachments);
   const content: OpenAI.Chat.Completions.ChatCompletionContentPart[] = [];
@@ -1012,7 +1012,7 @@ async function openAIChatUserContent(
       content.push({ type: "text", text: attachmentFallbackText(attachment) });
       continue;
     }
-    const loaded = await mediaBudget(attachment);
+    const loaded = await loadInline(attachment);
     if (attachment.kind === "image") {
       content.push({
         type: "image_url",

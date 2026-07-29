@@ -21,6 +21,7 @@ import {
   X,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { errorMessage } from "./text-utils.js";
 
 export type WorkspaceTool = "review" | "terminal" | "browser" | "files";
 
@@ -1089,8 +1090,4 @@ function plainText(value: string): string {
   })
     .join("")
     .trim();
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }

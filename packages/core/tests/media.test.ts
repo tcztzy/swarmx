@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { Agent } from "../src/agent.js";
 import {
   buildAcpPromptContent,
+  createInlineMediaLoader,
   detectMediaMimeType,
   loadMediaAttachment,
   mediaKindFromMimeType,
@@ -41,6 +42,31 @@ describe("media attachments", () => {
     expect(mediaKindFromMimeType("audio/wav")).toBe("audio");
     expect(mediaKindFromMimeType("application/json")).toBe("text");
     expect(mediaKindFromMimeType("application/zip")).toBe("file");
+  });
+
+  it("bounds MIME sniffing and cumulative inline attachment bytes", async () => {
+    expect(
+      detectMediaMimeType(Buffer.concat([Buffer.alloc(64), Buffer.from("%PDF-1.7")]), "report.bin"),
+    ).toBeNull();
+
+    const root = await temporaryDirectory();
+    const first = await fixtureAttachment(
+      root,
+      "first.txt",
+      Buffer.from("abc"),
+      "text/plain",
+      "text",
+    );
+    const second = await fixtureAttachment(
+      root,
+      "second.txt",
+      Buffer.from("def"),
+      "text/plain",
+      "text",
+    );
+    const loadInline = createInlineMediaLoader(5);
+    await expect(loadInline(first)).resolves.toMatchObject({ attachment: first });
+    await expect(loadInline(second)).rejects.toThrow(/5 B total limit/i);
   });
 
   it("maps optional ACP image/audio capabilities and preserves safe resource fallbacks", async () => {

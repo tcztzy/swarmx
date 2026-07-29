@@ -768,10 +768,6 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
       sideChatState.chats.some((chat) => chat.runState !== "idle"),
   );
 
-  useEffect(() => {
-    sideChatStateRef.current = sideChatState;
-  }, [sideChatState]);
-
   const commitSideChatState = useCallback((state: SideChatParentState | null) => {
     sideChatStateRef.current = state;
     setSideChatState(state);

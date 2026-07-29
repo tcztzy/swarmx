@@ -2,7 +2,7 @@ import { ArrowUp, FolderOpen, Paperclip, Plus, Square, X } from "lucide-react";
 import type React from "react";
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import type { DesktopMediaAttachment, DesktopMediaImport } from "../../shared/desktop-api.js";
-import { attachmentIcon, formatMediaBytes } from "./message-attachments.js";
+import { AttachmentIcon, formatMediaBytes } from "./message-attachments.js";
 import { cx } from "./ui-primitives.js";
 
 const COMPOSER_MIN_HEIGHT = 48;
@@ -409,38 +409,35 @@ export function Composer({
       )}
       {attachments.length > 0 && (
         <div className="composer__attachments" aria-label="Attached files">
-          {attachments.map((attachment) => {
-            const Icon = attachmentIcon(attachment);
-            return (
-              <div className="composer-attachment" key={attachment.id}>
-                <button
-                  type="button"
-                  className="composer-attachment__preview"
-                  onClick={() => onPreviewAttachment?.(attachment)}
-                  disabled={!onPreviewAttachment}
-                  aria-label={`Preview ${attachment.name}`}
-                >
-                  <Icon aria-hidden="true" />
-                  <span>
-                    <strong>{attachment.name}</strong>
-                    <small>{formatMediaBytes(attachment.sizeBytes)}</small>
-                  </span>
-                </button>
-                <button
-                  type="button"
-                  className="composer-attachment__remove"
-                  onClick={() =>
-                    onAttachmentsChange?.(
-                      attachments.filter((candidate) => candidate.id !== attachment.id),
-                    )
-                  }
-                  aria-label={`Remove ${attachment.name}`}
-                >
-                  <X aria-hidden="true" />
-                </button>
-              </div>
-            );
-          })}
+          {attachments.map((attachment) => (
+            <div className="composer-attachment" key={attachment.id}>
+              <button
+                type="button"
+                className="composer-attachment__preview"
+                onClick={() => onPreviewAttachment?.(attachment)}
+                disabled={!onPreviewAttachment}
+                aria-label={`Preview ${attachment.name}`}
+              >
+                <AttachmentIcon attachment={attachment} />
+                <span>
+                  <strong>{attachment.name}</strong>
+                  <small>{formatMediaBytes(attachment.sizeBytes)}</small>
+                </span>
+              </button>
+              <button
+                type="button"
+                className="composer-attachment__remove"
+                onClick={() =>
+                  onAttachmentsChange?.(
+                    attachments.filter((candidate) => candidate.id !== attachment.id),
+                  )
+                }
+                aria-label={`Remove ${attachment.name}`}
+              >
+                <X aria-hidden="true" />
+              </button>
+            </div>
+          ))}
         </div>
       )}
       <textarea
