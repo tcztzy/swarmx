@@ -1383,7 +1383,7 @@ V575: Core, Main, Preload, Workspace tool, and Renderer tests cover defaults/rej
 |T237|x|add Core built-in tool style Settings, Model metadata, resolver, Session binding, and tests|G75,C206,C207,V570,V571,I272|
 |T238|x|implement Kimi Code workspace-tool projection and focused contract/dispatch tests|G75,C208,C209,V572,V573,I273|
 |T239|x|wire atomic Settings IPC, General UI, direct runtime Session binding, and focused tests|G75,C206,C207,V570,V571,V573,V574,V575,I272,I273,I274|
-|T240|~|document compatibility and run targeted, recursive build, test, and lint validation|G75,C206,C207,C208,C209,V570,V571,V572,V573,V574,V575,I272,I273,I274|
+|T240|x|document compatibility and run targeted, recursive build, test, and lint validation|G75,C206,C207,C208,C209,V570,V571,V572,V573,V574,V575,I272,I273,I274|
 
 ## §B
 |id|date|cause|fix|

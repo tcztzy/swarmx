@@ -1,9 +1,9 @@
 # Model-trained tool compatibility
 
-SwarmX exposes Project tools using the public interfaces that Claude Code and
-OpenAI Codex models see in their native hosts. The goal is interface
-compatibility, not host impersonation: SwarmX keeps its own containment,
-stale-file, output, timeout, and sandbox policies.
+SwarmX exposes Project tools using the public interfaces that Claude Code,
+OpenAI Codex, and Kimi Code models see in their native hosts. The goal is
+interface compatibility, not host impersonation: SwarmX keeps its own
+containment, stale-file, output, timeout, and sandbox policies.
 
 ## Why align the interface
 
@@ -37,16 +37,45 @@ definitions were audited against Codex CLI 0.144.4 at tag
 [`apply_patch_spec.rs`](https://github.com/openai/codex/blob/rust-v0.144.4/codex-rs/core/src/tools/handlers/apply_patch_spec.rs),
 and [`apply_patch.lark`](https://github.com/openai/codex/blob/rust-v0.144.4/codex-rs/core/src/tools/handlers/apply_patch.lark).
 
-## Runtime profiles
+Kimi Code documents a distinct coding-tool surface, including `Bash`, `Read`,
+`Write`, `Edit`, `Grep`, `Glob`, todo management, and background-task
+operations. The implemented subset was audited against the official
+[Kimi Code tool reference](https://moonshotai.github.io/kimi-code/en/reference/tools.html).
+Tools that require host-only orchestration, Skills, cron state, or unsupported
+client capabilities are not represented by success stubs.
 
-| Model family | Project profile | Exposed tools |
-| --- | --- | --- |
-| Claude, Sonnet, Opus, Haiku, Fable | `claude_code` | `Bash`, `Read`, `Edit`, `Write`, `Glob`, `Grep`, `NotebookEdit`, `ReportFindings`, `AskUserQuestion`, `EnterPlanMode`, `ExitPlanMode`, `TaskCreate`, `TaskGet`, `TaskList`, `TaskUpdate`, `TodoWrite`, `TaskOutput`, `TaskStop` |
-| Other direct models | `codex` | `exec_command`, `write_stdin`, `apply_patch` |
+## Runtime styles and Settings
+
+**Settings → General → Agent runtime → Built-in tool style** stores
+`runtime.builtinTools.style`. The available values are:
+
+| Setting | Direct Project tools |
+| --- | --- |
+| `auto` | Resolve from explicit Model/Provider compatibility metadata, with `codex` as the conservative fallback. |
+| `claude_code` | `Bash`, `Read`, `Edit`, `Write`, `Glob`, `Grep`, `NotebookEdit`, `ReportFindings`, `AskUserQuestion`, `EnterPlanMode`, `ExitPlanMode`, `TaskCreate`, `TaskGet`, `TaskList`, `TaskUpdate`, `TodoWrite`, `TaskOutput`, `TaskStop`, plus capability-dependent Claude tools. |
+| `codex` | `exec_command`, `write_stdin`, `apply_patch`. |
+| `kimi_code` | `Bash`, `Read`, `Write`, `Edit`, `Grep`, `Glob`, `TodoList`, `TaskList`, `TaskOutput`, `TaskStop`. |
+
+Resolution is explicit and deterministic:
+
+1. An existing Session binding wins, including after Settings or Model metadata
+   changes.
+2. A concrete Settings value wins for an unbound Session.
+3. `auto` uses the selected Model's declared preference. SwarmX declares this
+   for its audited static Claude entries, Codex catalog entries, Anthropic
+   discovery, and Models discovered from explicit first-party Moonshot/Kimi
+   Provider endpoints.
+4. A Model without declared evidence falls back to `codex`; SwarmX does not
+   guess from arbitrary model-name substrings.
+
+The first direct execution persists `{ style, revision, source }` on the
+Session. Side chats inherit the parent Session binding. The revision makes a
+future contract migration explicit instead of silently changing the interface
+mid-conversation.
 
 Only direct `swarmx` compositions receive these tools. ACP harnesses such as
-Claude Code or Codex already own their host tools, so SwarmX does not inject a
-second, conflicting copy.
+Claude Code, Codex, or Kimi Code already own their host tools, so SwarmX neither
+applies this Setting nor injects a second, conflicting copy.
 
 ## Permission model and source audit
 
@@ -274,7 +303,9 @@ bounded timeout; `TaskStop` terminates the whole process group. Codex
 `exec_command` waits for `yield_time_ms`, then returns a numeric `session_id`
 when the command is still alive. `write_stdin` writes pipe-backed stdin or,
 for `tty: true`, writes bytes to a real pseudoterminal. Empty `chars` polls for
-incremental output in either mode.
+incremental output in either mode. Kimi `Bash({ run_in_background: true })`
+returns a string `task_id`; `TaskList`, `TaskOutput`, and `TaskStop` operate on
+the same bounded process registry.
 
 Background commands use the same canonical Project root, scrubbed environment,
 Seatbelt network denial, output cap, and process-group termination as foreground
@@ -332,8 +363,8 @@ shell continues to deny network access.
 
 ## Maintenance checklist
 
-When upgrading Claude Code, the Claude Agent SDK, Codex, Anthropic SDK, or
-OpenAI SDK:
+When upgrading Claude Code, the Claude Agent SDK, Codex, Kimi Code, Anthropic
+SDK, or OpenAI SDK:
 
 1. Diff public tool names, schemas, required fields, and freeform grammars.
 2. Update profile contract tests before changing adapters.

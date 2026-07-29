@@ -166,8 +166,8 @@ back to the native OpenAI path.
 Direct Project-bound agents use model-trained tool profiles rather than a
 SwarmX-specific file-tool vocabulary. See
 [Model-trained tool compatibility](./native-tool-compatibility.md) for the
-Claude Code/Codex schemas, protocol behavior, security boundary, and upgrade
-audit checklist.
+Claude Code, Codex, and Kimi Code schemas, Settings resolution, protocol
+behavior, security boundary, and upgrade audit checklist.
 
 Provider profiles are connection metadata. When a trusted extension profile or
 fixed core route binds a ModelSupply, the main process follows it to its
@@ -219,9 +219,11 @@ or writing files.
 Core desktop settings exports include:
 
 - `DesktopSettingsDocumentSchema`: a v1 document with `desktop`, `server`,
-  `ui`, `models`, `modelSupplies`, `providers`, `agents`, and `extensions`
-  sections. Each array reuses its core schema, so Model identity, supply links,
-  Provider connections, Harnesses, Agents, and plugins remain separate records.
+  `ui`, `runtime`, `models`, `modelSupplies`, `providers`, `agents`, and
+  `extensions` sections. `runtime.builtinTools.style` selects `auto`,
+  `claude_code`, `codex`, or `kimi_code` for new direct Project Sessions. Each
+  array reuses its core schema, so Model identity, supply links, Provider
+  connections, Harnesses, Agents, and plugins remain separate records.
 - `resolveDesktopRoot()`: deterministic desktop-root selection. Explicit
   desktop-root env vars win over settings roots; legacy app-root env/settings
   values are compatibility fallbacks; server data roots are returned separately
