@@ -759,6 +759,15 @@ describe("App user workflow", () => {
     ).toBeTruthy();
     expect(within(settings).getByRole("heading", { name: "General" })).toBeTruthy();
     expect(within(settings).getByRole("heading", { name: "Permissions" })).toBeTruthy();
+    expect(within(settings).getByRole("heading", { name: "Agent runtime" })).toBeTruthy();
+    const toolStyle = within(settings).getByRole("combobox", {
+      name: "Built-in tool style",
+    });
+    expect((toolStyle as HTMLSelectElement).value).toBe("auto");
+    await user.selectOptions(toolStyle, "kimi_code");
+    await waitFor(() =>
+      expect(api.saveBuiltinToolSettings).toHaveBeenCalledWith({ style: "kimi_code" }),
+    );
     expect(api.getActivityProfile).not.toHaveBeenCalled();
     expect(api.refreshProviderUsage).not.toHaveBeenCalled();
 
@@ -5778,6 +5787,8 @@ function createDefaultDesktopApiMock() {
           }
         : {},
     })),
+    getBuiltinToolSettings: vi.fn(async () => ({ style: "auto" as const })),
+    saveBuiltinToolSettings: vi.fn(async (input) => input),
     getPermissionStatus: vi.fn(async () => permissionStatusFixture()),
     savePersonalPermissionPolicy: vi.fn(async () => permissionStatusFixture()),
     savePermissionProfileAvailability: vi.fn(async () => permissionStatusFixture()),

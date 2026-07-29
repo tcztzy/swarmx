@@ -1,5 +1,7 @@
 import type {
   AgentBackend,
+  BuiltinToolStylePreference,
+  DesktopBuiltinToolSettings,
   DesktopComposerPreferenceUpdate,
   DesktopComposerPreferences,
   EdgeConfig,
@@ -1479,6 +1481,16 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
       JSON.stringify(permissionAgentPolicy ?? null),
     ],
     () => api.getPermissionStatus(permissionContext),
+    { revalidateOnFocus: true, revalidateOnReconnect: false },
+  );
+  const {
+    data: builtinToolSettings,
+    error: builtinToolSettingsError,
+    isLoading: builtinToolSettingsLoading,
+    mutate: mutateBuiltinToolSettings,
+  } = useSWR<DesktopBuiltinToolSettings>(
+    "builtinToolSettings:get",
+    () => api.getBuiltinToolSettings(),
     { revalidateOnFocus: true, revalidateOnReconnect: false },
   );
   const actionProject = useMemo(
@@ -3970,12 +3982,21 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
                   status={permissionStatus}
                   loading={permissionStatusLoading}
                   error={permissionStatusError}
+                  builtinTools={builtinToolSettings}
+                  builtinToolsLoading={builtinToolSettingsLoading}
+                  builtinToolsError={builtinToolSettingsError}
                   onSaveProfiles={async (profileAvailability) => {
                     await mutatePermissionStatus(
                       await api.savePermissionProfileAvailability(
                         profileAvailability,
                         permissionContext,
                       ),
+                      false,
+                    );
+                  }}
+                  onSaveBuiltinTools={async (settings) => {
+                    await mutateBuiltinToolSettings(
+                      await api.saveBuiltinToolSettings(settings),
                       false,
                     );
                   }}
@@ -4955,23 +4976,60 @@ const GENERAL_PERMISSION_MODE_OPTIONS = [
   },
 ];
 
+const GENERAL_BUILTIN_TOOL_STYLE_OPTIONS: Array<{
+  id: BuiltinToolStylePreference;
+  label: string;
+  description: string;
+}> = [
+  {
+    id: "auto",
+    label: "Auto (recommended)",
+    description: "Use the selected Model's declared native tool compatibility.",
+  },
+  {
+    id: "claude_code",
+    label: "Claude Code",
+    description: "Use Claude Code-trained tool names, arguments, and result conventions.",
+  },
+  {
+    id: "codex",
+    label: "Codex",
+    description: "Use Codex exec_command, write_stdin, and apply_patch contracts.",
+  },
+  {
+    id: "kimi_code",
+    label: "Kimi Code",
+    description: "Use Kimi Code file, Bash, todo, and background-task contracts.",
+  },
+];
+
 function GeneralSettings({
   status,
   loading,
   error,
+  builtinTools,
+  builtinToolsLoading,
+  builtinToolsError,
   onSaveProfiles,
+  onSaveBuiltinTools,
 }: {
   status?: DesktopPermissionStatus;
   loading: boolean;
   error: unknown;
+  builtinTools?: DesktopBuiltinToolSettings;
+  builtinToolsLoading: boolean;
+  builtinToolsError: unknown;
   onSaveProfiles: (
     profileAvailability: DesktopPermissionStatus["profileAvailability"],
   ) => Promise<void>;
+  onSaveBuiltinTools: (settings: DesktopBuiltinToolSettings) => Promise<void>;
 }) {
   const [savingMode, setSavingMode] = useState<
     keyof DesktopPermissionStatus["profileAvailability"] | null
   >(null);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [savingBuiltinTools, setSavingBuiltinTools] = useState(false);
+  const [builtinToolsSaveError, setBuiltinToolsSaveError] = useState<string | null>(null);
 
   const toggleProfile = async (mode: keyof DesktopPermissionStatus["profileAvailability"]) => {
     if (!status || savingMode) return;
@@ -4986,6 +5044,19 @@ function GeneralSettings({
       setSaveError(errorMessage(saveFailure));
     } finally {
       setSavingMode(null);
+    }
+  };
+
+  const saveBuiltinToolStyle = async (style: BuiltinToolStylePreference) => {
+    if (!builtinTools || savingBuiltinTools) return;
+    setSavingBuiltinTools(true);
+    setBuiltinToolsSaveError(null);
+    try {
+      await onSaveBuiltinTools({ style });
+    } catch (saveFailure) {
+      setBuiltinToolsSaveError(errorMessage(saveFailure));
+    } finally {
+      setSavingBuiltinTools(false);
     }
   };
 
@@ -5007,8 +5078,10 @@ function GeneralSettings({
             <h2>General</h2>
           </div>
 
-          {Boolean(saveError || error) && (
-            <div className="settings-provider-error">{saveError ?? errorMessage(error)}</div>
+          {Boolean(saveError || error || builtinToolsSaveError || builtinToolsError) && (
+            <div className="settings-provider-error">
+              {saveError ?? builtinToolsSaveError ?? errorMessage(error ?? builtinToolsError)}
+            </div>
           )}
 
           <section className="general-settings__section" aria-labelledby="general-permissions">
@@ -5045,6 +5118,43 @@ function GeneralSettings({
                 );
               })}
             </fieldset>
+          </section>
+
+          <section className="general-settings__section" aria-labelledby="general-agent-runtime">
+            <h3 id="general-agent-runtime">Agent runtime</h3>
+            <div className="general-runtime-card">
+              <label htmlFor="general-builtin-tool-style">
+                <span>
+                  <strong>Built-in tool style</strong>
+                  <small>
+                    Applies to new direct SwarmX conversations. External ACP Harnesses keep their
+                    native tools, and existing conversations keep their bound style.
+                  </small>
+                </span>
+                <select
+                  id="general-builtin-tool-style"
+                  aria-label="Built-in tool style"
+                  value={builtinTools?.style ?? "auto"}
+                  disabled={!builtinTools || builtinToolsLoading || savingBuiltinTools}
+                  onChange={(event) =>
+                    void saveBuiltinToolStyle(event.target.value as BuiltinToolStylePreference)
+                  }
+                >
+                  {GENERAL_BUILTIN_TOOL_STYLE_OPTIONS.map((option) => (
+                    <option key={option.id} value={option.id}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <p>
+                {
+                  GENERAL_BUILTIN_TOOL_STYLE_OPTIONS.find(
+                    (option) => option.id === (builtinTools?.style ?? "auto"),
+                  )?.description
+                }
+              </p>
+            </div>
           </section>
         </div>
       </div>

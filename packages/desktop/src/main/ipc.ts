@@ -90,6 +90,7 @@ import {
   type DesktopAgentInteractionResolution,
 } from "./agent-interactions.js";
 import { type BrowserBounds, BrowserHost } from "./browser-host.js";
+import { BuiltinToolSettingsService, resolveRunBuiltinTools } from "./builtin-tool-settings.js";
 import { ClaudeChildAgentHost } from "./child-agent-host.js";
 import {
   type ClaudeSessionRuntime,
@@ -195,6 +196,7 @@ const modelCatalog = new ModelCatalogService({
   settingsStore: desktopSettingsStore,
 });
 const composerPreferences = new ComposerPreferenceService(desktopSettingsStore);
+const builtinToolSettings = new BuiltinToolSettingsService(desktopSettingsStore);
 const customAgents = new CustomAgentService(desktopSettingsStore);
 const permissionService = new PermissionService(desktopSettingsStore);
 const mediaService = new DesktopMediaService(
@@ -556,15 +558,34 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
           }
           const projectTools =
             cwd && runtimeHarnessId === "swarmx" ? new WorkspaceTools(cwd) : null;
+          const directSession = params.sessionId ? loadSession(params.sessionId) : undefined;
+          const builtinToolBinding = projectTools
+            ? resolveRunBuiltinTools({
+                settings: await builtinToolSettings.get(),
+                model: inventory.models.find((model) => model.id === plan.modelId),
+                ...(directSession ? { session: directSession } : {}),
+              })
+            : undefined;
+          if (
+            projectTools &&
+            directSession &&
+            !params.sideChatId &&
+            !directSession.builtinTools &&
+            builtinToolBinding
+          ) {
+            saveSession({
+              ...directSession,
+              builtinTools: builtinToolBinding,
+              ...(plan.modelId ? { model: plan.modelId } : {}),
+            });
+          }
           const agentPermissionPolicy = HarnessPermissionPolicySchema.parse({
             mode: plan.permissions?.mode ?? "default",
             allowedTools: plan.permissions?.allowedTools ?? [],
             deniedTools: plan.permissions?.deniedTools ?? [],
           });
           const permissionSession =
-            projectTools && params.sessionId && !params.sideChatId
-              ? loadSession(params.sessionId)
-              : undefined;
+            projectTools && params.sessionId && !params.sideChatId ? directSession : undefined;
           if (projectTools && params.sessionId && !params.sideChatId && !permissionSession) {
             throw new Error(`Session ${params.sessionId} no longer exists.`);
           }
@@ -602,6 +623,7 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
               ? { model: [plan.modelId, plan.runtimeModel].filter(Boolean).join(" ") }
               : {}),
             ...(plan.apiProtocol ? { apiProtocol: plan.apiProtocol } : {}),
+            ...(builtinToolBinding ? { toolStyle: builtinToolBinding.style } : {}),
             ...(selectedWorkspaceSkills.length > 0 ? { skills: selectedWorkspaceSkills } : {}),
             ...(plan.effort ? { effort: plan.effort } : {}),
             ...(permissionPolicy ? { permissionPolicy } : {}),
@@ -1436,6 +1458,12 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
 
   ipcMain.handle("composerPreferences:save", (_event: IpcMainInvokeEvent, input: unknown) =>
     composerPreferences.save(input),
+  );
+
+  ipcMain.handle("builtinToolSettings:get", () => builtinToolSettings.get());
+
+  ipcMain.handle("builtinToolSettings:save", (_event: IpcMainInvokeEvent, input: unknown) =>
+    builtinToolSettings.save(input),
   );
 
   ipcMain.handle(

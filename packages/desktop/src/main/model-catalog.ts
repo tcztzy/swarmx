@@ -18,6 +18,7 @@ import {
   parseModel,
   parseModelSupply,
 } from "@swarmx/core";
+import { preferredBuiltinToolStyleForProvider } from "./builtin-tool-settings.js";
 import type { CodexAccessTokenProvider } from "./codex-auth.js";
 import type { ProviderAuthStore } from "./provider-auth.js";
 import {
@@ -170,6 +171,7 @@ interface DiscoveredModelDescriptor {
   runtimeModel?: string;
   group?: string;
   apiProtocols?: ModelApi[];
+  preferredBuiltinToolStyle?: Model["preferredBuiltinToolStyle"];
   reasoning?: {
     apiProtocol: ModelApi;
     supportedEfforts: string[];
@@ -1018,6 +1020,7 @@ function parseCodexModels(input: unknown): {
             id: model.id,
             runtimeModel: stringMetadata(model.model) ?? model.id,
             label: stringMetadata(model.displayName),
+            preferredBuiltinToolStyle: "codex",
             ...(supportedEfforts.length > 0
               ? {
                   reasoning: {
@@ -1062,6 +1065,7 @@ function parseAnthropicModels(input: unknown): {
           {
             id: model.id,
             label: typeof model.display_name === "string" ? model.display_name : undefined,
+            preferredBuiltinToolStyle: "claude_code",
             ...(supportedEfforts.length > 0
               ? {
                   reasoning: {
@@ -1105,6 +1109,10 @@ function providerCache(
   descriptors: DiscoveredModelDescriptor[],
   fetchedAt: string,
 ): ProviderDiscoveryCache {
+  const providerPreferredBuiltinToolStyle = preferredBuiltinToolStyleForProvider(
+    provider.baseUrl,
+    stringProperty(provider, "catalogAdapter"),
+  );
   const models = mergeModels(
     descriptors.map((descriptor) => {
       const apiProtocols = descriptor.apiProtocols ?? providerApiProtocols(provider);
@@ -1116,6 +1124,12 @@ function providerCache(
         apiProtocols,
         capabilityIds: [],
         reasoningCapabilities: [],
+        ...((descriptor.preferredBuiltinToolStyle ?? providerPreferredBuiltinToolStyle)
+          ? {
+              preferredBuiltinToolStyle:
+                descriptor.preferredBuiltinToolStyle ?? providerPreferredBuiltinToolStyle,
+            }
+          : {}),
         readOnly: true,
         catalogSource: "provider",
         discoveredFrom: [provider.id],

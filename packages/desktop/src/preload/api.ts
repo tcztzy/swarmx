@@ -186,6 +186,10 @@ export function createSwarmxDesktopApi(
 
     saveComposerPreference: (input) => invoke("composerPreferences:save", input),
 
+    getBuiltinToolSettings: () => invoke("builtinToolSettings:get"),
+
+    saveBuiltinToolSettings: (input) => invoke("builtinToolSettings:save", input),
+
     getPermissionStatus: (params?: {
       cwd?: string;
       agentId?: string;

@@ -166,6 +166,37 @@ describe("ModelCatalogService", () => {
     expect(await readFile(paths.cachePath, "utf8")).not.toContain("sk-runtime-only");
   });
 
+  it("V571 records Kimi tool compatibility from an explicit Moonshot Provider", async () => {
+    const paths = await catalogPaths();
+    const inventory = createExtensionInventory([
+      providerBundle("moonshot", [
+        {
+          id: "moonshot",
+          label: "Moonshot",
+          kind: "openai_chat",
+          baseUrl: "https://api.moonshot.cn/v1",
+          secretRef: { source: "env", key: "MOONSHOT_API_KEY" },
+          readOnly: true,
+        },
+      ]),
+    ]);
+    const service = new ModelCatalogService({
+      ...paths,
+      env: { MOONSHOT_API_KEY: "runtime-only" },
+      fetch: vi.fn().mockResolvedValue(response({ data: [{ id: "kimi-k3" }] })),
+      now: fixedClock(),
+    });
+
+    const catalog = await service.refresh(inventory);
+
+    expect(catalog.models).toContainEqual(
+      expect.objectContaining({
+        id: "kimi-k3",
+        preferredBuiltinToolStyle: "kimi_code",
+      }),
+    );
+  });
+
   it("V482 treats a Custom Provider as one exact base URL plus /models", async () => {
     const paths = await catalogPaths();
     const authStore = new MemoryProviderAuthStore();

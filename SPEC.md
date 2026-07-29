@@ -1382,8 +1382,8 @@ V575: Core, Main, Preload, Workspace tool, and Renderer tests cover defaults/rej
 |T236|x|persist safe main-task ACP Session bindings and isolate attachment-bearing Codex execution|V565,V566,V567,V568,V569,I271|
 |T237|x|add Core built-in tool style Settings, Model metadata, resolver, Session binding, and tests|G75,C206,C207,V570,V571,I272|
 |T238|x|implement Kimi Code workspace-tool projection and focused contract/dispatch tests|G75,C208,C209,V572,V573,I273|
-|T239|.|wire atomic Settings IPC, General UI, direct runtime Session binding, and focused tests|G75,C206,C207,V570,V571,V573,V574,V575,I272,I273,I274|
-|T240|.|document compatibility and run targeted, recursive build, test, and lint validation|G75,C206,C207,C208,C209,V570,V571,V572,V573,V574,V575,I272,I273,I274|
+|T239|x|wire atomic Settings IPC, General UI, direct runtime Session binding, and focused tests|G75,C206,C207,V570,V571,V573,V574,V575,I272,I273,I274|
+|T240|~|document compatibility and run targeted, recursive build, test, and lint validation|G75,C206,C207,C208,C209,V570,V571,V572,V573,V574,V575,I272,I273,I274|
 
 ## §B
 |id|date|cause|fix|
@@ -1553,3 +1553,6 @@ V575: Core, Main, Preload, Workspace tool, and Renderer tests cover defaults/rej
 |B163|2026-07-29|the first Model tool-style metadata patch declared its lookup set after eager `MODELS` initialization and triggered a module-load temporal dead zone|move the lookup before eager catalog initialization|
 |B164|2026-07-29|the first built-in tool style Core patch left two new declarations outside Biome's canonical single-line formatting|apply the repository formatter before task completion|
 |B165|2026-07-29|the first Kimi workspace adapter passed behavior and type checks but retained three files outside Biome's canonical wrapping|apply the repository formatter before task completion|
+|B166|2026-07-29|the first General tool-style selector inherited its full explanatory label as the accessible name, defeating the stable concise control-name assertion|set an explicit concise `aria-label` covered by V574|
+|B167|2026-07-29|the first direct runtime binding passed nullable `loadSession` output into an optional non-null resolver field under strict declaration build|omit the Session field when loading returns `null`|
+|B168|2026-07-29|the first Settings and runtime wiring patch passed focused behavior and declaration checks but left four files outside Biome's canonical wrapping|apply the repository formatter before task completion|

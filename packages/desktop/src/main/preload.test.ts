@@ -591,6 +591,18 @@ describe("preload API", () => {
     expect(electron.invoke).toHaveBeenNthCalledWith(2, "composerPreferences:save", selection);
   });
 
+  it("V574 exposes narrow built-in tool Settings persistence methods", async () => {
+    electron.invoke.mockResolvedValue({ style: "kimi_code" });
+
+    await exposedApi().getBuiltinToolSettings();
+    await exposedApi().saveBuiltinToolSettings({ style: "kimi_code" });
+
+    expect(electron.invoke).toHaveBeenNthCalledWith(1, "builtinToolSettings:get");
+    expect(electron.invoke).toHaveBeenNthCalledWith(2, "builtinToolSettings:save", {
+      style: "kimi_code",
+    });
+  });
+
   it("exposes permission status and personal policy updates through narrow IPC methods", async () => {
     electron.invoke.mockResolvedValue({ layers: [] });
     const policy = { mode: "restricted", deniedTools: ["Bash"] };
@@ -705,6 +717,10 @@ function exposedApi(): {
     modelId?: string;
     modelSupplyId?: string;
     effort?: string;
+  }): Promise<unknown>;
+  getBuiltinToolSettings(): Promise<unknown>;
+  saveBuiltinToolSettings(input: {
+    style: "auto" | "claude_code" | "codex" | "kimi_code";
   }): Promise<unknown>;
   getPermissionStatus(params?: {
     cwd?: string;

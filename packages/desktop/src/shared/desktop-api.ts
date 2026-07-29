@@ -2,6 +2,7 @@ import type {
   ActivityProfileSummary,
   AgentCompositionPlan,
   AgentProfile,
+  DesktopBuiltinToolSettings,
   DesktopComposerPreferenceUpdate,
   DesktopComposerPreferences,
   ExtensionActionReceipt,
@@ -653,6 +654,8 @@ export interface SwarmxAPI {
   saveComposerPreference(
     input: DesktopComposerPreferenceUpdate,
   ): Promise<DesktopComposerPreferences>;
+  getBuiltinToolSettings(): Promise<DesktopBuiltinToolSettings>;
+  saveBuiltinToolSettings(input: DesktopBuiltinToolSettings): Promise<DesktopBuiltinToolSettings>;
   getPermissionStatus(params?: {
     cwd?: string;
     agentId?: string;
