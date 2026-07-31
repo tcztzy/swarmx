@@ -1,9 +1,9 @@
 /** @vitest-environment node */
 
-import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+import { readStylesheet } from "./stylesheet-test-utils.js";
 
-const styles = readFileSync(new URL("./assets/styles.css", import.meta.url), "utf8");
+const styles = readStylesheet(new URL("./assets/styles.css", import.meta.url));
 
 function ruleBody(selector: string, occurrence = 0): string {
   const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
