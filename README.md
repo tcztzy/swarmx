@@ -41,9 +41,9 @@ swarmx
 
 ## First run
 
-Open **Anonymous user → Settings → Providers**, add an OpenAI-, Anthropic-, DeepSeek-, OpenCode Go-, or Ollama-compatible connection, then choose a Harness and Model in the composer. Custom Providers use one exact Base URL and key; OpenCode Go can keep encrypted backup keys with local usage counters and quota failover.
+Open **Anonymous user → Settings → Providers**, add an OpenAI-, Anthropic-, DeepSeek-, OpenCode Go-, or Ollama-compatible connection, then choose a Harness and Model in the composer. Custom Providers use one exact Base URL and key; OpenCode Go can keep additional plaintext backup keys with local usage counters and quota failover.
 
-Credentials stay in the Electron main process and are stored with Electron `safeStorage`; the renderer never receives plaintext secrets.
+Provider credentials are stored as plaintext in the editable `~/.swarmx/provider-auth.json` file with restrictive permissions. The renderer never reads the file or receives plaintext credentials. The current file format is `schemaVersion: 2`; older encrypted auth files and legacy `local_keychain` Provider references are intentionally not migrated.
 
 ## CLI
 

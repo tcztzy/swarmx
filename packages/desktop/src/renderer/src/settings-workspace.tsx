@@ -1945,7 +1945,9 @@ export function SettingsWorkspace({
                       autoComplete="new-password"
                       value={providerSecret}
                       placeholder={
-                        editingProviderId ? "Leave blank to keep current" : "Stored securely"
+                        editingProviderId
+                          ? "Leave blank to keep current"
+                          : "Stored in ~/.swarmx/provider-auth.json"
                       }
                       onChange={(event) => setProviderSecret(event.target.value)}
                     />
@@ -1967,7 +1969,8 @@ export function SettingsWorkspace({
                           onChange={(event) => setProviderAdditionalApiKeys(event.target.value)}
                         />
                         <small className="settings-provider-form__helper">
-                          New keys are encrypted separately. Values are never shown again.
+                          Saved in the local Provider auth file. Edit that file directly when
+                          needed.
                         </small>
                       </label>
                       {editingProvider?.runtimeKeyUsage &&
@@ -2059,8 +2062,9 @@ export function SettingsWorkspace({
                   )}
                 </div>
                 <p className="settings-provider-form__security">
-                  Credentials are encrypted locally and decrypted only in the main process for their
-                  stated Provider operation.
+                  Credentials are stored as plaintext in ~/.swarmx/provider-auth.json with
+                  restrictive file permissions. The Renderer never reads this file; the Main process
+                  uses credentials only for the configured Provider operation.
                 </p>
                 <div className="settings-provider-form__actions">
                   <button type="button" onClick={resetProviderForm}>
@@ -2508,7 +2512,7 @@ function ProviderKeyPoolDetails({
             <div className="settings-provider-key-list__row" key={key.id}>
               <span>
                 <strong>{key.label}</strong>
-                <small>{key.id === "primary" ? "Primary" : "Encrypted backup"}</small>
+                <small>{key.id === "primary" ? "Primary" : "Additional key"}</small>
               </span>
               <span className={`is-${key.status}`}>{capitalize(key.status)}</span>
               <span>

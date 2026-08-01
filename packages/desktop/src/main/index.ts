@@ -52,7 +52,9 @@ const APP_ICON_PATH = app.isPackaged
 
 const preloadPath = join(__dirname, "../preload/index.mjs");
 const rendererUrl =
-  process.env.ELECTRON_RENDERER_URL ?? `file://${join(RENDERER_DIST, "index.html")}`;
+  process.env.ELECTRON_RENDERER_URL ??
+  process.env.VITE_DEV_SERVER_URL ??
+  `file://${join(RENDERER_DIST, "index.html")}`;
 
 let mainWindow: BrowserWindow | null = null;
 let updateCheckTimer: ReturnType<typeof setInterval> | null = null;

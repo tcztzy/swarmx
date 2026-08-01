@@ -2,26 +2,19 @@ import { mkdir, readFile, rename, stat, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
-export interface ProviderSecretEncryption {
-  isAvailable(): boolean;
-  encrypt(value: string): Uint8Array;
-  decrypt(value: Uint8Array): string;
-}
-
 export interface ProviderAuthStore {
+  has?(key: string): Promise<boolean>;
   get(key: string): Promise<string | undefined>;
   set(key: string, value: string): Promise<void>;
   delete(key: string): Promise<void>;
 }
 
-export class ProviderCredentialDecryptionError extends Error {
+export class ProviderCredentialReadError extends Error {
   readonly credentialKey: string;
 
   constructor(credentialKey: string) {
-    super(
-      `Provider credential "${credentialKey}" could not be decrypted. Edit the Provider and enter a new credential.`,
-    );
-    this.name = "ProviderCredentialDecryptionError";
+    super(`Provider credential "${credentialKey}" could not be read. Enter a new credential.`);
+    this.name = "ProviderCredentialReadError";
     this.credentialKey = credentialKey;
   }
 }
@@ -34,51 +27,43 @@ export function providerPoolCredentialKey(providerId: string, keyId: string): st
   return `${normalizeKey(providerId)}:pool:${normalizeKey(keyId)}`;
 }
 
-export interface EncryptedFileProviderAuthStoreOptions {
+export interface FileProviderAuthStoreOptions {
   path?: string;
-  encryption: ProviderSecretEncryption;
-  now?: () => Date;
 }
 
 interface ProviderAuthDocument {
-  schemaVersion: 1;
-  entries: Record<string, { ciphertext: string; updatedAt: string }>;
+  schemaVersion: 2;
+  entries: Record<string, string>;
 }
 
-export class EncryptedFileProviderAuthStore implements ProviderAuthStore {
+export class FileProviderAuthStore implements ProviderAuthStore {
   private readonly path: string;
-  private readonly encryption: ProviderSecretEncryption;
-  private readonly now: () => Date;
 
-  constructor(options: EncryptedFileProviderAuthStoreOptions) {
+  constructor(options: FileProviderAuthStoreOptions = {}) {
     this.path = options.path ?? join(homedir(), ".swarmx", "provider-auth.json");
-    this.encryption = options.encryption;
-    this.now = options.now ?? (() => new Date());
+  }
+
+  async has(key: string): Promise<boolean> {
+    const entry = (await this.read()).entries[normalizeKey(key)];
+    return typeof entry === "string" && entry.length > 0;
   }
 
   async get(key: string): Promise<string | undefined> {
     const normalizedKey = normalizeKey(key);
     const entry = (await this.read()).entries[normalizedKey];
     if (!entry) return undefined;
-    this.assertEncryptionAvailable();
-    try {
-      return this.encryption.decrypt(Buffer.from(entry.ciphertext, "base64"));
-    } catch {
-      throw new ProviderCredentialDecryptionError(normalizedKey);
-    }
+    return entry;
   }
 
   async set(key: string, value: string): Promise<void> {
     const normalizedKey = normalizeKey(key);
     if (!value) throw new Error("Provider credential value is required.");
-    this.assertEncryptionAvailable();
     const document = await this.read();
-    const ciphertext = Buffer.from(this.encryption.encrypt(value)).toString("base64");
     await writeJsonAtomic(this.path, {
-      ...document,
+      schemaVersion: 2,
       entries: {
         ...document.entries,
-        [normalizedKey]: { ciphertext, updatedAt: this.now().toISOString() },
+        [normalizedKey]: value,
       },
     });
   }
@@ -89,7 +74,7 @@ export class EncryptedFileProviderAuthStore implements ProviderAuthStore {
     if (!(normalizedKey in document.entries)) return;
     const entries = { ...document.entries };
     delete entries[normalizedKey];
-    await writeJsonAtomic(this.path, { ...document, entries });
+    await writeJsonAtomic(this.path, { schemaVersion: 2, entries });
   }
 
   async fileMode(): Promise<number | undefined> {
@@ -101,35 +86,25 @@ export class EncryptedFileProviderAuthStore implements ProviderAuthStore {
     }
   }
 
-  private assertEncryptionAvailable(): void {
-    if (!this.encryption.isAvailable()) {
-      throw new Error("Secure Provider credential storage is unavailable on this system.");
-    }
-  }
-
   private async read(): Promise<ProviderAuthDocument> {
     let input: unknown;
     try {
       input = JSON.parse(await readFile(this.path, "utf8"));
     } catch (error) {
-      if (isNodeError(error, "ENOENT")) return { schemaVersion: 1, entries: {} };
+      if (isNodeError(error, "ENOENT")) return { schemaVersion: 2, entries: {} };
       throw error;
     }
-    if (!isRecord(input) || input.schemaVersion !== 1 || !isRecord(input.entries)) {
+    if (!isRecord(input) || input.schemaVersion !== 2 || !isRecord(input.entries)) {
       throw new Error("Unsupported Provider auth document format.");
     }
     const entries: ProviderAuthDocument["entries"] = {};
     for (const [key, value] of Object.entries(input.entries)) {
-      if (
-        !isRecord(value) ||
-        typeof value.ciphertext !== "string" ||
-        typeof value.updatedAt !== "string"
-      ) {
+      if (typeof value !== "string") {
         throw new Error("Invalid Provider auth entry.");
       }
-      entries[key] = { ciphertext: value.ciphertext, updatedAt: value.updatedAt };
+      entries[key] = value;
     }
-    return { schemaVersion: 1, entries };
+    return { schemaVersion: 2, entries };
   }
 }
 

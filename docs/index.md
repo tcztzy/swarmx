@@ -65,8 +65,15 @@ In Desktop:
 4. Choose a Harness and Model in the composer.
 5. Add a Project when the task needs local files or coding tools.
 
-Desktop stores Provider credentials through Electron `safeStorage`. Plaintext
-credentials remain in the main process and never enter the renderer.
+Desktop stores Provider credentials as plaintext in the editable
+`~/.swarmx/provider-auth.json` file. The file is written with restrictive
+permissions; credentials are read only in the Main process and never enter the
+Renderer.
+
+The file uses a simple `schemaVersion: 2` document with string values under
+`entries`. Older encrypted Provider auth files and legacy `local_keychain`
+Provider references are intentionally not migrated; configure affected
+Providers again using the current format after upgrading.
 
 ### CLI
 

@@ -22,9 +22,6 @@ const electron = vi.hoisted(() => ({
   showOpenDialog: vi.fn(),
   showSaveDialog: vi.fn(),
   showItemInFolder: vi.fn(),
-  isEncryptionAvailable: vi.fn(() => true),
-  encryptString: vi.fn((value: string) => Buffer.from(value)),
-  decryptString: vi.fn((value: Buffer) => value.toString("utf8")),
 }));
 
 vi.mock("electron", () => ({
@@ -32,11 +29,6 @@ vi.mock("electron", () => ({
   dialog: {
     showOpenDialog: electron.showOpenDialog,
     showSaveDialog: electron.showSaveDialog,
-  },
-  safeStorage: {
-    isEncryptionAvailable: electron.isEncryptionAvailable,
-    encryptString: electron.encryptString,
-    decryptString: electron.decryptString,
   },
   shell: { showItemInFolder: electron.showItemInFolder },
 }));
@@ -55,7 +47,7 @@ describe("desktop main library entry", () => {
     expect(desktopMain.LspHost).toBeTypeOf("function");
     expect(desktopMain.ModelCatalogService).toBeTypeOf("function");
     expect(desktopMain.ComposerPreferenceService).toBeTypeOf("function");
-    expect(desktopMain.EncryptedFileProviderAuthStore).toBeTypeOf("function");
+    expect(desktopMain.FileProviderAuthStore).toBeTypeOf("function");
     expect(electron.handle).not.toHaveBeenCalled();
   });
 

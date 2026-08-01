@@ -12,17 +12,17 @@ import {
 const coreRoot = fileURLToPath(new URL("..", import.meta.url));
 
 describe("request-scoped cancellation", () => {
-  it("V362 applies only models advertised by the ACP session", async () => {
+  it("V362 applies only models advertised by the ACP session config", async () => {
     const client = new AcpClient();
     await expect(
-      client.prompt({ ...agentOptions("models"), model: "verified-model" }, "hello"),
+      client.prompt({ ...agentOptions("stable-config"), model: "verified-model" }, "hello"),
     ).resolves.toMatchObject({
-      messages: [expect.objectContaining({ content: "model:verified-model" })],
+      messages: [expect.objectContaining({ content: "config:verified-model:low:model" })],
     });
 
     const rejected = new AcpClient();
     await expect(
-      rejected.prompt({ ...agentOptions("models"), model: "invented-model" }, "hello"),
+      rejected.prompt({ ...agentOptions("stable-config"), model: "invented-model" }, "hello"),
     ).rejects.toThrow('cannot run configured model "invented-model"');
   }, 15_000);
 

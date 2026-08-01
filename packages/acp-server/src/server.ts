@@ -178,7 +178,6 @@ export class SwarmXAgent implements AcpAgent {
       return { stopReason: "end_turn" };
     }
 
-    const echoedMessageId = request.messageId ? { userMessageId: request.messageId } : {};
     try {
       return await withAcpRequest(acpRequestId(request.sessionId), async () => {
         appendSessionMessages(request.sessionId, [
@@ -211,14 +210,12 @@ export class SwarmXAgent implements AcpAgent {
         session.sessionData = requireSession(request.sessionId);
         return {
           stopReason: "end_turn",
-          ...echoedMessageId,
         };
       });
     } catch (err: unknown) {
       if (err instanceof RequestCancelledError) {
         return {
           stopReason: "cancelled",
-          ...echoedMessageId,
         };
       }
       const errorMsg = err instanceof Error ? err.message : String(err);
@@ -235,7 +232,6 @@ export class SwarmXAgent implements AcpAgent {
       });
       return {
         stopReason: "refusal",
-        ...echoedMessageId,
       };
     }
   };
@@ -405,7 +401,7 @@ function applySessionRuntime(
     }
     return {
       ...node,
-      swarm: applySessionRuntime(node.swarm, cwd, mcpServers),
+      swarm: applySessionRuntime(node.swarm as SwarmConfig, cwd, mcpServers),
     };
   };
 

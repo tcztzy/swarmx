@@ -56,8 +56,8 @@ export const TelemetryEnvelopeSchema = z
     source: z.string().min(1),
     installationId: z.string().min(1),
     sessionId: z.string().min(1).optional(),
-    release: TelemetryReleaseSchema.default({}),
-    payload: z.record(z.string(), z.unknown()).default({}),
+    release: TelemetryReleaseSchema.prefault({}),
+    payload: z.record(z.string(), z.unknown()).prefault({}),
   })
   .passthrough()
   .superRefine((envelope, ctx) => {

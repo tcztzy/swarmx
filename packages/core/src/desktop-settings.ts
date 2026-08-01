@@ -66,7 +66,7 @@ export const DesktopBuiltinToolSettingsSchema = z
 
 export const DesktopRuntimeSettingsSchema = z
   .object({
-    builtinTools: DesktopBuiltinToolSettingsSchema.default({}),
+    builtinTools: DesktopBuiltinToolSettingsSchema.prefault({}),
   })
   .strict();
 
@@ -82,7 +82,7 @@ export const DesktopComposerSelectionSchema = z
 export const DesktopComposerPreferencesSchema = z
   .object({
     lastHarnessId: z.string().min(1).optional(),
-    selectionsByHarness: z.record(z.string().min(1), DesktopComposerSelectionSchema).default({}),
+    selectionsByHarness: z.record(z.string().min(1), DesktopComposerSelectionSchema).prefault({}),
   })
   .strict()
   .superRefine(addSecretIssues);
@@ -112,7 +112,7 @@ export const DesktopUiStateSchema = z
     theme: z.enum(["system", "light", "dark"]).default("system"),
     lastView: z.string().min(1).optional(),
     sidebarCollapsed: z.boolean().optional(),
-    composer: DesktopComposerPreferencesSchema.default({}),
+    composer: DesktopComposerPreferencesSchema.prefault({}),
   })
   .passthrough()
   .superRefine(addSecretIssues);
@@ -160,7 +160,7 @@ export const DesktopPermissionProfileAvailabilitySchema = z
 
 export const DesktopPermissionSettingsSchema = z
   .object({
-    personalPolicy: PersonalPermissionPolicySchema.default({
+    personalPolicy: PersonalPermissionPolicySchema.prefault({
       id: "personal",
       source: "personal",
       label: "Personal defaults",
@@ -168,31 +168,27 @@ export const DesktopPermissionSettingsSchema = z
       deniedTools: [],
       readOnly: false,
     }),
-    profileAvailability: DesktopPermissionProfileAvailabilitySchema.default({}),
+    profileAvailability: DesktopPermissionProfileAvailabilitySchema.prefault({}),
     approvalReceipts: z.array(PermissionApprovalReceiptSchema).max(200).default([]),
   })
   .strict()
   .superRefine(addSecretIssues);
 
-export const DesktopSettingsDocumentSchema: z.ZodType<
-  DesktopSettingsDocument,
-  z.ZodTypeDef,
-  unknown
-> = z.preprocess(
+export const DesktopSettingsDocumentSchema = z.preprocess(
   normalizeDesktopSettingsDocumentInput,
   z
     .object({
       schemaVersion: z.literal(1).default(1),
-      desktop: DesktopRootConfigSchema.default({}),
-      server: DesktopServerSettingsSchema.default({}),
-      runtime: DesktopRuntimeSettingsSchema.default({}),
-      ui: DesktopUiStateSchema.default({}),
+      desktop: DesktopRootConfigSchema.prefault({}),
+      server: DesktopServerSettingsSchema.prefault({}),
+      runtime: DesktopRuntimeSettingsSchema.prefault({}),
+      ui: DesktopUiStateSchema.prefault({}),
       models: z.array(ModelSchema).default([]),
       modelSupplies: z.array(ModelSupplySchema).default([]),
       providers: z.array(ProviderProfileMetadataSchema).default([]),
       agents: z.array(AgentProfileMetadataSchema).default([]),
-      extensions: DesktopExtensionSettingsSchema.default({}),
-      permissions: DesktopPermissionSettingsSchema.default({}),
+      extensions: DesktopExtensionSettingsSchema.prefault({}),
+      permissions: DesktopPermissionSettingsSchema.prefault({}),
     })
     .passthrough()
     .superRefine(addSecretIssues),
@@ -228,7 +224,7 @@ export const LocaleResourceSchema = z
     label: z.string().min(1),
     nativeLabel: z.string().min(1).optional(),
     direction: LocaleDirectionSchema.default("ltr"),
-    messages: z.record(z.string(), z.string()).default({}),
+    messages: z.record(z.string(), z.string()).prefault({}),
   })
   .passthrough()
   .superRefine(addSecretIssues);

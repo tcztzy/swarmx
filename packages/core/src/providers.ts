@@ -26,8 +26,8 @@ export const ProviderApiSchema = ModelApiSchema;
 export const ProviderKindSchema = ProviderApiSchema;
 export const ProviderAuthModeSchema = z.enum(["api_key", "auth_token"]);
 export const ProviderApiEntrypointsSchema = z
-  .record(ProviderApiSchema, z.string().min(1))
-  .default({});
+  .partialRecord(ProviderApiSchema, z.string().min(1))
+  .prefault({});
 
 export const ProviderApiCompatibilityModeSchema = z.enum(["auto", "native", "bridge"]);
 
@@ -45,7 +45,7 @@ export const ProviderApiCompatibilitySchema = z.preprocess(
 
 export const ProviderSecretSourceSchema = z.enum([
   "env",
-  "local_keychain",
+  "local_auth_file",
   "server_keychain",
   "prompt",
 ]);
@@ -81,7 +81,7 @@ export const ProviderProfileMetadataSchema = z.preprocess(
       authMode: ProviderAuthModeSchema.default("api_key"),
       secretRef: ProviderSecretRefSchema.optional(),
       readOnly: z.boolean().optional(),
-      metadata: z.record(z.string(), z.unknown()).default({}),
+      metadata: z.record(z.string(), z.unknown()).prefault({}),
     })
     .passthrough()
     .superRefine(addSecretIssues),
@@ -124,8 +124,8 @@ export const ProviderPromptRequestSchema = z.preprocess(
       modelId: z.string().min(1),
       runtimeModel: z.string().min(1).optional(),
       contextPacketId: z.string().min(1).optional(),
-      parameters: z.record(z.string(), z.unknown()).default({}),
-      metadata: z.record(z.string(), z.unknown()).default({}),
+      parameters: z.record(z.string(), z.unknown()).prefault({}),
+      metadata: z.record(z.string(), z.unknown()).prefault({}),
     })
     .passthrough()
     .superRefine(addSecretIssues),
@@ -141,10 +141,10 @@ export const ProviderRuntimeEnvSchema = z.object({
   runtimeModel: z.string().min(1),
   baseUrl: z.string().min(1).optional(),
   apiEntrypoints: ProviderApiEntrypointsSchema,
-  apiCompatibility: ProviderApiCompatibilitySchema.default({}),
+  apiCompatibility: ProviderApiCompatibilitySchema.prefault({}),
   bridgeEnabled: z.boolean().default(false),
   secretRef: ProviderSecretRefSchema.optional(),
-  env: z.record(z.string(), z.string()).default({}),
+  env: z.record(z.string(), z.string()).prefault({}),
   requiresSecret: z.boolean(),
   secretInjected: z.boolean(),
 });

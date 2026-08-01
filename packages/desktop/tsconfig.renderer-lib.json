@@ -9,5 +9,5 @@
     "rootDir": "src",
     "sourceMap": true
   },
-  "include": ["src/renderer/App.ts"]
+  "include": ["src/renderer/App.ts", "src/renderer/src/env.d.ts"]
 }

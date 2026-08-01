@@ -232,7 +232,7 @@ export const AutonomyTriggerRecordSchema = z
     runId: idWithPrefix("run_").optional(),
     feedbackId: idWithPrefix("fbk_").optional(),
     sourceRefs: z.array(AutonomySourceRefSchema).default([]),
-    payload: z.record(z.string(), z.unknown()).default({}),
+    payload: z.record(z.string(), z.unknown()).prefault({}),
   })
   .passthrough()
   .superRefine(addRuntimeRecordIssues);
@@ -463,7 +463,7 @@ export const AutonomyBudgetSchema = z
 
 export const AutonomyBudgetUsageSchema = z
   .object({
-    used: AutonomyBudgetSchema.default({}),
+    used: AutonomyBudgetSchema.prefault({}),
     limit: AutonomyBudgetSchema.optional(),
     remaining: AutonomyBudgetSchema.optional(),
   })
@@ -576,7 +576,10 @@ export const AutonomyReportMetadataSchema = z
     risks: z.array(z.string().min(1)).default([]),
     limitations: z.array(z.string().min(1)).default([]),
     nextWork: z.array(z.string().min(1)).default([]),
-    humanPrompts: z.array(AutonomyHumanDecisionPromptSchema).max(3).default([]),
+    humanPrompts: z
+      .array(AutonomyHumanDecisionPromptSchema)
+      .max(3, "Expected at most 3 human prompts")
+      .default([]),
     path: z.string().min(1).optional(),
   })
   .passthrough()
@@ -639,7 +642,7 @@ export const AutonomyFeedbackRecordSchema = z
         metadata: z.record(z.string(), z.unknown()).optional(),
       })
       .passthrough()
-      .default({ kind: "none" }),
+      .prefault({ kind: "none" }),
     resultingRefs: z.array(AutonomySourceRefSchema).default([]),
   })
   .passthrough()
@@ -711,7 +714,7 @@ export const AutonomyRetryStateSchema = z
     lastAttemptStatus: z.string().optional(),
     lastFailureSignature: z.string().optional(),
   })
-  .default({ count: 0 });
+  .prefault({ count: 0 });
 
 export const AutonomyLeaseSchema = z
   .object({
@@ -793,7 +796,7 @@ export const AutonomyRuntimeEventSchema = z
     nextState: AutonomyWorkItemStatusSchema.optional(),
     commandId: z.string().min(1).optional(),
     validatorId: z.string().min(1).optional(),
-    payload: z.record(z.string(), z.unknown()).default({}),
+    payload: z.record(z.string(), z.unknown()).prefault({}),
   })
   .passthrough()
   .superRefine(addSecretIssues);
@@ -851,11 +854,11 @@ export const CommandDagNodeSchema = z
         software: z.array(z.string()).default([]),
       })
       .passthrough()
-      .default({}),
+      .prefault({}),
     timeoutSeconds: z.number().int().positive().optional(),
-    retry: CommandRetryPolicySchema.default({ maxAttempts: 1 }),
+    retry: CommandRetryPolicySchema.prefault({ maxAttempts: 1 }),
     validators: z.array(z.string().min(1)).default([]),
-    artifactPolicy: CommandArtifactPolicySchema.default({}),
+    artifactPolicy: CommandArtifactPolicySchema.prefault({}),
     idempotency: z
       .object({
         key: z.string().min(1),
@@ -922,7 +925,7 @@ export const ValidatorManifestSchema = z
     manifestId: idWithPrefix("val_"),
     name: z.string().min(1),
     validators: z.array(ValidatorDefinitionSchema).min(1),
-    gates: z.record(z.string(), z.array(z.string())).default({}),
+    gates: z.record(z.string(), z.array(z.string())).prefault({}),
     metadata: z.record(z.string(), z.unknown()).optional(),
   })
   .passthrough()
@@ -968,8 +971,8 @@ export const EvidencePacketSchema = z
       .passthrough(),
     inputs: z.array(ArtifactReferenceSchema).default([]),
     commands: z.array(CommandRunSummarySchema).default([]),
-    parameters: z.record(z.string(), z.unknown()).default({}),
-    environment: z.record(z.string(), z.unknown()).default({}),
+    parameters: z.record(z.string(), z.unknown()).prefault({}),
+    environment: z.record(z.string(), z.unknown()).prefault({}),
     artifacts: z.array(ArtifactReferenceSchema).default([]),
     validation: z.array(ValidatorOutcomeSchema).default([]),
     limitations: z.array(z.string()).default([]),

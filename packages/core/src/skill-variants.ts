@@ -30,7 +30,7 @@ export const SkillVariantTargetSchema = z
     platforms: z.array(z.string().min(1)).default([]),
   })
   .passthrough()
-  .default({})
+  .prefault({})
   .superRefine(addSecretIssues);
 
 export const SkillDeliverySchema = z
@@ -305,8 +305,8 @@ export const ResolvedHarnessPermissionPolicySchema = z
     policy: HarnessPermissionPolicySchema,
     layers: z.array(HarnessPermissionPolicyLayerSchema).max(16),
     modeSourceIds: z.array(z.string().min(1)).default([]),
-    allowedToolSources: z.record(z.array(z.string().min(1))).default({}),
-    deniedToolSources: z.record(z.array(z.string().min(1))).default({}),
+    allowedToolSources: z.record(z.string(), z.array(z.string().min(1))).prefault({}),
+    deniedToolSources: z.record(z.string(), z.array(z.string().min(1))).prefault({}),
   })
   .strict();
 
@@ -346,9 +346,9 @@ export const HarnessRecipeSchema = z
     softwareVersion: z.string().min(1).optional(),
     skillBindings: z.array(HarnessSkillBindingSchema).default([]),
     mcpServerIds: z.array(z.string().min(1)).default([]),
-    projectContext: HarnessProjectContextSchema.default({}),
-    delivery: HarnessDeliveryPolicySchema.default({}),
-    permissions: HarnessPermissionPolicySchema.default({}),
+    projectContext: HarnessProjectContextSchema.prefault({}),
+    delivery: HarnessDeliveryPolicySchema.prefault({}),
+    permissions: HarnessPermissionPolicySchema.prefault({}),
     pluginIds: z.array(z.string().min(1)).default([]),
     contentDigest: z.string().min(1).optional(),
     createdAt: z.string().datetime().optional(),

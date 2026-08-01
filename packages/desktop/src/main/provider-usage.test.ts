@@ -838,7 +838,7 @@ describe("ProviderUsageService", () => {
       provider("extension.deepseek", "Extension", "https://api.deepseek.com", "DEEPSEEK_API_KEY"),
       {
         ...userProvider("extension.local", "Alias", "https://api.deepseek.com"),
-        secretRef: { source: "local_keychain" as const, key: "victim" },
+        secretRef: { source: "local_auth_file" as const, key: "victim" },
       },
     );
     inventory.modelCatalog.userProviderIds = ["extension.local"];
@@ -999,7 +999,7 @@ function usageInventory(...providers: ProviderProfile[]) {
       userProviderIds: providers
         .filter(
           (candidate) =>
-            candidate.secretRef?.source === "local_keychain" &&
+            candidate.secretRef?.source === "local_auth_file" &&
             candidate.secretRef.key === candidate.id,
         )
         .map((candidate) => candidate.id),
@@ -1026,7 +1026,7 @@ function userProvider(id: string, label: string, baseUrl: string) {
     kind: "openai_chat" as const,
     baseUrl,
     authMode: "api_key" as const,
-    secretRef: { source: "local_keychain" as const, key: id },
+    secretRef: { source: "local_auth_file" as const, key: id },
   };
 }
 

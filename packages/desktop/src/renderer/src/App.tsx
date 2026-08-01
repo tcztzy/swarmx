@@ -4922,7 +4922,7 @@ function workflowUsesProtectedHarness(config: SwarmConfig): boolean {
   if (backendRequiresProtectedRuntime(config.queen?.backend)) return true;
   return Object.values(config.nodes).some((node) => {
     if (node.kind === "agent") return backendRequiresProtectedRuntime(node.agent.backend);
-    return node.kind === "swarm" ? workflowUsesProtectedHarness(node.swarm) : false;
+    return node.kind === "swarm" ? workflowUsesProtectedHarness(node.swarm as SwarmConfig) : false;
   });
 }
 

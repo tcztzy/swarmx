@@ -324,7 +324,7 @@ const CodexRateLimitSchema = z.object({
 
 const CodexRateLimitsResponseSchema = z.object({
   rateLimits: CodexRateLimitSchema,
-  rateLimitsByLimitId: z.record(CodexRateLimitSchema).nullable().optional(),
+  rateLimitsByLimitId: z.record(z.string(), CodexRateLimitSchema).nullable().optional(),
   rateLimitResetCredits: z
     .object({
       availableCount: z.number().int().nonnegative(),
@@ -510,7 +510,7 @@ export class ProviderUsageService {
     const ref = provider.secretRef;
     if (!ref) return undefined;
     if (ref.source === "env") return this.env[ref.key]?.trim() || undefined;
-    if (ref.source === "local_keychain") {
+    if (ref.source === "local_auth_file") {
       if (!this.authStore) return undefined;
       try {
         return (await this.authStore.get(ref.key))?.trim() || undefined;
@@ -749,7 +749,7 @@ function providerUsageCredentialAllowed(
   const ref = provider.secretRef;
   if (!ref) return false;
   return (
-    ref.source === "local_keychain" && userProviderIds.has(provider.id) && ref.key === provider.id
+    ref.source === "local_auth_file" && userProviderIds.has(provider.id) && ref.key === provider.id
   );
 }
 

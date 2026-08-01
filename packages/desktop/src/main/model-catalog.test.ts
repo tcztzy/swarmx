@@ -13,7 +13,7 @@ import { humanReadableModelLabel, ModelCatalogService } from "./model-catalog.js
 import {
   newApiAccountCredentialKey,
   type ProviderAuthStore,
-  ProviderCredentialDecryptionError,
+  ProviderCredentialReadError,
   providerPoolCredentialKey,
 } from "./provider-auth.js";
 import { ProviderKeyUsageStore } from "./provider-key-pool.js";
@@ -619,7 +619,7 @@ describe("ModelCatalogService", () => {
               baseUrl: "https://api.deepseek.com/anthropic",
               apiEntrypoints: {},
               authMode: "auth_token",
-              secretRef: { source: "local_keychain", key: providerId },
+              secretRef: { source: "local_auth_file", key: providerId },
               metadata: { managedBy: "swarmx-desktop" },
             },
           ],
@@ -1008,6 +1008,7 @@ describe("ModelCatalogService", () => {
   it("V271 saves a Provider Usage API selection and removes it when reset", async () => {
     const paths = await catalogPaths();
     const authStore = new MemoryProviderAuthStore();
+    const readCredential = vi.spyOn(authStore, "get");
     const fetch = vi.fn().mockResolvedValue(
       response({
         data: [
@@ -1049,7 +1050,15 @@ describe("ModelCatalogService", () => {
     ]);
     expect(fetch).not.toHaveBeenCalled();
 
+    readCredential.mockClear();
+    const listed = await service.list(inventory);
+    expect(listed.providers).toEqual([
+      expect.objectContaining({ id: providerId, runtimeReady: true }),
+    ]);
+    expect(readCredential).not.toHaveBeenCalled();
+
     const refreshed = await service.refresh(inventory);
+    expect(readCredential).toHaveBeenCalledWith(providerId);
     expect(fetch).toHaveBeenCalledWith(
       "https://proxy.example.test/v1/models",
       expect.objectContaining({
@@ -1063,7 +1072,7 @@ describe("ModelCatalogService", () => {
       expect.objectContaining({
         id: providerId,
         authMode: "auth_token",
-        secretRef: expect.objectContaining({ source: "local_keychain", key: providerId }),
+        secretRef: expect.objectContaining({ source: "local_auth_file", key: providerId }),
         metadata: expect.objectContaining({
           managedBy: "swarmx-desktop",
           usageAdapter: "new_api",
@@ -1183,7 +1192,7 @@ describe("ModelCatalogService", () => {
     };
 
     await expect(service.saveProvider(inventory, update)).rejects.toThrow(
-      `Provider credential "${providerId}" could not be decrypted. Edit the Provider and enter a new credential.`,
+      `Provider credential "${providerId}" could not be read. Enter a new credential.`,
     );
 
     const repaired = await service.saveProvider(inventory, {
@@ -1413,6 +1422,10 @@ function providerBundle(id: string, providers: unknown[]) {
 class MemoryProviderAuthStore implements ProviderAuthStore {
   private readonly values = new Map<string, string>();
 
+  async has(key: string): Promise<boolean> {
+    return this.values.has(key);
+  }
+
   async get(key: string): Promise<string | undefined> {
     return this.values.get(key);
   }
@@ -1468,7 +1481,7 @@ class UnreadableProviderAuthStore implements ProviderAuthStore {
 
   async get(key: string): Promise<string | undefined> {
     if (this.unreadableKeys.has(key)) {
-      throw new ProviderCredentialDecryptionError(key);
+      throw new ProviderCredentialReadError(key);
     }
     return this.values.get(key);
   }

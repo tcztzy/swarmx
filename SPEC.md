@@ -40,7 +40,9 @@ implementation map, test plan, backlog, changelog, or incident log.
    crosses a typed Preload/Main boundary and is authorized for the main frame.
 6. **Schema and secret boundaries.** External and persisted data is validated at
    its boundary. Metadata stores secret references or status, never plaintext
-   credentials, raw environment snapshots, or secret-bearing logs.
+   credentials, raw environment snapshots, or secret-bearing logs. The dedicated
+   local Provider auth file is an explicit user-editable plaintext credential
+   store and remains outside metadata, Renderer data, and logs.
 7. **Explicit side effects.** Discovery and planning are read-only. Installation,
    repair, trust changes, permission grants, destructive actions, and external
    writes require an explicit action and the appropriate confirmation.

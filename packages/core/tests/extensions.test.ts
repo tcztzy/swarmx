@@ -1206,7 +1206,7 @@ describe("extension inventory", () => {
             kind: "anthropic",
             baseUrl: "https://anthropic.internal",
             authMode: "auth_token",
-            secretRef: { source: "local_keychain", key: "anthropic-private" },
+            secretRef: { source: "local_auth_file", key: "anthropic-private" },
             runtimeReady: true,
           },
         ],
@@ -1229,7 +1229,7 @@ describe("extension inventory", () => {
     };
 
     expect(() => resolveAgentCompositionRuntimeEnv(composition, inventory, { env: {} })).toThrow(
-      /unsupported secret source "local_keychain"/,
+      /unsupported secret source "local_auth_file"/,
     );
     expect(
       resolveAgentCompositionRuntimeEnv(composition, inventory, {

@@ -78,11 +78,10 @@ export type {
 } from "./permission-service.js";
 export { PermissionService } from "./permission-service.js";
 export type {
-  EncryptedFileProviderAuthStoreOptions,
+  FileProviderAuthStoreOptions,
   ProviderAuthStore,
-  ProviderSecretEncryption,
 } from "./provider-auth.js";
-export { EncryptedFileProviderAuthStore } from "./provider-auth.js";
+export { FileProviderAuthStore } from "./provider-auth.js";
 export type {
   ProviderBalanceUsageMeter,
   ProviderCreditUsageMeter,

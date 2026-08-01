@@ -187,6 +187,176 @@ describe("SwarmXAgent", () => {
     ).rejects.toThrow("Unsupported ACP MCP transport");
   });
 
+  it("rejects invalid session operations and MCP definitions explicitly", async () => {
+    const agent = new SwarmXAgent();
+
+    await expect(agent.authenticate({} as never)).rejects.toThrow("not supported");
+    await expect(agent.setSessionMode({} as never)).resolves.toEqual({});
+    await expect(agent.loadSession({ sessionId: "missing", cwd, mcpServers: [] })).rejects.toThrow(
+      "not found",
+    );
+    await expect(
+      agent.resumeSession({ sessionId: "missing", cwd, mcpServers: [] }),
+    ).rejects.toThrow("not found");
+    await expect(
+      agent.newSession({
+        cwd,
+        mcpServers: [
+          { name: "duplicate", command: "one", args: [], env: [] },
+          { name: "duplicate", command: "two", args: [], env: [] },
+        ],
+      }),
+    ).rejects.toThrow("Duplicate ACP MCP server name");
+    await expect(
+      agent.newSession({ cwd, mcpServers: [{ name: "", command: "one", args: [], env: [] }] }),
+    ).rejects.toThrow("name is required");
+    await expect(
+      agent.newSession({ cwd, mcpServers: [{ name: "empty", command: "", args: [], env: [] }] }),
+    ).rejects.toThrow("command is required");
+    await expect(
+      agent.newSession({
+        cwd,
+        mcpServers: [
+          {
+            name: "env-duplicate",
+            command: "one",
+            args: [],
+            env: [
+              { name: "DUPLICATE", value: "one" },
+              { name: "DUPLICATE", value: "two" },
+            ],
+          },
+        ],
+      }),
+    ).rejects.toThrow("Duplicate environment variable");
+  });
+
+  it("projects every ACP message update and reports prompt failures", async () => {
+    const updates = vi.fn(async (_call: { update: { sessionUpdate: string } }) => undefined);
+    const chunks = [
+      { role: "assistant", kind: "thinking" as const, content: "thinking" },
+      {
+        role: "assistant",
+        kind: "tool_call" as const,
+        content: '{"query":"docs"}',
+        toolName: "search",
+        render: { invocationId: "call-1" },
+      },
+      {
+        role: "assistant",
+        kind: "tool_progress" as const,
+        content: "working",
+        toolName: "search",
+        render: { invocationId: "call-1" },
+      },
+      {
+        role: "tool",
+        kind: "tool_result" as const,
+        content: "not-json",
+        toolName: "search",
+        render: { invocationId: "call-1" },
+      },
+      {
+        role: "assistant",
+        kind: "message" as const,
+        content: "finished",
+        agent: "worker",
+        swarmEvent: "done",
+      },
+    ];
+    const agent = new SwarmXAgent({
+      createSwarm: () => ({ execute: async () => chunks }),
+    } as never);
+    agent.setConnection({ sessionUpdate: updates } as never);
+    const created = await agent.newSession({ cwd, mcpServers: [] });
+
+    await expect(
+      agent.prompt({ sessionId: created.sessionId, prompt: [{ type: "text", text: "run" }] }),
+    ).resolves.toEqual({ stopReason: "end_turn" });
+    expect(updates.mock.calls.map(([call]) => call.update.sessionUpdate)).toEqual([
+      "agent_thought_chunk",
+      "tool_call",
+      "tool_call_update",
+      "tool_call_update",
+      "agent_message_chunk",
+    ]);
+    expect(updates.mock.calls[1]?.[0]).toMatchObject({
+      update: { rawInput: { query: "docs" }, toolCallId: "call-1" },
+    });
+    expect(updates.mock.calls[3]?.[0]).toMatchObject({
+      update: { rawOutput: "not-json", status: "completed" },
+    });
+
+    const noConnection = new SwarmXAgent();
+    await expect(
+      noConnection.prompt({
+        sessionId: created.sessionId,
+        prompt: [{ type: "text", text: "run" }],
+      }),
+    ).resolves.toEqual({ stopReason: "end_turn" });
+    await expect(
+      agent.prompt({ sessionId: "missing", prompt: [{ type: "text", text: "run" }] }),
+    ).resolves.toEqual({ stopReason: "cancelled" });
+    await expect(
+      agent.prompt({ sessionId: created.sessionId, prompt: [{ type: "text", text: "  " }] }),
+    ).resolves.toEqual({ stopReason: "end_turn" });
+
+    const failedUpdates = vi.fn(async () => undefined);
+    const failed = new SwarmXAgent({
+      createSwarm: () => ({
+        execute: async () => {
+          throw new Error("backend failed");
+        },
+      }),
+    } as never);
+    failed.setConnection({ sessionUpdate: failedUpdates } as never);
+    const failedSession = await failed.newSession({ cwd, mcpServers: [] });
+    await expect(
+      failed.prompt({
+        sessionId: failedSession.sessionId,
+        prompt: [{ type: "text", text: "fail" }],
+      }),
+    ).resolves.toEqual({ stopReason: "refusal" });
+    expect(failedUpdates).toHaveBeenCalledWith(
+      expect.objectContaining({
+        update: expect.objectContaining({
+          content: expect.objectContaining({ text: "[error] backend failed" }),
+        }),
+      }),
+    );
+  });
+
+  it("uses the default Swarm factory and preserves requested runtime config", async () => {
+    const updates = vi.fn(async () => undefined);
+    const agent = new SwarmXAgent();
+    agent.setConnection({ sessionUpdate: updates } as never);
+    const created = await agent.newSession({ cwd, mcpServers: [] });
+
+    await expect(
+      agent.prompt({
+        sessionId: created.sessionId,
+        prompt: [
+          {
+            type: "text",
+            text: "run the requested swarm",
+            _meta: {
+              swarmConfig: { name: "broken", root: "missing", nodes: {}, edges: [] },
+            },
+          },
+        ],
+      } as never),
+    ).resolves.toEqual({ stopReason: "refusal" });
+    expect(updates).toHaveBeenCalledWith(
+      expect.objectContaining({
+        update: expect.objectContaining({
+          content: expect.objectContaining({
+            text: expect.stringContaining('Root node "missing"'),
+          }),
+        }),
+      }),
+    );
+  });
+
   it("exposes the Core request signal to injected Swarm execution", async () => {
     let observedSignal: AbortSignal | undefined;
     const agent = new SwarmXAgent({

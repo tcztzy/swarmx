@@ -11,6 +11,8 @@ import {
   createInlineMediaLoader,
   detectMediaMimeType,
   loadMediaAttachment,
+  MAX_INLINE_MEDIA_BYTES,
+  mediaAttachmentFilePath,
   mediaKindFromMimeType,
   validateMediaAttachments,
 } from "../src/media.js";
@@ -42,6 +44,73 @@ describe("media attachments", () => {
     expect(mediaKindFromMimeType("audio/wav")).toBe("audio");
     expect(mediaKindFromMimeType("application/json")).toBe("text");
     expect(mediaKindFromMimeType("application/zip")).toBe("file");
+  });
+
+  it("covers media URI validation, signatures, extension fallbacks, and byte formatting", async () => {
+    expect(mediaAttachmentFilePath("/tmp/notes.txt")).toBe("/tmp/notes.txt");
+    expect(mediaAttachmentFilePath("file:///tmp/notes.txt")).toBe("/tmp/notes.txt");
+    expect(() => mediaAttachmentFilePath("file:///%zz")).toThrow(/invalid local file URI/i);
+    expect(() => mediaAttachmentFilePath("relative.txt")).toThrow(/absolute local path/i);
+
+    expect(detectMediaMimeType(Buffer.from([0xff, 0xd8, 0xff]), "image.bin")).toBe("image/jpeg");
+    expect(detectMediaMimeType(Buffer.from("GIF89a"), "image.bin")).toBe("image/gif");
+    expect(
+      detectMediaMimeType(
+        Buffer.concat([Buffer.from("RIFF"), Buffer.alloc(4), Buffer.from("WEBP")]),
+        "image.bin",
+      ),
+    ).toBe("image/webp");
+    expect(detectMediaMimeType(Buffer.from("OggS"), "audio.bin")).toBe("audio/ogg");
+    expect(detectMediaMimeType(Buffer.from("fLaC"), "audio.bin")).toBe("audio/flac");
+    expect(detectMediaMimeType(Buffer.from("ID3"), "audio.bin")).toBe("audio/mpeg");
+    expect(detectMediaMimeType(Buffer.from([0xff, 0xe0]), "audio.bin")).toBe("audio/mpeg");
+    expect(
+      detectMediaMimeType(Buffer.concat([Buffer.alloc(4), Buffer.from("ftypm4a ")]), "audio.bin"),
+    ).toBe("audio/mp4");
+    expect(
+      detectMediaMimeType(Buffer.concat([Buffer.alloc(4), Buffer.from("ftypqt  ")]), "video.bin"),
+    ).toBe("video/quicktime");
+    expect(
+      detectMediaMimeType(
+        Buffer.concat([Buffer.alloc(4), Buffer.from("ftyp"), Buffer.alloc(4)]),
+        "clip.mp4",
+      ),
+    ).toBe("video/mp4");
+    expect(detectMediaMimeType(Buffer.from([0x1a, 0x45, 0xdf, 0xa3]), "clip.webm")).toBe(
+      "video/webm",
+    );
+    expect(detectMediaMimeType(Buffer.from([0x1a, 0x45, 0xdf, 0xa3]), "clip.mkv")).toBe(
+      "video/x-matroska",
+    );
+    expect(detectMediaMimeType(Buffer.from("unknown"), "notes.md")).toBe("text/markdown");
+    expect(detectMediaMimeType(Buffer.from("unknown"), "unknown.bin")).toBeNull();
+
+    const root = await temporaryDirectory();
+    const attachment = await fixtureAttachment(
+      root,
+      "tiny.txt",
+      Buffer.from("tiny"),
+      "text/plain",
+      "text",
+    );
+    await expect(loadMediaAttachment(attachment, 1)).rejects.toThrow(/1 B limit/i);
+    await expect(
+      loadMediaAttachment({ ...attachment, sizeBytes: attachment.sizeBytes + 1 }),
+    ).rejects.toThrow(/changed after it was added/i);
+    await expect(
+      loadMediaAttachment({ ...attachment, uri: "file:///missing.txt" }),
+    ).rejects.toThrow(/no longer available/i);
+
+    expect(() => validateMediaAttachments(undefined)).not.toThrow();
+    await expect(createInlineMediaLoader(1024)({ ...attachment, sizeBytes: 1025 })).rejects.toThrow(
+      /1 KiB total limit/i,
+    );
+    await expect(
+      createInlineMediaLoader(MAX_INLINE_MEDIA_BYTES + 1)({
+        ...attachment,
+        sizeBytes: MAX_INLINE_MEDIA_BYTES + 1,
+      }),
+    ).rejects.toThrow(/50 MiB total limit/i);
   });
 
   it("bounds MIME sniffing and cumulative inline attachment bytes", async () => {

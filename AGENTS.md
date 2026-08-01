@@ -43,8 +43,16 @@ Dependency versions are authoritative in package manifests and lockfiles.
   boundaries. Renderer imports must use browser-safe Core subpaths.
 - **Side effects:** Discovery and planning are read-only. Installation, repair,
   trust changes, authority changes, and destructive operations are explicit.
-- **Secrets:** Persist references or encrypted Main-owned state, never plaintext
-  secrets in settings, Renderer data, traces, telemetry, or logs.
+- **Secrets:** Persist references in settings metadata and never expose plaintext
+  secrets to the Renderer, traces, telemetry, or logs. The dedicated,
+  user-editable `~/.swarmx/provider-auth.json` file is an explicit product
+  exception: it stores Provider credentials as plaintext with restrictive file
+  permissions so users can inspect and edit it directly.
+- **Provider auth compatibility:** The current Provider auth format is
+  `schemaVersion: 2` with `local_auth_file` references. Older encrypted auth
+  documents and legacy `local_keychain` Provider references are intentionally
+  not migrated; affected Providers must be configured again in the current
+  format.
 
 See `SPEC.md` for product requirements and `DESIGNS.md` for architecture.
 

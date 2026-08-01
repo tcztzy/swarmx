@@ -38,6 +38,8 @@ describe("Desktop window security", () => {
     expect(isSafeExternalUrl("https://example.com/docs")).toBe(true);
     expect(isSafeExternalUrl("javascript:alert(1)")).toBe(false);
     expect(isSafeExternalUrl("https://user:secret@example.com")).toBe(false);
+    expect(isTrustedRendererUrl("not a URL", RENDERER_URL)).toBe(false);
+    expect(isSafeExternalUrl("not a URL")).toBe(false);
   });
 
   it("V548 authorizes only the configured main frame", () => {
@@ -105,5 +107,31 @@ describe("Desktop window security", () => {
         "https://example.org",
       ]),
     );
+  });
+
+  it("swallows failures while opening safe external links", async () => {
+    const contents = new EventEmitter() as EventEmitter & {
+      setWindowOpenHandler: ReturnType<typeof vi.fn>;
+    };
+    contents.setWindowOpenHandler = vi.fn((handler) => {
+      Object.assign(contents, { windowOpenHandler: handler });
+    });
+    const openExternal = vi.fn(async () => {
+      throw new Error("browser unavailable");
+    });
+    installMainWindowNavigationGuards(
+      contents as unknown as WebContents,
+      RENDERER_URL,
+      openExternal,
+    );
+    const navigationEvent = { preventDefault: vi.fn() };
+    contents.emit("will-navigate", navigationEvent, "https://example.com/docs");
+    const windowOpenHandler = (
+      contents as typeof contents & {
+        windowOpenHandler: (details: { url: string }) => { action: string };
+      }
+    ).windowOpenHandler;
+    expect(windowOpenHandler({ url: "https://example.org" })).toEqual({ action: "deny" });
+    await vi.waitFor(() => expect(openExternal).toHaveBeenCalledTimes(2));
   });
 });

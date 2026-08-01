@@ -101,7 +101,7 @@ export const ManagedDependencySchema = z.preprocess(
       installRoot: z.string().min(1).optional(),
       platforms: z
         .record(z.string().regex(PLATFORM_KEY_PATTERN), ManagedDependencyPlatformSchema)
-        .default({}),
+        .prefault({}),
       license: z.string().min(1).optional(),
       homepage: z.string().min(1).optional(),
       minVersion: z.string().min(1).optional(),

@@ -20,7 +20,7 @@ const StoredProviderKeyStateSchema = z.object({
 
 const ProviderKeyUsageDocumentSchema = z.object({
   schemaVersion: z.literal(1),
-  keys: z.record(StoredProviderKeyStateSchema).default({}),
+  keys: z.record(z.string(), StoredProviderKeyStateSchema).prefault({}),
 });
 
 type ProviderKeyUsageDocument = z.infer<typeof ProviderKeyUsageDocumentSchema>;

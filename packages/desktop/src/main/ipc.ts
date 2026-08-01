@@ -64,13 +64,7 @@ import {
   type HarnessEnvironmentSetupRequest,
   type HarnessEnvironmentStatus,
 } from "@swarmx/runtime";
-import {
-  dialog,
-  ipcMain as electronIpcMain,
-  type IpcMainInvokeEvent,
-  safeStorage,
-  shell,
-} from "electron";
+import { dialog, ipcMain as electronIpcMain, type IpcMainInvokeEvent, shell } from "electron";
 import {
   createEphemeralCodexHome,
   createExternalAcpSessionBinding,
@@ -109,7 +103,7 @@ import {
   type UserProviderInput,
 } from "./model-catalog.js";
 import { PermissionService, type RecordPermissionDecisionInput } from "./permission-service.js";
-import { EncryptedFileProviderAuthStore } from "./provider-auth.js";
+import { FileProviderAuthStore } from "./provider-auth.js";
 import { providerErrorMessage } from "./provider-error.js";
 import {
   type ProviderKeyAttemptObservation,
@@ -177,13 +171,7 @@ const interactiveOwnerIds = new Set<number>();
 const desktopWorkspaceRoot = process.env.INIT_CWD || process.cwd();
 const workspaceTools = new WorkspaceTools(desktopWorkspaceRoot);
 const desktopSettingsStore = new DesktopSettingsStore();
-const providerAuthStore = new EncryptedFileProviderAuthStore({
-  encryption: {
-    isAvailable: () => safeStorage.isEncryptionAvailable(),
-    encrypt: (value) => safeStorage.encryptString(value),
-    decrypt: (value) => safeStorage.decryptString(Buffer.from(value)),
-  },
-});
+const providerAuthStore = new FileProviderAuthStore();
 const codexAccessTokenProvider = new CodexAccessTokenResolver({
   refresh: () => queryCodexAppServerRequest("account/read", { refreshToken: true }),
 });
@@ -1918,7 +1906,7 @@ export function assertDesktopSwarmModels(config: SwarmConfig): void {
         );
       }
     } else if (node.kind === "swarm") {
-      assertDesktopSwarmModels(node.swarm);
+      assertDesktopSwarmModels(node.swarm as SwarmConfig);
     }
   }
 }
@@ -2088,7 +2076,7 @@ function swarmConfigWithWorkingDirectory(config: SwarmConfig, cwd: string): Swar
     if (node.kind === "agent") {
       node.agent.process = { ...node.agent.process, currentDir: cwd };
     } else if (node.kind === "swarm") {
-      node.swarm = swarmConfigWithWorkingDirectory(node.swarm, cwd);
+      node.swarm = swarmConfigWithWorkingDirectory(node.swarm as SwarmConfig, cwd);
     }
   }
   return copy;
@@ -2104,7 +2092,7 @@ export async function transformSwarmConfigAgentBackends(
     if (node.kind === "agent" && node.agent.backend) {
       node.agent.backend = await transform(node.agent.backend);
     } else if (node.kind === "swarm") {
-      node.swarm = await transformSwarmConfigAgentBackends(node.swarm, transform);
+      node.swarm = await transformSwarmConfigAgentBackends(node.swarm as SwarmConfig, transform);
     }
   }
   return copy;

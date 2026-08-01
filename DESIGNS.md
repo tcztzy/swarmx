@@ -171,9 +171,10 @@ schema and behavior.
 
 ## Providers and Models
 
-Desktop Provider connections are explicit settings records backed by encrypted
-auth state. Ambient environment variables do not create visible Desktop
-connections.
+Desktop Provider connections are explicit settings records backed by the
+user-editable `~/.swarmx/provider-auth.json` file. Credentials are plaintext at
+rest in that file, which is written with restrictive permissions. Ambient
+environment variables do not create visible Desktop connections.
 
 Provider discovery produces independent Model records and ModelSupply links.
 The built-in Model registry enriches known ids with verified capability
@@ -221,10 +222,10 @@ Desktop settings use a queued atomic store so narrow section updates do not
 overwrite unrelated state. Zod schemas validate persisted documents and IPC
 updates.
 
-Settings contain secret references only. Electron `safeStorage` ciphertext lives
-in a restrictive Main-owned auth document. Plaintext is resolved only for the
-current Provider request or child process and is never returned to Renderer,
-telemetry, traces, or inventory metadata.
+Settings contain secret references only. The dedicated Provider auth document
+may contain plaintext credentials so users can inspect and edit it directly.
+Plaintext is resolved only for the current Provider request or child process and
+is never returned to Renderer, telemetry, traces, or inventory metadata.
 
 ## Architectural rules
 

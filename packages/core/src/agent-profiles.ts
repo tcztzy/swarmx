@@ -104,8 +104,8 @@ export const AgentDefinitionDocumentSchema = z
   .object({
     format: AgentDefinitionFormatSchema.default("claude_code"),
     frontmatter: AgentDefinitionFrontmatterSchema,
-    rawFrontmatter: z.record(z.string(), z.unknown()).default({}),
-    nativeConfig: z.record(z.string(), z.unknown()).default({}),
+    rawFrontmatter: z.record(z.string(), z.unknown()).prefault({}),
+    nativeConfig: z.record(z.string(), z.unknown()).prefault({}),
     body: z.string(),
     source: AgentDefinitionSourceSchema.optional(),
   })

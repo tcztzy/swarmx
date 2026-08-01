@@ -43,7 +43,7 @@ const ModelCapabilityShape = {
   supportedEfforts: z.array(z.string().min(1)).default([]),
   defaultEffort: z.string().min(1).optional(),
   parameterMapping: ModelReasoningParameterMappingSchema.optional(),
-  effortAliases: z.record(z.string().min(1)).default({}),
+  effortAliases: z.record(z.string(), z.string().min(1)).prefault({}),
   source: ModelCapabilitySourceSchema,
 };
 
@@ -145,7 +145,7 @@ export const ResolvedModelReasoningCapabilitySchema = z.object({
   supportedEfforts: z.array(z.string().min(1)).min(1),
   defaultEffort: z.string().min(1).optional(),
   parameterMapping: ModelReasoningParameterMappingSchema,
-  effortAliases: z.record(z.string().min(1)).default({}),
+  effortAliases: z.record(z.string(), z.string().min(1)).prefault({}),
   source: ModelCapabilitySourceSchema,
 });
 
@@ -157,7 +157,7 @@ export const ModelSchema = z
     apiProtocols: z.array(ModelApiSchema).min(1),
     capabilityIds: z.array(z.string().min(1)).default([]),
     reasoningCapabilities: z.array(ModelCapabilitySchema).default([]),
-    harnessRuntimeModels: z.record(z.string().min(1)).default({}),
+    harnessRuntimeModels: z.record(z.string(), z.string().min(1)).prefault({}),
     preferredBuiltinToolStyle: BuiltinToolStyleSchema.optional(),
     enabled: z.boolean().optional(),
     readOnly: z.boolean().optional(),
@@ -188,7 +188,7 @@ export const ModelSupplyApiCompatibilitySchema = z
     targetApi: ModelApiSchema.optional(),
     baseUrl: z.string().min(1).optional(),
   })
-  .default({});
+  .prefault({});
 
 export const ModelSupplySchema = z.preprocess(
   normalizeModelSupply,

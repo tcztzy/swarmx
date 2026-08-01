@@ -59,10 +59,41 @@ describe("npm launcher cold start", () => {
     expect(swarmxManifest.dependencies).toMatchObject({
       "@swarmx/cli": "workspace:*",
       "@swarmx/desktop": "workspace:*",
-      electron: expect.stringMatching(/^\^39\./),
+      electron: expect.stringMatching(/^\^43\./),
     });
     expect(desktopManifest.dependencies.electron).toBeUndefined();
-    expect(desktopManifest.devDependencies.electron).toMatch(/^\^39\./);
+    expect(desktopManifest.devDependencies.electron).toMatch(/^\^43\./);
+  });
+
+  it("clears inherited Electron Node mode from every development launcher", () => {
+    const npmLauncher = readFileSync(new URL("../bin/swarmx.js", import.meta.url), "utf8");
+    const desktopLauncher = readFileSync(
+      new URL("../../desktop/scripts/start-electron.mjs", import.meta.url),
+      "utf8",
+    );
+    const viteConfig = readFileSync(
+      new URL("../../desktop/vite.config.ts", import.meta.url),
+      "utf8",
+    );
+
+    expect(npmLauncher).toContain("delete env.ELECTRON_RUN_AS_NODE");
+    expect(desktopLauncher).toContain("delete env.ELECTRON_RUN_AS_NODE");
+    expect(viteConfig).toContain("delete env.ELECTRON_RUN_AS_NODE");
+  });
+
+  it("bundles the sandboxed preload as a single entry", () => {
+    const viteConfig = readFileSync(
+      new URL("../../desktop/vite.config.ts", import.meta.url),
+      "utf8",
+    );
+    const desktopManifest = JSON.parse(
+      readFileSync(new URL("../../desktop/package.json", import.meta.url), "utf8"),
+    ) as { exports: Record<string, { import: string }> };
+
+    expect(viteConfig).toContain("input:");
+    expect(viteConfig).toContain("/src/preload/index.ts");
+    expect(viteConfig).not.toContain("/src/preload/api.ts");
+    expect(desktopManifest.exports["./preload"]?.import).toBe("./dist/preload/api.js");
   });
 
   it("V469 gates dual-architecture DMG and ZIP releases on the tag version", () => {

@@ -28,7 +28,10 @@ if (!desktopRequested) {
         `${JSON.stringify({ mode: "desktop", electronPath, appPath, args: desktopArgs })}\n`,
       );
     } else {
-      const child = spawn(electronPath, [appPath, ...desktopArgs], { stdio: "inherit" });
+      const child = spawn(electronPath, [appPath, ...desktopArgs], {
+        stdio: "inherit",
+        env: electronProcessEnv(),
+      });
       child.once("error", (error) => {
         console.error(`Failed to launch SwarmX Desktop: ${error.message}`);
         process.exitCode = 1;
@@ -48,6 +51,12 @@ if (!desktopRequested) {
     console.error("Download the macOS app: https://github.com/tcztzy/swarmx/releases/latest");
     process.exitCode = 1;
   }
+}
+
+function electronProcessEnv() {
+  const env = { ...process.env };
+  delete env.ELECTRON_RUN_AS_NODE;
+  return env;
 }
 
 async function resolveElectronPath(require) {

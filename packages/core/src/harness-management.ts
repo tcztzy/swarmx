@@ -52,7 +52,7 @@ export const HarnessDiscoveryRecordSchema = z
     dependencyId: z.string().min(1).optional(),
     statusNote: z.string().optional(),
     checkedAt: z.string().min(1).optional(),
-    metadata: z.record(z.string(), z.unknown()).default({}),
+    metadata: z.record(z.string(), z.unknown()).prefault({}),
   })
   .passthrough()
   .superRefine(addSecretIssues);
@@ -99,7 +99,7 @@ export const HarnessInvocationMetadataSchema = z
     startedAt: z.string().min(1).optional(),
     endedAt: z.string().min(1).optional(),
     error: z.string().optional(),
-    metadata: z.record(z.string(), z.unknown()).default({}),
+    metadata: z.record(z.string(), z.unknown()).prefault({}),
   })
   .passthrough()
   .superRefine(addHarnessIdentityIssues);

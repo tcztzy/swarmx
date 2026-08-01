@@ -114,7 +114,7 @@ export const NormalizedRenderEventSchema = z
     endedAt: z.string().min(1).optional(),
     durationMs: z.number().int().nonnegative().optional(),
     rawPayloadRef: z.string().min(1).optional(),
-    provenance: RenderProvenanceSchema.default({}),
+    provenance: RenderProvenanceSchema.prefault({}),
   })
   .passthrough()
   .superRefine(addSecretIssues);

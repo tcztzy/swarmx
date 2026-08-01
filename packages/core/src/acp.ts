@@ -321,7 +321,8 @@ export class AcpClient {
             cwd: opts.cwd ?? process.cwd(),
             mcpServers: [],
           });
-          advertisedModels = loaded.models ?? null;
+          advertisedModels =
+            (loaded as LoadSessionResponse & { models?: LegacyModelState }).models ?? null;
           advertisedModes = loaded.modes ?? null;
           configOptions = loaded.configOptions ?? null;
         } catch (error) {
@@ -334,7 +335,7 @@ export class AcpClient {
           mcpServers: [],
         });
         sid = resp.sessionId;
-        advertisedModels = resp.models ?? null;
+        advertisedModels = (resp as typeof resp & { models?: LegacyModelState }).models ?? null;
         advertisedModes = resp.modes ?? null;
         configOptions = resp.configOptions ?? null;
         await opts.onSessionId?.(sid);
@@ -616,7 +617,20 @@ async function applySessionSelections(
         throw new Error(`ACP backend cannot run configured model "${model}".`);
       }
       if (legacyModels.currentModelId !== model) {
-        await connection.unstable_setSessionModel({ sessionId, modelId: model });
+        const setSessionModel = (
+          connection as ClientSideConnection & {
+            unstable_setSessionModel?: (params: {
+              sessionId: string;
+              modelId: string;
+            }) => Promise<unknown>;
+          }
+        ).unstable_setSessionModel;
+        if (!setSessionModel) {
+          throw new Error(
+            `ACP backend did not expose a compatible session model selection method; cannot apply model "${model}".`,
+          );
+        }
+        await setSessionModel.call(connection, { sessionId, modelId: model });
         checkCancelled();
       }
     }

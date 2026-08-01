@@ -69,8 +69,8 @@ export const ConversationIndexRecordSchema = z
     messageCount: z.number().int().nonnegative().default(0),
     archived: z.boolean().default(false),
     contextStrategy: ConversationContextStrategySchema.default("auto"),
-    storage: ConversationStorageRefSchema.default({}),
-    metadata: z.record(z.string(), z.unknown()).default({}),
+    storage: ConversationStorageRefSchema.prefault({}),
+    metadata: z.record(z.string(), z.unknown()).prefault({}),
   })
   .passthrough()
   .superRefine(addSecretIssues);
@@ -103,15 +103,15 @@ export const ConversationEventSchema = z
     invocationId: z.string().min(1).optional(),
     renderEventIds: z.array(z.string().min(1)).default([]),
     artifacts: z.array(ConversationArtifactReferenceSchema).default([]),
-    payload: z.record(z.string(), z.unknown()).default({}),
+    payload: z.record(z.string(), z.unknown()).prefault({}),
   })
   .passthrough()
   .superRefine(addConversationEventIssues);
 
 export const ConversationReplayStateSchema = z
   .object({
-    sessions: z.record(ConversationIndexRecordSchema).default({}),
-    messagesBySession: z.record(z.array(MessageChunkSchema)).default({}),
+    sessions: z.record(z.string(), ConversationIndexRecordSchema).prefault({}),
+    messagesBySession: z.record(z.string(), z.array(MessageChunkSchema)).prefault({}),
     rejectedEvents: z.array(ConversationEventSchema).default([]),
   })
   .passthrough();

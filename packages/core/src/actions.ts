@@ -91,7 +91,7 @@ export const ActionIntentSchema = z
     risks: z.array(ActionRiskSchema).default([]),
     confirmationRequired: z.boolean(),
     confirmationText: z.string().min(1).optional(),
-    payload: z.record(z.string(), z.unknown()).default({}),
+    payload: z.record(z.string(), z.unknown()).prefault({}),
     createdAt: z.string().min(1).optional(),
   })
   .passthrough()

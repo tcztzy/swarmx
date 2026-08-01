@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -8,8 +8,8 @@ import {
   MAX_MEDIA_TURN_BYTES,
   type MediaAttachment,
 } from "@swarmx/core";
-import { afterEach, describe, expect, it } from "vitest";
-import { DesktopMediaService } from "./media.js";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { DesktopMediaService, mediaProtocolUrl } from "./media.js";
 
 const temporaryDirectories = new Set<string>();
 
@@ -67,6 +67,33 @@ describe("DesktopMediaService", () => {
     });
   });
 
+  it("reuses stored files, validates path imports, and consumes protocol preview receipts", async () => {
+    const root = await temporaryDirectory();
+    const source = path.join(root, "notes.md");
+    await writeFile(source, "# Notes\n");
+    const service = new DesktopMediaService(path.join(root, "media"));
+
+    const [first] = await service.importPaths([source]);
+    const [second] = await service.importPaths([source], [first as MediaAttachment]);
+    expect(second).toMatchObject({ id: first?.id, name: "notes.md" });
+    await expect(service.importPaths([path.join(root, "missing.md")])).rejects.toThrow(
+      /not a readable file/i,
+    );
+
+    const [image] = await service.importBytes([
+      {
+        name: "diagram.png",
+        bytes: new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+      },
+    ]);
+    const protocolUrl = mediaProtocolUrl(image as MediaAttachment);
+    await expect(service.resolveProtocolUrl(protocolUrl)).resolves.toMatch(/diagram\.png$/);
+    await expect(service.resolveProtocolUrl(protocolUrl)).resolves.toMatch(/diagram\.png$/);
+    expect(() =>
+      mediaProtocolUrl({ ...(image as MediaAttachment), uri: "file:///tmp/not-hashed" }),
+    ).toThrow(/media id is invalid/i);
+  });
+
   it("rejects same-size changes inside the content-addressed store", async () => {
     const root = await temporaryDirectory();
     const service = new DesktopMediaService(path.join(root, "media"));
@@ -86,6 +113,56 @@ describe("DesktopMediaService", () => {
       status: "unavailable",
       error: expect.stringMatching(/changed after it was imported/i),
     });
+  });
+
+  it("rejects forged media metadata, unsafe protocol paths, and escaped symlinks", async () => {
+    const root = await temporaryDirectory();
+    const service = new DesktopMediaService(path.join(root, "media"));
+    const [image] = await service.importBytes([
+      {
+        name: "diagram.png",
+        bytes: new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+      },
+    ]);
+    const imageAttachment = image as MediaAttachment;
+    const digest = path.basename(path.dirname(fileURLToPath(imageAttachment.uri)));
+
+    await expect(
+      service.validatedStoredPath({ ...imageAttachment, mimeType: "image/jpeg" }),
+    ).rejects.toThrow(/no longer matches its media type/i);
+    await expect(
+      service.validatedStoredPath({
+        ...imageAttachment,
+        uri: pathToFileURL(path.join(root, "media", "not-a-digest", "image.png")).href,
+      }),
+    ).rejects.toThrow(/media id is invalid/i);
+    await expect(
+      service.validatedStoredPath({ ...imageAttachment, sizeBytes: imageAttachment.sizeBytes + 1 }),
+    ).rejects.toThrow(/preview is unavailable/i);
+    await expect(service.resolveProtocolUrl("file:///tmp/image.png")).rejects.toThrow(
+      /invalid media preview URL/i,
+    );
+    await expect(
+      service.resolveProtocolUrl(`swarmx-media://asset/${digest}/bad%2Fname.png`),
+    ).rejects.toThrow(/invalid media preview path/i);
+    await expect(
+      service.resolveProtocolUrl(`swarmx-media://asset/${"a".repeat(64)}/missing.png`),
+    ).rejects.toThrow(/resolved outside|unavailable/i);
+
+    const outside = path.join(root, "outside.txt");
+    await writeFile(outside, "outside");
+    const escapedDigest = "b".repeat(64);
+    const escapedDirectory = path.join(root, "media", escapedDigest);
+    await mkdir(escapedDirectory, { recursive: true });
+    await symlink(outside, path.join(escapedDirectory, "escaped.txt"));
+    await expect(
+      service.validatedStoredPath({
+        ...imageAttachment,
+        id: escapedDigest,
+        name: "escaped.txt",
+        uri: pathToFileURL(path.join(escapedDirectory, "escaped.txt")).href,
+      }),
+    ).rejects.toThrow(/outside the managed media store/i);
   });
 
   it("does not trust a renderer-supplied MIME type without a signature or extension", async () => {
@@ -189,6 +266,52 @@ describe("DesktopMediaService", () => {
         })),
       ),
     ).rejects.toThrow(/500 MiB or less/i);
+  });
+
+  it("rejects empty names and truncates large text previews", async () => {
+    const root = await temporaryDirectory();
+    const service = new DesktopMediaService(path.join(root, "media"));
+
+    await expect(service.importBytes([{ name: "  ", bytes: new Uint8Array() }])).rejects.toThrow(
+      /name cannot be empty/i,
+    );
+
+    const largeText = new Uint8Array(512 * 1024 + 1).fill(97);
+    const [attachment] = await service.importBytes([{ name: "large.txt", bytes: largeText }]);
+    await expect(service.preview(attachment as MediaAttachment)).resolves.toMatchObject({
+      status: "available",
+      text: expect.stringContaining("[Preview truncated]"),
+    });
+  });
+
+  it("expires and evicts one-shot protocol preview receipts", async () => {
+    const root = await temporaryDirectory();
+    const service = new DesktopMediaService(path.join(root, "media"));
+    const attachments: MediaAttachment[] = [];
+    for (let batch = 0; batch < 4; batch += 1) {
+      attachments.push(
+        ...(await service.importBytes(
+          Array.from({ length: batch === 3 ? 5 : 20 }, (_, index) => ({
+            name: `receipt-${batch}-${index}.txt`,
+            bytes: new TextEncoder().encode(`${batch}-${index}`),
+          })),
+        )),
+      );
+    }
+    for (const attachment of attachments) {
+      await service.validatedStoredPath(attachment, true);
+    }
+
+    const [first] = attachments;
+    const firstUrl = mediaProtocolUrl(first as MediaAttachment);
+    vi.useFakeTimers();
+    try {
+      await service.validatedStoredPath(first as MediaAttachment, true);
+      vi.advanceTimersByTime(30_001);
+      await expect(service.resolveProtocolUrl(firstUrl)).resolves.toMatch(/receipt-0-0\.txt$/);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

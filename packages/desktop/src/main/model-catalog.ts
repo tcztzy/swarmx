@@ -23,7 +23,7 @@ import type { CodexAccessTokenProvider } from "./codex-auth.js";
 import type { ProviderAuthStore } from "./provider-auth.js";
 import {
   newApiAccountCredentialKey,
-  ProviderCredentialDecryptionError,
+  ProviderCredentialReadError,
   providerPoolCredentialKey,
 } from "./provider-auth.js";
 import {
@@ -469,7 +469,7 @@ export class ModelCatalogService {
             apiEntrypoints: provider.apiEntrypoints,
             authMode: provider.authMode,
             secretRef: {
-              source: "local_keychain",
+              source: "local_auth_file",
               key: provider.id,
               service: "swarmx-provider",
               account: provider.id,
@@ -834,6 +834,7 @@ export class ModelCatalogService {
 
   private async resolveSecret(
     provider: ProviderProfile,
+    readCredential = true,
   ): Promise<{ ready: true; value?: string } | { ready: false; error: string }> {
     if (!provider.secretRef) return { ready: true };
     if (provider.secretRef.source === "env") {
@@ -845,11 +846,16 @@ export class ModelCatalogService {
             error: `Environment secret ${provider.secretRef.key} is not set.`,
           };
     }
-    if (provider.secretRef.source === "local_keychain") {
+    if (provider.secretRef.source === "local_auth_file") {
       if (!this.authStore) {
-        return { ready: false, error: "Secure Provider credential storage is unavailable." };
+        return { ready: false, error: "Provider credential file is unavailable." };
       }
       try {
+        if (!readCredential && this.authStore.has) {
+          return (await this.authStore.has(provider.secretRef.key))
+            ? { ready: true }
+            : { ready: false, error: `Provider "${provider.id}" credential is not configured.` };
+        }
         const value = await this.authStore.get(provider.secretRef.key);
         return value
           ? { ready: true, value }
@@ -878,12 +884,15 @@ export class ModelCatalogService {
           : "Codex sign-in is unavailable. Open Codex and sign in again.",
       };
     }
-    const resolution = await this.resolveSecret(provider);
+    const resolution = await this.resolveSecret(provider, false);
     const accountUserId = stringProperty(provider, "newApiAccountUserId");
     let accountAccessReady: boolean | undefined;
     if (stringProperty(provider, "usageAdapter") === "new_api" && accountUserId) {
       try {
-        accountAccessReady = !!(await this.authStore?.get(newApiAccountCredentialKey(provider.id)));
+        const credentialKey = newApiAccountCredentialKey(provider.id);
+        accountAccessReady = this.authStore?.has
+          ? await this.authStore.has(credentialKey)
+          : !!(await this.authStore?.get(credentialKey));
       } catch {
         accountAccessReady = false;
       }
@@ -903,7 +912,7 @@ export class ModelCatalogService {
 
   private requireAuthStore(): ProviderAuthStore {
     if (!this.authStore) {
-      throw new Error("Secure Provider credential storage is unavailable.");
+      throw new Error("Provider credential file is unavailable.");
     }
     return this.authStore;
   }
@@ -1530,7 +1539,7 @@ async function readProviderCredentialForUpdate(
   try {
     return await authStore.get(key);
   } catch (error) {
-    if (replacementIsExplicit && error instanceof ProviderCredentialDecryptionError) {
+    if (replacementIsExplicit && error instanceof ProviderCredentialReadError) {
       return undefined;
     }
     throw error;

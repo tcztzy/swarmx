@@ -61,7 +61,7 @@ export const SecretVaultEntrySchema = z.preprocess(
       value: z.string(),
       purpose: SecretPurposeSchema.default("custom"),
       updatedAt: z.string().min(1).optional(),
-      metadata: z.record(z.string(), z.unknown()).default({}),
+      metadata: z.record(z.string(), z.unknown()).prefault({}),
     })
     .passthrough()
     .superRefine((entry, ctx) => addSecretIssuesSkipping(entry, ctx, [["value"]])),
@@ -74,7 +74,7 @@ export const SecretVaultDocumentSchema = z.preprocess(
       schemaVersion: z.literal(1).default(1),
       service: z.string().min(1).optional(),
       fileMode: z.string().min(3).optional(),
-      secrets: z.record(z.string().min(1), SecretVaultEntrySchema).default({}),
+      secrets: z.record(z.string().min(1), SecretVaultEntrySchema).prefault({}),
     })
     .passthrough()
     .superRefine((document, ctx) => addSecretIssuesSkipping(document, ctx, [["secrets"]])),

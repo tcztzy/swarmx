@@ -203,7 +203,7 @@ export const ProviderProfileSchema = z.preprocess(
       authMode: ProviderAuthModeSchema.default("api_key"),
       secretRef: z
         .object({
-          source: z.enum(["env", "local_keychain", "server_keychain", "prompt"]),
+          source: z.enum(["env", "local_auth_file", "server_keychain", "prompt"]),
           key: z.string().min(1),
         })
         .optional(),
@@ -576,7 +576,7 @@ export const PluginCatalogEntrySchema = z
         permissions: z.number().int().nonnegative().default(0),
         authPolicies: z.number().int().nonnegative().default(0),
       })
-      .default({}),
+      .prefault({}),
     readOnly: z.boolean().optional(),
     description: z.string().optional(),
   })
@@ -617,7 +617,7 @@ export const ExtensionBundleSchema = z
         marketplaceSources: z.array(MarketplaceSourceSchema).default([]),
         pluginCatalog: z.array(PluginCatalogEntrySchema).default([]),
       })
-      .default({}),
+      .prefault({}),
   })
   .passthrough();
 

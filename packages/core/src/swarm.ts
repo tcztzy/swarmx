@@ -42,7 +42,7 @@ export class SwarmNode {
     } else if (parsed.kind === "tool") {
       this.tool = new Tool(parsed.tool);
     } else {
-      this.swarm = new Swarm(parsed.swarm, options);
+      this.swarm = new Swarm(parsed.swarm as SwarmConfig, options);
     }
   }
 
@@ -67,7 +67,7 @@ export class Swarm {
   hooks: Hook[];
 
   constructor(config: SwarmConfig, options: SwarmRuntimeOptions = {}) {
-    const parsed = SwarmConfigSchema.parse(config);
+    const parsed = SwarmConfigSchema.parse(config) as SwarmConfig;
     this.name = parsed.name;
     this.description = parsed.description;
     this.parameters = parsed.parameters ?? {};

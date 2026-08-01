@@ -21,7 +21,7 @@ describe("provider supply primitives", () => {
         display_name: "DeepSeek",
         kind: "openai_chat",
         base_url: "https://api.deepseek.example/v1",
-        secret_ref: { source: "local_keychain", key: "providers/deepseek" },
+        secret_ref: { source: "local_auth_file", key: "providers/deepseek" },
       }),
     ).toMatchObject({
       id: "deepseek",
@@ -62,7 +62,7 @@ describe("provider supply primitives", () => {
     expect(() =>
       parseProviderSecretStatus({
         profile_id: "openai",
-        source: "local_keychain",
+        source: "local_auth_file",
         configured: true,
         value: "sk-test",
       }),
@@ -154,7 +154,7 @@ describe("provider supply primitives", () => {
       kind: "anthropic",
       baseUrl: "https://anthropic.example",
       authMode: "api_key",
-      secretRef: { source: "local_keychain", key: "anthropic-key" },
+      secretRef: { source: "local_auth_file", key: "anthropic-key" },
     });
     const tokenProfile = parseProviderProfileMetadata({
       id: "anthropic-token",
@@ -162,7 +162,7 @@ describe("provider supply primitives", () => {
       kind: "anthropic",
       baseUrl: "https://anthropic.example",
       auth_mode: "auth_token",
-      secretRef: { source: "local_keychain", key: "anthropic-token" },
+      secretRef: { source: "local_auth_file", key: "anthropic-token" },
     });
 
     expect(
@@ -220,7 +220,7 @@ describe("provider supply primitives", () => {
         anthropic: "https://api.deepseek.com/anthropic",
         openai_chat: "https://api.deepseek.com",
       },
-      secretRef: { source: "local_keychain", key: "deepseek" },
+      secretRef: { source: "local_auth_file", key: "deepseek" },
     });
 
     const preferred = buildProviderRuntimeEnv(profile, {
