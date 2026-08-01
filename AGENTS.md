@@ -1,96 +1,106 @@
 # Repository Guidelines
 
-YOU ARE THE MOST CAPABLE MODEL AND THIS PROJECT IS DIFFICULT META-PROGRAMMING THAT AVERAGE MODELS CANNOT HANDLE, WITH INTERLOCKING CONSTRAINTS WHERE A SINGLE MISSTEP BREAKS THE PIPELINE. IT DEMANDS INSIGHT BEYOND A TYPICAL PHD —- DO NOT TREAT IT LIGHTLY.
+Authoritative instructions for coding agents working in this repository. Follow
+them unless the user explicitly overrides a rule.
 
-Authoritative instructions for coding agents working in this repo. Follow every constraint unless the user explicitly overrides it.
+## Workflow
 
-## Quick Start
-- Read the user request twice; note unstated constraints and cross-file impacts.
-- Plan when work is more than trivial and keep it updated; otherwise proceed directly.
-- Inspect relevant files first with read-only commands (`rg`, `ls`, `cat`).
-- Make focused, minimal edits; prefer patch-style changes or targeted scripts.
-- Run only the needed validation via `pnpm build` / `pnpm test`; summarize results.
-- Craft the final response using the messaging rules below, including verification status and next actions when relevant.
+- Read the request carefully and identify cross-file effects before editing.
+- Plan non-trivial work and keep the plan current.
+- Inspect relevant files with `rg`, `rg --files`, `ls`, and focused reads.
+- Preserve user-owned changes and avoid destructive Git commands.
+- Make focused, minimal edits with patch-style tools.
+- Validate in proportion to risk and report what ran or was skipped.
+- Keep secrets, credentials, generated output, and local artifacts out of Git.
 
-## Project Structure & Key Files
-- `packages/core/` – Core library (`agent.ts`, `swarm.ts`, `mcp.ts`, `session.ts`, `edge.ts`, `tool.ts`, `server.ts`). Built with **TypeScript 5.7**, **zod** for validation, **cel-js** for CEL expression evaluation, **@agentclientprotocol/sdk** for ACP, **@modelcontextprotocol/sdk** for MCP.
-- `packages/cli/` – CLI binary (`swarmx`). Built with Commander. Subcommands: `send`, `serve`, `sessions`, `harnesses`, `repl`.
-- `packages/acp-server/` – ACP server implementation. Accepts ACP connections from clients and delegates to a `Swarm`.
-- `packages/desktop/` – Electron desktop application. Three-layer architecture: **Main** (Node.js IPC handlers), **Preload** (contextBridge API), **Renderer** (React 19 SPA). Built with Electron 33, React 19, electron-vite.
-- `docs/`, `examples/` – Narrative docs and usage patterns.
-- See `README.md` and `docs/` for deeper context.
+## Repository Map
 
-## Tech Stack
+| Path | Responsibility |
+| --- | --- |
+| `packages/core/` | Agents, `SwarmConfig` execution, ACP/MCP, Sessions, Projects, and reusable contracts |
+| `packages/runtime/` | Runtime detection, Doctor reports, and repair planning |
+| `packages/acp-server/` | ACP server backed by a `Swarm` and Core Sessions |
+| `packages/cli/` | Commander CLI: `doctor`, `send`, `eval-run`, `serve`, `sessions`, `harnesses`, and `repl` |
+| `packages/desktop/` | Electron Main, Preload, Renderer, and host integrations |
+| `packages/swarmx/` | Desktop-first npm launcher and CLI compatibility |
+| `docs/` | Current user, feature, protocol, and product-direction documentation |
+| `evals/` | Inspect evaluation adapter and fixtures |
 
-| Technology | Version | Purpose |
-|------------|---------|---------|
-| TypeScript | 5.7 | Type-safe language with ESM modules |
-| openai | 6.x | OpenAI API client SDK (any OpenAI-compatible provider) |
-| Electron | 33 | Cross-platform desktop app shell |
-| React | 19 | Renderer UI framework |
-| electron-vite | — | Build toolchain for Electron |
-| zod | 3.24 | Schema validation |
-| @agentclientprotocol/sdk | 0.22 | ACP TypeScript SDK |
-| @modelcontextprotocol/sdk | 1.29 | MCP TypeScript SDK |
-| cel-js | 0.8 | CEL expression evaluation |
-| Biome | 1.9 | Linter + formatter |
-| Vitest | 3.0 | Test framework |
+Dependency versions are authoritative in package manifests and lockfiles.
 
-## Architecture Patterns
-- **Main/Preload/Renderer**: Electron security model with `contextIsolation: true`, `nodeIntegration: false`. IPC handlers in main process, `contextBridge` API in preload, React SPA in renderer.
-- **ACP**: Agents communicate via the Agent Client Protocol over ndjson streams. `AcpClient` spawns subprocesses, `AcpServer` handles incoming connections.
-- **Session persistence**: JSON files in `~/.swarmx/sessions/{id}.json`.
-- **Harnesses**: Agent backend definitions in `core/src/harness.ts`.
+## Architecture Invariants
 
-## Workflow & Guardrails
-- Plan for non-trivial tasks; keep plans current.
-- Default to ASCII. Add concise comments only when they clarify complex logic. Never revert user-owned changes.
-- Use `pnpm -r build` / `pnpm -r test` for validation; mention skipped tests and why.
-- Stay within provided access; request approval before privileged actions. Avoid destructive git commands.
-- Surface failures promptly with relevant output and proposed alternatives.
+- **Main/Preload/Renderer:** Renderer has no direct Node.js authority. Privileged
+  work goes through a narrow typed Preload bridge to authorized Main handlers.
+- **Identity:** Model, Provider, Harness, Agent, Extension, and Project remain
+  separate concepts. Agent identity is `harnessId:modelId`.
+- **Workflows:** `SwarmConfig` is the only persisted workflow format.
+- **ACP:** External Harnesses own their native tools, authentication, sessions,
+  and permissions. Do not inject duplicate SwarmX tools.
+- **Sessions:** Canonical history is append-only JSONL under
+  `~/.swarmx/sessions/`; the metadata index is rebuildable.
+- **Boundaries:** Use zod at persistence, IPC, protocol, plugin, and public input
+  boundaries. Renderer imports must use browser-safe Core subpaths.
+- **Side effects:** Discovery and planning are read-only. Installation, repair,
+  trust changes, authority changes, and destructive operations are explicit.
+- **Secrets:** Persist references or encrypted Main-owned state, never plaintext
+  secrets in settings, Renderer data, traces, telemetry, or logs.
 
-## Command Reference
-- Inspect: `ls`, `rg --files`, `rg "<pattern>" <path>`
-- Format/lint: `pnpm lint`, `pnpm format`
-- Tests: `pnpm test`, `pnpm -r test`, `pnpm test:watch`
-- Build: `pnpm build`, `pnpm -r build`
-- Dev: `pnpm dev`
-- Dependencies: Edit `package.json` in individual packages; run `pnpm install` to update lockfile.
-- Editing: prefer patch-based tools or scripted transformations.
+See `SPEC.md` for product requirements and `DESIGNS.md` for architecture.
 
-## Coding Style & Naming
-- Target TypeScript 5.7 strict mode; ESM modules (`"type": "module"`).
-- Prefer concise, functional TypeScript; leverage `zod` for runtime validation.
-- Use `zod` schemas for API boundaries; derive TypeScript types via `z.infer<>`.
-- Error handling: throw typed errors or return `Result<T, E>` pattern.
-- Naming: Types/interfaces `PascalCase`, functions/variables `camelCase`, constants `UPPER_SNAKE_CASE`, files `kebab-case`.
-- Tests co-located as `*.test.ts` files alongside source.
+## Commands
 
-## Testing
-- `vitest` is the framework of record; aim for >90% coverage.
-- Test files use `*.test.ts` naming pattern.
-- Prefer `pnpm -r test` to run all package tests.
-- Always note whether tests ran, passed, or were skipped.
+```shell
+pnpm lint
+pnpm test
+pnpm test:coverage
+pnpm -r build
+pnpm run ci:node
+pnpm dev
+```
 
-## Communication & Final Messages
-- Tone: concise, collaborative, factual. Reference files with clickable paths (`path/to/file.ts:42`).
-- Lead with the outcome, then explain changes by file/section. Use bullets sparingly.
-- Always state verification status (tests/linters run or skipped) and only suggest natural next steps.
-- Do not dump large diffs; describe impact and locations for local inspection.
+Use focused package tests during implementation and the relevant broader gate
+before completion. Edit a package's `package.json` for dependencies and run
+`pnpm install` when the lockfile must change.
 
-## Commit & PR Guidelines
-- Default to committing and pushing directly to `main`; do not create or switch to a separate branch unless the user explicitly requests one.
-- Commit messages: Keep ≤50 characters, imperative, using KeepAChangelog verbs (`Added`, `Changed`, `Deprecated`, `Removed`, `Fixed`, `Security`). Provide body when needed; never include "generated by LLM".
-- PRs: Describe changes clearly, link issues, ensure tests pass, update docs when required.
+## TypeScript Style
 
-## Security & Configuration
-- Environment variables load from `.env`; keep `.env.example` in sync.
-- Never commit secrets or credentials.
-- MCP servers require proper auth; keep configuration aligned with `mcp.ts`.
-- See `DESIGNS.md` for detailed agent architecture, graph invariants, and MCP integration notes.
+- Use strict TypeScript and ESM modules.
+- Prefer concise functional code without clever compression.
+- Use zod schemas for runtime boundaries and derive types with `z.infer<>`.
+- Keep errors actionable; do not swallow failures or silently widen authority.
+- Name types and interfaces `PascalCase`, values `camelCase`, constants
+  `UPPER_SNAKE_CASE`, and files `kebab-case`.
+- Add comments only when they clarify a non-obvious invariant.
+- Let Biome own formatting and import organization.
 
-## Related Resources
-- `README.md` – overview and getting started.
-- `docs/` – extended guides and references.
-- `examples/` – practical usage patterns.
-- `DESIGNS.md` – agent architecture, graph invariants, MCP integration, and UI architecture.
+## Tests
+
+- Vitest is the JavaScript/TypeScript test framework.
+- Name tests `*.test.ts` or `*.test.tsx` and follow the package's existing
+  placement.
+- Test public behavior, boundary rejection, cancellation, persistence, and
+  security-sensitive failure paths.
+- Coverage thresholds and audited files are defined in repository configuration;
+  do not duplicate their values in documentation.
+- Always state whether tests, lint, and builds passed or were skipped.
+
+## Documentation
+
+- Keep `SPEC.md` short and limited to durable product requirements.
+- Keep `ROADMAP.md` limited to unfinished work.
+- Put architecture decisions in `DESIGNS.md` and feature guidance in `docs/`.
+- Use Git history and release notes for completed tasks, incidents, and old
+  research; do not rebuild ledgers in current documentation.
+- Avoid hard-coding dependency versions outside manifests unless a compatibility
+  rule specifically requires an exact version.
+
+## Git and Delivery
+
+- Default to the current branch and preserve unrelated work. Do not create or
+  switch branches unless requested.
+- If the user asks for a commit, use an imperative Keep a Changelog verb and
+  keep the subject at most 50 characters.
+- Never include secrets or claim tests passed when they did not run.
+- In the final response, lead with the outcome, cite changed files, state
+  verification status, and mention only natural next steps.

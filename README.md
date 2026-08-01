@@ -103,6 +103,9 @@ pnpm --filter @swarmx/desktop dist:mac
 
 ## Documentation
 
+- [Current product specification](SPEC.md)
+- [Product vision](docs/vision.md)
+- [Roadmap](ROADMAP.md)
 - [Architecture and design](DESIGNS.md)
 - [Full documentation](docs/index.md)
 - [Extensions and Custom Agents](docs/extensions-custom-agents.md)

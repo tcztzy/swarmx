@@ -21,8 +21,6 @@ theme:
 
 plugins:
 - search
-- literate-nav:
-    nav_file: SUMMARY.md
 
 markdown_extensions:
 - admonition
@@ -35,5 +33,11 @@ markdown_extensions:
 
 nav:
 - Home: index.md
-- Server: server.md
-- Hooks: hooks.md
+- Product vision: vision.md
+- Guides:
+  - Extensions and Custom Agents: extensions-custom-agents.md
+  - Multimedia attachments: multimedia.md
+  - Native tool compatibility: native-tool-compatibility.md
+  - Claude Code tool parity: claude-code-tool-parity.md
+  - OpenAI-compatible server: server.md
+  - Hooks: hooks.md

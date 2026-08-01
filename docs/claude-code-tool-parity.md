@@ -39,14 +39,14 @@ for direct SwarmX model execution.
 | 16 | `LSP` | Conditional | Implemented for direct desktop Claude requests when a command-backed inventory LSP matches the contained Project file; all nine 2.1.187 read-only operations use one-based input and exact structured result fields. |
 | 17 | `Monitor` | Implemented | Exact strict `command`, `description`, optional `timeout_ms`/`persistent` input and `{taskId, timeoutMs, persistent?}` output. It runs in the Project sandbox, retains the session shell, coalesces and bounds stdout-line notifications, rate-limits floods, marks process text untrusted, serially reinjects events between foreground turns, and remains stoppable through `TaskStop`; persistent tasks end on stop, Session deletion, or app shutdown. |
 | 18 | `NotebookEdit` | Implemented | Guarded replace/insert/delete by cell id with Agent SDK-compatible output. |
-| 19 | `PowerShell` | TODO | Requires a Windows-native sandboxed process host, background lifecycle, and schema/output tests; the current macOS Seatbelt Shell cannot honestly stand in for it. Tracked by `T195`. |
+| 19 | `PowerShell` | TODO | Requires a Windows-native sandboxed process host, background lifecycle, and schema/output tests; the current macOS Seatbelt Shell cannot honestly stand in for it. Tracked in the [roadmap](../ROADMAP.md#known-native-tool-parity-gaps). |
 | 20 | `PushNotification` | Conditional | Remote Control/account notification service; no local placeholder. |
 | 21 | `Read` | Partial | Bounded UTF-8 text and notebook JSON work; native image/PDF rendering remains. |
 | 22 | `ReadMcpResourceTool` | Conditional | Implemented for connected MCP text resources; binary resources require a future authorized file sink. |
 | 23 | `RemoteTrigger` | Conditional | Remote Control service and authenticated session required. |
 | 24 | `ReportFindings` | Implemented | Up to 32 validated repo-relative findings with exact structured echo. |
 | 25 | `ScheduleWakeup` | Conditional | Requires durable desktop/task wakeups; no response-only timer substitute. |
-| 26 | `SendMessage` | TODO | Exact recipient/message/summary delivery requires concurrently live parent/teammate agents, identities, mailboxes, and shutdown/plan protocol frames; synchronous child resume is insufficient. Tracked by `T196`. |
+| 26 | `SendMessage` | TODO | Exact recipient/message/summary delivery requires concurrently live parent/teammate agents, identities, mailboxes, and shutdown/plan protocol frames; synchronous child resume is insufficient. Tracked in the [roadmap](../ROADMAP.md#known-native-tool-parity-gaps). |
 | 27 | `SendUserFile` | Conditional | Remote Control file-transfer service and user authorization required. |
 | 28 | `ShareOnboardingGuide` | Conditional | Claude account/onboarding surface; not a Project operation. |
 | 29 | `Skill` | Conditional | Implemented for composition-selected filesystem Skills with native argument and environment substitutions. |
@@ -61,7 +61,7 @@ for direct SwarmX model execution.
 | 38 | `WaitForMcpServers` | Conditional | Implemented while configured MCP servers are pending: waits at most five seconds, returns all Claude status buckets, and makes successfully connected server tools visible on the next model step. |
 | 39 | `WebFetch` | Conditional | Expose only through a provider/browser capability with URL policy and documented extraction behavior. |
 | 40 | `WebSearch` | Conditional | Expose only when the selected provider advertises hosted web search. |
-| 41 | `Workflow` | TODO | Claude Code runs deterministic JavaScript `agent()`/`parallel()`/`pipeline()` scripts asynchronously with persisted script files and resumable run caches. SwarmX graph workflows are a different contract and are not exposed under this name. Tracked by `T197`. |
+| 41 | `Workflow` | TODO | Claude Code runs deterministic JavaScript `agent()`/`parallel()`/`pipeline()` scripts asynchronously with persisted script files and resumable run caches. SwarmX graph workflows are a different contract and are not exposed under this name. Tracked in the [roadmap](../ROADMAP.md#known-native-tool-parity-gaps). |
 | 42 | `Write` | Implemented | Bounded UTF-8 create/replace with read digest, stale-file rejection, and atomic rename. |
 
 The headless/non-interactive direct Claude profile exposes 17 of 42 names. A session-backed desktop direct Claude
