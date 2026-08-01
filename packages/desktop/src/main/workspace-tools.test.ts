@@ -17,8 +17,8 @@ import type { ClaudeInteractionRequest, ClaudeInteractionResponse } from "./agen
 import { WorkspaceShell } from "./workspace-shell.js";
 import {
   type ClaudeSessionToolBridge,
-  WorkspaceTools,
   projectAgentContextMessage,
+  WorkspaceTools,
   workspaceAgentTools,
 } from "./workspace-tools.js";
 

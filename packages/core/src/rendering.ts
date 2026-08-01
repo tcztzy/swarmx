@@ -1,6 +1,6 @@
 import { z } from "zod";
-import { MessageChunkSchema } from "./types.js";
 import type { MessageChunk } from "./types.js";
+import { MessageChunkSchema } from "./types.js";
 
 const ALLOWED_SECRET_REFERENCE_KEYS = new Set([
   "secretref",

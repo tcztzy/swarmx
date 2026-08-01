@@ -10,12 +10,14 @@
   }
 
   .app-shell {
-    background: linear-gradient(180deg, rgba(255, 255, 255, 0.82), transparent 260px),
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.82), transparent 260px),
       linear-gradient(115deg, rgba(8, 124, 155, 0.07), transparent 34%), var(--background);
   }
 
   .app-shell::before {
-    background-image: linear-gradient(rgba(23, 25, 31, 0.16) 1px, transparent 1px),
+    background-image:
+      linear-gradient(rgba(23, 25, 31, 0.16) 1px, transparent 1px),
       linear-gradient(90deg, rgba(23, 25, 31, 0.12) 1px, transparent 1px);
   }
 
@@ -39,7 +41,8 @@
   }
 
   .composer-dock {
-    background: linear-gradient(180deg, rgba(244, 246, 249, 0), rgba(244, 246, 249, 0.9) 34%),
+    background:
+      linear-gradient(180deg, rgba(244, 246, 249, 0), rgba(244, 246, 249, 0.9) 34%),
       rgba(244, 246, 249, 0.86);
   }
 
@@ -139,11 +142,15 @@
   background: var(--card);
   border: 1px solid var(--border-subtle);
   border-radius: 15px;
-  box-shadow: var(--shadow-inset), 0 10px 28px rgba(0, 0, 0, 0.08);
+  box-shadow:
+    var(--shadow-inset),
+    0 10px 28px rgba(0, 0, 0, 0.08);
   text-align: left;
   cursor: pointer;
-  transition: transform var(--duration-fast) var(--ease-out), background-color var(--duration-fast)
-    var(--ease-out), border-color var(--duration-fast) var(--ease-out);
+  transition:
+    transform var(--duration-fast) var(--ease-out),
+    background-color var(--duration-fast) var(--ease-out),
+    border-color var(--duration-fast) var(--ease-out);
 }
 
 .empty-run__suggestion:hover {
@@ -153,7 +160,9 @@
 }
 
 .empty-run__suggestion:focus-visible {
-  box-shadow: inset 0 0 0 2px var(--ring), var(--shadow-inset);
+  box-shadow:
+    inset 0 0 0 2px var(--ring),
+    var(--shadow-inset);
 }
 
 .empty-run__suggestion svg {
@@ -199,8 +208,10 @@
   transition:
     transform var(--duration-fast) var(--ease-out),
     background-color var(--duration-fast) var(--ease-out),
-    border-color var(--duration-fast) var(--ease-out), color var(--duration-fast) var(--ease-out),
-    opacity var(--duration-fast) var(--ease-out), box-shadow var(--duration-fast) var(--ease-out);
+    border-color var(--duration-fast) var(--ease-out),
+    color var(--duration-fast) var(--ease-out),
+    opacity var(--duration-fast) var(--ease-out),
+    box-shadow var(--duration-fast) var(--ease-out);
 }
 
 .button:not(:disabled):hover {
@@ -225,7 +236,9 @@
   color: var(--primary-foreground);
   background: linear-gradient(180deg, #ffffff, #dce3ed);
   border-color: rgba(255, 255, 255, 0.86);
-  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.22), inset 0 1px 0 rgba(255, 255, 255, 0.92);
+  box-shadow:
+    0 10px 24px rgba(0, 0, 0, 0.22),
+    inset 0 1px 0 rgba(255, 255, 255, 0.92);
 }
 
 .button--default:hover {
@@ -341,7 +354,9 @@
     color: var(--primary-foreground);
     background: linear-gradient(180deg, #303641, #20242c);
     border-color: rgba(20, 24, 31, 0.72);
-    box-shadow: 0 8px 20px rgba(44, 58, 78, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.18);
+    box-shadow:
+      0 8px 20px rgba(44, 58, 78, 0.2),
+      inset 0 1px 0 rgba(255, 255, 255, 0.18);
   }
 
   .button--default:hover {

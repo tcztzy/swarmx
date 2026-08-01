@@ -4,7 +4,7 @@ import { constants } from "node:fs";
 import { access, mkdtemp, realpath, rm, stat } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { type LocalMcpTool, currentRequestSignal } from "@swarmx/core";
+import { currentRequestSignal, type LocalMcpTool } from "@swarmx/core";
 import type { IDisposable, IPty } from "node-pty";
 import * as pty from "node-pty";
 import { ensurePtySpawnHelperExecutable } from "./pty-runtime.js";
@@ -300,10 +300,7 @@ export class WorkspaceShell {
   }
 
   listTasks(
-    options: {
-      activeOnly?: boolean;
-      limit?: number;
-    } = {},
+    options: { activeOnly?: boolean; limit?: number } = {},
   ): WorkspaceShellSessionSnapshot[] {
     const activeOnly = options.activeOnly ?? true;
     const limit = boundedInteger(options.limit, 20, 1, 100, "limit");
@@ -894,7 +891,7 @@ function seatbeltProfile(
     "(deny default)",
     "(allow process*)",
     "(allow file-read*)",
-    `(allow file-write* ${writablePaths} (literal \"/dev/null\"))`,
+    `(allow file-write* ${writablePaths} (literal "/dev/null"))`,
     ...(tty ? ['(allow file-ioctl (literal "/dev/tty") (regex #"^/dev/ttys[0-9]+$"))'] : []),
     "(allow sysctl-read)",
     "(allow mach-lookup)",

@@ -1,8 +1,8 @@
 import { z } from "zod";
 import { BuiltinToolStyleSchema } from "./builtin-tools.js";
 import { HARNESSES } from "./harness.js";
-import { ModelApiSchema } from "./model-api.js";
 import type { ModelApi } from "./model-api.js";
+import { ModelApiSchema } from "./model-api.js";
 
 const CLAUDE_CODE_BUILTIN_TOOL_MODEL_IDS = new Set([
   "claude-opus-4-5",

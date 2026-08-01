@@ -1,6 +1,6 @@
 import { z } from "zod";
-import { MessageChunkSchema } from "./types.js";
 import type { MessageChunk } from "./types.js";
+import { MessageChunkSchema } from "./types.js";
 
 const REDACTED_VALUE = "[redacted]";
 

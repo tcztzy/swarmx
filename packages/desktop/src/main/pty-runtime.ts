@@ -1,4 +1,4 @@
-import { constants, chmodSync, statSync } from "node:fs";
+import { chmodSync, constants, statSync } from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
 

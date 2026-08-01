@@ -9,11 +9,11 @@ import {
   resolveHarnessModelInventory,
 } from "@swarmx/core";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ModelCatalogService, humanReadableModelLabel } from "./model-catalog.js";
+import { humanReadableModelLabel, ModelCatalogService } from "./model-catalog.js";
 import {
+  newApiAccountCredentialKey,
   type ProviderAuthStore,
   ProviderCredentialDecryptionError,
-  newApiAccountCredentialKey,
   providerPoolCredentialKey,
 } from "./provider-auth.js";
 import { ProviderKeyUsageStore } from "./provider-key-pool.js";

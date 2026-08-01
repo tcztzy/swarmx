@@ -1,15 +1,15 @@
 import OpenAI from "openai";
 import { describe, expect, it, vi } from "vitest";
+import type { AcpPromptInput } from "../src/acp.js";
 import {
   AcpSessionUnavailableError,
-  RequestCancelledError,
   cancelAcpRequest,
+  RequestCancelledError,
   withAcpRequest,
 } from "../src/acp.js";
-import type { AcpPromptInput } from "../src/acp.js";
 import { Agent, HookRef } from "../src/agent.js";
-import { McpManager, localToolResult } from "../src/mcp.js";
 import type { LocalToolCallContext, McpConnectionResult } from "../src/mcp.js";
+import { localToolResult, McpManager } from "../src/mcp.js";
 import type { AgentConfig, MessageChunk } from "../src/types.js";
 
 describe("Agent", () => {

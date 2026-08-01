@@ -1,11 +1,11 @@
 import type { SessionInfo } from "@agentclientprotocol/sdk";
 import { describe, expect, it } from "vitest";
+import type { DiscoveredSession } from "../src/session-discovery.js";
 import {
   acpSessionToDiscovered,
   groupDiscoveredSessions,
   loadDiscoveredSession,
 } from "../src/session-discovery.js";
-import type { DiscoveredSession } from "../src/session-discovery.js";
 
 describe("Session discovery", () => {
   it("groups sessions by harness", () => {

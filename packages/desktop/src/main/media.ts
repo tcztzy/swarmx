@@ -4,17 +4,17 @@ import { copyFile, mkdir, open, realpath, rm, stat, writeFile } from "node:fs/pr
 import { homedir } from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import type { MediaAttachment } from "@swarmx/core";
 import {
-  MAX_MEDIA_ATTACHMENTS,
+  detectMediaMimeType,
   MAX_MEDIA_ATTACHMENT_BYTES,
+  MAX_MEDIA_ATTACHMENTS,
   MAX_MEDIA_TURN_BYTES,
   MEDIA_SNIFF_BYTES,
   MediaAttachmentSchema,
-  detectMediaMimeType,
   mediaKindFromMimeType,
   validateMediaAttachments,
 } from "@swarmx/core";
-import type { MediaAttachment } from "@swarmx/core";
 
 // Duplicated in shared/desktop-api.ts: tsconfig.main-lib rootDir forbids importing ../shared.
 export interface DesktopMediaImport {

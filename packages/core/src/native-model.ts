@@ -26,14 +26,14 @@ import type {
   ToolExecutionResult,
 } from "./mcp.js";
 import {
-  MAX_INLINE_TEXT_DOCUMENT_BYTES,
   attachmentFallbackText,
   createInlineMediaLoader,
+  MAX_INLINE_TEXT_DOCUMENT_BYTES,
   validateMediaAttachments,
 } from "./media.js";
 import type { ModelApiMode } from "./model-api.js";
-import { ModelTokenUsageSchema } from "./types.js";
 import type { MediaAttachment, MessageChunk, ModelTokenUsage } from "./types.js";
+import { ModelTokenUsageSchema } from "./types.js";
 
 const MAX_TOOL_STEPS = 20;
 const OPENAI_RESPONSES_EFFORTS = new Set([

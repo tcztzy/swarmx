@@ -1,24 +1,5 @@
 /** Reusable Electron main-process integration. This entry does not start an app. */
-export {
-  assertFinalAssistantMessage,
-  disposeDesktopTerminals,
-  registerIpcHandlers,
-} from "./ipc.js";
-export { agentChunkPublisher } from "./agent-chunk-publisher.js";
-export type { AgentChunkSender } from "./agent-chunk-publisher.js";
-export { BrowserHost, normalizeBrowserBounds, normalizeBrowserUrl } from "./browser-host.js";
-export type {
-  BrowserBounds,
-  BrowserOwner,
-  BrowserState,
-  BrowserViewFactory,
-  CreateBrowserRequest,
-} from "./browser-host.js";
-export {
-  HarnessDoctor,
-  HarnessEnvironmentService,
-  configureDesktopHarnessEnvironment,
-} from "@swarmx/runtime";
+
 export type {
   ContainerRuntimeId,
   ContainerRuntimeStatus,
@@ -38,14 +19,39 @@ export type {
   HarnessEnvironmentSetupRequest,
   HarnessEnvironmentSetupResult,
   HarnessEnvironmentStatus,
-  HarnessVersionCheck,
   HarnessProtectionMode,
   HarnessProtectionSummary,
   HarnessRequirementStatus,
   HarnessRuntimeRequirement,
+  HarnessVersionCheck,
   ProtectedHarnessBackendResult,
 } from "@swarmx/runtime";
-export { LspHost } from "./lsp-host.js";
+export {
+  configureDesktopHarnessEnvironment,
+  HarnessDoctor,
+  HarnessEnvironmentService,
+} from "@swarmx/runtime";
+export type { AgentChunkSender } from "./agent-chunk-publisher.js";
+export { agentChunkPublisher } from "./agent-chunk-publisher.js";
+export { AgentInteractionBroker } from "./agent-interactions.js";
+export type {
+  BrowserBounds,
+  BrowserOwner,
+  BrowserState,
+  BrowserViewFactory,
+  CreateBrowserRequest,
+} from "./browser-host.js";
+export { BrowserHost, normalizeBrowserBounds, normalizeBrowserUrl } from "./browser-host.js";
+export { ComposerPreferenceService } from "./composer-preferences.js";
+export type { SaveCustomAgentOptions } from "./custom-agents.js";
+export { CustomAgentService } from "./custom-agents.js";
+export type { ExtensionManagementState } from "./extension-manager.js";
+export { DesktopExtensionManager } from "./extension-manager.js";
+export {
+  assertFinalAssistantMessage,
+  disposeDesktopTerminals,
+  registerIpcHandlers,
+} from "./ipc.js";
 export type {
   LspCompletionRequest,
   LspCompletionResponse,
@@ -53,29 +59,7 @@ export type {
   LspStopResponse,
   LspTextPosition,
 } from "./lsp-host.js";
-export { DesktopRequestRegistry } from "./request-registry.js";
-export { SideChatService } from "./side-chat-service.js";
-export type {
-  CreateSideChatInput,
-  SideChatParentState,
-  UpdateSideChatInput,
-} from "./side-chat-service.js";
-export { AgentInteractionBroker } from "./agent-interactions.js";
-export type { RequestOwner } from "./request-registry.js";
-export { TerminalHost } from "./terminal-host.js";
-export type {
-  CreateTerminalRequest,
-  TerminalOwner,
-  TerminalProcessFactory,
-} from "./terminal-host.js";
-export { NpmDesktopUpdateService, compareSemanticVersions } from "./updater.js";
-export type {
-  DesktopUpdatePhase,
-  DesktopUpdateServiceLike,
-  DesktopUpdateState,
-  NpmDesktopUpdateServiceOptions,
-} from "./updater.js";
-export { ModelCatalogService } from "./model-catalog.js";
+export { LspHost } from "./lsp-host.js";
 export type {
   ManualModelInput,
   ModelCatalogInventory,
@@ -84,9 +68,7 @@ export type {
   ModelCatalogServiceOptions,
   UserProviderInput,
 } from "./model-catalog.js";
-export { CustomAgentService } from "./custom-agents.js";
-export type { SaveCustomAgentOptions } from "./custom-agents.js";
-export { PermissionService } from "./permission-service.js";
+export { ModelCatalogService } from "./model-catalog.js";
 export type {
   DesktopPermissionStatus,
   PermissionLayerStatus,
@@ -94,21 +76,13 @@ export type {
   RecordPermissionDecisionInput,
   ResolveDesktopPermissionOptions,
 } from "./permission-service.js";
-export { ComposerPreferenceService } from "./composer-preferences.js";
-export { DesktopSettingsStore } from "./settings-store.js";
-export type {
-  DesktopSettingsStoreLike,
-  DesktopSettingsStoreOptions,
-} from "./settings-store.js";
-export { DesktopExtensionManager } from "./extension-manager.js";
-export type { ExtensionManagementState } from "./extension-manager.js";
-export { EncryptedFileProviderAuthStore } from "./provider-auth.js";
+export { PermissionService } from "./permission-service.js";
 export type {
   EncryptedFileProviderAuthStoreOptions,
   ProviderAuthStore,
   ProviderSecretEncryption,
 } from "./provider-auth.js";
-export { ProviderUsageService, queryCodexAppServer } from "./provider-usage.js";
+export { EncryptedFileProviderAuthStore } from "./provider-auth.js";
 export type {
   ProviderBalanceUsageMeter,
   ProviderCreditUsageMeter,
@@ -119,7 +93,43 @@ export type {
   ProviderUsageStatus,
   ProviderWindowUsageMeter,
 } from "./provider-usage.js";
-export { WORKSPACE_TOOLS_DEFAULTS, WorkspaceTools } from "./workspace-tools.js";
+export { ProviderUsageService, queryCodexAppServer } from "./provider-usage.js";
+export type { RequestOwner } from "./request-registry.js";
+export { DesktopRequestRegistry } from "./request-registry.js";
+export type {
+  DesktopSettingsStoreLike,
+  DesktopSettingsStoreOptions,
+} from "./settings-store.js";
+export { DesktopSettingsStore } from "./settings-store.js";
+export type {
+  CreateSideChatInput,
+  SideChatParentState,
+  UpdateSideChatInput,
+} from "./side-chat-service.js";
+export { SideChatService } from "./side-chat-service.js";
+export type {
+  CreateTerminalRequest,
+  TerminalOwner,
+  TerminalProcessFactory,
+} from "./terminal-host.js";
+export { TerminalHost } from "./terminal-host.js";
+export type {
+  DesktopUpdatePhase,
+  DesktopUpdateServiceLike,
+  DesktopUpdateState,
+  NpmDesktopUpdateServiceOptions,
+} from "./updater.js";
+export { compareSemanticVersions, NpmDesktopUpdateService } from "./updater.js";
+export type {
+  WorkspaceShellOptions,
+  WorkspaceShellResult,
+  WorkspaceShellRunOptions,
+} from "./workspace-shell.js";
+export {
+  WORKSPACE_SHELL_DEFAULTS,
+  WorkspaceShell,
+  workspaceShellAgentTool,
+} from "./workspace-shell.js";
 export type {
   WorkspaceDirectoryEntry,
   WorkspaceDirectoryListing,
@@ -130,13 +140,4 @@ export type {
   WorkspaceToolsOptions,
   WorkspaceWriteResult,
 } from "./workspace-tools.js";
-export {
-  WORKSPACE_SHELL_DEFAULTS,
-  WorkspaceShell,
-  workspaceShellAgentTool,
-} from "./workspace-shell.js";
-export type {
-  WorkspaceShellOptions,
-  WorkspaceShellResult,
-  WorkspaceShellRunOptions,
-} from "./workspace-shell.js";
+export { WORKSPACE_TOOLS_DEFAULTS, WorkspaceTools } from "./workspace-tools.js";

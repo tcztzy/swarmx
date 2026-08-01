@@ -139,5 +139,5 @@ function normalizeHighlightLanguage(language: string): string {
 }
 
 function isHighlightLanguage(language: string): language is HighlightLanguage {
-  return Object.prototype.hasOwnProperty.call(highlightLanguageLoaders, language);
+  return Object.hasOwn(highlightLanguageLoaders, language);
 }

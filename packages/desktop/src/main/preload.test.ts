@@ -637,11 +637,7 @@ function exposedApi(): {
     createdAt: string;
     updatedAt: string;
   }>;
-  sendMessage(params: {
-    requestId: string;
-    harnessId: string;
-    userText: string;
-  }): Promise<unknown>;
+  sendMessage(params: { requestId: string; harnessId: string; userText: string }): Promise<unknown>;
   cancelMessage(requestId: string): Promise<unknown>;
   renameSession(id: string, title: string): Promise<unknown>;
   setSessionPinned(id: string, pinned: boolean): Promise<unknown>;

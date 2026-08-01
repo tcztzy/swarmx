@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
-  MAX_SESSION_TITLE_LENGTH,
   generatedSessionTitle,
   isPlaceholderSessionTitle,
+  MAX_SESSION_TITLE_LENGTH,
   normalizeManualSessionTitle,
   sessionTitleMessages,
 } from "./session-title.js";

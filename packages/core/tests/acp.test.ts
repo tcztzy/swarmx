@@ -3,9 +3,9 @@ import { describe, expect, it } from "vitest";
 import {
   AcpClient,
   AcpSessionUnavailableError,
-  RequestCancelledError,
   cancelAcpRequest,
   currentRequestSignal,
+  RequestCancelledError,
   withAcpRequest,
 } from "../src/acp.js";
 

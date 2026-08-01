@@ -2,11 +2,11 @@ import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { configureDesktopHarnessEnvironment } from "@swarmx/runtime";
 import {
-  net,
+  app,
   BrowserWindow,
   type BrowserWindowConstructorOptions,
-  app,
   nativeTheme,
+  net,
   protocol,
   shell,
 } from "electron";

@@ -350,13 +350,13 @@ function WorkflowCanvas({
     <div className="workflow-canvas" aria-label="Workflow canvas">
       <svg className="workflow-connectors" viewBox="0 0 804 620" aria-label="Workflow connectors">
         <title>Workflow connectors</title>
-        {workflowState.edges.map((edge, index) => {
+        {workflowState.edges.map((edge) => {
           const source = nodeLayouts.get(edge.source);
           const target = nodeLayouts.get(edge.target);
           if (!source || !target) return null;
           return (
             <path
-              key={`${edge.source}:${edge.target}:${index}`}
+              key={`${edge.source}:${edge.target}:${edge.condition ?? ""}`}
               aria-label={`Workflow connector ${edge.source} to ${edge.target}`}
               className="workflow-connector"
               d={connectorPath(source, target)}
@@ -412,9 +412,9 @@ function WorkflowCanvas({
       </ul>
 
       <ul className="workflow-edges" aria-label="Workflow edges">
-        {workflowState.edges.map((edge, index) => (
+        {workflowState.edges.map((edge) => (
           <li
-            key={`${edge.source}:${edge.target}:${edge.condition ?? ""}:${index}`}
+            key={`${edge.source}:${edge.target}:${edge.condition ?? ""}`}
             aria-label={`Workflow edge ${edge.source} to ${edge.target}`}
             className="workflow-edge"
           >

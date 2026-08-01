@@ -2,6 +2,7 @@ import { EventEmitter } from "node:events";
 import { mkdtemp, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import type { MessageChunk, SessionData } from "@swarmx/core";
 import {
   ActivityStore,
   builtInExtensionBundle,
@@ -13,7 +14,6 @@ import {
   removeProject,
   saveSession,
 } from "@swarmx/core";
-import type { MessageChunk, SessionData } from "@swarmx/core";
 import { describe, expect, it, vi } from "vitest";
 
 const electron = vi.hoisted(() => ({

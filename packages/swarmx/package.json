@@ -16,7 +16,9 @@
     "swarmx": "./bin/swarmx.js",
     "swarmx-migrate-sessions": "./bin/migrate-sessions.js"
   },
-  "files": ["bin"],
+  "files": [
+    "bin"
+  ],
   "publishConfig": {
     "access": "public"
   },

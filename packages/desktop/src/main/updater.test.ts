@@ -4,9 +4,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  compareSemanticVersions,
   type DesktopUpdateState,
   NpmDesktopUpdateService,
-  compareSemanticVersions,
 } from "./updater.js";
 
 const roots: string[] = [];

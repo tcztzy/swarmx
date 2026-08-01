@@ -2,13 +2,13 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import type { ActivityEvent } from "../src/activity.js";
 import {
   ActivityStore,
   estimateModelTokenUsage,
   mergeModelTokenUsage,
   summarizeActivityEvents,
 } from "../src/activity.js";
-import type { ActivityEvent } from "../src/activity.js";
 
 const temporaryDirectories: string[] = [];
 

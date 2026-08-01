@@ -761,22 +761,26 @@
   grid-template-columns: 46px minmax(0, 1fr) auto;
   align-items: center;
   gap: 16px;
-  background: radial-gradient(
+  background:
+    radial-gradient(
       circle at 8% 20%,
       color-mix(in srgb, var(--accent) 13%, transparent),
       transparent 34%
-    ), var(--card);
+    ),
+    var(--card);
   border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--border));
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-inset);
 }
 
 .permission-effective--blocked {
-  background: radial-gradient(
+  background:
+    radial-gradient(
       circle at 8% 20%,
       color-mix(in srgb, var(--danger) 12%, transparent),
       transparent 34%
-    ), var(--card);
+    ),
+    var(--card);
   border-color: color-mix(in srgb, var(--danger) 42%, var(--border));
 }
 
@@ -2593,7 +2597,9 @@
   line-height: 1.35;
   pointer-events: none;
   transform: translateY(3px);
-  transition: opacity 120ms ease, transform 120ms ease;
+  transition:
+    opacity 120ms ease,
+    transform 120ms ease;
 }
 
 .settings-provider-finance__popup strong {
@@ -2897,8 +2903,10 @@
   opacity: 0;
   pointer-events: none;
   transform: var(--panel-transition-transform);
-  transition: opacity var(--duration-fast) var(--ease-out), transform var(--duration-med)
-    var(--ease-out), grid-template-rows var(--duration-med) var(--ease-out);
+  transition:
+    opacity var(--duration-fast) var(--ease-out),
+    transform var(--duration-med) var(--ease-out),
+    grid-template-rows var(--duration-med) var(--ease-out);
   will-change: opacity, transform;
 }
 

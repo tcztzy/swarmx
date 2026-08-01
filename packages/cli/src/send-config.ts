@@ -1,5 +1,5 @@
-import { getHarness, harnessModelRuntimeEnv, harnessModelRuntimeModel } from "@swarmx/core";
 import type { AgentConfig, SwarmConfig } from "@swarmx/core";
+import { getHarness, harnessModelRuntimeEnv, harnessModelRuntimeModel } from "@swarmx/core";
 
 export interface SendSwarmConfigOptions {
   harnessId: string;

@@ -793,7 +793,9 @@ function addDuplicateIssues(
 
 function visit(value: unknown, path: Array<string | number>, ctx: z.RefinementCtx): void {
   if (Array.isArray(value)) {
-    value.forEach((item, index) => visit(item, [...path, index], ctx));
+    value.forEach((item, index) => {
+      visit(item, [...path, index], ctx);
+    });
     return;
   }
   if (!value || typeof value !== "object") return;

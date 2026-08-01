@@ -1,5 +1,5 @@
-import { normalizeMessageChunk } from "@swarmx/core";
 import type { ChatMessage, MessageChunk, SessionData } from "@swarmx/core";
+import { normalizeMessageChunk } from "@swarmx/core";
 import type { AgentChunkSender } from "./agent-chunk-publisher.js";
 
 export function sessionChatMessages(session: SessionData | null): ChatMessage[] {

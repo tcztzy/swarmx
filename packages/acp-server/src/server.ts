@@ -17,6 +17,7 @@ import {
   type McpServer,
   type NewSessionRequest,
   type NewSessionResponse,
+  ndJsonStream,
   type PromptRequest,
   type PromptResponse,
   type ResumeSessionRequest,
@@ -25,26 +26,25 @@ import {
   type SessionUpdate,
   type SetSessionModeRequest,
   type SetSessionModeResponse,
-  ndJsonStream,
 } from "@agentclientprotocol/sdk";
-import {
-  RequestCancelledError,
-  SWARMX_VERSION,
-  Swarm,
-  appendMessages,
-  cancelAcpRequest,
-  createSession,
-  listSessionSummaries as listSessionsFile,
-  loadSession as loadSessionFile,
-  saveSession,
-  withAcpRequest,
-} from "@swarmx/core";
 import type {
   McpServerConfig,
   MessageChunk,
   SessionData,
   SwarmConfig,
   SwarmNodeConfig,
+} from "@swarmx/core";
+import {
+  appendMessages,
+  cancelAcpRequest,
+  createSession,
+  listSessionSummaries as listSessionsFile,
+  loadSession as loadSessionFile,
+  RequestCancelledError,
+  SWARMX_VERSION,
+  Swarm,
+  saveSession,
+  withAcpRequest,
 } from "@swarmx/core";
 
 interface SessionState {
@@ -374,6 +374,8 @@ function projectPromptBlocks(blocks: PromptRequest["prompt"]): string {
           }]`;
         case "audio":
           return `[Audio content: ${block.mimeType}; ${block.data.length} base64 characters]`;
+        default:
+          return "";
       }
     })
     .filter((text) => text.length > 0)

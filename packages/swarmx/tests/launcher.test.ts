@@ -97,10 +97,10 @@ describe("npm launcher cold start", () => {
     const gitignore = readFileSync(new URL("../../../.gitignore", import.meta.url), "utf8");
     const biome = JSON.parse(
       readFileSync(new URL("../../../biome.json", import.meta.url), "utf8"),
-    ) as { files: { ignore: string[] } };
+    ) as { files: { includes: string[] } };
 
     expect(gitignore).toContain("packages/desktop/release/");
-    expect(biome.files.ignore).toContain("packages/desktop/release/**");
+    expect(biome.files.includes).toContain("!**/packages/desktop/release");
   });
 
   it("V475 reserves the swarmx bin name for the Desktop-first launcher", () => {

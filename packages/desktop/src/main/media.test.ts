@@ -3,8 +3,8 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import {
-  MAX_MEDIA_ATTACHMENTS,
   MAX_MEDIA_ATTACHMENT_BYTES,
+  MAX_MEDIA_ATTACHMENTS,
   MAX_MEDIA_TURN_BYTES,
   type MediaAttachment,
 } from "@swarmx/core";

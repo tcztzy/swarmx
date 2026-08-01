@@ -4,7 +4,7 @@ import { type ExtensionInventory, type ProviderProfile, SWARMX_VERSION } from "@
 import { z } from "zod";
 import type { ProviderAuthStore } from "./provider-auth.js";
 import { newApiAccountCredentialKey } from "./provider-auth.js";
-import { type ProviderKeyUsageSummary, isOpenCodeGoBaseUrl } from "./provider-key-pool.js";
+import { isOpenCodeGoBaseUrl, type ProviderKeyUsageSummary } from "./provider-key-pool.js";
 
 const DEFAULT_USAGE_TIMEOUT_MS = 8_000;
 const MAX_USAGE_RESPONSE_BYTES = 256 * 1024;

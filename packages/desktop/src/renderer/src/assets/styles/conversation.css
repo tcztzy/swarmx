@@ -442,11 +442,15 @@
   background: var(--card);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-inset), 0 12px 34px rgba(0, 0, 0, 0.18);
+  box-shadow:
+    var(--shadow-inset),
+    0 12px 34px rgba(0, 0, 0, 0.18);
   backdrop-filter: saturate(140%) blur(18px);
   -webkit-backdrop-filter: saturate(140%) blur(18px);
-  transition: border-color var(--duration-fast) var(--ease-out), background-color
-    var(--duration-fast) var(--ease-out), box-shadow var(--duration-fast) var(--ease-out);
+  transition:
+    border-color var(--duration-fast) var(--ease-out),
+    background-color var(--duration-fast) var(--ease-out),
+    box-shadow var(--duration-fast) var(--ease-out);
 }
 
 .conversation-turn > .run-event--user {
@@ -529,8 +533,10 @@
   border: 1px solid transparent;
   border-radius: 8px;
   cursor: pointer;
-  transition: color var(--duration-fast) var(--ease-out), background-color var(--duration-fast)
-    var(--ease-out), border-color var(--duration-fast) var(--ease-out);
+  transition:
+    color var(--duration-fast) var(--ease-out),
+    background-color var(--duration-fast) var(--ease-out),
+    border-color var(--duration-fast) var(--ease-out);
 }
 
 .run-event__action:hover:not(:disabled) {
@@ -697,7 +703,9 @@
   background: color-mix(in srgb, var(--accent) 5%, var(--card));
   border: 1px solid color-mix(in srgb, var(--accent) 26%, var(--border-subtle));
   border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-inset), 0 12px 34px rgba(0, 0, 0, 0.12);
+  box-shadow:
+    var(--shadow-inset),
+    0 12px 34px rgba(0, 0, 0, 0.12);
 }
 
 .provider-error-notice__icon {
@@ -1402,8 +1410,8 @@
 .composer-dock {
   padding: 9px 18px 12px;
   border-top: 1px solid var(--border-subtle);
-  background: linear-gradient(180deg, rgba(7, 8, 11, 0), rgba(7, 8, 11, 0.82) 34%),
-    rgba(7, 8, 11, 0.82);
+  background:
+    linear-gradient(180deg, rgba(7, 8, 11, 0), rgba(7, 8, 11, 0.82) 34%), rgba(7, 8, 11, 0.82);
   backdrop-filter: blur(18px);
   -webkit-backdrop-filter: blur(18px);
 }
@@ -1423,13 +1431,18 @@
   box-shadow: var(--shadow), var(--shadow-inset);
   backdrop-filter: saturate(155%) blur(var(--glass-blur));
   -webkit-backdrop-filter: saturate(155%) blur(var(--glass-blur));
-  transition: border-color var(--duration-med) var(--ease-out), box-shadow var(--duration-med)
-    var(--ease-out), transform var(--duration-med) var(--ease-out);
+  transition:
+    border-color var(--duration-med) var(--ease-out),
+    box-shadow var(--duration-med) var(--ease-out),
+    transform var(--duration-med) var(--ease-out);
 }
 
 .composer:focus-within {
   border-color: rgba(149, 233, 255, 0.42);
-  box-shadow: 0 0 0 3px rgba(149, 233, 255, 0.08), var(--shadow), var(--shadow-inset);
+  box-shadow:
+    0 0 0 3px rgba(149, 233, 255, 0.08),
+    var(--shadow),
+    var(--shadow-inset);
   transform: translateY(-1px);
 }
 
@@ -1564,8 +1577,10 @@
   place-items: center;
   border: 0;
   cursor: pointer;
-  transition: background var(--duration-fast) var(--ease-out), transform var(--duration-fast)
-    var(--ease-out), opacity var(--duration-fast) var(--ease-out);
+  transition:
+    background var(--duration-fast) var(--ease-out),
+    transform var(--duration-fast) var(--ease-out),
+    opacity var(--duration-fast) var(--ease-out);
 }
 
 .composer__context {
@@ -1605,7 +1620,9 @@
   color: var(--primary-foreground);
   background: var(--primary);
   border-radius: 999px;
-  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.22);
+  box-shadow:
+    0 6px 16px rgba(0, 0, 0, 0.2),
+    inset 0 1px 0 rgba(255, 255, 255, 0.22);
 }
 
 .composer__submit:hover:not(:disabled) {
@@ -1819,7 +1836,9 @@
   background: var(--popover, var(--card-solid));
   border: 1px solid var(--border);
   border-radius: 12px;
-  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.32), var(--shadow-inset);
+  box-shadow:
+    0 18px 48px rgba(0, 0, 0, 0.32),
+    var(--shadow-inset);
 }
 
 .conversation-permission-picker__options {
@@ -1978,7 +1997,9 @@
   background: var(--popover, var(--card-strong));
   border: 1px solid var(--border);
   border-radius: 13px;
-  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.28), var(--shadow-inset);
+  box-shadow:
+    0 18px 48px rgba(0, 0, 0, 0.28),
+    var(--shadow-inset);
 }
 
 .agent-picker__primary {

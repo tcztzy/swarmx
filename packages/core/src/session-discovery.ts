@@ -2,9 +2,9 @@ import type { SessionInfo as AcpSessionInfo } from "@agentclientprotocol/sdk";
 import { AcpClient, type AcpClientOptions } from "./acp.js";
 import { HARNESSES } from "./harness.js";
 import {
-  type SessionSummary,
   listSessionSummaries as listLocalSessions,
   loadSession as loadLocalSession,
+  type SessionSummary,
 } from "./session.js";
 import { type MessageChunk, type SessionData, SessionDataSchema } from "./types.js";
 

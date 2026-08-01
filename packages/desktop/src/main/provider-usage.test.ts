@@ -1,4 +1,4 @@
-import { type ProviderProfile, createExtensionInventory } from "@swarmx/core";
+import { createExtensionInventory, type ProviderProfile } from "@swarmx/core";
 import { describe, expect, it, vi } from "vitest";
 import {
   ProviderUsageService,

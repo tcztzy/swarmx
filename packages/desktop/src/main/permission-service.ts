@@ -10,9 +10,9 @@ import {
   type PermissionApprovalReceipt,
   PermissionApprovalReceiptSchema,
   type ResolvedHarnessPermissionPolicy,
+  resolveHarnessPermissionLayers,
   type SessionPermissionMode,
   SessionPermissionModeSchema,
-  resolveHarnessPermissionLayers,
 } from "@swarmx/core";
 import type { DesktopSettingsStoreLike } from "./settings-store.js";
 

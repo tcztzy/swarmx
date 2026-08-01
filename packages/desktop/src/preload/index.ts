@@ -1,7 +1,7 @@
-import { type IpcRendererEvent, contextBridge, ipcRenderer } from "electron";
+import { contextBridge, type IpcRendererEvent, ipcRenderer } from "electron";
 import {
-  type DesktopBootstrapData,
   createSwarmxDesktopApi,
+  type DesktopBootstrapData,
   parseDesktopBootstrapData,
 } from "./api.js";
 
@@ -32,9 +32,9 @@ export type {
   DesktopAgentMessageChunk,
   DesktopAgentQuestion,
   DesktopAgentQuestionOption,
+  DesktopBootstrapData,
   DesktopBrowserBounds,
   DesktopBrowserState,
-  DesktopBootstrapData,
   DesktopIpcInvoke,
   DesktopIpcSubscribe,
   DesktopProjectData,

@@ -3,8 +3,8 @@ import * as fs from "node:fs";
 import { homedir } from "node:os";
 import * as path from "node:path";
 import { z } from "zod";
-import { ModelTokenUsageSchema } from "./types.js";
 import type { MessageChunk, ModelTokenUsage } from "./types.js";
+import { ModelTokenUsageSchema } from "./types.js";
 
 const DEFAULT_ACTIVITY_FILE = path.join(homedir(), ".swarmx", "activity.jsonl");
 

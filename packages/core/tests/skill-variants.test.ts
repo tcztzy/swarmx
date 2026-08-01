@@ -1,16 +1,16 @@
 import { describe, expect, it } from "vitest";
 import {
+  evaluateSkillCandidate,
   HarnessRecipeSchema,
   HarnessSkillBindingSchema,
   LogicalSkillSchema,
-  PermissionApprovalReceiptSchema,
-  SkillEvolutionCandidateSchema,
-  SkillPromotionDecisionSchema,
-  evaluateSkillCandidate,
   normalizeLogicalSkill,
+  PermissionApprovalReceiptSchema,
   resolveHarnessPermissionLayers,
   resolveHarnessSkillBinding,
   resolveHarnessToolPermission,
+  SkillEvolutionCandidateSchema,
+  SkillPromotionDecisionSchema,
 } from "../src/skill-variants.js";
 
 const context = {

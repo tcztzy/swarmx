@@ -15,9 +15,9 @@ import {
   validateMediaAttachments,
 } from "../src/media.js";
 import {
-  type NativeProtocolContext,
   callAnthropicMessages,
   callOpenAIResponses,
+  type NativeProtocolContext,
 } from "../src/native-model.js";
 import type { MediaAttachment } from "../src/types.js";
 

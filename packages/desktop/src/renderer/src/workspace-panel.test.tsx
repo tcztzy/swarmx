@@ -5,9 +5,9 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   type BrowserState,
+  parseUnifiedPatch,
   WorkspacePanel,
   type WorkspacePanelApi,
-  parseUnifiedPatch,
 } from "./workspace-panel.js";
 
 vi.mock("@xterm/xterm", () => ({ Terminal: class MockTerminal {} }));

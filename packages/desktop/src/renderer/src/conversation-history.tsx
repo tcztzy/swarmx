@@ -1,9 +1,9 @@
 import {
-  type NormalizeMessageChunkOptions,
   type NormalizedRenderEvent,
+  type NormalizeMessageChunkOptions,
+  normalizeMessageChunk,
   type RenderArtifactReference,
   type RenderProvenance,
-  normalizeMessageChunk,
 } from "@swarmx/core/rendering";
 import {
   Bot,
@@ -1392,13 +1392,7 @@ function TraceDetailBlock({
   );
 }
 
-function TraceMetadata({
-  entries,
-  title,
-}: {
-  entries: Array<[string, string]>;
-  title: string;
-}) {
+function TraceMetadata({ entries, title }: { entries: Array<[string, string]>; title: string }) {
   if (entries.length === 0) return null;
 
   return (

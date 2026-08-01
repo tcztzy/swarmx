@@ -2,8 +2,8 @@ import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import {
-  type DesktopSettingsDocument,
   createDefaultDesktopSettings,
+  type DesktopSettingsDocument,
   parseDesktopSettingsDocument,
 } from "@swarmx/core";
 

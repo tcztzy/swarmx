@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import type { TelemetryEnvelope } from "../src/telemetry.js";
 import {
   buildTelemetryEnvelope,
   createTelemetryClient,
@@ -12,7 +13,6 @@ import {
   telemetryHeaders,
   telemetryStatus,
 } from "../src/telemetry.js";
-import type { TelemetryEnvelope } from "../src/telemetry.js";
 
 describe("telemetry primitives", () => {
   it("keeps telemetry disabled until explicit opt-in and endpoint are configured", () => {

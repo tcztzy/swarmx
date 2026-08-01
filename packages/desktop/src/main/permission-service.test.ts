@@ -1,7 +1,7 @@
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { type DesktopSettingsDocument, createDefaultDesktopSettings } from "@swarmx/core";
+import { createDefaultDesktopSettings, type DesktopSettingsDocument } from "@swarmx/core";
 import { afterEach, describe, expect, it } from "vitest";
 import { PermissionService } from "./permission-service.js";
 import { DesktopSettingsStore } from "./settings-store.js";

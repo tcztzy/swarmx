@@ -3,9 +3,9 @@ import {
   type DesktopBuiltinToolSettings,
   DesktopBuiltinToolSettingsSchema,
   type Model,
+  resolveBuiltinToolStyle,
   type SessionBuiltinToolBinding,
   type SessionData,
-  resolveBuiltinToolStyle,
 } from "@swarmx/core";
 import type { DesktopSettingsStoreLike } from "./settings-store.js";
 

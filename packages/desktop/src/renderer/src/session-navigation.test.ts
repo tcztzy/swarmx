@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   type DiscoveredSession,
-  type ProjectData,
   filterSessionGroups,
   mergeProjectsIntoSessionGroups,
+  type ProjectData,
   sortProjectSessionGroups,
 } from "./session-navigation.js";
 

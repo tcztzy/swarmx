@@ -22,15 +22,15 @@ import { preferredBuiltinToolStyleForProvider } from "./builtin-tool-settings.js
 import type { CodexAccessTokenProvider } from "./codex-auth.js";
 import type { ProviderAuthStore } from "./provider-auth.js";
 import {
-  ProviderCredentialDecryptionError,
   newApiAccountCredentialKey,
+  ProviderCredentialDecryptionError,
   providerPoolCredentialKey,
 } from "./provider-auth.js";
 import {
+  isOpenCodeGoBaseUrl,
   type ProviderKeyCandidate,
   type ProviderKeySlot,
   ProviderKeyUsageStore,
-  isOpenCodeGoBaseUrl,
 } from "./provider-key-pool.js";
 import { queryCodexAppServerRequest } from "./provider-usage.js";
 import { DesktopSettingsStore, type DesktopSettingsStoreLike } from "./settings-store.js";

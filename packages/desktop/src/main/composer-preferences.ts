@@ -1,7 +1,7 @@
 import {
+  type DesktopComposerPreferences,
   type DesktopComposerPreferenceUpdate,
   DesktopComposerPreferenceUpdateSchema,
-  type DesktopComposerPreferences,
 } from "@swarmx/core";
 import type { DesktopSettingsStoreLike } from "./settings-store.js";
 

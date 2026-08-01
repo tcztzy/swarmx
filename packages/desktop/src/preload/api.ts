@@ -190,11 +190,8 @@ export function createSwarmxDesktopApi(
 
     saveBuiltinToolSettings: (input) => invoke("builtinToolSettings:save", input),
 
-    getPermissionStatus: (params?: {
-      cwd?: string;
-      agentId?: string;
-      agentPolicy?: unknown;
-    }) => invoke("permission:status", params ?? {}),
+    getPermissionStatus: (params?: { cwd?: string; agentId?: string; agentPolicy?: unknown }) =>
+      invoke("permission:status", params ?? {}),
 
     savePersonalPermissionPolicy: (
       policy: unknown,
@@ -285,10 +282,7 @@ export function createSwarmxDesktopApi(
     resetProviderKey: (providerId: string, keyId: string) =>
       invoke("modelCatalog:resetProviderKey", { providerId, keyId }),
 
-    refreshProviderUsage: (target?: {
-      source: "provider" | "tool_account";
-      sourceId: string;
-    }) =>
+    refreshProviderUsage: (target?: { source: "provider" | "tool_account"; sourceId: string }) =>
       target === undefined
         ? invoke("providerUsage:refresh")
         : invoke("providerUsage:refresh", target),

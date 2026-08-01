@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import type { Dirent } from "node:fs";
-import { readFile, readdir, stat } from "node:fs/promises";
+import { readdir, readFile, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { extname, join, resolve } from "node:path";
 import {
@@ -8,9 +8,9 @@ import {
   type AgentProfileMetadata,
   AgentProfileMetadataSchema,
   AgentProfileSchema,
+  createAgentProfileFromDefinition,
   type HarnessRecipe,
   HarnessRecipeSchema,
-  createAgentProfileFromDefinition,
   parseNativeAgentDefinition,
 } from "@swarmx/core";
 import type { DesktopSettingsStoreLike } from "./settings-store.js";

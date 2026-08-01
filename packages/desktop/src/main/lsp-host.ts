@@ -1,22 +1,22 @@
 import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
 import type { Dirent } from "node:fs";
-import { readFile, readdir, realpath, stat } from "node:fs/promises";
+import { readdir, readFile, realpath, stat } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import {
+  currentRequestSignal,
   type ExtensionInventory,
   type LspCapability,
+  type SkillCapability,
   SWARMX_LOCAL_FILES_LSP_ID,
   SWARMX_SKILLS_LSP_ID,
-  type SkillCapability,
-  currentRequestSignal,
 } from "@swarmx/core";
 import {
   CancellationTokenSource,
+  createMessageConnection,
   type MessageConnection,
   StreamMessageReader,
   StreamMessageWriter,
-  createMessageConnection,
 } from "vscode-jsonrpc/node";
 
 const DEFAULT_LSP_TIMEOUT_MS = 15_000;

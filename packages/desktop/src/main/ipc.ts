@@ -2,40 +2,6 @@ import { mkdir, readFile, realpath, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import {
-  ActivityStore,
-  HarnessPermissionPolicySchema,
-  RequestCancelledError,
-  Swarm,
-  appendMessages,
-  archiveProjectSessions,
-  archiveSession,
-  createSession,
-  detectMediaMimeType,
-  dismissProject,
-  editSessionUserMessage,
-  estimateModelTokenUsage,
-  executeAgentComposition,
-  forkSession,
-  getHarness,
-  importN8nWorkflow,
-  listGroupedSessions,
-  listProjects,
-  listSessionSummaries,
-  loadDiscoveredSession,
-  loadExtensionInventory,
-  loadSession,
-  mergeModelTokenUsage,
-  registerDefaultProject,
-  registerProject,
-  renameProject,
-  resolveAgentCompositionPlan,
-  saveSession,
-  setProjectPinned,
-  setSessionPinned,
-  updateSessionTitle,
-  validateMediaAttachments,
-} from "@swarmx/core";
 import type {
   AcpPermissionHandler,
   ActivityEventInput,
@@ -58,23 +24,57 @@ import type {
   TransientSessionData,
 } from "@swarmx/core";
 import {
+  ActivityStore,
+  appendMessages,
+  archiveProjectSessions,
+  archiveSession,
+  createSession,
+  detectMediaMimeType,
+  dismissProject,
+  editSessionUserMessage,
+  estimateModelTokenUsage,
+  executeAgentComposition,
+  forkSession,
+  getHarness,
+  HarnessPermissionPolicySchema,
+  importN8nWorkflow,
+  listGroupedSessions,
+  listProjects,
+  listSessionSummaries,
+  loadDiscoveredSession,
+  loadExtensionInventory,
+  loadSession,
+  mergeModelTokenUsage,
+  RequestCancelledError,
+  registerDefaultProject,
+  registerProject,
+  renameProject,
+  resolveAgentCompositionPlan,
+  Swarm,
+  saveSession,
+  setProjectPinned,
+  setSessionPinned,
+  updateSessionTitle,
+  validateMediaAttachments,
+} from "@swarmx/core";
+import {
+  containerHostBridgeUrl,
   HarnessDoctor,
   HarnessEnvironmentService,
   type HarnessEnvironmentSetupRequest,
   type HarnessEnvironmentStatus,
-  containerHostBridgeUrl,
 } from "@swarmx/runtime";
 import {
-  type IpcMainInvokeEvent,
   dialog,
   ipcMain as electronIpcMain,
+  type IpcMainInvokeEvent,
   safeStorage,
   shell,
 } from "electron";
 import {
-  type ExternalAcpSessionIdentity,
   createEphemeralCodexHome,
   createExternalAcpSessionBinding,
+  type ExternalAcpSessionIdentity,
   externalAcpSessionIdentity,
   latestUserMessageHasAttachments,
   matchingExternalAcpSessionId,
@@ -130,32 +130,36 @@ import {
   timedMessages,
 } from "./session-messages.js";
 import {
-  SESSION_TITLE_MODEL_ID,
   generatedSessionTitle,
   isPlaceholderSessionTitle,
   normalizeManualSessionTitle,
+  SESSION_TITLE_MODEL_ID,
   sessionTitleMessages,
 } from "./session-title.js";
 import { DesktopSettingsStore } from "./settings-store.js";
 import { SideChatService } from "./side-chat-service.js";
 import { TerminalHost } from "./terminal-host.js";
 import {
+  createDisabledDesktopUpdateService,
   type DesktopUpdateServiceLike,
   type DesktopUpdateState,
-  createDisabledDesktopUpdateService,
 } from "./updater.js";
 import type { RendererIpcEvent } from "./window-security.js";
 import {
+  projectAgentContextMessage,
   type WorkspaceAgentToolOptions,
   WorkspaceTools,
-  projectAgentContextMessage,
   workspaceAgentTools,
   workspaceToolProfile,
 } from "./workspace-tools.js";
 
-export { agentChunkPublisher };
 export type { AgentChunkPublisher, AgentChunkSender };
-export { assertFinalAssistantMessage, interruptedMessages, sessionChatMessages };
+export {
+  agentChunkPublisher,
+  assertFinalAssistantMessage,
+  interruptedMessages,
+  sessionChatMessages,
+};
 
 const MAX_INLINE_IMAGE_BYTES = 25 * 1024 * 1024;
 const SENSITIVE_PERMISSION_LABEL_PATTERN =

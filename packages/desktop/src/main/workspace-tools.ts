@@ -27,10 +27,10 @@ import {
   type LocalTextTool,
   type LocalTool,
   type LocalToolCallContext,
+  localToolResult,
   type ModelApi,
   type ResolvedHarnessPermissionPolicy,
   ResolvedHarnessPermissionPolicySchema,
-  localToolResult,
   resolveHarnessToolPermission,
 } from "@swarmx/core";
 import type {

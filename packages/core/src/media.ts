@@ -2,8 +2,8 @@ import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { ContentBlock, PromptCapabilities } from "@agentclientprotocol/sdk";
-import { MediaAttachmentSchema } from "./types.js";
 import type { MediaAttachment, MediaAttachmentKind } from "./types.js";
+import { MediaAttachmentSchema } from "./types.js";
 
 export const MAX_MEDIA_ATTACHMENT_BYTES = 100 * 1024 * 1024;
 export const MAX_MEDIA_ATTACHMENTS = 20;

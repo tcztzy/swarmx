@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 import { readFileSync } from "node:fs";
 import { createInterface } from "node:readline";
-import { HARNESSES, SWARMX_VERSION, Swarm, createServer, listSessionSummaries } from "@swarmx/core";
 import type { AgentConfig, MessageChunk, SwarmConfig } from "@swarmx/core";
+import { createServer, HARNESSES, listSessionSummaries, SWARMX_VERSION, Swarm } from "@swarmx/core";
 import { Command } from "commander";
 import { runDoctorCommand } from "./doctor.js";
 import { type EvalRunOptions, errorEvalResult, formatEvalResult, runEval } from "./eval-run.js";
@@ -173,12 +173,7 @@ sessionsCommand
   .option("--backup-dir <path>", "Write reversible legacy backups to this directory")
   .option("--json", "Print a structured migration report", false)
   .action(
-    (options: {
-      dryRun?: boolean;
-      sessionsDir?: string;
-      backupDir?: string;
-      json?: boolean;
-    }) => {
+    (options: { dryRun?: boolean; sessionsDir?: string; backupDir?: string; json?: boolean }) => {
       const command = runSessionMigrationCommand(options);
       process.stdout.write(command.output);
       if (command.exitCode !== 0) process.exitCode = command.exitCode;

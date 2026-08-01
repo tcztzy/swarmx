@@ -35,8 +35,8 @@
   --duration-fast: 160ms;
   --duration-med: 220ms;
   --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
-  --font-sans: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
-    sans-serif;
+  --font-sans:
+    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --font-mono: "SFMono-Regular", "SF Mono", Consolas, "Liberation Mono", Menlo, monospace;
   --user-message-background: #27292f;
   --user-message-foreground: #f6f7fb;
@@ -119,7 +119,9 @@ textarea:focus-visible {
 .session-item:focus-visible,
 .workflow-toggle:focus-within {
   border-color: rgba(149, 233, 255, 0.48);
-  box-shadow: 0 0 0 3px rgba(149, 233, 255, 0.09), var(--shadow-inset);
+  box-shadow:
+    0 0 0 3px rgba(149, 233, 255, 0.09),
+    var(--shadow-inset);
 }
 
 ::-webkit-scrollbar {
@@ -155,7 +157,8 @@ textarea:focus-visible {
   min-width: 0;
   min-height: 0;
   overflow: hidden;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.036), rgba(255, 255, 255, 0) 260px),
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.036), rgba(255, 255, 255, 0) 260px),
     linear-gradient(115deg, rgba(149, 233, 255, 0.055), transparent 34%),
     linear-gradient(290deg, rgba(52, 211, 153, 0.035), transparent 42%), var(--background);
   transition: grid-template-columns var(--duration-med) var(--ease-out);
@@ -167,7 +170,8 @@ textarea:focus-visible {
   z-index: 0;
   pointer-events: none;
   content: "";
-  background-image: linear-gradient(rgba(255, 255, 255, 0.18) 1px, transparent 1px),
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.18) 1px, transparent 1px),
     linear-gradient(90deg, rgba(255, 255, 255, 0.14) 1px, transparent 1px);
   background-size: 42px 42px;
   mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.42), rgba(0, 0, 0, 0.04) 62%);
@@ -221,11 +225,14 @@ textarea:focus-visible {
   border-right: 1px solid var(--border-subtle);
   display: flex;
   flex-direction: column;
-  box-shadow: 14px 0 42px rgba(0, 0, 0, 0.18), inset -1px 0 0 rgba(255, 255, 255, 0.035);
+  box-shadow:
+    14px 0 42px rgba(0, 0, 0, 0.18),
+    inset -1px 0 0 rgba(255, 255, 255, 0.035);
   backdrop-filter: saturate(150%) blur(var(--glass-blur));
   -webkit-backdrop-filter: saturate(150%) blur(var(--glass-blur));
-  transition: opacity var(--duration-med) var(--ease-out), transform var(--duration-med)
-    var(--ease-out);
+  transition:
+    opacity var(--duration-med) var(--ease-out),
+    transform var(--duration-med) var(--ease-out);
 }
 
 .sidebar__titlebar {
@@ -270,9 +277,12 @@ textarea:focus-visible {
   place-items: center;
   color: var(--foreground);
   border: 1px solid var(--border);
-  background: linear-gradient(145deg, rgba(149, 233, 255, 0.18), rgba(18, 20, 26, 0.88) 42%),
+  background:
+    linear-gradient(145deg, rgba(149, 233, 255, 0.18), rgba(18, 20, 26, 0.88) 42%),
     var(--card-strong);
-  box-shadow: var(--shadow-inset), 0 10px 28px rgba(0, 0, 0, 0.24);
+  box-shadow:
+    var(--shadow-inset),
+    0 10px 28px rgba(0, 0, 0, 0.24);
 }
 
 .brand-mark {
@@ -439,8 +449,9 @@ textarea:focus-visible {
   font-family: inherit;
   font-size: 10.5px;
   text-align: left;
-  transition: color var(--duration-fast) var(--ease-out), background var(--duration-fast)
-    var(--ease-out);
+  transition:
+    color var(--duration-fast) var(--ease-out),
+    background var(--duration-fast) var(--ease-out);
 }
 
 .sidebar-runtime-status:hover,
@@ -553,15 +564,19 @@ textarea:focus-visible {
   border: 1px solid var(--border);
   border-radius: var(--radius);
   box-shadow: var(--shadow-inset);
-  transition: border-color var(--duration-fast) var(--ease-out), box-shadow var(--duration-fast)
-    var(--ease-out), background-color var(--duration-fast) ease;
+  transition:
+    border-color var(--duration-fast) var(--ease-out),
+    box-shadow var(--duration-fast) var(--ease-out),
+    background-color var(--duration-fast) ease;
   backdrop-filter: saturate(135%) blur(16px);
   -webkit-backdrop-filter: saturate(135%) blur(16px);
 }
 
 .select-shell:focus-within {
   border-color: var(--ring);
-  box-shadow: 0 0 0 3px rgba(149, 233, 255, 0.09), var(--shadow-inset);
+  box-shadow:
+    0 0 0 3px rgba(149, 233, 255, 0.09),
+    var(--shadow-inset);
 }
 
 .select-shell svg {
@@ -608,8 +623,10 @@ textarea:focus-visible {
   font-size: 12px;
   font-weight: 620;
   cursor: pointer;
-  transition: color var(--duration-fast) var(--ease-out), background-color var(--duration-fast)
-    var(--ease-out), box-shadow var(--duration-fast) var(--ease-out);
+  transition:
+    color var(--duration-fast) var(--ease-out),
+    background-color var(--duration-fast) var(--ease-out),
+    box-shadow var(--duration-fast) var(--ease-out);
 }
 
 .segmented-control__item:hover {
@@ -619,7 +636,9 @@ textarea:focus-visible {
 .segmented-control__item.is-active {
   color: var(--foreground);
   background: var(--card-hover);
-  box-shadow: inset 0 0 0 1px var(--border), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  box-shadow:
+    inset 0 0 0 1px var(--border),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
 }
 
 .session-scroll {
@@ -799,7 +818,9 @@ textarea:focus-visible {
   align-items: center;
   color: var(--muted);
   border-radius: 8px;
-  transition: color var(--duration-fast) ease, background-color var(--duration-fast) ease;
+  transition:
+    color var(--duration-fast) ease,
+    background-color var(--duration-fast) ease;
 }
 
 .project-group__header-row:hover,
@@ -1122,9 +1143,11 @@ textarea:focus-visible {
   border: 1px solid transparent;
   border-radius: var(--radius);
   cursor: pointer;
-  transition: transform var(--duration-fast) var(--ease-out), background-color var(--duration-fast)
-    var(--ease-out), border-color var(--duration-fast) var(--ease-out), box-shadow
-    var(--duration-fast) var(--ease-out);
+  transition:
+    transform var(--duration-fast) var(--ease-out),
+    background-color var(--duration-fast) var(--ease-out),
+    border-color var(--duration-fast) var(--ease-out),
+    box-shadow var(--duration-fast) var(--ease-out);
 }
 
 .session-item__pin {
@@ -1154,7 +1177,9 @@ textarea:focus-visible {
 .session-item.is-active {
   background: var(--card-hover);
   border-color: rgba(149, 233, 255, 0.22);
-  box-shadow: inset 3px 0 0 rgba(149, 233, 255, 0.72), var(--shadow-inset);
+  box-shadow:
+    inset 3px 0 0 rgba(149, 233, 255, 0.72),
+    var(--shadow-inset);
 }
 
 .session-item__icon {
@@ -1264,7 +1289,9 @@ textarea:focus-visible {
   background: var(--card-solid);
   border: 1px solid var(--border);
   border-radius: 24px;
-  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.42), var(--shadow-inset);
+  box-shadow:
+    0 24px 80px rgba(0, 0, 0, 0.42),
+    var(--shadow-inset);
 }
 
 .session-rename-dialog > header {
@@ -1330,7 +1357,9 @@ textarea:focus-visible {
 
 .session-rename-dialog input:focus {
   border-color: var(--ring);
-  box-shadow: 0 0 0 3px rgba(149, 233, 255, 0.1), var(--shadow-inset);
+  box-shadow:
+    0 0 0 3px rgba(149, 233, 255, 0.1),
+    var(--shadow-inset);
 }
 
 .session-rename-dialog__error {
@@ -1391,7 +1420,9 @@ textarea:focus-visible {
   background: var(--card-solid);
   border: 1px solid var(--border);
   border-radius: 24px;
-  box-shadow: 0 28px 100px rgba(0, 0, 0, 0.48), var(--shadow-inset);
+  box-shadow:
+    0 28px 100px rgba(0, 0, 0, 0.48),
+    var(--shadow-inset);
 }
 
 .agent-interaction-dialog > header {
@@ -1560,7 +1591,11 @@ textarea:focus-visible {
   background: var(--input);
   border: 1px solid var(--border);
   border-radius: 14px;
-  font: 13px / 1.55 ui-monospace, SFMono-Regular, Menlo, monospace;
+  font:
+    13px / 1.55 ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    monospace;
   white-space: pre-wrap;
 }
 
@@ -1963,8 +1998,9 @@ textarea:focus-visible {
   font-weight: 650;
   line-height: 1;
   cursor: pointer;
-  transition: width var(--duration-fast) var(--ease-out), background-color var(--duration-fast)
-    var(--ease-out);
+  transition:
+    width var(--duration-fast) var(--ease-out),
+    background-color var(--duration-fast) var(--ease-out);
 }
 
 .sidebar-update-control:hover:not(:disabled),
@@ -1989,8 +2025,9 @@ textarea:focus-visible {
   height: 14px;
   flex: 0 0 auto;
   opacity: 1;
-  transition: width var(--duration-fast) var(--ease-out), opacity var(--duration-fast)
-    var(--ease-out);
+  transition:
+    width var(--duration-fast) var(--ease-out),
+    opacity var(--duration-fast) var(--ease-out);
 }
 
 .sidebar-update-control > span {
@@ -1998,8 +2035,9 @@ textarea:focus-visible {
   overflow: hidden;
   opacity: 0;
   white-space: nowrap;
-  transition: max-width var(--duration-fast) var(--ease-out), opacity var(--duration-fast)
-    var(--ease-out);
+  transition:
+    max-width var(--duration-fast) var(--ease-out),
+    opacity var(--duration-fast) var(--ease-out);
 }
 
 .sidebar-update-control:hover > span,

@@ -1,7 +1,7 @@
 import {
+  migrateLegacySessions,
   type SessionMigrationOptions,
   type SessionMigrationResult,
-  migrateLegacySessions,
 } from "@swarmx/core";
 
 export interface SessionMigrationCommandOptions extends SessionMigrationOptions {

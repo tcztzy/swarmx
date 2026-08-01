@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
-  type ModelDisplayDescriptor,
   compareModelDisplayOrder,
+  type ModelDisplayDescriptor,
   modelBrandPresentation,
   selectableModelReasoning,
 } from "./model-display.js";

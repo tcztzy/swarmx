@@ -823,15 +823,7 @@ function BrowserTool({ api, active }: { api: WorkspacePanelApi; active: boolean 
   );
 }
 
-function FilesTool({
-  api,
-  cwd,
-  active,
-}: {
-  api: WorkspacePanelApi;
-  cwd: string;
-  active: boolean;
-}) {
+function FilesTool({ api, cwd, active }: { api: WorkspacePanelApi; cwd: string; active: boolean }) {
   const [listing, setListing] = useState<WorkspaceDirectoryListing | null>(null);
   const [preview, setPreview] = useState<WorkspaceFilePreview | null>(null);
   const [loading, setLoading] = useState(false);
@@ -954,6 +946,7 @@ function FilesTool({
               </header>
               <pre>
                 {preview.content.split("\n").map((line, index) => (
+                  // biome-ignore lint/suspicious/noArrayIndexKey: The source line number is the stable identity here.
                   <span key={`${index}:${line}`}>
                     <i>{index + 1}</i>
                     <code>{line || " "}</code>

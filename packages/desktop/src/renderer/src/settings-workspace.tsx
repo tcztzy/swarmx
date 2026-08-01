@@ -54,10 +54,10 @@ import {
   uniqueById,
 } from "./extension-presentation.js";
 import {
-  ProviderBrandIcon,
   isDeepSeekProvider,
   isDeepSeekProviderUrl,
   isOpenCodeGoProviderUrl,
+  ProviderBrandIcon,
   providerProtocolLabel,
 } from "./provider-presentation.js";
 import { capitalize, errorMessage, formatTimestamp, lines, slugId } from "./text-utils.js";

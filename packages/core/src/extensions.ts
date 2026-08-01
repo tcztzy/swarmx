@@ -1,4 +1,4 @@
-import { readFile, readdir, stat } from "node:fs/promises";
+import { readdir, readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
 import type { AcpPermissionHandler } from "./acp.js";
@@ -7,6 +7,7 @@ import { ContextPacketModeSchema, ContextStrategySchema } from "./context.js";
 import { HARNESSES, harnessModelRuntimeEnv, harnessModelRuntimeModel } from "./harness.js";
 import type { LocalTool } from "./mcp.js";
 import { ModelApiModeSchema, ModelApiSchema } from "./model-api.js";
+import type { Model, ModelSupply } from "./model-capabilities.js";
 import {
   ModelSchema as IndependentModelSchema,
   MODELS,
@@ -16,14 +17,12 @@ import {
   resolveHarnessModelInventory,
   resolveModelReasoningCapability,
 } from "./model-capabilities.js";
-import type { Model, ModelSupply } from "./model-capabilities.js";
 import {
+  buildProviderRuntimeEnv,
   ProviderApiEntrypointsSchema,
   ProviderAuthModeSchema,
-  buildProviderRuntimeEnv,
 } from "./providers.js";
 import { Swarm } from "./swarm.js";
-import { AgentBackendSchema, McpServerConfigSchema } from "./types.js";
 import type {
   AgentBackend,
   AgentConfig,
@@ -33,6 +32,7 @@ import type {
   ModelTokenUsage,
   SwarmConfig,
 } from "./types.js";
+import { AgentBackendSchema, McpServerConfigSchema } from "./types.js";
 import { SWARMX_VERSION } from "./version.js";
 
 const MANIFEST_FILENAMES = new Set([
@@ -1712,7 +1712,9 @@ function isManifestFilename(filename: string): boolean {
 
 function assertNoInlineSecrets(value: unknown, trail: string[] = []): void {
   if (Array.isArray(value)) {
-    value.forEach((item, index) => assertNoInlineSecrets(item, [...trail, String(index)]));
+    value.forEach((item, index) => {
+      assertNoInlineSecrets(item, [...trail, String(index)]);
+    });
     return;
   }
   if (!value || typeof value !== "object") return;
@@ -1820,7 +1822,9 @@ function addInlineSecretIssues(
   trail: Array<string | number> = [],
 ): void {
   if (Array.isArray(value)) {
-    value.forEach((item, index) => addInlineSecretIssues(item, ctx, [...trail, index]));
+    value.forEach((item, index) => {
+      addInlineSecretIssues(item, ctx, [...trail, index]);
+    });
     return;
   }
   if (!value || typeof value !== "object") return;
@@ -1847,7 +1851,9 @@ function addInlineUiPayloadIssues(
   trail: Array<string | number> = [],
 ): void {
   if (Array.isArray(value)) {
-    value.forEach((item, index) => addInlineUiPayloadIssues(item, ctx, [...trail, index]));
+    value.forEach((item, index) => {
+      addInlineUiPayloadIssues(item, ctx, [...trail, index]);
+    });
     return;
   }
   if (!value || typeof value !== "object") return;

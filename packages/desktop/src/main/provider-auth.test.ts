@@ -4,8 +4,8 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   EncryptedFileProviderAuthStore,
-  type ProviderSecretEncryption,
   newApiAccountCredentialKey,
+  type ProviderSecretEncryption,
   providerPoolCredentialKey,
 } from "./provider-auth.js";
 

@@ -1,26 +1,26 @@
 import Anthropic from "@anthropic-ai/sdk";
 import OpenAI from "openai";
+import type { AcpPermissionHandler, AcpPromptInput } from "./acp.js";
 import {
   AcpClient,
   AcpSessionUnavailableError,
-  RequestCancelledError,
   currentRequestSignal,
+  RequestCancelledError,
   throwIfCurrentRequestCancelled,
 } from "./acp.js";
-import type { AcpPermissionHandler, AcpPromptInput } from "./acp.js";
 import { type LocalTool, type LocalToolProgress, McpManager } from "./mcp.js";
 import {
-  type InlineMediaLoader,
   attachmentFallbackText,
   createInlineMediaLoader,
+  type InlineMediaLoader,
   validateMediaAttachments,
 } from "./media.js";
-import { ModelApiModeSchema, ModelApiSchema } from "./model-api.js";
 import type { ModelApi, ModelApiMode } from "./model-api.js";
+import { ModelApiModeSchema, ModelApiSchema } from "./model-api.js";
 import {
-  type NativeProtocolContext,
   callAnthropicMessages,
   callOpenAIResponses,
+  type NativeProtocolContext,
 } from "./native-model.js";
 import {
   appendMessages,

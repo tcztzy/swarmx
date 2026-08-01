@@ -2,19 +2,19 @@ import type {
   AgentBackend,
   BuiltinToolStylePreference,
   DesktopBuiltinToolSettings,
-  DesktopComposerPreferenceUpdate,
   DesktopComposerPreferences,
+  DesktopComposerPreferenceUpdate,
   HarnessPermissionMode,
   HarnessPermissionPolicyLayer,
   SessionPermissionMode,
   SwarmConfig,
 } from "@swarmx/core";
 import {
-  type NormalizeMessageChunkOptions,
   type NormalizedRenderEvent,
+  type NormalizeMessageChunkOptions,
+  normalizeMessageChunk,
   type RenderArtifactReference,
   type RenderProvenance,
-  normalizeMessageChunk,
 } from "@swarmx/core/rendering";
 import type {
   DoctorFixResult,
@@ -150,36 +150,36 @@ import { MessageAttachments } from "./message-attachments.js";
 import { MessageContent, MessageCopyButton } from "./message-content.js";
 import { type ActivityProfileSummary, ProfileWorkspace } from "./profile-workspace.js";
 import {
-  ProviderBrandIcon,
   isDeepSeekProvider,
   isDeepSeekProviderUrl,
   isOpenCodeGoProviderUrl,
+  ProviderBrandIcon,
   providerProtocolLabel,
 } from "./provider-presentation.js";
 import { api } from "./renderer-api.js";
 import { RuntimeSettings } from "./runtime-settings.js";
 import {
-  type DiscoveredSession,
-  type GroupedSessionsResult,
-  type ProjectData,
-  type ProjectOrganizationMode,
-  type ProjectPreviewState,
-  type ProjectSessionGroup,
-  type ProjectSortMode,
-  type SessionContextMenuState,
-  type SessionGroupMode,
   abbreviateHomePath,
   buildSessionErrors,
+  type DiscoveredSession,
   filterSessionGroups,
   flattenProjectSessions,
+  type GroupedSessionsResult,
   harnessLabel,
   isPlaceholderSessionTitle,
   localSessionToDiscovered,
   mergeLocalSessionsIntoGroups,
   mergeProjectsIntoSessionGroups,
   navigationEntryKey,
+  type ProjectData,
+  type ProjectOrganizationMode,
+  type ProjectPreviewState,
+  type ProjectSessionGroup,
+  type ProjectSortMode,
   preloadSessionCandidates,
   projectDisplayName,
+  type SessionContextMenuState,
+  type SessionGroupMode,
   sameProjectPath,
   sessionCacheId,
   sessionDetailKey,
@@ -190,12 +190,12 @@ import {
   ConversationPermissionPicker,
   CustomAgentsSettings,
   GeneralSettings,
+  mergeProviderUsageSnapshot,
   PermissionsSettings,
+  providerUsageTargetKey,
   type SettingsSection,
   SettingsSidebar,
   SettingsWorkspace,
-  mergeProviderUsageSnapshot,
-  providerUsageTargetKey,
 } from "./settings-workspace.js";
 import {
   capitalize,
@@ -210,10 +210,10 @@ import {
 import { Badge, Button, cx } from "./ui-primitives.js";
 import {
   type HarnessDescriptor,
+  parseWorkflowJson,
   type WorkflowImportStatus,
   type WorkflowParseResult,
   WorkflowWorkspace,
-  parseWorkflowJson,
 } from "./workflow-workspace.js";
 import {
   type BrowserBounds,

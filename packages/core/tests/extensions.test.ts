@@ -3,8 +3,6 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, expectTypeOf, it } from "vitest";
 import {
-  SWARMX_LOCAL_FILES_LSP_ID,
-  SWARMX_SKILLS_LSP_ID,
   builtInExtensionBundle,
   createExtensionInventory,
   executeAgentComposition,
@@ -14,6 +12,8 @@ import {
   resolveAgentComposition,
   resolveAgentCompositionPlan,
   resolveAgentCompositionRuntimeEnv,
+  SWARMX_LOCAL_FILES_LSP_ID,
+  SWARMX_SKILLS_LSP_ID,
   validateSkillHostCompatibility,
 } from "../src/extensions.js";
 

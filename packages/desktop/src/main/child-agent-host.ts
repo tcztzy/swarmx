@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { mergeModelTokenUsage } from "@swarmx/core";
 import type { ChatMessage, MessageChunk, ModelTokenUsage } from "@swarmx/core";
+import { mergeModelTokenUsage } from "@swarmx/core";
 import type { ClaudeAgentInvocation, ClaudeAgentResult } from "./workspace-tools.js";
 
 const MAX_CHILD_AGENTS = 32;
