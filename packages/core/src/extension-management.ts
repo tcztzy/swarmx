@@ -1,7 +1,5 @@
 import { z } from "zod";
-
-const FORBIDDEN_SECRET_KEY_PATTERN =
-  /(api[_-]?key|access[_-]?token|bearer|password|passwd|secret|credential|private[_-]?key)/i;
+import { findInlineSecretFields } from "./secret-scanner.js";
 
 export const ExtensionTrustSchema = z.enum(["builtin", "local", "verified", "untrusted"]);
 export const ExtensionInstallStateSchema = z.enum([
@@ -367,25 +365,11 @@ function isSafeRemoteLocation(location: string): boolean {
 }
 
 function addSecretIssues(value: unknown, ctx: z.RefinementCtx): void {
-  visit(value, [], ctx);
-}
-
-function visit(value: unknown, path: Array<string | number>, ctx: z.RefinementCtx): void {
-  if (Array.isArray(value)) {
-    value.forEach((item, index) => {
-      visit(item, [...path, index], ctx);
+  for (const issue of findInlineSecretFields(value)) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: issue.path,
+      message: `Extension metadata must not contain inline secret field "${issue.key}".`,
     });
-    return;
-  }
-  if (!value || typeof value !== "object") return;
-  for (const [key, child] of Object.entries(value)) {
-    if (FORBIDDEN_SECRET_KEY_PATTERN.test(key)) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: [...path, key],
-        message: `Extension metadata must not contain inline secret field "${key}".`,
-      });
-    }
-    visit(child, [...path, key], ctx);
   }
 }

@@ -1,4 +1,4 @@
-import { mkdir, readFile, realpath, stat } from "node:fs/promises";
+import { chmod, mkdir, readFile, realpath, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -9,6 +9,9 @@ import type {
   AgentComposition,
   AgentCompositionPlan,
   AgentConfig,
+  AuditInput,
+  AuditQuery,
+  AuditVerification,
   DiscoveredSession,
   ExtensionInventory,
   ExternalAcpSessionBinding,
@@ -25,6 +28,7 @@ import type {
 } from "@swarmx/core";
 import {
   ActivityStore,
+  AuditStore,
   appendMessages,
   archiveProjectSessions,
   archiveSession,
@@ -132,7 +136,7 @@ import {
 } from "./session-title.js";
 import { DesktopSettingsStore } from "./settings-store.js";
 import { SideChatService } from "./side-chat-service.js";
-import { TerminalHost } from "./terminal-host.js";
+import { type TerminalAuditEvent, TerminalHost } from "./terminal-host.js";
 import {
   createDisabledDesktopUpdateService,
   type DesktopUpdateServiceLike,
@@ -158,6 +162,103 @@ export {
 const MAX_INLINE_IMAGE_BYTES = 25 * 1024 * 1024;
 const SENSITIVE_PERMISSION_LABEL_PATTERN =
   /(api[_ -]?key|access[_ -]?token|password|passwd|bearer\s+[a-z0-9]|secret\s*[=:]|private[_ -]?key)/i;
+type IpcAuditPolicy = "intent_outcome" | "failure_only" | "semantic_only";
+const IPC_AUDIT_POLICIES = {
+  "bootstrap:get": "intent_outcome",
+  "agent:send": "intent_outcome",
+  "sideChat:send": "intent_outcome",
+  "activity:profile": "failure_only",
+  "agent:cancel": "intent_outcome",
+  "sideChat:list": "intent_outcome",
+  "sideChat:create": "intent_outcome",
+  "sideChat:update": "failure_only",
+  "sideChat:activate": "failure_only",
+  "sideChat:setHidden": "failure_only",
+  "sideChat:addContext": "intent_outcome",
+  "sideChat:edit": "intent_outcome",
+  "sideChat:delete": "intent_outcome",
+  "sideChat:promote": "intent_outcome",
+  "sideChat:cancel": "intent_outcome",
+  "agent:resolveInteraction": "semantic_only",
+  "session:create": "intent_outcome",
+  "session:save": "intent_outcome",
+  "session:load": "intent_outcome",
+  "session:list": "intent_outcome",
+  "project:list": "intent_outcome",
+  "project:addExisting": "intent_outcome",
+  "project:createScratch": "intent_outcome",
+  "project:setPinned": "intent_outcome",
+  "project:rename": "intent_outcome",
+  "project:reveal": "intent_outcome",
+  "project:archiveTasks": "intent_outcome",
+  "project:remove": "intent_outcome",
+  "session:listGrouped": "intent_outcome",
+  "session:loadDiscovered": "intent_outcome",
+  "session:archive": "intent_outcome",
+  "session:rename": "intent_outcome",
+  "session:setPinned": "intent_outcome",
+  "session:generateTitle": "intent_outcome",
+  "session:appendMessages": "intent_outcome",
+  "session:editUserMessage": "intent_outcome",
+  "session:fork": "intent_outcome",
+  "workflow:importN8n": "failure_only",
+  "extension:list": "intent_outcome",
+  "extension:managementState": "failure_only",
+  "extension:saveSource": "intent_outcome",
+  "extension:refreshSource": "intent_outcome",
+  "extension:removeSource": "intent_outcome",
+  "extension:applyAction": "intent_outcome",
+  "extension:saveEvolutionPolicy": "intent_outcome",
+  "customAgent:list": "intent_outcome",
+  "customAgent:save": "intent_outcome",
+  "customAgent:remove": "intent_outcome",
+  "composerPreferences:get": "failure_only",
+  "composerPreferences:save": "intent_outcome",
+  "builtinToolSettings:get": "failure_only",
+  "builtinToolSettings:save": "intent_outcome",
+  "permission:status": "intent_outcome",
+  "permission:savePersonal": "intent_outcome",
+  "permission:saveProfiles": "intent_outcome",
+  "workspace:root": "intent_outcome",
+  "workspace:review": "intent_outcome",
+  "workspace:listDirectory": "intent_outcome",
+  "workspace:readFile": "intent_outcome",
+  "terminal:create": "semantic_only",
+  "terminal:write": "semantic_only",
+  "terminal:resize": "semantic_only",
+  "terminal:kill": "semantic_only",
+  "browser:create": "intent_outcome",
+  "browser:navigate": "intent_outcome",
+  "browser:back": "intent_outcome",
+  "browser:forward": "intent_outcome",
+  "browser:reload": "intent_outcome",
+  "browser:setBounds": "failure_only",
+  "browser:setVisible": "failure_only",
+  "browser:destroy": "intent_outcome",
+  "appUpdate:getState": "failure_only",
+  "appUpdate:install": "intent_outcome",
+  "workspace:selectFilesAndFolders": "intent_outcome",
+  "media:select": "intent_outcome",
+  "media:import": "intent_outcome",
+  "media:preview": "intent_outcome",
+  "media:open": "intent_outcome",
+  "media:reveal": "intent_outcome",
+  "modelCatalog:refresh": "intent_outcome",
+  "modelCatalog:addManualModel": "intent_outcome",
+  "modelCatalog:removeManualModel": "intent_outcome",
+  "modelCatalog:saveProvider": "intent_outcome",
+  "modelCatalog:removeProvider": "intent_outcome",
+  "modelCatalog:resetProviderKey": "intent_outcome",
+  "providerUsage:refresh": "intent_outcome",
+  "harnessEnvironment:get": "intent_outcome",
+  "harnessEnvironment:version": "intent_outcome",
+  "doctor:inspect": "intent_outcome",
+  "doctor:fix": "intent_outcome",
+  "harnessEnvironment:setup": "intent_outcome",
+  "lsp:complete": "intent_outcome",
+  "lsp:stop": "intent_outcome",
+  "asset:imageDataUrl": "intent_outcome",
+} as const satisfies Record<string, IpcAuditPolicy>;
 const lspHost = new LspHost();
 const harnessEnvironment = new HarnessEnvironmentService();
 const harnessDoctor = new HarnessDoctor(harnessEnvironment);
@@ -166,7 +267,18 @@ const sideChats = new SideChatService();
 const agentInteractions = new AgentInteractionBroker();
 const claudeSessionRuntimes = new ClaudeSessionRuntimeRegistry();
 const browserHost = new BrowserHost();
-const terminalHost = new TerminalHost();
+const desktopAudit = new AuditStore(
+  process.env.NODE_ENV === "test"
+    ? {
+        filePath: path.join(tmpdir(), `swarmx-audit-test-${process.pid}`, "events.jsonl"),
+      }
+    : {},
+);
+type DesktopAuditStore = Pick<AuditStore, "append" | "query" | "exportJsonl" | "verify">;
+type PreparedAuditInput = AuditInput & { metadata: Record<string, unknown> };
+let activeAuditStore: DesktopAuditStore = desktopAudit;
+let semanticAuditCount = 0;
+const terminalHost = new TerminalHost(undefined, undefined, undefined, recordTerminalAudit);
 const interactiveOwnerIds = new Set<number>();
 const desktopWorkspaceRoot = process.env.INIT_CWD || process.cwd();
 const workspaceTools = new WorkspaceTools(desktopWorkspaceRoot);
@@ -208,6 +320,7 @@ export interface RegisterIpcHandlersOptions {
   updateService?: DesktopUpdateServiceLike;
   broadcastUpdateState?: (state: DesktopUpdateState) => void;
   activityStore?: ActivityStore;
+  auditStore?: DesktopAuditStore;
   authorizeIpcSender?: (event: RendererIpcEvent) => boolean;
 }
 
@@ -263,6 +376,7 @@ interface ActivityOutcomeInput {
   userText: string;
   messages: readonly MessageChunk[];
   tokenUsages: readonly ModelTokenUsage[];
+  skillIds: readonly string[];
 }
 
 function recordActivityOutcome(store: ActivityStore, input: ActivityOutcomeInput): void {
@@ -274,12 +388,6 @@ function recordActivityOutcome(store: ActivityStore, input: ActivityOutcomeInput
     modelId: input.modelId,
     reasoningEffort: input.reasoningEffort,
   };
-  appendActivity(store, {
-    type: "task_finished",
-    ...metadata,
-    status: input.status,
-    durationMs,
-  });
   const usage =
     input.tokenUsages.length > 0
       ? mergeModelTokenUsage(input.tokenUsages)
@@ -287,7 +395,35 @@ function recordActivityOutcome(store: ActivityStore, input: ActivityOutcomeInput
           model: input.modelId,
           provider: input.harnessId,
         });
-  appendActivity(store, { type: "token_usage", ...metadata, tokens: usage });
+  appendActivity(store, {
+    type: "run_summary",
+    ...metadata,
+    status: input.status,
+    durationMs,
+    tokens: usage,
+    tools: activityNameCounts(
+      input.messages.flatMap((message) =>
+        message.kind === "tool_call" && message.toolName ? [message.toolName] : [],
+      ),
+    ),
+    skills: activityNameCounts(input.skillIds),
+  });
+}
+
+function activityNameCounts(names: readonly string[]): Record<string, number> {
+  const counts: Record<string, number> = {};
+  let distinctNames = 0;
+  for (const value of names) {
+    const name = safeAuditToken(value);
+    if (!name) continue;
+    if (counts[name] === undefined) {
+      if (distinctNames >= 128) continue;
+      distinctNames += 1;
+      counts[name] = 0;
+    }
+    counts[name] += 1;
+  }
+  return counts;
 }
 
 function appendActivity(store: ActivityStore, input: ActivityEventInput): void {
@@ -315,25 +451,140 @@ async function loadDesktopExtensionInventory(): Promise<ExtensionInventory> {
 export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): void {
   const updateService = options.updateService ?? createDisabledDesktopUpdateService();
   const activityStore = options.activityStore ?? desktopActivity;
+  const auditStore = options.auditStore ?? desktopAudit;
+  activeAuditStore = auditStore;
   const authorizeIpcSender = options.authorizeIpcSender ?? (() => false);
   const assertAuthorized = (event: RendererIpcEvent): void => {
     if (!authorizeIpcSender(event)) throw new Error("Untrusted desktop IPC sender.");
   };
-  const handle: typeof electronIpcMain.handle = (channel, listener) =>
-    electronIpcMain.handle(channel, (event, ...args) => {
-      assertAuthorized(event);
-      return listener(event, ...args);
+  const handle: typeof electronIpcMain.handle = (channel, listener) => {
+    if (channel.startsWith("audit:")) {
+      return electronIpcMain.handle(channel, (event, ...args) => {
+        try {
+          assertAuthorized(event);
+        } catch (error) {
+          auditStore.append({
+            ...ipcAuditInput(channel, event, args),
+            outcome: "denied",
+            metadata: { argumentCount: args.length },
+          });
+          throw error;
+        }
+        return listener(event, ...args);
+      });
+    }
+    const auditPolicy = requiredIpcAuditPolicy(channel);
+    return electronIpcMain.handle(channel, (event, ...args) => {
+      const startedAt = Date.now();
+      const semanticAuditBaseline = semanticAuditCount;
+      const audit = ipcAuditInput(channel, event, args);
+      if (auditPolicy === "intent_outcome") {
+        auditStore.append({ ...audit, outcome: "attempted" });
+      }
+      try {
+        assertAuthorized(event);
+      } catch (error) {
+        auditStore.append({
+          ...audit,
+          outcome: "denied",
+          metadata: { ...audit.metadata, durationMs: elapsedMilliseconds(startedAt) },
+        });
+        throw error;
+      }
+
+      try {
+        const result = listener(event, ...args);
+        if (isPromiseLike(result)) {
+          return Promise.resolve(result).then(
+            (value) => {
+              const outcome = ipcResultOutcome(value);
+              if (recordsResolvedIpcOutcome(auditPolicy, outcome)) {
+                auditStore.append({
+                  ...audit,
+                  outcome,
+                  metadata: { ...audit.metadata, durationMs: elapsedMilliseconds(startedAt) },
+                });
+              }
+              return value;
+            },
+            (error: unknown) => {
+              if (recordsDispatchFailure(auditPolicy, semanticAuditBaseline)) {
+                auditStore.append({
+                  ...audit,
+                  outcome: error instanceof RequestCancelledError ? "cancelled" : "failed",
+                  metadata: {
+                    ...audit.metadata,
+                    durationMs: elapsedMilliseconds(startedAt),
+                    errorType: errorName(error),
+                  },
+                });
+              }
+              throw error;
+            },
+          );
+        }
+        const outcome = ipcResultOutcome(result);
+        if (recordsResolvedIpcOutcome(auditPolicy, outcome)) {
+          auditStore.append({
+            ...audit,
+            outcome,
+            metadata: { ...audit.metadata, durationMs: elapsedMilliseconds(startedAt) },
+          });
+        }
+        return result;
+      } catch (error) {
+        if (recordsDispatchFailure(auditPolicy, semanticAuditBaseline)) {
+          auditStore.append({
+            ...audit,
+            outcome: error instanceof RequestCancelledError ? "cancelled" : "failed",
+            metadata: {
+              ...audit.metadata,
+              durationMs: elapsedMilliseconds(startedAt),
+              errorType: errorName(error),
+            },
+          });
+        }
+        throw error;
+      }
     });
+  };
   const ipcMain = { handle };
+  const bootstrapAuditPolicy = requiredIpcAuditPolicy("bootstrap:get");
   electronIpcMain.on("bootstrap:get", (event) => {
-    assertAuthorized(event);
-    event.returnValue = listProjects();
+    const startedAt = Date.now();
+    const audit = ipcAuditInput("bootstrap:get", event, []);
+    if (bootstrapAuditPolicy === "intent_outcome") {
+      auditStore.append({ ...audit, outcome: "attempted" });
+    }
+    try {
+      assertAuthorized(event);
+      event.returnValue = listProjects();
+      if (recordsResolvedIpcOutcome(bootstrapAuditPolicy, "completed")) {
+        auditStore.append({
+          ...audit,
+          outcome: "completed",
+          metadata: { ...audit.metadata, durationMs: elapsedMilliseconds(startedAt) },
+        });
+      }
+    } catch (error) {
+      auditStore.append({
+        ...audit,
+        outcome: errorMessage(error).includes("Untrusted desktop IPC sender") ? "denied" : "failed",
+        metadata: {
+          ...audit.metadata,
+          durationMs: elapsedMilliseconds(startedAt),
+          errorType: errorName(error),
+        },
+      });
+      throw error;
+    }
   });
   if (options.broadcastUpdateState) updateService.subscribe(options.broadcastUpdateState);
   const handleAgentSend = async (event: IpcMainInvokeEvent, params: DesktopAgentSendParams) => {
     const startedAt = Date.now();
     const observedMessages: MessageChunk[] = [];
     const tokenUsages: ModelTokenUsage[] = [];
+    const usedSkillIds = new Set<string>();
     let foregroundRuntime: ClaudeSessionRuntime | undefined;
     let activeChunkPublisher: AgentChunkPublisher | undefined;
     let activeSideChat: TransientSessionData | undefined;
@@ -354,7 +605,6 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
           ? { sessionId: params.sessionId }
           : {}),
     };
-    appendActivity(activityStore, { type: "task_started", ...taskMetadata });
     const persistOutcome = (messages: MessageChunk[]) => ({
       sessionPersisted:
         params.sessionId && !params.sideChatId ? appendMessages(params.sessionId, messages) : false,
@@ -398,15 +648,9 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
         });
         activeChunkPublisher = publishChunk;
         const onChunk = (chunk: MessageChunk) => {
+          recordToolChunkAudit(auditStore, chunk, params);
           if (chunk.kind !== "tool_progress") observedMessages.push(chunk);
           publishChunk(chunk);
-          if (chunk.kind === "tool_call" && chunk.toolName) {
-            appendActivity(activityStore, {
-              type: "tool_called",
-              ...taskMetadata,
-              name: chunk.toolName,
-            });
-          }
         };
         const acpPermissionHandler: AcpPermissionHandler = async (request) => {
           if (params.sideChatId) return { outcome: { outcome: "cancelled" } };
@@ -433,32 +677,53 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
               })),
             });
             if (response.kind !== "tool_approval") {
-              await recordPermissionDecision({
-                source: "acp",
-                toolName: title,
-                ...(toolKind ? { toolKind } : {}),
-                decision: "cancelled",
-              });
+              await recordPermissionDecision(
+                {
+                  source: "acp",
+                  toolName: title,
+                  ...(toolKind ? { toolKind } : {}),
+                  decision: "cancelled",
+                },
+                {
+                  requestId: params.requestId,
+                  sessionId: params.sessionId,
+                  ownerId: event.sender.id,
+                },
+              );
               return { outcome: { outcome: "cancelled" } };
             }
             const selected = request.options.find(
               (option) => option.optionId === response.optionId,
             );
-            await recordPermissionDecision({
-              source: "acp",
-              toolName: title,
-              ...(toolKind ? { toolKind } : {}),
-              decision: selected?.kind.startsWith("allow") ? "allowed" : "rejected",
-              ...(selected ? { optionKind: selected.kind } : {}),
-            });
+            await recordPermissionDecision(
+              {
+                source: "acp",
+                toolName: title,
+                ...(toolKind ? { toolKind } : {}),
+                decision: selected?.kind.startsWith("allow") ? "allowed" : "rejected",
+                ...(selected ? { optionKind: selected.kind } : {}),
+              },
+              {
+                requestId: params.requestId,
+                sessionId: params.sessionId,
+                ownerId: event.sender.id,
+              },
+            );
             return { outcome: { outcome: "selected", optionId: response.optionId } };
           } catch (error) {
-            await recordPermissionDecision({
-              source: "acp",
-              toolName: title,
-              ...(toolKind ? { toolKind } : {}),
-              decision: "cancelled",
-            });
+            await recordPermissionDecision(
+              {
+                source: "acp",
+                toolName: title,
+                ...(toolKind ? { toolKind } : {}),
+                decision: "cancelled",
+              },
+              {
+                requestId: params.requestId,
+                sessionId: params.sessionId,
+                ownerId: event.sender.id,
+              },
+            );
             throw error;
           }
         };
@@ -480,11 +745,7 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
           const inventory = await modelCatalog.list(await loadDesktopExtensionInventory());
           const plan = resolveAgentCompositionPlan(params.agentComposition, inventory);
           for (const skillId of new Set(plan.skills.map((skill) => skill.id))) {
-            appendActivity(activityStore, {
-              type: "skill_used",
-              ...taskMetadata,
-              name: skillId,
-            });
+            usedSkillIds.add(skillId);
           }
           assertCompositionSupplyReady(inventory, plan, process.env);
           const providerRuntime = plan.modelSupplyId
@@ -725,25 +986,39 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
                 const selected = request.options.find(
                   (option) => option.optionId === response.optionId,
                 );
-                await recordPermissionDecision({
-                  source: request.source ?? "direct",
-                  toolName: request.title,
-                  ...(request.toolKind ? { toolKind: request.toolKind } : {}),
-                  decision: selected?.kind.startsWith("allow") ? "allowed" : "rejected",
-                  ...(selected ? { optionKind: selected.kind } : {}),
-                  policySourceIds: request.policySourceIds ?? [],
-                });
+                await recordPermissionDecision(
+                  {
+                    source: request.source ?? "direct",
+                    toolName: request.title,
+                    ...(request.toolKind ? { toolKind: request.toolKind } : {}),
+                    decision: selected?.kind.startsWith("allow") ? "allowed" : "rejected",
+                    ...(selected ? { optionKind: selected.kind } : {}),
+                    policySourceIds: request.policySourceIds ?? [],
+                  },
+                  {
+                    requestId: params.requestId,
+                    sessionId: params.sessionId,
+                    ownerId: event.sender.id,
+                  },
+                );
               }
               return response;
             } catch (error) {
               if (request.kind === "tool_approval") {
-                await recordPermissionDecision({
-                  source: request.source ?? "direct",
-                  toolName: request.title,
-                  ...(request.toolKind ? { toolKind: request.toolKind } : {}),
-                  decision: "cancelled",
-                  policySourceIds: request.policySourceIds ?? [],
-                });
+                await recordPermissionDecision(
+                  {
+                    source: request.source ?? "direct",
+                    toolName: request.title,
+                    ...(request.toolKind ? { toolKind: request.toolKind } : {}),
+                    decision: "cancelled",
+                    policySourceIds: request.policySourceIds ?? [],
+                  },
+                  {
+                    requestId: params.requestId,
+                    sessionId: params.sessionId,
+                    ownerId: event.sender.id,
+                  },
+                );
               }
               throw error;
             }
@@ -909,6 +1184,7 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
         userText: params.userText,
         messages: persistedMessages,
         tokenUsages,
+        skillIds: [...usedSkillIds],
       });
       return { ...result, messages: persistedMessages, sessionPersisted, sideChat };
     } catch (err) {
@@ -922,6 +1198,7 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
           userText: params.userText,
           messages: canceledMessages,
           tokenUsages,
+          skillIds: [...usedSkillIds],
         });
         return {
           success: false,
@@ -949,6 +1226,7 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
         userText: params.userText,
         messages: observedMessages,
         tokenUsages,
+        skillIds: [...usedSkillIds],
       });
       return {
         success: false,
@@ -968,6 +1246,50 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
   ipcMain.handle("sideChat:send", handleAgentSend);
 
   ipcMain.handle("activity:profile", () => activityStore.summary());
+
+  ipcMain.handle("audit:list", (_event: IpcMainInvokeEvent, query?: AuditQuery) =>
+    auditStore.query(query ?? {}),
+  );
+
+  ipcMain.handle("audit:verify", (): AuditVerification => auditStore.verify());
+
+  ipcMain.handle("audit:export", async (_event: IpcMainInvokeEvent, query?: AuditQuery) => {
+    const exportAudit: PreparedAuditInput = {
+      category: "system",
+      action: "audit.export",
+      actor: { kind: "user", id: "desktop" },
+      metadata: { filtered: Boolean(query && Object.keys(query).length > 0) },
+    };
+    auditStore.append({ ...exportAudit, outcome: "attempted" });
+    const selected = await dialog.showSaveDialog({
+      title: "Export verified audit log",
+      defaultPath: `swarmx-audit-${new Date().toISOString().slice(0, 10)}.jsonl`,
+      filters: [{ name: "JSON Lines", extensions: ["jsonl"] }],
+    });
+    if (selected.canceled || !selected.filePath) {
+      auditStore.append({ ...exportAudit, outcome: "cancelled" });
+      return { exported: false, canceled: true };
+    }
+    try {
+      const jsonl = auditStore.exportJsonl(query ?? {});
+      await writeFile(selected.filePath, jsonl, { encoding: "utf8", mode: 0o600 });
+      await chmod(selected.filePath, 0o600);
+      const eventCount = jsonl ? jsonl.trimEnd().split("\n").length : 0;
+      auditStore.append({
+        ...exportAudit,
+        outcome: "completed",
+        metadata: { ...exportAudit.metadata, eventCount },
+      });
+      return { exported: true, eventCount };
+    } catch (error) {
+      auditStore.append({
+        ...exportAudit,
+        outcome: "failed",
+        metadata: { ...exportAudit.metadata, errorType: errorName(error) },
+      });
+      throw error;
+    }
+  });
 
   ipcMain.handle(
     "agent:cancel",
@@ -1550,6 +1872,7 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
       params: { id?: string; cwd: string; cols?: number; rows?: number },
     ) => {
       const owner = event.sender;
+      const created = terminalHost.create(owner, params);
       if (!interactiveOwnerIds.has(owner.id)) {
         interactiveOwnerIds.add(owner.id);
         owner.once("destroyed", () => {
@@ -1558,7 +1881,7 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
           terminalHost.cleanupOwner(owner.id);
         });
       }
-      return terminalHost.create(owner, params);
+      return created;
     },
   );
 
@@ -2156,12 +2479,205 @@ function recordProperty(value: unknown, key: string): Record<string, unknown> {
     : {};
 }
 
-async function recordPermissionDecision(input: RecordPermissionDecisionInput): Promise<void> {
+interface PermissionDecisionAuditContext {
+  requestId?: string;
+  sessionId?: string;
+  ownerId?: number;
+}
+
+async function recordPermissionDecision(
+  input: RecordPermissionDecisionInput,
+  context: PermissionDecisionAuditContext = {},
+): Promise<void> {
+  const audit: PreparedAuditInput = {
+    category: "permission",
+    action: "tool.decision",
+    actor: {
+      kind: "user",
+      ...(context.ownerId === undefined ? {} : { id: `renderer:${context.ownerId}` }),
+    },
+    target: {
+      kind: "tool",
+      ...(safeAuditToken(input.toolName) ? { id: safeAuditToken(input.toolName) } : {}),
+    },
+    ...(safeAuditToken(context.requestId) ? { requestId: context.requestId } : {}),
+    ...(safeAuditToken(context.sessionId) ? { sessionId: context.sessionId } : {}),
+    metadata: {
+      origin: input.source,
+      decision: input.decision,
+      ...(input.toolKind ? { toolKind: input.toolKind } : {}),
+      ...(input.optionKind ? { optionKind: input.optionKind } : {}),
+      policyLayerCount: input.policySourceIds?.length ?? 0,
+    },
+  };
+  activeAuditStore.append({ ...audit, outcome: "attempted" });
   try {
     await permissionService.recordDecision(input);
-  } catch {
-    // An unavailable audit store must not rewrite the user's authority decision.
+    activeAuditStore.append({
+      ...audit,
+      outcome:
+        input.decision === "allowed"
+          ? "completed"
+          : input.decision === "rejected"
+            ? "denied"
+            : "cancelled",
+    });
+  } catch (error) {
+    activeAuditStore.append({
+      ...audit,
+      outcome: "failed",
+      metadata: { ...audit.metadata, errorType: errorName(error) },
+    });
+    throw error;
   }
+}
+
+function ipcAuditInput(
+  channel: string,
+  event: unknown,
+  args: readonly unknown[],
+): PreparedAuditInput {
+  const firstRecord = args.find(isRecord);
+  const requestId = safeAuditToken(stringProperty(firstRecord, "requestId"));
+  const sessionId = safeAuditToken(
+    stringProperty(firstRecord, "sessionId") ??
+      stringProperty(firstRecord, "parentSessionId") ??
+      (channel.startsWith("session:") && typeof args[0] === "string" ? args[0] : undefined),
+  );
+  const taskId = safeAuditToken(
+    stringProperty(firstRecord, "taskId") ?? stringProperty(firstRecord, "workItemId"),
+  );
+  const sender = recordProperty(event, "sender");
+  const senderId = typeof sender.id === "number" ? sender.id : undefined;
+  return {
+    category: "system",
+    action: "ipc.request",
+    actor: {
+      kind: "user",
+      ...(senderId === undefined ? {} : { id: `renderer:${senderId}` }),
+    },
+    target: { kind: "ipc-channel", id: normalizedIpcAuditChannel(channel) },
+    ...(requestId ? { requestId } : {}),
+    ...(sessionId ? { sessionId } : {}),
+    ...(taskId ? { taskId } : {}),
+    metadata: { argumentCount: args.length },
+  };
+}
+
+function requiredIpcAuditPolicy(channel: string): IpcAuditPolicy {
+  const policy = (IPC_AUDIT_POLICIES as Readonly<Record<string, IpcAuditPolicy>>)[channel];
+  if (!policy) throw new Error(`Desktop IPC channel ${channel} has no audit policy.`);
+  return policy;
+}
+
+function normalizedIpcAuditChannel(channel: string): string {
+  const normalized = safeAuditToken(channel.replace(/[^A-Za-z0-9_.-]+/g, ".").toLowerCase());
+  if (!normalized) throw new Error("Desktop IPC channel cannot be represented safely in audit.");
+  return normalized;
+}
+
+function recordsResolvedIpcOutcome(
+  policy: IpcAuditPolicy,
+  outcome: AuditInput["outcome"],
+): boolean {
+  return policy === "intent_outcome" || (policy === "failure_only" && outcome !== "completed");
+}
+
+function recordsDispatchFailure(policy: IpcAuditPolicy, semanticAuditBaseline: number): boolean {
+  return policy !== "semantic_only" || semanticAuditCount === semanticAuditBaseline;
+}
+
+function recordTerminalAudit(event: Readonly<TerminalAuditEvent>): void {
+  const targetId = safeAuditToken(event.terminalId);
+  activeAuditStore.append({
+    category: "tool",
+    action: `terminal.${event.operation}`,
+    outcome:
+      event.phase === "attempt"
+        ? "attempted"
+        : event.outcome === "succeeded"
+          ? "completed"
+          : event.outcome === "rejected"
+            ? "denied"
+            : "failed",
+    actor: { kind: "user", id: `renderer:${event.ownerId}` },
+    target: { kind: "terminal", ...(targetId ? { id: targetId } : {}) },
+    metadata: {
+      ...(event.reason ? { reason: event.reason } : {}),
+      ...(event.byteCount === undefined ? {} : { byteCount: event.byteCount }),
+      ...(event.cols === undefined ? {} : { cols: event.cols }),
+      ...(event.rows === undefined ? {} : { rows: event.rows }),
+      ...(event.pid === undefined ? {} : { pid: event.pid }),
+      ...(event.exitCode === undefined ? {} : { exitCode: event.exitCode }),
+      ...(event.signal === undefined ? {} : { signal: event.signal }),
+      ...(event.closeReason === undefined ? {} : { closeReason: event.closeReason }),
+    },
+  });
+  semanticAuditCount += 1;
+}
+
+function recordToolChunkAudit(
+  auditStore: DesktopAuditStore,
+  chunk: MessageChunk,
+  params: Pick<DesktopAgentSendParams, "requestId" | "sessionId" | "harnessId">,
+): void {
+  if ((chunk.kind !== "tool_call" && chunk.kind !== "tool_result") || !chunk.toolName) return;
+  const toolId = safeAuditToken(chunk.toolName);
+  const invocationId = safeAuditToken(chunk.render?.invocationId);
+  const renderStatus = chunk.render?.status;
+  auditStore.append({
+    category: "tool",
+    action: "tool.invoke",
+    outcome:
+      chunk.kind === "tool_call"
+        ? "attempted"
+        : renderStatus === "canceled"
+          ? "cancelled"
+          : renderStatus === "failed"
+            ? "failed"
+            : "completed",
+    actor: { kind: "agent", ...(safeAuditToken(params.harnessId) ? { id: params.harnessId } : {}) },
+    target: { kind: "tool", ...(toolId ? { id: toolId } : {}) },
+    ...(safeAuditToken(params.requestId) ? { requestId: params.requestId } : {}),
+    ...(safeAuditToken(params.sessionId) ? { sessionId: params.sessionId } : {}),
+    metadata: { ...(invocationId ? { invocationId } : {}) },
+  });
+}
+
+function safeAuditToken(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  if (
+    !/^[A-Za-z0-9][A-Za-z0-9_.:@/-]{0,159}$/.test(trimmed) ||
+    SENSITIVE_PERMISSION_LABEL_PATTERN.test(trimmed) ||
+    /^(?:sk|rk|pk|ghp|gho|ghu|ghs|github_pat|xox[a-z]?)-/i.test(trimmed)
+  ) {
+    return undefined;
+  }
+  return trimmed;
+}
+
+function isPromiseLike(value: unknown): value is PromiseLike<unknown> {
+  return Boolean(value && typeof value === "object" && "then" in value);
+}
+
+function ipcResultOutcome(value: unknown): AuditInput["outcome"] {
+  if (!isRecord(value)) return "completed";
+  if (value.canceled === true) return "cancelled";
+  if (value.success === false) return "failed";
+  return "completed";
+}
+
+function elapsedMilliseconds(startedAt: number): number {
+  return Math.max(0, Date.now() - startedAt);
+}
+
+function errorName(error: unknown): string {
+  return error instanceof Error && error.name ? error.name : "Error";
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function boundedPermissionLabel(value: string): string {

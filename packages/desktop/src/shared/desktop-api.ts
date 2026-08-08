@@ -2,6 +2,9 @@ import type {
   ActivityProfileSummary,
   AgentCompositionPlan,
   AgentProfile,
+  AuditEvent,
+  AuditQuery,
+  AuditVerification,
   DesktopBuiltinToolSettings,
   DesktopComposerPreferences,
   DesktopComposerPreferenceUpdate,
@@ -586,6 +589,11 @@ export interface SwarmxAPI {
   }): Promise<DesktopSessionData | null>;
   listSessions(): Promise<DesktopSessionSummary[]>;
   getActivityProfile(): Promise<ActivityProfileSummary>;
+  listAuditEvents(query?: AuditQuery): Promise<AuditEvent[]>;
+  verifyAuditLog(): Promise<AuditVerification>;
+  exportAuditLog(
+    query?: AuditQuery,
+  ): Promise<{ exported: boolean; canceled?: boolean; eventCount?: number }>;
   listProjects(): Promise<ProjectData[]>;
   addExistingProject(): Promise<ProjectData | null>;
   createScratchProject(): Promise<ProjectData | null>;

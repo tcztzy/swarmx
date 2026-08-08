@@ -253,6 +253,16 @@ describe("WorkspaceTools", () => {
         "sandbox_permissions",
       ]),
     );
+    expect(execCommand?.inputSchema).toMatchObject({
+      type: "object",
+      required: ["cmd"],
+      properties: {
+        cmd: { type: "string" },
+        yield_time_ms: { type: "integer", minimum: 250, maximum: 30_000 },
+        max_output_tokens: { type: "integer", minimum: 1, maximum: 50_000 },
+      },
+    });
+    await expect(execCommand?.call({ cmd: 42 })).rejects.toThrow("cmd must be text.");
     const unreadWriteError = await write
       ?.call({ file_path: path.join(root, "README.md"), content: "replacement\n" })
       .catch((error: unknown) => error);

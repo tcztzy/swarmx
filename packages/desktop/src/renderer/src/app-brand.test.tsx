@@ -12,7 +12,7 @@ describe("SwarmX application icon", () => {
     const { container } = render(<AppBrandIcon className="product-mark" />);
     const image = container.querySelector("img");
 
-    expect(APP_ICON_URL).toMatch(/^data:image\/svg\+xml/);
+    expect(APP_ICON_URL).toBe("./app-icon.svg");
     expect(image?.getAttribute("src")).toBe(APP_ICON_URL);
     expect(image?.getAttribute("class")).toBe("product-mark");
     expect(image?.getAttribute("alt")).toBe("");

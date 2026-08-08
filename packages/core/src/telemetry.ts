@@ -1,26 +1,9 @@
 import { z } from "zod";
+import { stableHash, stableJson } from "./canonical-json.js";
+import { isForbiddenSecretKey, REDACTED_VALUE } from "./secret-scanner.js";
 
-const REDACTED_VALUE = "[redacted]";
 const OMITTED_VALUE = "[omitted]";
 const DEFAULT_SCHEMA_VERSION = "swarmx.telemetry.v1";
-
-const ALLOWED_SECRET_REFERENCE_KEYS = new Set([
-  "secretref",
-  "secret_ref",
-  "secretrefid",
-  "secret_ref_id",
-  "secretstatus",
-  "secret_status",
-  "credentialref",
-  "credential_ref",
-  "credentialrefs",
-  "credential_refs",
-  "credentialreferences",
-  "credential_references",
-]);
-
-const FORBIDDEN_SECRET_KEY_PATTERN =
-  /(api[_-]?key|access[_-]?token|bearer|password|passwd|secret|credential|private[_-]?key|smtp[_-]?password|telemetry[_-]?token|ingest[_-]?token)/i;
 const RAW_CONTENT_KEY_PATTERN =
   /(prompt|response|message[_-]?text|conversation|wiki[_-]?body|source[_-]?code|terminal[_-]?output|stdout|stderr|stack[_-]?trace|run[_-]?log|process[_-]?log|worker[_-]?log|raw[_-]?payload)/i;
 
@@ -490,13 +473,6 @@ function findUnsafeTelemetryFields(
   return issues;
 }
 
-function isForbiddenSecretKey(key: string): boolean {
-  const normalizedKey = key.toLowerCase().replace(/[^a-z0-9_]/g, "");
-  return (
-    FORBIDDEN_SECRET_KEY_PATTERN.test(key) && !ALLOWED_SECRET_REFERENCE_KEYS.has(normalizedKey)
-  );
-}
-
 function isRawContentKey(key: string): boolean {
   return RAW_CONTENT_KEY_PATTERN.test(key);
 }
@@ -517,26 +493,6 @@ function splitCsv(value: string | undefined): string[] | undefined {
 function processLikeEnv(): Record<string, string | undefined> {
   if (typeof process !== "undefined" && process.env) return process.env;
   return {};
-}
-
-function stableJson(value: unknown): string {
-  if (value === null || typeof value !== "object") return JSON.stringify(value);
-  if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
-  return `{${Object.entries(value)
-    .filter(([, child]) => child !== undefined)
-    .sort(([left], [right]) => left.localeCompare(right))
-    .map(([key, child]) => `${JSON.stringify(key)}:${stableJson(child)}`)
-    .join(",")}}`;
-}
-
-function stableHash(value: string): string {
-  let hash = 0xcbf29ce484222325n;
-  const prime = 0x100000001b3n;
-  for (let index = 0; index < value.length; index++) {
-    hash ^= BigInt(value.charCodeAt(index));
-    hash = BigInt.asUintN(64, hash * prime);
-  }
-  return hash.toString(16).padStart(16, "0");
 }
 
 function firstHeader(

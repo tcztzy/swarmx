@@ -11,9 +11,17 @@ export interface HarnessModelLaunchOptions {
   env?: Readonly<Record<string, string | undefined>>;
 }
 
+export interface HarnessSoftware {
+  name: string;
+  version?: string;
+  runner?: string;
+  command?: string[];
+}
+
 export interface HarnessConfig {
   label: string;
   icon: string;
+  software: HarnessSoftware;
   /** How a request-scoped model is applied. */
   modelControl: HarnessModelControl;
   /** Whether compatibility uses Model API metadata or the harness runtime catalog. */
@@ -34,10 +42,30 @@ const PI_ACP_VERSION = "0.0.31";
 const CLAUDE_DEEPSEEK_PRO_MODEL = "deepseek-v4-pro[1m]";
 const CLAUDE_DEEPSEEK_FLASH_MODEL = "deepseek-v4-flash";
 
+function npxSoftware(
+  packageName: string,
+  version: string,
+): HarnessSoftware & { runner: string; command: string[] } {
+  return {
+    name: packageName.split("/").at(-1) ?? packageName,
+    version,
+    runner: "npx",
+    command: ["--yes", `${packageName}@${version}`],
+  };
+}
+
+const CLAUDE_AGENT_ACP_SOFTWARE = npxSoftware(
+  "@agentclientprotocol/claude-agent-acp",
+  CLAUDE_AGENT_ACP_VERSION,
+);
+const CODEX_ACP_SOFTWARE = npxSoftware("@agentclientprotocol/codex-acp", CODEX_ACP_VERSION);
+const PI_ACP_SOFTWARE = npxSoftware("pi-acp", PI_ACP_VERSION);
+
 export const HARNESSES: Record<string, HarnessConfig> = {
   swarmx: {
     label: "SwarmX",
     icon: "swarmx",
+    software: { name: "swarmx" },
     modelControl: "direct",
     modelCompatibility: "declared_apis",
     supportedModelApis: ["anthropic", "openai_responses", "openai_chat"],
@@ -47,6 +75,7 @@ export const HARNESSES: Record<string, HarnessConfig> = {
   claude_code: {
     label: "Claude Code",
     icon: "claude",
+    software: CLAUDE_AGENT_ACP_SOFTWARE,
     modelControl: "session",
     modelCompatibility: "any",
     supportedModelApis: ["anthropic", "openai_chat", "openai_responses", "ollama"],
@@ -54,13 +83,14 @@ export const HARNESSES: Record<string, HarnessConfig> = {
     passthroughEnv: ["PATH", "HOME", "LANG", "USER", "SHELL", "TERM"],
     backend: {
       type: "custom",
-      program: "npx",
-      args: ["--yes", `@agentclientprotocol/claude-agent-acp@${CLAUDE_AGENT_ACP_VERSION}`],
+      program: CLAUDE_AGENT_ACP_SOFTWARE.runner,
+      args: CLAUDE_AGENT_ACP_SOFTWARE.command,
     },
   },
   codex: {
     label: "Codex",
     icon: "codex",
+    software: CODEX_ACP_SOFTWARE,
     modelControl: "session",
     modelCompatibility: "any",
     supportedModelApis: ["openai_responses", "openai_chat", "anthropic", "ollama"],
@@ -77,13 +107,14 @@ export const HARNESSES: Record<string, HarnessConfig> = {
     ],
     backend: {
       type: "custom",
-      program: "npx",
-      args: ["--yes", `@agentclientprotocol/codex-acp@${CODEX_ACP_VERSION}`],
+      program: CODEX_ACP_SOFTWARE.runner,
+      args: CODEX_ACP_SOFTWARE.command,
     },
   },
   pi: {
     label: "Pi",
     icon: "pi",
+    software: PI_ACP_SOFTWARE,
     modelControl: "session",
     modelCompatibility: "any",
     supportedModelApis: ["anthropic", "openai_chat", "openai_responses", "ollama"],
@@ -104,13 +135,14 @@ export const HARNESSES: Record<string, HarnessConfig> = {
     ],
     backend: {
       type: "custom",
-      program: "npx",
-      args: ["--yes", `pi-acp@${PI_ACP_VERSION}`],
+      program: PI_ACP_SOFTWARE.runner,
+      args: PI_ACP_SOFTWARE.command,
     },
   },
   kimi: {
     label: "Kimi Code",
     icon: "kimi",
+    software: { name: "kimi", runner: "kimi", command: ["acp"] },
     modelControl: "session",
     modelCompatibility: "any",
     supportedModelApis: ["anthropic", "openai_chat", "openai_responses", "ollama"],
@@ -135,6 +167,7 @@ export const HARNESSES: Record<string, HarnessConfig> = {
   opencode: {
     label: "OpenCode",
     icon: "opencode",
+    software: { name: "opencode", runner: "opencode", command: ["acp"] },
     modelControl: "session",
     modelCompatibility: "any",
     supportedModelApis: ["anthropic", "openai_chat", "openai_responses", "ollama"],
@@ -149,6 +182,7 @@ export const HARNESSES: Record<string, HarnessConfig> = {
   hermes: {
     label: "Hermes",
     icon: "hermes",
+    software: { name: "hermes", runner: "hermes", command: ["acp"] },
     modelControl: "session",
     modelCompatibility: "any",
     supportedModelApis: ["openai_chat", "openai_responses", "anthropic", "ollama"],
@@ -163,6 +197,7 @@ export const HARNESSES: Record<string, HarnessConfig> = {
   openclaw: {
     label: "OpenClaw",
     icon: "openclaw",
+    software: { name: "openclaw", runner: "openclaw", command: ["acp"] },
     modelControl: "unsupported",
     modelCompatibility: "any",
     supportedModelApis: [],

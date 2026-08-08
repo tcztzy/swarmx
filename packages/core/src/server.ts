@@ -1,5 +1,11 @@
+import { randomUUID } from "node:crypto";
 import http from "node:http";
+import type { AuditInput } from "./audit.js";
 import type { Swarm } from "./swarm.js";
+
+export interface ServerAuditWriter {
+  append(input: AuditInput): unknown | Promise<unknown>;
+}
 
 export interface ServerOptions {
   port?: number;
@@ -7,6 +13,7 @@ export interface ServerOptions {
   apiToken?: string;
   allowedOrigins?: string[];
   allowNullOrigin?: boolean;
+  audit?: ServerAuditWriter;
 }
 
 export function createServer(swarm: Swarm, opts: ServerOptions = {}): http.Server {
@@ -15,32 +22,127 @@ export function createServer(swarm: Swarm, opts: ServerOptions = {}): http.Serve
   const boundary = resolveServerBoundary(opts, host);
 
   const server = http.createServer(async (req, res) => {
+    const requestId = randomUUID();
+    const startedAt = Date.now();
+    const method = req.method ?? "UNKNOWN";
+    const path = resolveAuditPath(req.url, host, port);
+
+    res.setHeader("X-Request-ID", requestId);
     res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
     res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
     res.setHeader("Vary", "Origin");
 
-    if (!applyOriginPolicy(req, res, boundary)) return;
+    if (
+      !(await recordRequestAudit(opts.audit, {
+        requestId,
+        method,
+        path,
+        outcome: "attempted",
+        startedAt,
+      }))
+    ) {
+      writeAuditUnavailable(res);
+      return;
+    }
+
+    const originPolicy = evaluateOriginPolicy(req, boundary);
+    if (!originPolicy.allowed) {
+      if (
+        !(await recordRequestAudit(opts.audit, {
+          requestId,
+          method,
+          path,
+          outcome: "denied",
+          statusCode: 403,
+          startedAt,
+        }))
+      ) {
+        writeAuditUnavailable(res);
+        return;
+      }
+      writeJson(res, 403, { error: "Origin not allowed" });
+      return;
+    }
+    if (originPolicy.responseOrigin) {
+      res.setHeader("Access-Control-Allow-Origin", originPolicy.responseOrigin);
+    }
 
     if (req.method === "OPTIONS") {
+      if (
+        !(await recordRequestAudit(opts.audit, {
+          requestId,
+          method,
+          path,
+          outcome: "completed",
+          statusCode: 204,
+          startedAt,
+        }))
+      ) {
+        writeAuditUnavailable(res);
+        return;
+      }
       res.writeHead(204);
       res.end();
       return;
     }
 
-    if (!applyAuthPolicy(req, res, boundary)) return;
+    if (!isAuthorized(req, boundary)) {
+      if (
+        !(await recordRequestAudit(opts.audit, {
+          requestId,
+          method,
+          path,
+          outcome: "denied",
+          statusCode: 401,
+          startedAt,
+        }))
+      ) {
+        writeAuditUnavailable(res);
+        return;
+      }
+      writeJson(res, 401, { error: "Unauthorized" });
+      return;
+    }
 
     const url = new URL(req.url ?? "/", `http://${host}:${port}`);
 
     try {
       if (req.method === "GET" && url.pathname === "/models") {
+        const data = listModels(swarm);
+        if (
+          !(await recordRequestAudit(opts.audit, {
+            requestId,
+            method,
+            path,
+            outcome: "completed",
+            statusCode: 200,
+            startedAt,
+          }))
+        ) {
+          writeAuditUnavailable(res);
+          return;
+        }
         res.writeHead(200, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ object: "list", data: listModels(swarm) }));
+        res.end(JSON.stringify({ object: "list", data }));
         return;
       }
 
       if (req.method === "GET" && url.pathname === "/sessions") {
-        res.writeHead(200, { "Content-Type": "application/json" });
         const sessions = await swarm.listAllSessions();
+        if (
+          !(await recordRequestAudit(opts.audit, {
+            requestId,
+            method,
+            path,
+            outcome: "completed",
+            statusCode: 200,
+            startedAt,
+          }))
+        ) {
+          writeAuditUnavailable(res);
+          return;
+        }
+        res.writeHead(200, { "Content-Type": "application/json" });
         res.end(JSON.stringify(sessions));
         return;
       }
@@ -49,18 +151,73 @@ export function createServer(swarm: Swarm, opts: ServerOptions = {}): http.Serve
         const body = await readBody(req);
 
         if (body.stream) {
-          await handleStream(req, res, swarm, body);
-        } else {
-          res.writeHead(200, { "Content-Type": "application/json" });
-          const result = await handleChat(swarm, body);
-          res.end(JSON.stringify(result));
+          const streamCompleted = await handleStream(req, res, swarm, body);
+          if (
+            !(await recordRequestAudit(opts.audit, {
+              requestId,
+              method,
+              path,
+              outcome: streamCompleted ? "completed" : "failed",
+              statusCode: 200,
+              startedAt,
+            }))
+          ) {
+            writeAuditUnavailable(res);
+            return;
+          }
+          res.write("data: [DONE]\n\n");
+          res.end();
+          return;
         }
+
+        const result = await handleChat(swarm, body);
+        if (
+          !(await recordRequestAudit(opts.audit, {
+            requestId,
+            method,
+            path,
+            outcome: "completed",
+            statusCode: 200,
+            startedAt,
+          }))
+        ) {
+          writeAuditUnavailable(res);
+          return;
+        }
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify(result));
         return;
       }
 
+      if (
+        !(await recordRequestAudit(opts.audit, {
+          requestId,
+          method,
+          path,
+          outcome: "completed",
+          statusCode: 404,
+          startedAt,
+        }))
+      ) {
+        writeAuditUnavailable(res);
+        return;
+      }
       res.writeHead(404, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ error: "Not found" }));
     } catch (err) {
+      if (
+        !(await recordRequestAudit(opts.audit, {
+          requestId,
+          method,
+          path,
+          outcome: "failed",
+          statusCode: 500,
+          startedAt,
+        }))
+      ) {
+        writeAuditUnavailable(res);
+        return;
+      }
       const message = err instanceof Error ? err.message : String(err);
       if (!res.headersSent) {
         res.writeHead(500, { "Content-Type": "application/json" });
@@ -98,44 +255,87 @@ function resolveServerBoundary(opts: ServerOptions, host: string): ServerBoundar
   };
 }
 
-function applyOriginPolicy(
+function evaluateOriginPolicy(
   req: http.IncomingMessage,
-  res: http.ServerResponse,
   boundary: ServerBoundary,
-): boolean {
+): { allowed: boolean; responseOrigin?: string } {
   const origin = req.headers.origin;
-  if (!origin) return true;
+  if (!origin) return { allowed: true };
 
   if (origin === "null") {
     if (boundary.allowNullOrigin) {
-      res.setHeader("Access-Control-Allow-Origin", "null");
-      return true;
+      return { allowed: true, responseOrigin: "null" };
     }
-    writeJson(res, 403, { error: "Origin not allowed" });
-    return false;
+    return { allowed: false };
   }
 
   if (boundary.allowedOrigins.has(origin)) {
-    res.setHeader("Access-Control-Allow-Origin", origin);
-    return true;
+    return { allowed: true, responseOrigin: origin };
   }
 
-  writeJson(res, 403, { error: "Origin not allowed" });
-  return false;
+  return { allowed: false };
 }
 
-function applyAuthPolicy(
-  req: http.IncomingMessage,
-  res: http.ServerResponse,
-  boundary: ServerBoundary,
-): boolean {
+function isAuthorized(req: http.IncomingMessage, boundary: ServerBoundary): boolean {
   if (!boundary.requiresAuth) return true;
 
   const authorization = req.headers.authorization;
-  if (authorization === `Bearer ${boundary.apiToken}`) return true;
+  return authorization === `Bearer ${boundary.apiToken}`;
+}
 
-  writeJson(res, 401, { error: "Unauthorized" });
-  return false;
+interface RequestAuditDetails {
+  requestId: string;
+  method: string;
+  path: string;
+  outcome: "attempted" | "completed" | "denied" | "failed";
+  statusCode?: number;
+  startedAt: number;
+}
+
+async function recordRequestAudit(
+  writer: ServerAuditWriter | undefined,
+  details: RequestAuditDetails,
+): Promise<boolean> {
+  if (!writer) return true;
+
+  try {
+    const metadata: Record<string, string | number> = {
+      method: details.method,
+      path: details.path,
+      durationMs: Math.max(0, Date.now() - details.startedAt),
+    };
+    if (details.statusCode !== undefined) metadata.statusCode = details.statusCode;
+
+    await writer.append({
+      category: "system",
+      action: "http.request",
+      outcome: details.outcome,
+      actor: { kind: "service", id: "swarmx-http" },
+      requestId: details.requestId,
+      metadata,
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function resolveAuditPath(rawUrl: string | undefined, host: string, port: number): string {
+  try {
+    const pathname = new URL(rawUrl ?? "/", `http://${host}:${port}`).pathname;
+    if (["/models", "/sessions", "/chat/completions"].includes(pathname)) return pathname;
+  } catch {
+    // Malformed and unknown routes share one non-sensitive audit bucket.
+  }
+  return "/:unmatched";
+}
+
+function writeAuditUnavailable(res: http.ServerResponse): void {
+  if (!res.headersSent && !res.writableEnded) {
+    writeJson(res, 503, { error: "Audit log unavailable" });
+    return;
+  }
+  if (!res.writableEnded) res.destroy();
 }
 
 function writeJson(res: http.ServerResponse, statusCode: number, body: unknown): void {
@@ -160,7 +360,7 @@ async function handleStream(
   res: http.ServerResponse,
   swarm: Swarm,
   body: ChatCompletionRequest,
-): Promise<void> {
+): Promise<boolean> {
   res.writeHead(200, {
     "Content-Type": "text/event-stream",
     "Cache-Control": "no-cache",
@@ -181,16 +381,14 @@ async function handleStream(
       await streamViaSwarm(id, created, model, res, swarm, body);
     }
 
-    res.write("data: [DONE]\n\n");
+    return true;
   } catch (err) {
     const errorMsg = err instanceof Error ? err.message : String(err);
     if (!res.closed) {
       res.write(`data: ${JSON.stringify({ error: errorMsg })}\n\n`);
-      res.write("data: [DONE]\n\n");
     }
+    return false;
   }
-
-  res.end();
 }
 
 async function streamViaAgent(

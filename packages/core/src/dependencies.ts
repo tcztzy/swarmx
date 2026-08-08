@@ -1,24 +1,6 @@
 import { z } from "zod";
+import { findInlineSecretFields } from "./secret-scanner.js";
 
-const REDACTED_VALUE = "[redacted]";
-
-const ALLOWED_SECRET_REFERENCE_KEYS = new Set([
-  "secretref",
-  "secret_ref",
-  "secretrefid",
-  "secret_ref_id",
-  "secretstatus",
-  "secret_status",
-  "credentialref",
-  "credential_ref",
-  "credentialrefs",
-  "credential_refs",
-  "credentialreferences",
-  "credential_references",
-]);
-
-const FORBIDDEN_SECRET_KEY_PATTERN =
-  /(api[_-]?key|access[_-]?token|bearer|password|passwd|secret|credential|private[_-]?key|smtp[_-]?password|telemetry[_-]?token|ingest[_-]?token|cluster[_-]?password)/i;
 const HEX_SHA256_PATTERN = /^[a-fA-F0-9]{64}$/;
 const DEPENDENCY_ID_PATTERN = /^[a-z][a-z0-9_.-]*$/;
 const PLATFORM_KEY_PATTERN = /^[a-z0-9][a-z0-9_.-]*$/;
@@ -570,7 +552,7 @@ function normalizeReceiptInput(input: unknown): unknown {
 }
 
 function addSecretIssues(value: unknown, ctx: z.RefinementCtx): void {
-  for (const issue of findInlineSecrets(value)) {
+  for (const issue of findInlineSecretFields(value)) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
       path: issue.path,
@@ -590,32 +572,6 @@ function addUrlCredentialIssues(
     path,
     message: "Dependency metadata URLs must not contain embedded credentials.",
   });
-}
-
-function findInlineSecrets(
-  value: unknown,
-  path: Array<string | number> = [],
-): Array<{ key: string; path: Array<string | number> }> {
-  if (Array.isArray(value)) {
-    return value.flatMap((item, index) => findInlineSecrets(item, [...path, index]));
-  }
-  if (!isObjectRecord(value)) return [];
-
-  const issues: Array<{ key: string; path: Array<string | number> }> = [];
-  for (const [key, child] of Object.entries(value)) {
-    if (isForbiddenSecretKey(key) && child !== REDACTED_VALUE) {
-      issues.push({ key, path: [...path, key] });
-    }
-    issues.push(...findInlineSecrets(child, [...path, key]));
-  }
-  return issues;
-}
-
-function isForbiddenSecretKey(key: string): boolean {
-  const normalizedKey = key.toLowerCase().replace(/[^a-z0-9_]/g, "");
-  return (
-    FORBIDDEN_SECRET_KEY_PATTERN.test(key) && !ALLOWED_SECRET_REFERENCE_KEYS.has(normalizedKey)
-  );
 }
 
 function isObjectRecord(value: unknown): value is Record<string, unknown> {

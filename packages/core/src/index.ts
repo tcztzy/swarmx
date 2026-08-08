@@ -93,11 +93,13 @@ export {
   parseAgentDefinitionMarkdown,
   parseAgentProfileMetadata,
   parseCodexAgentDefinitionToml,
+  parseMarkdownFrontmatter,
   parseNativeAgentDefinition,
   projectAgentDefinitionForClaudeCode,
   projectAgentDefinitionForCodex,
   serializeAgentDefinitionMarkdown,
 } from "./agent-profiles.js";
+export * from "./audit.js";
 export type {
   AutonomyAgentRunRecord,
   AutonomyAgentRunStatus,
@@ -594,6 +596,7 @@ export type {
   HarnessModelCompatibility,
   HarnessModelControl,
   HarnessModelLaunchOptions,
+  HarnessSoftware,
 } from "./harness.js";
 export {
   getHarness,
@@ -857,6 +860,11 @@ export {
   listGroupedSessions,
   loadDiscoveredSession,
 } from "./session-discovery.js";
+export * from "./skill-delivery.js";
+export * from "./skill-evaluation.js";
+export * from "./skill-evolution.js";
+export * from "./skill-evolution-service.js";
+export * from "./skill-evolution-store.js";
 export type {
   HarnessDeliveryPolicy,
   HarnessPermissionLayerSource,
@@ -874,11 +882,24 @@ export type {
   ResolvedHarnessPermissionPolicy,
   ResolvedHarnessToolPermission,
   ResolvedSkillBinding,
+  SkillActivePointer,
   SkillBindingMode,
+  SkillCandidateManifest,
+  SkillCandidateSecretScan,
+  SkillCandidateStaticChecks,
+  SkillDatasetRef,
   SkillDeliveryMode,
+  SkillEvaluationGate,
+  SkillEvaluationManifest,
   SkillEvaluationRun,
+  SkillEvaluationSample,
+  SkillEvaluationSampleRun,
   SkillEvolutionCandidate,
+  SkillOptimizationBudget,
+  SkillOptimizationRequest,
+  SkillOptimizerFingerprint,
   SkillPromotionDecision,
+  SkillPromotionReceipt,
   SkillResolutionContext,
   SkillVariant,
 } from "./skill-variants.js";
@@ -902,13 +923,26 @@ export {
   resolveHarnessPermissionLayers,
   resolveHarnessSkillBinding,
   resolveHarnessToolPermission,
+  SkillActivePointerSchema,
   SkillBindingModeSchema,
+  SkillCandidateManifestSchema,
+  SkillCandidateSecretScanSchema,
+  SkillCandidateStaticChecksSchema,
+  SkillDatasetRefSchema,
   SkillDeliveryModeSchema,
   SkillDeliverySchema,
+  SkillEvaluationGateSchema,
+  SkillEvaluationManifestSchema,
   SkillEvaluationMetricsSchema,
   SkillEvaluationRunSchema,
+  SkillEvaluationSampleRunSchema,
+  SkillEvaluationSampleSchema,
   SkillEvolutionCandidateSchema,
+  SkillOptimizationBudgetSchema,
+  SkillOptimizationRequestSchema,
+  SkillOptimizerFingerprintSchema,
   SkillPromotionDecisionSchema,
+  SkillPromotionReceiptSchema,
   SkillResolutionContextSchema,
   SkillVariantLineageSchema,
   SkillVariantSchema,
@@ -918,6 +952,11 @@ export {
 } from "./skill-variants.js";
 export type { SwarmRuntimeOptions } from "./swarm.js";
 export { Swarm, SwarmNode } from "./swarm.js";
+export * from "./task-control-service.js";
+export * from "./task-runtime.js";
+export * from "./task-runtime-store.js";
+export * from "./task-worker-process.js";
+export * from "./task-worker-protocol.js";
 export type {
   BuildTelemetryEnvelopeInput,
   ResolveTelemetryConfigOptions,

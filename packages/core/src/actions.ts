@@ -1,24 +1,6 @@
 import { z } from "zod";
-
-const REDACTED_VALUE = "[redacted]";
-
-const ALLOWED_SECRET_REFERENCE_KEYS = new Set([
-  "secretref",
-  "secret_ref",
-  "secretrefid",
-  "secret_ref_id",
-  "secretstatus",
-  "secret_status",
-  "credentialref",
-  "credential_ref",
-  "credentialrefs",
-  "credential_refs",
-  "credentialreferences",
-  "credential_references",
-]);
-
-const FORBIDDEN_SECRET_KEY_PATTERN =
-  /(api[_-]?key|access[_-]?token|bearer|password|passwd|secret|credential|private[_-]?key|smtp[_-]?password|telemetry[_-]?token|cluster[_-]?password|remote[_-]?compute[_-]?password)/i;
+import { stableHash, stableJson } from "./canonical-json.js";
+import { findInlineSecretFields, isForbiddenSecretKey, REDACTED_VALUE } from "./secret-scanner.js";
 
 const idWithPrefix = (prefix: string) =>
   z.string().regex(new RegExp(`^${prefix}[A-Za-z0-9][A-Za-z0-9_-]*$`), `Must use ${prefix} prefix`);
@@ -302,59 +284,13 @@ function defaultRisksForActionKind(kind: ActionKind): ActionRisk[] {
 }
 
 function addSecretIssues(value: unknown, ctx: z.RefinementCtx): void {
-  for (const issue of findInlineSecrets(value)) {
+  for (const issue of findInlineSecretFields(value, { allowRedacted: true })) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
       path: issue.path,
       message: `Action records must not contain inline secret field "${issue.key}".`,
     });
   }
-}
-
-function findInlineSecrets(
-  value: unknown,
-  path: Array<string | number> = [],
-): Array<{ key: string; path: Array<string | number> }> {
-  if (Array.isArray(value)) {
-    return value.flatMap((item, index) => findInlineSecrets(item, [...path, index]));
-  }
-  if (!isObjectRecord(value)) return [];
-
-  const issues: Array<{ key: string; path: Array<string | number> }> = [];
-  for (const [key, child] of Object.entries(value)) {
-    if (isForbiddenSecretKey(key) && child !== REDACTED_VALUE) {
-      issues.push({ key, path: [...path, key] });
-    }
-    issues.push(...findInlineSecrets(child, [...path, key]));
-  }
-  return issues;
-}
-
-function isForbiddenSecretKey(key: string): boolean {
-  const normalizedKey = key.toLowerCase().replace(/[^a-z0-9_]/g, "");
-  return (
-    FORBIDDEN_SECRET_KEY_PATTERN.test(key) && !ALLOWED_SECRET_REFERENCE_KEYS.has(normalizedKey)
-  );
-}
-
-function stableJson(value: unknown): string {
-  if (value === null || typeof value !== "object") return JSON.stringify(value);
-  if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
-  return `{${Object.entries(value)
-    .filter(([, child]) => child !== undefined)
-    .sort(([left], [right]) => left.localeCompare(right))
-    .map(([key, child]) => `${JSON.stringify(key)}:${stableJson(child)}`)
-    .join(",")}}`;
-}
-
-function stableHash(value: string): string {
-  let hash = 0xcbf29ce484222325n;
-  const prime = 0x100000001b3n;
-  for (let index = 0; index < value.length; index++) {
-    hash ^= BigInt(value.charCodeAt(index));
-    hash = BigInt.asUintN(64, hash * prime);
-  }
-  return hash.toString(16).padStart(16, "0");
 }
 
 function isObjectRecord(value: unknown): value is Record<string, unknown> {

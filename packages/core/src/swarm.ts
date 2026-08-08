@@ -166,6 +166,7 @@ export class Swarm {
   async executeForEval(
     arguments_: Record<string, unknown>,
     context?: Record<string, unknown>,
+    onUsage?: (usage: ModelTokenUsage) => void,
   ): Promise<EvalRunResult> {
     const trace: EvalTraceCollector = {
       runId: randomUUID(),
@@ -174,9 +175,13 @@ export class Swarm {
     };
     let messages: MessageChunk[] = [];
     let error: string | null = null;
+    let contextTokens = 0;
 
     try {
-      messages = await this.executeInternal(arguments_, context, trace);
+      messages = await this.executeInternal(arguments_, context, trace, undefined, (usage) => {
+        contextTokens += usage.totalTokens;
+        onUsage?.(usage);
+      });
     } catch (err) {
       error = errorMessage(err);
     }
@@ -186,7 +191,7 @@ export class Swarm {
       messages,
       trace: [...trace.events].sort((a, b) => a.step - b.step),
       error,
-      metrics: buildEvalMetrics(messages, trace.events),
+      metrics: { ...buildEvalMetrics(messages, trace.events), contextTokens },
     });
   }
 

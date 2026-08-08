@@ -317,15 +317,17 @@ const CONTAINER_RUNTIMES: ContainerRuntimeDefinition[] = [
 ];
 
 const PROTECTED_HARNESS_DEFINITIONS: Record<string, ProtectedHarnessDefinition> = {
-  claude_code: {
-    image: "node:22-slim",
-    command: ["npx", "--yes", "@agentclientprotocol/claude-agent-acp@0.58.1"],
-  },
-  codex: {
-    image: "node:22-slim",
-    command: ["npx", "--yes", "@agentclientprotocol/codex-acp@1.1.2"],
-  },
+  claude_code: protectedHarnessDefinition("claude_code"),
+  codex: protectedHarnessDefinition("codex"),
 };
+
+function protectedHarnessDefinition(harnessId: string): ProtectedHarnessDefinition {
+  const backend = HARNESSES[harnessId]?.backend;
+  if (backend?.type !== "custom") {
+    throw new Error(`Protected Harness "${harnessId}" requires a custom backend.`);
+  }
+  return { image: "node:22-slim", command: [backend.program, ...(backend.args ?? [])] };
+}
 
 const CONTAINER_ENV_KEYS = [
   "ANTHROPIC_API_KEY",

@@ -8,13 +8,13 @@ import { ModelTokenUsageSchema } from "./types.js";
 
 const DEFAULT_ACTIVITY_FILE = path.join(homedir(), ".swarmx", "activity.jsonl");
 
-export const ActivityEventTypeSchema = z.enum([
-  "task_started",
-  "task_finished",
-  "token_usage",
-  "tool_called",
-  "skill_used",
-]);
+export const ActivityEventTypeSchema = z.literal("run_summary");
+
+const ActivityNamedCountsSchema = z
+  .record(z.string().min(1).max(160), z.number().int().positive())
+  .refine((counts) => Object.keys(counts).length <= 128, {
+    message: "Activity summaries may contain at most 128 distinct names.",
+  });
 
 export const ActivityEventSchema = z
   .object({
@@ -26,22 +26,13 @@ export const ActivityEventSchema = z
     harnessId: z.string().min(1).optional(),
     modelId: z.string().min(1).optional(),
     reasoningEffort: z.string().min(1).optional(),
-    status: z.enum(["completed", "failed", "canceled"]).optional(),
-    durationMs: z.number().int().nonnegative().optional(),
-    name: z.string().min(1).optional(),
-    tokens: ModelTokenUsageSchema.optional(),
+    status: z.enum(["completed", "failed", "canceled"]),
+    durationMs: z.number().int().nonnegative(),
+    tokens: ModelTokenUsageSchema,
+    tools: ActivityNamedCountsSchema.default({}),
+    skills: ActivityNamedCountsSchema.default({}),
   })
-  .superRefine((event, ctx) => {
-    if (event.type === "task_finished" && !event.status) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["status"], message: "Status required" });
-    }
-    if (event.type === "token_usage" && !event.tokens) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["tokens"], message: "Tokens required" });
-    }
-    if ((event.type === "tool_called" || event.type === "skill_used") && !event.name) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["name"], message: "Name required" });
-    }
-  });
+  .strict();
 
 export const ActivityDaySchema = z.object({
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
@@ -192,31 +183,29 @@ export function summarizeActivityEvents(
       tools: 0,
       skills: 0,
     };
-    if (event.type === "task_started") {
-      increment(reasoningEfforts, event.reasoningEffort);
-      increment(models, event.modelId);
-    } else if (event.type === "task_finished") {
-      lifetime.totalTasks += 1;
-      lifetime.completedTasks += event.status === "completed" ? 1 : 0;
-      lifetime.longestTaskMs = Math.max(lifetime.longestTaskMs, event.durationMs ?? 0);
-      day.tasks += 1;
-    } else if (event.type === "token_usage" && event.tokens) {
-      lifetime.totalTokens += event.tokens.totalTokens;
-      lifetime.inputTokens += event.tokens.inputTokens;
-      lifetime.outputTokens += event.tokens.outputTokens;
-      lifetime.reasoningTokens += event.tokens.reasoningTokens;
-      lifetime.cachedInputTokens += event.tokens.cachedInputTokens;
-      lifetime.estimatedTokens += event.tokens.estimated ? event.tokens.totalTokens : 0;
-      day.tokens += event.tokens.totalTokens;
-      day.estimatedTokens += event.tokens.estimated ? event.tokens.totalTokens : 0;
-    } else if (event.type === "tool_called" && event.name) {
-      lifetime.toolCalls += 1;
-      day.tools += 1;
-      increment(tools, event.name);
-    } else if (event.type === "skill_used" && event.name) {
-      lifetime.skillCalls += 1;
-      day.skills += 1;
-      increment(skills, event.name);
+    increment(reasoningEfforts, event.reasoningEffort);
+    increment(models, event.modelId);
+    lifetime.totalTasks += 1;
+    lifetime.completedTasks += event.status === "completed" ? 1 : 0;
+    lifetime.longestTaskMs = Math.max(lifetime.longestTaskMs, event.durationMs);
+    day.tasks += 1;
+    lifetime.totalTokens += event.tokens.totalTokens;
+    lifetime.inputTokens += event.tokens.inputTokens;
+    lifetime.outputTokens += event.tokens.outputTokens;
+    lifetime.reasoningTokens += event.tokens.reasoningTokens;
+    lifetime.cachedInputTokens += event.tokens.cachedInputTokens;
+    lifetime.estimatedTokens += event.tokens.estimated ? event.tokens.totalTokens : 0;
+    day.tokens += event.tokens.totalTokens;
+    day.estimatedTokens += event.tokens.estimated ? event.tokens.totalTokens : 0;
+    for (const [name, count] of Object.entries(event.tools)) {
+      lifetime.toolCalls += count;
+      day.tools += count;
+      incrementBy(tools, name, count);
+    }
+    for (const [name, count] of Object.entries(event.skills)) {
+      lifetime.skillCalls += count;
+      day.skills += count;
+      incrementBy(skills, name, count);
     }
     days.set(date, day);
   }
@@ -326,6 +315,10 @@ function ranked(values: ReadonlyMap<string, number>): ActivityRank[] {
 
 function increment(values: Map<string, number>, key: string | undefined): void {
   if (key) values.set(key, (values.get(key) ?? 0) + 1);
+}
+
+function incrementBy(values: Map<string, number>, key: string, count: number): void {
+  values.set(key, (values.get(key) ?? 0) + count);
 }
 
 function uniqueValue(values: Array<string | undefined>): string | undefined {

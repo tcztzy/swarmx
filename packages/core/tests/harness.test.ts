@@ -34,11 +34,19 @@ describe("harness registry", () => {
       expect(backend).toMatchObject({ type: "custom", program: "npx" });
       expect(backend?.type === "custom" ? backend.args : []).toContain("--yes");
       expect(backend?.type === "custom" ? backend.args : []).not.toContain("bun");
+      expect(backend?.type === "custom" ? backend.args : undefined).toEqual(
+        getHarness(harnessId)?.software.command,
+      );
     }
     expect(getHarness("pi")?.backend).toEqual({
       type: "custom",
       program: "npx",
       args: ["--yes", "pi-acp@0.0.31"],
+    });
+    expect(getHarness("codex")?.software).toMatchObject({
+      name: "codex-acp",
+      version: "1.1.2",
+      runner: "npx",
     });
     expect(getHarness("pi")?.passthroughEnv).toEqual(
       expect.arrayContaining(["HOME", "PI_CODING_AGENT_DIR", "PI_CODING_AGENT_SESSION_DIR"]),

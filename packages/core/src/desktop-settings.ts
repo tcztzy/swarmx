@@ -8,32 +8,13 @@ import {
 } from "./extension-management.js";
 import { ModelSchema, ModelSupplySchema } from "./model-capabilities.js";
 import { ProviderProfileMetadataSchema } from "./providers.js";
+import { findInlineSecretFields } from "./secret-scanner.js";
 import {
   type HarnessPermissionPolicyLayer,
   HarnessPermissionPolicyLayerSchema,
   type PermissionApprovalReceipt,
   PermissionApprovalReceiptSchema,
 } from "./skill-variants.js";
-
-const REDACTED_VALUE = "[redacted]";
-
-const ALLOWED_SECRET_REFERENCE_KEYS = new Set([
-  "secretref",
-  "secret_ref",
-  "secretrefid",
-  "secret_ref_id",
-  "secretstatus",
-  "secret_status",
-  "credentialref",
-  "credential_ref",
-  "credentialrefs",
-  "credential_refs",
-  "credentialreferences",
-  "credential_references",
-]);
-
-const FORBIDDEN_SECRET_KEY_PATTERN =
-  /(api[_-]?key|api[_-]?token|access[_-]?token|bearer|password|passwd|secret|credential|private[_-]?key|smtp[_-]?password|telemetry[_-]?token|cluster[_-]?password|remote[_-]?compute[_-]?password|host[_-]?login|auth[_-]?token)/i;
 
 export const DesktopRootConfigSchema = z.preprocess(
   normalizeDesktopRootConfigInput,
@@ -511,39 +492,13 @@ function normalizeLocaleEnvValue(value: string | undefined): string | undefined 
 }
 
 function addSecretIssues(value: unknown, ctx: z.RefinementCtx): void {
-  for (const issue of findInlineSecrets(value)) {
+  for (const issue of findInlineSecretFields(value)) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
       path: issue.path,
       message: `Desktop settings records must not contain inline secret field "${issue.key}".`,
     });
   }
-}
-
-function findInlineSecrets(
-  value: unknown,
-  path: Array<string | number> = [],
-): Array<{ key: string; path: Array<string | number> }> {
-  if (Array.isArray(value)) {
-    return value.flatMap((item, index) => findInlineSecrets(item, [...path, index]));
-  }
-  if (!isObjectRecord(value)) return [];
-
-  const issues: Array<{ key: string; path: Array<string | number> }> = [];
-  for (const [key, child] of Object.entries(value)) {
-    if (isForbiddenSecretKey(key) && child !== REDACTED_VALUE) {
-      issues.push({ key, path: [...path, key] });
-    }
-    issues.push(...findInlineSecrets(child, [...path, key]));
-  }
-  return issues;
-}
-
-function isForbiddenSecretKey(key: string): boolean {
-  const normalizedKey = key.toLowerCase().replace(/[^a-z0-9_]/g, "");
-  return (
-    FORBIDDEN_SECRET_KEY_PATTERN.test(key) && !ALLOWED_SECRET_REFERENCE_KEYS.has(normalizedKey)
-  );
 }
 
 function isObjectRecord(value: unknown): value is Record<string, unknown> {

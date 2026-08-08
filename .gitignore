@@ -142,3 +142,22 @@ packages/desktop/release/
 coverage/
 /logs/
 *.tsbuildinfo
+
+# latex things
+*.aux
+*.bbl
+*.blg
+*.fdb_latexmk
+*.fls
+*.out
+*.synctex.gz
+
+.pnpm-store/
+
+# Local research and document-review artifacts
+/output/
+/close_reading_audit.jsonl
+/coverage_map.json
+/review.json
+/harness-context-engineering-review.pdf
+/recursive-harness-self-improvement-review.pdf

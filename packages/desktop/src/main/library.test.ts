@@ -5,6 +5,7 @@ import path from "node:path";
 import type { MessageChunk, SessionData } from "@swarmx/core";
 import {
   ActivityStore,
+  AuditStore,
   builtInExtensionBundle,
   createExtensionInventory,
   createSession,
@@ -74,6 +75,309 @@ describe("desktop main library entry", () => {
     } finally {
       electron.handle.mockClear();
       electron.on.mockClear();
+    }
+  });
+
+  it("records denied audit IPC without copying the attempted query", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "swarmx-audit-ipc-denied-"));
+    const auditStore = new AuditStore({ filePath: path.join(root, "events.jsonl") });
+    desktopMain.registerIpcHandlers({ auditStore, authorizeIpcSender: () => false });
+    const handler = electron.handle.mock.calls
+      .filter(([channel]) => channel === "audit:list")
+      .at(-1)?.[1];
+    if (typeof handler !== "function") throw new Error("audit list handler was not registered");
+
+    try {
+      expect(() =>
+        handler(
+          { sender: Object.assign(new EventEmitter(), { id: 77 }) },
+          { actorId: "raw-secret-query" },
+        ),
+      ).toThrow("Untrusted desktop IPC sender");
+      const events = auditStore.query({ action: "ipc.request", targetId: "audit.list" });
+      expect(events).toEqual([
+        expect.objectContaining({
+          outcome: "denied",
+          actor: { kind: "user", id: "renderer:77" },
+          target: { kind: "ipc-channel", id: "audit.list" },
+          metadata: { argumentCount: 1 },
+        }),
+      ]);
+      expect(JSON.stringify(events)).not.toContain("raw-secret-query");
+    } finally {
+      desktopMain.registerIpcHandlers(trustedIpc);
+      electron.handle.mockClear();
+      electron.on.mockClear();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("records compressed correlated IPC outcomes without copying renderer payloads", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "swarmx-ipc-audit-"));
+    const auditStore = new AuditStore({ filePath: path.join(root, "events.jsonl") });
+    desktopMain.registerIpcHandlers({ ...trustedIpc, auditStore });
+    const handler = electron.handle.mock.calls
+      .filter(([channel]) => channel === "agent:cancel")
+      .at(-1)?.[1];
+    if (typeof handler !== "function") throw new Error("cancel handler was not registered");
+    const sender = Object.assign(new EventEmitter(), { id: 72 });
+
+    try {
+      await handler(
+        { sender },
+        {
+          requestId: "req_audit_123",
+          prompt: "raw prompt must not be copied",
+          apiKey: "sk-secret-must-not-be-copied",
+        },
+      );
+
+      const events = auditStore.query({
+        action: "ipc.request",
+        targetId: "agent.cancel",
+      });
+      expect(events.map((event) => event.outcome)).toEqual(["attempted", "completed"]);
+      expect(events[0]).toMatchObject({
+        actor: { kind: "user", id: "renderer:72" },
+        target: { kind: "ipc-channel", id: "agent.cancel" },
+        requestId: "req_audit_123",
+        metadata: { argumentCount: 1 },
+      });
+      expect(JSON.stringify(events)).not.toContain("raw prompt");
+      expect(JSON.stringify(events)).not.toContain("sk-secret");
+      expect(auditStore.verify().ok).toBe(true);
+    } finally {
+      desktopMain.registerIpcHandlers(trustedIpc);
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("records only failures for low-sensitivity IPC reads", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "swarmx-ipc-failure-only-"));
+    const auditStore = new AuditStore({ filePath: path.join(root, "events.jsonl") });
+    const state = { phase: "hidden", currentVersion: "3.2.0" } as const;
+    let fail = false;
+    const getState = vi.fn(() => {
+      if (fail) throw new TypeError("raw getter failure must not be copied");
+      return state;
+    });
+    desktopMain.registerIpcHandlers({
+      ...trustedIpc,
+      auditStore,
+      updateService: {
+        getState,
+        check: vi.fn(async () => state),
+        startUpdate: vi.fn(async () => state),
+        subscribe: vi.fn(() => () => undefined),
+      },
+    });
+    const handler = electron.handle.mock.calls
+      .filter(([channel]) => channel === "appUpdate:getState")
+      .at(-1)?.[1];
+    if (typeof handler !== "function") throw new Error("update state handler was not registered");
+    const sender = Object.assign(new EventEmitter(), { id: 74 });
+
+    try {
+      expect(
+        handler({ sender }, { requestId: "req_state_123", apiKey: "sk-secret-must-not-be-copied" }),
+      ).toEqual(state);
+      expect(auditStore.query({ action: "ipc.request", targetId: "appupdate.getstate" })).toEqual(
+        [],
+      );
+
+      fail = true;
+      expect(() =>
+        handler({ sender }, { requestId: "req_state_123", prompt: "raw prompt" }),
+      ).toThrow("raw getter failure");
+      const events = auditStore.query({
+        action: "ipc.request",
+        targetId: "appupdate.getstate",
+      });
+      expect(events).toHaveLength(1);
+      expect(events[0]).toMatchObject({
+        outcome: "failed",
+        target: { kind: "ipc-channel", id: "appupdate.getstate" },
+        requestId: "req_state_123",
+        metadata: { argumentCount: 1, errorType: "TypeError" },
+      });
+      expect(JSON.stringify(events)).not.toContain("raw getter failure");
+      expect(JSON.stringify(events)).not.toContain("raw prompt");
+      expect(JSON.stringify(events)).not.toContain("sk-secret");
+    } finally {
+      desktopMain.registerIpcHandlers(trustedIpc);
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("suppresses successful transient UI and interaction transport events", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "swarmx-ipc-transient-"));
+    const auditStore = new AuditStore({ filePath: path.join(root, "events.jsonl") });
+    desktopMain.registerIpcHandlers({ ...trustedIpc, auditStore });
+    const boundsHandler = electron.handle.mock.calls
+      .filter(([channel]) => channel === "browser:setBounds")
+      .at(-1)?.[1];
+    const interactionHandler = electron.handle.mock.calls
+      .filter(([channel]) => channel === "agent:resolveInteraction")
+      .at(-1)?.[1];
+    if (typeof boundsHandler !== "function" || typeof interactionHandler !== "function") {
+      throw new Error("Transient IPC handlers were not registered");
+    }
+    const sender = Object.assign(new EventEmitter(), { id: 78 });
+
+    try {
+      expect(
+        boundsHandler(
+          { sender },
+          { id: "missing-browser", bounds: { x: 0, y: 0, width: 100, height: 100 } },
+        ),
+      ).toEqual({ updated: false });
+      expect(
+        interactionHandler(
+          { sender },
+          {
+            requestId: "missing-request",
+            interactionId: "missing-interaction",
+            response: { kind: "tool_approval", optionId: "allow_once" },
+          },
+        ),
+      ).toMatchObject({ resolved: false });
+      expect(auditStore.query({ action: "ipc.request" })).toEqual([]);
+    } finally {
+      desktopMain.registerIpcHandlers(trustedIpc);
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("uses semantic-only terminal auditing and records only unaudited dispatch failures", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "swarmx-ipc-semantic-only-"));
+    const auditStore = new AuditStore({ filePath: path.join(root, "events.jsonl") });
+    desktopMain.registerIpcHandlers({ ...trustedIpc, auditStore });
+    const killHandler = electron.handle.mock.calls
+      .filter(([channel]) => channel === "terminal:kill")
+      .at(-1)?.[1];
+    const createHandler = electron.handle.mock.calls
+      .filter(([channel]) => channel === "terminal:create")
+      .at(-1)?.[1];
+    if (typeof killHandler !== "function" || typeof createHandler !== "function") {
+      throw new Error("terminal handlers were not registered");
+    }
+    const sender = Object.assign(new EventEmitter(), { id: 75 });
+
+    try {
+      expect(killHandler({ sender }, { id: "missing-terminal" })).toEqual({ killed: false });
+      expect(auditStore.query({ action: "ipc.request", targetId: "terminal.kill" })).toEqual([]);
+      expect(auditStore.query({ action: "terminal.close", targetId: "missing-terminal" })).toEqual([
+        expect.objectContaining({ outcome: "attempted", metadata: { closeReason: "user_kill" } }),
+        expect.objectContaining({
+          outcome: "denied",
+          metadata: { closeReason: "user_kill", reason: "not_owned_or_missing" },
+        }),
+      ]);
+
+      expect(() => createHandler({ sender }, { id: "invalid-terminal", cwd: "" })).toThrow(
+        "working directory is required",
+      );
+      expect(auditStore.query({ action: "ipc.request", targetId: "terminal.create" })).toEqual([]);
+      expect(auditStore.query({ action: "terminal.create", targetId: "invalid-terminal" })).toEqual(
+        [
+          expect.objectContaining({ outcome: "attempted" }),
+          expect.objectContaining({
+            outcome: "denied",
+            metadata: expect.objectContaining({ reason: "invalid_cwd" }),
+          }),
+        ],
+      );
+
+      expect(() => createHandler({ sender })).toThrow();
+      const dispatchFailures = auditStore.query({
+        action: "ipc.request",
+        targetId: "terminal.create",
+      });
+      expect(dispatchFailures).toHaveLength(1);
+      expect(dispatchFailures[0]).toMatchObject({
+        outcome: "failed",
+        target: { kind: "ipc-channel", id: "terminal.create" },
+        metadata: { argumentCount: 0, errorType: "TypeError" },
+      });
+    } finally {
+      desktopMain.registerIpcHandlers(trustedIpc);
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("records one denied IPC event before semantic-only terminal dispatch", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "swarmx-ipc-semantic-denied-"));
+    const auditStore = new AuditStore({ filePath: path.join(root, "events.jsonl") });
+    desktopMain.registerIpcHandlers({ auditStore, authorizeIpcSender: () => false });
+    const handler = electron.handle.mock.calls
+      .filter(([channel]) => channel === "terminal:kill")
+      .at(-1)?.[1];
+    if (typeof handler !== "function") throw new Error("terminal kill handler was not registered");
+
+    try {
+      expect(() =>
+        handler(
+          { sender: Object.assign(new EventEmitter(), { id: 76 }) },
+          { id: "blocked-terminal", data: "raw terminal input" },
+        ),
+      ).toThrow("Untrusted desktop IPC sender");
+      const events = auditStore.query({
+        action: "ipc.request",
+        targetId: "terminal.kill",
+      });
+      expect(events).toHaveLength(1);
+      expect(events[0]).toMatchObject({
+        outcome: "denied",
+        actor: { kind: "user", id: "renderer:76" },
+        target: { kind: "ipc-channel", id: "terminal.kill" },
+        metadata: { argumentCount: 1 },
+      });
+      expect(auditStore.query({ action: "terminal.close" })).toEqual([]);
+      expect(JSON.stringify(events)).not.toContain("raw terminal input");
+    } finally {
+      desktopMain.registerIpcHandlers(trustedIpc);
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("fails closed before IPC dispatch when its audit authority is unavailable", () => {
+    const getState = vi.fn(() => ({ phase: "hidden", currentVersion: "3.2.0" }) as const);
+    const updateService = {
+      getState,
+      check: vi.fn(async () => getState()),
+      startUpdate: vi.fn(async () => getState()),
+      subscribe: vi.fn(() => () => undefined),
+    };
+    desktopMain.registerIpcHandlers({
+      ...trustedIpc,
+      updateService,
+      auditStore: {
+        append: () => {
+          throw new Error("audit unavailable");
+        },
+        query: () => [],
+        exportJsonl: () => "",
+        verify: () => ({
+          ok: false,
+          eventCount: 0,
+          headSequence: 0,
+          headHash: "0".repeat(64),
+          checkpointStatus: "not_applicable",
+        }),
+      },
+    });
+    const handler = electron.handle.mock.calls
+      .filter(([channel]) => channel === "appUpdate:install")
+      .at(-1)?.[1];
+    if (typeof handler !== "function") throw new Error("update install handler was not registered");
+
+    try {
+      expect(() => handler({ sender: Object.assign(new EventEmitter(), { id: 73 }) })).toThrow(
+        "audit unavailable",
+      );
+      expect(updateService.startUpdate).not.toHaveBeenCalled();
+    } finally {
+      desktopMain.registerIpcHandlers(trustedIpc);
     }
   });
 
@@ -268,7 +572,6 @@ describe("desktop main library entry", () => {
           { sender },
           {
             requestId: "profile-failed-task",
-            sessionId: "profile-session",
             harnessId: "swarmx",
             userText: "Record this failed request",
           },
@@ -284,6 +587,16 @@ describe("desktop main library entry", () => {
         },
       });
       expect(profileHandler().lifetime.estimatedTokens).toBeGreaterThan(0);
+      expect(activityStore.events()).toEqual([
+        expect.objectContaining({
+          type: "run_summary",
+          taskId: "profile-failed-task",
+          status: "failed",
+          tools: {},
+          skills: {},
+        }),
+      ]);
+      expect(JSON.stringify(activityStore.events())).not.toContain("Record this failed request");
     } finally {
       await rm(root, { recursive: true, force: true });
     }

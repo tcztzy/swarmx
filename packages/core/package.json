@@ -54,6 +54,10 @@
       "types": "./dist/builtin-tools.d.ts",
       "import": "./dist/builtin-tools.js"
     },
+    "./harness": {
+      "types": "./dist/harness.d.ts",
+      "import": "./dist/harness.js"
+    },
     "./harness-management": {
       "types": "./dist/harness-management.d.ts",
       "import": "./dist/harness-management.js"
@@ -85,6 +89,14 @@
     "./project": {
       "types": "./dist/project.d.ts",
       "import": "./dist/project.js"
+    },
+    "./task-runtime": {
+      "types": "./dist/task-runtime.d.ts",
+      "import": "./dist/task-runtime.js"
+    },
+    "./task-worker-protocol": {
+      "types": "./dist/task-worker-protocol.d.ts",
+      "import": "./dist/task-worker-protocol.js"
     }
   },
   "scripts": {

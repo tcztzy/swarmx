@@ -74,6 +74,7 @@ describe("Swarm eval execution", () => {
       messages: 2,
       toolCalls: 0,
       toolResults: 0,
+      contextTokens: 0,
     });
   });
 

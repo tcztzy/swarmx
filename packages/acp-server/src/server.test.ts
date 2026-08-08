@@ -2,12 +2,29 @@ import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import {
+  type AuditInput,
   currentRequestSignal,
   listSessionSummaries,
   loadSession as loadCoreSession,
 } from "@swarmx/core";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SwarmXAgent } from "./server.js";
+
+function captureAudit(): {
+  audit: { append: (input: AuditInput) => never };
+  events: AuditInput[];
+} {
+  const events: AuditInput[] = [];
+  return {
+    audit: {
+      append: (input) => {
+        events.push(input);
+        return {} as never;
+      },
+    },
+    events,
+  };
+}
 
 describe("SwarmXAgent", () => {
   let sessionsDir: string;
@@ -378,13 +395,160 @@ describe("SwarmXAgent", () => {
     expect(observedSignal).toBeDefined();
   });
 
+  it("records correlated ACP lifecycle events without prompt, result, or error content", async () => {
+    const { audit, events } = captureAudit();
+    const secretPrompt = "audit-secret-prompt-sk-test-123456";
+    const secretResult = "audit-secret-result-password=hunter2";
+    const updates = vi.fn(async () => undefined);
+    const agent = new SwarmXAgent({
+      audit,
+      createSwarm: () => ({
+        execute: async () => [
+          { role: "assistant", kind: "message" as const, content: secretResult },
+        ],
+      }),
+    });
+    agent.setConnection({ sessionUpdate: updates } as never);
+
+    const created = await agent.newSession({ cwd, mcpServers: [] });
+    await expect(
+      agent.prompt({
+        sessionId: created.sessionId,
+        prompt: [{ type: "text", text: secretPrompt }],
+      }),
+    ).resolves.toEqual({ stopReason: "end_turn" });
+    await expect(
+      agent.loadSession({ sessionId: created.sessionId, cwd, mcpServers: [] }),
+    ).resolves.toEqual({});
+    await expect(agent.closeSession({ sessionId: created.sessionId })).resolves.toEqual({});
+
+    expect(events.map(({ action, outcome }) => [action, outcome])).toEqual([
+      ["acp.session.new", "attempted"],
+      ["acp.session.new", "completed"],
+      ["acp.prompt", "attempted"],
+      ["acp.prompt", "completed"],
+      ["acp.session.load", "attempted"],
+      ["acp.session.load", "completed"],
+      ["acp.session.close", "attempted"],
+      ["acp.session.close", "completed"],
+    ]);
+    for (const pairStart of [0, 2, 4, 6]) {
+      expect(events[pairStart]?.requestId).toBe(events[pairStart + 1]?.requestId);
+    }
+    expect(events.slice(1).every((event) => event.sessionId === created.sessionId)).toBe(true);
+    const serialized = JSON.stringify(events);
+    expect(serialized).not.toContain(secretPrompt);
+    expect(serialized).not.toContain(secretResult);
+    expect(serialized).not.toContain(cwd);
+  });
+
+  it("audits effectful ACP boundary methods without copying no-op mode payloads", async () => {
+    const { audit, events } = captureAudit();
+    const agent = new SwarmXAgent({ audit });
+
+    await agent.initialize({ protocolVersion: 1 } as never);
+    const created = await agent.newSession({ cwd, mcpServers: [] });
+    await agent.listSessions({ cwd });
+    await agent.resumeSession({ sessionId: created.sessionId, cwd, mcpServers: [] });
+    const eventCountBeforeNoOp = events.length;
+    await agent.setSessionMode({
+      sessionId: created.sessionId,
+      modeId: "private-mode-payload",
+    } as never);
+    expect(events).toHaveLength(eventCountBeforeNoOp);
+    await expect(agent.authenticate({ token: "sk-private-auth" } as never)).rejects.toThrow(
+      "not supported",
+    );
+
+    expect(events.map(({ action, outcome }) => [action, outcome])).toEqual([
+      ["acp.initialize", "attempted"],
+      ["acp.initialize", "completed"],
+      ["acp.session.new", "attempted"],
+      ["acp.session.new", "completed"],
+      ["acp.session.list", "attempted"],
+      ["acp.session.list", "completed"],
+      ["acp.session.resume", "attempted"],
+      ["acp.session.resume", "completed"],
+      ["acp.authenticate", "attempted"],
+      ["acp.authenticate", "denied"],
+    ]);
+    const serialized = JSON.stringify(events);
+    expect(serialized).not.toContain(cwd);
+    expect(serialized).not.toContain("private-mode-payload");
+    expect(serialized).not.toContain("sk-private-auth");
+  });
+
+  it("fails closed before prompt execution and exposes a failed result audit", async () => {
+    const execute = vi.fn(async () => []);
+    let promptAuditFailure: "attempted" | "completed" | undefined;
+    const audit = {
+      append: (input: AuditInput) => {
+        if (input.action === "acp.prompt" && input.outcome === promptAuditFailure) {
+          throw new Error(`audit ${promptAuditFailure} failed`);
+        }
+        return {} as never;
+      },
+    };
+    const agent = new SwarmXAgent({ audit, createSwarm: () => ({ execute }) });
+    agent.setConnection({ sessionUpdate: vi.fn(async () => undefined) } as never);
+    const created = await agent.newSession({ cwd, mcpServers: [] });
+
+    promptAuditFailure = "attempted";
+    await expect(
+      agent.prompt({
+        sessionId: created.sessionId,
+        prompt: [{ type: "text", text: "must not execute" }],
+      }),
+    ).rejects.toThrow("audit attempted failed");
+    expect(execute).not.toHaveBeenCalled();
+
+    promptAuditFailure = "completed";
+    await expect(
+      agent.prompt({
+        sessionId: created.sessionId,
+        prompt: [{ type: "text", text: "execute once" }],
+      }),
+    ).rejects.toThrow("audit completed failed");
+    expect(execute).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not copy backend error details into failed audit events", async () => {
+    const { audit, events } = captureAudit();
+    const secretError = "backend credential=never-log-this";
+    const untrustedSessionId = "credential-never-log-session-id";
+    const agent = new SwarmXAgent({
+      audit,
+      createSwarm: () => ({
+        execute: async () => {
+          throw new Error(secretError);
+        },
+      }),
+    });
+    agent.setConnection({ sessionUpdate: vi.fn(async () => undefined) } as never);
+    const created = await agent.newSession({ cwd, mcpServers: [] });
+
+    await expect(
+      agent.prompt({ sessionId: created.sessionId, prompt: [{ type: "text", text: "run" }] }),
+    ).resolves.toEqual({ stopReason: "refusal" });
+    await expect(
+      agent.loadSession({ sessionId: untrustedSessionId, cwd, mcpServers: [] }),
+    ).rejects.toThrow("not found");
+    expect(events).toContainEqual(
+      expect.objectContaining({ action: "acp.prompt", outcome: "failed" }),
+    );
+    expect(JSON.stringify(events)).not.toContain(secretError);
+    expect(JSON.stringify(events)).not.toContain(untrustedSessionId);
+  });
+
   it("V555 cancels the active prompt through the Core request signal", async () => {
     let observedSignal: AbortSignal | undefined;
     let markStarted: (() => void) | undefined;
     const started = new Promise<void>((resolve) => {
       markStarted = resolve;
     });
+    const { audit, events } = captureAudit();
     const agent = new SwarmXAgent({
+      audit,
       createSwarm: () => ({
         execute: async () => {
           observedSignal = currentRequestSignal();
@@ -409,12 +573,42 @@ describe("SwarmXAgent", () => {
 
     const pendingPrompt = agent.prompt({
       sessionId: created.sessionId,
-      prompt: [{ type: "text", text: "cancel me" }],
+      prompt: [{ type: "text", text: "cancel-secret-prompt-password=hunter2" }],
     });
     await started;
     await agent.cancel({ sessionId: created.sessionId });
 
     await expect(pendingPrompt).resolves.toMatchObject({ stopReason: "cancelled" });
     expect(observedSignal?.aborted).toBe(true);
+    expect(events.map(({ action, outcome }) => [action, outcome])).toEqual([
+      ["acp.session.new", "attempted"],
+      ["acp.session.new", "completed"],
+      ["acp.prompt", "attempted"],
+      ["acp.prompt", "cancel_requested"],
+      ["acp.prompt", "cancelled"],
+      ["acp.prompt", "cancelled"],
+    ]);
+    expect(events[3]?.requestId).not.toBe(events[2]?.requestId);
+    expect(events[4]?.requestId).toBe(events[3]?.requestId);
+    expect(events[5]?.requestId).toBe(events[2]?.requestId);
+    expect(events[3]?.metadata).toMatchObject({ promptRequestId: events[2]?.requestId });
+    expect(events[4]?.metadata).toMatchObject({ promptRequestId: events[2]?.requestId });
+    expect(events.every((event) => event.action !== "acp.prompt.cancel")).toBe(true);
+    expect(JSON.stringify(events)).not.toContain("cancel-secret-prompt-password=hunter2");
+  });
+
+  it("records a compact denied cancellation lifecycle when no prompt is active", async () => {
+    const { audit, events } = captureAudit();
+    const agent = new SwarmXAgent({ audit });
+
+    await agent.cancel({ sessionId: "inactive-secret-session" });
+
+    expect(events.map(({ action, outcome }) => [action, outcome])).toEqual([
+      ["acp.prompt", "cancel_requested"],
+      ["acp.prompt", "denied"],
+    ]);
+    expect(events[1]?.requestId).toBe(events[0]?.requestId);
+    expect(events.every((event) => event.action !== "acp.prompt.cancel")).toBe(true);
+    expect(JSON.stringify(events)).not.toContain("inactive-secret-session");
   });
 });

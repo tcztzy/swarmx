@@ -1,6 +1,8 @@
 import asyncio
 import json
+import os
 import shlex
+import signal
 from pathlib import Path
 from typing import Any, Sequence
 
@@ -133,15 +135,22 @@ async def run_swarmx_eval(
     try:
         proc = await asyncio.create_subprocess_exec(
             *args,
+            start_new_session=True,
             cwd=cwd,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
-        stdout, stderr_bytes = await asyncio.wait_for(
-            proc.communicate(), timeout=timeout
-        )
-    except asyncio.TimeoutError:
-        return error_result(f"swarmx eval-run timed out after {timeout:g}s"), "", None
+        try:
+            stdout, stderr_bytes = await asyncio.wait_for(
+                proc.communicate(), timeout=timeout
+            )
+        except asyncio.TimeoutError:
+            await kill_process_tree(proc)
+            return (
+                error_result(f"swarmx eval-run timed out after {timeout:g}s"),
+                "",
+                None,
+            )
     except OSError as exc:
         return error_result(str(exc)), "", None
 
@@ -159,6 +168,36 @@ async def run_swarmx_eval(
     except json.JSONDecodeError as exc:
         message = f"failed to parse swarmx eval-run JSON: {exc}"
         return error_result(message), stdout_text + stderr_text, proc.returncode
+
+
+async def kill_process_tree(proc: asyncio.subprocess.Process) -> None:
+    """Kill the child and its whole process group, escalating to SIGKILL.
+
+    Grandchildren that ignore SIGTERM must not survive the timeout.
+    """
+    if proc.returncode is not None:
+        return
+    try:
+        os.killpg(proc.pid, signal.SIGTERM)
+    except (ProcessLookupError, PermissionError):
+        pass
+    try:
+        await asyncio.wait_for(proc.wait(), timeout=2.0)
+        return
+    except (asyncio.TimeoutError, ProcessLookupError, ChildProcessError):
+        pass
+    try:
+        os.killpg(proc.pid, signal.SIGKILL)
+    except (ProcessLookupError, PermissionError):
+        pass
+    try:
+        proc.kill()
+    except ProcessLookupError:
+        pass
+    try:
+        await asyncio.wait_for(proc.wait(), timeout=2.0)
+    except (asyncio.TimeoutError, ProcessLookupError, ChildProcessError):
+        pass
 
 
 def contract_failures(

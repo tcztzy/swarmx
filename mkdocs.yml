@@ -33,10 +33,20 @@ markdown_extensions:
 
 nav:
 - Home: index.md
+- Codebase map:
+  - Overview: codebase/index.md
+  - Core: codebase/core.md
+  - Desktop: codebase/desktop.md
+  - CLI, runtime, ACP, launcher: codebase/cli-runtime.md
+  - Tests and auxiliary source: codebase/tests.md
 - Product vision: vision.md
-- Guides:
-  - Extensions and Custom Agents: extensions-custom-agents.md
-  - Multimedia attachments: multimedia.md
+- Publication research strategy: publication-research-strategy.md
+  - Guides:
+    - Durable task runtime: durable-task-runtime.md
+    - Auditability: auditability.md
+    - Extensions and Custom Agents: extensions-custom-agents.md
+    - Skill self-improvement (evolution): skill-evolution.md
+    - Multimedia attachments: multimedia.md
   - Native tool compatibility: native-tool-compatibility.md
   - Claude Code tool parity: claude-code-tool-parity.md
   - OpenAI-compatible server: server.md

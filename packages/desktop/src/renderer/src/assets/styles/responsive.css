@@ -377,7 +377,6 @@
   }
 
   .sidebar,
-  .select-shell,
   .gui-contribution-workspace,
   .extension-workspace,
   .workflow-workspace,
@@ -412,10 +411,6 @@
 }
 
 @media (max-width: 1100px) {
-  .permission-mode-picker {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-
   .permission-layer-list {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -504,15 +499,8 @@
     grid-template-columns: 248px minmax(0, 1fr);
   }
 
-  .app-shell.app-shell--collapsed,
-  .app-shell.app-shell--workflow {
+  .app-shell.app-shell--collapsed {
     grid-template-columns: 0 minmax(0, 1fr);
-  }
-
-  .runtime__body--right-panel {
-    padding-right: var(--right-panel-width, 50%);
-    overflow: visible;
-    grid-template-columns: minmax(0, 1fr);
   }
 
   .runtime__body--side-chat {
@@ -733,13 +721,8 @@
     border-radius: 11px;
   }
 
-  .permission-mode-picker,
   .permission-layer-list {
     grid-template-columns: 1fr;
-  }
-
-  .permission-mode-picker label {
-    min-height: 0;
   }
 
   .permission-panel {

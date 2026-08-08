@@ -50,6 +50,7 @@ export default defineConfig(async () => ({
   resolve: {
     alias: {
       "@": `${desktopRoot}/src/renderer/src`,
+      "@swarmx/core/harness": `${desktopRoot}/../core/src/harness.ts`,
       "@swarmx/core/rendering": `${desktopRoot}/../core/src/rendering.ts`,
     },
   },

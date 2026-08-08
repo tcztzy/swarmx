@@ -1,26 +1,5 @@
 import { z } from "zod";
-
-const REDACTED_VALUE = "[redacted]";
-
-const ALLOWED_SECRET_REFERENCE_KEYS = new Set([
-  "secretref",
-  "secretrefs",
-  "secret_ref",
-  "secret_refs",
-  "secretrefid",
-  "secret_ref_id",
-  "secretstatus",
-  "secret_status",
-  "credentialref",
-  "credential_ref",
-  "credentialrefs",
-  "credential_refs",
-  "credentialreferences",
-  "credential_references",
-]);
-
-const FORBIDDEN_SECRET_KEY_PATTERN =
-  /(api[_-]?key|api[_-]?token|access[_-]?token|bearer|password|passwd|secret|credential|private[_-]?key|smtp[_-]?password|telemetry[_-]?token|ingest[_-]?token|cluster[_-]?password|remote[_-]?compute[_-]?password|host[_-]?login|auth[_-]?token)/i;
+import { findInlineSecretFields, REDACTED_VALUE } from "./secret-scanner.js";
 
 export const SecretPurposeSchema = z.enum([
   "provider_api_key",
@@ -293,52 +272,16 @@ function addSecretIssuesSkipping(
   ctx: z.RefinementCtx,
   skippedPathPrefixes: Array<Array<string | number>>,
 ): void {
-  for (const issue of findInlineSecrets(value, [], skippedPathPrefixes)) {
+  for (const issue of findInlineSecretFields(value, {
+    allowRedacted: false,
+    skippedPathPrefixes,
+  })) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
       path: issue.path,
       message: `Secret records must not contain inline secret field "${issue.key}".`,
     });
   }
-}
-
-function findInlineSecrets(
-  value: unknown,
-  path: Array<string | number> = [],
-  skippedPathPrefixes: Array<Array<string | number>> = [],
-): Array<{ key: string; path: Array<string | number> }> {
-  if (isSkippedPath(path, skippedPathPrefixes)) return [];
-  if (Array.isArray(value)) {
-    return value.flatMap((item, index) =>
-      findInlineSecrets(item, [...path, index], skippedPathPrefixes),
-    );
-  }
-  if (!isObjectRecord(value)) return [];
-
-  const issues: Array<{ key: string; path: Array<string | number> }> = [];
-  for (const [key, child] of Object.entries(value)) {
-    const childPath = [...path, key];
-    if (isSkippedPath(childPath, skippedPathPrefixes)) continue;
-    if (isForbiddenSecretKey(key)) {
-      issues.push({ key, path: childPath });
-    }
-    issues.push(...findInlineSecrets(child, childPath, skippedPathPrefixes));
-  }
-  return issues;
-}
-
-function isSkippedPath(
-  path: Array<string | number>,
-  skippedPathPrefixes: Array<Array<string | number>>,
-): boolean {
-  return skippedPathPrefixes.some((prefix) => prefix.every((part, index) => path[index] === part));
-}
-
-function isForbiddenSecretKey(key: string): boolean {
-  const normalizedKey = key.toLowerCase().replace(/[^a-z0-9_]/g, "");
-  return (
-    FORBIDDEN_SECRET_KEY_PATTERN.test(key) && !ALLOWED_SECRET_REFERENCE_KEYS.has(normalizedKey)
-  );
 }
 
 function isObjectRecord(value: unknown): value is Record<string, unknown> {

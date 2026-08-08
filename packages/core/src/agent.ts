@@ -29,6 +29,12 @@ import {
   loadSession as loadSessionFile,
   saveSession,
 } from "./session.js";
+import {
+  buildDeliveredInstructions,
+  SkillDeliveryError,
+  type SkillInstructionDelivery,
+  SkillInstructionDeliverySchema,
+} from "./skill-delivery.js";
 import type {
   AgentBackend,
   AgentConfig,
@@ -58,6 +64,20 @@ export interface AgentRuntimeOptions {
   createAcpClient?: () => AcpPromptClient;
   createMcpManager?: () => McpManager;
   localTools?: readonly LocalTool[];
+  /**
+   * Request-scoped, digest-verified `prompt_fragment` Skill deliveries. Content
+   * must already be loaded and verified by the caller; the Agent re-verifies
+   * the digest and appends each fragment to the model-visible instructions.
+   * Persisted SwarmConfig and Skill files are never modified.
+   */
+  skillInstructions?: readonly SkillInstructionDelivery[];
+  /**
+   * Agent-name-scoped Skill deliveries. When present, only the named Agent
+   * node receives the listed deliveries; the generic `skillInstructions`
+   * option is ignored. This binds evolution to the target Agent instead of
+   * leaking one delivery to every node in the swarm.
+   */
+  skillInstructionsByAgent?: Record<string, readonly SkillInstructionDelivery[]>;
   acpPermissionHandler?: AcpPermissionHandler;
   acpMode?: string;
   acpSessionId?: string;
@@ -111,6 +131,7 @@ export class Agent {
   private onAcpSessionId?: (sessionId: string | undefined) => void | Promise<void>;
   private configuredModel?: string;
   private maxOutputTokens: number;
+  private readonly skillInstructions: readonly SkillInstructionDelivery[];
 
   constructor(config: AgentConfig, options: AgentRuntimeOptions = {}) {
     const parsed = AgentConfigSchema.parse(config);
@@ -131,7 +152,24 @@ export class Agent {
         ? nativeModelFromEnvironment(this.apiProtocol, runtimeEnv, hasExplicitRuntimeEnv)
         : undefined);
     this.configuredModel = parsed.model;
-    this.instructions = parsed.instructions ?? "";
+    const scopedDeliveries = options.skillInstructionsByAgent?.[parsed.name];
+    const deliveries = scopedDeliveries ?? options.skillInstructions ?? [];
+    this.skillInstructions = deliveries.map((delivery) =>
+      SkillInstructionDeliverySchema.parse(delivery),
+    );
+    if (
+      this.skillInstructions.length > 0 &&
+      !["swarmx", "echo"].includes(parsed.backend?.type ?? "swarmx")
+    ) {
+      throw new SkillDeliveryError(
+        "external_harness",
+        `Skill prompt_fragment delivery is unsupported for backend "${parsed.backend?.type ?? "swarmx"}" on agent "${parsed.name}".`,
+      );
+    }
+    this.instructions = buildDeliveredInstructions(
+      parsed.instructions ?? "",
+      this.skillInstructions,
+    );
     this.parameters = parsed.parameters ?? {};
     this.returns = parsed.returns;
     this.mcpServers = new Map(parsed.mcpServers ? Object.entries(parsed.mcpServers) : []);

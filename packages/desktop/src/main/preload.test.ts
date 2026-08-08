@@ -65,6 +65,21 @@ describe("preload API", () => {
     expect(electron.invoke).toHaveBeenCalledWith("agent:send", params);
   });
 
+  it("exposes bounded audit query, verification, and export channels", async () => {
+    const api = exposedApi();
+    const query = { category: "permission" as const, limit: 25, reverse: true };
+
+    await api.listAuditEvents(query);
+    await api.verifyAuditLog();
+    await api.exportAuditLog(query);
+
+    expect(electron.invoke.mock.calls).toEqual([
+      ["audit:list", query],
+      ["audit:verify"],
+      ["audit:export", query],
+    ]);
+  });
+
   it("V457 forwards the persisted conversation permission when creating a session", async () => {
     const params = {
       agentName: "agent",

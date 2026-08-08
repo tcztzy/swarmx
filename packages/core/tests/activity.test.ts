@@ -21,35 +21,28 @@ afterEach(() => {
 describe("local activity profile", () => {
   it("aggregates tokens, tasks, streaks, tools, skills, models, and reasoning", () => {
     const events: ActivityEvent[] = [
-      event("task_started", "2026-07-13T09:00:00.000Z", {
+      event("2026-07-13T09:02:00.000Z", {
         modelId: "gpt-5",
         reasoningEffort: "high",
-      }),
-      event("token_usage", "2026-07-13T09:01:00.000Z", {
         tokens: usage(100, 40, 20, 10, false),
-      }),
-      event("task_finished", "2026-07-13T09:02:00.000Z", {
         status: "completed",
         durationMs: 120_000,
+        tools: { read_file: 1 },
+        skills: { "paper-reviewer": 1 },
       }),
-      event("tool_called", "2026-07-13T09:01:30.000Z", { name: "read_file" }),
-      event("skill_used", "2026-07-13T09:00:05.000Z", { name: "paper-reviewer" }),
-      event("task_started", "2026-07-14T09:00:00.000Z", {
+      event("2026-07-14T09:02:00.000Z", {
         modelId: "gpt-5",
         reasoningEffort: "high",
-      }),
-      event("token_usage", "2026-07-14T09:01:00.000Z", {
         tokens: usage(20, 10, 0, 0, true),
-      }),
-      event("task_finished", "2026-07-14T09:02:00.000Z", {
         status: "failed",
         durationMs: 180_000,
+        tools: { read_file: 1 },
+        skills: { "code-reviewer": 1 },
       }),
-      event("tool_called", "2026-07-14T09:01:30.000Z", { name: "read_file" }),
-      event("skill_used", "2026-07-14T09:00:05.000Z", { name: "code-reviewer" }),
-      event("task_finished", "2026-07-16T09:02:00.000Z", {
+      event("2026-07-16T09:02:00.000Z", {
         status: "completed",
         durationMs: 60_000,
+        tokens: usage(0, 0, 0, 0, false),
       }),
     ];
 
@@ -91,10 +84,13 @@ describe("local activity profile", () => {
     });
 
     store.append({
-      type: "tool_called",
+      type: "run_summary",
       taskId: "task-1",
       sessionId: "session-1",
-      name: "workspace_read_file",
+      status: "completed",
+      durationMs: 10,
+      tokens: usage(0, 0, 0, 0, false),
+      tools: { workspace_read_file: 1 },
     });
     writeFileSync(filePath, `${readFileSync(filePath, "utf8")}not-json\n`, "utf8");
 
@@ -124,17 +120,18 @@ describe("local activity profile", () => {
 });
 
 function event(
-  type: ActivityEvent["type"],
   timestamp: string,
-  extra: Partial<ActivityEvent>,
+  extra: Omit<ActivityEvent, "eventId" | "taskId" | "timestamp" | "type">,
 ): ActivityEvent {
   return {
-    eventId: `event-${timestamp}-${type}`,
+    eventId: `event-${timestamp}`,
     taskId: `task-${timestamp}`,
     timestamp,
-    type,
+    type: "run_summary",
+    tools: {},
+    skills: {},
     ...extra,
-  } as ActivityEvent;
+  };
 }
 
 function usage(

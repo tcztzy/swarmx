@@ -61,6 +61,10 @@ export default defineConfig({
         ),
       },
       {
+        find: /^@swarmx\/core\/harness$/,
+        replacement: fileURLToPath(new URL("./packages/core/src/harness.ts", import.meta.url)),
+      },
+      {
         find: /^@swarmx\/runtime$/,
         replacement: fileURLToPath(new URL("./packages/runtime/src/index.ts", import.meta.url)),
       },

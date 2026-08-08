@@ -2,7 +2,6 @@ import type { ProjectData } from "@swarmx/core";
 import type {
   DesktopAgentChunkEvent,
   DesktopAgentInteractionEvent,
-  DesktopAgentInteractionResponse,
   DesktopBrowserBounds,
   DesktopBrowserState,
   DesktopMessageChunk,
@@ -121,6 +120,12 @@ export function createSwarmxDesktopApi(
     listSessions: () => invoke("session:list"),
 
     getActivityProfile: () => invoke("activity:profile"),
+
+    listAuditEvents: (query = {}) => invoke("audit:list", query),
+
+    verifyAuditLog: () => invoke("audit:verify"),
+
+    exportAuditLog: (query = {}) => invoke("audit:export", query),
 
     listProjects: () => invoke("project:list"),
 

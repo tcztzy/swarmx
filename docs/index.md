@@ -1,24 +1,32 @@
 # SwarmX Documentation
 
-SwarmX runs direct model agents and ACP-compatible coding agents in one
-local-first desktop workspace. The repository also publishes a TypeScript
-orchestration core, CLI, ACP server adapter, and runtime diagnostics.
+SwarmX runs direct model agents, ACP-compatible coding agents, and durable
+language-independent tasks in one local-first desktop workspace. The repository
+also publishes a TypeScript orchestration core, CLI, ACP server adapter, and
+runtime diagnostics.
 
 ## Start here
 
 - [Product specification](https://github.com/tcztzy/swarmx/blob/main/SPEC.md) -
   durable product contract and limits.
+- [Codebase map](codebase/index.md) - token-efficient source ownership, flows,
+  and per-file contracts for document-driven development.
 - [Product vision](vision.md) - user experience direction.
 - [Architecture](https://github.com/tcztzy/swarmx/blob/main/DESIGNS.md) - package
   and runtime boundaries.
 - [Roadmap](https://github.com/tcztzy/swarmx/blob/main/ROADMAP.md) - unfinished
   work only.
+- [Publication-first research strategy](publication-research-strategy.md) -
+  ontology, information bounds, decisive experiments, and stop conditions.
 - [Repository README](https://github.com/tcztzy/swarmx/blob/main/README.md) -
   installation and source development.
 
 Feature guides:
 
+- [Durable task runtime](durable-task-runtime.md)
+- [Auditability](auditability.md)
 - [Extensions and Custom Agents](extensions-custom-agents.md)
+- [Skill self-improvement (evolution)](skill-evolution.md)
 - [Multimedia attachments](multimedia.md)
 - [Native tool compatibility](native-tool-compatibility.md)
 - [Claude Code tool parity](claude-code-tool-parity.md)
@@ -34,7 +42,8 @@ Feature guides:
 | Model | Independent model identity with API and capability metadata |
 | Harness | Runtime recipe containing Software, Skills, MCP servers, context, and policy |
 | Agent | One Harness paired with one Model |
-| Session | Canonical persisted task and conversation history |
+| Session | Canonical persisted conversation history; an observer of durable work |
+| WorkItem | Session-independent durable work with event-replayed runs and checkpoints |
 | Workflow | A `SwarmConfig` graph |
 
 Provider routing and reasoning effort do not change Agent identity. The ordinary
@@ -211,6 +220,12 @@ swarmx sessions migrate --dry-run
 swarmx sessions migrate
 ```
 
+Durable WorkItems use a separate append-only authority under
+`~/.swarmx/task-runtime/`. Multiple Sessions may observe the same WorkItem;
+archiving a conversation does not terminate it. See the
+[durable task runtime guide](durable-task-runtime.md) for recovery, worker
+protocol, Python environment, and current app-attached lifecycle limits.
+
 ## Extensions and composition
 
 Extension discovery loads passive metadata for Software, Harnesses, Models,
@@ -236,6 +251,8 @@ variant, trust, and persistence details.
   logs keep metadata rather than Base64.
 - Telemetry is opt-in and excludes raw conversations, prompts, responses,
   source files, terminal output, and credentials.
+- Privileged decisions and side effects use a local tamper-evident audit chain;
+  audit metadata is deliberately compact and excludes those same raw contents.
 - The optional HTTP server binds to loopback by default; non-loopback binding
   requires a bearer token and explicit Origin policy.
 
@@ -244,11 +261,11 @@ variant, trust, and persistence details.
 | Package | Responsibility |
 | --- | --- |
 | `swarmx` | Desktop-first npm launcher with CLI compatibility |
-| `@swarmx/core` | Agents, workflows, ACP/MCP, Sessions, and platform contracts |
+| `@swarmx/core` | Agents, workflows, durable task control, ACP/MCP, Sessions, and platform contracts |
 | `@swarmx/desktop` | Electron host and reusable renderer shell |
 | `@swarmx/cli` | Terminal commands and OpenAI-compatible server |
 | `@swarmx/acp-server` | ACP server adapter |
-| `@swarmx/runtime` | Runtime detection, Doctor, and repair planning |
+| `@swarmx/runtime` | Harness and Python runtime detection, Doctor, and repair planning |
 
 ## Develop and validate
 

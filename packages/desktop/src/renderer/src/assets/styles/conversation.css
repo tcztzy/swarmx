@@ -1754,21 +1754,6 @@
   font-size: 12px;
 }
 
-.composer__meta {
-  min-width: 0;
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  color: var(--muted-foreground);
-  font-size: 12px;
-  font-weight: 560;
-}
-
-.composer__meta svg {
-  width: 14px;
-  height: 14px;
-}
-
 .conversation-permission-picker {
   position: relative;
   min-width: 0;

@@ -19,6 +19,10 @@ The server is local-first by default:
 - Wildcard origins are rejected.
 - `Origin: null` is rejected unless trusted desktop bridge mode is explicitly enabled.
 - When an API token is configured, requests must include `Authorization: Bearer <token>`.
+- The CLI injects the canonical audit store. Every request receives a
+  server-generated `X-Request-ID`; attempts are durable before Origin/Auth/body
+  processing, and outcomes contain only method, normalized path, status, and
+  duration—not headers, tokens, query strings, prompts, or responses.
 
 ## Start From The CLI
 
@@ -44,7 +48,7 @@ single-agent swarm.
 ## Embed In TypeScript
 
 ```ts
-import { Agent, Swarm, createServer } from "@swarmx/core";
+import { Agent, AuditStore, Swarm, createServer } from "@swarmx/core";
 
 const agent = new Agent({
   name: "agent",
@@ -71,11 +75,14 @@ const swarm = new Swarm({
 createServer(swarm, {
   host: "127.0.0.1",
   port: 8000,
+  audit: new AuditStore(),
 });
 ```
 
 `createServer()` starts listening immediately and returns the underlying
 `http.Server` instance so callers can close it or attach lifecycle handling.
+Embedding hosts should inject an `AuditStore`-compatible writer as shown; the
+official CLI does this automatically.
 
 ## Use With An OpenAI-Compatible Client
 

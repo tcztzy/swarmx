@@ -29,10 +29,12 @@ import {
   type LocalToolCallContext,
   localToolResult,
   type ModelApi,
+  parseMarkdownFrontmatter,
   type ResolvedHarnessPermissionPolicy,
   ResolvedHarnessPermissionPolicySchema,
   resolveHarnessToolPermission,
 } from "@swarmx/core";
+import { z } from "zod";
 import type {
   ClaudeInteractionRequest,
   ClaudeInteractionResponse,
@@ -55,34 +57,103 @@ const MAX_GIT_STATUS_BYTES = 4 * 1024 * 1024;
 const MAX_SKILL_BYTES = 512 * 1024;
 const MAX_PLAN_BYTES = 1024 * 1024;
 
-const CLAUDE_GREP_INPUT_SCHEMA = {
-  type: "object",
-  properties: {
-    pattern: { type: "string", description: "The regular expression pattern to search for." },
-    path: { type: "string", description: "File or directory to search in." },
-    glob: { type: "string", description: "Glob pattern to filter files." },
-    output_mode: {
-      type: "string",
-      enum: ["content", "files_with_matches", "count"],
-      description: "Output content, matching paths, or match counts.",
-    },
-    "-B": { type: "number" },
-    "-A": { type: "number" },
-    "-C": { type: "number" },
-    context: { type: "number" },
-    "-n": { type: "boolean" },
-    "-i": { type: "boolean" },
-    "-o": { type: "boolean" },
-    type: { type: "string" },
-    head_limit: { type: "number" },
-    offset: { type: "number" },
-    multiline: { type: "boolean" },
-  },
-  required: ["pattern"],
-} as const;
+type WorkspaceToolInputSchema = z.ZodType<Record<string, unknown>>;
+
+type WorkspaceToolDefinition<Schema extends WorkspaceToolInputSchema> = Omit<
+  LocalMcpTool,
+  "call" | "inputSchema"
+> & {
+  schema: Schema;
+  call(input: z.output<Schema>, context?: LocalToolCallContext): ReturnType<LocalMcpTool["call"]>;
+};
+
+function defineWorkspaceTool<Schema extends WorkspaceToolInputSchema>(
+  definition: WorkspaceToolDefinition<Schema>,
+): LocalMcpTool {
+  const { schema, call, ...tool } = definition;
+  return {
+    ...tool,
+    inputSchema: workspaceToolJsonSchema(schema),
+    call: async (input, context) => call(parseWorkspaceToolInput(schema, input), context),
+  };
+}
+
+function workspaceToolJsonSchema(schema: WorkspaceToolInputSchema): Record<string, unknown> {
+  const jsonSchema = z.toJSONSchema(schema) as Record<string, unknown>;
+  delete jsonSchema.$schema;
+  if (
+    jsonSchema.additionalProperties &&
+    typeof jsonSchema.additionalProperties === "object" &&
+    Object.keys(jsonSchema.additionalProperties).length === 0
+  ) {
+    delete jsonSchema.additionalProperties;
+  }
+  return jsonSchema;
+}
+
+function parseWorkspaceToolInput<Schema extends WorkspaceToolInputSchema>(
+  schema: Schema,
+  input: Record<string, unknown>,
+): z.output<Schema> {
+  const result = schema.safeParse(input);
+  if (result.success) return result.data;
+  throw new Error(result.error.issues[0]?.message ?? "Invalid tool input.");
+}
+
+function toolText(name: string, description?: string): z.ZodString {
+  const schema = z.string({ error: `${name} must be text.` });
+  return description ? schema.describe(description) : schema;
+}
+
+function nonemptyToolText(name: string, description?: string): z.ZodString {
+  return toolText(name, description).refine((value) => Boolean(value.trim()), {
+    error: `${name} must not be empty.`,
+  });
+}
+
+function toolPath(description?: string): z.ZodString {
+  const schema = z
+    .string({ error: "A Project file path is required." })
+    .refine((value) => Boolean(value.trim()), { error: "A Project file path is required." });
+  return description ? schema.describe(description) : schema;
+}
+
+function toolBoolean(name: string, description?: string): z.ZodBoolean {
+  const schema = z.boolean({ error: `${name} must be a boolean.` });
+  return description ? schema.describe(description) : schema;
+}
+
+function boundedToolInteger(name: string, minimum: number, maximum: number): z.ZodNumber {
+  const error = `${name} must be an integer between ${minimum} and ${maximum}.`;
+  return z.number({ error }).int({ error }).min(minimum, { error }).max(maximum, { error });
+}
+
+const NONNEGATIVE_INTEGER = z.number().int().nonnegative();
+const CLAUDE_GREP_SCHEMA = z
+  .object({
+    pattern: toolText("pattern", "The regular expression pattern to search for."),
+    path: toolText("path", "File or directory to search in.").optional(),
+    glob: toolText("glob", "Glob pattern to filter files.").optional(),
+    output_mode: z
+      .enum(["content", "files_with_matches", "count"])
+      .describe("Output content, matching paths, or match counts.")
+      .optional(),
+    "-B": NONNEGATIVE_INTEGER.optional(),
+    "-A": NONNEGATIVE_INTEGER.optional(),
+    "-C": NONNEGATIVE_INTEGER.optional(),
+    context: NONNEGATIVE_INTEGER.optional(),
+    "-n": toolBoolean("-n").optional(),
+    "-i": toolBoolean("-i").optional(),
+    "-o": toolBoolean("-o").optional(),
+    type: toolText("type").optional(),
+    head_limit: NONNEGATIVE_INTEGER.optional(),
+    offset: NONNEGATIVE_INTEGER.optional(),
+    multiline: toolBoolean("multiline").optional(),
+  })
+  .passthrough();
 
 // Compatible with OpenAI Codex's Apache-2.0 apply_patch grammar.
-const CODEX_APPLY_PATCH_GRAMMAR = String.raw`start: begin_patch hunk+ end_patch
+const CODEX_APPLY_PATCH_GRAMMAR = `start: begin_patch hunk+ end_patch
 begin_patch: "*** Begin Patch" LF
 end_patch: "*** End Patch" LF?
 hunk: add_hunk | delete_hunk | update_hunk
@@ -482,6 +553,43 @@ interface ClaudeTodoRecord {
   activeForm: string;
 }
 
+const CLAUDE_TASK_METADATA_SCHEMA = z
+  .record(z.string(), z.unknown())
+  .superRefine((metadata, context) => {
+    for (const key of Object.keys(metadata)) {
+      if (["__proto__", "constructor", "prototype"].includes(key)) {
+        context.addIssue({ code: "custom", message: `metadata key ${key} is not allowed.` });
+      }
+    }
+  });
+
+const CLAUDE_TASK_CREATE_SCHEMA = z
+  .object({
+    subject: nonemptyToolText("subject", "A brief title for the task."),
+    description: nonemptyToolText("description", "What needs to be done."),
+    activeForm: toolText("activeForm", "Present continuous progress text.").optional(),
+    metadata: CLAUDE_TASK_METADATA_SCHEMA.optional(),
+  })
+  .passthrough();
+
+const CLAUDE_TASK_UPDATE_SCHEMA = z
+  .object({
+    taskId: nonemptyToolText("taskId"),
+    subject: nonemptyToolText("subject").optional(),
+    description: nonemptyToolText("description").optional(),
+    activeForm: nonemptyToolText("activeForm").optional(),
+    status: z
+      .enum(["pending", "in_progress", "completed", "deleted"], {
+        error: "status must be one of pending, in_progress, completed, deleted.",
+      })
+      .optional(),
+    addBlocks: z.array(nonemptyToolText("addBlocks item")).optional(),
+    addBlockedBy: z.array(nonemptyToolText("addBlockedBy item")).optional(),
+    owner: nonemptyToolText("owner").optional(),
+    metadata: CLAUDE_TASK_METADATA_SCHEMA.optional(),
+  })
+  .passthrough();
+
 interface ClaudeNotebookCell extends Record<string, unknown> {
   cell_type: string;
   id?: string;
@@ -492,11 +600,8 @@ class ClaudeTaskStore {
   #nextId = 1;
   readonly #tasks = new Map<string, ClaudeTaskRecord>();
 
-  create(input: Record<string, unknown>) {
-    const subject = requiredNonemptyToolText(input.subject, "subject");
-    const description = requiredNonemptyToolText(input.description, "description");
-    const activeForm = optionalToolText(input.activeForm, "activeForm");
-    const metadata = optionalMetadata(input.metadata);
+  create(input: z.output<typeof CLAUDE_TASK_CREATE_SCHEMA>) {
+    const { subject, description, activeForm, metadata = {} } = input;
     const id = String(this.#nextId++);
     this.#tasks.set(id, {
       id,
@@ -511,8 +616,7 @@ class ClaudeTaskStore {
     return { task: { id, subject } };
   }
 
-  get(taskIdValue: unknown) {
-    const taskId = requiredNonemptyToolText(taskIdValue, "taskId");
+  get(taskId: string) {
     const task = this.#tasks.get(taskId);
     return {
       task: task
@@ -540,8 +644,8 @@ class ClaudeTaskStore {
     };
   }
 
-  update(input: Record<string, unknown>) {
-    const taskId = requiredNonemptyToolText(input.taskId, "taskId");
+  update(input: z.output<typeof CLAUDE_TASK_UPDATE_SCHEMA>) {
+    const { taskId } = input;
     const task = this.#tasks.get(taskId);
     if (!task) {
       return {
@@ -552,14 +656,9 @@ class ClaudeTaskStore {
       };
     }
 
-    const subject = optionalNonemptyToolText(input.subject, "subject");
-    const description = optionalNonemptyToolText(input.description, "description");
-    const activeForm = optionalNonemptyToolText(input.activeForm, "activeForm");
-    const owner = optionalNonemptyToolText(input.owner, "owner");
-    const metadata = input.metadata === undefined ? undefined : optionalMetadata(input.metadata);
-    const status = optionalClaudeTaskStatus(input.status, true);
-    const addBlocks = optionalTaskIds(input.addBlocks, "addBlocks");
-    const addBlockedBy = optionalTaskIds(input.addBlockedBy, "addBlockedBy");
+    const { subject, description, activeForm, owner, metadata, status } = input;
+    const addBlocks = [...new Set(input.addBlocks ?? [])];
+    const addBlockedBy = [...new Set(input.addBlockedBy ?? [])];
     this.#validateLinks(taskId, [...addBlocks, ...addBlockedBy]);
 
     const updatedFields: string[] = [];
@@ -1669,21 +1768,21 @@ function claudeCodeWorkspaceTools(
   let todos: ClaudeTodoRecord[] = [];
   return [
     ...(agentTool ? [agentTool] : []),
-    {
+    defineWorkspaceTool({
       name: "Bash",
       description:
         "Executes a shell command in the Project sandbox. Network access and writes outside the Project are denied.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          command: { type: "string", description: "The command to execute." },
-          timeout: { type: "number", description: "Optional timeout in milliseconds." },
-          description: { type: "string", description: "A concise description of the command." },
-          run_in_background: { type: "boolean" },
-          dangerouslyDisableSandbox: { type: "boolean" },
-        },
-        required: ["command"],
-      },
+      schema: z
+        .object({
+          command: toolText("command", "The command to execute."),
+          timeout: boundedToolInteger("timeout", 1, 600_000)
+            .describe("Optional timeout in milliseconds.")
+            .optional(),
+          description: toolText("description", "A concise description of the command.").optional(),
+          run_in_background: toolBoolean("run_in_background").optional(),
+          dangerouslyDisableSandbox: toolBoolean("dangerouslyDisableSandbox").optional(),
+        })
+        .passthrough(),
       dispose,
       call: async (input, context) => {
         const progress = terminalProgressObserver(context);
@@ -1692,11 +1791,8 @@ function claudeCodeWorkspaceTools(
           if (input.dangerouslyDisableSandbox === true) {
             throw new Error("The Project sandbox cannot be disabled.");
           }
-          const command = requiredToolText(input.command, "command");
-          const timeoutMs =
-            input.timeout === undefined
-              ? undefined
-              : requiredBoundedInteger(input.timeout, "timeout", 1, 600_000);
+          const command = input.command;
+          const timeoutMs = input.timeout;
           if (input.run_in_background === true) {
             const result = await shell.startBackground(command, {
               ...(timeoutMs === undefined ? {} : { timeoutMs }),
@@ -1741,24 +1837,27 @@ function claudeCodeWorkspaceTools(
           progress.close();
         }
       },
-    },
+    }),
     ...worktreeTools,
-    {
+    defineWorkspaceTool({
       name: "Read",
       description:
         "Reads a bounded UTF-8 text file from the Project. Absolute Project paths and Project-relative paths are accepted.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          file_path: { type: "string", description: "The absolute path to the file to read." },
-          offset: { type: "number", description: "The line number to start reading from." },
-          limit: { type: "number", description: "The number of lines to read." },
-          pages: { type: "string", description: "Page range for PDF files." },
-        },
-        required: ["file_path"],
-      },
+      schema: z
+        .object({
+          file_path: toolPath("The absolute path to the file to read."),
+          offset: z
+            .number()
+            .int()
+            .positive()
+            .describe("The line number to start reading from.")
+            .optional(),
+          limit: z.number().int().positive().describe("The number of lines to read.").optional(),
+          pages: toolText("pages", "Page range for PDF files.").optional(),
+        })
+        .passthrough(),
       call: async (input) => {
-        const requestedPath = requiredToolPath(input.file_path);
+        const requestedPath = input.file_path;
         if (planMode.matches(requestedPath)) {
           const result = await planMode.read();
           const totalLines = fileLines(result.content).length;
@@ -1790,31 +1889,25 @@ function claudeCodeWorkspaceTools(
           structuredContent,
         );
       },
-    },
-    {
+    }),
+    defineWorkspaceTool({
       name: "Edit",
       description:
         "Performs exact string replacements in a previously read, unchanged Project file.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          file_path: { type: "string", description: "The absolute path to the file to modify." },
-          old_string: { type: "string", description: "The exact text to replace." },
-          new_string: { type: "string", description: "The replacement text." },
-          replace_all: { type: "boolean", description: "Replace all occurrences." },
-        },
-        required: ["file_path", "old_string", "new_string"],
-      },
+      schema: z
+        .object({
+          file_path: toolPath("The absolute path to the file to modify."),
+          old_string: toolText("old_string", "The exact text to replace."),
+          new_string: toolText("new_string", "The replacement text."),
+          replace_all: toolBoolean("replace_all", "Replace all occurrences.").optional(),
+        })
+        .passthrough(),
       call: async (input) => {
         planMode.assertCanMutate("Edit");
-        const filePath = workspaceRelativePath(
-          tools.root,
-          requiredToolPath(input.file_path),
-          false,
-        );
-        const oldString = requiredToolText(input.old_string, "old_string");
-        const newString = requiredToolText(input.new_string, "new_string");
-        const replaceAll = optionalToolBoolean(input.replace_all, "replace_all");
+        const filePath = workspaceRelativePath(tools.root, input.file_path, false);
+        const oldString = input.old_string;
+        const newString = input.new_string;
+        const replaceAll = input.replace_all ?? false;
         const result = await tools.editFile(filePath, oldString, newString, replaceAll);
         const absolutePath = path.resolve(tools.root, result.path);
         return localToolResult(`The file ${absolutePath} has been updated successfully.`, {
@@ -1827,22 +1920,20 @@ function claudeCodeWorkspaceTools(
           replaceAll,
         });
       },
-    },
-    {
+    }),
+    defineWorkspaceTool({
       name: "Write",
       description:
         "Writes a UTF-8 file in the Project. Existing files must be read completely before replacement.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          file_path: { type: "string", description: "The absolute path to the file to write." },
-          content: { type: "string", description: "The content to write." },
-        },
-        required: ["file_path", "content"],
-      },
+      schema: z
+        .object({
+          file_path: toolPath("The absolute path to the file to write."),
+          content: toolText("content", "The content to write."),
+        })
+        .passthrough(),
       call: async (input) => {
-        const requestedPath = requiredToolPath(input.file_path);
-        const content = requiredToolText(input.content, "content");
+        const requestedPath = input.file_path;
+        const content = input.content;
         if (planMode.matches(requestedPath)) {
           const result = await planMode.write(content);
           return localToolResult(
@@ -1875,24 +1966,20 @@ function claudeCodeWorkspaceTools(
           },
         );
       },
-    },
-    {
+    }),
+    defineWorkspaceTool({
       name: "Glob",
       description: "Finds Project files matching a glob pattern, sorted by ripgrep.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          pattern: { type: "string", description: "The glob pattern to match files against." },
-          path: { type: "string", description: "The directory to search in." },
-        },
-        required: ["pattern"],
-      },
+      schema: z
+        .object({
+          pattern: toolText("pattern", "The glob pattern to match files against."),
+          path: toolText("path", "The directory to search in.").optional(),
+        })
+        .passthrough(),
       call: async (input) => {
         const result = await tools.glob(
-          requiredToolText(input.pattern, "pattern"),
-          input.path === undefined
-            ? ""
-            : workspaceRelativePath(tools.root, requiredToolText(input.path, "path"), true),
+          input.pattern,
+          input.path === undefined ? "" : workspaceRelativePath(tools.root, input.path, true),
         );
         const filenames = (result.filenames ?? []).map((file) =>
           path.resolve(tools.root, normalizedSearchPath(file)),
@@ -1906,11 +1993,11 @@ function claudeCodeWorkspaceTools(
           countIsComplete: result.countIsComplete ?? !result.truncated,
         });
       },
-    },
-    {
+    }),
+    defineWorkspaceTool({
       name: "Grep",
       description: "Searches Project files using ripgrep with bounded output.",
-      inputSchema: CLAUDE_GREP_INPUT_SCHEMA,
+      schema: CLAUDE_GREP_SCHEMA,
       call: async (input) => {
         const result = await tools.grep({
           ...input,
@@ -1938,22 +2025,20 @@ function claudeCodeWorkspaceTools(
         };
         return localToolResult(result.output || "No matches found", structuredContent);
       },
-    },
-    {
+    }),
+    defineWorkspaceTool({
       name: "NotebookEdit",
       description:
         "Replaces, inserts, or deletes a Jupyter notebook cell in the Project by cell ID.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          notebook_path: { type: "string", description: "The absolute path to the notebook." },
-          cell_id: { type: "string", description: "The ID of the cell to edit or insert after." },
-          new_source: { type: "string", description: "The new source for the cell." },
-          cell_type: { type: "string", enum: ["code", "markdown"] },
-          edit_mode: { type: "string", enum: ["replace", "insert", "delete"] },
-        },
-        required: ["notebook_path", "new_source"],
-      },
+      schema: z
+        .object({
+          notebook_path: toolPath("The absolute path to the notebook."),
+          cell_id: toolText("cell_id", "The ID of the cell to edit or insert after.").optional(),
+          new_source: toolText("new_source", "The new source for the cell."),
+          cell_type: z.enum(["code", "markdown"]).optional(),
+          edit_mode: z.enum(["replace", "insert", "delete"]).optional(),
+        })
+        .passthrough(),
       call: async (input) => {
         planMode.assertCanMutate("NotebookEdit");
         const result = await editClaudeNotebook(tools, input);
@@ -1968,44 +2053,33 @@ function claudeCodeWorkspaceTools(
           result,
         );
       },
-    },
-    {
+    }),
+    defineWorkspaceTool({
       name: "ReportFindings",
       description: "Reports verified code-review findings using repo-relative file locations.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          level: { type: "string", enum: ["low", "medium", "high", "xhigh", "max"] },
-          findings: {
-            type: "array",
-            maxItems: 32,
-            items: {
-              type: "object",
-              properties: {
-                file: { type: "string" },
-                line: { type: "number" },
-                summary: { type: "string" },
-                failure_scenario: { type: "string" },
-                category: { type: "string" },
-                verdict: { type: "string", enum: ["CONFIRMED", "PLAUSIBLE"] },
-                outcome: {
-                  type: "string",
-                  enum: ["fixed", "skipped", "no_change_needed"],
-                },
-              },
-              required: ["file", "summary", "failure_scenario"],
-            },
-          },
-        },
-        required: ["findings"],
-      },
+      schema: z
+        .object({
+          level: z.enum(["low", "medium", "high", "xhigh", "max"]).optional(),
+          findings: z
+            .array(
+              z
+                .object({
+                  file: toolText("file"),
+                  line: z.number().int().positive().optional(),
+                  summary: toolText("summary"),
+                  failure_scenario: toolText("failure_scenario"),
+                  category: toolText("category").optional(),
+                  verdict: z.enum(["CONFIRMED", "PLAUSIBLE"]).optional(),
+                  outcome: z.enum(["fixed", "skipped", "no_change_needed"]).optional(),
+                })
+                .passthrough(),
+            )
+            .max(32, { error: "findings must contain at most 32 items." }),
+        })
+        .passthrough(),
       call: async (input) => {
         const findings = parseClaudeFindings(input.findings);
-        const level = optionalStringEnum(
-          input.level,
-          ["low", "medium", "high", "xhigh", "max"] as const,
-          "level",
-        );
+        const level = input.level;
         const structuredContent = {
           count: findings.length,
           ...(level === undefined ? {} : { level }),
@@ -2018,24 +2092,15 @@ function claudeCodeWorkspaceTools(
           structuredContent,
         );
       },
-    },
+    }),
     ...interactionTools,
     ...sessionTools,
     ...(skillTool ? [skillTool] : []),
     ...(lspTool ? [lspTool] : []),
-    {
+    defineWorkspaceTool({
       name: "TaskCreate",
       description: "Creates a task in the current request's task list.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          subject: { type: "string", description: "A brief title for the task." },
-          description: { type: "string", description: "What needs to be done." },
-          activeForm: { type: "string", description: "Present continuous progress text." },
-          metadata: { type: "object" },
-        },
-        required: ["subject", "description"],
-      },
+      schema: CLAUDE_TASK_CREATE_SCHEMA,
       call: async (input) => {
         const result = taskStore.create(input);
         return localToolResult(
@@ -2043,50 +2108,31 @@ function claudeCodeWorkspaceTools(
           result,
         );
       },
-    },
-    {
+    }),
+    defineWorkspaceTool({
       name: "TaskGet",
       description: "Retrieves a task from the current request's task list.",
-      inputSchema: {
-        type: "object",
-        properties: { taskId: { type: "string", description: "The task ID to retrieve." } },
-        required: ["taskId"],
-      },
+      schema: z
+        .object({ taskId: nonemptyToolText("taskId", "The task ID to retrieve.") })
+        .passthrough(),
       call: async (input) => {
         const result = taskStore.get(input.taskId);
         return localToolResult(formatClaudeTask(result.task), result);
       },
-    },
-    {
+    }),
+    defineWorkspaceTool({
       name: "TaskList",
       description: "Lists tasks in the current request's task list.",
-      inputSchema: { type: "object", properties: {} },
+      schema: z.object({}).passthrough(),
       call: async () => {
         const result = taskStore.list();
         return localToolResult(formatClaudeTaskList(result.tasks), result);
       },
-    },
-    {
+    }),
+    defineWorkspaceTool({
       name: "TaskUpdate",
       description: "Updates task fields, status, ownership, metadata, or dependencies.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          taskId: { type: "string" },
-          subject: { type: "string" },
-          description: { type: "string" },
-          activeForm: { type: "string" },
-          status: {
-            type: "string",
-            enum: ["pending", "in_progress", "completed", "deleted"],
-          },
-          addBlocks: { type: "array", items: { type: "string" } },
-          addBlockedBy: { type: "array", items: { type: "string" } },
-          owner: { type: "string" },
-          metadata: { type: "object" },
-        },
-        required: ["taskId"],
-      },
+      schema: CLAUDE_TASK_UPDATE_SCHEMA,
       call: async (input) => {
         const result = taskStore.update(input);
         return localToolResult(
@@ -2097,28 +2143,23 @@ function claudeCodeWorkspaceTools(
           { isError: !result.success },
         );
       },
-    },
-    {
+    }),
+    defineWorkspaceTool({
       name: "TodoWrite",
       description: "Replaces the current request's todo list with a validated todo list.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          todos: {
-            type: "array",
-            items: {
-              type: "object",
-              properties: {
-                content: { type: "string" },
-                status: { type: "string", enum: ["pending", "in_progress", "completed"] },
-                activeForm: { type: "string" },
-              },
-              required: ["content", "status", "activeForm"],
-            },
-          },
-        },
-        required: ["todos"],
-      },
+      schema: z
+        .object({
+          todos: z.array(
+            z
+              .object({
+                content: toolText("content"),
+                status: z.enum(["pending", "in_progress", "completed"]),
+                activeForm: toolText("activeForm"),
+              })
+              .passthrough(),
+          ),
+        })
+        .passthrough(),
       call: async (input) => {
         const nextTodos = parseClaudeTodos(input.todos);
         const structuredContent = {
@@ -2128,41 +2169,41 @@ function claudeCodeWorkspaceTools(
         todos = nextTodos;
         return localToolResult("Updated todo list successfully.", structuredContent);
       },
-    },
-    {
+    }),
+    defineWorkspaceTool({
       name: "TaskOutput",
       description: "Retrieves output from a running or completed background task.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          task_id: { type: "string", description: "The task ID to get output from." },
-          block: { type: "boolean", description: "Whether to wait for completion." },
-          timeout: { type: "number", description: "Max wait time in milliseconds." },
-        },
-        required: ["task_id", "block", "timeout"],
-      },
+      schema: z
+        .object({
+          task_id: toolText("task_id", "The task ID to get output from."),
+          block: toolBoolean("block", "Whether to wait for completion."),
+          timeout: boundedToolInteger("timeout", 1, 600_000).describe(
+            "Max wait time in milliseconds.",
+          ),
+        })
+        .passthrough(),
       call: async (input) => {
         const taskId = requiredTaskId(input.task_id);
-        const block = requiredBoolean(input.block, "block");
-        const timeoutMs = requiredBoundedInteger(input.timeout, "timeout", 1, 600_000);
-        const result = await shell.taskOutput(taskId, { block, timeoutMs });
+        const result = await shell.taskOutput(taskId, {
+          block: input.block,
+          timeoutMs: input.timeout,
+        });
         return localToolResult(formatClaudeTaskOutput(result), {
           ...claudeBashOutput(result, taskId),
           status: result.status,
           exitCode: result.exitCode,
         });
       },
-    },
-    {
+    }),
+    defineWorkspaceTool({
       name: "TaskStop",
       description: "Stops a running background task by ID.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          task_id: { type: "string" },
-          shell_id: { type: "string", description: "Deprecated; use task_id." },
-        },
-      },
+      schema: z
+        .object({
+          task_id: toolText("task_id").optional(),
+          shell_id: toolText("shell_id", "Deprecated; use task_id.").optional(),
+        })
+        .passthrough(),
       call: async (input) => {
         const taskId = requiredTaskId(input.task_id ?? input.shell_id);
         const result = await shell.stop(taskId);
@@ -2177,7 +2218,7 @@ function claudeCodeWorkspaceTools(
         };
         return localToolResult(structuredContent.message, structuredContent);
       },
-    },
+    }),
   ];
 }
 
@@ -2187,91 +2228,74 @@ function claudeSessionTools(
 ): LocalMcpTool[] {
   if (!bridge) return [];
   return [
-    {
+    defineWorkspaceTool({
       name: "Monitor",
       description:
         "Starts a sandboxed background command and delivers bounded stdout events back to this session.",
-      inputSchema: {
-        type: "object",
-        additionalProperties: false,
-        properties: {
-          command: { type: "string" },
-          description: { type: "string" },
-          timeout_ms: { type: "number", minimum: 1_000, default: 300_000 },
-          persistent: { type: "boolean", default: false },
-        },
-        required: ["command", "description"],
-      },
+      schema: z
+        .object({
+          command: toolText("command"),
+          description: toolText("description"),
+          timeout_ms: z.number().min(1_000).optional().meta({ default: 300_000 }),
+          persistent: toolBoolean("persistent").optional().meta({ default: false }),
+        })
+        .strict(),
       call: async (input) => {
         planMode.assertCanMutate("Monitor");
-        const persistent = optionalToolBoolean(input.persistent, "persistent");
         const timeoutMs = requiredBoundedNumber(
           input.timeout_ms ?? 300_000,
           "timeout_ms",
           1_000,
-          persistent ? Number.MAX_SAFE_INTEGER : 3_600_000,
+          input.persistent ? Number.MAX_SAFE_INTEGER : 3_600_000,
         );
         const result = await bridge.monitor({
-          command: requiredToolText(input.command, "command"),
-          description: requiredToolText(input.description, "description"),
+          command: input.command,
+          description: input.description,
           timeoutMs,
-          persistent,
+          persistent: input.persistent ?? false,
         });
         return localToolResult(`Monitor started with task ID: ${result.taskId}`, result);
       },
-    },
-    {
+    }),
+    defineWorkspaceTool({
       name: "CronCreate",
       description: "Schedules a prompt in this session using a five-field cron expression.",
-      inputSchema: {
-        type: "object",
-        additionalProperties: false,
-        properties: {
-          cron: { type: "string" },
-          prompt: { type: "string" },
-          recurring: { type: "boolean", default: true },
-          durable: { type: "boolean", default: false },
-        },
-        required: ["cron", "prompt"],
-      },
+      schema: z
+        .object({
+          cron: toolText("cron"),
+          prompt: toolText("prompt"),
+          recurring: toolBoolean("recurring").optional().meta({ default: true }),
+          durable: toolBoolean("durable").optional().meta({ default: false }),
+        })
+        .strict(),
       call: async (input) => {
         planMode.assertCanMutate("CronCreate");
         const result = await bridge.createCron({
-          cron: requiredToolText(input.cron, "cron"),
-          prompt: requiredToolText(input.prompt, "prompt"),
-          recurring:
-            input.recurring === undefined ? true : requiredBoolean(input.recurring, "recurring"),
-          durable: optionalToolBoolean(input.durable, "durable"),
+          cron: input.cron,
+          prompt: input.prompt,
+          recurring: input.recurring ?? true,
+          durable: input.durable ?? false,
         });
         return localToolResult(
           `Created scheduled job ${result.id}: ${result.humanSchedule}`,
           result,
         );
       },
-    },
-    {
+    }),
+    defineWorkspaceTool({
       name: "CronDelete",
       description: "Deletes a scheduled prompt from this session.",
-      inputSchema: {
-        type: "object",
-        additionalProperties: false,
-        properties: { id: { type: "string" } },
-        required: ["id"],
-      },
+      schema: z.object({ id: toolText("id") }).strict(),
       call: async (input) => {
         planMode.assertCanMutate("CronDelete");
-        const result = await bridge.deleteCron(requiredToolText(input.id, "id"));
+        const result = await bridge.deleteCron(input.id);
         return localToolResult(`Deleted scheduled job ${result.id}.`, result);
       },
-    },
-    {
+    }),
+    defineWorkspaceTool({
       name: "CronList",
       description: "Lists scheduled prompts in this session.",
-      inputSchema: {
-        type: "object",
-        additionalProperties: false,
-        properties: {},
-      },
+      schema: z.object({}).strict(),
       call: async () => {
         const result = await bridge.listCrons();
         return localToolResult(
@@ -2283,7 +2307,7 @@ function claudeSessionTools(
           result,
         );
       },
-    },
+    }),
   ];
 }
 
@@ -2292,90 +2316,72 @@ function claudeWorktreeTools(
   manager: ClaudeWorktreeManager,
 ): LocalMcpTool[] {
   return [
-    {
+    defineWorkspaceTool({
       name: "EnterWorktree",
       description:
         "Creates an isolated Git worktree in .claude/worktrees and switches this request's Project tools into it. Use only when the user explicitly asks to work in a worktree.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          name: {
-            type: "string",
-            description: "Optional name for the worktree. A random name is generated if omitted.",
-          },
-        },
-      },
+      schema: z
+        .object({
+          name: toolText(
+            "name",
+            "Optional name for the worktree. A random name is generated if omitted.",
+          ).optional(),
+        })
+        .passthrough(),
       call: async (input) => {
         planMode.assertCanMutate("EnterWorktree");
         const result = await manager.enter(input.name);
         return localToolResult(result.message, result);
       },
-    },
-    {
+    }),
+    defineWorkspaceTool({
       name: "ExitWorktree",
       description:
         "Exits a worktree created by EnterWorktree and restores the original Project root. It can preserve the worktree or safely remove it.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          action: {
-            type: "string",
-            enum: ["keep", "remove"],
-            description: '"keep" preserves the worktree and branch; "remove" deletes both.',
-          },
-          discard_changes: {
-            type: "boolean",
-            description:
-              'Required true when action is "remove" and the worktree has uncommitted files or commits after entry.',
-          },
-        },
-        required: ["action"],
-      },
+      schema: z
+        .object({
+          action: z
+            .enum(["keep", "remove"])
+            .describe('"keep" preserves the worktree and branch; "remove" deletes both.'),
+          discard_changes: toolBoolean(
+            "discard_changes",
+            'Required true when action is "remove" and the worktree has uncommitted files or commits after entry.',
+          ).optional(),
+        })
+        .passthrough(),
       call: async (input) => {
         planMode.assertCanMutate("ExitWorktree");
-        const action = optionalStringEnum(input.action, ["keep", "remove"] as const, "action");
-        if (!action) throw new Error("action is required.");
-        const discardChanges =
-          input.discard_changes === undefined
-            ? false
-            : requiredBoolean(input.discard_changes, "discard_changes");
-        const result = await manager.exit(action, discardChanges);
+        const result = await manager.exit(input.action, input.discard_changes ?? false);
         return localToolResult(result.message, result);
       },
-    },
+    }),
   ];
 }
 
 function claudeAgentTool(options: WorkspaceAgentToolOptions): LocalMcpTool | undefined {
   const runAgent = options.agent;
   if (!runAgent) return undefined;
-  return {
+  return defineWorkspaceTool({
     name: "Agent",
     description: "Launches a synchronous child agent to handle a complex, multi-step task.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        description: {
-          type: "string",
-          description: "A short (3-5 word) description of the task.",
-        },
-        prompt: { type: "string", description: "The task for the agent to perform." },
-        subagent_type: {
-          type: "string",
-          description: "The type of specialized agent to use for this task.",
-        },
-        model: {
-          type: "string",
-          enum: ["sonnet", "opus", "haiku"],
-          description: "Optional model override for this agent.",
-        },
-        resume: {
-          type: "string",
-          description: "Optional agent ID to resume from the current request.",
-        },
-      },
-      required: ["description", "prompt"],
-    },
+    schema: z
+      .object({
+        description: toolText("description", "A short (3-5 word) description of the task."),
+        prompt: toolText("prompt", "The task for the agent to perform."),
+        subagent_type: toolText(
+          "subagent_type",
+          "The type of specialized agent to use for this task.",
+        ).optional(),
+        model: z
+          .enum(["sonnet", "opus", "haiku"])
+          .describe("Optional model override for this agent.")
+          .optional(),
+        resume: toolText(
+          "resume",
+          "Optional agent ID to resume from the current request.",
+        ).optional(),
+      })
+      .passthrough(),
     call: async (input) => {
       for (const field of ["name", "team_name", "mode", "cwd", "isolation"] as const) {
         if (input[field] !== undefined) {
@@ -2387,7 +2393,6 @@ function claudeAgentTool(options: WorkspaceAgentToolOptions): LocalMcpTool | und
           throw new Error("Background child agents are not supported in this request lifecycle.");
         }
       }
-      const model = optionalStringEnum(input.model, ["sonnet", "opus", "haiku"] as const, "model");
       const result = await runAgent({
         description: requiredNonemptyToolText(input.description, "description"),
         prompt: requiredNonemptyToolText(input.prompt, "prompt"),
@@ -2396,7 +2401,7 @@ function claudeAgentTool(options: WorkspaceAgentToolOptions): LocalMcpTool | und
           : {
               subagentType: requiredNonemptyToolText(input.subagent_type, "subagent_type"),
             }),
-        ...(model === undefined ? {} : { model }),
+        ...(input.model === undefined ? {} : { model: input.model }),
         ...(input.resume === undefined
           ? {}
           : { resume: requiredNonemptyToolText(input.resume, "resume") }),
@@ -2405,7 +2410,7 @@ function claudeAgentTool(options: WorkspaceAgentToolOptions): LocalMcpTool | und
       if (!content.trim()) throw new Error("Child agent returned no text response.");
       return localToolResult(content, result);
     },
-  };
+  });
 }
 
 function claudeInteractionTools(
@@ -2415,44 +2420,38 @@ function claudeInteractionTools(
   const interact = options.interact;
   if (!interact) return [];
   return [
-    {
+    defineWorkspaceTool({
       name: "AskUserQuestion",
       description:
         "Asks the user 1-4 multiple-choice questions. Each question automatically includes a free-text Other option and waits for a human response.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          questions: {
-            type: "array",
-            minItems: 1,
-            maxItems: 4,
-            items: {
-              type: "object",
-              properties: {
-                question: { type: "string" },
-                header: { type: "string" },
-                options: {
-                  type: "array",
-                  minItems: 2,
-                  maxItems: 4,
-                  items: {
-                    type: "object",
-                    properties: {
-                      label: { type: "string" },
-                      description: { type: "string" },
-                      preview: { type: "string" },
-                    },
-                    required: ["label", "description"],
-                  },
-                },
-                multiSelect: { type: "boolean" },
-              },
-              required: ["question", "header", "options", "multiSelect"],
-            },
-          },
-        },
-        required: ["questions"],
-      },
+      schema: z
+        .object({
+          questions: z
+            .array(
+              z
+                .object({
+                  question: toolText("question"),
+                  header: toolText("header"),
+                  options: z
+                    .array(
+                      z
+                        .object({
+                          label: toolText("label"),
+                          description: toolText("description"),
+                          preview: toolText("preview").optional(),
+                        })
+                        .passthrough(),
+                    )
+                    .min(2)
+                    .max(4),
+                  multiSelect: toolBoolean("multiSelect"),
+                })
+                .passthrough(),
+            )
+            .min(1)
+            .max(4),
+        })
+        .passthrough(),
       call: async (input) => {
         const questions = parseClaudeQuestions(input.questions);
         const response = await interact({ kind: "questions", questions });
@@ -2462,36 +2461,30 @@ function claudeInteractionTools(
         const answers = validateClaudeAnswers(questions, response.answers);
         return localToolResult(formatClaudeAnswers(questions, answers), { questions, answers });
       },
-    },
-    {
+    }),
+    defineWorkspaceTool({
       name: "EnterPlanMode",
       description:
         "Switches to read-only plan mode. Project changes and shell execution stay blocked until the user approves ExitPlanMode.",
-      inputSchema: { type: "object", properties: {} },
+      schema: z.object({}).passthrough(),
       call: async () => {
         const filePath = await planMode.enter();
         const message = `Plan mode enabled. Inspect the Project without changing it. Write the implementation plan to ${filePath} using Write, then call ExitPlanMode for user approval.`;
         return localToolResult(message, { message });
       },
-    },
-    {
+    }),
+    defineWorkspaceTool({
       name: "ExitPlanMode",
       description:
         "Presents the completed plan file to the user for approval. Use only after writing the plan in plan mode.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          allowedPrompts: {
-            type: "array",
-            deprecated: true,
-            items: {
-              type: "object",
-              properties: { tool: { type: "string", enum: ["Bash"] }, prompt: { type: "string" } },
-              required: ["tool", "prompt"],
-            },
-          },
-        },
-      },
+      schema: z
+        .object({
+          allowedPrompts: z
+            .array(z.object({ tool: z.literal("Bash"), prompt: toolText("prompt") }).passthrough())
+            .meta({ deprecated: true })
+            .optional(),
+        })
+        .passthrough(),
       call: async () => {
         const { filePath, plan } = await planMode.planForApproval();
         const response = await interact({ kind: "plan_approval", plan, filePath });
@@ -2515,7 +2508,7 @@ function claudeInteractionTools(
           planWasEdited: false,
         });
       },
-    },
+    }),
   ];
 }
 
@@ -2530,39 +2523,38 @@ function kimiCodeWorkspaceTools(
   };
   let todos: Array<{ title: string; status: "pending" | "in_progress" | "done" }> = [];
   return [
-    {
+    defineWorkspaceTool({
       name: "Bash",
       description:
         "Execute a command in the Project sandbox. Foreground commands default to 60 seconds and may continue as a bounded background task.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          command: { type: "string", description: "The shell command to execute." },
-          cwd: { type: "string", description: "Working directory inside the Project." },
-          timeout: {
-            type: "number",
-            description: "Foreground timeout in milliseconds, up to 300000.",
-          },
-          run_in_background: { type: "boolean" },
-          description: {
-            type: "string",
-            description: "Required short description for a background task.",
-          },
-          disable_timeout: {
-            type: "boolean",
-            description: "Unsupported by bounded SwarmX execution; must remain false.",
-          },
-        },
-        required: ["command"],
-      },
+      schema: z
+        .object({
+          command: toolText("command", "The shell command to execute."),
+          cwd: toolText("cwd", "Working directory inside the Project.").optional(),
+          timeout: z
+            .number()
+            .int()
+            .describe("Foreground timeout in milliseconds, up to 300000.")
+            .optional(),
+          run_in_background: toolBoolean("run_in_background").optional(),
+          description: toolText(
+            "description",
+            "Required short description for a background task.",
+          ).optional(),
+          disable_timeout: toolBoolean(
+            "disable_timeout",
+            "Unsupported by bounded SwarmX execution; must remain false.",
+          ).optional(),
+        })
+        .passthrough(),
       dispose,
       call: async (input, context) => {
         if (input.disable_timeout === true) {
           throw new Error("SwarmX cannot disable the bounded Project command timeout.");
         }
-        const command = requiredToolText(input.command, "command");
-        const workdir = input.cwd === undefined ? undefined : requiredToolText(input.cwd, "cwd");
-        const runInBackground = optionalToolBoolean(input.run_in_background, "run_in_background");
+        const { command } = input;
+        const workdir = input.cwd;
+        const runInBackground = input.run_in_background ?? false;
         const timeoutMs =
           input.timeout === undefined
             ? runInBackground
@@ -2626,35 +2618,31 @@ function kimiCodeWorkspaceTools(
           progress.close();
         }
       },
-    },
-    {
+    }),
+    defineWorkspaceTool({
       name: "Read",
       description:
         "Read a bounded UTF-8 Project file by path, optional starting line, and maximum line count.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          path: { type: "string", description: "Project-relative or absolute Project path." },
-          line_offset: {
-            type: "number",
-            description: "Starting line; negative values count from the end.",
-          },
-          n_lines: { type: "number", description: "Maximum lines to return, up to 1000." },
-        },
-        required: ["path"],
-      },
+      schema: z
+        .object({
+          path: toolPath("Project-relative or absolute Project path."),
+          line_offset: z
+            .number()
+            .int()
+            .describe("Starting line; negative values count from the end.")
+            .optional(),
+          n_lines: boundedToolInteger("n_lines", 1, 1000)
+            .describe("Maximum lines to return, up to 1000.")
+            .optional(),
+        })
+        .passthrough(),
       call: async (input) => {
-        const result = await tools.readFile(
-          workspaceRelativePath(tools.root, requiredToolPath(input.path), false),
-        );
+        const result = await tools.readFile(workspaceRelativePath(tools.root, input.path, false));
         const lines = fileLines(result.content);
-        const lineOffset = optionalInteger(input.line_offset, "line_offset") ?? 1;
+        const lineOffset = input.line_offset ?? 1;
         const startIndex =
           lineOffset < 0 ? Math.max(0, lines.length + lineOffset) : Math.max(0, lineOffset - 1);
-        const requestedLines =
-          input.n_lines === undefined
-            ? 1000
-            : requiredBoundedInteger(input.n_lines, "n_lines", 1, 1000);
+        const requestedLines = input.n_lines ?? 1000;
         const selected = lines.slice(startIndex, startIndex + requestedLines);
         const bounded = truncateUtf8(selected.join("\n"), 100 * 1024);
         const content = [
@@ -2673,30 +2661,22 @@ function kimiCodeWorkspaceTools(
           truncated: result.truncated || bounded.truncated || selected.length < lines.length,
         });
       },
-    },
-    {
+    }),
+    defineWorkspaceTool({
       name: "Write",
       description:
         "Create, overwrite, or append UTF-8 content to a Project file using Kimi Code arguments.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          path: { type: "string", description: "Project-relative or absolute Project path." },
-          content: { type: "string", description: "Content to write." },
-          mode: { type: "string", enum: ["overwrite", "append"] },
-        },
-        required: ["path", "content"],
-      },
+      schema: z
+        .object({
+          path: toolPath("Project-relative or absolute Project path."),
+          content: toolText("content", "Content to write."),
+          mode: z.enum(["overwrite", "append"]).optional(),
+        })
+        .passthrough(),
       call: async (input) => {
-        const filePath = workspaceRelativePath(tools.root, requiredToolPath(input.path), false);
-        const content = requiredToolText(input.content, "content");
-        const mode = optionalEnum(
-          input.mode,
-          ["overwrite", "append"] as const,
-          "mode",
-          "overwrite",
-        );
-        const result = await writeForKimi(tools, filePath, content, mode);
+        const filePath = workspaceRelativePath(tools.root, input.path, false);
+        const mode = input.mode ?? "overwrite";
+        const result = await writeForKimi(tools, filePath, input.content, mode);
         return localToolResult(
           `${mode === "append" ? "Appended to" : result.created ? "Created" : "Updated"} ${path.resolve(tools.root, result.path)}.`,
           {
@@ -2707,30 +2687,28 @@ function kimiCodeWorkspaceTools(
           },
         );
       },
-    },
-    {
+    }),
+    defineWorkspaceTool({
       name: "Edit",
       description:
         "Replace one unique exact string, or every match when replace_all is true, in a Project file.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          path: { type: "string", description: "Project-relative or absolute Project path." },
-          old_string: { type: "string", description: "Exact text to replace." },
-          new_string: { type: "string", description: "Replacement text." },
-          replace_all: { type: "boolean" },
-        },
-        required: ["path", "old_string", "new_string"],
-      },
+      schema: z
+        .object({
+          path: toolPath("Project-relative or absolute Project path."),
+          old_string: toolText("old_string", "Exact text to replace."),
+          new_string: toolText("new_string", "Replacement text."),
+          replace_all: toolBoolean("replace_all").optional(),
+        })
+        .passthrough(),
       call: async (input) => {
-        const filePath = workspaceRelativePath(tools.root, requiredToolPath(input.path), false);
-        const oldString = requiredToolText(input.old_string, "old_string");
-        const newString = requiredToolText(input.new_string, "new_string");
+        const filePath = workspaceRelativePath(tools.root, input.path, false);
+        const oldString = input.old_string;
+        const newString = input.new_string;
         if (oldString === newString) {
           throw new Error("old_string and new_string must be different.");
         }
         await tools.readFile(filePath);
-        const replaceAll = optionalToolBoolean(input.replace_all, "replace_all");
+        const replaceAll = input.replace_all ?? false;
         const result = await tools.editFile(filePath, oldString, newString, replaceAll);
         return localToolResult(
           `Updated ${path.resolve(tools.root, result.path)} (${result.replacements} replacement${result.replacements === 1 ? "" : "s"}).`,
@@ -2741,36 +2719,24 @@ function kimiCodeWorkspaceTools(
           },
         );
       },
-    },
-    {
+    }),
+    defineWorkspaceTool({
       name: "Grep",
       description:
         "Search Project file contents with ripgrep using Kimi Code filters, context, and pagination fields.",
-      inputSchema: {
-        ...CLAUDE_GREP_INPUT_SCHEMA,
-        properties: {
-          ...CLAUDE_GREP_INPUT_SCHEMA.properties,
-          output_mode: {
-            type: "string",
-            enum: ["files_with_matches", "content", "count_matches"],
-          },
-          include_ignored: { type: "boolean" },
-        },
-      },
+      schema: CLAUDE_GREP_SCHEMA.extend({
+        output_mode: z.enum(["files_with_matches", "content", "count_matches"]).optional(),
+        include_ignored: toolBoolean("include_ignored").optional(),
+      }),
       call: async (input) => {
-        const outputMode = optionalEnum(
-          input.output_mode,
-          ["files_with_matches", "content", "count_matches"] as const,
-          "output_mode",
-          "files_with_matches",
-        );
+        const outputMode = input.output_mode ?? "files_with_matches";
         const result = await tools.grep({
           ...input,
           output_mode: outputMode === "count_matches" ? "count" : outputMode,
           ...(input.path === undefined
             ? {}
             : {
-                path: workspaceRelativePath(tools.root, requiredToolText(input.path, "path"), true),
+                path: workspaceRelativePath(tools.root, input.path, true),
               }),
         });
         return localToolResult(result.output || "No matches found.", {
@@ -2784,26 +2750,22 @@ function kimiCodeWorkspaceTools(
           truncated: result.truncated,
         });
       },
-    },
-    {
+    }),
+    defineWorkspaceTool({
       name: "Glob",
       description:
         "Find up to 100 Project files by glob pattern, sorted by modification time descending.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          pattern: { type: "string", description: "Glob pattern." },
-          path: { type: "string", description: "Directory to search." },
-          include_ignored: { type: "boolean" },
-        },
-        required: ["pattern"],
-      },
+      schema: z
+        .object({
+          pattern: toolText("pattern", "Glob pattern."),
+          path: toolText("path", "Directory to search.").optional(),
+          include_ignored: toolBoolean("include_ignored").optional(),
+        })
+        .passthrough(),
       call: async (input) => {
         const result = await tools.glob(
-          requiredToolText(input.pattern, "pattern"),
-          input.path === undefined
-            ? ""
-            : workspaceRelativePath(tools.root, requiredToolText(input.path, "path"), true),
+          input.pattern,
+          input.path === undefined ? "" : workspaceRelativePath(tools.root, input.path, true),
         );
         const filenames = (result.filenames ?? []).map((file) =>
           path.resolve(tools.root, normalizedSearchPath(file)),
@@ -2814,103 +2776,95 @@ function kimiCodeWorkspaceTools(
           truncated: result.truncated,
         });
       },
-    },
-    {
+    }),
+    defineWorkspaceTool({
       name: "TodoList",
       description:
         "Query or replace the current task todo list with title and pending, in_progress, or done status.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          todos: {
-            type: "array",
-            items: {
-              type: "object",
-              properties: {
-                title: { type: "string" },
-                status: { type: "string", enum: ["pending", "in_progress", "done"] },
-              },
-              required: ["title", "status"],
-            },
-          },
-        },
-      },
+      schema: z
+        .object({
+          todos: z
+            .array(
+              z
+                .object({
+                  title: z
+                    .string({ error: "todo title must be text." })
+                    .refine((value) => Boolean(value.trim()), {
+                      error: "todo title must not be empty.",
+                    }),
+                  status: z.enum(["pending", "in_progress", "done"]),
+                })
+                .passthrough(),
+            )
+            .max(100, { error: "todos must contain at most 100 items." })
+            .optional(),
+        })
+        .passthrough(),
       call: async (input) => {
-        if (input.todos !== undefined) todos = parseKimiTodos(input.todos);
+        if (input.todos !== undefined) todos = input.todos;
         const content =
           todos.length === 0
             ? "Todo list is empty."
             : todos.map((todo) => `[${todo.status}] ${todo.title}`).join("\n");
         return localToolResult(content, { todos: todos.map((todo) => ({ ...todo })) });
       },
-    },
-    {
+    }),
+    defineWorkspaceTool({
       name: "TaskList",
       description: "List bounded background Bash tasks.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          active_only: { type: "boolean" },
-          limit: { type: "number" },
-        },
-      },
+      schema: z
+        .object({
+          active_only: toolBoolean("active_only").optional(),
+          limit: boundedToolInteger("limit", 1, 100).optional(),
+        })
+        .passthrough(),
       call: async (input) => {
-        const activeOnly =
-          input.active_only === undefined
-            ? true
-            : requiredBoolean(input.active_only, "active_only");
-        const limit =
-          input.limit === undefined ? 20 : requiredBoundedInteger(input.limit, "limit", 1, 100);
+        const activeOnly = input.active_only ?? true;
+        const limit = input.limit ?? 20;
         const tasks = shell.listTasks({ activeOnly, limit });
         return localToolResult(formatKimiTaskList(tasks), {
           tasks: tasks.map(kimiTaskOutput),
         });
       },
-    },
-    {
+    }),
+    defineWorkspaceTool({
       name: "TaskOutput",
       description: "Return status and recent bounded output for a background task.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          task_id: { type: "string" },
-          block: { type: "boolean" },
-          timeout: { type: "number", description: "Wait timeout in seconds, up to 3600." },
-        },
-        required: ["task_id"],
-      },
+      schema: z
+        .object({
+          task_id: toolText("task_id"),
+          block: toolBoolean("block").optional(),
+          timeout: boundedToolInteger("timeout", 0, 3600)
+            .describe("Wait timeout in seconds, up to 3600.")
+            .optional(),
+        })
+        .passthrough(),
       call: async (input) => {
         const taskId = requiredTaskId(input.task_id);
-        const block = input.block === undefined ? false : requiredBoolean(input.block, "block");
-        const timeoutSeconds =
-          input.timeout === undefined
-            ? 30
-            : requiredBoundedInteger(input.timeout, "timeout", 0, 3600);
+        const block = input.block ?? false;
+        const timeoutSeconds = input.timeout ?? 30;
         const result = await shell.taskOutput(taskId, {
           block,
           timeoutMs: Math.max(1, timeoutSeconds * 1000),
         });
         return localToolResult(formatKimiTaskOutput(result), kimiTaskOutput(result));
       },
-    },
-    {
+    }),
+    defineWorkspaceTool({
       name: "TaskStop",
       description: "Stop a running background task.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          task_id: { type: "string" },
-          reason: { type: "string" },
-        },
-        required: ["task_id"],
-      },
+      schema: z
+        .object({
+          task_id: toolText("task_id"),
+          reason: toolText("reason").optional(),
+        })
+        .passthrough(),
       call: async (input) => {
         const taskId = requiredTaskId(input.task_id);
-        if (input.reason !== undefined) requiredToolText(input.reason, "reason");
         const result = await shell.stop(taskId);
         return localToolResult(`Task ${taskId} is ${result.status}.`, kimiTaskOutput(result));
       },
-    },
+    }),
   ];
 }
 
@@ -2920,6 +2874,59 @@ function codexWorkspaceTools(
   apiProtocol: ModelApi | undefined,
 ): LocalTool[] {
   const dispose = (): Promise<void> => shell.close();
+  const execCommandSchema = z
+    .object({
+      cmd: toolText("cmd", "Shell command to execute."),
+      workdir: toolText(
+        "workdir",
+        "Working directory for the command. Defaults to the turn cwd.",
+      ).optional(),
+      tty: z
+        .boolean({ error: "tty must be a boolean." })
+        .describe("True allocates a PTY; false or omitted uses plain pipes.")
+        .optional(),
+      yield_time_ms: boundedToolInteger("yield_time_ms", 250, 30_000)
+        .describe(
+          "Wait before yielding output. Defaults to 10000 ms; effective range is 250-30000 ms.",
+        )
+        .optional(),
+      max_output_tokens: boundedToolInteger("max_output_tokens", 1, 50_000)
+        .describe(
+          "Output token budget. Defaults to 10000 tokens; larger requests may be capped by policy.",
+        )
+        .optional(),
+      shell: toolText(
+        "shell",
+        "Shell binary to launch. Defaults to the user's default shell.",
+      ).optional(),
+      login: z
+        .boolean({ error: "login must be a boolean." })
+        .describe(
+          "True runs the shell with -l/-i semantics; false disables them. Defaults to true.",
+        )
+        .optional(),
+      sandbox_permissions: toolText("sandbox_permissions").optional(),
+      justification: toolText("justification").optional(),
+      prefix_rule: z.array(toolText("prefix_rule item")).optional(),
+    })
+    .passthrough();
+  const writeStdinSchema = z
+    .object({
+      session_id: boundedToolInteger("session_id", 1, Number.MAX_SAFE_INTEGER).describe(
+        "Identifier of the running unified exec session.",
+      ),
+      chars: toolText(
+        "chars",
+        "Bytes to write to stdin. Defaults to empty, which polls without writing.",
+      ).optional(),
+      yield_time_ms: boundedToolInteger("yield_time_ms", 0, 300_000)
+        .describe(
+          "Wait before yielding output. Non-empty writes default to 250 ms; empty polls default to 5000 ms.",
+        )
+        .optional(),
+      max_output_tokens: boundedToolInteger("max_output_tokens", 1, 50_000).optional(),
+    })
+    .passthrough();
   const applyPatchCall = async (input: string) => {
     const result = await tools.applyPatch(input);
     return localToolResult(formatCodexPatchResult(result), result);
@@ -2934,58 +2941,20 @@ function codexWorkspaceTools(
           format: { type: "grammar", syntax: "lark", definition: CODEX_APPLY_PATCH_GRAMMAR },
           call: applyPatchCall,
         }
-      : {
+      : defineWorkspaceTool({
           name: "apply_patch",
           description: "Apply a Codex patch envelope to files in the Project.",
-          inputSchema: {
-            type: "object",
-            properties: { patch: { type: "string", description: "The complete patch envelope." } },
-            required: ["patch"],
-          },
-          call: async (input) => applyPatchCall(requiredToolText(input.patch, "patch")),
-        };
+          schema: z
+            .object({ patch: toolText("patch", "The complete patch envelope.") })
+            .passthrough(),
+          call: async (input) => applyPatchCall(input.patch),
+        });
   return [
-    {
+    defineWorkspaceTool({
       name: "exec_command",
       description:
         "Runs a command in a pipe or PTY session, returning output or a session ID for ongoing interaction.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          cmd: { type: "string", description: "Shell command to execute." },
-          workdir: {
-            type: "string",
-            description: "Working directory for the command. Defaults to the turn cwd.",
-          },
-          tty: {
-            type: "boolean",
-            description: "True allocates a PTY; false or omitted uses plain pipes.",
-          },
-          yield_time_ms: {
-            type: "number",
-            description:
-              "Wait before yielding output. Defaults to 10000 ms; effective range is 250-30000 ms.",
-          },
-          max_output_tokens: {
-            type: "number",
-            description:
-              "Output token budget. Defaults to 10000 tokens; larger requests may be capped by policy.",
-          },
-          shell: {
-            type: "string",
-            description: "Shell binary to launch. Defaults to the user's default shell.",
-          },
-          login: {
-            type: "boolean",
-            description:
-              "True runs the shell with -l/-i semantics; false disables them. Defaults to true.",
-          },
-          sandbox_permissions: { type: "string" },
-          justification: { type: "string" },
-          prefix_rule: { type: "array", items: { type: "string" } },
-        },
-        required: ["cmd"],
-      },
+      schema: execCommandSchema,
       dispose,
       call: async (input, context) => {
         if (input.sandbox_permissions === "require_escalated") {
@@ -2993,31 +2962,13 @@ function codexWorkspaceTools(
         }
         const progress = terminalProgressObserver(context);
         try {
-          const result = await shell.exec(requiredToolText(input.cmd, "cmd"), {
-            ...(input.tty === undefined ? {} : { tty: requiredBoolean(input.tty, "tty") }),
-            ...(input.workdir === undefined
-              ? {}
-              : { workdir: requiredToolText(input.workdir, "workdir") }),
-            ...(input.yield_time_ms === undefined
-              ? {}
-              : {
-                  yieldTimeMs: requiredBoundedInteger(
-                    input.yield_time_ms,
-                    "yield_time_ms",
-                    250,
-                    30_000,
-                  ),
-                }),
+          const result = await shell.exec(input.cmd, {
+            ...(input.tty === undefined ? {} : { tty: input.tty }),
+            ...(input.workdir === undefined ? {} : { workdir: input.workdir }),
+            ...(input.yield_time_ms === undefined ? {} : { yieldTimeMs: input.yield_time_ms }),
             ...(input.max_output_tokens === undefined
               ? {}
-              : {
-                  maxOutputTokens: requiredBoundedInteger(
-                    input.max_output_tokens,
-                    "max_output_tokens",
-                    1,
-                    50_000,
-                  ),
-                }),
+              : { maxOutputTokens: input.max_output_tokens }),
             ...(progress.onOutput ? { onOutput: progress.onOutput } : {}),
           });
           return codexExecToolResult(result);
@@ -3025,67 +2976,37 @@ function codexWorkspaceTools(
           progress.close();
         }
       },
-    },
-    {
+    }),
+    defineWorkspaceTool({
       name: "write_stdin",
       description: "Writes characters to an existing exec session and returns recent output.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          session_id: {
-            type: "number",
-            description: "Identifier of the running unified exec session.",
-          },
-          chars: {
-            type: "string",
-            description: "Bytes to write to stdin. Defaults to empty, which polls without writing.",
-          },
-          yield_time_ms: {
-            type: "number",
-            description:
-              "Wait before yielding output. Non-empty writes default to 250 ms; empty polls default to 5000 ms.",
-          },
-          max_output_tokens: { type: "number" },
-        },
-        required: ["session_id"],
-      },
+      schema: writeStdinSchema,
       call: async (input, context) => {
-        const chars = input.chars === undefined ? "" : requiredToolText(input.chars, "chars");
+        const chars = input.chars ?? "";
         const progress = terminalProgressObserver(context);
         try {
-          const result = await shell.writeStdin(
-            requiredBoundedInteger(input.session_id, "session_id", 1, Number.MAX_SAFE_INTEGER),
-            chars,
-            {
-              ...(input.yield_time_ms === undefined
-                ? {}
-                : {
-                    yieldTimeMs: requiredBoundedInteger(
-                      input.yield_time_ms,
-                      "yield_time_ms",
-                      0,
-                      chars ? 30_000 : 300_000,
-                    ),
-                  }),
-              ...(input.max_output_tokens === undefined
-                ? {}
-                : {
-                    maxOutputTokens: requiredBoundedInteger(
-                      input.max_output_tokens,
-                      "max_output_tokens",
-                      1,
-                      50_000,
-                    ),
-                  }),
-              ...(progress.onOutput ? { onOutput: progress.onOutput } : {}),
-            },
-          );
+          const result = await shell.writeStdin(input.session_id, chars, {
+            ...(input.yield_time_ms === undefined
+              ? {}
+              : {
+                  yieldTimeMs: requiredBoundedInteger(
+                    input.yield_time_ms,
+                    "yield_time_ms",
+                    0,
+                    chars ? 30_000 : 300_000,
+                  ),
+                }),
+            ...(input.max_output_tokens === undefined
+              ? {}
+              : { maxOutputTokens: input.max_output_tokens }),
+            ...(progress.onOutput ? { onOutput: progress.onOutput } : {}),
+          });
           return codexExecToolResult(result);
         } finally {
           progress.close();
         }
       },
-    },
+    }),
     applyPatch,
   ];
 }
@@ -3155,7 +3076,7 @@ const CLAUDE_LSP_OPERATIONS = [
 
 function claudeLspTool(options: WorkspaceAgentToolOptions): LocalMcpTool | undefined {
   if (!options.lsp) return undefined;
-  return {
+  return defineWorkspaceTool({
     name: "LSP",
     description: `Interact with Language Server Protocol (LSP) servers to get code intelligence features.
 Supported operations:
@@ -3169,48 +3090,35 @@ Supported operations:
 - incomingCalls: Find all functions/methods that call the function at a position
 - outgoingCalls: Find all functions/methods called by the function at a position
 All operations require filePath, line, and character. Lines and character offsets are 1-based. workspaceSymbol also requires query.`,
-    inputSchema: {
-      type: "object",
-      properties: {
-        operation: {
-          type: "string",
-          enum: CLAUDE_LSP_OPERATIONS,
-          description: "The LSP operation to perform",
-        },
-        filePath: {
-          type: "string",
-          description: "The absolute or relative path to the file",
-        },
-        line: {
-          type: "number",
-          description: "The line number (1-based, as shown in editors)",
-        },
-        character: {
-          type: "number",
-          description: "The character offset (1-based, as shown in editors)",
-        },
-        query: {
-          type: "string",
-          description: "The symbol name or partial name to search for (workspaceSymbol only).",
-        },
-      },
-      required: ["operation", "filePath", "line", "character"],
-    },
+    schema: z
+      .object({
+        operation: z.enum(CLAUDE_LSP_OPERATIONS).describe("The LSP operation to perform"),
+        filePath: toolText("filePath", "The absolute or relative path to the file"),
+        line: boundedToolInteger("line", 1, 10_000_000).describe(
+          "The line number (1-based, as shown in editors)",
+        ),
+        character: boundedToolInteger("character", 1, 10_000_000).describe(
+          "The character offset (1-based, as shown in editors)",
+        ),
+        query: toolText(
+          "query",
+          "The symbol name or partial name to search for (workspaceSymbol only).",
+        ).optional(),
+      })
+      .passthrough(),
     call: async (input) => {
-      const operation = optionalStringEnum(input.operation, CLAUDE_LSP_OPERATIONS, "operation");
-      if (!operation) throw new Error("operation is required.");
       const request: ClaudeLspRequest = {
-        operation,
-        filePath: requiredToolText(input.filePath, "filePath"),
-        line: requiredBoundedInteger(input.line, "line", 1, 10_000_000),
-        character: requiredBoundedInteger(input.character, "character", 1, 10_000_000),
-        ...(input.query === undefined ? {} : { query: requiredToolText(input.query, "query") }),
+        operation: input.operation,
+        filePath: input.filePath,
+        line: input.line,
+        character: input.character,
+        ...(input.query === undefined ? {} : { query: input.query }),
       };
       const result = await options.lsp?.(request);
       if (!result) throw new Error("LSP backend is unavailable.");
       return localToolResult(result.result, result);
     },
-  };
+  });
 }
 
 function claudeSkillTool(options: WorkspaceAgentToolOptions): LocalMcpTool | undefined {
@@ -3225,17 +3133,15 @@ function claudeSkillTool(options: WorkspaceAgentToolOptions): LocalMcpTool | und
         `- ${skill.name && skill.name !== skill.id ? `${skill.name} (${skill.id})` : skill.id}${skill.description ? `: ${skill.description}` : ""}`,
     )
     .join("\n");
-  return {
+  return defineWorkspaceTool({
     name: "Skill",
     description: `Executes one selected skill by loading its instructions on demand.\nAvailable skills:\n${available}`,
-    inputSchema: {
-      type: "object",
-      properties: {
-        skill: { type: "string", description: "The configured skill name or ID." },
-        args: { type: "string", description: "Optional arguments passed to the skill." },
-      },
-      required: ["skill"],
-    },
+    schema: z
+      .object({
+        skill: toolText("skill", "The configured skill name or ID."),
+        args: toolText("args", "Optional arguments passed to the skill.").optional(),
+      })
+      .passthrough(),
     call: async (input) => {
       const requested = requiredNonemptyToolText(input.skill, "skill");
       const matches = skills.filter((skill) => skill.id === requested || skill.name === requested);
@@ -3243,7 +3149,7 @@ function claudeSkillTool(options: WorkspaceAgentToolOptions): LocalMcpTool | und
       if (matches.length > 1) throw new Error(`Skill ${requested} is ambiguous.`);
       const skill = matches[0];
       if (!skill) throw new Error(`Skill ${requested} is not available.`);
-      const args = optionalToolText(input.args, "args") ?? "";
+      const args = input.args ?? "";
       const loaded = await loadClaudeSkill(skill, args, options);
       return localToolResult(loaded.content, {
         skill: skill.id,
@@ -3252,7 +3158,7 @@ function claudeSkillTool(options: WorkspaceAgentToolOptions): LocalMcpTool | und
         sourcePath: loaded.sourcePath,
       });
     },
-  };
+  });
 }
 
 async function loadClaudeSkill(
@@ -3293,34 +3199,19 @@ function parseClaudeSkillDocument(content: string): {
   body: string;
   argumentNames: string[];
 } {
-  if (!content.startsWith("---\n") && !content.startsWith("---\r\n")) {
-    return { body: content, argumentNames: [] };
-  }
-  const match = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/.exec(content);
-  if (!match) return { body: content, argumentNames: [] };
-  const frontmatter = match[1] ?? "";
-  const body = content.slice(match[0].length);
-  const lines = frontmatter.split(/\r?\n/);
-  const argumentLine = lines.findIndex((line) => /^arguments\s*:/.test(line));
-  if (argumentLine < 0) return { body, argumentNames: [] };
-  const inline = lines[argumentLine]?.replace(/^arguments\s*:\s*/, "").trim() ?? "";
-  if (inline) {
-    const value = inline.startsWith("[") && inline.endsWith("]") ? inline.slice(1, -1) : inline;
-    return {
-      body,
-      argumentNames: value
-        .split(inline.startsWith("[") ? "," : /\s+/)
-        .map((name) => name.trim().replace(/^['"]|['"]$/g, ""))
-        .filter((name) => /^[A-Za-z_][A-Za-z0-9_-]*$/.test(name)),
-    };
-  }
-  const argumentNames: string[] = [];
-  for (const line of lines.slice(argumentLine + 1)) {
-    const item = /^\s+-\s*([A-Za-z_][A-Za-z0-9_-]*)\s*$/.exec(line);
-    if (!item) break;
-    argumentNames.push(item[1] ?? "");
-  }
-  return { body, argumentNames: argumentNames.filter(Boolean) };
+  const { frontmatter, body } = parseMarkdownFrontmatter(content, "skill");
+  const arguments_ = frontmatter.arguments;
+  const names = Array.isArray(arguments_)
+    ? arguments_
+    : typeof arguments_ === "string"
+      ? arguments_.split(/\s+/)
+      : [];
+  return {
+    body,
+    argumentNames: names.filter(
+      (name): name is string => typeof name === "string" && /^[A-Za-z_][A-Za-z0-9_-]*$/.test(name),
+    ),
+  };
 }
 
 function expandClaudeSkill(
@@ -3348,12 +3239,12 @@ function expandClaudeSkill(
     );
   }
   expanded = expanded.replaceAll("$ARGUMENTS", rawArguments);
-  expanded = expanded.replaceAll("${CLAUDE_SKILL_DIR}", variables.skillDirectory);
+  expanded = expanded.replaceAll(`\${CLAUDE_SKILL_DIR}`, variables.skillDirectory);
   if (variables.effort !== undefined) {
-    expanded = expanded.replaceAll("${CLAUDE_EFFORT}", variables.effort);
+    expanded = expanded.replaceAll(`\${CLAUDE_EFFORT}`, variables.effort);
   }
   if (variables.sessionId !== undefined) {
-    expanded = expanded.replaceAll("${CLAUDE_SESSION_ID}", variables.sessionId);
+    expanded = expanded.replaceAll(`\${CLAUDE_SESSION_ID}`, variables.sessionId);
   }
   if (rawArguments && !usesArguments)
     expanded = `${expanded.trimEnd()}\n\nARGUMENTS: ${rawArguments}\n`;
@@ -3945,26 +3836,6 @@ async function writeForKimi(
   }
 }
 
-function parseKimiTodos(
-  value: unknown,
-): Array<{ title: string; status: "pending" | "in_progress" | "done" }> {
-  if (!Array.isArray(value)) throw new Error("todos must be an array.");
-  if (value.length > 100) throw new Error("todos must contain at most 100 items.");
-  return value.map((item, index) => {
-    if (!isToolRecord(item)) throw new Error(`todos[${index}] must be an object.`);
-    const status = optionalStringEnum(
-      item.status,
-      ["pending", "in_progress", "done"] as const,
-      `todos[${index}].status`,
-    );
-    if (!status) throw new Error(`todos[${index}].status is required.`);
-    return {
-      title: requiredNonemptyToolText(item.title, `todos[${index}].title`),
-      status,
-    };
-  });
-}
-
 function kimiTaskOutput(result: WorkspaceShellSessionSnapshot) {
   return {
     task_id: String(result.sessionId),
@@ -4181,12 +4052,6 @@ function requiredBoundedInteger(
   return value as number;
 }
 
-function optionalInteger(value: unknown, name: string): number | undefined {
-  if (value === undefined) return undefined;
-  if (!Number.isSafeInteger(value)) throw new Error(`${name} must be an integer.`);
-  return value as number;
-}
-
 function requiredBoundedNumber(
   value: unknown,
   name: string,
@@ -4229,12 +4094,6 @@ function optionalNonnegativeInteger(value: unknown, name: string): number | unde
   return value as number;
 }
 
-function requiredPositiveInteger(value: unknown, name: string): number {
-  const parsed = optionalPositiveInteger(value, name);
-  if (parsed === undefined) throw new Error(`${name} must be a positive integer.`);
-  return parsed;
-}
-
 function optionalEnum<const T extends readonly string[]>(
   value: unknown,
   choices: T,
@@ -4269,11 +4128,6 @@ function requiredNonemptyToolText(value: unknown, name: string): string {
   return text;
 }
 
-function optionalToolText(value: unknown, name: string): string | undefined {
-  if (value === undefined) return undefined;
-  return requiredToolText(value, name);
-}
-
 function optionalNonemptyToolText(value: unknown, name: string): string | undefined {
   if (value === undefined) return undefined;
   return requiredNonemptyToolText(value, name);
@@ -4291,54 +4145,14 @@ function optionalStringEnum<const T extends readonly string[]>(
   return value as T[number];
 }
 
-function optionalClaudeTaskStatus(
-  value: unknown,
-  allowDeleted = false,
-): ClaudeTaskStatus | "deleted" | undefined {
-  return optionalStringEnum(
-    value,
-    allowDeleted
-      ? (["pending", "in_progress", "completed", "deleted"] as const)
-      : (["pending", "in_progress", "completed"] as const),
-    "status",
-  );
-}
-
 function requiredClaudeTaskStatus(value: unknown, name: string): ClaudeTaskStatus {
   const status = optionalStringEnum(value, ["pending", "in_progress", "completed"] as const, name);
   if (status === undefined) throw new Error(`${name} is required.`);
   return status;
 }
 
-function optionalTaskIds(value: unknown, name: string): string[] {
-  if (value === undefined) return [];
-  if (!Array.isArray(value)) throw new Error(`${name} must be an array.`);
-  return [
-    ...new Set(value.map((item, index) => requiredNonemptyToolText(item, `${name}[${index}]`))),
-  ];
-}
-
-function optionalMetadata(value: unknown): Record<string, unknown> {
-  if (value === undefined) return {};
-  if (!isToolRecord(value)) throw new Error("metadata must be an object.");
-  const metadata: Record<string, unknown> = {};
-  for (const [key, entry] of Object.entries(value)) {
-    if (["__proto__", "constructor", "prototype"].includes(key)) {
-      throw new Error(`metadata key ${key} is not allowed.`);
-    }
-    metadata[key] = entry;
-  }
-  return metadata;
-}
-
 function isToolRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
-}
-
-function optionalToolBoolean(value: unknown, name: string): boolean {
-  if (value === undefined) return false;
-  if (typeof value !== "boolean") throw new Error(`${name} must be a boolean.`);
-  return value;
 }
 
 function resolveOptions(options: WorkspaceToolsOptions): ResolvedWorkspaceToolsOptions {

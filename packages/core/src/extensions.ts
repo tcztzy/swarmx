@@ -7,7 +7,6 @@ import { ContextPacketModeSchema, ContextStrategySchema } from "./context.js";
 import { HARNESSES, harnessModelRuntimeEnv, harnessModelRuntimeModel } from "./harness.js";
 import type { LocalTool } from "./mcp.js";
 import { ModelApiModeSchema, ModelApiSchema } from "./model-api.js";
-import type { Model, ModelSupply } from "./model-capabilities.js";
 import {
   ModelSchema as IndependentModelSchema,
   MODELS,
@@ -15,13 +14,18 @@ import {
   modelCapabilityRegistry,
   normalizeModelReasoningEffort,
   resolveHarnessModelInventory,
-  resolveModelReasoningCapability,
 } from "./model-capabilities.js";
 import {
+  assertNoProviderOwnedModelFields,
   buildProviderRuntimeEnv,
+  ProviderApiCompatibilityModeSchema as CanonicalProviderApiCompatibilityModeSchema,
+  ProviderApiCompatibilitySchema as CanonicalProviderApiCompatibilitySchema,
+  ProviderKindSchema as CanonicalProviderKindSchema,
   ProviderApiEntrypointsSchema,
   ProviderAuthModeSchema,
+  ProviderSecretRefSchema,
 } from "./providers.js";
+import { findInlineSecretFields } from "./secret-scanner.js";
 import { Swarm } from "./swarm.js";
 import type {
   AgentBackend,
@@ -45,26 +49,6 @@ const MANIFEST_FILENAMES = new Set([
 export const SWARMX_LOCAL_FILES_LSP_ID = "swarmx.local-files";
 export const SWARMX_SKILLS_LSP_ID = "swarmx.skills";
 
-const ALLOWED_SECRET_REFERENCE_KEYS = new Set([
-  "secretref",
-  "secretrefs",
-  "secret_ref",
-  "secret_refs",
-  "secretrefid",
-  "secret_ref_id",
-  "secretstatus",
-  "secret_status",
-  "credentialref",
-  "credential_ref",
-  "credentialrefs",
-  "credential_refs",
-  "credentialreferences",
-  "credential_references",
-]);
-
-const FORBIDDEN_SECRET_KEY_PATTERN =
-  /(api[_-]?key|access[_-]?token|bearer|password|passwd|secret|credential|private[_-]?key)/i;
-
 const FORBIDDEN_INLINE_UI_PAYLOAD_KEYS = new Set([
   "code",
   "componentbody",
@@ -80,21 +64,9 @@ const FORBIDDEN_INLINE_UI_PAYLOAD_KEYS = new Set([
   "webview",
 ]);
 
-export const ProviderKindSchema = ModelApiSchema;
-
-export const ProviderApiCompatibilityModeSchema = z.enum(["auto", "native", "bridge"]);
-
-export const ProviderApiCompatibilitySchema = z.preprocess(
-  normalizeProviderApiCompatibilityInput,
-  z
-    .object({
-      mode: ProviderApiCompatibilityModeSchema.default("auto"),
-      baseUrl: z.string().min(1).optional(),
-      targetApi: ModelApiSchema.optional(),
-    })
-    .passthrough()
-    .superRefine(addInlineSecretIssues),
-);
+export const ProviderKindSchema = CanonicalProviderKindSchema;
+export const ProviderApiCompatibilityModeSchema = CanonicalProviderApiCompatibilityModeSchema;
+export const ProviderApiCompatibilitySchema = CanonicalProviderApiCompatibilitySchema;
 
 export const MarketplaceHostSchema = z.enum([
   "codex",
@@ -201,12 +173,7 @@ export const ProviderProfileSchema = z.preprocess(
       baseUrl: z.string().min(1).optional(),
       apiEntrypoints: ProviderApiEntrypointsSchema,
       authMode: ProviderAuthModeSchema.default("api_key"),
-      secretRef: z
-        .object({
-          source: z.enum(["env", "local_auth_file", "server_keychain", "prompt"]),
-          key: z.string().min(1),
-        })
-        .optional(),
+      secretRef: ProviderSecretRefSchema.optional(),
       runtimeReady: z.boolean().optional(),
       runtimeNote: z.string().optional(),
       enabled: z.boolean().optional(),
@@ -1595,7 +1562,7 @@ export function builtInExtensionBundle(): ExtensionBundle {
     passthroughEnv: harness.passthroughEnv,
     backend: harness.backend,
     enabled: harness.enabled,
-    software: softwareFromBackend(id, harness.backend),
+    software: SoftwareCapabilitySchema.parse(harness.software),
     mcps: [],
     skills: [],
     projectFiles: [],
@@ -1710,24 +1677,10 @@ function isManifestFilename(filename: string): boolean {
   return MANIFEST_FILENAMES.has(filename) || filename.endsWith(".swarmx-extension.json");
 }
 
-function assertNoInlineSecrets(value: unknown, trail: string[] = []): void {
-  if (Array.isArray(value)) {
-    value.forEach((item, index) => {
-      assertNoInlineSecrets(item, [...trail, String(index)]);
-    });
-    return;
-  }
-  if (!value || typeof value !== "object") return;
-
-  for (const [key, child] of Object.entries(value)) {
-    const normalizedKey = key.toLowerCase().replace(/[^a-z0-9_]/g, "");
-    if (
-      FORBIDDEN_SECRET_KEY_PATTERN.test(key) &&
-      !ALLOWED_SECRET_REFERENCE_KEYS.has(normalizedKey)
-    ) {
-      throw new Error(`Extension manifest must not contain inline secret field "${key}".`);
-    }
-    assertNoInlineSecrets(child, [...trail, key]);
+function assertNoInlineSecrets(value: unknown): void {
+  const issue = findInlineSecretFields(value)[0];
+  if (issue) {
+    throw new Error(`Extension manifest must not contain inline secret field "${issue.key}".`);
   }
 }
 
@@ -1757,91 +1710,13 @@ function normalizeProviderProfileInput(input: unknown): unknown {
   };
 }
 
-function assertNoProviderOwnedModelFields(input: Record<string, unknown>): void {
-  const forbidden = new Set([
-    "model",
-    "models",
-    "defaultmodel",
-    "harnessmodeloverrides",
-    "providerproduct",
-    "apicompatibility",
-    "apibridge",
-    "bridge",
-    "translator",
-    "translation",
-  ]);
-  for (const key of Object.keys(input)) {
-    if (forbidden.has(key.toLowerCase().replace(/[^a-z0-9]/g, ""))) {
-      throw new Error(
-        `Provider profile field "${key}" is invalid; Models and route compatibility belong to Model/ModelSupply.`,
-      );
-    }
-  }
-}
-
-function normalizeProviderApiCompatibilityInput(input: unknown): unknown {
-  if (typeof input === "string" || typeof input === "boolean") {
-    return { mode: normalizeProviderApiCompatibilityMode(input) };
-  }
-  if (!input || typeof input !== "object" || Array.isArray(input)) return input;
-  const { downstream_kind, target_kind, target_api, base_url, kind, translator, enabled, ...rest } =
-    input as Record<string, unknown>;
-
-  return {
-    ...rest,
-    mode:
-      rest.mode ??
-      normalizeProviderApiCompatibilityMode(
-        kind ?? translator ?? (enabled === false ? "native" : undefined),
-      ),
-    targetApi: rest.targetApi ?? target_api ?? rest.targetKind ?? target_kind ?? downstream_kind,
-    baseUrl: rest.baseUrl ?? base_url,
-  };
-}
-
-function normalizeProviderApiCompatibilityMode(input: unknown): unknown {
-  if (input === true) return "bridge";
-  if (input === false) return "native";
-  if (typeof input !== "string") return input;
-  switch (input) {
-    case "yallm":
-    case "translated":
-    case "translation":
-      return "bridge";
-    case "off":
-    case "disabled":
-      return "native";
-    default:
-      return input;
-  }
-}
-
-function addInlineSecretIssues(
-  value: unknown,
-  ctx: z.RefinementCtx,
-  trail: Array<string | number> = [],
-): void {
-  if (Array.isArray(value)) {
-    value.forEach((item, index) => {
-      addInlineSecretIssues(item, ctx, [...trail, index]);
+function addInlineSecretIssues(value: unknown, ctx: z.RefinementCtx): void {
+  for (const issue of findInlineSecretFields(value)) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: issue.path,
+      message: `Record must not contain inline secret field "${issue.key}".`,
     });
-    return;
-  }
-  if (!value || typeof value !== "object") return;
-
-  for (const [key, child] of Object.entries(value)) {
-    const normalizedKey = key.toLowerCase().replace(/[^a-z0-9_]/g, "");
-    if (
-      FORBIDDEN_SECRET_KEY_PATTERN.test(key) &&
-      !ALLOWED_SECRET_REFERENCE_KEYS.has(normalizedKey)
-    ) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: [...trail, key],
-        message: `Record must not contain inline secret field "${key}".`,
-      });
-    }
-    addInlineSecretIssues(child, ctx, [...trail, key]);
   }
 }
 
@@ -2366,16 +2241,4 @@ function modelSupplySupportsHarness(
     return Boolean(supply.runtimeModel) && supply.harnessIds?.includes(adapterId) === true;
   }
   return !supply.harnessIds || supply.harnessIds.includes(adapterId);
-}
-
-function softwareFromBackend(id: string, backend: AgentBackend): SoftwareCapability {
-  if (backend.type === "custom") {
-    return {
-      name: backend.program,
-      runner: backend.program,
-      command: backend.args,
-    };
-  }
-
-  return { name: id };
 }

@@ -321,13 +321,6 @@
   -webkit-line-clamp: 2;
 }
 
-.workflow-node__model {
-  margin-top: auto;
-  color: #dce1ea;
-  font-family: var(--font-mono);
-  font-size: 11.5px;
-}
-
 .workflow-node__identity {
   margin-top: auto;
   min-width: 0;

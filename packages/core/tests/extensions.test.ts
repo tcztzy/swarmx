@@ -423,6 +423,25 @@ describe("extension inventory", () => {
     expect(() =>
       parseExtensionBundle({
         schemaVersion: 1,
+        id: "provider-owned-model",
+        name: "Provider-owned Model",
+        version: "1.0.0",
+        capabilities: {
+          providers: [
+            {
+              id: "openai",
+              label: "OpenAI",
+              kind: "openai_responses",
+              isDefault: true,
+            },
+          ],
+        },
+      }),
+    ).toThrow(/Models and route compatibility belong to Model\/ModelSupply/);
+
+    expect(() =>
+      parseExtensionBundle({
+        schemaVersion: 1,
         id: "bad-component",
         name: "Bad Component",
         version: "1.0.0",

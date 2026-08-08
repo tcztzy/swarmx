@@ -4,6 +4,7 @@ import {
   parseAgentDefinitionMarkdown,
   parseAgentProfileMetadata,
   parseCodexAgentDefinitionToml,
+  parseMarkdownFrontmatter,
   parseNativeAgentDefinition,
   projectAgentDefinitionForClaudeCode,
   projectAgentDefinitionForCodex,
@@ -66,6 +67,18 @@ enabled = false
 `;
 
 describe("agent profile definition primitives", () => {
+  it("parses reusable Markdown YAML frontmatter", () => {
+    expect(
+      parseMarkdownFrontmatter("---\narguments: [issue, branch]\n---\nReview it.\n", "skill"),
+    ).toEqual({
+      frontmatter: { arguments: ["issue", "branch"] },
+      body: "Review it.\n",
+    });
+    expect(() => parseMarkdownFrontmatter("---\n- invalid\n---\nbody", "skill")).toThrow(
+      "Skill frontmatter must be a YAML object.",
+    );
+  });
+
   it("parses Claude-compatible Markdown frontmatter and preserves inert unknown fields", () => {
     const definition = parseAgentDefinitionMarkdown(agentMarkdown, {
       source: { kind: "plugin", pluginId: "geepilot", path: "agents/reviewer.md" },

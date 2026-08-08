@@ -209,6 +209,7 @@ export const EvalRunResultSchema = z.object({
     messages: z.number().int().nonnegative(),
     toolCalls: z.number().int().nonnegative(),
     toolResults: z.number().int().nonnegative(),
+    contextTokens: z.number().int().nonnegative().optional(),
   }),
 });
 

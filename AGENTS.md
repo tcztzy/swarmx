@@ -3,15 +3,44 @@
 Authoritative instructions for coding agents working in this repository. Follow
 them unless the user explicitly overrides a rule.
 
+## Engineering Principles
+
+- **Minimalism:** Implement the required behavior with the smallest, simplest
+  coherent design and code. Prefer deleting, consolidating, and reusing over
+  adding abstractions, layers, dependencies, options, or parallel paths. Do not
+  preserve speculative flexibility or code that has no current requirement.
+- **Compatibility follows user impact:** Preserve compatibility for behavior and
+  artifacts users directly perceive or depend on, including UI behavior, public
+  APIs and protocols, CLI behavior, and configuration or persisted data formats.
+  Internal modules, private types, and implementation details are not backward-
+  compatibility surfaces by default: change them directly, update all in-repo
+  callers atomically, and remove obsolete adapters, aliases, and fallback paths.
+  Do not add internal compatibility shims unless a concrete external dependency
+  or staged migration requires one.
+- **Documentation-and-test-driven development:** Treat documentation and tests as
+  complementary executable design constraints. Before implementation, state or
+  update the intended contract in the relevant durable documentation and express
+  observable acceptance criteria in focused tests. Implement only enough code to
+  satisfy both, then keep documentation, tests, and code synchronized throughout
+  the change. Bug fixes require a regression test and documentation updates when
+  the documented behavior, boundary, or flow changes.
+
 ## Workflow
 
 - Read the request carefully and identify cross-file effects before editing.
+- Read `CODEBASE.md` and the relevant `docs/codebase/*.md` map before changing
+  source; treat the map as the token-efficient navigation layer for the code.
 - Plan non-trivial work and keep the plan current.
+- For behavior changes, define the contract in documentation and focused tests
+  before or alongside implementation; use both to drive the design.
 - Inspect relevant files with `rg`, `rg --files`, `ls`, and focused reads.
 - Preserve user-owned changes and avoid destructive Git commands.
 - Make focused, minimal edits with patch-style tools.
 - Validate in proportion to risk and report what ran or was skipped.
 - Keep secrets, credentials, generated output, and local artifacts out of Git.
+- Keep document-driven development current: every new or moved authored source
+  or test file needs a row in the relevant code map, and boundary/flow changes
+  need a matching documentation update. Run `pnpm docs:check` before handoff.
 
 ## Repository Map
 
@@ -43,6 +72,13 @@ Dependency versions are authoritative in package manifests and lockfiles.
   boundaries. Renderer imports must use browser-safe Core subpaths.
 - **Side effects:** Discovery and planning are read-only. Installation, repair,
   trust changes, authority changes, and destructive operations are explicit.
+- **Auditability:** Persist concise, structured, secret-free events for
+  privileged decisions and side effects, carry correlation ids end to end, and
+  record intent before effect. Give each decision or effect one semantic
+  lifecycle, aggregate repeated observations, and do not duplicate canonical
+  history with transport-level success noise. Audit failures are visible and
+  fail closed when authority would expand; never log raw prompts, responses,
+  source, terminal output, credentials, or environment snapshots.
 - **Secrets:** Persist references in settings metadata and never expose plaintext
   secrets to the Renderer, traces, telemetry, or logs. The dedicated,
   user-editable `~/.swarmx/provider-auth.json` file is an explicit product

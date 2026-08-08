@@ -1,7 +1,8 @@
 import { once } from "node:events";
 import http from "node:http";
-import { afterEach, describe, expect, it } from "vitest";
-import { createServer } from "../src/server.js";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import type { AuditInput } from "../src/audit.js";
+import { createServer, type ServerAuditWriter } from "../src/server.js";
 import { Swarm } from "../src/swarm.js";
 
 const servers: http.Server[] = [];
@@ -89,10 +90,125 @@ describe("server boundary", () => {
       }),
     ).toThrow(/wildcard origins/);
   });
+
+  it("records correlated request attempts and successful outcomes", async () => {
+    const audit = new RecordingAuditWriter();
+    const server = await startServer({ audit });
+    const response = await request(server, "GET", "/models?ignored=secret-query");
+
+    expect(response.statusCode).toBe(200);
+    expect(response.headers["x-request-id"]).toMatch(/^[0-9a-f-]{36}$/);
+    expect(audit.events.map((event) => event.outcome)).toEqual(["attempted", "completed"]);
+    expect(audit.events[0]?.requestId).toBe(response.headers["x-request-id"]);
+    expect(audit.events[1]?.requestId).toBe(response.headers["x-request-id"]);
+    expect(audit.events[1]?.metadata).toMatchObject({
+      method: "GET",
+      path: "/models",
+      statusCode: 200,
+    });
+    expect(audit.events[1]?.metadata?.durationMs).toEqual(expect.any(Number));
+  });
+
+  it("records origin and authentication denials without exposing boundary inputs", async () => {
+    const originAudit = new RecordingAuditWriter();
+    const originServer = await startServer({ audit: originAudit });
+    const originResponse = await request(originServer, "GET", "/models", {
+      Origin: "https://blocked.example/secret-origin",
+    });
+
+    expect(originResponse.statusCode).toBe(403);
+    expect(originAudit.events.map((event) => event.outcome)).toEqual(["attempted", "denied"]);
+    expect(originAudit.events[1]?.metadata).toMatchObject({ statusCode: 403 });
+
+    const authAudit = new RecordingAuditWriter();
+    const authServer = await startServer({ apiToken: "expected-secret", audit: authAudit });
+    const authResponse = await request(authServer, "GET", "/models", {
+      Authorization: "Bearer supplied-secret",
+    });
+
+    expect(authResponse.statusCode).toBe(401);
+    expect(authAudit.events.map((event) => event.outcome)).toEqual(["attempted", "denied"]);
+    expect(authAudit.events[1]?.metadata).toMatchObject({ statusCode: 401 });
+    expect(JSON.stringify([...originAudit.events, ...authAudit.events])).not.toContain("secret");
+  });
+
+  it("fails closed before request execution when the audit writer is unavailable", async () => {
+    const swarm = createTestSwarm();
+    const execute = vi.spyOn(swarm, "execute");
+    const server = await startServerWithSwarm(swarm, {
+      audit: {
+        append() {
+          throw new Error("audit unavailable");
+        },
+      },
+    });
+    const response = await request(
+      server,
+      "POST",
+      "/chat/completions",
+      { "Content-Type": "application/json" },
+      JSON.stringify({ messages: [{ role: "user", content: "must not execute" }] }),
+    );
+
+    expect(response.statusCode).toBe(503);
+    expect(response.headers["x-request-id"]).toMatch(/^[0-9a-f-]{36}$/);
+    expect(execute).not.toHaveBeenCalled();
+  });
+
+  it("never includes tokens, query parameters, prompts, or responses in audit inputs", async () => {
+    const audit = new RecordingAuditWriter();
+    const server = await startServer({ audit });
+    const response = await request(
+      server,
+      "POST",
+      "/chat/completions?api_key=query-secret",
+      {
+        Authorization: "Bearer header-secret",
+        "Content-Type": "application/json",
+        "X-Request-ID": "attacker-controlled-secret",
+      },
+      JSON.stringify({
+        messages: [{ role: "user", content: "raw-prompt-secret" }],
+      }),
+    );
+
+    expect(response.statusCode).toBe(200);
+    const serialized = JSON.stringify(audit.events);
+    expect(serialized).not.toContain("query-secret");
+    expect(serialized).not.toContain("header-secret");
+    expect(serialized).not.toContain("attacker-controlled-secret");
+    expect(serialized).not.toContain("raw-prompt-secret");
+    expect(serialized).not.toContain("raw-prompt-secret\n");
+    expect(response.headers["x-request-id"]).not.toBe("attacker-controlled-secret");
+  });
+
+  it("records failed requests without copying parser details", async () => {
+    const audit = new RecordingAuditWriter();
+    const server = await startServer({ audit });
+    const response = await request(
+      server,
+      "POST",
+      "/chat/completions",
+      { "Content-Type": "application/json" },
+      "invalid-json-secret",
+    );
+
+    expect(response.statusCode).toBe(500);
+    expect(audit.events.map((event) => event.outcome)).toEqual(["attempted", "failed"]);
+    expect(audit.events[1]?.metadata).toMatchObject({ statusCode: 500 });
+    expect(JSON.stringify(audit.events)).not.toContain("invalid-json-secret");
+  });
 });
 
 async function startServer(options: Parameters<typeof createServer>[1] = {}): Promise<http.Server> {
-  const server = createServer(createTestSwarm(), {
+  return startServerWithSwarm(createTestSwarm(), options);
+}
+
+async function startServerWithSwarm(
+  swarm: Swarm,
+  options: Parameters<typeof createServer>[1] = {},
+): Promise<http.Server> {
+  const server = createServer(swarm, {
     port: 0,
     host: "127.0.0.1",
     ...options,
@@ -124,6 +240,7 @@ function request(
   method: string,
   path: string,
   headers: Record<string, string> = {},
+  body?: string,
 ): Promise<{
   statusCode: number;
   headers: http.IncomingHttpHeaders;
@@ -157,8 +274,16 @@ function request(
       },
     );
     req.on("error", reject);
-    req.end();
+    req.end(body);
   });
+}
+
+class RecordingAuditWriter implements ServerAuditWriter {
+  readonly events: AuditInput[] = [];
+
+  append(input: AuditInput): void {
+    this.events.push(input);
+  }
 }
 
 function closeServer(server: http.Server): Promise<void> {

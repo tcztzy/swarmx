@@ -1,7 +1,7 @@
 import { z } from "zod";
+import { containsSecretMarker, findInlineSecretFields } from "./secret-scanner.js";
 
-const FORBIDDEN_SECRET_KEY_PATTERN =
-  /(api[_-]?key|access[_-]?token|bearer|password|passwd|secret|credential|private[_-]?key)/i;
+const SHA256_DIGEST_PATTERN = /^sha256:[a-f0-9]{64}$/;
 
 export const SkillBindingModeSchema = z.enum(["off", "auto", "required"]);
 export const SkillDeliveryModeSchema = z.enum([
@@ -219,6 +219,279 @@ export const SkillPromotionDecisionSchema = z
   .passthrough()
   .superRefine(addSecretIssues);
 
+export const SkillOptimizerFingerprintSchema = z
+  .object({
+    optimizerId: z.string().min(1),
+    optimizerVersion: z.string().min(1),
+    environmentDigest: z.string().regex(SHA256_DIGEST_PATTERN),
+    configDigest: z.string().regex(SHA256_DIGEST_PATTERN),
+    seed: z.number().int().nonnegative(),
+  })
+  .strict()
+  .superRefine(addSecretIssues);
+
+export const SkillDatasetRefSchema = z
+  .object({
+    role: z.enum(["train", "dev"]),
+    contentRef: z.string().regex(SHA256_DIGEST_PATTERN),
+    contentDigest: z.string().regex(SHA256_DIGEST_PATTERN),
+    caseCount: z.number().int().positive(),
+    format: z.literal("swarmx.eval.jsonl"),
+  })
+  .strict()
+  .superRefine((dataset, ctx) => {
+    addSecretIssues(dataset, ctx);
+    if (dataset.contentRef !== dataset.contentDigest) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["contentRef"],
+        message: "Dataset contentRef must be the content digest itself.",
+      });
+    }
+  });
+
+export const SkillOptimizationBudgetSchema = z
+  .object({
+    maxWallTimeMs: z.number().int().positive().optional(),
+    maxModelCalls: z.number().int().nonnegative().optional(),
+    maxTokens: z.number().int().nonnegative().optional(),
+    maxArtifactBytes: z.number().int().positive().optional(),
+  })
+  .strict()
+  .superRefine(addSecretIssues);
+
+export const SkillOptimizationRequestSchema = z
+  .object({
+    schemaVersion: z.literal(1),
+    skillId: z.string().min(1),
+    variantId: z.string().min(1),
+    parentRevisionId: z.string().min(1),
+    parentRevisionDigest: z.string().regex(SHA256_DIGEST_PATTERN),
+    baselineContentRef: z.string().regex(SHA256_DIGEST_PATTERN),
+    baselineContentDigest: z.string().regex(SHA256_DIGEST_PATTERN),
+    targetAgentId: z.string().min(1),
+    targetModelFingerprint: z.string().min(1),
+    trainDataset: SkillDatasetRefSchema,
+    devDataset: SkillDatasetRefSchema,
+    optimizer: SkillOptimizerFingerprintSchema,
+    budget: SkillOptimizationBudgetSchema,
+    proposer: z.enum(["none", "gateway", "deterministic"]).default("gateway"),
+    requestedBy: z.string().min(1).max(256),
+  })
+  .strict()
+  .superRefine((request, ctx) => {
+    addSecretIssues(request, ctx);
+    if (request.baselineContentRef !== request.baselineContentDigest) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["baselineContentRef"],
+        message: "Baseline contentRef must be the content digest itself.",
+      });
+    }
+  });
+
+export const SkillCandidateSecretScanSchema = z
+  .object({
+    passed: z.boolean(),
+    findings: z.array(z.string().min(1)).default([]),
+  })
+  .strict()
+  .superRefine(addSecretIssues);
+
+export const SkillCandidateStaticChecksSchema = z
+  .object({
+    contentDigestVerified: z.boolean(),
+    parentRevisionDigestMatches: z.boolean(),
+    lineageMatchesRequest: z.boolean(),
+    instructionDeltaPresent: z.boolean(),
+    sizeWithinBudget: z.boolean(),
+    deliverySupported: z.boolean(),
+    secretScan: SkillCandidateSecretScanSchema,
+  })
+  .strict()
+  .superRefine(addSecretIssues);
+
+export const SkillCandidateManifestSchema = z
+  .object({
+    schemaVersion: z.literal(1),
+    candidateId: z.string().regex(/^skc_[A-Za-z0-9][A-Za-z0-9_-]*$/),
+    skillId: z.string().min(1),
+    variantId: z.string().min(1),
+    revisionId: z.string().regex(/^r_[a-f0-9]{64}$/),
+    parentRevisionId: z.string().min(1),
+    parentRevisionDigest: z.string().regex(SHA256_DIGEST_PATTERN),
+    upstreamRevisionId: z.string().min(1).optional(),
+    contentRef: z.string().regex(SHA256_DIGEST_PATTERN),
+    contentDigest: z.string().regex(SHA256_DIGEST_PATTERN),
+    contentSizeBytes: z.number().int().nonnegative(),
+    mediaType: z.string().min(1).default("text/markdown"),
+    targetAgentId: z.string().min(1),
+    targetModelFingerprint: z.string().min(1),
+    optimizer: SkillOptimizerFingerprintSchema,
+    trainDatasetDigest: z.string().regex(SHA256_DIGEST_PATTERN),
+    devDatasetDigest: z.string().regex(SHA256_DIGEST_PATTERN),
+    staticChecks: SkillCandidateStaticChecksSchema,
+    optimizerReportRef: z.string().regex(SHA256_DIGEST_PATTERN).optional(),
+    createdAt: z.string().datetime(),
+    status: z.enum(["proposed", "evaluating", "staged", "rejected", "quarantined"]),
+  })
+  .strict()
+  .superRefine((manifest, ctx) => {
+    addSecretIssues(manifest, ctx);
+    if (manifest.contentRef !== manifest.contentDigest) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["contentRef"],
+        message: "Candidate contentRef must be the content digest itself.",
+      });
+    }
+  });
+
+export const SkillEvaluationGateSchema = z
+  .object({
+    minSampleCount: z.number().int().positive().default(8),
+    minQualityImprovement: z.number().min(0).default(0.05),
+    minImprovedRatio: z.number().min(0).max(1).default(0.5),
+    maxLatencyMs: z.number().int().positive().optional(),
+    maxCostUsd: z.number().nonnegative().optional(),
+    maxContextTokensPerSample: z.number().int().nonnegative().optional(),
+  })
+  .strict()
+  .superRefine(addSecretIssues);
+
+export const SkillEvaluationSampleRunSchema = z
+  .object({
+    passed: z.boolean(),
+    safetyPassed: z.boolean(),
+    contextTokens: z.number().int().nonnegative(),
+    latencyMs: z.number().nonnegative(),
+    costUsd: z.number().nonnegative().optional(),
+    failed: z.boolean(),
+  })
+  .strict()
+  .superRefine(addSecretIssues);
+
+export const SkillEvaluationSampleSchema = z
+  .object({
+    caseId: z.string().min(1),
+    baseline: SkillEvaluationSampleRunSchema,
+    candidate: SkillEvaluationSampleRunSchema,
+    candidateRanFirst: z.boolean(),
+  })
+  .strict()
+  .superRefine(addSecretIssues);
+
+export const SkillEvaluationManifestSchema = z
+  .object({
+    schemaVersion: z.literal(1),
+    evaluationId: z.string().regex(/^ske_[A-Za-z0-9][A-Za-z0-9_-]*$/),
+    candidateId: z.string().regex(/^skc_[A-Za-z0-9][A-Za-z0-9_-]*$/),
+    candidateRevisionId: z.string().regex(/^r_[a-f0-9]{64}$/),
+    baselineRevisionId: z.string().min(1),
+    holdoutContentRef: z.string().regex(SHA256_DIGEST_PATTERN),
+    holdoutContentDigest: z.string().regex(SHA256_DIGEST_PATTERN),
+    holdoutCaseCount: z.number().int().positive(),
+    evaluatorId: z.string().min(1),
+    scorerFingerprint: z.string().min(1),
+    runtimeFingerprint: z.string().min(1),
+    seed: z.number().int().nonnegative(),
+    sampleCount: z.number().int().nonnegative(),
+    samplesRef: z.string().regex(SHA256_DIGEST_PATTERN).optional(),
+    baseline: SkillEvaluationMetricsSchema,
+    candidate: SkillEvaluationMetricsSchema,
+    verdict: z.enum(["eligible", "rejected"]),
+    reasons: z.array(z.string().min(1)).default([]),
+    gate: SkillEvaluationGateSchema,
+    completedAt: z.string().datetime(),
+  })
+  .strict()
+  .superRefine((manifest, ctx) => {
+    addSecretIssues(manifest, ctx);
+    if (manifest.holdoutContentRef !== manifest.holdoutContentDigest) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["holdoutContentRef"],
+        message: "Holdout contentRef must be the content digest itself.",
+      });
+    }
+  });
+
+export const SkillPromotionReceiptSchema = z
+  .object({
+    schemaVersion: z.literal(1),
+    receiptId: z.string().regex(/^skp_[A-Za-z0-9][A-Za-z0-9_-]*$/),
+    skillId: z.string().min(1),
+    decision: z.enum(["promote", "reject", "quarantine", "rollback"]),
+    gate: z.enum(["human", "policy"]),
+    candidateId: z
+      .string()
+      .regex(/^skc_[A-Za-z0-9][A-Za-z0-9_-]*$/)
+      .optional(),
+    candidateRevisionId: z
+      .string()
+      .regex(/^r_[a-f0-9]{64}$/)
+      .optional(),
+    parentRevisionId: z.string().min(1).optional(),
+    evaluationRunId: z
+      .string()
+      .regex(/^ske_[A-Za-z0-9][A-Za-z0-9_-]*$/)
+      .optional(),
+    casExpectedRevisionId: z.string().nullable(),
+    previousRevisionId: z.string().nullable(),
+    newRevisionId: z.string().nullable(),
+    actor: z.string().min(1).max(256),
+    reason: z.string().min(1).max(4_096),
+    idempotencyKey: z.string().min(1).max(512),
+    decidedAt: z.string().datetime(),
+  })
+  .strict()
+  .superRefine((receipt, ctx) => {
+    addSecretIssues(receipt, ctx);
+    if (receipt.decision === "promote" && !receipt.candidateRevisionId) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["candidateRevisionId"],
+        message: "A promote receipt requires candidateRevisionId.",
+      });
+    }
+    if (receipt.decision === "promote" && !receipt.parentRevisionId) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["parentRevisionId"],
+        message: "A promote receipt requires the candidate parent revision.",
+      });
+    }
+    if (receipt.decision === "promote" && receipt.casExpectedRevisionId === null) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["casExpectedRevisionId"],
+        message: "A promote receipt requires the expected active parent revision.",
+      });
+    }
+  });
+
+export const SkillActivePointerSchema = z
+  .object({
+    skillId: z.string().min(1),
+    revisionId: z.string().regex(/^r_[a-f0-9]{64}$/),
+    contentRef: z.string().regex(SHA256_DIGEST_PATTERN),
+    contentDigest: z.string().regex(SHA256_DIGEST_PATTERN),
+    promotedAt: z.string().datetime(),
+    promotedBy: z.string().min(1).max(256),
+    receiptId: z.string().regex(/^skp_[A-Za-z0-9][A-Za-z0-9_-]*$/),
+  })
+  .strict()
+  .superRefine((pointer, ctx) => {
+    addSecretIssues(pointer, ctx);
+    if (pointer.contentRef !== pointer.contentDigest) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["contentRef"],
+        message: "Active pointer contentRef must be the content digest itself.",
+      });
+    }
+  });
+
 export const HarnessProjectContextSchema = z
   .object({
     paths: z.array(z.string().min(1)).default([]),
@@ -328,7 +601,7 @@ export const PermissionApprovalReceiptSchema = z
       (value): value is string => Boolean(value),
     );
     for (const value of values) {
-      if (!FORBIDDEN_SECRET_KEY_PATTERN.test(value)) continue;
+      if (!containsSecretMarker(value)) continue;
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         message: "Permission approval receipts must not contain secret-bearing values.",
@@ -366,6 +639,7 @@ export const HarnessRecipeSchema = z
 
 export type SkillBindingMode = z.infer<typeof SkillBindingModeSchema>;
 export type SkillDeliveryMode = z.infer<typeof SkillDeliveryModeSchema>;
+export type SkillEvaluationMetrics = z.infer<typeof SkillEvaluationMetricsSchema>;
 export type SkillVariant = z.infer<typeof SkillVariantSchema>;
 export type LogicalSkill = z.infer<typeof LogicalSkillSchema>;
 export type HarnessSkillBinding = z.infer<typeof HarnessSkillBindingSchema>;
@@ -382,6 +656,19 @@ export type ResolvedSkillBinding = z.infer<typeof ResolvedSkillBindingSchema>;
 export type SkillEvolutionCandidate = z.infer<typeof SkillEvolutionCandidateSchema>;
 export type SkillEvaluationRun = z.infer<typeof SkillEvaluationRunSchema>;
 export type SkillPromotionDecision = z.infer<typeof SkillPromotionDecisionSchema>;
+export type SkillOptimizerFingerprint = z.infer<typeof SkillOptimizerFingerprintSchema>;
+export type SkillDatasetRef = z.infer<typeof SkillDatasetRefSchema>;
+export type SkillOptimizationBudget = z.infer<typeof SkillOptimizationBudgetSchema>;
+export type SkillOptimizationRequest = z.infer<typeof SkillOptimizationRequestSchema>;
+export type SkillCandidateSecretScan = z.infer<typeof SkillCandidateSecretScanSchema>;
+export type SkillCandidateStaticChecks = z.infer<typeof SkillCandidateStaticChecksSchema>;
+export type SkillCandidateManifest = z.infer<typeof SkillCandidateManifestSchema>;
+export type SkillEvaluationGate = z.infer<typeof SkillEvaluationGateSchema>;
+export type SkillEvaluationSampleRun = z.infer<typeof SkillEvaluationSampleRunSchema>;
+export type SkillEvaluationSample = z.infer<typeof SkillEvaluationSampleSchema>;
+export type SkillEvaluationManifest = z.infer<typeof SkillEvaluationManifestSchema>;
+export type SkillPromotionReceipt = z.infer<typeof SkillPromotionReceiptSchema>;
+export type SkillActivePointer = z.infer<typeof SkillActivePointerSchema>;
 
 export interface HarnessToolPermissionRequest {
   toolName: string;
@@ -767,7 +1054,13 @@ function selectionReason(rank: number, context: SkillResolutionContext): string 
 }
 
 function addSecretIssues(value: unknown, ctx: z.RefinementCtx): void {
-  visit(value, [], ctx);
+  for (const issue of findInlineSecretFields(value)) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: issue.path,
+      message: `Skill metadata must not contain inline secret field "${issue.key}".`,
+    });
+  }
 }
 
 function addDuplicateIssues(
@@ -789,24 +1082,4 @@ function addDuplicateIssues(
     }
     seen.add(value);
   });
-}
-
-function visit(value: unknown, path: Array<string | number>, ctx: z.RefinementCtx): void {
-  if (Array.isArray(value)) {
-    value.forEach((item, index) => {
-      visit(item, [...path, index], ctx);
-    });
-    return;
-  }
-  if (!value || typeof value !== "object") return;
-  for (const [key, child] of Object.entries(value)) {
-    if (FORBIDDEN_SECRET_KEY_PATTERN.test(key)) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: [...path, key],
-        message: `Skill metadata must not contain inline secret field "${key}".`,
-      });
-    }
-    visit(child, [...path, key], ctx);
-  }
 }

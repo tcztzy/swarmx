@@ -1,23 +1,6 @@
 import { createHash } from "node:crypto";
 import { z } from "zod";
-
-const ALLOWED_SECRET_REFERENCE_KEYS = new Set([
-  "secretref",
-  "secret_ref",
-  "secretrefid",
-  "secret_ref_id",
-  "secretstatus",
-  "secret_status",
-  "credentialref",
-  "credential_ref",
-  "credentialrefs",
-  "credential_refs",
-  "credentialreferences",
-  "credential_references",
-]);
-
-const FORBIDDEN_SECRET_KEY_PATTERN =
-  /(api[_-]?key|access[_-]?token|bearer|password|passwd|secret|credential|private[_-]?key)/i;
+import { findInlineSecretFields } from "./secret-scanner.js";
 
 const idWithPrefix = (prefix: string) =>
   z.string().regex(new RegExp(`^${prefix}[A-Za-z0-9][A-Za-z0-9_-]*$`), `Must use ${prefix} prefix`);
@@ -305,7 +288,7 @@ function restoreOriginalOrder(
 }
 
 function addSecretIssues(value: unknown, ctx: z.RefinementCtx): void {
-  for (const issue of findInlineSecretKeys(value)) {
+  for (const issue of findInlineSecretFields(value)) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
       path: issue.path,
@@ -326,29 +309,6 @@ function addAgentIdentityIssues(value: unknown, ctx: z.RefinementCtx): void {
       });
     }
   }
-}
-
-function findInlineSecretKeys(
-  value: unknown,
-  path: Array<string | number> = [],
-): Array<{ key: string; path: Array<string | number> }> {
-  if (Array.isArray(value)) {
-    return value.flatMap((item, index) => findInlineSecretKeys(item, [...path, index]));
-  }
-  if (!isObjectRecord(value)) return [];
-
-  const issues: Array<{ key: string; path: Array<string | number> }> = [];
-  for (const [key, child] of Object.entries(value)) {
-    const normalizedKey = key.toLowerCase().replace(/[^a-z0-9_]/g, "");
-    if (
-      FORBIDDEN_SECRET_KEY_PATTERN.test(key) &&
-      !ALLOWED_SECRET_REFERENCE_KEYS.has(normalizedKey)
-    ) {
-      issues.push({ key, path: [...path, key] });
-    }
-    issues.push(...findInlineSecretKeys(child, [...path, key]));
-  }
-  return issues;
 }
 
 function byteLength(value: string): number {

@@ -2,7 +2,7 @@
 
 | Asset | Background | Color | Suggested use |
 |---|---|---|---|
-| `app-icon.svg` | Dark rounded panel | Cyan, blue, violet | Default application icon and favicon |
+| `app-icon.svg` | Dark rounded panel | Cyan, blue, violet | Canonical Renderer application icon, product mark, and favicon |
 | `app-icon-transparent.svg` | Transparent | Cyan, blue, violet | Documents and layouts that provide their own background |
 | `app-icon-grayscale.svg` | Dark grayscale panel | White through charcoal | Neutral UI, print previews, accessibility review |
 | `app-icon-monochrome-light.svg` | Transparent | White | One-color marks on dark backgrounds |

@@ -1,23 +1,9 @@
 import { createHash } from "node:crypto";
 import { z } from "zod";
+import { stableJson } from "./canonical-json.js";
+import { findInlineSecretFields } from "./secret-scanner.js";
+import { TaskApprovalStatusSchema, TaskWorkItemStatusSchema } from "./task-runtime.js";
 
-const ALLOWED_SECRET_REFERENCE_KEYS = new Set([
-  "secretref",
-  "secret_ref",
-  "secretrefid",
-  "secret_ref_id",
-  "secretstatus",
-  "secret_status",
-  "credentialref",
-  "credential_ref",
-  "credentialrefs",
-  "credential_refs",
-  "credentialreferences",
-  "credential_references",
-]);
-
-const FORBIDDEN_SECRET_KEY_PATTERN =
-  /(api[_-]?key|access[_-]?token|bearer|password|passwd|secret|credential|private[_-]?key)/i;
 const FORBIDDEN_RUNTIME_RAW_KEY_PATTERN =
   /(raw[_-]?(issue|terminal|validator|analysis|data|prompt|response|model|tool)|issue[_-]?body|terminal[_-]?output|std(out|err)|validator[_-]?output|analysis[_-]?output|data[_-]?output)/i;
 
@@ -26,17 +12,8 @@ const idWithPrefix = (prefix: string) =>
 
 export const AutonomyWorkClassSchema = z.enum(["project_iteration", "analysis_execution"]);
 export const AutonomyLevelSchema = z.enum(["A0", "A1", "A2", "A3", "A4"]);
-export const AutonomyWorkItemStatusSchema = z.enum([
-  "queued",
-  "leased",
-  "running",
-  "blocked",
-  "needs_human",
-  "failed",
-  "succeeded",
-  "canceled",
-  "superseded",
-]);
+// Engineering/analysis lifecycles extend the language-neutral runtime kernel.
+export const AutonomyWorkItemStatusSchema = TaskWorkItemStatusSchema;
 export const AutonomyTriggerTypeSchema = z.enum([
   "schedule_tick",
   "manual_request",
@@ -86,12 +63,7 @@ export const EngineeringProposalStatusSchema = z.enum([
   "rejected",
   "superseded",
 ]);
-export const EngineeringApprovalStatusSchema = z.enum([
-  "requested",
-  "approved",
-  "rejected",
-  "waived",
-]);
+export const EngineeringApprovalStatusSchema = TaskApprovalStatusSchema;
 export const AutonomyAgentRunStatusSchema = z.enum([
   "planned",
   "running",
@@ -2101,7 +2073,7 @@ function validateDagStructure(dag: z.infer<typeof CommandDagSchema>, ctx: z.Refi
 }
 
 function addSecretIssues(value: unknown, ctx: z.RefinementCtx): void {
-  for (const issue of findInlineSecretKeys(value)) {
+  for (const issue of findInlineSecretFields(value)) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
       path: issue.path,
@@ -2133,29 +2105,6 @@ function addAgentRunIdentityIssues(value: unknown, ctx: z.RefinementCtx): void {
       });
     }
   }
-}
-
-function findInlineSecretKeys(
-  value: unknown,
-  path: Array<string | number> = [],
-): Array<{ key: string; path: Array<string | number> }> {
-  if (Array.isArray(value)) {
-    return value.flatMap((item, index) => findInlineSecretKeys(item, [...path, index]));
-  }
-  if (!isObjectRecord(value)) return [];
-
-  const issues: Array<{ key: string; path: Array<string | number> }> = [];
-  for (const [key, child] of Object.entries(value)) {
-    const normalizedKey = key.toLowerCase().replace(/[^a-z0-9_]/g, "");
-    if (
-      FORBIDDEN_SECRET_KEY_PATTERN.test(key) &&
-      !ALLOWED_SECRET_REFERENCE_KEYS.has(normalizedKey)
-    ) {
-      issues.push({ key, path: [...path, key] });
-    }
-    issues.push(...findInlineSecretKeys(child, [...path, key]));
-  }
-  return issues;
 }
 
 function findRuntimeRawKeys(
@@ -2201,16 +2150,6 @@ function validatorGateReason(
 
 function uniqueStrings(values: string[]): string[] {
   return Array.from(new Set(values));
-}
-
-function stableJson(value: unknown): string {
-  if (value === null || typeof value !== "object") return JSON.stringify(value);
-  if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
-  return `{${Object.entries(value)
-    .filter(([, child]) => child !== undefined)
-    .sort(([left], [right]) => left.localeCompare(right))
-    .map(([key, child]) => `${JSON.stringify(key)}:${stableJson(child)}`)
-    .join(",")}}`;
 }
 
 function isObjectRecord(value: unknown): value is Record<string, unknown> {

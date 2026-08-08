@@ -1,27 +1,9 @@
 import { parse as parseToml, stringify as stringifyToml } from "smol-toml";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import { z } from "zod";
+import { stableHash, stableJson } from "./canonical-json.js";
+import { findInlineSecretFields } from "./secret-scanner.js";
 import { HarnessRecipeSchema } from "./skill-variants.js";
-
-const REDACTED_VALUE = "[redacted]";
-
-const ALLOWED_SECRET_REFERENCE_KEYS = new Set([
-  "secretref",
-  "secret_ref",
-  "secretrefid",
-  "secret_ref_id",
-  "secretstatus",
-  "secret_status",
-  "credentialref",
-  "credential_ref",
-  "credentialrefs",
-  "credential_refs",
-  "credentialreferences",
-  "credential_references",
-]);
-
-const FORBIDDEN_SECRET_KEY_PATTERN =
-  /(api[_-]?key|access[_-]?token|bearer|password|passwd|secret|credential|private[_-]?key|smtp[_-]?password|telemetry[_-]?token|cluster[_-]?password|remote[_-]?compute[_-]?password|host[_-]?login)/i;
 
 const StringListSchema = z
   .preprocess((value) => stringListFromUnknown(value), z.array(z.string().min(1)))
@@ -203,8 +185,10 @@ export function parseAgentDefinitionMarkdown(
   markdown: string,
   options: ParseAgentDefinitionOptions = {},
 ): AgentDefinitionDocument {
-  const { frontmatterText, body } = splitMarkdownFrontmatter(markdown);
-  const rawFrontmatter = parseFrontmatterYaml(frontmatterText);
+  const { frontmatter: rawFrontmatter, body } = parseMarkdownFrontmatter(
+    markdown,
+    "agent definition",
+  );
   return AgentDefinitionDocumentSchema.parse({
     format: "claude_code",
     frontmatter: rawFrontmatter,
@@ -213,6 +197,26 @@ export function parseAgentDefinitionMarkdown(
     body,
     source: sourceForFormat(options.source, "claude_code"),
   });
+}
+
+export function parseMarkdownFrontmatter(
+  markdown: string,
+  subject = "Markdown document",
+): { frontmatter: Record<string, unknown>; body: string } {
+  const match = markdown.match(/^---[ \t]*\r?\n([\s\S]*?)\r?\n---[ \t]*\r?\n?([\s\S]*)$/);
+  if (!match) return { frontmatter: {}, body: markdown };
+  let frontmatter: unknown;
+  try {
+    frontmatter = parseYaml(match[1] ?? "");
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`Invalid ${subject} frontmatter: ${message}`);
+  }
+  if (frontmatter === null || frontmatter === undefined) frontmatter = {};
+  if (!isObjectRecord(frontmatter)) {
+    throw new Error(`${sentenceCase(subject)} frontmatter must be a YAML object.`);
+  }
+  return { frontmatter, body: match[2] ?? "" };
 }
 
 export function parseCodexAgentDefinitionToml(
@@ -355,31 +359,6 @@ export function parseAgentProfileMetadata(input: unknown): AgentProfileMetadata 
   return AgentProfileMetadataSchema.parse(input);
 }
 
-function splitMarkdownFrontmatter(markdown: string): {
-  frontmatterText: string;
-  body: string;
-} {
-  const match = markdown.match(/^---[ \t]*\r?\n([\s\S]*?)\r?\n---[ \t]*\r?\n?([\s\S]*)$/);
-  if (!match) return { frontmatterText: "", body: markdown };
-  return { frontmatterText: match[1] ?? "", body: match[2] ?? "" };
-}
-
-function parseFrontmatterYaml(frontmatterText: string): Record<string, unknown> {
-  if (!frontmatterText.trim()) return {};
-  let parsed: unknown;
-  try {
-    parsed = parseYaml(frontmatterText);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    throw new Error(`Invalid agent definition frontmatter: ${message}`);
-  }
-  if (parsed === null || parsed === undefined) return {};
-  if (!isObjectRecord(parsed)) {
-    throw new Error("Agent definition frontmatter must be a YAML object.");
-  }
-  return parsed;
-}
-
 function sourceForFormat(
   source: AgentDefinitionSource | undefined,
   format: AgentDefinitionFormat,
@@ -390,6 +369,10 @@ function sourceForFormat(
     host: format,
     format,
   });
+}
+
+function sentenceCase(value: string): string {
+  return value ? `${value[0]?.toUpperCase()}${value.slice(1)}` : value;
 }
 
 function codexMcpServerIds(value: unknown): string[] {
@@ -520,59 +503,13 @@ function profileIdFromNameOrContent(name: string, definition: AgentDefinitionDoc
 }
 
 function addSecretIssues(value: unknown, ctx: z.RefinementCtx): void {
-  for (const issue of findInlineSecrets(value)) {
+  for (const issue of findInlineSecretFields(value, { allowRedacted: true })) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
       path: issue.path,
       message: `Agent profile records must not contain inline secret field "${issue.key}".`,
     });
   }
-}
-
-function findInlineSecrets(
-  value: unknown,
-  path: Array<string | number> = [],
-): Array<{ key: string; path: Array<string | number> }> {
-  if (Array.isArray(value)) {
-    return value.flatMap((item, index) => findInlineSecrets(item, [...path, index]));
-  }
-  if (!isObjectRecord(value)) return [];
-
-  const issues: Array<{ key: string; path: Array<string | number> }> = [];
-  for (const [key, child] of Object.entries(value)) {
-    if (isForbiddenSecretKey(key) && child !== REDACTED_VALUE) {
-      issues.push({ key, path: [...path, key] });
-    }
-    issues.push(...findInlineSecrets(child, [...path, key]));
-  }
-  return issues;
-}
-
-function isForbiddenSecretKey(key: string): boolean {
-  const normalizedKey = key.toLowerCase().replace(/[^a-z0-9_]/g, "");
-  return (
-    FORBIDDEN_SECRET_KEY_PATTERN.test(key) && !ALLOWED_SECRET_REFERENCE_KEYS.has(normalizedKey)
-  );
-}
-
-function stableJson(value: unknown): string {
-  if (value === null || typeof value !== "object") return JSON.stringify(value);
-  if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
-  return `{${Object.entries(value)
-    .filter(([, child]) => child !== undefined)
-    .sort(([left], [right]) => left.localeCompare(right))
-    .map(([key, child]) => `${JSON.stringify(key)}:${stableJson(child)}`)
-    .join(",")}}`;
-}
-
-function stableHash(value: string): string {
-  let hash = 0xcbf29ce484222325n;
-  const prime = 0x100000001b3n;
-  for (let index = 0; index < value.length; index++) {
-    hash ^= BigInt(value.charCodeAt(index));
-    hash = BigInt.asUintN(64, hash * prime);
-  }
-  return hash.toString(16).padStart(16, "0");
 }
 
 function uniqueStrings(values: string[]): string[] {

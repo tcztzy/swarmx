@@ -92,42 +92,6 @@
   white-space: nowrap;
 }
 
-.runtime-right-panel__details {
-  margin: 0;
-  display: grid;
-  gap: 2px;
-}
-
-.runtime-right-panel__details > div {
-  min-width: 0;
-  padding: 9px 2px;
-  display: grid;
-  grid-template-columns: 76px minmax(0, 1fr);
-  align-items: center;
-  gap: 10px;
-  border-bottom: 1px solid var(--border-subtle);
-}
-
-.runtime-right-panel__details dt,
-.runtime-right-panel__details dd {
-  min-width: 0;
-  margin: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.runtime-right-panel__details dt {
-  color: var(--muted-foreground);
-  font-size: 11px;
-}
-
-.runtime-right-panel__details dd {
-  color: var(--foreground);
-  font-size: 12px;
-  font-weight: 560;
-}
-
 .runtime--right-panel > .composer-dock,
 .runtime--right-panel > .panel-transition--bottom {
   width: calc(100% - var(--right-panel-width, 50%));
@@ -737,27 +701,6 @@
   gap: 6px;
   border-bottom: 1px solid var(--border-subtle);
   background: color-mix(in srgb, var(--card-solid) 94%, var(--background));
-}
-
-.workspace-panel__title {
-  min-width: 0;
-  flex: 1;
-  display: flex;
-  align-items: baseline;
-  gap: 6px;
-}
-
-.workspace-panel__title span {
-  color: var(--muted-foreground);
-  font-size: 10px;
-  font-weight: 650;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-}
-
-.workspace-panel__title strong {
-  font-size: 12px;
-  font-weight: 650;
 }
 
 .workspace-panel__home,
@@ -2280,22 +2223,6 @@ button.doctor-harness__version:focus-visible {
   width: 15px;
   height: 15px;
   color: var(--danger);
-}
-
-.doctor-empty {
-  padding: 10px;
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  color: var(--success);
-  background: var(--success-muted);
-  border-radius: 8px;
-  font-size: 11px;
-}
-
-.doctor-empty svg {
-  width: 15px;
-  height: 15px;
 }
 
 .doctor-confirmation {

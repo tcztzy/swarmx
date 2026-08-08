@@ -3,9 +3,10 @@
 Status: current
 
 SwarmX is a local-first desktop workspace and TypeScript platform for running
-direct model agents and ACP-compatible coding agents. It composes a runtime
-Harness with an independent Model, gives that Agent bounded access to a Project,
-and preserves the resulting task as a resumable Session.
+direct model agents, ACP-compatible coding agents, and durable background work.
+It composes a runtime Harness with an independent Model, gives that Agent bounded
+access to a Project, preserves conversations as resumable Sessions, and persists
+durable execution independently as WorkItems.
 
 This document defines the durable product contract. It is intentionally not an
 implementation map, test plan, backlog, changelog, or incident log.
@@ -19,7 +20,8 @@ implementation map, test plan, backlog, changelog, or incident log.
 | Model | A primary entity with a stable id, API compatibility, and capabilities. |
 | Harness | A reproducible runtime recipe: Software, selected Skills and MCP servers, Project context, delivery capabilities, and permission policy. |
 | Agent | Exactly one Harness paired with one Model. Its identity is `harnessId:modelId`; Provider routing and effort do not change it. |
-| Session | The canonical, resumable conversation and task record, persisted as an append-only event log. |
+| Session | The canonical, resumable conversation record, persisted as an append-only event log. It may observe a WorkItem but is not task authority. |
+| WorkItem | A durable unit of language-independent work whose runs, leases, checkpoints, artifacts, and events survive Session changes. |
 | Workflow | A `SwarmConfig` graph of agents, tools, nested swarms, and explicit edges. |
 
 ## Product invariants
@@ -53,6 +55,13 @@ implementation map, test plan, backlog, changelog, or incident log.
 9. **Portable core.** Generic schemas and decision helpers stay host-neutral and
    side-effect free. Filesystem, process, keychain, installer, and UI effects
    belong to host adapters.
+10. **Independent task authority.** Durable WorkItems use their own append-only
+    event authority. Sessions may create or observe the same WorkItem, while
+    Session switching, unlinking, or archiving does not cancel execution.
+11. **Concise auditability.** Privileged decisions and side effects produce
+    correlated, structured, secret-free audit events. Intent is durable before
+    authority expands or an effect starts, and an unavailable audit authority
+    fails closed at those boundaries.
 
 ## Required capabilities
 
@@ -60,6 +69,18 @@ implementation map, test plan, backlog, changelog, or incident log.
 
 - Run a direct single-Agent task without requiring a workflow.
 - Parse, validate, preview, and execute `SwarmConfig` workflows.
+- Persist WorkItems, runs, fenced leases, cancellation, retry decisions,
+  execution checkpoints, artifact references, approvals, and side-effect
+  receipts independently of Sessions, then rebuild state by replaying events.
+- Run replaceable language workers through a versioned, strictly validated
+  protocol. Workers execute granted operations but never own scheduling,
+  authoritative state, or unrestricted Provider credentials.
+- Recover expired leases conservatively and resume only from an execution
+  checkpoint produced by the same verified environment. Context packets and
+  summary checkpoints remain model-context aids, not execution checkpoints.
+- Describe external effects as at-least-once, require stable idempotency keys
+  and durable outcome receipts, and preserve an `unknown` outcome when a crash
+  prevents proof of completion. Never advertise exactly-once delivery.
 - Structurally import n8n workflow JSON into `SwarmConfig`, preserving topology
   and inert metadata without importing secrets or executing n8n node runtimes.
 - Run native Provider APIs and external ACP Harnesses with streaming,
@@ -74,6 +95,11 @@ implementation map, test plan, backlog, changelog, or incident log.
   manual declarations, then resolve a compatible `Harness x Model` route.
 - Create reusable Custom Agents from Harness recipes and Models, including
   deterministic Agent/Model-specific Skill variants.
+- Run a governed Skill self-improvement loop with immutable optimizer
+  candidates, hidden-holdout paired evaluation, static and evaluation gates,
+  human compare-and-swap promotion of a per-Skill active revision, and
+  rollback; learning never mutates an active request, a running Session,
+  Skill files, or the persisted workflow, and optimizers cannot self-promote.
 - Load Extension, marketplace, Agent profile, Skill, MCP, connector, LSP, hook,
   command, asset, permission, and UI-contribution metadata as passive inventory.
 - Resolve and display composition readiness before execution. Inventory loading
@@ -96,6 +122,9 @@ implementation map, test plan, backlog, changelog, or incident log.
 - Resolve direct-tool authority from managed, Project, personal, Agent, and
   conversation layers. Denials and lower-authority ceilings win; approval never
   escapes the operating-system sandbox.
+- Preserve permission decisions, privileged host requests, process lifecycle,
+  and externally reachable request outcomes as a tamper-evident local audit
+  chain with bounded query, verification, and export.
 
 ### Desktop experience
 
@@ -124,6 +153,9 @@ implementation map, test plan, backlog, changelog, or incident log.
 - Keep browser-safe public subpaths free of Node-only imports.
 - Provide a CLI, ACP server adapter, runtime Doctor, and Desktop-first npm
   launcher without launching GUI code during package installation.
+- Discover the product Python worker, `uv`, a compatible uv-managed Python, and
+  its locked environment without mutation. Installation and synchronization
+  are explicit setup/repair actions and never occur implicitly during a run.
 - Package releases from one version-aligned, quality-gated commit; release
   artifacts must not contain generated residue, credentials, or known avoidable
   production vulnerabilities.
@@ -136,10 +168,20 @@ implementation map, test plan, backlog, changelog, or incident log.
 - It does not provide cloud team identity, email activation, hosted knowledge
   storage, or product-specific analytics and collaboration policy.
 - n8n import does not make SwarmX an n8n node runtime.
+- A Python task operation is an executor capability, not an Agent, Harness, ACP
+  Session, or new `SwarmConfig` node kind. The worker lease/checkpoint protocol
+  is not carried over ACP.
+- The current durable controller is app-attached. Its state survives a host
+  restart, but tasks do not continue executing while Desktop is closed until a
+  separately supervised local service is implemented.
 - Extension manifests are declarative metadata, not executable UI or script
   delivery. Executable UI components must be registered by the embedding host.
 - Raw conversations, prompts, responses, source files, terminal output, and
-  credentials are not telemetry payloads.
+  credentials are neither telemetry nor audit payloads. Canonical Session and
+  task histories retain their own product data; the audit chain records only
+  compact decision/effect metadata.
+- Local audit verification is tamper-evidence, not remote attestation or
+  non-repudiation against a user who controls both the log and its checkpoint.
 - Claude-compatible `PowerShell`, `SendMessage`, and `Workflow` remain absent
   until SwarmX has the corresponding Windows sandbox, concurrent team runtime,
   and persisted workflow VM. Similar-looking existing features are not aliases

@@ -1,3 +1,4 @@
+import { createHash, randomUUID } from "node:crypto";
 import path from "node:path";
 import { Readable, Writable } from "node:stream";
 import {
@@ -28,6 +29,8 @@ import {
   type SetSessionModeResponse,
 } from "@agentclientprotocol/sdk";
 import type {
+  AuditInput,
+  AuditStore as AuditStoreType,
   McpServerConfig,
   MessageChunk,
   SessionData,
@@ -35,6 +38,7 @@ import type {
   SwarmNodeConfig,
 } from "@swarmx/core";
 import {
+  AuditStore,
   appendMessages,
   cancelAcpRequest,
   createSession,
@@ -63,15 +67,19 @@ export interface SwarmExecutor {
 
 export interface SwarmXAgentOptions {
   createSwarm?: (config: SwarmConfig) => SwarmExecutor;
+  audit?: Pick<AuditStoreType, "append">;
 }
 
 export class SwarmXAgent implements AcpAgent {
   private sessions = new Map<string, SessionState>();
   private conn: AgentSideConnection | null = null;
   private readonly createSwarm: (config: SwarmConfig) => SwarmExecutor;
+  private readonly audit: Pick<AuditStoreType, "append"> | undefined;
+  private readonly activePromptRequestIds = new Map<string, string>();
 
   constructor(options: SwarmXAgentOptions = {}) {
     this.createSwarm = options.createSwarm ?? ((config) => new Swarm(config));
+    this.audit = options.audit;
   }
 
   setConnection(conn: AgentSideConnection): void {
@@ -79,7 +87,15 @@ export class SwarmXAgent implements AcpAgent {
   }
 
   initialize = async (request: InitializeRequest): Promise<InitializeResponse> => {
-    return {
+    const requestId = newAuditRequestId();
+    this.recordAudit({
+      category: "system",
+      action: "acp.initialize",
+      outcome: "attempted",
+      requestId,
+      metadata: {},
+    });
+    const response: InitializeResponse = {
       protocolVersion: request.protocolVersion,
       agentCapabilities: {
         loadSession: true,
@@ -101,72 +117,208 @@ export class SwarmXAgent implements AcpAgent {
       },
       authMethods: [],
     };
+    this.recordAudit({
+      category: "system",
+      action: "acp.initialize",
+      outcome: "completed",
+      requestId,
+      metadata: {},
+    });
+    return response;
   };
 
   newSession = async (request: NewSessionRequest): Promise<NewSessionResponse> => {
-    const cwd = normalizeAbsoluteCwd(request.cwd);
-    const mcpServers = projectMcpServers(request.mcpServers, cwd);
-    const sessionData = createSession("swarmx", "swarmx", undefined, { cwd });
-    saveSession(sessionData);
+    const requestId = newAuditRequestId();
+    this.recordAudit({
+      category: "session",
+      action: "acp.session.new",
+      outcome: "attempted",
+      requestId,
+      metadata: {},
+    });
 
-    this.sessions.set(sessionData.id, {
-      cwd,
-      mcpServers,
-      sessionData,
+    let sessionData: SessionData;
+    let cwd: string;
+    let mcpServers: Record<string, McpServerConfig>;
+    try {
+      cwd = normalizeAbsoluteCwd(request.cwd);
+      mcpServers = projectMcpServers(request.mcpServers, cwd);
+      sessionData = createSession("swarmx", "swarmx", undefined, { cwd });
+      saveSession(sessionData);
+
+      this.sessions.set(sessionData.id, {
+        cwd,
+        mcpServers,
+        sessionData,
+      });
+    } catch (error) {
+      this.recordAudit({
+        category: "session",
+        action: "acp.session.new",
+        outcome: "failed",
+        requestId,
+        metadata: {},
+      });
+      throw error;
+    }
+
+    this.recordAudit({
+      category: "session",
+      action: "acp.session.new",
+      outcome: "completed",
+      requestId,
+      sessionId: auditSessionId(sessionData.id),
+      target: auditSessionTarget(sessionData.id),
+      metadata: {},
     });
     return { sessionId: sessionData.id };
   };
 
   loadSession = async (request: LoadSessionRequest): Promise<LoadSessionResponse> => {
     const { sessionId } = request;
+    const auditedSessionId = auditSessionId(sessionId);
+    const requestId = newAuditRequestId();
+    this.recordAudit({
+      category: "session",
+      action: "acp.session.load",
+      outcome: "attempted",
+      requestId,
+      sessionId: auditedSessionId,
+      target: auditSessionTarget(sessionId),
+      metadata: {},
+    });
     const sessionData = loadSessionFile(sessionId);
     if (!sessionData) {
+      this.recordAudit({
+        category: "session",
+        action: "acp.session.load",
+        outcome: "denied",
+        requestId,
+        sessionId: auditedSessionId,
+        target: auditSessionTarget(sessionId),
+        metadata: { reason: "not_found" },
+      });
       throw new Error(`Session ${sessionId} not found`);
     }
 
-    const cwd = bindPersistedCwd(sessionData, request.cwd);
-    this.sessions.set(sessionId, {
-      cwd,
-      mcpServers: projectMcpServers(request.mcpServers, cwd),
-      sessionData,
-    });
-
-    for (const msg of sessionData.messages) {
-      const update = buildSessionUpdate(msg);
-      if (!update || !this.conn) continue;
-      await this.conn.sessionUpdate({
-        sessionId,
-        update,
+    try {
+      const cwd = bindPersistedCwd(sessionData, request.cwd);
+      this.sessions.set(sessionId, {
+        cwd,
+        mcpServers: projectMcpServers(request.mcpServers, cwd),
+        sessionData,
       });
+
+      for (const msg of sessionData.messages) {
+        const update = buildSessionUpdate(msg);
+        if (!update || !this.conn) continue;
+        await this.conn.sessionUpdate({
+          sessionId,
+          update,
+        });
+      }
+    } catch (error) {
+      this.recordAudit({
+        category: "session",
+        action: "acp.session.load",
+        outcome: "failed",
+        requestId,
+        sessionId: auditedSessionId,
+        target: auditSessionTarget(sessionId),
+        metadata: {},
+      });
+      throw error;
     }
 
+    this.recordAudit({
+      category: "session",
+      action: "acp.session.load",
+      outcome: "completed",
+      requestId,
+      sessionId: auditedSessionId,
+      target: auditSessionTarget(sessionId),
+      metadata: {},
+    });
     return {};
   };
 
   listSessions = async (request: ListSessionsRequest): Promise<ListSessionsResponse> => {
-    const cwd = request.cwd ? normalizeAbsoluteCwd(request.cwd) : undefined;
-    const sessions = listSessionsFile().filter(
-      (session) =>
-        typeof session.cwd === "string" &&
-        path.isAbsolute(session.cwd) &&
-        (!cwd || path.normalize(session.cwd) === cwd),
-    );
-    return {
-      sessions: sessions.map((s) => ({
-        sessionId: s.id,
-        cwd: path.normalize(s.cwd as string),
-        title: s.title,
-        updatedAt: s.updatedAt,
-      })),
+    const requestId = newAuditRequestId();
+    const audit = {
+      category: "session" as const,
+      action: "acp.session.list",
+      requestId,
+      metadata: { cwdScoped: Boolean(request.cwd) },
     };
+    this.recordAudit({ ...audit, outcome: "attempted" });
+    try {
+      const cwd = request.cwd ? normalizeAbsoluteCwd(request.cwd) : undefined;
+      const sessions = listSessionsFile().filter(
+        (session) =>
+          typeof session.cwd === "string" &&
+          path.isAbsolute(session.cwd) &&
+          (!cwd || path.normalize(session.cwd) === cwd),
+      );
+      const response = {
+        sessions: sessions.map((s) => ({
+          sessionId: s.id,
+          cwd: path.normalize(s.cwd as string),
+          title: s.title,
+          updatedAt: s.updatedAt,
+        })),
+      };
+      this.recordAudit({
+        ...audit,
+        outcome: "completed",
+        metadata: { ...audit.metadata, sessionCount: response.sessions.length },
+      });
+      return response;
+    } catch (error) {
+      this.recordAudit({ ...audit, outcome: "failed" });
+      throw error;
+    }
   };
 
   prompt = async (request: PromptRequest): Promise<PromptResponse> => {
+    const auditedSessionId = auditSessionId(request.sessionId);
+    const requestId = newAuditRequestId();
+    this.recordAudit({
+      category: "session",
+      action: "acp.prompt",
+      outcome: "attempted",
+      requestId,
+      sessionId: auditedSessionId,
+      target: auditSessionTarget(request.sessionId),
+      metadata: {},
+    });
+
     const conn = this.conn;
-    if (!conn) return { stopReason: "end_turn" };
+    if (!conn) {
+      this.recordAudit({
+        category: "session",
+        action: "acp.prompt",
+        outcome: "denied",
+        requestId,
+        sessionId: auditedSessionId,
+        target: auditSessionTarget(request.sessionId),
+        metadata: { reason: "connection_unavailable" },
+      });
+      return { stopReason: "end_turn" };
+    }
 
     const session = this.sessions.get(request.sessionId);
-    if (!session) return { stopReason: "cancelled" };
+    if (!session) {
+      this.recordAudit({
+        category: "session",
+        action: "acp.prompt",
+        outcome: "denied",
+        requestId,
+        sessionId: auditedSessionId,
+        target: auditSessionTarget(request.sessionId),
+        metadata: { reason: "session_unavailable" },
+      });
+      return { stopReason: "cancelled" };
+    }
 
     const userText = projectPromptBlocks(request.prompt);
     const requestedSwarmConfig = request.prompt.find(
@@ -175,11 +327,21 @@ export class SwarmXAgent implements AcpAgent {
     if (requestedSwarmConfig) session.swarmConfig = requestedSwarmConfig;
 
     if (!userText.trim()) {
+      this.recordAudit({
+        category: "session",
+        action: "acp.prompt",
+        outcome: "completed",
+        requestId,
+        sessionId: auditedSessionId,
+        target: auditSessionTarget(request.sessionId),
+        metadata: { skipped: true },
+      });
       return { stopReason: "end_turn" };
     }
 
+    this.activePromptRequestIds.set(request.sessionId, requestId);
     try {
-      return await withAcpRequest(acpRequestId(request.sessionId), async () => {
+      await withAcpRequest(acpRequestId(request.sessionId), async () => {
         appendSessionMessages(request.sessionId, [
           { role: "user", kind: "message", content: userText },
         ]);
@@ -208,16 +370,31 @@ export class SwarmXAgent implements AcpAgent {
 
         appendSessionMessages(request.sessionId, result);
         session.sessionData = requireSession(request.sessionId);
-        return {
-          stopReason: "end_turn",
-        };
       });
     } catch (err: unknown) {
       if (err instanceof RequestCancelledError) {
+        this.recordAudit({
+          category: "session",
+          action: "acp.prompt",
+          outcome: "cancelled",
+          requestId,
+          sessionId: auditedSessionId,
+          target: auditSessionTarget(request.sessionId),
+          metadata: {},
+        });
         return {
           stopReason: "cancelled",
         };
       }
+      this.recordAudit({
+        category: "session",
+        action: "acp.prompt",
+        outcome: "failed",
+        requestId,
+        sessionId: auditedSessionId,
+        target: auditSessionTarget(request.sessionId),
+        metadata: {},
+      });
       const errorMsg = err instanceof Error ? err.message : String(err);
       await conn.sessionUpdate({
         sessionId: request.sessionId,
@@ -233,37 +410,164 @@ export class SwarmXAgent implements AcpAgent {
       return {
         stopReason: "refusal",
       };
+    } finally {
+      if (this.activePromptRequestIds.get(request.sessionId) === requestId) {
+        this.activePromptRequestIds.delete(request.sessionId);
+      }
     }
+
+    this.recordAudit({
+      category: "session",
+      action: "acp.prompt",
+      outcome: "completed",
+      requestId,
+      sessionId: auditedSessionId,
+      target: auditSessionTarget(request.sessionId),
+      metadata: {},
+    });
+    return { stopReason: "end_turn" };
   };
 
   cancel = async (params: CancelNotification): Promise<void> => {
-    await cancelAcpRequest(acpRequestId(params.sessionId));
+    const auditedSessionId = auditSessionId(params.sessionId);
+    const requestId = newAuditRequestId();
+    const promptRequestId = this.activePromptRequestIds.get(params.sessionId);
+    this.recordAudit({
+      category: "session",
+      action: "acp.prompt",
+      outcome: "cancel_requested",
+      requestId,
+      sessionId: auditedSessionId,
+      target: auditSessionTarget(params.sessionId),
+      metadata: promptRequestId ? { promptRequestId } : {},
+    });
+    if (!promptRequestId) {
+      this.recordAudit({
+        category: "session",
+        action: "acp.prompt",
+        outcome: "denied",
+        requestId,
+        sessionId: auditedSessionId,
+        target: auditSessionTarget(params.sessionId),
+        metadata: {},
+      });
+      return;
+    }
+
+    let cancelled: boolean;
+    try {
+      cancelled = await cancelAcpRequest(acpRequestId(params.sessionId));
+    } catch (error) {
+      this.recordAudit({
+        category: "session",
+        action: "acp.prompt",
+        outcome: "failed",
+        requestId,
+        sessionId: auditedSessionId,
+        target: auditSessionTarget(params.sessionId),
+        metadata: { promptRequestId },
+      });
+      throw error;
+    }
+    this.recordAudit({
+      category: "session",
+      action: "acp.prompt",
+      outcome: cancelled ? "cancelled" : "denied",
+      requestId,
+      sessionId: auditedSessionId,
+      target: auditSessionTarget(params.sessionId),
+      metadata: { promptRequestId },
+    });
   };
   authenticate = async (_request: AuthenticateRequest): Promise<AuthenticateResponse> => {
+    const requestId = newAuditRequestId();
+    this.recordAudit({
+      category: "system",
+      action: "acp.authenticate",
+      outcome: "attempted",
+      requestId,
+      metadata: {},
+    });
+    this.recordAudit({
+      category: "system",
+      action: "acp.authenticate",
+      outcome: "denied",
+      requestId,
+      metadata: { reason: "unsupported" },
+    });
     throw new Error("not supported");
   };
   setSessionMode = async (_request: SetSessionModeRequest): Promise<SetSessionModeResponse> => {
     return {};
   };
   resumeSession = async (request: ResumeSessionRequest): Promise<ResumeSessionResponse> => {
+    const auditedSessionId = auditSessionId(request.sessionId);
+    const requestId = newAuditRequestId();
+    const audit = {
+      category: "session" as const,
+      action: "acp.session.resume",
+      requestId,
+      sessionId: auditedSessionId,
+      target: auditSessionTarget(request.sessionId),
+      metadata: {},
+    };
+    this.recordAudit({ ...audit, outcome: "attempted" });
     const sessionData = loadSessionFile(request.sessionId);
     if (!sessionData) {
+      this.recordAudit({
+        ...audit,
+        outcome: "denied",
+        metadata: { reason: "not_found" },
+      });
       throw new Error(`Session ${request.sessionId} not found`);
     }
 
-    const cwd = bindPersistedCwd(sessionData, request.cwd);
-    this.sessions.set(request.sessionId, {
-      cwd,
-      mcpServers: projectMcpServers(request.mcpServers ?? [], cwd),
-      sessionData,
-    });
+    try {
+      const cwd = bindPersistedCwd(sessionData, request.cwd);
+      this.sessions.set(request.sessionId, {
+        cwd,
+        mcpServers: projectMcpServers(request.mcpServers ?? [], cwd),
+        sessionData,
+      });
+    } catch (error) {
+      this.recordAudit({ ...audit, outcome: "failed" });
+      throw error;
+    }
 
+    this.recordAudit({ ...audit, outcome: "completed" });
     return {};
   };
   closeSession = async (request: CloseSessionRequest): Promise<CloseSessionResponse> => {
-    this.sessions.delete(request.sessionId);
+    const auditedSessionId = auditSessionId(request.sessionId);
+    const requestId = newAuditRequestId();
+    this.recordAudit({
+      category: "session",
+      action: "acp.session.close",
+      outcome: "attempted",
+      requestId,
+      sessionId: auditedSessionId,
+      target: auditSessionTarget(request.sessionId),
+      metadata: {},
+    });
+    const existed = this.sessions.delete(request.sessionId);
+    this.recordAudit({
+      category: "session",
+      action: "acp.session.close",
+      outcome: "completed",
+      requestId,
+      sessionId: auditedSessionId,
+      target: auditSessionTarget(request.sessionId),
+      metadata: { existed },
+    });
     return {};
   };
+
+  private recordAudit(input: Omit<AuditInput, "actor">): void {
+    this.audit?.append({
+      ...input,
+      actor: { kind: "service", id: "acp-server" },
+    });
+  }
 }
 
 function defaultSwarmConfig(): SwarmConfig {
@@ -432,6 +736,23 @@ function acpRequestId(sessionId: string): string {
   return `acp-server:${sessionId}`;
 }
 
+function newAuditRequestId(): string {
+  return `acp:${randomUUID()}`;
+}
+
+function auditSessionId(sessionId: string): string {
+  if (
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(sessionId)
+  ) {
+    return sessionId;
+  }
+  return `session:${createHash("sha256").update(sessionId).digest("hex")}`;
+}
+
+function auditSessionTarget(sessionId: string): NonNullable<AuditInput["target"]> {
+  return { kind: "acp-session", id: auditSessionId(sessionId) };
+}
+
 function buildSessionUpdate(msg: MessageChunk): SessionUpdate | null {
   const meta: Record<string, unknown> = {};
   if (msg.role && msg.role !== "assistant") meta.role = msg.role;
@@ -496,7 +817,7 @@ function tryParseJson(text: string): unknown {
 export function run(): void {
   const transport = ndJsonStream(Writable.toWeb(process.stdout), Readable.toWeb(process.stdin));
 
-  const agent = new SwarmXAgent();
+  const agent = new SwarmXAgent({ audit: new AuditStore() });
 
   const connection = new AgentSideConnection((conn) => {
     agent.setConnection(conn);

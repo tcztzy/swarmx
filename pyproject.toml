@@ -1,14 +1,28 @@
 [project]
-name = "swarmx-monorepo"
-version = "3.0.0"
-description = "Python tooling for SwarmX evals."
+name = "swarmx"
+version = "3.2.0"
+description = "The dependency-minimal Python worker runtime for SwarmX."
 requires-python = ">=3.11"
 dependencies = []
 
+# Evaluation tooling is opt-in and is never installed into the product worker
+# environment unless the inspect group is selected explicitly.
 [dependency-groups]
 inspect = [
   "inspect-ai>=0.3",
 ]
 
+# Skill evolution (DSPy/GEPA) tooling is opt-in and is never installed into the
+# dependency-free product worker environment unless the evolution group is
+# selected explicitly. The version is pinned to the verified compatibility
+# matrix used by the evolution worker.
+evolution = [
+  "dspy==3.3.0",
+]
+
 [tool.uv]
 package = false
+
+[tool.swarmx.worker]
+protocol-version = 1
+entrypoint = "packages/runtime/python/swarmx_worker.py"

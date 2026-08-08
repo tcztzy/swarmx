@@ -1,33 +1,17 @@
 import type {
   AgentBackend,
-  BuiltinToolStylePreference,
   DesktopBuiltinToolSettings,
   DesktopComposerPreferences,
   DesktopComposerPreferenceUpdate,
-  HarnessPermissionMode,
-  HarnessPermissionPolicyLayer,
   SessionPermissionMode,
   SwarmConfig,
 } from "@swarmx/core";
-import {
-  type NormalizedRenderEvent,
-  type NormalizeMessageChunkOptions,
-  normalizeMessageChunk,
-  type RenderArtifactReference,
-  type RenderProvenance,
-} from "@swarmx/core/rendering";
+import { getHarness } from "@swarmx/core/harness";
 import type {
   DoctorFixResult,
   DoctorReport,
-  HarnessContainerRuntime,
-  HarnessEnvironmentHarness,
   HarnessEnvironmentHarnessState,
-  HarnessEnvironmentSetupResult,
   HarnessEnvironmentStatus,
-  HarnessProtectionMode,
-  HarnessProtectionSummary,
-  HarnessRuntimeRequirement,
-  HarnessVersionCheck,
 } from "@swarmx/runtime";
 import {
   Archive,
@@ -36,27 +20,18 @@ import {
   Bot,
   Bug,
   Check,
-  ChevronDown,
-  ChevronLeft,
-  ChevronRight,
-  CircleCheck,
   Clock3,
-  Code2,
   Download,
   FileSearch,
   Folder,
   FolderOpen,
-  Gauge,
   GitBranch,
   GitFork,
   Hammer,
-  KeyRound,
   Loader2,
   type LucideIcon,
-  Maximize2,
   MessageCircle,
   MessageSquarePlus,
-  Minus,
   MoreHorizontal,
   Package,
   PanelBottom,
@@ -65,26 +40,21 @@ import {
   PanelRight,
   Pencil,
   Pin,
-  Play,
   Plus,
   RefreshCw,
   Search,
   Settings,
   ShieldCheck,
-  Sparkles,
   SquarePen,
   Telescope,
-  Terminal as TerminalIcon,
   Trash2,
-  Upload,
   User,
   Workflow,
-  Wrench,
   X,
   XCircle,
 } from "lucide-react";
 import type React from "react";
-import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import useSWR, { useSWRConfig } from "swr";
 import type {
@@ -95,15 +65,7 @@ import type {
   ExtensionManagementState,
   ManualModelInput,
   DesktopMessageChunk as MessageChunk,
-  DesktopMessageRenderMetadata as MessageRenderMetadata,
-  ModelApiProtocol,
-  ModelCatalogSummary,
   DesktopN8nImportResponse as N8nImportResponse,
-  NewApiUsageAccount,
-  DesktopPermissionLayerStatus as PermissionLayerStatus,
-  ProviderKeyUsageSummary,
-  ProviderUsageEntry,
-  ProviderUsageMeter,
   ProviderUsageSnapshot,
   ProviderUsageTarget,
   DesktopSessionData as SessionData,
@@ -121,8 +83,6 @@ import {
   AgentPicker,
   type ComposerModelOption,
   canonicalDefaultComposerModel,
-  composerModelOptionId,
-  groupComposerModels,
   preferredComposerModel,
   resolveComposerModelOptions,
 } from "./agent-picker.js";
@@ -138,24 +98,12 @@ import {
 import {
   type AgentCompositionPayload,
   extensionAgentComposition,
-  formatSoftwareSummary,
-  nativeAgentHostLabel,
-  uniqueById,
 } from "./extension-presentation.js";
 import { ExtensionWorkspace } from "./extension-workspace.js";
 import { HARNESSES, type HarnessOption } from "./harness-presentation.js";
 import { RuntimeBottomPanel } from "./internal-terminal.js";
 import { MediaPreviewPanel } from "./media-preview.js";
-import { MessageAttachments } from "./message-attachments.js";
-import { MessageContent, MessageCopyButton } from "./message-content.js";
 import { type ActivityProfileSummary, ProfileWorkspace } from "./profile-workspace.js";
-import {
-  isDeepSeekProvider,
-  isDeepSeekProviderUrl,
-  isOpenCodeGoProviderUrl,
-  ProviderBrandIcon,
-  providerProtocolLabel,
-} from "./provider-presentation.js";
 import { api } from "./renderer-api.js";
 import { RuntimeSettings } from "./runtime-settings.js";
 import {
@@ -174,7 +122,6 @@ import {
   type ProjectData,
   type ProjectOrganizationMode,
   type ProjectPreviewState,
-  type ProjectSessionGroup,
   type ProjectSortMode,
   preloadSessionCandidates,
   projectDisplayName,
@@ -197,32 +144,15 @@ import {
   SettingsSidebar,
   SettingsWorkspace,
 } from "./settings-workspace.js";
-import {
-  capitalize,
-  errorMessage,
-  formatFullMessageTimestamp,
-  formatMessageTimestamp,
-  formatTimestamp,
-  lines,
-  projectName,
-  slugId,
-} from "./text-utils.js";
+import { errorMessage } from "./text-utils.js";
 import { Badge, Button, cx } from "./ui-primitives.js";
 import {
   type HarnessDescriptor,
   parseWorkflowJson,
   type WorkflowImportStatus,
-  type WorkflowParseResult,
   WorkflowWorkspace,
 } from "./workflow-workspace.js";
-import {
-  type BrowserBounds,
-  type BrowserState,
-  type WorkspaceDirectoryListing,
-  type WorkspaceFilePreview,
-  WorkspacePanel,
-  type WorkspaceReviewSnapshot,
-} from "./workspace-panel.js";
+import { WorkspacePanel } from "./workspace-panel.js";
 
 interface SelectedTranscriptContext {
   text: string;
@@ -323,59 +253,32 @@ const EMPTY_RUN_SUGGESTIONS: Array<{
     tone: "orange",
   },
 ];
-const CODEX_ACP_VERSION = "1.1.2";
-const CLAUDE_AGENT_ACP_VERSION = "0.58.1";
 const DEFAULT_HARNESS_MCPS = [{ name: "filesystem", transport: "stdio", scope: "project" }];
 const DEFAULT_HARNESS_SKILLS = ["test-driven-development", "backprop"];
 const DEFAULT_PROJECT_FILES = ["AGENTS.md", "CLAUDE.md"];
-const CODEX_ACP_ARGS = ["--yes", `@agentclientprotocol/codex-acp@${CODEX_ACP_VERSION}`];
-const CLAUDE_CODE_ACP_ARGS = [
-  "--yes",
-  `@agentclientprotocol/claude-agent-acp@${CLAUDE_AGENT_ACP_VERSION}`,
-];
 const DEFAULT_PRODUCT_CONFIG: Required<Pick<SwarmxDesktopProductConfig, "name">> = {
   name: "SwarmX",
 };
 
-const CODEX_ACP_BACKEND: AgentBackend = {
-  type: "custom",
-  program: "npx",
-  args: CODEX_ACP_ARGS,
-};
-
-const CLAUDE_CODE_ACP_BACKEND: AgentBackend = {
-  type: "custom",
-  program: "npx",
-  args: CLAUDE_CODE_ACP_ARGS,
-};
-
-function codexHarness(): HarnessDescriptor {
+function defaultWorkflowHarness(harnessId: "claude_code" | "codex"): {
+  backend: AgentBackend;
+  descriptor: HarnessDescriptor;
+} {
+  const harness = getHarness(harnessId);
+  if (!harness) throw new Error(`Missing built-in Harness "${harnessId}".`);
   return {
-    software: {
-      name: "codex-acp",
-      version: CODEX_ACP_VERSION,
-      runner: "npx",
-      command: CODEX_ACP_ARGS,
+    backend: harness.backend,
+    descriptor: {
+      software: harness.software,
+      mcps: DEFAULT_HARNESS_MCPS,
+      skills: DEFAULT_HARNESS_SKILLS,
+      projectFiles: DEFAULT_PROJECT_FILES,
     },
-    mcps: DEFAULT_HARNESS_MCPS,
-    skills: DEFAULT_HARNESS_SKILLS,
-    projectFiles: DEFAULT_PROJECT_FILES,
   };
 }
 
-function claudeCodeHarness(): HarnessDescriptor {
-  return {
-    software: {
-      name: "claude-agent-acp",
-      version: CLAUDE_AGENT_ACP_VERSION,
-      runner: "npx",
-      command: CLAUDE_CODE_ACP_ARGS,
-    },
-    mcps: DEFAULT_HARNESS_MCPS,
-    skills: DEFAULT_HARNESS_SKILLS,
-    projectFiles: DEFAULT_PROJECT_FILES,
-  };
-}
+const DEFAULT_CODEX_HARNESS = defaultWorkflowHarness("codex");
+const DEFAULT_CLAUDE_HARNESS = defaultWorkflowHarness("claude_code");
 
 const DEFAULT_WORKFLOW_CONFIG: SwarmConfig = {
   name: "research_review",
@@ -387,8 +290,8 @@ const DEFAULT_WORKFLOW_CONFIG: SwarmConfig = {
       agent: {
         name: "triage_agent",
         description: "Codex ACP agent for classification and planning.",
-        backend: CODEX_ACP_BACKEND,
-        parameters: { harness: codexHarness() },
+        backend: DEFAULT_CODEX_HARNESS.backend,
+        parameters: { harness: DEFAULT_CODEX_HARNESS.descriptor },
         instructions: "Identify the user's goal, constraints, and required evidence.",
       },
     },
@@ -397,8 +300,8 @@ const DEFAULT_WORKFLOW_CONFIG: SwarmConfig = {
       agent: {
         name: "researcher_agent",
         description: "Claude Code ACP agent for repository research.",
-        backend: CLAUDE_CODE_ACP_BACKEND,
-        parameters: { harness: claudeCodeHarness() },
+        backend: DEFAULT_CLAUDE_HARNESS.backend,
+        parameters: { harness: DEFAULT_CLAUDE_HARNESS.descriptor },
         instructions: "Inspect the repository and collect evidence for the plan.",
       },
     },
@@ -407,8 +310,8 @@ const DEFAULT_WORKFLOW_CONFIG: SwarmConfig = {
       agent: {
         name: "writer_agent",
         description: "Codex ACP agent for implementation-quality synthesis.",
-        backend: CODEX_ACP_BACKEND,
-        parameters: { harness: codexHarness() },
+        backend: DEFAULT_CODEX_HARNESS.backend,
+        parameters: { harness: DEFAULT_CODEX_HARNESS.descriptor },
         instructions: "Write a concise answer using the research output.",
       },
     },
@@ -2202,7 +2105,7 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
 
   const toggleSessionPinned = useCallback(async () => {
     const session = sessionContextMenu?.session;
-    if (!session || session.source !== "local" || sessionActionPending) return;
+    if (session?.source !== "local" || sessionActionPending) return;
     setSessionContextMenu(null);
     setSessionActionPending(true);
     setSessionActionError(null);
@@ -2217,7 +2120,7 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
 
   const archiveSidebarSession = useCallback(async () => {
     const session = sessionContextMenu?.session;
-    if (!session || session.source !== "local" || sessionActionPending) return;
+    if (session?.source !== "local" || sessionActionPending) return;
     setSessionContextMenu(null);
     if (
       currentSession?.id === session.id &&
@@ -4809,68 +4712,6 @@ function PinnedSummary({
         <XCircle aria-hidden="true" />
       </Button>
     </section>
-  );
-}
-
-function RuntimeRightPanel({
-  title,
-  harness,
-  model,
-  effort,
-  status,
-  messageCount,
-  onClose,
-  onArchive,
-}: {
-  title: string;
-  harness: string;
-  model: string;
-  effort: string;
-  status: string;
-  messageCount: number;
-  onClose: () => void;
-  onArchive?: () => void;
-}) {
-  return (
-    <aside className="runtime-right-panel" aria-label="Right panel">
-      <div className="runtime-panel__header">
-        <div>
-          <span>Summary</span>
-          <h2>{title}</h2>
-        </div>
-        <Button variant="ghost" size="icon" onClick={onClose} aria-label="Close right panel">
-          <PanelRight aria-hidden="true" />
-        </Button>
-      </div>
-      <dl className="runtime-right-panel__details">
-        <div>
-          <dt>Status</dt>
-          <dd>{status}</dd>
-        </div>
-        <div>
-          <dt>Harness</dt>
-          <dd>{harness}</dd>
-        </div>
-        <div>
-          <dt>Model</dt>
-          <dd>{model}</dd>
-        </div>
-        <div>
-          <dt>Effort</dt>
-          <dd>{effort}</dd>
-        </div>
-        <div>
-          <dt>Events</dt>
-          <dd>{messageCount}</dd>
-        </div>
-      </dl>
-      {onArchive && (
-        <Button variant="secondary" size="sm" onClick={onArchive}>
-          <Archive data-icon="inline-start" aria-hidden="true" />
-          Archive session
-        </Button>
-      )}
-    </aside>
   );
 }
 
