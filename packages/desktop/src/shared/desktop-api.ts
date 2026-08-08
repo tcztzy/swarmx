@@ -288,6 +288,7 @@ export interface DesktopPermissionLayerStatus {
 
 export interface DesktopPermissionStatus {
   personalPolicy: HarnessPermissionPolicyLayer;
+  defaultMode: "default" | "auto";
   profileAvailability: {
     default: boolean;
     auto: boolean;

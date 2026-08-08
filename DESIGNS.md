@@ -355,6 +355,32 @@ authority combines managed, Project, personal, Agent, and conversation layers.
 Explicit denial and lower-authority ceilings win. A one-call approval never
 grants path, network, environment, or sandbox escalation.
 
+Auto mode uses three ordered tiers. Explicit allow, ask, and deny policy is
+resolved first. Read-only tools and bounded edits inside the active Project keep
+their deterministic fast path. Every remaining one-call request is reviewed by
+a separate, tool-free model invocation before the action starts. The classifier
+receives bounded user messages and the pending executable tool payload; it does
+not receive assistant prose or prior tool results, which prevents either source
+from arguing the classifier into approving an action. Model output crosses a
+strict JSON boundary and can select only an offered `allow_once` option. Any
+other verdict, unavailable reviewer route, timeout, malformed response, or
+unsupported option falls back to the ordinary human prompt. The static policy
+and platform sandbox remain authoritative regardless of the model verdict.
+
+An automatic decision is persisted and audited as model-made before the tool
+effect begins. Receipts contain only bounded provenance such as source, tool,
+risk class, and reviewer model; prompts, executable payloads, classifier prose,
+and tool results are never audit or settings data.
+
+Auto is the immediate product fallback whenever no layer declares a mode. A
+Session persisted as `inherit` therefore resolves through Auto regardless of
+when the Session was created; Session creation does not rewrite `inherit` into
+an explicit mode. A mode declared by managed, Project, personal, Agent, or
+conversation policy remains unchanged, and disabling the Auto profile still
+applies the existing safe degradation. Repository-controlled policy cannot opt
+itself into more authority. External vendor rollout dates are research context,
+not runtime feature gates.
+
 Model-facing tool profiles may emulate implemented Claude Code, Codex, or Kimi
 Code contracts. A public tool is exposed only when the host can provide its real
 schema and behavior.

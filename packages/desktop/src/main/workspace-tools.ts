@@ -39,6 +39,7 @@ import type {
   ClaudeInteractionRequest,
   ClaudeInteractionResponse,
   ClaudeQuestion,
+  ToolApprovalOption,
 } from "./agent-interactions.js";
 import type { ClaudeLspRequest, ClaudeLspResponse } from "./lsp-host.js";
 import { applyCodexUpdate, parseCodexPatch } from "./workspace-patch.js";
@@ -263,6 +264,16 @@ export interface WorkspaceSearchResult {
 
 export type WorkspaceToolProfile = BuiltinToolStyle;
 
+export interface WorkspacePermissionReviewRequest {
+  source: "direct";
+  toolName: string;
+  toolKind: HarnessToolAccess;
+  summary: string;
+  toolInput: Record<string, unknown> | string;
+  options: ToolApprovalOption[];
+  policySourceIds: string[];
+}
+
 export interface WorkspaceAgentToolOptions {
   model?: string;
   toolStyle?: WorkspaceToolProfile;
@@ -271,6 +282,7 @@ export interface WorkspaceAgentToolOptions {
   effort?: string;
   sessionId?: string;
   interact?: (request: ClaudeInteractionRequest) => Promise<ClaudeInteractionResponse>;
+  reviewPermission?: (request: WorkspacePermissionReviewRequest) => Promise<boolean>;
   closeInteractions?: () => void;
   lsp?: (request: ClaudeLspRequest) => Promise<ClaudeLspResponse>;
   agent?: (request: ClaudeAgentInvocation) => Promise<ClaudeAgentResult>;
@@ -1622,7 +1634,9 @@ export function workspaceAgentTools(
   const policy = layered.success
     ? layered.data
     : HarnessPermissionPolicySchema.parse(options.permissionPolicy);
-  return profileTools.map((tool) => permissionGuardedTool(tool, policy, options.interact));
+  return profileTools.map((tool) =>
+    permissionGuardedTool(tool, policy, options.reviewPermission, options.interact),
+  );
 }
 
 const READ_ONLY_PERMISSION_TOOLS = new Set([
@@ -1649,10 +1663,18 @@ const WRITE_PERMISSION_TOOLS = new Set(["Edit", "NotebookEdit", "Write", "apply_
 function permissionGuardedTool(
   tool: LocalTool,
   policy: HarnessPermissionPolicy | ResolvedHarnessPermissionPolicy,
+  reviewPermission: WorkspaceAgentToolOptions["reviewPermission"],
   interact: WorkspaceAgentToolOptions["interact"],
 ): LocalTool {
   const authorize = (input: Record<string, unknown> | string) =>
-    authorizeWorkspaceTool(tool.name, workspaceToolAccess(tool.name), input, policy, interact);
+    authorizeWorkspaceTool(
+      tool.name,
+      workspaceToolAccess(tool.name),
+      input,
+      policy,
+      reviewPermission,
+      interact,
+    );
   if (tool.kind === "text") {
     const textTool = tool as LocalTextTool;
     return {
@@ -1678,6 +1700,7 @@ async function authorizeWorkspaceTool(
   access: HarnessToolAccess,
   input: Record<string, unknown> | string,
   policy: HarnessPermissionPolicy | ResolvedHarnessPermissionPolicy,
+  reviewPermission: WorkspaceAgentToolOptions["reviewPermission"],
   interact: WorkspaceAgentToolOptions["interact"],
 ): Promise<void> {
   const resolved = resolveHarnessToolPermission(policy, { toolName, access });
@@ -1686,6 +1709,30 @@ async function authorizeWorkspaceTool(
     throw new Error(
       `Tool "${toolName}" is denied by Harness permission policy (${resolved.reason}).`,
     );
+  }
+  const options: ToolApprovalOption[] = [
+    { optionId: "reject_once", name: "Reject", kind: "reject_once" },
+    { optionId: "allow_once", name: "Allow once", kind: "allow_once" },
+  ];
+  const summary = workspaceToolApprovalSummary(toolName, input);
+  if (resolved.reason === "auto" && reviewPermission) {
+    try {
+      if (
+        await reviewPermission({
+          source: "direct",
+          toolName,
+          toolKind: access,
+          summary,
+          toolInput: input,
+          options,
+          policySourceIds: resolved.sourceIds,
+        })
+      ) {
+        return;
+      }
+    } catch {
+      // The human bridge remains the fail-closed fallback for reviewer errors.
+    }
   }
   if (!interact) {
     throw new Error(
@@ -1698,11 +1745,8 @@ async function authorizeWorkspaceTool(
     toolKind: access,
     source: "direct",
     policySourceIds: resolved.sourceIds,
-    summary: workspaceToolApprovalSummary(toolName, input),
-    options: [
-      { optionId: "reject_once", name: "Reject", kind: "reject_once" },
-      { optionId: "allow_once", name: "Allow once", kind: "allow_once" },
-    ],
+    summary,
+    options,
   });
   if (response.kind !== "tool_approval" || response.optionId !== "allow_once") {
     throw new Error(`Tool "${toolName}" was rejected by the user.`);

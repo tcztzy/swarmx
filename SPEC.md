@@ -122,6 +122,16 @@ implementation map, test plan, backlog, changelog, or incident log.
 - Resolve direct-tool authority from managed, Project, personal, Agent, and
   conversation layers. Denials and lower-authority ceilings win; approval never
   escapes the operating-system sandbox.
+- In Auto mode, keep bounded Project reads and edits on the deterministic fast
+  path and send remaining one-call permission requests to a separate tool-free
+  LLM review. The reviewer may approve only the offered one-call option; it
+  cannot override explicit asks or denials, grant durable authority, or widen
+  Project, network, environment, secret, or sandbox scope. Missing, malformed,
+  timed-out, or unsupported review falls back to human approval.
+- Use Auto immediately as the fallback whenever no user, Agent, Project,
+  managed, or conversation layer declares a mode, including persisted Sessions
+  that still inherit the default. Preserve every explicit mode and every
+  lower-authority ceiling; vendor rollout dates never gate this product default.
 - Preserve permission decisions, privileged host requests, process lifecycle,
   and externally reachable request outcomes as a tamper-evident local audit
   chain with bounded query, verification, and export.

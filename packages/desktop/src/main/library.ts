@@ -70,6 +70,12 @@ export type {
 } from "./model-catalog.js";
 export { ModelCatalogService } from "./model-catalog.js";
 export type {
+  PermissionAutoReviewerOptions,
+  PermissionReviewRequest,
+  PermissionReviewResult,
+} from "./permission-review.js";
+export { PermissionAutoReviewer } from "./permission-review.js";
+export type {
   DesktopPermissionStatus,
   PermissionLayerStatus,
   PermissionServiceOptions,

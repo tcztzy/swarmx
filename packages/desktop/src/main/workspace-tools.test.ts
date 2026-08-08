@@ -90,6 +90,40 @@ describe("WorkspaceTools", () => {
     await expect(exec.call({ cmd: "pwd" })).rejects.toThrow(/explicit_deny/i);
   });
 
+  it("routes Auto command requests through model review before the human fallback", async () => {
+    const root = await temporaryDirectory();
+    const reviewPermission = vi.fn().mockResolvedValueOnce(true).mockResolvedValueOnce(false);
+    const interact = vi.fn().mockResolvedValue({
+      kind: "tool_approval",
+      optionId: "allow_once",
+    });
+    const tools = workspaceAgentTools(new WorkspaceTools(root), undefined, {
+      model: "claude-sonnet-5",
+      permissionPolicy: { mode: "auto" },
+      reviewPermission,
+      interact,
+    });
+    const exec = tools.find((tool) => tool.name === "exec_command") as LocalMcpTool;
+
+    await expect(exec.call({ cmd: "pwd" })).resolves.toEqual(
+      expect.objectContaining({ content: expect.any(String) }),
+    );
+    expect(interact).not.toHaveBeenCalled();
+    expect(reviewPermission).toHaveBeenCalledWith(
+      expect.objectContaining({
+        source: "direct",
+        toolName: "exec_command",
+        toolKind: "execute",
+        toolInput: { cmd: "pwd" },
+      }),
+    );
+
+    await expect(exec.call({ cmd: "pwd" })).resolves.toEqual(
+      expect.objectContaining({ content: expect.any(String) }),
+    );
+    expect(interact).toHaveBeenCalledTimes(1);
+  });
+
   it("returns staged, unstaged, and untracked text patches", async () => {
     const root = await temporaryDirectory();
     await git(root, "init", "-b", "main");

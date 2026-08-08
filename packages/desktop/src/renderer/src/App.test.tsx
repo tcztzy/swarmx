@@ -5490,12 +5490,14 @@ function permissionStatusFixture() {
     id: "personal",
     source: "personal" as const,
     label: "Personal defaults",
+    mode: "default" as const,
     allowedTools: [],
     deniedTools: [],
     readOnly: false,
   };
   return {
     personalPolicy,
+    defaultMode: "auto" as const,
     profileAvailability: { default: true, auto: true, trusted: true },
     layers: [
       {

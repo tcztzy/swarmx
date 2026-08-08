@@ -35,6 +35,7 @@ export interface PermissionLayerStatus {
 
 export interface DesktopPermissionStatus {
   personalPolicy: HarnessPermissionPolicyLayer;
+  defaultMode: "default" | "auto";
   profileAvailability: DesktopPermissionProfileAvailability;
   layers: PermissionLayerStatus[];
   effective?: ResolvedHarnessPermissionPolicy;
@@ -56,6 +57,9 @@ export interface RecordPermissionDecisionInput {
   toolName: string;
   toolKind?: string;
   decision: PermissionApprovalReceipt["decision"];
+  decidedBy?: PermissionApprovalReceipt["decidedBy"];
+  risk?: PermissionApprovalReceipt["risk"];
+  reviewerModel?: PermissionApprovalReceipt["reviewerModel"];
   optionKind?: PermissionApprovalReceipt["optionKind"];
   policySourceIds?: string[];
 }
@@ -127,8 +131,20 @@ export class PermissionService {
       ...(agent ? [session ? withoutMode(agent) : agent] : []),
       ...(session ? [session] : []),
     ];
+    const defaultMode = "auto" as const;
+    const layersWithDefault = !configuredLayers.some((layer) => layer.mode !== undefined)
+      ? configuredLayers.map((layer) =>
+          layer.id === "personal"
+            ? constrainUnavailableMode(
+                HarnessPermissionPolicyLayerSchema.parse({ ...layer, mode: defaultMode }),
+                profileAvailability,
+              )
+            : layer,
+        )
+      : configuredLayers;
     return {
       personalPolicy: settings.permissions.personalPolicy,
+      defaultMode,
       profileAvailability,
       layers: [
         permissionLayerStatus("managed", "Managed policy", managed),
@@ -143,7 +159,7 @@ export class PermissionService {
           ? [permissionLayerStatus("session", "Conversation override", { layer: session })]
           : []),
       ],
-      ...(!blocked ? { effective: resolveHarnessPermissionLayers(configuredLayers) } : {}),
+      ...(!blocked ? { effective: resolveHarnessPermissionLayers(layersWithDefault) } : {}),
       blocked,
       projectPolicyPath: PROJECT_PERMISSION_POLICY_PATH,
       approvalReceipts: settings.permissions.approvalReceipts,
@@ -193,6 +209,9 @@ export class PermissionService {
       toolName: input.toolName,
       ...(input.toolKind ? { toolKind: input.toolKind } : {}),
       decision: input.decision,
+      decidedBy: input.decidedBy ?? "user",
+      ...(input.risk ? { risk: input.risk } : {}),
+      ...(input.reviewerModel ? { reviewerModel: input.reviewerModel } : {}),
       ...(input.optionKind ? { optionKind: input.optionKind } : {}),
       policySourceIds: input.policySourceIds ?? [],
     });

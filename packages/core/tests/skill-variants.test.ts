@@ -161,6 +161,17 @@ describe("Skill variants", () => {
         },
       ]),
     ).toThrow(/cannot pre-approve/i);
+    expect(() =>
+      resolveHarnessPermissionLayers([
+        {
+          id: "project",
+          source: "project",
+          mode: "auto",
+          allowedTools: [],
+          deniedTools: [],
+        },
+      ]),
+    ).toThrow(/cannot enable elevated modes/i);
 
     const resolution = resolveHarnessPermissionLayers([
       {
@@ -223,6 +234,31 @@ describe("Skill variants", () => {
         rawInput: "secret command",
       }),
     ).toThrow();
+    expect(
+      PermissionApprovalReceiptSchema.parse({
+        id: "prm_87654321",
+        createdAt: "2026-08-14T00:00:00.000Z",
+        source: "direct",
+        toolName: "exec_command",
+        toolKind: "execute",
+        decision: "allowed",
+        decidedBy: "llm",
+        risk: "controlled",
+        reviewerModel: "claude-sonnet-5",
+        optionKind: "allow_once",
+      }),
+    ).toMatchObject({ decidedBy: "llm", risk: "controlled" });
+    expect(() =>
+      PermissionApprovalReceiptSchema.parse({
+        id: "prm_87654322",
+        createdAt: "2026-08-14T00:00:00.000Z",
+        source: "direct",
+        toolName: "exec_command",
+        decision: "allowed",
+        decidedBy: "llm",
+        optionKind: "allow_always",
+      }),
+    ).toThrow(/one-call approval/i);
   });
 
   it("migrates a legacy single-path Skill into one default variant", () => {

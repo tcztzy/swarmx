@@ -571,6 +571,14 @@ export const HarnessPermissionPolicyLayerSchema = z
         message: "Project permission policy may restrict authority but cannot pre-approve tools.",
       });
     }
+    if (layer.source === "project" && (layer.mode === "auto" || layer.mode === "trusted")) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["mode"],
+        message:
+          "Project permission policy may restrict authority but cannot enable elevated modes.",
+      });
+    }
   });
 
 export const ResolvedHarnessPermissionPolicySchema = z
@@ -591,15 +599,21 @@ export const PermissionApprovalReceiptSchema = z
     toolName: z.string().min(1).max(160),
     toolKind: z.string().min(1).max(80).optional(),
     decision: z.enum(["allowed", "rejected", "cancelled"]),
+    decidedBy: z.enum(["user", "llm"]).default("user"),
+    risk: z.enum(["low", "controlled"]).optional(),
+    reviewerModel: z.string().min(1).max(160).optional(),
     optionKind: z.enum(["allow_once", "allow_always", "reject_once", "reject_always"]).optional(),
     policySourceIds: z.array(z.string().min(1).max(128)).max(16).default([]),
   })
   .strict()
   .superRefine((receipt, ctx) => {
     addSecretIssues(receipt, ctx);
-    const values = [receipt.toolName, receipt.toolKind, ...receipt.policySourceIds].filter(
-      (value): value is string => Boolean(value),
-    );
+    const values = [
+      receipt.toolName,
+      receipt.toolKind,
+      receipt.reviewerModel,
+      ...receipt.policySourceIds,
+    ].filter((value): value is string => Boolean(value));
     for (const value of values) {
       if (!containsSecretMarker(value)) continue;
       ctx.addIssue({
@@ -607,6 +621,19 @@ export const PermissionApprovalReceiptSchema = z
         message: "Permission approval receipts must not contain secret-bearing values.",
       });
       break;
+    }
+    if (receipt.decidedBy === "llm") {
+      if (receipt.decision !== "allowed" || receipt.optionKind !== "allow_once" || !receipt.risk) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "LLM permission receipts require a low/controlled one-call approval.",
+        });
+      }
+    } else if (receipt.risk || receipt.reviewerModel) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Human permission receipts cannot claim LLM review provenance.",
+      });
     }
   });
 

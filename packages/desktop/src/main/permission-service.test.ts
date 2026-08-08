@@ -201,6 +201,7 @@ describe("PermissionService", () => {
         toolName: "Write",
         toolKind: "write",
         decision: "rejected",
+        decidedBy: "user",
         optionKind: "reject_once",
         policySourceIds: ["personal"],
       },
@@ -233,6 +234,56 @@ describe("PermissionService", () => {
     expect(receipts).toHaveLength(200);
     expect(receipts[0]?.toolName).toBe("tool-204");
     expect(receipts.at(-1)?.toolName).toBe("tool-5");
+  });
+
+  it("persists bounded LLM decision provenance", async () => {
+    const { service } = await fixture(undefined, {
+      now: () => "2026-08-08T00:00:00.000Z",
+      id: () => "prm_87654321",
+    });
+    await service.recordDecision({
+      source: "direct",
+      toolName: "exec_command",
+      toolKind: "execute",
+      decision: "allowed",
+      decidedBy: "llm",
+      risk: "controlled",
+      reviewerModel: "claude-sonnet-5",
+      optionKind: "allow_once",
+    });
+
+    await expect(service.status()).resolves.toMatchObject({
+      approvalReceipts: [
+        {
+          decidedBy: "llm",
+          risk: "controlled",
+          reviewerModel: "claude-sonnet-5",
+          optionKind: "allow_once",
+        },
+      ],
+    });
+  });
+
+  it("uses Auto immediately when no layer declares a mode, including inherited sessions", async () => {
+    const inherited = await fixture(undefined, { now: () => "2026-08-08T00:00:00.000Z" });
+    await expect(inherited.service.status()).resolves.toMatchObject({
+      defaultMode: "auto",
+      effective: { policy: { mode: "auto" } },
+    });
+    await expect(
+      inherited.service.resolve({
+        agentPolicy: { mode: "default" },
+        agentModeDeclared: false,
+        sessionPermissionMode: "inherit",
+      }),
+    ).resolves.toMatchObject({ policy: { mode: "auto" } });
+
+    await inherited.service.savePersonalPolicy({ mode: "default" });
+    await expect(inherited.service.status()).resolves.toMatchObject({
+      defaultMode: "auto",
+      personalPolicy: { mode: "default" },
+      effective: { policy: { mode: "default" } },
+    });
   });
 });
 

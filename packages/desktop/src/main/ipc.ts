@@ -15,6 +15,7 @@ import type {
   DiscoveredSession,
   ExtensionInventory,
   ExternalAcpSessionBinding,
+  HarnessPermissionMode,
   ListGroupedSessionsOptions,
   MediaAttachment,
   MessageChunk,
@@ -106,6 +107,7 @@ import {
   type ProviderRuntimeCredentials,
   type UserProviderInput,
 } from "./model-catalog.js";
+import { PermissionAutoReviewer, type PermissionReviewResult } from "./permission-review.js";
 import { PermissionService, type RecordPermissionDecisionInput } from "./permission-service.js";
 import { FileProviderAuthStore } from "./provider-auth.js";
 import { providerErrorMessage } from "./provider-error.js";
@@ -146,6 +148,7 @@ import type { RendererIpcEvent } from "./window-security.js";
 import {
   projectAgentContextMessage,
   type WorkspaceAgentToolOptions,
+  type WorkspacePermissionReviewRequest,
   WorkspaceTools,
   workspaceAgentTools,
   workspaceToolProfile,
@@ -652,6 +655,29 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
           if (chunk.kind !== "tool_progress") observedMessages.push(chunk);
           publishChunk(chunk);
         };
+        let activePermissionReviewer: PermissionAutoReviewer | undefined;
+        let activePermissionReviewerModel: string | undefined;
+        let effectivePermissionMode: HarnessPermissionMode = "default";
+        const permissionUserMessages = () =>
+          permissionReviewUserMessages(params.sessionId, params.userText);
+        const reviewPermission = async (input: {
+          source: "direct" | "acp";
+          toolName: string;
+          toolKind?: string;
+          toolInput?: unknown;
+          options: Array<{
+            optionId: string;
+            kind: "allow_once" | "allow_always" | "reject_once" | "reject_always";
+          }>;
+        }): Promise<PermissionReviewResult> => {
+          if (effectivePermissionMode !== "auto" || !activePermissionReviewer) {
+            return { decision: "defer" };
+          }
+          return activePermissionReviewer.review({
+            ...input,
+            userMessages: permissionUserMessages(),
+          });
+        };
         const acpPermissionHandler: AcpPermissionHandler = async (request) => {
           if (params.sideChatId) return { outcome: { outcome: "cancelled" } };
           const optionIds = request.options.map((option) => option.optionId);
@@ -663,6 +689,46 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
             ? boundedPermissionLabel(request.toolCall.kind)
             : undefined;
           try {
+            const automatic = requiresExplicitPermissionInteraction(request)
+              ? ({ decision: "defer" } as const)
+              : await reviewPermission({
+                  source: "acp",
+                  toolName: title,
+                  ...(toolKind ? { toolKind } : {}),
+                  toolInput: request.toolCall.rawInput ?? {
+                    title,
+                    ...(toolKind ? { kind: toolKind } : {}),
+                    ...(request.toolCall.name ? { name: request.toolCall.name } : {}),
+                    ...(request.toolCall.locations
+                      ? { locations: request.toolCall.locations }
+                      : {}),
+                  },
+                  options: request.options.map((option) => ({
+                    optionId: option.optionId,
+                    kind: option.kind,
+                  })),
+                });
+            if (automatic.decision === "allow") {
+              await recordPermissionDecision(
+                {
+                  source: "acp",
+                  toolName: title,
+                  ...(toolKind ? { toolKind } : {}),
+                  decision: "allowed",
+                  decidedBy: "llm",
+                  risk: automatic.risk,
+                  ...(activePermissionReviewerModel
+                    ? { reviewerModel: activePermissionReviewerModel }
+                    : {}),
+                  optionKind: "allow_once",
+                },
+                {
+                  requestId: params.requestId,
+                  sessionId: params.sessionId,
+                },
+              );
+              return { outcome: { outcome: "selected", optionId: automatic.optionId } };
+            }
             const response = await agentInteractions.request(event.sender, params.requestId, {
               kind: "tool_approval",
               title,
@@ -838,23 +904,22 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
             deniedTools: plan.permissions?.deniedTools ?? [],
           });
           const permissionSession =
-            projectTools && params.sessionId && !params.sideChatId ? directSession : undefined;
-          if (projectTools && params.sessionId && !params.sideChatId && !permissionSession) {
+            params.sessionId && !params.sideChatId ? directSession : undefined;
+          if (params.sessionId && !params.sideChatId && !permissionSession) {
             throw new Error(`Session ${params.sessionId} no longer exists.`);
           }
-          const permissionPolicy = projectTools
-            ? await permissionService.resolve({
-                cwd,
-                agentId: plan.agentProfileId ?? plan.agentId,
-                agentPolicy: agentPermissionPolicy,
-                agentModeDeclared: Boolean(plan.permissions?.mode),
-                ...(params.sideChatId
-                  ? { sessionPermissionMode: "plan" as const }
-                  : permissionSession
-                    ? { sessionPermissionMode: permissionSession.permissionMode }
-                    : {}),
-              })
-            : undefined;
+          const permissionPolicy = await permissionService.resolve({
+            cwd,
+            agentId: plan.agentProfileId ?? plan.agentId,
+            agentPolicy: agentPermissionPolicy,
+            agentModeDeclared: Boolean(plan.permissions?.mode),
+            ...(params.sideChatId
+              ? { sessionPermissionMode: "plan" as const }
+              : permissionSession
+                ? { sessionPermissionMode: permissionSession.permissionMode }
+                : {}),
+          });
+          effectivePermissionMode = permissionPolicy.policy.mode;
           const selectedWorkspaceSkills = plan.skills.flatMap((skillRef) => {
             if (skillRef.status !== "ok") return [];
             const matches = inventory.skills.filter((skill) => skill.id === skillRef.id);
@@ -879,12 +944,87 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
             ...(builtinToolBinding ? { toolStyle: builtinToolBinding.style } : {}),
             ...(selectedWorkspaceSkills.length > 0 ? { skills: selectedWorkspaceSkills } : {}),
             ...(plan.effort ? { effort: plan.effort } : {}),
-            ...(permissionPolicy ? { permissionPolicy } : {}),
+            permissionPolicy,
             ...(projectTools && lspHost.supportsClaudeOperations(inventory)
               ? {
                   lsp: (request) => lspHost.operate(inventory, projectTools.root, request),
                 }
               : {}),
+          };
+          const reviewerModel = plan.modelId ?? plan.runtimeModel;
+          const reviewerComposition: AgentComposition = {
+            id: `${params.requestId}:permission-review`,
+            harnessId: "swarmx",
+            ...(plan.modelId ? { modelId: plan.modelId } : {}),
+            ...(plan.modelSupplyId ? { modelSupplyId: plan.modelSupplyId } : {}),
+            effort: "none",
+            skills: [],
+            mcpServers: [],
+            pluginIds: [],
+            plugins: [],
+            host: "local",
+          };
+          const runWithPermissionReviewer = async <T>(
+            providerSecrets: Record<string, string>,
+            observation: ProviderKeyAttemptObservation,
+            run: () => Promise<T>,
+          ): Promise<T> => {
+            const previousReviewer = activePermissionReviewer;
+            const previousModel = activePermissionReviewerModel;
+            activePermissionReviewerModel = reviewerModel;
+            activePermissionReviewer = new PermissionAutoReviewer({
+              generate: (messages) =>
+                executeAgentComposition(reviewerComposition, messages, {
+                  inventory: executionInventory,
+                  providerSecrets,
+                  cwd,
+                  onUsage: (usage) => {
+                    tokenUsages.push(usage);
+                    observation.recordUsage(usage);
+                  },
+                }),
+            });
+            try {
+              return await run();
+            } finally {
+              activePermissionReviewer = previousReviewer;
+              activePermissionReviewerModel = previousModel;
+            }
+          };
+          const reviewWorkspacePermission = async (
+            request: WorkspacePermissionReviewRequest,
+          ): Promise<boolean> => {
+            const automatic = await reviewPermission({
+              source: request.source,
+              toolName: request.toolName,
+              toolKind: request.toolKind,
+              toolInput: request.toolInput,
+              options: request.options.map((option) => ({
+                optionId: option.optionId,
+                kind: option.kind,
+              })),
+            });
+            if (automatic.decision !== "allow") return false;
+            await recordPermissionDecision(
+              {
+                source: "direct",
+                toolName: request.toolName,
+                toolKind: request.toolKind,
+                decision: "allowed",
+                decidedBy: "llm",
+                risk: automatic.risk,
+                ...(activePermissionReviewerModel
+                  ? { reviewerModel: activePermissionReviewerModel }
+                  : {}),
+                optionKind: "allow_once",
+                policySourceIds: request.policySourceIds,
+              },
+              {
+                requestId: params.requestId,
+                sessionId: params.sessionId,
+              },
+            );
+            return true;
           };
           const sessionRuntime =
             projectTools &&
@@ -911,6 +1051,7 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
                 const backgroundTools = new WorkspaceTools(sessionRuntime.root);
                 const backgroundToolOptions: WorkspaceAgentToolOptions = {
                   ...baseWorkspaceToolOptions,
+                  reviewPermission: reviewWorkspacePermission,
                   permissionPolicy: await permissionService.resolve({
                     cwd: sessionRuntime.root,
                     agentId: plan.agentProfileId ?? plan.agentId,
@@ -926,31 +1067,33 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
                   providerRuntime,
                   `${sessionId}:background`,
                   (providerSecrets, observation) =>
-                    executeAgentComposition(
-                      params.agentComposition,
-                      [
+                    runWithPermissionReviewer(providerSecrets, observation, () =>
+                      executeAgentComposition(
+                        params.agentComposition,
+                        [
+                          {
+                            role: "system",
+                            content: projectAgentContextMessage(
+                              sessionRuntime.root,
+                              backgroundToolOptions,
+                            ),
+                          },
+                          ...sessionChatMessages(persisted),
+                        ],
                         {
-                          role: "system",
-                          content: projectAgentContextMessage(
-                            sessionRuntime.root,
+                          inventory: protectedInventory,
+                          providerSecrets,
+                          cwd: sessionRuntime.root,
+                          acpPermissionHandler,
+                          localTools: workspaceAgentTools(
+                            backgroundTools,
+                            sessionRuntime.shell,
                             backgroundToolOptions,
                           ),
+                          onChunk: () => observation.markOutput(),
+                          onUsage: (usage) => observation.recordUsage(usage),
                         },
-                        ...sessionChatMessages(persisted),
-                      ],
-                      {
-                        inventory: protectedInventory,
-                        providerSecrets,
-                        cwd: sessionRuntime.root,
-                        acpPermissionHandler,
-                        localTools: workspaceAgentTools(
-                          backgroundTools,
-                          sessionRuntime.shell,
-                          backgroundToolOptions,
-                        ),
-                        onChunk: () => observation.markOutput(),
-                        onUsage: (usage) => observation.recordUsage(usage),
-                      },
+                      ),
                     ),
                 );
                 assertFinalAssistantMessage(messages);
@@ -1038,6 +1181,7 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
                     const childTools = new WorkspaceTools(root);
                     const childToolOptions: WorkspaceAgentToolOptions = {
                       ...baseWorkspaceToolOptions,
+                      reviewPermission: reviewWorkspacePermission,
                       sessionId: `${params.sessionId ?? params.requestId}:agent:${agentId}`,
                       interact: interactWithPermissionReceipts,
                       ...(lspHost.supportsClaudeOperations(inventory)
@@ -1051,18 +1195,24 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
                       providerRuntime,
                       `${params.sessionId ?? params.requestId}:agent:${agentId}`,
                       (providerSecrets, observation) =>
-                        executeAgentComposition(params.agentComposition, childMessages, {
-                          inventory: protectedInventory,
-                          providerSecrets,
-                          cwd: root,
-                          acpPermissionHandler,
-                          localTools: workspaceAgentTools(childTools, undefined, childToolOptions),
-                          onChunk: () => observation.markOutput(),
-                          onUsage: (usage) => {
-                            childUsages.push(usage);
-                            observation.recordUsage(usage);
-                          },
-                        }),
+                        runWithPermissionReviewer(providerSecrets, observation, () =>
+                          executeAgentComposition(params.agentComposition, childMessages, {
+                            inventory: protectedInventory,
+                            providerSecrets,
+                            cwd: root,
+                            acpPermissionHandler,
+                            localTools: workspaceAgentTools(
+                              childTools,
+                              undefined,
+                              childToolOptions,
+                            ),
+                            onChunk: () => observation.markOutput(),
+                            onUsage: (usage) => {
+                              childUsages.push(usage);
+                              observation.recordUsage(usage);
+                            },
+                          }),
+                        ),
                     );
                     return { messages, usages: childUsages };
                   },
@@ -1070,6 +1220,7 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
               : null;
           const workspaceToolOptions: WorkspaceAgentToolOptions = {
             ...baseWorkspaceToolOptions,
+            reviewPermission: reviewWorkspacePermission,
             sessionId: params.sideChatId ?? params.sessionId ?? params.requestId,
             ...(sessionRuntime ? { sessionTools: sessionRuntime, borrowShell: true } : {}),
             ...(childAgentHost ? { agent: (request) => childAgentHost.run(request) } : {}),
@@ -1102,52 +1253,54 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
             providerRuntime,
             params.sideChatId ?? params.sessionId ?? params.requestId,
             (providerSecrets, observation) =>
-              executeAgentComposition(
-                params.agentComposition,
-                [
-                  ...sideChatBoundaryMessage,
-                  ...(projectTools
-                    ? [
-                        {
-                          role: "system" as const,
-                          content: projectAgentContextMessage(
-                            cwd ?? desktopWorkspaceRoot,
+              runWithPermissionReviewer(providerSecrets, observation, () =>
+                executeAgentComposition(
+                  params.agentComposition,
+                  [
+                    ...sideChatBoundaryMessage,
+                    ...(projectTools
+                      ? [
+                          {
+                            role: "system" as const,
+                            content: projectAgentContextMessage(
+                              cwd ?? desktopWorkspaceRoot,
+                              workspaceToolOptions,
+                            ),
+                          },
+                        ]
+                      : []),
+                    ...(sessionMessages.length > 0
+                      ? sessionMessages
+                      : [{ role: "user" as const, content: params.userText }]),
+                  ],
+                  {
+                    inventory: executionInventory,
+                    env: compositionEnv,
+                    providerSecrets,
+                    cwd,
+                    acpPermissionHandler,
+                    acpSessionId,
+                    onAcpSessionId,
+                    ...(params.sideChatId ? { acpMode: "plan" } : {}),
+                    ...(projectTools
+                      ? {
+                          localTools: workspaceAgentTools(
+                            projectTools,
+                            sessionRuntime?.shell,
                             workspaceToolOptions,
                           ),
-                        },
-                      ]
-                    : []),
-                  ...(sessionMessages.length > 0
-                    ? sessionMessages
-                    : [{ role: "user" as const, content: params.userText }]),
-                ],
-                {
-                  inventory: executionInventory,
-                  env: compositionEnv,
-                  providerSecrets,
-                  cwd,
-                  acpPermissionHandler,
-                  acpSessionId,
-                  onAcpSessionId,
-                  ...(params.sideChatId ? { acpMode: "plan" } : {}),
-                  ...(projectTools
-                    ? {
-                        localTools: workspaceAgentTools(
-                          projectTools,
-                          sessionRuntime?.shell,
-                          workspaceToolOptions,
-                        ),
-                      }
-                    : {}),
-                  onChunk: (chunk) => {
-                    observation.markOutput();
-                    onChunk(chunk);
+                        }
+                      : {}),
+                    onChunk: (chunk) => {
+                      observation.markOutput();
+                      onChunk(chunk);
+                    },
+                    onUsage: (usage) => {
+                      tokenUsages.push(usage);
+                      observation.recordUsage(usage);
+                    },
                   },
-                  onUsage: (usage) => {
-                    tokenUsages.push(usage);
-                    observation.recordUsage(usage);
-                  },
-                },
+                ),
               ),
           );
           assertFinalAssistantMessage(messages);
@@ -1427,13 +1580,12 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
         cwd?: string;
         permissionMode?: SessionPermissionMode;
       },
-    ): SessionData => {
-      return createSession(params.agentName, params.harness, params.model, {
+    ): SessionData =>
+      createSession(params.agentName, params.harness, params.model, {
         projectId: params.projectId,
         cwd: params.cwd,
         permissionMode: params.permissionMode,
-      });
-    },
+      }),
   );
 
   ipcMain.handle("session:save", async (_event: IpcMainInvokeEvent, session: SessionData) => {
@@ -2465,6 +2617,25 @@ function safeDecodeUri(value: string): string {
   }
 }
 
+function permissionReviewUserMessages(sessionId: string | undefined, current: string): string[] {
+  const persisted = sessionId ? loadSession(sessionId) : undefined;
+  const messages = persisted
+    ? sessionChatMessages(persisted)
+        .filter((message) => message.role === "user" && message.content.trim().length > 0)
+        .map((message) => message.content)
+    : [];
+  if (current.trim() && messages.at(-1) !== current) messages.push(current);
+  return messages.slice(-32);
+}
+
+function requiresExplicitPermissionInteraction(input: unknown): boolean {
+  if (!isRecord(input)) return false;
+  const toolCall = isRecord(input.toolCall) ? input.toolCall : {};
+  return [input._meta, toolCall._meta].some(
+    (meta) => isRecord(meta) && meta["anthropic/requiresUserInteraction"] === true,
+  );
+}
+
 function stringProperty(value: unknown, key: string): string | undefined {
   if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
   const property = (value as Record<string, unknown>)[key];
@@ -2493,8 +2664,14 @@ async function recordPermissionDecision(
     category: "permission",
     action: "tool.decision",
     actor: {
-      kind: "user",
-      ...(context.ownerId === undefined ? {} : { id: `renderer:${context.ownerId}` }),
+      kind: input.decidedBy === "llm" ? "agent" : "user",
+      ...(input.decidedBy === "llm"
+        ? safeAuditToken(input.reviewerModel)
+          ? { id: `model:${safeAuditToken(input.reviewerModel)}` }
+          : {}
+        : context.ownerId === undefined
+          ? {}
+          : { id: `renderer:${context.ownerId}` }),
     },
     target: {
       kind: "tool",
@@ -2505,6 +2682,8 @@ async function recordPermissionDecision(
     metadata: {
       origin: input.source,
       decision: input.decision,
+      decidedBy: input.decidedBy ?? "user",
+      ...(input.risk ? { risk: input.risk } : {}),
       ...(input.toolKind ? { toolKind: input.toolKind } : {}),
       ...(input.optionKind ? { optionKind: input.optionKind } : {}),
       policyLayerCount: input.policySourceIds?.length ?? 0,

@@ -431,7 +431,7 @@ export function PermissionsSettings({
     if (!status) return;
     setAllowedTools(status.personalPolicy.allowedTools);
     setDeniedTools(status.personalPolicy.deniedTools);
-    setMode(status.personalPolicy.mode ?? "default");
+    setMode(status.personalPolicy.mode ?? status.defaultMode);
     setSaveError(null);
   }, [status]);
 
@@ -681,7 +681,7 @@ export function PermissionsSettings({
               <span>
                 <small>Sanitized local audit trail</small>
                 <h3 id="permission-history-heading">Approval history</h3>
-                <p>Only the tool, decision, source, and policy provenance are stored.</p>
+                <p>Only the tool, decision, reviewer, source, and policy provenance are stored.</p>
               </span>
               <Badge>{status?.approvalReceipts.length ?? 0} receipts</Badge>
             </div>
@@ -705,6 +705,8 @@ export function PermissionsSettings({
                       <strong>{receipt.toolName}</strong>
                       <small>
                         {receipt.source.toUpperCase()}
+                        {receipt.decidedBy === "llm" ? " · AUTO REVIEW" : " · USER"}
+                        {receipt.risk ? ` · ${receipt.risk} risk` : ""}
                         {receipt.toolKind ? ` · ${receipt.toolKind}` : ""}
                         {receipt.policySourceIds.length > 0
                           ? ` · ${receipt.policySourceIds.join(" + ")}`

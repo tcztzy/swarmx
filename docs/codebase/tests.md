@@ -78,7 +78,7 @@ Exact Core test paths: `packages/core/tests/acp.test.ts`,
 | --- |
 | `packages/desktop/src/main/acp-session-runtime.test.ts`, `agent-interactions.test.ts`, `browser-host.test.ts`, `builtin-tool-settings.test.ts`, `child-agent-host.test.ts`, `claude-scheduled-tasks.test.ts`, `claude-session-runtime.test.ts`, `codex-auth.test.ts` |
 | `packages/desktop/src/main/composer-preferences.test.ts`, `custom-agents.test.ts`, `extension-manager.test.ts`, `harness-environment.test.ts`, `library.test.ts`, `lsp-host.test.ts`, `media-faults.test.ts`, `media-preview-hash.test.ts` |
-| `packages/desktop/src/main/media.test.ts`, `model-catalog.test.ts`, `permission-service.test.ts`, `preload.test.ts`, `provider-auth.test.ts`, `provider-error.test.ts`, `provider-key-pool.test.ts`, `provider-usage.test.ts` |
+| `packages/desktop/src/main/media.test.ts`, `model-catalog.test.ts`, `permission-review.test.ts`, `permission-service.test.ts`, `preload.test.ts`, `provider-auth.test.ts`, `provider-error.test.ts`, `provider-key-pool.test.ts`, `provider-usage.test.ts` |
 | `packages/desktop/src/main/request-registry.test.ts`, `session-title.test.ts`, `settings-store.test.ts`, `side-chat-service.test.ts`, `terminal-host.test.ts`, `updater.test.ts`, `window-security.test.ts`, `workspace-shell.test.ts`, `workspace-tools.test.ts` |
 
 ### Renderer
@@ -112,6 +112,7 @@ Exact Desktop test paths: `packages/desktop/src/main/acp-session-runtime.test.ts
 `packages/desktop/src/main/media-preview-hash.test.ts`,
 `packages/desktop/src/main/media.test.ts`,
 `packages/desktop/src/main/model-catalog.test.ts`,
+`packages/desktop/src/main/permission-review.test.ts`,
 `packages/desktop/src/main/permission-service.test.ts`,
 `packages/desktop/src/main/preload.test.ts`,
 `packages/desktop/src/main/provider-auth.test.ts`,
