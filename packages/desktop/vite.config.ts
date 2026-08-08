@@ -3,6 +3,7 @@ import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 import { notBundle } from "vite-plugin-electron/plugin";
 import electron from "vite-plugin-electron/simple";
+import { forwardElectronStderr } from "./scripts/electron-stderr.mjs";
 
 const desktopRoot = fileURLToPath(new URL(".", import.meta.url));
 
@@ -22,7 +23,14 @@ export default defineConfig(async () => ({
           index: `${desktopRoot}/src/main/index.ts`,
           library: `${desktopRoot}/src/main/library.ts`,
         },
-        onstart: ({ startup }) => startup(["."], { cwd: desktopRoot, env: electronProcessEnv() }),
+        onstart: async ({ startup }) => {
+          const started = await startup(["."], {
+            cwd: desktopRoot,
+            env: electronProcessEnv(),
+            stdio: ["inherit", "inherit", "pipe", "ipc"],
+          });
+          if (started) forwardElectronStderr(process.electronApp?.stderr);
+        },
         vite: {
           plugins: [notBundle()],
           build: {

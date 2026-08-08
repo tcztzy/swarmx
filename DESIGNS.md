@@ -115,9 +115,10 @@ on engineering-specific lifecycle enums such as `project_iteration` and
 
 The generic kernel models `WorkItem`, `Run`, fenced `Lease`, `Budget`, progress,
 execution `Checkpoint`, artifact reference, approval, schedule, Session link,
-and external side-effect receipt. Engineering lifecycle and analysis schemas in
-`autonomy.ts` remain an upper domain layer rather than constraints on the task
-kernel.
+and external side-effect receipt. Engineering- and analysis-specific lifecycle
+schemas are deliberately outside Core; downstream adapters may map domain
+states onto the generic kernel without introducing a second lease or replay
+authority.
 
 Task state is rebuilt from strict versioned events. The Node store appends and
 fsyncs JSONL under `~/.swarmx/task-runtime/events.jsonl`, uses a narrow writer
@@ -368,6 +369,15 @@ environment variables do not create visible Desktop connections.
 Provider discovery produces independent Model records and ModelSupply links.
 The built-in Model registry enriches known ids with verified capability
 metadata; it does not own the visible catalog.
+
+The OpenCode Go catalog is discovered from its authenticated Models endpoint,
+but that endpoint does not advertise the wire protocol for each Model. Main
+therefore projects documented Go model ids onto their native Anthropic
+Messages, OpenAI Chat Completions, or OpenAI Responses route, augmented only by
+runtime-verified compatibility exceptions such as DeepSeek V4 Flash supporting
+both Chat Completions and Messages. An unknown discovered id receives only the
+user-selected preferred protocol instead of being advertised across unverified
+routes.
 
 Only Main resolves Provider secrets, calls Provider endpoints, or constructs a
 request environment. Renderer receives readiness, catalog, usage, balance, and

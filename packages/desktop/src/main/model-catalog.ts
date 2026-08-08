@@ -61,6 +61,30 @@ const CODEX_ACP_RUNTIME_MODELS = new Set([
   "gpt-5.6-sol",
   "gpt-5.6-terra",
 ]);
+type ModelApiRoutes = readonly [ModelApi, ...ModelApi[]];
+
+// The Go Models endpoint omits wire protocols; documented routes may have verified additions.
+const OPENCODE_GO_MODEL_APIS: Readonly<Record<string, ModelApiRoutes>> = {
+  "deepseek-v4-flash": ["openai_chat", "anthropic"],
+  "deepseek-v4-pro": ["openai_chat"],
+  "glm-5.1": ["openai_chat"],
+  "glm-5.2": ["openai_chat"],
+  "gpt-5.6-luna": ["openai_responses"],
+  "grok-4.5": ["openai_chat"],
+  hy3: ["openai_chat"],
+  "kimi-k2.6": ["openai_chat"],
+  "kimi-k2.7-code": ["openai_chat"],
+  "kimi-k3": ["openai_chat"],
+  "mimo-v2.5": ["openai_chat"],
+  "mimo-v2.5-pro": ["openai_chat"],
+  "minimax-m2.5": ["anthropic"],
+  "minimax-m2.7": ["anthropic"],
+  "minimax-m3": ["anthropic"],
+  "qwen3.6-plus": ["anthropic"],
+  "qwen3.7-max": ["anthropic"],
+  "qwen3.7-plus": ["anthropic"],
+  "qwen3.8-max": ["anthropic"],
+};
 const CODEX_PROVIDER: ProviderProfile = {
   id: CODEX_PROVIDER_ID,
   label: "Codex",
@@ -612,10 +636,22 @@ export class ModelCatalogService {
     const payload = await this.fetchJson(url, providerHeaders(provider, secret));
     const descriptors = parseOpenAiModels(payload, discoveryApi, url);
     return isOpenCodeGoProvider(provider)
-      ? descriptors.map((descriptor) => ({
-          ...descriptor,
-          apiProtocols: ["anthropic", "openai_chat"],
-        }))
+      ? descriptors.map((descriptor) => {
+          const apiProtocols: ModelApiRoutes = OPENCODE_GO_MODEL_APIS[
+            descriptor.id.toLowerCase()
+          ] ?? [provider.kind];
+          const reasoningApiProtocol =
+            descriptor.reasoning && apiProtocols.includes(descriptor.reasoning.apiProtocol)
+              ? descriptor.reasoning.apiProtocol
+              : apiProtocols[0];
+          return {
+            ...descriptor,
+            apiProtocols: [...apiProtocols],
+            ...(descriptor.reasoning
+              ? { reasoning: { ...descriptor.reasoning, apiProtocol: reasoningApiProtocol } }
+              : {}),
+          };
+        })
       : descriptors;
   }
 
@@ -1168,7 +1204,7 @@ function providerCache(
           apiCompatibility: { mode: "native", targetApi: apiProtocol },
           ...(descriptor.group ? { providerGroup: descriptor.group } : {}),
           ...(harnessIds ? { harnessIds } : {}),
-          ...(descriptor.reasoning
+          ...(descriptor.reasoning?.apiProtocol === apiProtocol
             ? {
                 reasoningCapabilities: [
                   discoveredReasoningCapability(provider, descriptor, fetchedAt),
@@ -1417,15 +1453,18 @@ function officialOpenCodeGoRouting(
     !baseUrl.port &&
     (pathname === "/zen/go" || pathname === "/zen/go/v1");
   if (!official) return undefined;
-  if (!(["anthropic", "openai_chat"] as ModelApi[]).includes(preferredApi)) {
-    throw new Error("OpenCode Go supports the Anthropic Messages or OpenAI Chat API protocol.");
+  if (preferredApi === "ollama") {
+    throw new Error(
+      "OpenCode Go supports the Anthropic Messages, OpenAI Chat, or OpenAI Responses API protocol.",
+    );
   }
   const apiEntrypoints = {
     anthropic: `${baseUrl.origin}/zen/go`,
     openai_chat: `${baseUrl.origin}/zen/go/v1`,
+    openai_responses: `${baseUrl.origin}/zen/go/v1`,
   } satisfies Partial<Record<ModelApi, string>>;
   return {
-    baseUrl: apiEntrypoints[preferredApi as "anthropic" | "openai_chat"],
+    baseUrl: apiEntrypoints[preferredApi],
     apiEntrypoints,
     modelDiscoveryUrl: `${baseUrl.origin}/zen/go/v1/models`,
     modelDiscoveryApi: "openai_chat",

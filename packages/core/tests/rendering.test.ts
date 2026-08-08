@@ -136,7 +136,7 @@ describe("normalized render events", () => {
             artifactId: "art_report",
             kind: "report",
             title: "Report",
-            path: "autonomy/reports/report.html",
+            path: "artifacts/reports/report.html",
             byteCount: 1200,
           },
         ],
@@ -148,7 +148,7 @@ describe("normalized render events", () => {
       expect.objectContaining({
         artifactId: "art_report",
         kind: "report",
-        path: "autonomy/reports/report.html",
+        path: "artifacts/reports/report.html",
       }),
     ]);
     expect(event.rawPayloadRef).toBe("run_1/tool_result_1.json");

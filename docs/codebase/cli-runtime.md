@@ -56,7 +56,7 @@ environment accidentally.
 
 | Source | Contract |
 | --- | --- |
-| `packages/swarmx/bin/swarmx.js` | Package-installed bootstrap: selects Desktop for no/`desktop` args, delegates CLI args to `@swarmx/cli`, repairs Electron path metadata, and forwards signals. `fs` + `proc` |
+| `packages/swarmx/bin/swarmx.js` | Package-installed bootstrap: selects Desktop for no/`desktop` args, delegates CLI args to `@swarmx/cli`, repairs Electron path metadata, forwards signals, and routes Electron stderr through the Desktop launch filter. `fs` + `proc` |
 | `packages/swarmx/bin/migrate-sessions.js` | Minimal executable alias for the Core/CLI Session migration command. `proc` |
 
 ## Package/launcher tests

@@ -21,6 +21,7 @@
     "LICENSE",
     "THIRD_PARTY_NOTICES.md",
     "third_party_licenses",
+    "scripts/electron-stderr.mjs",
     "scripts/start-electron.mjs"
   ],
   "publishConfig": {

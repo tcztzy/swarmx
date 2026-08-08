@@ -1,7 +1,9 @@
 import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
+import { Readable } from "node:stream";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { createElectronStderrFilter } from "../../desktop/scripts/electron-stderr.mjs";
 
 const repoRoot = fileURLToPath(new URL("../../..", import.meta.url));
 const launcherPath = fileURLToPath(new URL("../bin/swarmx.js", import.meta.url));
@@ -25,6 +27,14 @@ function runLauncher(args: string[] = []): {
     electronPath?: string;
     appPath?: string;
   };
+}
+
+async function filterElectronStderr(chunks: string[], platform: NodeJS.Platform): Promise<string> {
+  const output: Buffer[] = [];
+  const filter = createElectronStderrFilter(platform);
+  Readable.from(chunks.map((chunk) => Buffer.from(chunk))).pipe(filter);
+  for await (const chunk of filter) output.push(Buffer.from(chunk));
+  return Buffer.concat(output).toString("utf8");
 }
 
 describe("npm launcher cold start", () => {
@@ -79,6 +89,37 @@ describe("npm launcher cold start", () => {
     expect(npmLauncher).toContain("delete env.ELECTRON_RUN_AS_NODE");
     expect(desktopLauncher).toContain("delete env.ELECTRON_RUN_AS_NODE");
     expect(viteConfig).toContain("delete env.ELECTRON_RUN_AS_NODE");
+  });
+
+  it("filters only the known macOS InputMethodKit diagnostic from Electron stderr", async () => {
+    const diagnostic =
+      "2026-08-08 15:26:47.561 Electron[52252:86648016] error messaging the mach port for IMKCFRunLoopWakeUpReliable\n";
+    const realError = "[52252:0808/152647.562:ERROR:gpu_process_host.cc(991)] GPU failure\n";
+
+    await expect(
+      filterElectronStderr(
+        ["renderer warning\n", diagnostic.slice(0, 48), diagnostic.slice(48), realError],
+        "darwin",
+      ),
+    ).resolves.toBe(`renderer warning\n${realError}`);
+    await expect(filterElectronStderr([diagnostic], "linux")).resolves.toBe(diagnostic);
+
+    const npmLauncher = readFileSync(new URL("../bin/swarmx.js", import.meta.url), "utf8");
+    const desktopLauncher = readFileSync(
+      new URL("../../desktop/scripts/start-electron.mjs", import.meta.url),
+      "utf8",
+    );
+    const viteConfig = readFileSync(
+      new URL("../../desktop/vite.config.ts", import.meta.url),
+      "utf8",
+    );
+    const desktopManifest = JSON.parse(
+      readFileSync(new URL("../../desktop/package.json", import.meta.url), "utf8"),
+    ) as { files: string[] };
+    expect(npmLauncher).toContain("forwardElectronStderr");
+    expect(desktopLauncher).toContain("forwardElectronStderr");
+    expect(viteConfig).toContain("forwardElectronStderr");
+    expect(desktopManifest.files).toContain("scripts/electron-stderr.mjs");
   });
 
   it("bundles the sandboxed preload as a single entry", () => {

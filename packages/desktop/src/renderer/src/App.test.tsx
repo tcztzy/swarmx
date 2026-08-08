@@ -1134,6 +1134,8 @@ describe("App user workflow", () => {
 
     await user.click(within(card).getByRole("button", { name: "Edit Provider OpenCode Go" }));
     expect(screen.queryByLabelText("Usage API")).toBeNull();
+    expect(screen.getByRole("option", { name: "OpenAI Responses" })).toBeTruthy();
+    expect(screen.getByText(/routes each documented model through its native/)).toBeTruthy();
     expect(screen.getByText(/No usage endpoint is queried/)).toBeTruthy();
     fireEvent.change(screen.getByLabelText("Additional API keys"), {
       target: { value: "go-third\ngo-fourth" },
@@ -4927,7 +4929,7 @@ describe("App user workflow", () => {
               {
                 artifactId: "art_terminal_log",
                 kind: "log",
-                path: "autonomy/runs/run_1/terminal.log",
+                path: "runs/run_1/terminal.log",
                 title: "terminal.log",
                 truncated: true,
               },
@@ -4938,7 +4940,7 @@ describe("App user workflow", () => {
               mcpServer: "filesystem",
               pluginId: "geepilot",
             },
-            rawPayloadRef: "autonomy/runs/run_1/tool_result_terminal.json",
+            rawPayloadRef: "runs/run_1/tool_result_terminal.json",
           },
           content: JSON.stringify({
             status: "failed",

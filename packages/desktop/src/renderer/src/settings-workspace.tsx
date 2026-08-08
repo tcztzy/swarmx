@@ -1849,9 +1849,7 @@ export function SettingsWorkspace({
                       onChange={(event) => setProviderKind(event.target.value as ModelApiProtocol)}
                     >
                       <option value="anthropic">Anthropic</option>
-                      {!openCodeGoForm && (
-                        <option value="openai_responses">OpenAI Responses</option>
-                      )}
+                      <option value="openai_responses">OpenAI Responses</option>
                       <option value="openai_chat">OpenAI Chat</option>
                       {!openCodeGoForm && <option value="ollama">Ollama</option>}
                     </select>
@@ -1863,8 +1861,10 @@ export function SettingsWorkspace({
                     )}
                     {openCodeGoForm && (
                       <small className="settings-provider-form__helper">
-                        The official Go endpoint exposes Anthropic and OpenAI Chat routes. Models
-                        are loaded from /zen/go/v1/models.
+                        The official Go endpoint routes each documented model through its native
+                        Anthropic, OpenAI Chat, or OpenAI Responses API. Verified compatibility
+                        exceptions may expose more than one route. Models are loaded from
+                        /zen/go/v1/models.
                       </small>
                     )}
                   </label>
@@ -1880,7 +1880,7 @@ export function SettingsWorkspace({
                         setProviderBaseUrl(value);
                         if (
                           isOpenCodeGoProviderUrl(value) &&
-                          !["anthropic", "openai_chat"].includes(providerKind)
+                          !["anthropic", "openai_chat", "openai_responses"].includes(providerKind)
                         ) {
                           setProviderKind("openai_chat");
                         }

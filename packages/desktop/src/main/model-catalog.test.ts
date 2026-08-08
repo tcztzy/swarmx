@@ -247,7 +247,21 @@ describe("ModelCatalogService", () => {
       path: paths.keyUsagePath,
       now: fixedClock(),
     });
-    const fetch = vi.fn().mockResolvedValue(response({ data: [{ id: "go-model" }] }));
+    const fetch = vi.fn().mockResolvedValue(
+      response({
+        data: [
+          { id: "deepseek-v4-flash" },
+          { id: "glm-5.2" },
+          { id: "minimax-m3" },
+          {
+            id: "gpt-5.6-luna",
+            supported_reasoning_efforts: ["low", "high"],
+            default_reasoning_effort: "high",
+          },
+          { id: "future-go-model" },
+        ],
+      }),
+    );
     const service = new ModelCatalogService({
       ...paths,
       env: {},
@@ -279,6 +293,7 @@ describe("ModelCatalogService", () => {
         apiEntrypoints: {
           anthropic: "https://opencode.ai/zen/go",
           openai_chat: "https://opencode.ai/zen/go/v1",
+          openai_responses: "https://opencode.ai/zen/go/v1",
         },
         modelDiscoveryUrl: "https://opencode.ai/zen/go/v1/models",
       }),
@@ -299,12 +314,53 @@ describe("ModelCatalogService", () => {
 
     const refreshed = await service.refresh(inventory);
     expect(fetch).toHaveBeenCalledWith("https://opencode.ai/zen/go/v1/models", expect.any(Object));
-    expect(refreshed.models).toContainEqual(
-      expect.objectContaining({ id: "go-model", apiProtocols: ["anthropic", "openai_chat"] }),
+    expect(refreshed.models).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "deepseek-v4-flash",
+          apiProtocols: ["openai_chat", "anthropic"],
+        }),
+        expect.objectContaining({ id: "glm-5.2", apiProtocols: ["openai_chat"] }),
+        expect.objectContaining({ id: "minimax-m3", apiProtocols: ["anthropic"] }),
+        expect.objectContaining({ id: "gpt-5.6-luna", apiProtocols: ["openai_responses"] }),
+        expect.objectContaining({ id: "future-go-model", apiProtocols: ["openai_chat"] }),
+      ]),
     );
-    const supply = refreshed.modelSupplies.find(
-      (candidate) => candidate.apiCompatibility.targetApi === "openai_chat",
+    expect(
+      Object.fromEntries(
+        [...new Set(refreshed.modelSupplies.map((candidate) => candidate.modelId))].map(
+          (modelId) => [
+            modelId,
+            refreshed.modelSupplies
+              .filter(
+                (candidate) =>
+                  candidate.providerProfileId === providerId && candidate.modelId === modelId,
+              )
+              .map((candidate) => candidate.apiCompatibility.targetApi),
+          ],
+        ),
+      ),
+    ).toEqual({
+      "deepseek-v4-flash": ["openai_chat", "anthropic"],
+      "future-go-model": ["openai_chat"],
+      "glm-5.2": ["openai_chat"],
+      "gpt-5.6-luna": ["openai_responses"],
+      "minimax-m3": ["anthropic"],
+    });
+    expect(
+      refreshed.modelSupplies.find((candidate) => candidate.modelId === "gpt-5.6-luna"),
+    ).toEqual(
+      expect.objectContaining({
+        reasoningCapabilities: [
+          expect.objectContaining({
+            apiProtocol: "openai_responses",
+            supportedEfforts: ["low", "high"],
+            defaultEffort: "high",
+          }),
+        ],
+      }),
     );
+    const supply = refreshed.modelSupplies.find((candidate) => candidate.modelId === "glm-5.2");
     await expect(
       service.runtimeCredentialsForSupply(refreshed, supply?.id ?? "missing"),
     ).resolves.toEqual({
@@ -335,11 +391,17 @@ describe("ModelCatalogService", () => {
     const removed = await service.saveProvider(inventory, {
       id: providerId,
       label: "OpenCode Go",
-      kind: "anthropic",
+      kind: "openai_responses",
       baseUrl: "https://opencode.ai/zen/go/v1",
       authMode: "api_key",
       removeApiKeyIds: [extraSlots[0]?.id ?? ""],
     });
+    expect(removed.providers[0]).toEqual(
+      expect.objectContaining({
+        kind: "openai_responses",
+        baseUrl: "https://opencode.ai/zen/go/v1",
+      }),
+    );
     expect((removed.providers[0] as typeof provider).runtimeKeySlots).toHaveLength(2);
     expect(
       await authStore.get(providerPoolCredentialKey(providerId, extraSlots[0]?.id ?? "")),

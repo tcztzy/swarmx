@@ -3,6 +3,7 @@ import { execFileSync, spawn } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
+import { pathToFileURL } from "node:url";
 
 const args = process.argv.slice(2);
 const desktopRequested = args.length === 0 || args[0] === "desktop";
@@ -28,10 +29,14 @@ if (!desktopRequested) {
         `${JSON.stringify({ mode: "desktop", electronPath, appPath, args: desktopArgs })}\n`,
       );
     } else {
+      const { forwardElectronStderr } = await import(
+        pathToFileURL(join(appPath, "scripts", "electron-stderr.mjs")).href
+      );
       const child = spawn(electronPath, [appPath, ...desktopArgs], {
-        stdio: "inherit",
+        stdio: ["inherit", "inherit", "pipe"],
         env: electronProcessEnv(),
       });
+      forwardElectronStderr(child.stderr);
       child.once("error", (error) => {
         console.error(`Failed to launch SwarmX Desktop: ${error.message}`);
         process.exitCode = 1;

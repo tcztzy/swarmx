@@ -161,3 +161,8 @@ coverage/
 /review.json
 /harness-context-engineering-review.pdf
 /recursive-harness-self-improvement-review.pdf
+
+/rsi-*
+/harness-*
+*.tex
+*.bib

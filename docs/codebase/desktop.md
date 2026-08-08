@@ -42,7 +42,7 @@ API. Renderer receives normalized data and renders React UI.
 | `packages/desktop/src/main/extension-manager.ts` | Loads marketplace catalogs and coordinates explicit extension lifecycle actions with settings-backed state. `fs` + `net` |
 | `packages/desktop/src/main/lsp-host.ts` | Spawns JSON-RPC language servers, serves bounded file/skill completions, and handles cancellation/shutdown. `proc` + `fs` |
 | `packages/desktop/src/main/media.ts` | Imports attachments into managed content-addressed storage, validates MIME/size/identity, creates preview URLs, and supports safe text previews. `fs` |
-| `packages/desktop/src/main/model-catalog.ts` | Provider/model discovery, credential-backed catalog refresh, model supply inventory, readiness summaries, and persisted manual models. `fs` + `net` + `secret` |
+| `packages/desktop/src/main/model-catalog.ts` | Provider/model discovery, credential-backed catalog refresh, per-model OpenCode Go native API routing, model supply inventory, readiness summaries, and persisted manual models. `fs` + `net` + `secret` |
 | `packages/desktop/src/main/permission-service.ts` | Loads managed/project/personal/profile policy layers, resolves effective permissions, records bounded approval receipts, and fails closed on malformed policy. `fs` |
 | `packages/desktop/src/main/provider-auth.ts` | Schema-version-2 user-editable Provider auth file store with restrictive permissions and credential lookup; plaintext never leaves Main. `fs` + `secret` |
 | `packages/desktop/src/main/provider-error.ts` | Classifies Provider failures into stable user-facing error codes/notices without leaking response credentials. `pure` |

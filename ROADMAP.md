@@ -168,9 +168,6 @@ measurement, or failure repair.
 
 ### Durable task service boundary
 
-- [ ] Add explicit engineering/analysis domain adapters from the legacy
-  `autonomy.ts` WorkItem/Lease/Event models to the generic task-runtime kernel,
-  then retire duplicated lifecycle-neutral lease and replay machinery.
 - [ ] Move the current app-attached task controller behind an authenticated
   local `swarmxd`-style service, with explicit launchd/systemd lifecycle,
   single-authority startup, graceful handoff, and recovery tests, so eligible

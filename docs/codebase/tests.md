@@ -8,7 +8,7 @@ the list below makes the coverage route searchable without loading every test.
 
 | Test paths |
 | --- |
-| `packages/core/tests/acp.test.ts`, `actions.test.ts`, `activity.test.ts`, `audit.test.ts`, `agent-profiles.test.ts`, `agent.test.ts`, `autonomy.test.ts`, `builtin-tools.test.ts`, `context.test.ts` |
+| `packages/core/tests/acp.test.ts`, `actions.test.ts`, `activity.test.ts`, `audit.test.ts`, `agent-profiles.test.ts`, `agent.test.ts`, `builtin-tools.test.ts`, `context.test.ts` |
 | `packages/core/tests/conversation.test.ts`, `dependencies.test.ts`, `desktop-settings.test.ts`, `edge.test.ts`, `extension-management.test.ts`, `extensions.test.ts`, `harness-management.test.ts`, `harness.test.ts` |
 | `packages/core/tests/mcp.test.ts`, `media.test.ts`, `model-capabilities.test.ts`, `n8n.test.ts`, `project.test.ts`, `providers.test.ts`, `rendering.test.ts`, `secrets.test.ts` |
 | `packages/core/tests/server.test.ts`, `session-discovery.test.ts`, `session.test.ts`, `skill-variants.test.ts`, `swarm-eval.test.ts`, `swarm.test.ts`, `telemetry.test.ts`, `version.test.ts` |
@@ -44,7 +44,7 @@ Exact Core test paths: `packages/core/tests/acp.test.ts`,
 `packages/core/tests/actions.test.ts`, `packages/core/tests/activity.test.ts`,
 `packages/core/tests/audit.test.ts`,
 `packages/core/tests/agent-profiles.test.ts`, `packages/core/tests/agent.test.ts`,
-`packages/core/tests/autonomy.test.ts`, `packages/core/tests/builtin-tools.test.ts`,
+`packages/core/tests/builtin-tools.test.ts`,
 `packages/core/tests/task-runtime.test.ts`,
 `packages/core/tests/task-runtime-store.test.ts`,
 `packages/core/tests/task-worker-protocol.test.ts`,
@@ -151,7 +151,7 @@ Exact Desktop test paths: `packages/desktop/src/main/acp-session-runtime.test.ts
 | Test paths |
 | --- |
 | `packages/cli/tests/audit-command.test.ts`, `doctor.test.ts`, `eval-run.test.ts`, `send-config.test.ts`, `session-migration.test.ts`, `evolution-command.test.ts` (incl. real-chain promoted-revision resolution) |
-| `packages/acp-server/src/server.test.ts`, `packages/runtime/src/doctor.test.ts`, `packages/runtime/src/python-environment.test.ts`, `packages/runtime/src/python-worker-smoke.test.ts`, `packages/swarmx/tests/launcher.test.ts` |
+| `packages/acp-server/src/server.test.ts`, `packages/runtime/src/doctor.test.ts`, `packages/runtime/src/python-environment.test.ts`, `packages/runtime/src/python-worker-smoke.test.ts`, `packages/swarmx/tests/launcher.test.ts` (including exact macOS InputMethodKit diagnostic filtering and preservation of all other Electron stderr) |
 | `evals/inspect/__init__.py`, `evals/inspect/tasks.py`, `evals/inspect/tasks_test.py`, `evals/inspect/skill_eval.py`, `evals/inspect/skill_eval_test.py` |
 
 Exact CLI test paths: `packages/cli/tests/audit-command.test.ts`,
@@ -173,7 +173,8 @@ Exact Runtime test paths: `packages/runtime/src/doctor.test.ts`,
 
 | Source | Contract |
 | --- | --- |
-| `packages/desktop/scripts/start-electron.mjs` | Development launcher that starts Electron against the Vite renderer. `proc` |
+| `packages/desktop/scripts/electron-stderr.mjs` | Shared launcher stream filter that removes only the known macOS InputMethodKit `IMKCFRunLoopWakeUpReliable` diagnostic and forwards all other Electron stderr. `proc` |
+| `packages/desktop/scripts/start-electron.mjs` | Development launcher that starts Electron against the Vite renderer and applies the shared stderr filter. `proc` |
 | `packages/desktop/scripts/build-macos-artifacts.mjs` | Packages the built Desktop application into macOS artifacts. `fs` + `proc` |
 | `scripts/publish-npm.mjs` | Release helper for npm package publication. `proc` |
 | `scripts/rebuild-icon.py` | Rebuilds packaged icon assets from the canonical icon input. `fs` |

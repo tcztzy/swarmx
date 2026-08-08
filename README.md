@@ -41,7 +41,7 @@ swarmx
 
 ## First run
 
-Open **Anonymous user → Settings → Providers**, add an OpenAI-, Anthropic-, DeepSeek-, OpenCode Go-, or Ollama-compatible connection, then choose a Harness and Model in the composer. Custom Providers use one exact Base URL and key; OpenCode Go can keep additional plaintext backup keys with local usage counters and quota failover.
+Open **Anonymous user → Settings → Providers**, add an OpenAI-, Anthropic-, DeepSeek-, OpenCode Go-, or Ollama-compatible connection, then choose a Harness and Model in the composer. Custom Providers use one exact Base URL and key. OpenCode Go loads its live model list, routes models through their documented APIs plus narrow runtime-verified compatibility exceptions, and can keep additional plaintext backup keys with local usage counters and quota failover. A newly discovered Go model without a known native route uses the Provider's selected preferred protocol until SwarmX is updated with its official route.
 
 Provider credentials are stored as plaintext in the editable `~/.swarmx/provider-auth.json` file with restrictive permissions. The renderer never reads the file or receives plaintext credentials. The current file format is `schemaVersion: 2`; older encrypted auth files and legacy `local_keychain` Provider references are intentionally not migrated.
 

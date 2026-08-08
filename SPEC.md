@@ -148,8 +148,8 @@ implementation map, test plan, backlog, changelog, or incident log.
 
 - Export validated TypeScript contracts for orchestration, Sessions, Providers,
   Models, Harnesses, Agent profiles, Extensions, Skills, actions, context,
-  normalized rendering, telemetry, managed dependencies, and deterministic
-  autonomy primitives.
+  normalized rendering, telemetry, managed dependencies, and the generic
+  durable-task runtime.
 - Keep browser-safe public subpaths free of Node-only imports.
 - Provide a CLI, ACP server adapter, runtime Doctor, and Desktop-first npm
   launcher without launching GUI code during package installation.

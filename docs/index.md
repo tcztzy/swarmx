@@ -66,6 +66,10 @@ swarmx
 Package installation does not launch the application. Running `swarmx` without
 arguments opens Desktop.
 
+On macOS, the terminal launchers omit the known InputMethodKit
+`IMKCFRunLoopWakeUpReliable` system diagnostic. This message is not an
+application failure; all other Electron standard-error output remains visible.
+
 In Desktop:
 
 1. Open **Anonymous user -> Settings -> Providers**.
