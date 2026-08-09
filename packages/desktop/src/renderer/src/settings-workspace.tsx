@@ -1753,6 +1753,8 @@ export function SettingsWorkspace({
   onSaveProvider,
   onRemoveProvider,
   onResetProviderKey,
+  openAddProvider,
+  onAddProviderOpened,
 }: {
   providers: ExtensionProviderSummary[];
   modelCatalog?: ModelCatalogSummary;
@@ -1767,8 +1769,10 @@ export function SettingsWorkspace({
   onSaveProvider: (input: UserProviderInput) => Promise<void>;
   onRemoveProvider: (providerId: string) => Promise<void>;
   onResetProviderKey: (providerId: string, keyId: string) => Promise<void>;
+  openAddProvider: boolean;
+  onAddProviderOpened: () => void;
 }) {
-  const [providerFormOpen, setProviderFormOpen] = useState(false);
+  const [providerFormOpen, setProviderFormOpen] = useState(openAddProvider);
   const [editingProviderId, setEditingProviderId] = useState<string | null>(null);
   const [providerLabel, setProviderLabel] = useState("");
   const [providerKind, setProviderKind] = useState<ModelApiProtocol>("anthropic");
@@ -1785,6 +1789,11 @@ export function SettingsWorkspace({
   const [providerRemovedApiKeyIds, setProviderRemovedApiKeyIds] = useState<string[]>([]);
   const [providerSaving, setProviderSaving] = useState(false);
   const [providerError, setProviderError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (openAddProvider) onAddProviderOpened();
+  }, [onAddProviderOpened, openAddProvider]);
+
   const userProviderIds = new Set(modelCatalog?.userProviderIds ?? []);
   const providerUsageById = new Map(
     (providerUsage?.providers ?? []).map((entry) => [entry.providerProfileId, entry]),
@@ -2114,11 +2123,11 @@ export function SettingsWorkspace({
                         ? "Primary API key"
                         : openRouterForm
                           ? "API key"
-                        : providerUsageAdapter === "new_api"
-                          ? "Primary API token"
-                          : providerAuthMode === "auth_token"
-                            ? "Auth token"
-                            : "API key"}
+                          : providerUsageAdapter === "new_api"
+                            ? "Primary API token"
+                            : providerAuthMode === "auth_token"
+                              ? "Auth token"
+                              : "API key"}
                     </span>
                     <input
                       aria-label={
@@ -2126,11 +2135,11 @@ export function SettingsWorkspace({
                           ? "Primary API key"
                           : openRouterForm
                             ? "API key"
-                          : providerUsageAdapter === "new_api"
-                            ? "Primary API token"
-                            : providerAuthMode === "auth_token"
-                              ? "Auth token"
-                              : "API key"
+                            : providerUsageAdapter === "new_api"
+                              ? "Primary API token"
+                              : providerAuthMode === "auth_token"
+                                ? "Auth token"
+                                : "API key"
                       }
                       required={!editingProviderId}
                       type="password"

@@ -138,6 +138,9 @@ implementation map, test plan, backlog, changelog, or incident log.
 
 ### Desktop experience
 
+- When no compatible Model is available, replace starter task suggestions with
+  an actionable readiness state. Its primary action opens Provider setup, and
+  the UI must not imply that a blocked task can run.
 - Keep Project and Session history in the sidebar's bounded scroll region while
   the persistent `Local workspace` control remains anchored to its bottom.
 - Allow every persisted or discovered Project group to expand and collapse

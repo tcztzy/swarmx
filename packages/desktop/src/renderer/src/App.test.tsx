@@ -1879,6 +1879,35 @@ describe("App user workflow", () => {
     expect(screen.queryByText("Existing local run")).toBeNull();
   });
 
+  it("guides a first run without a runnable Agent directly into Provider setup", async () => {
+    const api = createDesktopApiMock();
+    const inventory = await api.listExtensions();
+    api.listExtensions.mockResolvedValue({
+      ...inventory,
+      models: [],
+      modelSupplies: [],
+      providers: [],
+      modelCatalog: {
+        manualModelIds: [],
+        userProviderIds: [],
+        providers: [],
+      },
+    });
+    await renderApp(api);
+    const user = userEvent.setup();
+
+    expect(await screen.findByRole("heading", { name: "Connect a model to start" })).toBeTruthy();
+    expect(screen.queryByRole("region", { name: "Suggested tasks" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Send message" }).hasAttribute("disabled")).toBe(
+      true,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Connect model provider" }));
+
+    expect(await screen.findByRole("form", { name: "Add Provider" })).toBeTruthy();
+    expect(screen.getByLabelText("Provider name")).toBeTruthy();
+  });
+
   it("adds an existing project and creates the next task inside its working directory", async () => {
     const project: ProjectData = {
       id: "project-demo",

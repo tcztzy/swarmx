@@ -495,6 +495,7 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
   const [settingsQuery, setSettingsQuery] = useState("");
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
   const [settingsSection, setSettingsSection] = useState<SettingsSection | null>(null);
+  const [providerSetupRequested, setProviderSetupRequested] = useState(false);
   const [desktopUpdate, setDesktopUpdate] = useState<DesktopUpdateState>({
     phase: "hidden",
     currentVersion: "unknown",
@@ -3953,6 +3954,8 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
                   onSaveProvider={saveProvider}
                   onRemoveProvider={removeProvider}
                   onResetProviderKey={resetProviderKey}
+                  openAddProvider={providerSetupRequested}
+                  onAddProviderOpened={() => setProviderSetupRequested(false)}
                 />
               ) : settingsSection === "extensions" ? (
                 <ExtensionWorkspace
@@ -4071,6 +4074,11 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
                       <EmptyRun
                         projectLabel={emptyProjectLabel}
                         rightPanelOpen={activeRightPanelKind !== null}
+                        needsModel={!extensionInventoryLoading && manualCompositionNeedsModel}
+                        onConnectModelProvider={() => {
+                          setProviderSetupRequested(true);
+                          openSettings("providers");
+                        }}
                         onSelectPrompt={(prompt) => {
                           setInput(prompt);
                           window.requestAnimationFrame(() => composerRef.current?.focus());
@@ -4792,10 +4800,14 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
 function EmptyRun({
   projectLabel,
   rightPanelOpen,
+  needsModel,
+  onConnectModelProvider,
   onSelectPrompt,
 }: {
   projectLabel: string;
   rightPanelOpen: boolean;
+  needsModel: boolean;
+  onConnectModelProvider: () => void;
   onSelectPrompt: (prompt: string) => void;
 }) {
   const suggestions = rightPanelOpen ? EMPTY_RUN_SUGGESTIONS.slice(0, 2) : EMPTY_RUN_SUGGESTIONS;
@@ -4806,35 +4818,45 @@ function EmptyRun({
         <AppBrandIcon className="empty-run__icon [width:100%] [height:100%] [object-fit:contain]" />
       </div>
       <div className="empty-run__copy [display:flex] [flex-direction:column] [gap:7px] [&_h2]:[margin:0] [&_h2]:[color:var(--foreground)] [&_h2]:[font-size:clamp(24px,_3vw,_32px)] [&_h2]:[font-weight:620] [&_h2]:[letter-spacing:-0.025em] [&_h2]:[line-height:1.16] [&_p]:[margin:0] [&_p]:[color:var(--muted-foreground)] [&_p]:[font-size:12.5px] max-680:[&_h2]:[font-size:22px]">
-        <h2>What should we build in {projectLabel}?</h2>
-        <p>Choose a starting point or describe anything below.</p>
+        <h2>
+          {needsModel ? "Connect a model to start" : `What should we build in ${projectLabel}?`}
+        </h2>
+        <p>
+          {needsModel
+            ? "SwarmX needs one compatible model before it can run a task."
+            : "Choose a starting point or describe anything below."}
+        </p>
       </div>
-      <div
-        className={cx(
-          String.raw`empty-run__suggestions max-860:[max-width:620px] max-860:[grid-template-columns:repeat(2,_minmax(0,_1fr))] max-680:[grid-template-columns:1fr] [width:min(100%,_940px)] [display:grid] [grid-template-columns:repeat(4,_minmax(0,_1fr))] [gap:12px] [&.empty-run\_\_suggestions--right-panel]:[width:min(100%,_520px)] [&.empty-run\_\_suggestions--right-panel]:[grid-template-columns:repeat(2,_minmax(0,_1fr))]`,
-          rightPanelOpen &&
-            "empty-run__suggestions--right-panel max-680:[width:100%] max-680:[grid-template-columns:1fr]",
-        )}
-        aria-label="Suggested tasks"
-      >
-        {suggestions.map((suggestion) => {
-          const Icon = suggestion.icon;
-          return (
-            <button
-              key={suggestion.id}
-              type="button"
-              className={cx(
-                "empty-run__suggestion [min-width:0] [min-height:126px] [padding:16px] [display:flex] [flex-direction:column] [align-items:flex-start] [justify-content:space-between] [gap:18px] [color:var(--foreground)] [background:var(--card)] [border:1px_solid_var(--border-subtle)] [border-radius:15px] [box-shadow:var(--shadow-inset),_0_10px_28px_rgba(0,_0,_0,_0.08)] [text-align:left] [cursor:pointer] [transition:transform_var(--duration-fast)_var(--ease-out),_background-color_var(--duration-fast)_var(--ease-out),_border-color_var(--duration-fast)_var(--ease-out)] [&_svg]:[width:18px] [&_svg]:[height:18px] [&_span]:[font-size:13px] [&_span]:[font-weight:610] [&_span]:[line-height:1.35] [&.is-blue_svg]:[color:#7597ff] [&.is-violet_svg]:[color:#a987ff] [&.is-green_svg]:[color:#34d399] [&.is-orange_svg]:[color:#fb923c] max-680:[min-height:82px] max-680:[flex-direction:row] max-680:[align-items:center] max-680:[justify-content:flex-start]",
-                EMPTY_RUN_SUGGESTION_CLASS[suggestion.tone],
-              )}
-              onClick={() => onSelectPrompt(suggestion.prompt)}
-            >
-              <Icon aria-hidden="true" />
-              <span>{suggestion.label}</span>
-            </button>
-          );
-        })}
-      </div>
+      {needsModel ? (
+        <Button onClick={onConnectModelProvider}>Connect model provider</Button>
+      ) : (
+        <div
+          className={cx(
+            String.raw`empty-run__suggestions max-860:[max-width:620px] max-860:[grid-template-columns:repeat(2,_minmax(0,_1fr))] max-680:[grid-template-columns:1fr] [width:min(100%,_940px)] [display:grid] [grid-template-columns:repeat(4,_minmax(0,_1fr))] [gap:12px] [&.empty-run\_\_suggestions--right-panel]:[width:min(100%,_520px)] [&.empty-run\_\_suggestions--right-panel]:[grid-template-columns:repeat(2,_minmax(0,_1fr))]`,
+            rightPanelOpen &&
+              "empty-run__suggestions--right-panel max-680:[width:100%] max-680:[grid-template-columns:1fr]",
+          )}
+          aria-label="Suggested tasks"
+        >
+          {suggestions.map((suggestion) => {
+            const Icon = suggestion.icon;
+            return (
+              <button
+                key={suggestion.id}
+                type="button"
+                className={cx(
+                  "empty-run__suggestion [min-width:0] [min-height:126px] [padding:16px] [display:flex] [flex-direction:column] [align-items:flex-start] [justify-content:space-between] [gap:18px] [color:var(--foreground)] [background:var(--card)] [border:1px_solid_var(--border-subtle)] [border-radius:15px] [box-shadow:var(--shadow-inset),_0_10px_28px_rgba(0,_0,_0,_0.08)] [text-align:left] [cursor:pointer] [transition:transform_var(--duration-fast)_var(--ease-out),_background-color_var(--duration-fast)_var(--ease-out),_border-color_var(--duration-fast)_var(--ease-out)] [&_svg]:[width:18px] [&_svg]:[height:18px] [&_span]:[font-size:13px] [&_span]:[font-weight:610] [&_span]:[line-height:1.35] [&.is-blue_svg]:[color:#7597ff] [&.is-violet_svg]:[color:#a987ff] [&.is-green_svg]:[color:#34d399] [&.is-orange_svg]:[color:#fb923c] max-680:[min-height:82px] max-680:[flex-direction:row] max-680:[align-items:center] max-680:[justify-content:flex-start]",
+                  EMPTY_RUN_SUGGESTION_CLASS[suggestion.tone],
+                )}
+                onClick={() => onSelectPrompt(suggestion.prompt)}
+              >
+                <Icon aria-hidden="true" />
+                <span>{suggestion.label}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
