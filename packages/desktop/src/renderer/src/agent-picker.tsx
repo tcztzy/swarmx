@@ -299,11 +299,11 @@ export function AgentPicker({
     !disabled && selectedModel ? modelBrandPresentation(selectedModel) : undefined;
 
   return (
-    <div className="agent-picker" ref={rootRef}>
+    <div className="agent-picker [position:relative] [min-width:0]" ref={rootRef}>
       <button
         ref={triggerRef}
         type="button"
-        className="agent-picker__trigger"
+        className="agent-picker__trigger [min-height:32px] [max-width:min(420px,_62vw)] [padding:5px_8px] [display:inline-flex] [align-items:center] [gap:7px] [color:var(--muted-foreground)] [background:transparent] [border:0] [border-radius:8px] [font:inherit] [font-size:12px] [font-weight:600] [cursor:pointer] [&_svg]:[width:15px] [&_svg]:[height:15px] [&_svg]:[flex:0_0_auto] [&_.harness-brand-icon]:[width:15px] [&_.harness-brand-icon]:[height:15px] [&_.harness-brand-icon]:[flex:0_0_auto] [&_.model-brand-icon]:[width:15px] [&_.model-brand-icon]:[height:15px] [&_.model-brand-icon]:[flex:0_0_auto] [&_.model-brand-icon]:[object-fit:contain]"
         aria-label="Choose agent"
         aria-haspopup="menu"
         aria-expanded={open}
@@ -333,16 +333,20 @@ export function AgentPicker({
         ) : (
           <HarnessBrandIcon harness={selectedHarness} />
         )}
-        <span className="agent-picker__trigger-label">{triggerModel?.label ?? label}</span>
+        <span className="agent-picker__trigger-label [min-width:0] [overflow:hidden] [text-overflow:ellipsis] [white-space:nowrap]">
+          {triggerModel?.label ?? label}
+        </span>
         {!disabled && selectedModel && selectedEffort && (
-          <span className="agent-picker__trigger-effort">{effortLabel(selectedEffort)}</span>
+          <span className="agent-picker__trigger-effort [flex:0_0_auto] [color:var(--muted-foreground)] [font-weight:500] [opacity:0.72]">
+            {effortLabel(selectedEffort)}
+          </span>
         )}
         {!disabled && <ChevronRight aria-hidden="true" />}
       </button>
       {open && !disabled && (
         <div
           ref={menuRef}
-          className="agent-picker__menu"
+          className={String.raw`agent-picker__menu [--agent-picker-primary-width:196px] [--agent-picker-secondary-width:270px] [--agent-picker-panel-gap:6px] [position:absolute] [z-index:40] [left:var(--agent-picker-inline-offset,_0px)] [bottom:calc(100%_+_8px)] [width:var(--agent-picker-primary-width)] [overflow:visible] [color:var(--foreground)] [&[data-secondary-side='left']_.agent-picker\_\_secondary]:[right:calc(100%_+_var(--agent-picker-panel-gap))] [&[data-secondary-side='left']_.agent-picker\_\_secondary]:[left:auto] max-520:[--agent-picker-primary-width:164px] max-520:[--agent-picker-secondary-width:214px]`}
           role="menu"
           aria-label="Agent composition"
           data-secondary-side={menuGeometry.secondarySide}
@@ -353,13 +357,19 @@ export function AgentPicker({
           }
           onKeyDown={handleMenuKeyDown}
         >
-          <div className="agent-picker__primary" data-testid="agent-picker-primary">
+          <div
+            className="agent-picker__primary [position:relative] [z-index:1] [width:var(--agent-picker-primary-width)] [height:fit-content] [box-sizing:border-box] [min-width:0] [padding:6px] [background:var(--popover,_var(--card-strong))] [border:1px_solid_var(--border)] [border-radius:13px] [box-shadow:0_18px_48px_rgba(0,_0,_0,_0.28),_var(--shadow-inset)]"
+            data-testid="agent-picker-primary"
+          >
             {primaryRows.map((row) => (
               <button
                 key={row.id}
                 type="button"
                 role="menuitem"
-                className={cx("agent-picker__row", section === row.id && "is-active")}
+                className={cx(
+                  "agent-picker__row [width:100%] [min-height:44px] [padding:7px_9px] [display:flex] [align-items:center] [gap:9px] [color:inherit] [background:transparent] [border:0] [border-radius:8px] [text-align:left] [cursor:pointer] [&_>_span]:[min-width:0] [&_>_span]:[flex:1] [&_>_span]:[display:flex] [&_>_span]:[flex-direction:column] [&_>_span]:[gap:2px] [&_strong]:[font-size:12px] [&_strong]:[font-weight:610] [&_small]:[overflow:hidden] [&_small]:[color:var(--muted-foreground)] [&_small]:[font-size:10.5px] [&_small]:[font-weight:500] [&_small]:[text-overflow:ellipsis] [&_small]:[white-space:nowrap] [&_>_svg]:[width:14px] [&_>_svg]:[height:14px] [&_>_svg]:[flex:0_0_auto] [&_>_.harness-brand-icon]:[width:14px] [&_>_.harness-brand-icon]:[height:14px] [&_>_.harness-brand-icon]:[flex:0_0_auto]",
+                  section === row.id && "is-active",
+                )}
                 disabled={!row.enabled}
                 onPointerEnter={() => row.enabled && onSectionChange(row.id)}
                 onClick={() => row.enabled && onSectionChange(row.id)}
@@ -373,7 +383,11 @@ export function AgentPicker({
               </button>
             ))}
           </div>
-          <div className="agent-picker__secondary" role="menu" aria-label={`${section} options`}>
+          <div
+            className="agent-picker__secondary [position:absolute] [left:calc(100%_+_var(--agent-picker-panel-gap))] [bottom:0] [width:var(--agent-picker-secondary-width)] [max-height:min(360px,_56vh)] [overflow-y:auto] [overscroll-behavior:contain] [scrollbar-gutter:stable] [box-sizing:border-box] [min-width:0] [padding:6px] [background:var(--popover,_var(--card-strong))] [border:1px_solid_var(--border)] [border-radius:13px] [box-shadow:0_18px_48px_rgba(0,_0,_0,_0.28),_var(--shadow-inset)]"
+            role="menu"
+            aria-label={`${section} options`}
+          >
             {section === "harness" &&
               harnesses.map((harness) => {
                 return (
@@ -386,7 +400,7 @@ export function AgentPicker({
                     disabled={harness.disabled}
                     title={harness.disabledReason}
                     className={cx(
-                      "agent-picker__option",
+                      "agent-picker__option [width:100%] [min-height:44px] [padding:7px_9px] [display:flex] [align-items:center] [gap:9px] [color:inherit] [background:transparent] [border:0] [border-radius:8px] [text-align:left] [cursor:pointer] [&_>_span]:[min-width:0] [&_>_span]:[flex:1] [&_>_span]:[display:flex] [&_>_span]:[flex-direction:column] [&_>_span]:[gap:2px] [&_>_span]:[font-size:12px] [&_>_span]:[font-weight:610] [&_small]:[overflow:hidden] [&_small]:[color:var(--muted-foreground)] [&_small]:[font-size:10.5px] [&_small]:[font-weight:500] [&_small]:[text-overflow:ellipsis] [&_small]:[white-space:nowrap] [&_>_svg]:[width:14px] [&_>_svg]:[height:14px] [&_>_svg]:[flex:0_0_auto]",
                       harness.id === selectedHarness.id && "is-selected",
                     )}
                     onClick={() => !harness.disabled && onHarnessChange(harness.id)}
@@ -401,23 +415,27 @@ export function AgentPicker({
                 );
               })}
             {section === "model" && (
-              <div className="agent-picker__model-list">
-                <div className="agent-picker__model-actions">
+              <div className="agent-picker__model-list [min-width:0] [display:flex] [flex-direction:column] [gap:6px]">
+                <div className="agent-picker__model-actions [margin:-2px_-2px_0] [display:grid] [grid-template-columns:repeat(2,_minmax(0,_1fr))] [gap:5px]">
                   <button
                     type="button"
-                    className="agent-picker__model-action"
+                    className="agent-picker__model-action [min-width:0] [height:32px] [padding:0_8px] [display:flex] [align-items:center] [justify-content:center] [gap:6px] [color:var(--foreground)] [background:var(--card)] [border:1px_solid_var(--border-subtle)] [border-radius:8px] [font-size:11px] [font-weight:620] [cursor:pointer] [&_svg]:[width:13px] [&_svg]:[height:13px] [&_.is-spinning]:[animation:spin_0.8s_linear_infinite]"
                     disabled={modelCatalogRefreshing}
                     onClick={() => void onRefreshModels()}
                   >
                     <RefreshCw
                       aria-hidden="true"
-                      className={modelCatalogRefreshing ? "is-spinning" : undefined}
+                      className={
+                        modelCatalogRefreshing
+                          ? "is-spinning [animation:spin_0.9s_linear_infinite]"
+                          : undefined
+                      }
                     />
                     <span>{modelCatalogRefreshing ? "Refreshing" : "Refresh"}</span>
                   </button>
                   <button
                     type="button"
-                    className="agent-picker__model-action"
+                    className="agent-picker__model-action [min-width:0] [height:32px] [padding:0_8px] [display:flex] [align-items:center] [justify-content:center] [gap:6px] [color:var(--foreground)] [background:var(--card)] [border:1px_solid_var(--border-subtle)] [border-radius:8px] [font-size:11px] [font-weight:620] [cursor:pointer] [&_svg]:[width:13px] [&_svg]:[height:13px] [&_.is-spinning]:[animation:spin_0.8s_linear_infinite]"
                     aria-expanded={manualModelOpen}
                     onClick={() => setManualModelOpen((current) => !current)}
                   >
@@ -425,7 +443,7 @@ export function AgentPicker({
                     <span>Add model</span>
                   </button>
                 </div>
-                <output className="agent-picker__model-status">
+                <output className="agent-picker__model-status [padding:1px_4px] [color:var(--muted-foreground)] [font-size:10px] [line-height:1.35]">
                   {modelCatalogRefreshing
                     ? "Refreshing Provider APIs…"
                     : providerErrorCount > 0
@@ -435,13 +453,16 @@ export function AgentPicker({
                         : "Provider discovery has not run yet."}
                 </output>
                 {(modelCatalogError || manualModelError) && (
-                  <div className="agent-picker__model-error" role="alert">
+                  <div
+                    className="agent-picker__model-error [color:var(--danger)] [padding:1px_4px] [font-size:10px] [line-height:1.35]"
+                    role="alert"
+                  >
                     {manualModelError ?? modelCatalogError}
                   </div>
                 )}
                 {manualModelOpen && (
                   <form
-                    className="agent-picker__manual-model"
+                    className="agent-picker__manual-model [padding:8px] [display:grid] [gap:7px] [background:var(--card)] [border:1px_solid_var(--border-subtle)] [border-radius:9px] [&_label]:[min-width:0] [&_label]:[display:grid] [&_label]:[gap:3px] [&_label]:[color:var(--muted-foreground)] [&_label]:[font-size:10px] [&_label]:[font-weight:620] [&_input]:[box-sizing:border-box] [&_input]:[min-width:0] [&_input]:[width:100%] [&_input]:[height:30px] [&_input]:[padding:0_7px] [&_input]:[color:var(--foreground)] [&_input]:[background:var(--background)] [&_input]:[border:1px_solid_var(--border)] [&_input]:[border-radius:6px] [&_input]:[outline:0] [&_input]:[font:inherit] [&_input]:[font-size:11px] [&_select]:[box-sizing:border-box] [&_select]:[min-width:0] [&_select]:[width:100%] [&_select]:[height:30px] [&_select]:[padding:0_7px] [&_select]:[color:var(--foreground)] [&_select]:[background:var(--background)] [&_select]:[border:1px_solid_var(--border)] [&_select]:[border-radius:6px] [&_select]:[outline:0] [&_select]:[font:inherit] [&_select]:[font-size:11px]"
                     aria-label="Add manual model"
                     onSubmit={(event) => void submitManualModel(event)}
                     onKeyDown={(event) => event.stopPropagation()}
@@ -485,7 +506,7 @@ export function AgentPicker({
                         <option value="ollama">Ollama</option>
                       </select>
                     </label>
-                    <div className="agent-picker__manual-model-actions">
+                    <div className="agent-picker__manual-model-actions [display:flex] [justify-content:flex-end] [gap:5px] [&_button]:[min-height:28px] [&_button]:[padding:0_8px] [&_button]:[color:var(--foreground)] [&_button]:[background:transparent] [&_button]:[border:1px_solid_var(--border-subtle)] [&_button]:[border-radius:6px] [&_button]:[font-size:10.5px] [&_button]:[cursor:pointer] [&_button[type='submit']]:[color:var(--primary-foreground)] [&_button[type='submit']]:[background:var(--primary)] [&_button[type='submit']]:[border-color:transparent]">
                       <button type="button" onClick={() => setManualModelOpen(false)}>
                         Cancel
                       </button>
@@ -496,7 +517,10 @@ export function AgentPicker({
                   </form>
                 )}
                 {(modelCatalog?.manualModelIds.length ?? 0) > 0 && (
-                  <div className="agent-picker__manual-model-list" aria-label="Manual models">
+                  <div
+                    className="agent-picker__manual-model-list [display:flex] [flex-wrap:wrap] [gap:4px] [&_svg]:[width:13px] [&_svg]:[height:13px] [&_button]:[min-height:28px] [&_button]:[padding:0_8px] [&_button]:[background:transparent] [&_button]:[border:1px_solid_var(--border-subtle)] [&_button]:[border-radius:6px] [&_button]:[font-size:10.5px] [&_button]:[cursor:pointer] [&_button]:[max-width:100%] [&_button]:[display:flex] [&_button]:[align-items:center] [&_button]:[gap:5px] [&_button]:[color:var(--muted-foreground)] [&_button_span]:[overflow:hidden] [&_button_span]:[text-overflow:ellipsis] [&_button_span]:[white-space:nowrap]"
+                    aria-label="Manual models"
+                  >
                     {modelCatalog?.manualModelIds.map((modelId) => (
                       <button
                         key={modelId}
@@ -513,7 +537,7 @@ export function AgentPicker({
                 {models.length > 0 ? (
                   <>
                     <label
-                      className="agent-picker__model-search"
+                      className="agent-picker__model-search [min-width:0] [height:40px] [margin:1px_-6px_0] [padding:7px_9px] [display:flex] [align-items:center] [gap:8px] [color:var(--muted-foreground)] [background:var(--popover,_var(--card-strong))] [border-bottom:1px_solid_var(--border-subtle)] [border-radius:13px_13px_0_0] [&_svg]:[width:15px] [&_svg]:[height:15px] [&_svg]:[flex:0_0_auto] [&_input]:[min-width:0] [&_input]:[width:100%] [&_input]:[color:var(--foreground)] [&_input]:[background:transparent] [&_input]:[border:0] [&_input]:[outline:0] [&_input]:[font-size:12px]"
                       onKeyDown={(event) => event.stopPropagation()}
                     >
                       <Search aria-hidden="true" />
@@ -526,10 +550,13 @@ export function AgentPicker({
                       />
                     </label>
                     {modelGroups.map((group) => (
-                      <fieldset key={group.id} className="agent-picker__model-group">
+                      <fieldset
+                        key={group.id}
+                        className={String.raw`agent-picker__model-group [min-width:0] [margin:0] [padding:0] [display:flex] [flex-direction:column] [gap:1px] [border:0] [&_+_.agent-picker\_\_model-group]:[margin-top:7px] [&_+_.agent-picker\_\_model-group]:[padding-top:7px] [&_+_.agent-picker\_\_model-group]:[border-top:1px_solid_var(--border-subtle)] [&_.agent-picker\_\_option]:[min-height:38px] [&_.agent-picker\_\_option]:[padding-left:9px]`}
+                      >
                         <legend
                           id={`model-provider-${domId(group.id)}`}
-                          className="agent-picker__model-group-label"
+                          className={String.raw`agent-picker__model-group-label [padding:5px_9px_4px] [display:flex] [align-items:center] [gap:7px] [overflow:hidden] [color:var(--muted-foreground)] [font-size:11px] [font-weight:650] [line-height:1.2] [text-overflow:ellipsis] [white-space:nowrap] [&_.settings-provider-matrix\_\_icon]:[width:20px] [&_.settings-provider-matrix\_\_icon]:[height:20px] [&_.settings-provider-matrix\_\_icon]:[border-radius:6px] [&_.settings-provider-matrix\_\_icon_img]:[width:12px] [&_.settings-provider-matrix\_\_icon_img]:[height:12px] [&_.settings-provider-matrix\_\_icon_svg]:[width:12px] [&_.settings-provider-matrix\_\_icon_svg]:[height:12px]`}
                         >
                           <ProviderBrandIcon
                             label={group.label}
@@ -541,13 +568,13 @@ export function AgentPicker({
                         {group.subgroups.map((subgroup) => (
                           <div
                             key={subgroup.id}
-                            className="agent-picker__model-subgroup"
+                            className={String.raw`agent-picker__model-subgroup [min-width:0] [display:flex] [flex-direction:column] [gap:1px] [&_+_.agent-picker\_\_model-subgroup]:[margin-top:4px]`}
                             {...(subgroup.label
                               ? { role: "group", "aria-label": subgroup.label }
                               : {})}
                           >
                             {subgroup.label && (
-                              <span className="agent-picker__model-subgroup-label">
+                              <span className="agent-picker__model-subgroup-label [padding:3px_9px_2px_36px] [overflow:hidden] [color:var(--muted-foreground)] [font-size:9.5px] [font-weight:620] [line-height:1.2] [text-overflow:ellipsis] [white-space:nowrap]">
                                 {subgroup.label}
                               </span>
                             )}
@@ -559,7 +586,7 @@ export function AgentPicker({
                                 title={model.modelId}
                                 aria-checked={model.id === selectedModel?.id}
                                 className={cx(
-                                  "agent-picker__option",
+                                  "agent-picker__option [width:100%] [min-height:44px] [padding:7px_9px] [display:flex] [align-items:center] [gap:9px] [color:inherit] [background:transparent] [border:0] [border-radius:8px] [text-align:left] [cursor:pointer] [&_>_span]:[min-width:0] [&_>_span]:[flex:1] [&_>_span]:[display:flex] [&_>_span]:[flex-direction:column] [&_>_span]:[gap:2px] [&_>_span]:[font-size:12px] [&_>_span]:[font-weight:610] [&_small]:[overflow:hidden] [&_small]:[color:var(--muted-foreground)] [&_small]:[font-size:10.5px] [&_small]:[font-weight:500] [&_small]:[text-overflow:ellipsis] [&_small]:[white-space:nowrap] [&_>_svg]:[width:14px] [&_>_svg]:[height:14px] [&_>_svg]:[flex:0_0_auto]",
                                   model.id === selectedModel?.id && "is-selected",
                                 )}
                                 onClick={() => onModelChange(model.id)}
@@ -578,11 +605,13 @@ export function AgentPicker({
                       </fieldset>
                     ))}
                     {modelGroups.length === 0 && (
-                      <div className="agent-picker__empty">No models match “{modelQuery}”</div>
+                      <div className="agent-picker__empty [padding:22px_12px] [color:var(--muted-foreground)] [font-size:11.5px] [line-height:1.45] [text-align:center]">
+                        No models match “{modelQuery}”
+                      </div>
                     )}
                   </>
                 ) : (
-                  <div className="agent-picker__empty">
+                  <div className="agent-picker__empty [padding:22px_12px] [color:var(--muted-foreground)] [font-size:11.5px] [line-height:1.45] [text-align:center]">
                     No compatible Models. Refresh Provider APIs or add one manually.
                   </div>
                 )}
@@ -595,7 +624,10 @@ export function AgentPicker({
                   type="button"
                   role="menuitemradio"
                   aria-checked={effort === selectedEffort}
-                  className={cx("agent-picker__option", effort === selectedEffort && "is-selected")}
+                  className={cx(
+                    "agent-picker__option [width:100%] [min-height:44px] [padding:7px_9px] [display:flex] [align-items:center] [gap:9px] [color:inherit] [background:transparent] [border:0] [border-radius:8px] [text-align:left] [cursor:pointer] [&_>_span]:[min-width:0] [&_>_span]:[flex:1] [&_>_span]:[display:flex] [&_>_span]:[flex-direction:column] [&_>_span]:[gap:2px] [&_>_span]:[font-size:12px] [&_>_span]:[font-weight:610] [&_small]:[overflow:hidden] [&_small]:[color:var(--muted-foreground)] [&_small]:[font-size:10.5px] [&_small]:[font-weight:500] [&_small]:[text-overflow:ellipsis] [&_small]:[white-space:nowrap] [&_>_svg]:[width:14px] [&_>_svg]:[height:14px] [&_>_svg]:[flex:0_0_auto]",
+                    effort === selectedEffort && "is-selected",
+                  )}
                   onClick={() => onEffortChange(effort)}
                 >
                   <Sparkles aria-hidden="true" />
@@ -604,7 +636,9 @@ export function AgentPicker({
                 </button>
               ))}
             {section === "effort" && efforts.length === 0 && (
-              <div className="agent-picker__empty">This model has no verified effort control</div>
+              <div className="agent-picker__empty [padding:22px_12px] [color:var(--muted-foreground)] [font-size:11.5px] [line-height:1.45] [text-align:center]">
+                This model has no verified effort control
+              </div>
             )}
           </div>
         </div>

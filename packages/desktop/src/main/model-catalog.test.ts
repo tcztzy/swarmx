@@ -2,6 +2,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  buildProviderRuntimeEnv,
   builtInExtensionBundle,
   createDefaultDesktopSettings,
   createExtensionInventory,
@@ -238,6 +239,179 @@ describe("ModelCatalogService", () => {
     );
     expect(refreshed.models).toContainEqual(expect.objectContaining({ id: "custom-model" }));
     expect(await readFile(paths.settingsPath, "utf8")).not.toContain("custom-only-key");
+  });
+
+  it("normalizes official OpenRouter URL forms into one three-protocol Provider", async () => {
+    const paths = await catalogPaths();
+    const authStore = new MemoryProviderAuthStore();
+    const fetch = vi
+      .fn()
+      .mockResolvedValue(response({ data: [{ id: "anthropic/claude-sonnet-4" }] }));
+    const service = new ModelCatalogService({
+      ...paths,
+      env: {},
+      authStore,
+      fetch,
+      now: fixedClock(),
+    });
+    const inventory = createExtensionInventory([]);
+
+    const saved = await service.saveProvider(inventory, {
+      label: "OpenRouter",
+      kind: "anthropic",
+      baseUrl: "https://openrouter.ai/api/v1",
+      authMode: "api_key",
+      secret: "openrouter-key",
+    });
+    const providerId = saved.modelCatalog.userProviderIds[0] as string;
+
+    expect(saved.providers[0]).toEqual(
+      expect.objectContaining({
+        id: providerId,
+        kind: "anthropic",
+        authMode: "auth_token",
+        baseUrl: "https://openrouter.ai/api",
+        apiEntrypoints: {
+          anthropic: "https://openrouter.ai/api",
+          openai_chat: "https://openrouter.ai/api/v1",
+          openai_responses: "https://openrouter.ai/api/v1",
+        },
+        modelDiscoveryUrl: "https://openrouter.ai/api/v1/models",
+        modelDiscoveryApi: "openai_chat",
+      }),
+    );
+    expect(fetch).not.toHaveBeenCalled();
+    expect(
+      buildProviderRuntimeEnv(saved.providers[0], {
+        modelId: "anthropic/claude-sonnet-4",
+        targetApi: "anthropic",
+        secretValue: "openrouter-key",
+      }).env,
+    ).toEqual(
+      expect.objectContaining({
+        ANTHROPIC_AUTH_TOKEN: "openrouter-key",
+        ANTHROPIC_BASE_URL: "https://openrouter.ai/api",
+      }),
+    );
+
+    const refreshed = await service.refresh(inventory);
+    expect(fetch).toHaveBeenCalledWith(
+      "https://openrouter.ai/api/v1/models",
+      expect.objectContaining({
+        headers: expect.objectContaining({ Authorization: "Bearer openrouter-key" }),
+      }),
+    );
+    expect(refreshed.models).toContainEqual(
+      expect.objectContaining({
+        id: "anthropic/claude-sonnet-4",
+        apiProtocols: ["anthropic", "openai_chat", "openai_responses"],
+      }),
+    );
+    expect(
+      refreshed.modelSupplies
+        .filter((supply) => supply.modelId === "anthropic/claude-sonnet-4")
+        .map((supply) => supply.apiCompatibility.targetApi),
+    ).toEqual(["anthropic", "openai_chat", "openai_responses"]);
+
+    const responsesPreferred = await service.saveProvider(inventory, {
+      id: providerId,
+      label: "OpenRouter",
+      kind: "openai_responses",
+      baseUrl: "https://openrouter.ai/api/",
+      authMode: "api_key",
+    });
+    expect(responsesPreferred.providers[0]).toEqual(
+      expect.objectContaining({
+        kind: "openai_responses",
+        authMode: "auth_token",
+        baseUrl: "https://openrouter.ai/api/v1",
+        apiEntrypoints: {
+          anthropic: "https://openrouter.ai/api",
+          openai_chat: "https://openrouter.ai/api/v1",
+          openai_responses: "https://openrouter.ai/api/v1",
+        },
+      }),
+    );
+    expect(await authStore.get(providerId)).toBe("openrouter-key");
+  });
+
+  it("normalizes a persisted OpenRouter Provider before discovery", async () => {
+    const paths = await catalogPaths();
+    const providerId = "swarmx.user.openrouter";
+    const authStore = new MemoryProviderAuthStore();
+    await authStore.set(providerId, "persisted-openrouter-key");
+    await writeFile(
+      paths.settingsPath,
+      JSON.stringify(
+        createDefaultDesktopSettings({
+          providers: [
+            {
+              id: providerId,
+              displayName: "OpenRouter",
+              kind: "anthropic",
+              baseUrl: "https://openrouter.ai/api/v1",
+              apiEntrypoints: {},
+              authMode: "api_key",
+              secretRef: { source: "local_auth_file", key: providerId },
+              metadata: { managedBy: "swarmx-desktop" },
+            },
+          ],
+        }),
+      ),
+      "utf8",
+    );
+    const fetch = vi.fn().mockResolvedValue(response({ data: [{ id: "openai/gpt-5" }] }));
+
+    const catalog = await new ModelCatalogService({
+      ...paths,
+      env: {},
+      authStore,
+      fetch,
+      now: fixedClock(),
+    }).refresh(createExtensionInventory([]));
+
+    expect(fetch).toHaveBeenCalledWith(
+      "https://openrouter.ai/api/v1/models",
+      expect.objectContaining({
+        headers: expect.objectContaining({ Authorization: "Bearer persisted-openrouter-key" }),
+      }),
+    );
+    expect(catalog.providers[0]).toEqual(
+      expect.objectContaining({
+        baseUrl: "https://openrouter.ai/api",
+        authMode: "auth_token",
+        apiEntrypoints: {
+          anthropic: "https://openrouter.ai/api",
+          openai_chat: "https://openrouter.ai/api/v1",
+          openai_responses: "https://openrouter.ai/api/v1",
+        },
+      }),
+    );
+  });
+
+  it("does not apply OpenRouter routing to a lookalike host", async () => {
+    const service = new ModelCatalogService({
+      ...(await catalogPaths()),
+      env: {},
+      authStore: new MemoryProviderAuthStore(),
+      now: fixedClock(),
+    });
+
+    const saved = await service.saveProvider(createExtensionInventory([]), {
+      label: "OpenRouter Lookalike",
+      kind: "openai_chat",
+      baseUrl: "https://openrouter.ai.evil.test/api/v1",
+      authMode: "api_key",
+      secret: "lookalike-key",
+    });
+
+    expect(saved.providers[0]).toEqual(
+      expect.objectContaining({
+        baseUrl: "https://openrouter.ai.evil.test/api/v1",
+        apiEntrypoints: {},
+        authMode: "api_key",
+      }),
+    );
   });
 
   it("V483/V484 persists an OpenCode Go key pool and exposes local per-key usage", async () => {
@@ -1178,6 +1352,7 @@ describe("ModelCatalogService", () => {
       ...paths,
       env: {},
       authStore,
+      keyUsageStore: new ProviderKeyUsageStore({ path: paths.keyUsagePath, now: fixedClock() }),
       fetch: vi.fn().mockResolvedValue(response({ data: [] })),
       now: fixedClock(),
     });
@@ -1328,6 +1503,7 @@ describe("ModelCatalogService", () => {
       ...paths,
       env: {},
       authStore,
+      keyUsageStore: new ProviderKeyUsageStore({ path: paths.keyUsagePath, now: fixedClock() }),
       fetch: vi
         .fn()
         .mockResolvedValue(

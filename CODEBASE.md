@@ -66,8 +66,9 @@ swarmx launcher ───► Desktop or CLI
   or nested `swarm`.
 - Agent identity: `harnessId:modelId`; Provider routes and effort do not create
   new identities.
-- Session authority: append-only JSONL under `~/.swarmx/sessions/`; its index is
-  rebuildable.
+- Session authority: append-only JSONL grouped by Project under
+  `~/.swarmx/projects/`, with projectless history in `__recents__`; each index
+  is rebuildable.
 - Durable task authority: append-only runtime events under
   `~/.swarmx/task-runtime/`; WorkItems are independent of Sessions and workers.
 - Skill evolution authority: append-only ledger records and content-addressed

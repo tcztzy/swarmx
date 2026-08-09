@@ -19,6 +19,66 @@ lockfile, not here.
 Core may expose Node-specific APIs from its root. Browser consumers must use a
 documented browser-safe subpath such as `@swarmx/core/rendering`.
 
+## Renderer styling
+
+The Desktop Renderer has one CSS compilation path: Tailwind CSS runs through
+its first-party Vite plugin and emits the stylesheet used by both the Electron
+application and the public `@swarmx/desktop/styles.css` export. The public
+subpath keeps its stable name and resolves to compiled CSS; package consumers
+must not be required to install or compile Tailwind themselves.
+
+Tailwind Preflight is intentionally disabled. SwarmX already owns base element
+behavior for an Electron window, Markdown, KaTeX, and xterm, so an additional
+opinionated reset would be an uncontrolled compatibility change. The stylesheet
+declares explicit `theme`, `base`, `components`, and `utilities` cascade layers:
+
+- `theme` exposes semantic application tokens to Tailwind utilities;
+- `base` owns the existing element reset, host-specific behavior, and
+  third-party base imports;
+- `components` is reserved for future component recipes that do not participate
+  in local utility overrides;
+- `utilities` contains both generated, statically discoverable classes and the
+  bounded relationship, pseudo-element, rich-content, and third-party rules
+  that must share their cascade layer. Residual rules load after generated
+  utilities so their higher selector specificity continues to override a
+  migrated element's base utilities just as it did before the migration.
+
+Reusable components with visual variants use Class Variance Authority as the
+single mapping from semantic props to complete Tailwind class strings. Variant
+types are derived from that mapping. Runtime data never constructs Tailwind
+utility names by interpolation; finite states use CVA, explicit lookup tables,
+or `data-*` variants. Plain conditional class joining remains appropriate for
+non-variant structural state. A static class string must not contain two
+arbitrary utilities for the same variant/property scope with different values;
+such an override belongs in a CVA branch or an explicit state selector rather
+than depending on Tailwind's generated order. Biome parses Tailwind directives
+so this sole CSS entry remains inside the repository's normal lint and
+formatting gate.
+
+Relationship utilities that escape underscores in BEM class names use static
+`String.raw` templates. This keeps the class candidate seen by Tailwind's source
+scanner byte-for-byte identical to the class token rendered by React; ordinary
+JavaScript string escaping must not introduce an additional backslash. Responsive
+utilities use the ordered `max-1100`, `max-860`, `max-680`, and `max-520` custom
+variants declared by the stylesheet entry. Their descending declaration order
+preserves the original inclusive `max-width` cascade when multiple narrow-window
+rules target the same property.
+
+Host-sensitive backdrop filters remain on the existing prefix-controlled CSS
+path. Tailwind arbitrary utilities must not add an unprefixed `backdrop-filter`
+path independently: the compiled stylesheet consumed by the supported Electron
+runtime is the compatibility surface, and enabling a second path changes both
+compositing and visible translucency.
+
+Authored residual feature CSS is a bounded exception rather than the primary
+styling surface. Ordinary standalone component rules belong in statically
+discoverable Tailwind classes beside the rendered element; reusable visual
+variants belong in CVA. The architecture test caps all residual Renderer CSS at
+3,000 logical lines and rejects standalone single-class rules outside the owned
+base stylesheet. Remaining CSS therefore requires selector relationships,
+pseudo-elements, rich-content/third-party markup, keyframes, or host/media
+queries that are clearer as cohesive rules.
+
 ## Identity and composition
 
 SwarmX keeps distribution, execution, and supply identities separate:
@@ -277,14 +337,21 @@ canonical Session history.
 
 ## Sessions and Projects
 
-Canonical Sessions are append-only JSONL event logs under
-`~/.swarmx/sessions/`. Events create a Session, append or replace messages, and
-update metadata. A rebuildable JSONL index supports task lists without loading
-message bodies.
+Canonical Sessions follow a Claude Code-style Project layout under
+`~/.swarmx/projects/`. Each working directory maps to a stable, collision-safe
+child directory containing append-only Session JSONL event logs and its own
+rebuildable `sessions-index.json`. Sessions without Project context live in the
+reserved `__recents__` child directory. Project directory keys derive from persisted
+Session context rather than the mutable Project bookmark registry, so renamed,
+removed, or temporarily unavailable Projects do not hide history. Events create
+a Session, append or replace messages, and update metadata.
 
 Replay accepts one torn, unterminated final record as a recoverable crash tail.
-A complete malformed record fails closed. Legacy JSON Sessions remain readable
-and can be migrated only after replay equivalence is verified.
+A complete malformed record fails closed. Session discovery, replay, mutation,
+and indexing accept only `.jsonl`; older `.json` files are unsupported. A
+pre-Project-layout JSONL file under `~/.swarmx/sessions/` remains readable during
+the layout transition and moves atomically to its canonical Project directory
+on the next mutation. Read-only discovery never performs that move.
 
 Projects are local folder bookmarks stored separately from Sessions. A Project
 groups tasks and supplies the canonical working root for direct tools. It is not
@@ -325,9 +392,10 @@ tool contracts cannot drift independently.
 Markdown-based agent and Skill definitions share Core's YAML-backed frontmatter
 parser; host adapters do not maintain partial, line-oriented YAML parsers.
 
-Renderer styling remains feature-owned semantic CSS. Shared declarations may
-group related semantic selectors (for example with `:is()`), but utility-class
-rewrites and orphaned styles for removed UI variants are not retained.
+Renderer styling follows the single Tailwind/CVA compilation boundary defined
+above. Feature-owned CSS is retained for cohesive layout, relationship
+selectors, pseudo-elements, rich content, and host integrations; orphaned
+selectors and parallel primitive variant paths are removed.
 
 ### Renderer
 
@@ -404,6 +472,13 @@ runtime-verified compatibility exceptions such as DeepSeek V4 Flash supporting
 both Chat Completions and Messages. An unknown discovered id receives only the
 user-selected preferred protocol instead of being advertised across unverified
 routes.
+
+An official OpenRouter connection is one Provider with three API entrypoints:
+Anthropic uses the `/api` base while OpenAI Chat and Responses use `/api/v1`;
+model discovery always uses `/api/v1/models`. Either accepted base form is
+normalized into that routing table, so an Anthropic SDK never produces a
+duplicated `/v1/v1/messages` path. OpenRouter API keys use Bearer authentication
+for all three routes.
 
 Only Main resolves Provider secrets, calls Provider endpoints, or constructs a
 request environment. Renderer receives readiness, catalog, usage, balance, and

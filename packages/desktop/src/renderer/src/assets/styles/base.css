@@ -1,0 +1,146 @@
+:root {
+  color-scheme: dark;
+  --background: #07080b;
+  --foreground: #f6f7fb;
+  --card: rgba(18, 20, 26, 0.78);
+  --card-solid: #12141a;
+  --card-strong: rgba(24, 27, 35, 0.9);
+  --card-hover: rgba(38, 42, 54, 0.72);
+  --muted: #b1b7c3;
+  --muted-foreground: #77808f;
+  --border: rgba(180, 193, 214, 0.18);
+  --border-subtle: rgba(180, 193, 214, 0.11);
+  --input: rgba(12, 14, 19, 0.72);
+  --primary: #f4f4f5;
+  --primary-foreground: #09090b;
+  --accent: #95e9ff;
+  --accent-muted: rgba(149, 233, 255, 0.16);
+  --accent-foreground: #09090b;
+  --danger: #f87171;
+  --danger-muted: rgba(248, 113, 113, 0.11);
+  --success: #34d399;
+  --success-muted: rgba(52, 211, 153, 0.12);
+  --ring: rgba(149, 233, 255, 0.32);
+  --glass-blur: 22px;
+  --glass-highlight: rgba(255, 255, 255, 0.12);
+  --glass-noise-opacity: 0.035;
+  --shadow: 0 22px 70px rgba(0, 0, 0, 0.42);
+  --shadow-soft: 0 14px 38px rgba(0, 0, 0, 0.28);
+  --shadow-inset: inset 0 1px 0 var(--glass-highlight);
+  --radius: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 16px;
+  --duration-fast: 160ms;
+  --duration-med: 220ms;
+  --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --font-sans:
+    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-mono: "SFMono-Regular", "SF Mono", Consolas, "Liberation Mono", Menlo, monospace;
+  --user-message-background: #27292f;
+  --user-message-foreground: #f6f7fb;
+  --button-default-background: linear-gradient(180deg, #ffffff, #dce3ed);
+  --button-default-background-hover: linear-gradient(180deg, #ffffff, #edf3fa);
+  --button-default-border: rgba(255, 255, 255, 0.86);
+  --button-default-shadow: 0 10px 24px rgba(0, 0, 0, 0.22), inset 0 1px 0 rgba(255, 255, 255, 0.92);
+  --button-ghost-background-hover: rgba(255, 255, 255, 0.07);
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    color-scheme: light;
+    --background: #f4f6f9;
+    --foreground: #17191f;
+    --card: rgba(255, 255, 255, 0.82);
+    --card-solid: #ffffff;
+    --card-strong: rgba(255, 255, 255, 0.94);
+    --card-hover: rgba(32, 55, 82, 0.08);
+    --muted: #596474;
+    --muted-foreground: #737e8e;
+    --border: rgba(39, 53, 73, 0.18);
+    --border-subtle: rgba(39, 53, 73, 0.1);
+    --input: rgba(244, 246, 249, 0.9);
+    --primary: #20242c;
+    --primary-foreground: #ffffff;
+    --accent: #087c9b;
+    --accent-muted: rgba(8, 124, 155, 0.12);
+    --accent-foreground: #ffffff;
+    --danger: #c33535;
+    --danger-muted: rgba(195, 53, 53, 0.1);
+    --success: #087c55;
+    --success-muted: rgba(8, 124, 85, 0.1);
+    --ring: rgba(8, 124, 155, 0.28);
+    --glass-highlight: rgba(255, 255, 255, 0.85);
+    --glass-noise-opacity: 0.025;
+    --shadow: 0 18px 50px rgba(44, 58, 78, 0.14);
+    --shadow-soft: 0 12px 30px rgba(44, 58, 78, 0.11);
+    --user-message-background: #ececef;
+    --user-message-foreground: #1b1c20;
+    --button-default-background: linear-gradient(180deg, #303641, #20242c);
+    --button-default-background-hover: linear-gradient(180deg, #3a414e, #272c35);
+    --button-default-border: rgba(20, 24, 31, 0.72);
+    --button-default-shadow:
+      0 8px 20px rgba(44, 58, 78, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.18);
+    --button-ghost-background-hover: rgba(32, 55, 82, 0.07);
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+body {
+  margin: 0;
+  background: #050609;
+  color: var(--foreground);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.5;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+}
+
+button,
+select,
+textarea {
+  font: inherit;
+}
+
+button {
+  -webkit-app-region: no-drag;
+}
+
+button:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: 0;
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(180, 193, 214, 0.22);
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background-clip: content-box;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(180, 193, 214, 0.36);
+  border: 2px solid transparent;
+  background-clip: content-box;
+}

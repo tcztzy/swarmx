@@ -365,7 +365,10 @@ export function Composer({
 
   return (
     <div
-      className={cx("composer", attachments.length > 0 && "composer--with-attachments")}
+      className={cx(
+        "composer [position:relative] [width:min(100%,_960px)] [margin:0_auto] [padding:9px_10px_8px] [background:var(--card-strong)] [border:1px_solid_var(--border)] [border-radius:var(--radius-xl)] [box-shadow:var(--shadow),_var(--shadow-inset)] [-webkit-backdrop-filter:saturate(155%)_blur(var(--glass-blur))] [transition:border-color_var(--duration-med)_var(--ease-out),_box-shadow_var(--duration-med)_var(--ease-out),_transform_var(--duration-med)_var(--ease-out)] max-680:[padding:8px]",
+        attachments.length > 0 && "composer--with-attachments",
+      )}
       onDragOver={(event) => {
         if (importMediaAttachments && event.dataTransfer.types.includes("Files")) {
           event.preventDefault();
@@ -381,7 +384,11 @@ export function Composer({
       }}
     >
       {mentionMenuOpen && (
-        <div className="composer__mentions" id={mentionListId} aria-label="Mention suggestions">
+        <div
+          className="composer__mentions [position:absolute] [z-index:30] [bottom:calc(100%_+_9px)] [left:0] [width:min(440px,_calc(100vw_-_28px))] [max-height:264px] [padding:5px] [overflow-y:auto] [background:var(--card-solid)] [border:1px_solid_var(--border)] [border-radius:var(--radius-lg)] [box-shadow:var(--shadow),_var(--shadow-inset)]"
+          id={mentionListId}
+          aria-label="Mention suggestions"
+        >
           {mentionItems.length > 0 ? (
             mentionItems.map((item, index) => (
               <button
@@ -389,31 +396,45 @@ export function Composer({
                 id={`${mentionListId}-option-${index}`}
                 type="button"
                 data-active={index === activeMentionIndex}
-                className="composer__mention"
+                className="composer__mention [width:100%] [display:grid] [grid-template-columns:minmax(0,_1fr)_auto] [gap:2px_10px] [padding:8px_9px] [color:var(--foreground)] [text-align:left] [background:transparent] [border:0] [border-radius:9px] [cursor:pointer]"
                 onMouseDown={(event) => event.preventDefault()}
                 onClick={() => insertMention(item)}
               >
-                <span className="composer__mention-label">{item.label}</span>
-                {item.detail && <span className="composer__mention-detail">{item.detail}</span>}
+                <span className="composer__mention-label [font-size:13px] [font-weight:650] [min-width:0] [overflow:hidden] [text-overflow:ellipsis] [white-space:nowrap]">
+                  {item.label}
+                </span>
+                {item.detail && (
+                  <span className="composer__mention-detail [align-self:center] [color:var(--muted-foreground)] [font-size:11px] [min-width:0] [overflow:hidden] [text-overflow:ellipsis] [white-space:nowrap]">
+                    {item.detail}
+                  </span>
+                )}
                 {item.documentation && (
-                  <span className="composer__mention-documentation">{item.documentation}</span>
+                  <span className="composer__mention-documentation [grid-column:1_/_-1] [color:var(--muted)] [font-size:11px] [min-width:0] [overflow:hidden] [text-overflow:ellipsis] [white-space:nowrap]">
+                    {item.documentation}
+                  </span>
                 )}
               </button>
             ))
           ) : (
-            <output className="composer__mention-status">
+            <output className="composer__mention-status [padding:10px_11px] [color:var(--muted-foreground)] [font-size:12px]">
               {mentionMenuState === "loading" ? "Loading options…" : "No matching options"}
             </output>
           )}
         </div>
       )}
       {attachments.length > 0 && (
-        <div className="composer__attachments" aria-label="Attached files">
+        <div
+          className="composer__attachments [margin:1px_2px_6px] [display:flex] [gap:7px] [overflow-x:auto] [scrollbar-width:thin]"
+          aria-label="Attached files"
+        >
           {attachments.map((attachment) => (
-            <div className="composer-attachment" key={attachment.id}>
+            <div
+              className="composer-attachment [position:relative] [min-width:184px] [max-width:250px] [flex:0_0_auto] [display:flex] [align-items:stretch] [background:var(--card)] [border:1px_solid_var(--border-subtle)] [border-radius:10px]"
+              key={attachment.id}
+            >
               <button
                 type="button"
-                className="composer-attachment__preview"
+                className="composer-attachment__preview [min-width:0] [flex:1] [padding:8px_28px_8px_9px] [display:flex] [align-items:center] [gap:8px] [color:var(--foreground)] [text-align:left] [background:transparent] [border:0] [border-radius:inherit] [cursor:pointer] [&_>_svg]:[width:18px] [&_>_svg]:[height:18px] [&_>_svg]:[flex:0_0_18px] [&_>_svg]:[color:var(--muted)] [&_>_span]:[min-width:0] [&_>_span]:[display:flex] [&_>_span]:[flex-direction:column] [&_strong]:[overflow:hidden] [&_strong]:[text-overflow:ellipsis] [&_strong]:[white-space:nowrap] [&_small]:[overflow:hidden] [&_small]:[text-overflow:ellipsis] [&_small]:[white-space:nowrap] [&_strong]:[font-size:11.5px] [&_strong]:[font-weight:600] [&_small]:[color:var(--muted-foreground)] [&_small]:[font-size:9.5px]"
                 onClick={() => onPreviewAttachment?.(attachment)}
                 disabled={!onPreviewAttachment}
                 aria-label={`Preview ${attachment.name}`}
@@ -426,7 +447,7 @@ export function Composer({
               </button>
               <button
                 type="button"
-                className="composer-attachment__remove"
+                className="composer-attachment__remove [position:absolute] [top:5px] [right:5px] [width:20px] [height:20px] [display:grid] [place-items:center] [color:var(--muted-foreground)] [background:transparent] [border:0] [border-radius:6px] [cursor:pointer] [&_svg]:[width:12px] [&_svg]:[height:12px]"
                 onClick={() =>
                   onAttachmentsChange?.(
                     attachments.filter((candidate) => candidate.id !== attachment.id),
@@ -467,19 +488,22 @@ export function Composer({
         }}
         onKeyDown={onKeyDown}
         placeholder={placeholder}
-        className="composer__textarea"
+        className="composer__textarea [display:block] [width:100%] [min-height:48px] [max-height:240px] [padding:5px_7px_9px] [resize:none] [overflow-y:auto] [color:var(--foreground)] [background:transparent] [border:0] [outline:0] [font-size:15px] [line-height:1.5] max-680:[min-height:40px] max-680:[max-height:112px] max-680:[padding-bottom:6px]"
         rows={1}
         disabled={disabled}
       />
       {error && (
-        <div className="composer__error" role="alert">
+        <div
+          className="composer__error [margin:0_4px_6px] [color:var(--danger)] [font-size:11px] [line-height:1.35]"
+          role="alert"
+        >
           {error}
         </div>
       )}
-      <div className="composer__footer">
+      <div className="composer__footer [display:flex] [align-items:center] [gap:7px] [min-height:36px]">
         <button
           type="button"
-          className="composer__context"
+          className="composer__context [flex:0_0_auto] [color:var(--muted)] [background:transparent] [border-radius:9px] [display:inline-grid] [width:36px] [height:36px] [place-items:center] [border:0] [cursor:pointer] [transition:background_var(--duration-fast)_var(--ease-out),_transform_var(--duration-fast)_var(--ease-out),_opacity_var(--duration-fast)_var(--ease-out)] [&_svg]:[width:19px] [&_svg]:[height:19px]"
           onClick={() => setContextMenuOpen((open) => !open)}
           disabled={disabled}
           aria-label="Add context"
@@ -488,8 +512,13 @@ export function Composer({
           <Plus aria-hidden="true" />
         </button>
         {contextMenuOpen && (
-          <section className="composer__context-menu" aria-label="Add context">
-            <p className="composer__context-menu-title">Add</p>
+          <section
+            className="composer__context-menu [position:absolute] [z-index:31] [bottom:52px] [left:10px] [min-width:260px] [padding:7px] [background:var(--card-solid)] [border:1px_solid_var(--border)] [border-radius:10px] [box-shadow:var(--shadow),_var(--shadow-inset)] [&_button]:[width:100%] [&_button]:[display:flex] [&_button]:[align-items:center] [&_button]:[gap:10px] [&_button]:[min-height:34px] [&_button]:[padding:7px_9px] [&_button]:[color:var(--foreground)] [&_button]:[text-align:left] [&_button]:[background:transparent] [&_button]:[border:0] [&_button]:[border-radius:7px] [&_button]:[cursor:pointer] [&_button]:[font-size:15px] [&_button_svg]:[width:18px] [&_button_svg]:[height:18px] [&_button_svg]:[color:var(--muted)]"
+            aria-label="Add context"
+          >
+            <p className="composer__context-menu-title [margin:1px_8px_6px] [color:var(--muted-foreground)] [font-size:13px] [font-weight:560]">
+              Add
+            </p>
             {selectMediaAttachments && (
               <button type="button" onClick={() => void addMediaFiles()}>
                 <Paperclip aria-hidden="true" />
@@ -502,10 +531,12 @@ export function Composer({
             </button>
           </section>
         )}
-        <div className="composer__controls">{children}</div>
+        <div className="composer__controls [min-width:0] [display:flex] [flex:1_1_auto] [align-items:center] [justify-content:flex-end] [gap:4px]">
+          {children}
+        </div>
         <button
           type="button"
-          className="composer__submit"
+          className="composer__submit [flex:0_0_auto] [color:var(--primary-foreground)] [background:var(--primary)] [border-radius:999px] [box-shadow:0_6px_16px_rgba(0,_0,_0,_0.2),_inset_0_1px_0_rgba(255,_255,_255,_0.22)] [display:inline-grid] [width:36px] [height:36px] [place-items:center] [border:0] [cursor:pointer] [transition:background_var(--duration-fast)_var(--ease-out),_transform_var(--duration-fast)_var(--ease-out),_opacity_var(--duration-fast)_var(--ease-out)] [&_svg]:[width:16px] [&_svg]:[height:16px]"
           onClick={() => void (running ? onStop() : onSubmit())}
           disabled={sendDisabled}
           title={sendTitle}

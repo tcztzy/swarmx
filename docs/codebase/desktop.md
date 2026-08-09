@@ -42,7 +42,7 @@ API. Renderer receives normalized data and renders React UI.
 | `packages/desktop/src/main/extension-manager.ts` | Loads marketplace catalogs and coordinates explicit extension lifecycle actions with settings-backed state. `fs` + `net` |
 | `packages/desktop/src/main/lsp-host.ts` | Spawns JSON-RPC language servers, serves bounded file/skill completions, and handles cancellation/shutdown. `proc` + `fs` |
 | `packages/desktop/src/main/media.ts` | Imports attachments into managed content-addressed storage, validates MIME/size/identity, creates preview URLs, and supports safe text previews. `fs` |
-| `packages/desktop/src/main/model-catalog.ts` | Provider/model discovery, credential-backed catalog refresh, per-model OpenCode Go native API routing, model supply inventory, readiness summaries, and persisted manual models. `fs` + `net` + `secret` |
+| `packages/desktop/src/main/model-catalog.ts` | Provider/model discovery, credential-backed catalog refresh, official multi-protocol endpoint normalization for DeepSeek/OpenCode Go/OpenRouter, model supply inventory, readiness summaries, and persisted manual models. `fs` + `net` + `secret` |
 | `packages/desktop/src/main/permission-service.ts` | Loads managed/project/personal/profile policy layers, immediately applies the undeclared-mode Auto fallback without overwriting explicit settings, resolves effective permissions, records bounded human/model approval receipts, and fails closed on malformed policy. `fs` |
 | `packages/desktop/src/main/permission-review.ts` | Tool-free LLM auto-review boundary: sends only bounded user messages plus the pending executable payload, strictly parses one-call allow/defer verdicts, and falls back to human review on any failure. `net` through an injected model call |
 | `packages/desktop/src/main/provider-auth.ts` | Schema-version-2 user-editable Provider auth file store with restrictive permissions and credential lookup; plaintext never leaves Main. `fs` + `secret` |
@@ -101,7 +101,7 @@ API. Renderer receives normalized data and renders React UI.
 | `packages/desktop/src/renderer/src/settings-workspace.tsx` | General, permission, Provider usage, tool-style, and custom-agent settings screens. `ui` + `ipc` |
 | `packages/desktop/src/renderer/src/stylesheet-test-utils.ts` | Test-only stylesheet loader helper. `fs` |
 | `packages/desktop/src/renderer/src/text-utils.ts` | Pure labels, errors, timestamps, path/project names, and slug helpers. `pure` |
-| `packages/desktop/src/renderer/src/ui-primitives.tsx` | Shared `Button`, `Badge`, and class composition primitives. `ui` |
+| `packages/desktop/src/renderer/src/ui-primitives.tsx` | Tailwind-backed shared `Button` and `Badge` primitives with CVA-derived semantic variants, plus plain structural class composition. `ui` |
 | `packages/desktop/src/renderer/src/workflow-workspace.tsx` | Workflow JSON parsing, node/edge graph UI, import validation, and execution controls for canonical `SwarmConfig`. `ui` + `ipc` |
 | `packages/desktop/src/renderer/src/workspace-panel.tsx` | Files/review/terminal/browser panel, diff parsing, file previews, and workspace navigation. `ui` + `ipc` |
 | `packages/desktop/src/renderer/src/code-highlighter.ts` | Shiki-backed bounded syntax highlighting DTOs. `pure` |
@@ -111,13 +111,14 @@ API. Renderer receives normalized data and renders React UI.
 
 | Source | Contract |
 | --- | --- |
-| `packages/desktop/src/renderer/src/assets/styles.css` | Global style entry importing the feature stylesheets. `ui` |
-| `packages/desktop/src/renderer/src/assets/styles/app-shell.css` | App shell, navigation, header, and global layout styles using reachable semantic component selectors. `ui` |
-| `packages/desktop/src/renderer/src/assets/styles/conversation.css` | Conversation/message/tool/attachment styles. `ui` |
-| `packages/desktop/src/renderer/src/assets/styles/responsive.css` | Narrow-window and responsive layout overrides. `ui` |
-| `packages/desktop/src/renderer/src/assets/styles/settings.css` | Settings, provider, permission, doctor, and profile styles using reachable semantic component selectors. `ui` |
-| `packages/desktop/src/renderer/src/assets/styles/workflow.css` | Workflow graph/editor styles. `ui` |
-| `packages/desktop/src/renderer/src/assets/styles/workspace.css` | Workspace panel/files/terminal/browser/review styles. `ui` |
+| `packages/desktop/src/renderer/src/assets/styles.css` | Sole Tailwind v4 stylesheet entry: semantic theme tokens, ordered inclusive max-width variants, explicit reset-free cascade layers, and bounded base/component imports; Vite emits the public compiled CSS artifact. `ui` |
+| `packages/desktop/src/renderer/src/assets/styles/base.css` | Owned reset-free Electron base styles and light/dark semantic token values; imported into Tailwind's `base` layer. `ui` |
+| `packages/desktop/src/renderer/src/assets/styles/app-shell.css` | Bounded Tailwind `utilities`-layer overrides for app-shell, navigation, and relational layout selectors. `ui` |
+| `packages/desktop/src/renderer/src/assets/styles/conversation.css` | Bounded Tailwind `utilities`-layer overrides for rich conversation, Markdown, tool, and attachment relationships not expressed locally. `ui` |
+| `packages/desktop/src/renderer/src/assets/styles/responsive.css` | Bounded Tailwind `utilities`-layer compound narrow-window and host-preference overrides. `ui` |
+| `packages/desktop/src/renderer/src/assets/styles/settings.css` | Bounded Tailwind `utilities`-layer overrides for compound settings, provider, permission, doctor, and profile relationships. `ui` |
+| `packages/desktop/src/renderer/src/assets/styles/workflow.css` | Bounded Tailwind `utilities`-layer overrides for workflow graph and editor relationships. `ui` |
+| `packages/desktop/src/renderer/src/assets/styles/workspace.css` | Bounded Tailwind `utilities`-layer overrides for workspace files, terminal, browser, and review relationships. `ui` |
 | `packages/desktop/src/renderer/public/ICON_VARIANTS.md` | Design notes for packaged app icon variants. |
 | `packages/desktop/src/renderer/public/harness-icons/README.md` | Harness icon asset conventions. |
 | `packages/desktop/src/renderer/public/provider-icons/README.md` | Provider icon asset conventions. |

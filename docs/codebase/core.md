@@ -102,7 +102,7 @@ An Agent remains `harnessId:modelId`.
 
 | Source | Contract |
 | --- | --- |
-| `packages/core/src/session.ts` | Append-only JSONL Session authority, rebuildable index, locking, summaries, edits/forks/promotion, legacy JSON replay, and migration with verified backups. `fs` |
+| `packages/core/src/session.ts` | Claude Code-style per-Project JSONL-only Session authority under `~/.swarmx/projects/`, projectless `__recents__`, rebuildable per-directory indexes, cross-Project lookup, locking, summaries, edits/forks/promotion, and write-time relocation of the prior flat JSONL layout. `fs` |
 | `packages/core/src/session-discovery.ts` | Discover/group/load external ACP Sessions and convert them to Core Session data without claiming ownership. `fs`/`proc` through ACP |
 | `packages/core/src/project.ts` | Project bookmark registry and normalization under `~/.swarmx/projects.json`; list/rename/pin/dismiss/remove. `fs` |
 | `packages/core/src/desktop-settings.ts` | Shared Desktop settings schemas/defaults and secret-free metadata sections. `pure` |

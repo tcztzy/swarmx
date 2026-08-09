@@ -100,31 +100,48 @@ export function WorkflowWorkspace({
   const importNoticeRole = workflowImportStatus?.kind === "error" ? "alert" : "status";
 
   return (
-    <section className="workflow-workspace" aria-label="Workflow editor">
-      <div className="workflow-topbar">
-        <div className="workflow-breadcrumb">
+    <section
+      className="workflow-workspace [height:100%] [min-width:0] [min-height:0] [overflow:hidden] [display:grid] [grid-template-rows:56px_minmax(0,_1fr)] [background:#101114] max-680:[grid-template-rows:auto_minmax(0,_1fr)]"
+      aria-label="Workflow editor"
+    >
+      <div className="workflow-topbar [min-width:0] [display:grid] [grid-template-columns:minmax(220px,_1fr)_auto_minmax(220px,_1fr)] [align-items:center] [gap:16px] [padding:0_16px] [color:var(--foreground)] [background:#17181c] [border-bottom:1px_solid_rgba(255,_255,_255,_0.08)] max-860:[grid-template-columns:minmax(0,_1fr)_auto] max-680:[gap:10px] max-680:[padding:10px_12px]">
+        <div className="workflow-breadcrumb [gap:9px] [color:#bec3cc] [font-size:13px] [white-space:nowrap] [min-width:0] [display:flex] [align-items:center] [&_svg]:[flex:0_0_auto] [&_svg]:[width:15px] [&_svg]:[height:15px] [&_svg]:[color:#f36f5b] [&_strong]:[min-width:0] [&_strong]:[overflow:hidden] [&_strong]:[text-overflow:ellipsis] [&_strong]:[color:#f4f6fa] [&_strong]:[font-weight:650] max-680:[width:100%]">
           <Workflow aria-hidden="true" />
           <span>Personal</span>
           <span>/</span>
           <strong>{workflowName}</strong>
         </div>
-        <div className="workflow-view-tabs" role="tablist" aria-label="Workflow views">
+        <div
+          className="workflow-view-tabs [justify-self:center] [height:32px] [padding:2px] [gap:2px] [background:#121317] [border:1px_solid_rgba(255,_255,_255,_0.12)] [border-radius:7px] [min-width:0] [display:flex] [align-items:center] max-860:[justify-self:end] max-680:[width:100%] max-680:[grid-column:1_/_-1]"
+          role="tablist"
+          aria-label="Workflow views"
+        >
           <button
             type="button"
             role="tab"
             aria-selected="true"
-            className="workflow-view-tab is-active"
+            className="workflow-view-tab is-active [height:26px] [min-width:92px] [padding:0_14px] [color:#a9afba] [background:transparent] [border:0] [border-radius:5px] [font-size:13px] [font-weight:560] [cursor:pointer] max-680:[min-width:0] max-680:[flex:1_1_0] max-680:[padding:0_8px]"
           >
             Editor
           </button>
-          <button type="button" role="tab" aria-selected="false" className="workflow-view-tab">
+          <button
+            type="button"
+            role="tab"
+            aria-selected="false"
+            className="workflow-view-tab [height:26px] [min-width:92px] [padding:0_14px] [color:#a9afba] [background:transparent] [border:0] [border-radius:5px] [font-size:13px] [font-weight:560] [cursor:pointer] max-680:[min-width:0] max-680:[flex:1_1_0] max-680:[padding:0_8px]"
+          >
             Executions
           </button>
-          <button type="button" role="tab" aria-selected="false" className="workflow-view-tab">
+          <button
+            type="button"
+            role="tab"
+            aria-selected="false"
+            className="workflow-view-tab [height:26px] [min-width:92px] [padding:0_14px] [color:#a9afba] [background:transparent] [border:0] [border-radius:5px] [font-size:13px] [font-weight:560] [cursor:pointer] max-680:[min-width:0] max-680:[flex:1_1_0] max-680:[padding:0_8px]"
+          >
             JSON
           </button>
         </div>
-        <div className="workflow-topbar__actions">
+        <div className="workflow-topbar__actions [justify-content:flex-end] [gap:8px] [min-width:0] [display:flex] [align-items:center] max-860:[grid-column:1_/_-1] max-860:[justify-content:flex-start]">
           <input
             ref={importInputRef}
             type="file"
@@ -146,7 +163,7 @@ export function WorkflowWorkspace({
             <Upload data-icon="inline-start" aria-hidden="true" />
             Import n8n
           </Button>
-          <label className="workflow-toggle">
+          <label className="workflow-toggle [height:28px] [gap:7px] [padding:0_9px] [color:#c8cdd6] [background:#202127] [border:1px_solid_rgba(255,_255,_255,_0.1)] [border-radius:6px] [font-size:12px] [font-weight:620] [white-space:nowrap] [min-width:0] [display:flex] [align-items:center] [&_input]:[width:13px] [&_input]:[height:13px] [&_input]:[margin:0] [&_input]:[accent-color:var(--accent)]">
             <input
               type="checkbox"
               checked={workflowEnabled}
@@ -155,19 +172,30 @@ export function WorkflowWorkspace({
             <span>Use workflow</span>
           </label>
           <Badge
-            tone={activeWorkflowConfig ? "active" : workflowState.error ? "danger" : "neutral"}
+            tone={activeWorkflowConfig ? "success" : workflowState.error ? "danger" : "neutral"}
           >
             {activeWorkflowConfig ? "Saved" : workflowState.error ? "Invalid" : "Draft"}
           </Badge>
         </div>
       </div>
 
-      <div className="workflow-editor-shell">
-        <nav className="workflow-rail" aria-label="Workflow navigation">
-          <button type="button" className="workflow-rail__brand" aria-label="Workflows">
-            <AppBrandIcon className="workflow-rail__logo" />
+      <div className="workflow-editor-shell [min-width:0] [min-height:0] [display:grid] [grid-template-columns:72px_minmax(0,_1fr)_324px] [overflow:hidden] max-860:[grid-template-columns:64px_minmax(0,_1fr)] max-680:[grid-template-columns:1fr] max-680:[grid-template-rows:auto_360px_auto] max-680:[overflow-y:auto]">
+        <nav
+          className="workflow-rail [min-width:0] [display:flex] [flex-direction:column] [align-items:center] [gap:13px] [padding:16px_10px_12px] [color:#969ca8] [background:#15161a] [border-right:1px_solid_rgba(255,_255,_255,_0.08)] [font-size:11px] [font-weight:560] [&_span]:[width:100%] [&_span]:[padding:8px_0] [&_span]:[text-align:center] [&_span]:[border-radius:8px] [&_span.is-active]:[color:#ffffff] [&_span.is-active]:[background:#24262c] [&_button]:[display:grid] [&_button]:[place-items:center] [&_button]:[border:0] [&_button]:[cursor:pointer] [&_svg]:[width:21px] [&_svg]:[height:21px] max-680:[min-height:54px] max-680:[flex-direction:row] max-680:[overflow-x:auto] max-680:[padding:8px_10px] max-680:[border-right:0] max-680:[border-bottom:1px_solid_rgba(255,_255,_255,_0.08)] max-680:[&_span]:[width:auto] max-680:[&_span]:[min-width:max-content] max-680:[&_span]:[padding:7px_9px]"
+          aria-label="Workflow navigation"
+        >
+          <button
+            type="button"
+            className="workflow-rail__brand [width:46px] [height:46px] [color:#ffffff] [background:#f36f5b] [border-radius:10px] [box-shadow:0_10px_22px_rgba(243,_111,_91,_0.22)] max-680:[flex:0_0_auto] max-680:[width:38px] max-680:[height:38px]"
+            aria-label="Workflows"
+          >
+            <AppBrandIcon className="workflow-rail__logo [width:32px] [height:32px] [object-fit:contain]" />
           </button>
-          <button type="button" className="workflow-rail__create" aria-label="Add node">
+          <button
+            type="button"
+            className="workflow-rail__create [width:46px] [height:46px] [color:#ffffff] [background:#f36f5b] [border-radius:10px] [box-shadow:0_10px_22px_rgba(243,_111,_91,_0.22)] max-680:[flex:0_0_auto] max-680:[width:38px] max-680:[height:38px]"
+            aria-label="Add node"
+          >
             <MessageSquarePlus aria-hidden="true" />
           </button>
           <span>Overview</span>
@@ -185,8 +213,11 @@ export function WorkflowWorkspace({
           input={input}
         />
 
-        <aside className="workflow-inspector" aria-label="Workflow inspector">
-          <div className="workflow-inspector__header">
+        <aside
+          className="workflow-inspector [min-width:0] [min-height:0] [overflow-y:auto] [background:linear-gradient(180deg,_#24262c,_#1d1f24)] [border-left:1px_solid_rgba(255,_255,_255,_0.1)] [box-shadow:-18px_0_48px_rgba(0,_0,_0,_0.18)] max-860:[grid-column:1_/_-1] max-860:[min-height:280px] max-860:[border-left:0] max-860:[border-top:1px_solid_rgba(255,_255,_255,_0.1)] max-860:[box-shadow:none]"
+          aria-label="Workflow inspector"
+        >
+          <div className="workflow-inspector__header [height:72px] [padding:14px_14px] [display:flex] [align-items:center] [justify-content:space-between] [gap:10px] [border-bottom:1px_solid_rgba(255,_255,_255,_0.08)] [&_div]:[min-width:0] [&_div]:[display:flex] [&_div]:[flex-direction:column] [&_div]:[gap:2px] [&_span]:[color:#a8aeba] [&_span]:[font-size:11px] [&_span]:[font-weight:760] [&_span]:[text-transform:uppercase] [&_strong]:[min-width:0] [&_strong]:[overflow:hidden] [&_strong]:[color:#ffffff] [&_strong]:[text-overflow:ellipsis] [&_strong]:[white-space:nowrap] [&_strong]:[font-size:15px] [&_strong]:[font-weight:680] [&_em]:[min-width:0] [&_em]:[overflow:hidden] [&_em]:[color:#d1d6df] [&_em]:[text-overflow:ellipsis] [&_em]:[white-space:nowrap] [&_em]:[font-family:var(--font-mono)] [&_em]:[font-size:11px] [&_em]:[font-style:normal]">
             <div>
               <span>
                 {selectedNode?.kind === "agent"
@@ -217,7 +248,11 @@ export function WorkflowWorkspace({
             </Button>
           </div>
 
-          <div className="workflow-inspector__tabs" role="tablist" aria-label="Inspector tabs">
+          <div
+            className="workflow-inspector__tabs [height:42px] [display:grid] [grid-template-columns:repeat(3,_1fr)] [border-bottom:1px_solid_rgba(255,_255,_255,_0.08)] [&_button]:[color:#a9afba] [&_button]:[background:transparent] [&_button]:[border:0] [&_button]:[border-bottom:2px_solid_transparent] [&_button]:[font-size:12px] [&_button]:[font-weight:620] [&_[aria-selected='true']]:[color:#ffffff] [&_[aria-selected='true']]:[border-bottom-color:#f36f5b]"
+            role="tablist"
+            aria-label="Inspector tabs"
+          >
             <button type="button" role="tab" aria-selected="true">
               Parameters
             </button>
@@ -229,7 +264,7 @@ export function WorkflowWorkspace({
             </button>
           </div>
 
-          <label className="workflow-run-input">
+          <label className="workflow-run-input [margin:14px] [min-width:0] [display:flex] [flex-direction:column] [gap:7px] [&_>_span]:[color:#dfe4ed] [&_>_span]:[font-size:12px] [&_>_span]:[font-weight:740] [&_textarea]:[width:100%] [&_textarea]:[resize:vertical] [&_textarea]:[padding:10px_11px] [&_textarea]:[color:#e4e7ec] [&_textarea]:[background:#15171c] [&_textarea]:[border:1px_solid_rgba(255,_255,_255,_0.12)] [&_textarea]:[border-radius:7px] [&_textarea]:[box-shadow:inset_0_1px_0_rgba(255,_255,_255,_0.035)] [&_textarea]:[font-size:12px] [&_textarea]:[line-height:1.48] [&_textarea]:[tab-size:2] [&_textarea]:[min-height:74px] [&_textarea]:[font-family:var(--font-sans)]">
             <span>Run input</span>
             <textarea
               value={input}
@@ -240,7 +275,7 @@ export function WorkflowWorkspace({
             />
           </label>
 
-          <label className="workflow-editor">
+          <label className="workflow-editor [margin:14px] [min-width:0] [display:flex] [flex-direction:column] [gap:7px] [&_>_span]:[color:#dfe4ed] [&_>_span]:[font-size:12px] [&_>_span]:[font-weight:740] [&_textarea]:[width:100%] [&_textarea]:[resize:vertical] [&_textarea]:[padding:10px_11px] [&_textarea]:[color:#e4e7ec] [&_textarea]:[background:#15171c] [&_textarea]:[border:1px_solid_rgba(255,_255,_255,_0.12)] [&_textarea]:[border-radius:7px] [&_textarea]:[box-shadow:inset_0_1px_0_rgba(255,_255,_255,_0.035)] [&_textarea]:[font-family:var(--font-mono)] [&_textarea]:[font-size:12px] [&_textarea]:[line-height:1.48] [&_textarea]:[tab-size:2] [&_textarea]:[min-height:194px] [&_textarea]:[max-height:260px] max-680:[&_textarea]:[min-height:170px]">
             <span>Workflow JSON</span>
             <textarea
               aria-label="Workflow JSON"
@@ -251,7 +286,10 @@ export function WorkflowWorkspace({
           </label>
 
           {workflowState.error && (
-            <div className="workflow-panel__error" role="alert">
+            <div
+              className="workflow-panel__error [margin:14px] [min-width:0] [padding:8px_9px] [display:flex] [align-items:flex-start] [gap:8px] [color:var(--danger)] [background:var(--danger-muted)] [border:1px_solid_rgba(248,_113,_113,_0.26)] [border-radius:var(--radius)] [font-size:12px] [line-height:1.35] [&_svg]:[flex:0_0_auto] [&_svg]:[width:14px] [&_svg]:[height:14px] [&_svg]:[margin-top:1px]"
+              role="alert"
+            >
               <XCircle aria-hidden="true" />
               <span>{workflowState.error}</span>
             </div>
@@ -260,7 +298,7 @@ export function WorkflowWorkspace({
           {workflowImportStatus && (
             <div
               className={cx(
-                "workflow-panel__notice",
+                String.raw`workflow-panel__notice [margin:14px] [min-width:0] [padding:8px_9px] [display:flex] [align-items:flex-start] [gap:8px] [color:var(--success)] [background:var(--success-muted)] [border:1px_solid_rgba(52,_211,_153,_0.26)] [border-radius:var(--radius)] [font-size:12px] [line-height:1.35] [&_svg]:[flex:0_0_auto] [&_svg]:[width:14px] [&_svg]:[height:14px] [&_svg]:[margin-top:1px] [&_div]:[min-width:0] [&_span]:[display:block] [&_span]:[overflow-wrap:anywhere] [&_ul]:[margin:6px_0_0] [&_ul]:[padding-left:16px] [&_ul]:[color:#c8cdd6] [&.workflow-panel\_\_notice--error]:[color:var(--danger)] [&.workflow-panel\_\_notice--error]:[background:var(--danger-muted)] [&.workflow-panel\_\_notice--error]:[border-color:rgba(248,_113,_113,_0.26)]`,
                 `workflow-panel__notice--${workflowImportStatus.kind}`,
               )}
               role={importNoticeRole}
@@ -283,19 +321,24 @@ export function WorkflowWorkspace({
             </div>
           )}
 
-          <div className="workflow-output">
-            <div className="workflow-output__header">
+          <div className="workflow-output [margin:14px] [min-width:0] [display:flex] [flex-direction:column] [gap:7px]">
+            <div className="workflow-output__header [display:flex] [align-items:center] [justify-content:space-between] [gap:10px] [color:#dfe4ed] [font-size:12px] [font-weight:740]">
               <span>Execution Log</span>
-              <Badge tone={messages.length > 0 ? "active" : "neutral"}>
+              <Badge tone={messages.length > 0 ? "success" : "neutral"}>
                 {messages.length} events
               </Badge>
             </div>
-            <div className="workflow-output__list">
+            <div className="workflow-output__list [display:flex] [flex-direction:column] [gap:8px]">
               {messages.length === 0 ? (
-                <div className="workflow-output__empty">No run output yet</div>
+                <div className="workflow-output__empty [padding:9px_10px] [color:#a9afba] [background:#17191e] [border:1px_solid_rgba(255,_255,_255,_0.08)] [border-radius:7px] [font-size:12px] [line-height:1.35]">
+                  No run output yet
+                </div>
               ) : (
                 messages.slice(-5).map((message) => (
-                  <div key={messageKey(message)} className="workflow-output__event">
+                  <div
+                    key={messageKey(message)}
+                    className="workflow-output__event [padding:9px_10px] [color:#a9afba] [background:#17191e] [border:1px_solid_rgba(255,_255,_255,_0.08)] [border-radius:7px] [font-size:12px] [line-height:1.35] [&_span]:[display:block] [&_span]:[margin-bottom:4px] [&_span]:[color:#69d991] [&_span]:[font-size:10px] [&_span]:[font-weight:760] [&_span]:[text-transform:uppercase] [&_p]:[margin:0] [&_p]:[display:-webkit-box] [&_p]:[overflow:hidden] [&_p]:[-webkit-box-orient:vertical] [&_p]:[-webkit-line-clamp:3]"
+                  >
                     <span>{message.agent ?? message.role}</span>
                     <p>{message.content}</p>
                   </div>
@@ -322,10 +365,13 @@ function WorkflowCanvas({
 }) {
   if (!workflowState.config) {
     return (
-      <div className="workflow-canvas workflow-canvas--empty" aria-label="Workflow canvas">
+      <div
+        className="workflow-canvas workflow-canvas--empty [position:relative] [min-width:0] [overflow:hidden] [background-color:#111317] [background-image:radial-gradient(circle,_rgba(255,_255,_255,_0.18)_1px,_transparent_1px)] [background-position:0_0] [background-size:18px_18px] [display:grid] [place-items:center] [color:#9da3ae] max-860:[min-height:0] max-680:[min-height:360px] max-680:[overflow:hidden]"
+        aria-label="Workflow canvas"
+      >
         <div className="workflow-canvas__empty-message">No workflow</div>
         <Button
-          className="workflow-execute"
+          className="workflow-execute [position:absolute] [left:50%] [bottom:18px] [transform:translateX(-50%)] [min-width:214px] [height:42px] [color:#ffffff] [background:linear-gradient(180deg,_#ff826d,_#f15f4d)] [border-color:rgba(255,_155,_136,_0.72)] max-680:[right:14px] max-680:[bottom:14px] max-680:[left:auto] max-680:[min-width:182px] max-680:[height:38px] max-680:[transform:none] max-680:[font-size:12px]"
           onClick={onExecute}
           disabled={loading || !input.trim()}
         >
@@ -347,8 +393,15 @@ function WorkflowCanvas({
   const nodeLayouts = new Map(nodes.map((node) => [node.id, node.layout]));
 
   return (
-    <div className="workflow-canvas" aria-label="Workflow canvas">
-      <svg className="workflow-connectors" viewBox="0 0 804 620" aria-label="Workflow connectors">
+    <div
+      className="workflow-canvas [position:relative] [min-width:0] [overflow:hidden] [background-color:#111317] [background-image:radial-gradient(circle,_rgba(255,_255,_255,_0.18)_1px,_transparent_1px)] [background-position:0_0] [background-size:18px_18px] max-860:[min-height:0] max-680:[min-height:360px] max-680:[overflow:hidden]"
+      aria-label="Workflow canvas"
+    >
+      <svg
+        className="workflow-connectors [position:absolute] [inset:0] [width:804px] [height:620px] [pointer-events:none] max-680:[transform:scale(0.47)] max-680:[transform-origin:top_left]"
+        viewBox="0 0 804 620"
+        aria-label="Workflow connectors"
+      >
         <title>Workflow connectors</title>
         {workflowState.edges.map((edge) => {
           const source = nodeLayouts.get(edge.source);
@@ -358,14 +411,17 @@ function WorkflowCanvas({
             <path
               key={`${edge.source}:${edge.target}:${edge.condition ?? ""}`}
               aria-label={`Workflow connector ${edge.source} to ${edge.target}`}
-              className="workflow-connector"
+              className="workflow-connector [fill:none] [stroke:#c7ccd6] [stroke-width:2] [stroke-linecap:round] [opacity:0.84]"
               d={connectorPath(source, target)}
             />
           );
         })}
       </svg>
 
-      <ul className="workflow-canvas__nodes" aria-label="Workflow nodes">
+      <ul
+        className="workflow-canvas__nodes [position:absolute] [inset:0] [width:804px] [height:620px] [margin:0] [padding:0] [list-style:none] max-680:[transform:scale(0.47)] max-680:[transform-origin:top_left]"
+        aria-label="Workflow nodes"
+      >
         {nodes.map((node) => {
           const NodeIcon = nodeIcon(node.displayKind);
           const nodeHarnessId = node.harnessId ?? node.displayKind;
@@ -375,29 +431,39 @@ function WorkflowCanvas({
               key={node.id}
               aria-label={`Workflow node ${node.id} ${nodeHarnessId}${nodeModel ? ` ${nodeModel}` : ""}${node.isRoot ? " root" : ""}`}
               className={cx(
-                "workflow-node",
+                "workflow-node [position:absolute] [width:220px] [min-height:226px] [padding:14px_14px_12px] [display:flex] [flex-direction:column] [gap:8px] [color:#f4f6fa] [background:#202228] [border:1px_solid_#4a4f5a] [border-radius:8px] [box-shadow:0_18px_38px_rgba(0,_0,_0,_0.28),_inset_0_1px_0_rgba(255,_255,_255,_0.05)]",
                 `workflow-node--${node.displayKind}`,
                 node.id === "writer_agent" && "is-selected",
               )}
               style={{ left: node.layout.x, top: node.layout.y }}
             >
-              <span className="workflow-port workflow-port--in" aria-hidden="true" />
-              <span className="workflow-port workflow-port--out" aria-hidden="true" />
-              <div className="workflow-node__topline">
-                <span className="workflow-node__icon">
+              <span
+                className="workflow-port workflow-port--in [position:absolute] [top:106px] [width:12px] [height:12px] [background:#2c3038] [border:2px_solid_#c7ccd6] [border-radius:999px] [left:-7px]"
+                aria-hidden="true"
+              />
+              <span
+                className="workflow-port workflow-port--out [position:absolute] [top:106px] [width:12px] [height:12px] [background:#2c3038] [border:2px_solid_#c7ccd6] [border-radius:999px] [right:-7px]"
+                aria-hidden="true"
+              />
+              <div className="workflow-node__topline [display:flex] [align-items:center] [gap:8px]">
+                <span className="workflow-node__icon [width:24px] [height:24px] [display:grid] [place-items:center] [border-radius:7px] [color:#111317] [background:#7ee0a1] [font-size:16px] [font-weight:760] [&_svg]:[width:14px] [&_svg]:[height:14px] [.workflow-node--agent_&]:[color:#ecf4ff] [.workflow-node--agent_&]:[background:#4d7dff] [.workflow-node--tool_&]:[color:#111317] [.workflow-node--tool_&]:[background:#f2d45c] [.workflow-node--trigger_&]:[color:#102018] [.workflow-node--trigger_&]:[background:#69d991]">
                   <NodeIcon aria-hidden="true" />
                 </span>
-                <span className="workflow-node__kind">
+                <span className="workflow-node__kind [color:#a5abb6] [font-size:10px] [font-weight:760] [line-height:1.2] [text-transform:uppercase]">
                   {node.kind === "agent" ? "ACP Agent" : node.displayKind}
                 </span>
-                <span className="workflow-node__status">
+                <span className="workflow-node__status [margin-left:auto] [color:#69d991] [line-height:0] [&_svg]:[width:14px] [&_svg]:[height:14px]">
                   <CircleCheck aria-hidden="true" />
                 </span>
               </div>
-              <div className="workflow-node__name">{node.title}</div>
-              <div className="workflow-node__detail">{node.detail}</div>
+              <div className="workflow-node__name [min-width:0] [overflow:hidden] [text-overflow:ellipsis] [white-space:nowrap] [font-size:14px] [font-weight:650] [line-height:1.2]">
+                {node.title}
+              </div>
+              <div className="workflow-node__detail [min-width:0] [display:-webkit-box] [overflow:hidden] [color:#a9afba] [font-size:12px] [line-height:1.35] [-webkit-box-orient:vertical] [-webkit-line-clamp:2]">
+                {node.detail}
+              </div>
               {node.kind === "agent" && (
-                <div className="workflow-node__identity">
+                <div className="workflow-node__identity [margin-top:auto] [min-width:0] [display:flex] [flex-direction:column] [gap:4px] [&_span]:[min-width:0] [&_span]:[overflow:hidden] [&_span]:[padding:3px_6px] [&_span]:[color:#dce1ea] [&_span]:[background:rgba(255,_255,_255,_0.055)] [&_span]:[border:1px_solid_rgba(255,_255,_255,_0.07)] [&_span]:[border-radius:5px] [&_span]:[text-overflow:ellipsis] [&_span]:[white-space:nowrap] [&_span]:[font-family:var(--font-mono)] [&_span]:[font-size:10.5px] [&_span]:[line-height:1.2]">
                   {node.softwareLabel && <span>Software {node.softwareLabel}</span>}
                   <span>Harness {node.harnessLabel ?? "SwarmX"}</span>
                   <span>{node.model ? `Model ${node.model}` : "Model negotiated by harness"}</span>
@@ -411,12 +477,15 @@ function WorkflowCanvas({
         })}
       </ul>
 
-      <ul className="workflow-edges" aria-label="Workflow edges">
+      <ul
+        className="workflow-edges [position:absolute] [width:1px] [height:1px] [overflow:hidden] [opacity:0] [pointer-events:none] [margin:0] [padding:0] [list-style:none]"
+        aria-label="Workflow edges"
+      >
         {workflowState.edges.map((edge) => (
           <li
             key={`${edge.source}:${edge.target}:${edge.condition ?? ""}`}
             aria-label={`Workflow edge ${edge.source} to ${edge.target}`}
-            className="workflow-edge"
+            className="workflow-edge [font-size:1px]"
           >
             <span>{edge.source}</span>
             <span aria-hidden="true">-&gt;</span>
@@ -425,14 +494,23 @@ function WorkflowCanvas({
         ))}
       </ul>
 
-      <div className="workflow-canvas__add workflow-canvas__add--top" aria-hidden="true">
+      <div
+        className="workflow-canvas__add workflow-canvas__add--top [position:absolute] [left:387px] [width:30px] [height:30px] [display:grid] [place-items:center] [color:#bdc3ce] [border:1px_dashed_rgba(255,_255,_255,_0.28)] [border-radius:7px] [font-size:22px] [top:82px] max-680:[display:none]"
+        aria-hidden="true"
+      >
         +
       </div>
-      <div className="workflow-canvas__add workflow-canvas__add--bottom" aria-hidden="true">
+      <div
+        className="workflow-canvas__add workflow-canvas__add--bottom [position:absolute] [left:387px] [width:30px] [height:30px] [display:grid] [place-items:center] [color:#bdc3ce] [border:1px_dashed_rgba(255,_255,_255,_0.28)] [border-radius:7px] [font-size:22px] [bottom:112px] max-680:[display:none]"
+        aria-hidden="true"
+      >
         +
       </div>
 
-      <div className="workflow-canvas-controls" aria-label="Canvas controls">
+      <div
+        className="workflow-canvas-controls [position:absolute] [left:24px] [bottom:18px] [display:flex] [align-items:center] [gap:7px] [color:#c7ccd6] [&_button]:[height:34px] [&_button]:[min-width:38px] [&_button]:[padding:0_10px] [&_button]:[color:inherit] [&_button]:[background:#1d1f25] [&_button]:[border:1px_solid_rgba(255,_255,_255,_0.11)] [&_button]:[border-radius:7px] [&_button]:[font-size:13px] [&_button]:[font-weight:620] [&_span]:[height:34px] [&_span]:[min-width:38px] [&_span]:[padding:0_10px] [&_span]:[color:inherit] [&_span]:[background:#1d1f25] [&_span]:[border:1px_solid_rgba(255,_255,_255,_0.11)] [&_span]:[border-radius:7px] [&_span]:[font-size:13px] [&_span]:[font-weight:620] [&_button]:[display:grid] [&_button]:[place-items:center] [&_svg]:[width:15px] [&_svg]:[height:15px] max-680:[top:14px] max-680:[bottom:auto] max-680:[left:14px]"
+        aria-label="Canvas controls"
+      >
         <button type="button" aria-label="Fit workflow">
           <Maximize2 aria-hidden="true" />
         </button>
@@ -446,7 +524,11 @@ function WorkflowCanvas({
         <button type="button">Tidy</button>
       </div>
 
-      <Button className="workflow-execute" onClick={onExecute} disabled={loading || !input.trim()}>
+      <Button
+        className="workflow-execute [position:absolute] [left:50%] [bottom:18px] [transform:translateX(-50%)] [min-width:214px] [height:42px] [color:#ffffff] [background:linear-gradient(180deg,_#ff826d,_#f15f4d)] [border-color:rgba(255,_155,_136,_0.72)] max-680:[right:14px] max-680:[bottom:14px] max-680:[left:auto] max-680:[min-width:182px] max-680:[height:38px] max-680:[transform:none] max-680:[font-size:12px]"
+        onClick={onExecute}
+        disabled={loading || !input.trim()}
+      >
         {loading ? (
           <Loader2 data-icon="inline-start" aria-hidden="true" />
         ) : (

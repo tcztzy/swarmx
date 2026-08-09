@@ -138,12 +138,26 @@ implementation map, test plan, backlog, changelog, or incident log.
 
 ### Desktop experience
 
+- Keep Project and Session history in the sidebar's bounded scroll region while
+  the persistent `Local workspace` control remains anchored to its bottom.
+- Allow every persisted or discovered Project group to expand and collapse
+  independently. Label sessions without a Project as `Recents`, keep that group
+  after all Project groups, indent Session titles grouped under a Project, and
+  keep `Recents` Session titles flush with the sidebar content edge. Sessions
+  whose persisted Project reference no longer resolves remain reachable in a
+  discovered Project group or `Recents` instead of disappearing.
 - Group local task history by Project and support resume, title editing, pinning,
-  archiving, timing, cancellation, and safe migration from supported legacy
-  Session formats.
+  archiving, timing, and cancellation. Persist each Project's Session history
+  in its own local directory, keep sessions without a Project in `Recents`, and
+  use only append-only JSONL plus a rebuildable per-directory index. Older JSON
+  Session files are unsupported.
 - Stream reasoning, commentary, tool progress, and results while a task runs;
   collapse transient work after completion and retain the final answer and
   canonical trace.
+- Keep each user or assistant message's action row visually hidden until that
+  message is hovered or contains keyboard focus. Preserve author-aligned
+  placement and render every action as the same neutral, unselected control.
+  Keep the actions directly available on input devices that cannot hover.
 - Render conversational Markdown, math, code, sanitized trace cards, and typed
   attachments without executing content or fetching arbitrary remote media.
 - Attach, persist, transport, preview, and capability-gate images, PDFs, audio,

@@ -18,10 +18,41 @@ import {
   RotateCw,
   Search,
   Terminal as TerminalIcon,
-  X,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { errorMessage } from "./text-utils.js";
+import { cx, rightPanelVariants } from "./ui-primitives.js";
+
+type TerminalStatus = "idle" | "starting" | "running" | "exited" | "error";
+type ReviewStatusTone = "added" | "deleted" | "renamed" | "modified";
+
+const TERMINAL_STATUS_CLASS = {
+  idle: "is-idle",
+  starting: "is-starting",
+  running: "is-running",
+  exited: "is-exited",
+  error: "is-error",
+} satisfies Record<TerminalStatus, string>;
+
+const REVIEW_STATUS_CLASS = {
+  added: "is-added",
+  deleted: "is-deleted",
+  renamed: "is-renamed",
+  modified: "is-modified",
+} satisfies Record<ReviewStatusTone, string>;
+
+const REVIEW_STATUS_TONE = {
+  Added: "added",
+  Deleted: "deleted",
+  Renamed: "renamed",
+  Modified: "modified",
+} satisfies Record<ReturnType<typeof reviewStatusLabel>, ReviewStatusTone>;
+
+const REVIEW_LINE_CLASS = {
+  addition: "is-addition",
+  deletion: "is-deletion",
+  context: "is-context",
+} satisfies Record<ParsedDiffLine["kind"], string>;
 
 export type WorkspaceTool = "review" | "terminal" | "browser" | "files";
 
@@ -168,19 +199,23 @@ export function WorkspacePanel({
   }, [selectTool]);
 
   return (
-    <aside className="runtime-right-panel workspace-panel" aria-label="Right panel">
+    <aside className={rightPanelVariants({ kind: "workspace" })} aria-label="Right panel">
       {activeTool && (
-        <header className="workspace-panel__header">
+        <header className="workspace-panel__header [min-width:0] [height:46px] [flex:0_0_46px] [padding:0_8px] [display:flex] [align-items:center] [gap:6px] [border-bottom:1px_solid_var(--border-subtle)] [background:color-mix(in_srgb,_var(--card-solid)_94%,_var(--background))]">
           <button
             type="button"
-            className="workspace-panel__home"
+            className="workspace-panel__home [display:inline-grid] [place-items:center] [color:var(--muted-foreground)] [background:transparent] [border:1px_solid_transparent] [border-radius:7px] [cursor:pointer] [width:30px] [height:30px] [flex:0_0_30px] [padding:0] [&_svg]:[width:15px] [&_svg]:[height:15px]"
             onClick={() => setActiveTool(null)}
             aria-label="Workspace tools home"
             title="Workspace tools"
           >
             <Home aria-hidden="true" />
           </button>
-          <div className="workspace-panel__tabs" role="tablist" aria-label="Workspace tools">
+          <div
+            className="workspace-panel__tabs [min-width:0] [flex:1] [display:flex] [align-items:center] [gap:2px] [&_button]:[place-items:center] [&_button]:[color:var(--muted-foreground)] [&_button]:[background:transparent] [&_button]:[border:1px_solid_transparent] [&_button]:[border-radius:7px] [&_button]:[cursor:pointer] [&_button]:[min-width:0] [&_button]:[height:30px] [&_button]:[padding:0_8px] [&_button]:[display:flex] [&_button]:[align-items:center] [&_button]:[gap:6px] [&_button]:[font-size:10.5px] [&_button_svg]:[width:13px] [&_button_svg]:[height:13px] [&_button_svg]:[flex:0_0_auto] [&_button_span]:[overflow:hidden] [&_button_span]:[text-overflow:ellipsis] [&_button_span]:[white-space:nowrap] max-860:[&_button]:[padding:0_6px] max-860:[&_button_span]:[display:none]"
+            role="tablist"
+            aria-label="Workspace tools"
+          >
             {TOOL_DEFINITIONS.map((tool) => {
               const Icon = tool.icon;
               return (
@@ -200,7 +235,7 @@ export function WorkspacePanel({
           </div>
           <button
             type="button"
-            className="workspace-panel__close"
+            className="workspace-panel__close [margin-left:auto] [display:inline-grid] [place-items:center] [color:var(--muted-foreground)] [background:transparent] [border:1px_solid_transparent] [border-radius:7px] [cursor:pointer] [width:30px] [height:30px] [flex:0_0_30px] [padding:0] [&_svg]:[width:15px] [&_svg]:[height:15px]"
             onClick={onClose}
             aria-label="Close right panel"
             title="Close right panel"
@@ -213,24 +248,36 @@ export function WorkspacePanel({
       {activeTool === null ? (
         <ToolLauncher onSelect={selectTool} />
       ) : (
-        <div className="workspace-panel__views">
+        <div className="workspace-panel__views [flex:1] [overflow:hidden] [min-width:0] [min-height:0] [height:100%]">
           {visitedTools.has("review") && (
-            <div className="workspace-panel__view" hidden={activeTool !== "review"}>
+            <div
+              className="workspace-panel__view [min-width:0] [min-height:0] [height:100%]"
+              hidden={activeTool !== "review"}
+            >
               <ReviewTool key={cwd} api={api} cwd={cwd} active={activeTool === "review"} />
             </div>
           )}
           {visitedTools.has("terminal") && (
-            <div className="workspace-panel__view" hidden={activeTool !== "terminal"}>
+            <div
+              className="workspace-panel__view [min-width:0] [min-height:0] [height:100%]"
+              hidden={activeTool !== "terminal"}
+            >
               <TerminalTool api={api} cwd={cwd} active={activeTool === "terminal"} />
             </div>
           )}
           {visitedTools.has("browser") && (
-            <div className="workspace-panel__view" hidden={activeTool !== "browser"}>
+            <div
+              className="workspace-panel__view [min-width:0] [min-height:0] [height:100%]"
+              hidden={activeTool !== "browser"}
+            >
               <BrowserTool api={api} active={activeTool === "browser"} />
             </div>
           )}
           {visitedTools.has("files") && (
-            <div className="workspace-panel__view" hidden={activeTool !== "files"}>
+            <div
+              className="workspace-panel__view [min-width:0] [min-height:0] [height:100%]"
+              hidden={activeTool !== "files"}
+            >
               <FilesTool key={cwd} api={api} cwd={cwd} active={activeTool === "files"} />
             </div>
           )}
@@ -242,7 +289,10 @@ export function WorkspacePanel({
 
 function ToolLauncher({ onSelect }: { onSelect: (tool: WorkspaceTool) => void }) {
   return (
-    <nav className="workspace-panel__launcher" aria-label="Open workspace tool">
+    <nav
+      className="workspace-panel__launcher [width:min(100%_-_48px,_540px)] [margin:auto] [display:grid] [gap:4px] [&_button]:[width:100%] [&_button]:[min-height:58px] [&_button]:[padding:0_14px] [&_button]:[display:grid] [&_button]:[grid-template-columns:24px_minmax(0,_1fr)_auto] [&_button]:[align-items:center] [&_button]:[gap:12px] [&_button]:[color:var(--foreground)] [&_button]:[background:transparent] [&_button]:[border:1px_solid_transparent] [&_button]:[border-radius:9px] [&_button]:[cursor:pointer] [&_button]:[text-align:left] [&_svg]:[width:18px] [&_svg]:[height:18px] [&_svg]:[color:var(--muted-foreground)] [&_span]:[font-size:14px] [&_span]:[font-weight:540] [&_kbd]:[min-width:30px] [&_kbd]:[padding:3px_7px] [&_kbd]:[color:var(--muted-foreground)] [&_kbd]:[background:var(--input)] [&_kbd]:[border:0] [&_kbd]:[border-radius:999px] [&_kbd]:[font-family:var(--font-sans)] [&_kbd]:[font-size:10px] [&_kbd]:[text-align:center]"
+      aria-label="Open workspace tool"
+    >
       {TOOL_DEFINITIONS.map((tool) => {
         const Icon = tool.icon;
         return (
@@ -299,23 +349,32 @@ function ReviewTool({
   );
 
   return (
-    <section className="review-tool" aria-label="Review changes">
-      <div className="workspace-tool__toolbar">
+    <section
+      className="review-tool [min-width:0] [min-height:0] [height:100%] [display:grid] [grid-template-rows:42px_minmax(0,_1fr)] [overflow:hidden]"
+      aria-label="Review changes"
+    >
+      <div className="workspace-tool__toolbar [min-width:0] [padding:0_9px_0_12px] [display:flex] [align-items:center] [gap:8px] [border-bottom:1px_solid_var(--border-subtle)] [background:var(--card-solid)] [&_strong]:[overflow:hidden] [&_strong]:[text-overflow:ellipsis] [&_strong]:[white-space:nowrap] [&_span]:[overflow:hidden] [&_span]:[text-overflow:ellipsis] [&_span]:[white-space:nowrap] [&_strong]:[font-size:11.5px] [&_strong]:[font-weight:650]">
         <div>
           <strong>Changes</strong>
           <span>{snapshot?.branch || "Working tree"}</span>
         </div>
-        <div className="review-tool__summary" aria-label="Change summary">
+        <div
+          className="review-tool__summary [&_span]:[color:var(--muted-foreground)] [&_b]:[color:var(--success)] [&_b]:[font-style:normal] [&_i]:[color:var(--danger)] [&_i]:[font-style:normal] [&_i]:[font-weight:650] ![flex:0_0_auto] ![display:flex] ![align-items:center] ![gap:7px] [font-size:10px]"
+          aria-label="Change summary"
+        >
           <span>{snapshot?.files.length ?? 0} files</span>
           <b>+{totals.additions}</b>
           <i>−{totals.deletions}</i>
         </div>
         <IconButton label="Refresh changes" onClick={() => void refresh()} disabled={loading}>
-          <RefreshCw className={loading ? "is-spinning" : undefined} aria-hidden="true" />
+          <RefreshCw
+            className={loading ? "is-spinning [animation:spin_0.9s_linear_infinite]" : undefined}
+            aria-hidden="true"
+          />
         </IconButton>
       </div>
 
-      <div className="review-tool__body">
+      <div className="review-tool__body [min-width:0] [min-height:0] [overflow:auto] [background:color-mix(in_srgb,_var(--background)_78%,_var(--card-solid))]">
         {loading && snapshot === null ? (
           <ToolState
             icon={Loader2}
@@ -344,9 +403,11 @@ function ReviewTool({
         ) : (
           <>
             {snapshot?.truncated && (
-              <p className="workspace-tool__notice">Large review truncated to a safe preview.</p>
+              <p className="workspace-tool__notice [margin:8px] [padding:7px_9px] [color:var(--muted)] [background:var(--input)] [border:1px_solid_var(--border-subtle)] [border-radius:7px] [font-size:10px]">
+                Large review truncated to a safe preview.
+              </p>
             )}
-            <div className="review-tool__files">
+            <div className="review-tool__files [padding:10px] [display:grid] [gap:10px]">
               {snapshot?.files.map((file, fileIndex) => (
                 <ReviewFile
                   key={`${file.status}:${file.path}`}
@@ -372,11 +433,11 @@ function ReviewFile({
   const hunks = useMemo(() => parseUnifiedPatch(file.patch), [file.patch]);
   const [expanded, setExpanded] = useState(defaultExpanded);
   return (
-    <article className="review-file">
-      <header className="review-file__header">
+    <article className="review-file [min-width:0] [overflow:hidden] [background:var(--card-solid)] [border:1px_solid_var(--border)] [border-radius:8px]">
+      <header className="review-file__header [position:sticky] [top:0] [z-index:2] [min-width:0] [height:38px] [padding:0_10px] [display:flex] [align-items:center] [gap:7px] [background:color-mix(in_srgb,_var(--card-solid)_94%,_var(--foreground))] [border-bottom:1px_solid_var(--border-subtle)] [&_>_svg]:[width:13px] [&_>_svg]:[height:13px] [&_>_svg]:[flex:0_0_auto] [&_>_svg]:[color:var(--muted-foreground)] [&_strong]:[min-width:0] [&_strong]:[flex:1] [&_strong]:[overflow:hidden] [&_strong]:[font-family:var(--font-mono)] [&_strong]:[font-size:10.5px] [&_strong]:[font-weight:580] [&_strong]:[text-overflow:ellipsis] [&_strong]:[white-space:nowrap]">
         <button
           type="button"
-          className="review-file__toggle"
+          className="review-file__toggle [width:24px] [height:24px] [margin-left:-5px] [padding:0] [display:grid] [place-items:center] [color:var(--muted-foreground)] [background:transparent] [border:0] [border-radius:5px] [cursor:pointer] [&_svg]:[width:13px] [&_svg]:[height:13px] [&_svg]:[transition:transform_var(--duration-fast)_var(--ease-out)] [&[aria-expanded='false']_svg]:[transform:rotate(-90deg)]"
           aria-label={`${expanded ? "Collapse" : "Expand"} ${file.path}`}
           aria-expanded={expanded}
           onClick={() => setExpanded((value) => !value)}
@@ -385,24 +446,33 @@ function ReviewFile({
         </button>
         <FileCode2 aria-hidden="true" />
         <strong title={file.path}>{file.path}</strong>
-        <span className={`review-file__status is-${reviewStatusTone(file.status)}`}>
+        <span
+          className={cx(
+            "review-file__status [padding:2px_5px] [color:var(--muted)] [background:var(--input)] [border-radius:4px] [font-size:8.5px] [font-weight:650] [text-transform:uppercase]",
+            REVIEW_STATUS_CLASS[reviewStatusTone(file.status)],
+          )}
+        >
           {reviewStatusLabel(file.status)}
         </span>
-        <span className="review-file__stats">
+        <span className="review-file__stats [display:flex] [gap:5px] [font-size:9px] [&_b]:[color:var(--success)] [&_b]:[font-style:normal] [&_i]:[color:var(--danger)] [&_i]:[font-style:normal] [&_i]:[font-weight:650]">
           <b>+{file.additions}</b>
           <i>−{file.deletions}</i>
         </span>
       </header>
       {!expanded ? null : file.binary ? (
-        <p className="review-file__binary">Binary file changed</p>
+        <p className="review-file__binary [margin:0] [padding:18px] [color:var(--muted-foreground)] [font-size:10.5px] [text-align:center]">
+          Binary file changed
+        </p>
       ) : hunks.length === 0 ? (
-        <p className="review-file__binary">No text preview available</p>
+        <p className="review-file__binary [margin:0] [padding:18px] [color:var(--muted-foreground)] [font-size:10.5px] [text-align:center]">
+          No text preview available
+        </p>
       ) : (
-        <div className="review-file__diff">
+        <div className="review-file__diff [width:100%] [overflow-x:auto] [font-family:var(--font-mono)] [font-size:10.5px] [line-height:19px] [&_table]:[min-width:100%] [&_table]:[border-spacing:0] [&_table]:[border-collapse:collapse] [&_tbody]:[display:block] [&_tbody]:[min-width:max-content]">
           <table aria-label={`Diff for ${file.path}`}>
             {hunks.map((hunk) => (
               <tbody key={hunk.id} className="review-hunk">
-                <tr className="review-hunk__header">
+                <tr className="review-hunk__header [color:color-mix(in_srgb,_var(--accent)_82%,_var(--foreground))] [background:color-mix(in_srgb,_var(--accent-muted)_70%,_transparent)] [min-width:max-content] [display:grid] [grid-template-columns:42px_42px_minmax(360px,_1fr)] [&_>_td]:[border-right:1px_solid_color-mix(in_srgb,_var(--border-subtle)_75%,_transparent)] [&_td]:[padding:0] [&_td_>_code]:[display:block] [&_td_>_code]:[padding:0_9px] [&_td_>_code]:[white-space:pre]">
                   <td />
                   <td />
                   <td>
@@ -410,9 +480,19 @@ function ReviewFile({
                   </td>
                 </tr>
                 {hunk.lines.map((line) => (
-                  <tr key={line.id} className={`review-line is-${line.kind}`}>
-                    <td className="review-line__number">{line.oldLine ?? ""}</td>
-                    <td className="review-line__number">{line.newLine ?? ""}</td>
+                  <tr
+                    key={line.id}
+                    className={cx(
+                      "review-line [min-width:max-content] [display:grid] [grid-template-columns:42px_42px_minmax(360px,_1fr)] [&_td]:[padding:0] [&_td_>_code]:[display:block] [&_td_>_code]:[padding:0_9px] [&_td_>_code]:[white-space:pre] [&_code_>_span]:[display:inline-block] [&_code_>_span]:[width:14px] [&_code_>_span]:[color:var(--muted-foreground)] [&_code_>_span]:[user-select:none] [&.is-addition_code_>_span]:[color:var(--success)] [&.is-deletion_code_>_span]:[color:var(--danger)]",
+                      REVIEW_LINE_CLASS[line.kind],
+                    )}
+                  >
+                    <td className="review-line__number [padding-right:7px] [color:var(--muted-foreground)] [user-select:none] [text-align:right] [border-right:1px_solid_color-mix(in_srgb,_var(--border-subtle)_75%,_transparent)]">
+                      {line.oldLine ?? ""}
+                    </td>
+                    <td className="review-line__number [padding-right:7px] [color:var(--muted-foreground)] [user-select:none] [text-align:right] [border-right:1px_solid_color-mix(in_srgb,_var(--border-subtle)_75%,_transparent)]">
+                      {line.newLine ?? ""}
+                    </td>
                     <td>
                       <code>
                         <span aria-hidden="true">{line.marker}</span>
@@ -426,7 +506,11 @@ function ReviewFile({
           </table>
         </div>
       )}
-      {file.truncated && <p className="review-file__truncated">Preview truncated</p>}
+      {file.truncated && (
+        <p className="review-file__truncated [padding:5px_9px] [background:var(--input)] [border-top:1px_solid_var(--border-subtle)] [text-align:left] [margin:0] [color:var(--muted-foreground)] [font-size:10.5px]">
+          Preview truncated
+        </p>
+      )}
     </article>
   );
 }
@@ -516,9 +600,7 @@ function TerminalTool({
   const activeRef = useRef(active);
   const pendingInputRef = useRef("");
   const fitRef = useRef<() => void>(() => undefined);
-  const [status, setStatus] = useState<"idle" | "starting" | "running" | "exited" | "error">(
-    "idle",
-  );
+  const [status, setStatus] = useState<TerminalStatus>("idle");
 
   const startTerminal = useCallback(async () => {
     const terminal = terminalRef.current;
@@ -645,13 +727,23 @@ function TerminalTool({
   }, [active, startTerminal]);
 
   return (
-    <section className="terminal-tool" aria-label="Terminal">
-      <div className="workspace-tool__toolbar">
+    <section
+      className={String.raw`terminal-tool [background:var(--background)] [min-width:0] [min-height:0] [height:100%] [display:grid] [grid-template-rows:42px_minmax(0,_1fr)] [overflow:hidden] [&_.workspace-tool\_\_toolbar]:[color:var(--foreground)] [&_.workspace-tool\_\_toolbar]:[background:var(--card-solid)]`}
+      aria-label="Terminal"
+    >
+      <div className="workspace-tool__toolbar [min-width:0] [padding:0_9px_0_12px] [display:flex] [align-items:center] [gap:8px] [border-bottom:1px_solid_var(--border-subtle)] [background:var(--card-solid)] [&_strong]:[overflow:hidden] [&_strong]:[text-overflow:ellipsis] [&_strong]:[white-space:nowrap] [&_span]:[overflow:hidden] [&_span]:[text-overflow:ellipsis] [&_span]:[white-space:nowrap] [&_strong]:[font-size:11.5px] [&_strong]:[font-weight:650]">
         <div>
           <strong>Terminal</strong>
           <span title={cwd}>{projectName(cwd)}</span>
         </div>
-        <span className={`terminal-tool__status is-${status}`}>{status}</span>
+        <span
+          className={cx(
+            "terminal-tool__status [padding:2px_6px] [color:var(--muted-foreground)] [background:rgba(255,_255,_255,_0.05)] [border-radius:999px] [font-size:9px] [text-transform:capitalize]",
+            TERMINAL_STATUS_CLASS[status],
+          )}
+        >
+          {status}
+        </span>
         <IconButton
           label="New terminal"
           onClick={() => void newTerminal()}
@@ -662,10 +754,13 @@ function TerminalTool({
       </div>
       <div
         ref={terminalElementRef}
-        className="terminal-tool__viewport"
+        className="terminal-tool__viewport [min-width:0] [min-height:0] [overflow:hidden] [padding:10px_12px] [background:var(--background)]"
         aria-label="Right panel terminal"
       />
-      <span className="sr-only" aria-live="polite">
+      <span
+        className="sr-only [position:absolute] [width:1px] [height:1px] [padding:0] [overflow:hidden] [clip:rect(0,_0,_0,_0)] [white-space:nowrap] [border:0]"
+        aria-live="polite"
+      >
         Terminal {status}
       </span>
     </section>
@@ -774,9 +869,12 @@ function BrowserTool({ api, active }: { api: WorkspacePanelApi; active: boolean 
   };
 
   return (
-    <section className="browser-tool" aria-label="Browser">
+    <section
+      className="browser-tool [grid-template-rows:44px_2px_auto_minmax(0,_1fr)] [background:var(--background)] [min-width:0] [min-height:0] [height:100%] [display:grid] [overflow:hidden]"
+      aria-label="Browser"
+    >
       <form
-        className="browser-tool__toolbar"
+        className="browser-tool__toolbar [min-width:0] [padding:0_8px] [display:flex] [align-items:center] [gap:3px] [border-bottom:1px_solid_var(--border-subtle)] [background:var(--card-solid)]"
         onSubmit={(event) => {
           event.preventDefault();
           void navigate();
@@ -801,11 +899,18 @@ function BrowserTool({ api, active }: { api: WorkspacePanelApi; active: boolean 
           disabled={!browserIdRef.current}
           onClick={() => browserIdRef.current && void api.reloadBrowser(browserIdRef.current)}
         >
-          <RotateCw className={state?.loading ? "is-spinning" : undefined} aria-hidden="true" />
+          <RotateCw
+            className={
+              state?.loading ? "is-spinning [animation:spin_0.9s_linear_infinite]" : undefined
+            }
+            aria-hidden="true"
+          />
         </IconButton>
-        <label className="browser-tool__address">
+        <label className="browser-tool__address [min-width:0] [height:30px] [margin-left:3px] [padding:0_8px] [flex:1] [display:flex] [align-items:center] [gap:6px] [background:var(--input)] [border:1px_solid_var(--border-subtle)] [border-radius:8px] [&_svg]:[width:12px] [&_svg]:[height:12px] [&_svg]:[flex:0_0_auto] [&_svg]:[color:var(--muted-foreground)] [&_input]:[min-width:0] [&_input]:[width:100%] [&_input]:[color:var(--foreground)] [&_input]:[background:transparent] [&_input]:[border:0] [&_input]:[outline:0] [&_input]:[font-size:10.5px]">
           <Search aria-hidden="true" />
-          <span className="sr-only">Address or search</span>
+          <span className="sr-only [position:absolute] [width:1px] [height:1px] [padding:0] [overflow:hidden] [clip:rect(0,_0,_0,_0)] [white-space:nowrap] [border:0]">
+            Address or search
+          </span>
           <input
             value={address}
             onChange={(event) => setAddress(event.target.value)}
@@ -816,9 +921,22 @@ function BrowserTool({ api, active }: { api: WorkspacePanelApi; active: boolean 
           />
         </label>
       </form>
-      {state?.loading && <div className="browser-tool__progress" aria-label="Page loading" />}
-      {error && <p className="browser-tool__error">{error}</p>}
-      <div ref={viewportRef} className="browser-tool__viewport" aria-label="Browser page" />
+      {state?.loading && (
+        <div
+          className="browser-tool__progress [height:2px] [background:linear-gradient(90deg,_transparent,_var(--accent),_transparent)] [background-size:200%_100%] [animation:browser-progress_1.1s_linear_infinite]"
+          aria-label="Page loading"
+        />
+      )}
+      {error && (
+        <p className="browser-tool__error [margin:7px_8px_0] [color:var(--danger)] [background:var(--danger-muted)] [padding:7px_9px] [border:1px_solid_var(--border-subtle)] [border-radius:7px] [font-size:10px]">
+          {error}
+        </p>
+      )}
+      <div
+        ref={viewportRef}
+        className="browser-tool__viewport [min-width:0] [min-height:0] [background:#ffffff]"
+        aria-label="Browser page"
+      />
     </section>
   );
 }
@@ -865,8 +983,11 @@ function FilesTool({ api, cwd, active }: { api: WorkspacePanelApi; cwd: string; 
 
   const parent = parentPath(listing?.path ?? "");
   return (
-    <section className="files-tool" aria-label="Files">
-      <div className="workspace-tool__toolbar">
+    <section
+      className="files-tool [min-width:0] [min-height:0] [height:100%] [display:grid] [grid-template-rows:42px_minmax(0,_1fr)] [overflow:hidden]"
+      aria-label="Files"
+    >
+      <div className="workspace-tool__toolbar [min-width:0] [padding:0_9px_0_12px] [display:flex] [align-items:center] [gap:8px] [border-bottom:1px_solid_var(--border-subtle)] [background:var(--card-solid)] [&_strong]:[overflow:hidden] [&_strong]:[text-overflow:ellipsis] [&_strong]:[white-space:nowrap] [&_span]:[overflow:hidden] [&_span]:[text-overflow:ellipsis] [&_span]:[white-space:nowrap] [&_strong]:[font-size:11.5px] [&_strong]:[font-weight:650]">
         <div>
           <strong>Files</strong>
           <span title={listing?.root}>{projectName(listing?.root ?? "Workspace")}</span>
@@ -876,12 +997,21 @@ function FilesTool({ api, cwd, active }: { api: WorkspacePanelApi; cwd: string; 
           disabled={loading}
           onClick={() => void openDirectory(listing?.path ?? "")}
         >
-          <RefreshCw className={loading ? "is-spinning" : undefined} aria-hidden="true" />
+          <RefreshCw
+            className={loading ? "is-spinning [animation:spin_0.9s_linear_infinite]" : undefined}
+            aria-hidden="true"
+          />
         </IconButton>
       </div>
-      <div className="files-tool__layout">
-        <nav className="files-tool__browser" aria-label="Workspace files">
-          <div className="files-tool__path" title={listing?.path || "/"}>
+      <div className="files-tool__layout [min-width:0] [min-height:0] [display:grid] [grid-template-columns:minmax(150px,_34%)_minmax(0,_1fr)] [overflow:hidden] max-860:[grid-template-columns:minmax(126px,_40%)_minmax(0,_1fr)]">
+        <nav
+          className="files-tool__browser [border-right:1px_solid_var(--border-subtle)] [background:color-mix(in_srgb,_var(--card-solid)_92%,_var(--background))] [min-width:0] [min-height:0] [overflow:auto]"
+          aria-label="Workspace files"
+        >
+          <div
+            className="files-tool__path [position:sticky] [top:0] [z-index:1] [height:36px] [padding:0_7px] [display:flex] [align-items:center] [gap:5px] [background:var(--card-solid)] [border-bottom:1px_solid_var(--border-subtle)] [&_span]:[min-width:0] [&_span]:[overflow:hidden] [&_span]:[color:var(--muted-foreground)] [&_span]:[font-family:var(--font-mono)] [&_span]:[font-size:9.5px] [&_span]:[text-overflow:ellipsis] [&_span]:[white-space:nowrap]"
+            title={listing?.path || "/"}
+          >
             <IconButton
               label="Parent directory"
               disabled={!listing?.path}
@@ -892,11 +1022,13 @@ function FilesTool({ api, cwd, active }: { api: WorkspacePanelApi; cwd: string; 
             <span>{listing?.path || projectName(listing?.root ?? "Workspace")}</span>
           </div>
           {error ? (
-            <p className="files-tool__error">{error}</p>
+            <p className="files-tool__error [margin:8px] [padding:7px_9px] [color:var(--muted)] [background:var(--input)] [border:1px_solid_var(--border-subtle)] [border-radius:7px] [font-size:10px]">
+              {error}
+            </p>
           ) : loading && listing === null ? (
             <ToolState icon={Loader2} title="Loading files" detail="Reading workspace…" spin />
           ) : (
-            <ul className="files-tool__entries">
+            <ul className="files-tool__entries [margin:0] [padding:5px] [list-style:none] [&_button]:[width:100%] [&_button]:[height:30px] [&_button]:[padding:0_7px] [&_button]:[display:grid] [&_button]:[grid-template-columns:15px_minmax(0,_1fr)_auto] [&_button]:[align-items:center] [&_button]:[gap:6px] [&_button]:[color:var(--muted)] [&_button]:[background:transparent] [&_button]:[border:0] [&_button]:[border-radius:5px] [&_button]:[cursor:pointer] [&_button]:[text-align:left] [&_svg]:[width:13px] [&_svg]:[height:13px] [&_svg]:[color:var(--muted-foreground)] [&_span]:[min-width:0] [&_span]:[overflow:hidden] [&_span]:[font-size:10.5px] [&_span]:[text-overflow:ellipsis] [&_span]:[white-space:nowrap] [&_small]:[color:var(--muted-foreground)] [&_small]:[font-size:8.5px]">
               {listing?.entries.map((entry) => (
                 <li key={entry.path}>
                   <button
@@ -925,7 +1057,10 @@ function FilesTool({ api, cwd, active }: { api: WorkspacePanelApi; cwd: string; 
             </ul>
           )}
         </nav>
-        <div className="files-tool__preview" aria-label="File preview">
+        <div
+          className="files-tool__preview [background:color-mix(in_srgb,_var(--background)_84%,_var(--card-solid))] [min-width:0] [min-height:0] [overflow:auto] [&_>_header]:[position:sticky] [&_>_header]:[top:0] [&_>_header]:[z-index:1] [&_>_header]:[height:36px] [&_>_header]:[padding:0_10px] [&_>_header]:[display:flex] [&_>_header]:[align-items:center] [&_>_header]:[justify-content:space-between] [&_>_header]:[gap:8px] [&_>_header]:[background:var(--card-solid)] [&_>_header]:[border-bottom:1px_solid_var(--border-subtle)] [&_>_header_strong]:[min-width:0] [&_>_header_strong]:[overflow:hidden] [&_>_header_strong]:[font-family:var(--font-mono)] [&_>_header_strong]:[font-size:9.5px] [&_>_header_strong]:[font-weight:570] [&_>_header_strong]:[text-overflow:ellipsis] [&_>_header_strong]:[white-space:nowrap] [&_>_header_span]:[color:var(--muted-foreground)] [&_>_header_span]:[font-size:8.5px] [&_>_p]:[color:var(--muted-foreground)] [&_>_p]:[font-size:8.5px] [&_>_pre]:[min-width:max-content] [&_>_pre]:[margin:0] [&_>_pre]:[padding:7px_0_18px] [&_>_pre]:[font-family:var(--font-mono)] [&_>_pre]:[font-size:10px] [&_>_pre]:[line-height:18px] [&_>_pre_>_span]:[display:grid] [&_>_pre_>_span]:[grid-template-columns:44px_minmax(320px,_1fr)] [&_>_pre_i]:[padding-right:9px] [&_>_pre_i]:[color:var(--muted-foreground)] [&_>_pre_i]:[border-right:1px_solid_var(--border-subtle)] [&_>_pre_i]:[font-style:normal] [&_>_pre_i]:[user-select:none] [&_>_pre_i]:[text-align:right] [&_>_pre_code]:[padding:0_10px] [&_>_pre_code]:[white-space:pre] [&_>_p]:[margin:0] [&_>_p]:[padding:6px_10px] [&_>_p]:[background:var(--input)] [&_>_p]:[border-top:1px_solid_var(--border-subtle)]"
+          aria-label="File preview"
+        >
           {!preview ? (
             <ToolState
               icon={FileCode2}
@@ -972,7 +1107,7 @@ function IconButton({
   return (
     <button
       type="button"
-      className="workspace-tool__icon-button"
+      className="workspace-tool__icon-button [display:inline-grid] [place-items:center] [color:var(--muted-foreground)] [background:transparent] [border:1px_solid_transparent] [border-radius:7px] [cursor:pointer] [width:30px] [height:30px] [flex:0_0_30px] [padding:0] [&_svg]:[width:15px] [&_svg]:[height:15px]"
       aria-label={label}
       title={label}
       {...props}
@@ -994,8 +1129,11 @@ function ToolState({
   spin?: boolean;
 }) {
   return (
-    <div className="workspace-tool__state">
-      <Icon className={spin ? "is-spinning" : undefined} aria-hidden="true" />
+    <div className="workspace-tool__state [min-height:100%] [padding:30px] [display:flex] [flex-direction:column] [align-items:center] [justify-content:center] [color:var(--muted-foreground)] [text-align:center] [&_>_svg]:[width:24px] [&_>_svg]:[height:24px] [&_>_svg]:[margin-bottom:12px] [&_>_svg]:[opacity:0.72] [&_strong]:[color:var(--foreground)] [&_strong]:[font-size:12.5px] [&_strong]:[font-weight:620] [&_span]:[max-width:320px] [&_span]:[margin-top:4px] [&_span]:[font-size:10.5px] [&_span]:[line-height:1.45]">
+      <Icon
+        className={spin ? "is-spinning [animation:spin_0.9s_linear_infinite]" : undefined}
+        aria-hidden="true"
+      />
       <strong>{title}</strong>
       <span>{detail}</span>
     </div>
@@ -1012,7 +1150,7 @@ function browserInputUrl(value: string): string {
   return `https://www.google.com/search?q=${encodeURIComponent(trimmed)}`;
 }
 
-function reviewStatusLabel(status: string): string {
+function reviewStatusLabel(status: string): "Added" | "Deleted" | "Renamed" | "Modified" {
   const code = status.replace(/\s/g, "")[0]?.toUpperCase();
   if (code === "A" || code === "?") return "Added";
   if (code === "D") return "Deleted";
@@ -1020,8 +1158,8 @@ function reviewStatusLabel(status: string): string {
   return "Modified";
 }
 
-function reviewStatusTone(status: string): string {
-  return reviewStatusLabel(status).toLowerCase();
+function reviewStatusTone(status: string): ReviewStatusTone {
+  return REVIEW_STATUS_TONE[reviewStatusLabel(status)];
 }
 
 function terminalTheme() {

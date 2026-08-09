@@ -16,16 +16,33 @@ import {
   listSessionSummaries,
   listSessions,
   loadSession,
-  migrateLegacySessions,
   promoteTransientSessionFork,
   saveSession,
   setSessionPinned,
   transientSessionModelMessages,
+  updateSessionTitle,
 } from "../src/session.js";
 import type { MessageChunk } from "../src/types.js";
 
 const sessionsDir = fs.mkdtempSync(path.join(tmpdir(), "swarmx-session-tests-"));
 const originalSessionsDir = process.env.SWARMX_SESSIONS_DIR;
+
+function filesUnder(root: string): string[] {
+  if (!fs.existsSync(root)) return [];
+  return fs
+    .readdirSync(root, { recursive: true, withFileTypes: true })
+    .filter((entry) => entry.isFile())
+    .map((entry) => path.join(entry.parentPath, entry.name))
+    .sort();
+}
+
+function sessionJsonlPath(root: string, id: string): string {
+  const matches = filesUnder(root).filter((filePath) => path.basename(filePath) === `${id}.jsonl`);
+  if (matches.length !== 1 || !matches[0]) {
+    throw new Error(`Expected exactly one JSONL file for Session ${id}, found ${matches.length}.`);
+  }
+  return matches[0];
+}
 
 describe("Session", () => {
   const savedIds: string[] = [];
@@ -77,23 +94,88 @@ describe("Session", () => {
     });
   });
 
-  it("V457 migrates legacy sessions to inherit and rejects unsupported overrides", () => {
-    fs.mkdirSync(sessionsDir, { recursive: true });
-    const legacy = {
-      id: "legacy-permission-session",
-      title: "Legacy",
-      agentName: "agent",
-      harness: "swarmx",
-      pinned: false,
-      messages: [],
-      createdAt: "2026-07-18T00:00:00.000Z",
-      updatedAt: "2026-07-18T00:00:00.000Z",
-    };
-    savedIds.push(legacy.id);
-    fs.writeFileSync(path.join(sessionsDir, `${legacy.id}.json`), JSON.stringify(legacy), "utf8");
-    expect(loadSession(legacy.id)?.permissionMode).toBe("inherit");
+  it("stores Sessions in working-directory partitions with a per-Project index", () => {
+    const first = createSession("agent", "swarmx", undefined, {
+      projectId: "project-a",
+      cwd: "/workspace/project-a",
+    });
+    const second = createSession("agent", "swarmx", undefined, {
+      projectId: "project-b",
+      cwd: "/workspace/project-b",
+    });
+    const sameProject = createSession("agent", "swarmx", undefined, {
+      projectId: "replacement-bookmark-id",
+      cwd: "/workspace/project-a",
+    });
+    savedIds.push(first.id, second.id, sameProject.id);
 
-    expect(() => saveSession({ ...legacy, permissionMode: "restricted" } as never)).toThrow();
+    saveSession(first);
+    saveSession(second);
+    saveSession(sameProject);
+
+    const firstDirectory = path.dirname(sessionJsonlPath(sessionsDir, first.id));
+    const secondDirectory = path.dirname(sessionJsonlPath(sessionsDir, second.id));
+    const sameProjectDirectory = path.dirname(sessionJsonlPath(sessionsDir, sameProject.id));
+    expect(firstDirectory).not.toBe(sessionsDir);
+    expect(firstDirectory).not.toBe(secondDirectory);
+    expect(sameProjectDirectory).toBe(firstDirectory);
+    expect(fs.existsSync(path.join(firstDirectory, "sessions-index.json"))).toBe(true);
+    expect(fs.existsSync(path.join(secondDirectory, "sessions-index.json"))).toBe(true);
+    expect(
+      JSON.parse(fs.readFileSync(path.join(firstDirectory, "sessions-index.json"), "utf8")),
+    ).toMatchObject({
+      version: 1,
+      entries: expect.arrayContaining([
+        expect.objectContaining({ sessionId: first.id }),
+        expect.objectContaining({ sessionId: sameProject.id }),
+      ]),
+    });
+    expect(loadSession(first.id)?.cwd).toBe("/workspace/project-a");
+    expect(loadSession(second.id)?.cwd).toBe("/workspace/project-b");
+  });
+
+  it("stores projectless Sessions in the Recents partition", () => {
+    const session = createSession("agent", "swarmx");
+    savedIds.push(session.id);
+    saveSession(session);
+
+    expect(path.basename(path.dirname(sessionJsonlPath(sessionsDir, session.id)))).toBe(
+      "__recents__",
+    );
+  });
+
+  it("keeps a flat JSONL readable and relocates it only when mutated", () => {
+    const session = createSession("legacy-flat", "swarmx", undefined, {
+      projectId: "legacy-project",
+      cwd: "/workspace/legacy-project",
+    });
+    savedIds.push(session.id);
+    const flatPath = path.join(sessionsDir, `${session.id}.jsonl`);
+    fs.writeFileSync(
+      flatPath,
+      `${JSON.stringify({
+        schemaVersion: 1,
+        type: "session_created",
+        timestamp: session.createdAt,
+        session,
+      })}\n`,
+      "utf8",
+    );
+
+    expect(listSessionSummaries({ includeArchived: true }).map((item) => item.id)).toContain(
+      session.id,
+    );
+    expect(fs.existsSync(flatPath)).toBe(true);
+
+    expect(updateSessionTitle(session.id, "Relocated Session")).toBe(true);
+    expect(fs.existsSync(flatPath)).toBe(false);
+    expect(sessionJsonlPath(sessionsDir, session.id)).not.toBe(flatPath);
+    expect(loadSession(session.id)?.title).toBe("Relocated Session");
+  });
+
+  it("rejects unsupported permission overrides", () => {
+    const session = createSession("agent", "swarmx");
+    expect(() => saveSession({ ...session, permissionMode: "restricted" } as never)).toThrow();
   });
 
   it("saves and loads a session", () => {
@@ -240,7 +322,7 @@ describe("Session", () => {
     const session = createSession("incremental", "swarmx");
     savedIds.push(session.id);
     saveSession(session);
-    const rolloutPath = path.join(sessionsDir, `${session.id}.jsonl`);
+    const rolloutPath = sessionJsonlPath(sessionsDir, session.id);
     const before = fs.readFileSync(rolloutPath);
 
     expect(
@@ -286,7 +368,7 @@ describe("Session", () => {
       updatedAt: "2026-07-27T00:00:00.000Z",
     };
     saveSession(session);
-    const rolloutPath = path.join(sessionsDir, `${session.id}.jsonl`);
+    const rolloutPath = sessionJsonlPath(sessionsDir, session.id);
     const before = fs.readFileSync(rolloutPath);
 
     const edited = editSessionUserMessage({
@@ -463,7 +545,7 @@ describe("Session", () => {
       { role: "assistant", content: "Second reply", kind: "message" },
     ];
     saveSession(source);
-    const filesBefore = fs.readdirSync(sessionsDir).sort();
+    const filesBefore = filesUnder(sessionsDir);
     const listedBefore = listSessions().map((session) => session.id);
 
     const transient = createTransientSessionFork({
@@ -483,7 +565,7 @@ describe("Session", () => {
       messages: [],
       runState: "idle",
     });
-    expect(fs.readdirSync(sessionsDir).sort()).toEqual(filesBefore);
+    expect(filesUnder(sessionsDir)).toEqual(filesBefore);
     expect(listSessions().map((session) => session.id)).toEqual(listedBefore);
   });
 
@@ -612,218 +694,71 @@ describe("Session", () => {
     ).toEqual([source.id, promoted.id].sort());
   });
 
-  it("V523 reads legacy JSON and migrates it once with a reversible backup", () => {
-    const root = fs.mkdtempSync(path.join(tmpdir(), "swarmx-session-migration-"));
-    const legacy = {
-      id: "legacy-json-session",
-      title: "Legacy JSON",
-      agentName: "agent",
-      harness: "swarmx",
-      messages: [{ role: "user", content: "preserve me", kind: "message" }],
-      createdAt: "2026-07-01T00:00:00.000Z",
-      updatedAt: "2026-07-01T00:01:00.000Z",
-    };
-    fs.writeFileSync(path.join(root, `${legacy.id}.json`), JSON.stringify(legacy), "utf8");
-
-    try {
-      expect(migrateLegacySessions({ sessionsDir: root, dryRun: true })).toMatchObject({
-        discovered: 1,
-        migrated: 0,
-        planned: 1,
-        skipped: 0,
-        failed: 0,
-      });
-      const migrated = migrateLegacySessions({ sessionsDir: root });
-      expect(migrated).toMatchObject({
-        discovered: 1,
-        migrated: 1,
-        planned: 0,
-        skipped: 0,
-        failed: 0,
-      });
-      expect(fs.existsSync(path.join(root, `${legacy.id}.jsonl`))).toBe(true);
-      expect(fs.existsSync(path.join(root, `${legacy.id}.json`))).toBe(false);
-      expect(migrated.backupDir).toBeTruthy();
-      expect(fs.existsSync(path.join(migrated.backupDir ?? "", `${legacy.id}.json`))).toBe(true);
-      const created = JSON.parse(
-        fs.readFileSync(path.join(root, `${legacy.id}.jsonl`), "utf8").split("\n")[0] ?? "",
-      ) as { session: typeof legacy };
-      expect(created.session).toMatchObject({
-        id: legacy.id,
-        messages: legacy.messages,
-      });
-
-      fs.appendFileSync(
-        path.join(root, `${legacy.id}.jsonl`),
-        `${JSON.stringify({
-          schemaVersion: 1,
-          type: "messages_appended",
-          timestamp: "2026-07-01T00:02:00.000Z",
-          messages: [{ role: "assistant", content: "index reconciliation", kind: "message" }],
-        })}\n`,
-      );
-      expect(listSessionSummaries({ sessionsDir: root, includeArchived: true })[0]).toMatchObject({
-        id: legacy.id,
-        messageCount: 2,
-      });
-
-      fs.writeFileSync(path.join(root, "sessions.index.jsonl"), "{bad index}\n", "utf8");
-      expect(listSessionSummaries({ sessionsDir: root, includeArchived: true })[0]).toMatchObject({
-        id: legacy.id,
-        messageCount: 2,
-      });
-
-      expect(migrateLegacySessions({ sessionsDir: root })).toMatchObject({
-        discovered: 0,
-        migrated: 0,
-        planned: 0,
-        skipped: 0,
-        failed: 0,
-      });
-    } finally {
-      fs.rmSync(root, { recursive: true, force: true });
-    }
-  });
-
-  it("V523 keeps legacy JSON readable before migration", () => {
-    const legacy = {
-      id: "legacy-json-readable",
-      title: "Legacy readable",
-      agentName: "agent",
-      harness: "swarmx",
-      messages: [{ role: "user", content: "still readable", kind: "message" }],
-      createdAt: "2026-07-01T00:00:00.000Z",
-      updatedAt: "2026-07-01T00:01:00.000Z",
-    };
-    savedIds.push(legacy.id);
+  it("ignores unsupported Session JSON files", () => {
+    const id = "unsupported-json-session";
+    const filePath = path.join(sessionsDir, `${id}.json`);
     fs.mkdirSync(sessionsDir, { recursive: true });
-    fs.writeFileSync(path.join(sessionsDir, `${legacy.id}.json`), JSON.stringify(legacy), "utf8");
-
-    expect(loadSession(legacy.id)).toMatchObject(legacy);
-  });
-
-  it("V523 normalizes sessions written by the released Rust desktop", () => {
-    const root = fs.mkdtempSync(path.join(tmpdir(), "swarmx-rust-session-migration-"));
-    const legacySessionsDir = path.join(root, "sessions");
-    fs.mkdirSync(legacySessionsDir);
     fs.writeFileSync(
-      path.join(root, "instances.json"),
-      JSON.stringify([
-        {
-          id: "legacy-instance",
-          label: "Legacy Claude",
-          harness: "ClaudeCode",
-          model: "legacy-model",
-        },
-      ]),
-      "utf8",
-    );
-    const legacy = {
-      id: "legacy-rust-session",
-      agent_instance_id: "legacy-instance",
-      working_dir: "/workspace/legacy",
-      acp_session_id: "remote-session",
-      messages: [
-        { is_user: true, content: "question", kind: "Message" },
-        { is_user: false, content: "reasoning", kind: "Thinking", duration_ms: 1250 },
-        {
-          is_user: false,
-          content: '{"path":"README.md"}',
-          kind: "ToolCall",
-          tool_name: "read",
-        },
-        {
-          is_user: false,
-          content: "visible result",
-          kind: "ToolResult",
-          tool_name: "read",
-          tool_result: "raw result",
-        },
-      ],
-      created_at: "1751328000",
-      updated_at: "1751328060",
-      title: "Rust desktop Session",
-      pinned: true,
-      archived: true,
-    };
-    fs.writeFileSync(
-      path.join(legacySessionsDir, `${legacy.id}.json`),
-      JSON.stringify(legacy),
+      filePath,
+      JSON.stringify({
+        id,
+        title: "Unsupported JSON",
+        agentName: "agent",
+        harness: "swarmx",
+        messages: [],
+        createdAt: "2026-07-01T00:00:00.000Z",
+        updatedAt: "2026-07-01T00:01:00.000Z",
+      }),
       "utf8",
     );
 
     try {
-      const result = migrateLegacySessions({ sessionsDir: legacySessionsDir });
-      expect(result).toMatchObject({ discovered: 1, migrated: 1, failed: 0 });
-      expect(listSessions({ sessionsDir: legacySessionsDir, includeArchived: true })).toEqual([
-        expect.objectContaining({
-          id: legacy.id,
-          title: legacy.title,
-          acpSessionId: legacy.acp_session_id,
-          cwd: legacy.working_dir,
-          agentName: "Legacy Claude",
-          harness: "claude_code",
-          model: "legacy-model",
-          pinned: true,
-          archivedAt: "2025-07-01T00:01:00.000Z",
-          createdAt: "2025-07-01T00:00:00.000Z",
-          updatedAt: "2025-07-01T00:01:00.000Z",
-          messages: [
-            { role: "user", content: "question", kind: "message" },
-            {
-              role: "assistant",
-              content: "reasoning",
-              kind: "thinking",
-              render: { durationMs: 1250 },
-            },
-            {
-              role: "assistant",
-              content: '{"path":"README.md"}',
-              kind: "tool_call",
-              toolName: "read",
-            },
-            {
-              role: "tool",
-              content: "visible result",
-              kind: "tool_result",
-              toolName: "read",
-              structuredContent: { legacyToolResult: "raw result" },
-            },
-          ],
-        }),
-      ]);
+      expect(loadSession(id)).toBeNull();
+      expect(
+        listSessionSummaries({ includeArchived: true }).some((summary) => summary.id === id),
+      ).toBe(false);
     } finally {
-      fs.rmSync(root, { recursive: true, force: true });
+      fs.unlinkSync(filePath);
     }
   });
 
-  it("V523 retains the Harness identity of Rust runtime-backed sessions", () => {
-    const sessionsDir = fs.mkdtempSync(path.join(tmpdir(), "swarmx-rust-runtime-migration-"));
-    const legacy = {
-      id: "legacy-rust-runtime",
-      agent_instance_id: "",
-      agent_runtime: "hermes",
-      working_dir: "/workspace/runtime",
-      messages: [],
-      created_at: "1751328000",
-      updated_at: "1751328060",
-      title: "Runtime Session",
-    };
-    fs.writeFileSync(path.join(sessionsDir, `${legacy.id}.json`), JSON.stringify(legacy), "utf8");
+  it("rebuilds an index containing unsupported JSON sources", () => {
+    const root = fs.mkdtempSync(path.join(tmpdir(), "swarmx-json-only-index-"));
+    fs.writeFileSync(
+      path.join(root, "sessions-index.json"),
+      JSON.stringify({
+        version: 1,
+        entries: [
+          {
+            sessionId: "unsupported-json-session",
+            sourceBytes: 1,
+            sourceMtimeMs: 1,
+            sourceFormat: "json",
+            summary: {
+              id: "unsupported-json-session",
+              title: "Unsupported JSON",
+              agentName: "agent",
+              harness: "swarmx",
+              permissionMode: "inherit",
+              pinned: false,
+              createdAt: "2026-07-01T00:00:00.000Z",
+              updatedAt: "2026-07-01T00:01:00.000Z",
+              messageCount: 0,
+            },
+          },
+        ],
+      }),
+      "utf8",
+    );
 
     try {
-      expect(migrateLegacySessions({ sessionsDir })).toMatchObject({
-        discovered: 1,
-        migrated: 1,
-        failed: 0,
-      });
-      expect(listSessions({ sessionsDir, includeArchived: true })[0]).toMatchObject({
-        id: legacy.id,
-        agentName: "Hermes",
-        harness: "hermes",
+      expect(listSessionSummaries({ sessionsDir: root, includeArchived: true })).toEqual([]);
+      expect(JSON.parse(fs.readFileSync(path.join(root, "sessions-index.json"), "utf8"))).toEqual({
+        version: 1,
+        entries: [],
       });
     } finally {
-      fs.rmSync(sessionsDir, { recursive: true, force: true });
+      fs.rmSync(root, { recursive: true, force: true });
     }
   });
 
@@ -832,7 +767,7 @@ describe("Session", () => {
     savedIds.push(session.id);
     session.messages.push({ role: "user", content: "safe prefix", kind: "message" });
     saveSession(session);
-    const rolloutPath = path.join(sessionsDir, `${session.id}.jsonl`);
+    const rolloutPath = sessionJsonlPath(sessionsDir, session.id);
     fs.appendFileSync(rolloutPath, '{"schemaVersion":1,"type":"messages_appended"');
 
     expect(loadSession(session.id)?.messages).toEqual(session.messages);
@@ -847,7 +782,7 @@ describe("Session", () => {
     const session = createSession("corrupt", "swarmx");
     savedIds.push(session.id);
     saveSession(session);
-    const rolloutPath = path.join(sessionsDir, `${session.id}.jsonl`);
+    const rolloutPath = sessionJsonlPath(sessionsDir, session.id);
     fs.appendFileSync(rolloutPath, "{bad json}\n");
 
     expect(loadSession(session.id)).toBeNull();
@@ -862,7 +797,7 @@ describe("Session", () => {
     const session = createSession("same-size-corruption", "swarmx");
     savedIds.push(session.id);
     saveSession(session);
-    const rolloutPath = path.join(sessionsDir, `${session.id}.jsonl`);
+    const rolloutPath = sessionJsonlPath(sessionsDir, session.id);
     expect(loadSession(session.id)?.id).toBe(session.id);
     const valid = fs.readFileSync(rolloutPath, "utf8");
     const corrupt = valid.replace("session_created", "session_Xreated");
@@ -892,30 +827,43 @@ describe("Session", () => {
       title: session.title,
     });
     expect(summary).not.toHaveProperty("messages");
-    expect(fs.existsSync(path.join(sessionsDir, "sessions.index.jsonl"))).toBe(true);
+    expect(
+      fs.existsSync(
+        path.join(path.dirname(sessionJsonlPath(sessionsDir, session.id)), "sessions-index.json"),
+      ),
+    ).toBe(true);
   });
 
-  it("V525 reconciles same-size legacy metadata changes from source modification time", () => {
+  it("V525 reconciles same-size JSONL metadata changes from source modification time", () => {
     const root = fs.mkdtempSync(path.join(tmpdir(), "swarmx-session-index-mtime-"));
-    const legacy = {
-      id: "legacy-index-mtime",
+    const session = {
+      id: "jsonl-index-mtime",
       title: "Old title",
       agentName: "agent",
       harness: "swarmx",
+      permissionMode: "inherit",
+      pinned: false,
       messages: [],
       createdAt: "2026-07-01T00:00:00.000Z",
       updatedAt: "2026-07-01T00:01:00.000Z",
     };
-    const legacyPath = path.join(root, `${legacy.id}.json`);
-    fs.writeFileSync(legacyPath, JSON.stringify(legacy), "utf8");
+    const sessionPath = path.join(root, `${session.id}.jsonl`);
+    const event = (title: string) =>
+      `${JSON.stringify({
+        schemaVersion: 1,
+        type: "session_created",
+        timestamp: session.createdAt,
+        session: { ...session, title },
+      })}\n`;
+    fs.writeFileSync(sessionPath, event("Old title"), "utf8");
 
     try {
       expect(listSessionSummaries({ sessionsDir: root })[0]?.title).toBe("Old title");
-      const changed = JSON.stringify({ ...legacy, title: "New title" });
-      expect(Buffer.byteLength(changed)).toBe(fs.statSync(legacyPath).size);
-      fs.writeFileSync(legacyPath, changed, "utf8");
+      const changed = event("New title");
+      expect(Buffer.byteLength(changed)).toBe(fs.statSync(sessionPath).size);
+      fs.writeFileSync(sessionPath, changed, "utf8");
       const future = new Date(Date.now() + 60_000);
-      fs.utimesSync(legacyPath, future, future);
+      fs.utimesSync(sessionPath, future, future);
 
       expect(listSessionSummaries({ sessionsDir: root })[0]?.title).toBe("New title");
     } finally {

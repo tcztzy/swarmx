@@ -5,6 +5,14 @@ the reusable `@swarmx/desktop/renderer` export does not depend on a host public
 directory. Product names and marks remain the property of their respective
 owners; inclusion here does not imply endorsement.
 
+## Class Variance Authority
+
+The Desktop Renderer bundles Class Variance Authority 0.7.1 for typed component
+variant composition.
+
+Copyright 2022 Joe Bell. License: Apache License 2.0. The complete license text
+is included at `third_party_licenses/ACP_REGISTRY_APACHE-2.0.txt`.
+
 ## Lucide UI glyphs
 
 The SwarmX application glyph and deterministic fallbacks use icons from the

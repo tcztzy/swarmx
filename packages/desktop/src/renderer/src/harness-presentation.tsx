@@ -47,7 +47,7 @@ export function HarnessBrandIcon({ harness }: { harness: HarnessOption }) {
   }
   return (
     <img
-      className="harness-brand-icon"
+      className={String.raw`harness-brand-icon [display:block] [object-fit:contain] [.agent-picker\_\_option_>_&]:[width:14px] [.agent-picker\_\_option_>_&]:[height:14px] [.agent-picker\_\_option_>_&]:[flex:0_0_auto] [@media(prefers-color-scheme:dark)]:[filter:invert(1)]`}
       src={iconUrl}
       alt=""
       aria-hidden="true"

@@ -1,6 +1,48 @@
-@import "./styles/app-shell.css";
-@import "./styles/settings.css";
-@import "./styles/workspace.css";
-@import "./styles/workflow.css";
-@import "./styles/conversation.css";
-@import "./styles/responsive.css";
+@layer theme, base, components, utilities;
+
+@import "tailwindcss/theme.css" layer(theme);
+@import "@xterm/xterm/css/xterm.css" layer(base);
+@import "./styles/base.css" layer(base);
+@import "tailwindcss/utilities.css" layer(utilities) source("../");
+@import "./styles/app-shell.css" layer(utilities);
+@import "./styles/settings.css" layer(utilities);
+@import "./styles/workspace.css" layer(utilities);
+@import "./styles/workflow.css" layer(utilities);
+@import "./styles/conversation.css" layer(utilities);
+@import "./styles/responsive.css" layer(utilities);
+
+@custom-variant max-1100 (@media (max-width: 1100px));
+@custom-variant max-860 (@media (max-width: 860px));
+@custom-variant max-680 (@media (max-width: 680px));
+@custom-variant max-520 (@media (max-width: 520px));
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-solid: var(--card-solid);
+  --color-card-strong: var(--card-strong);
+  --color-card-hover: var(--card-hover);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-border: var(--border);
+  --color-border-subtle: var(--border-subtle);
+  --color-input: var(--input);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-accent: var(--accent);
+  --color-accent-muted: var(--accent-muted);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-danger: var(--danger);
+  --color-danger-muted: var(--danger-muted);
+  --color-success: var(--success);
+  --color-success-muted: var(--success-muted);
+  --color-ring: var(--ring);
+  --radius-app: var(--radius);
+  --radius-app-lg: var(--radius-lg);
+  --radius-app-xl: var(--radius-xl);
+  --shadow-app: var(--shadow);
+  --shadow-app-soft: var(--shadow-soft);
+  --shadow-inset: var(--shadow-inset);
+  --ease-app-out: var(--ease-out);
+}

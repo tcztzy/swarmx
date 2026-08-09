@@ -57,6 +57,7 @@ import {
   isDeepSeekProvider,
   isDeepSeekProviderUrl,
   isOpenCodeGoProviderUrl,
+  isOpenRouterProviderUrl,
   ProviderBrandIcon,
   providerProtocolLabel,
 } from "./provider-presentation.js";
@@ -74,6 +75,35 @@ export type SettingsSection =
 
 type ExtensionProviderSummary = ExtensionCapabilityInventory["providers"][number];
 type ExtensionAgentSummary = ExtensionCapabilityInventory["agents"][number];
+
+const PERMISSION_SOURCE_CLASS = {
+  managed: "permission-source--managed [color:#d9a8ff]",
+  project: "permission-source--project [color:#ffd28a]",
+  personal: "permission-source--personal [color:var(--accent)]",
+  agent: "permission-source--agent",
+  session: "permission-source--session",
+} satisfies Record<HarnessPermissionPolicyLayer["source"], string>;
+
+const PERMISSION_DECISION_CLASS = {
+  allowed: "permission-decision--allowed [color:var(--success)]",
+  rejected: "permission-decision--rejected [color:var(--danger)]",
+  cancelled: "permission-decision--cancelled [color:var(--danger)]",
+} satisfies Record<"allowed" | "rejected" | "cancelled", string>;
+
+const VISUAL_STATUS_CLASS = {
+  ready: "is-ready",
+  loading: "is-loading",
+  muted: "is-muted",
+  warning: "is-warning",
+  error: "is-error",
+  unavailable: "is-unavailable",
+  active: "is-active",
+  disabled: "is-disabled",
+  exhausted: "is-exhausted",
+  expired: "is-expired",
+  unknown: "is-unknown",
+  cooling: "is-cooling",
+} as const;
 
 export function SettingsSidebar({
   section,
@@ -106,7 +136,9 @@ export function SettingsSidebar({
   ) =>
     sections.length > 0 ? (
       <>
-        <span className="settings-sidebar__group-label">{label}</span>
+        <span className="settings-sidebar__group-label [padding:0_10px_7px] [color:var(--muted-foreground)] [font-size:11px] [font-weight:560]">
+          {label}
+        </span>
         {sections.map((item) => {
           const Icon = item.icon;
           return (
@@ -126,12 +158,18 @@ export function SettingsSidebar({
     ) : null;
 
   return (
-    <div className="settings-sidebar">
-      <button type="button" className="settings-sidebar__back" onClick={onBack}>
+    <div className="settings-sidebar [min-width:0] [min-height:0] [flex:1] [overflow-y:auto] [padding:10px_10px_24px]">
+      <button
+        type="button"
+        className="settings-sidebar__back [width:100%] [min-height:36px] [margin-bottom:12px] [padding:7px_10px] [display:flex] [align-items:center] [gap:9px] [color:var(--muted)] [background:transparent] [border:0] [border-radius:9px] [font-size:13px] [text-align:left] [cursor:pointer] [&_svg]:[width:16px] [&_svg]:[height:16px] [&_svg]:[flex:0_0_auto]"
+        onClick={onBack}
+      >
         <ArrowLeft aria-hidden="true" />
         <span>Back to app</span>
       </button>
-      <label className="sidebar-search settings-sidebar__search">
+      <label
+        className={String.raw`sidebar-search settings-sidebar__search [&_>_svg]:[width:17px] [&_>_svg]:[height:17px] [&_>_svg]:[flex:0_0_auto] [&_input]:[min-width:0] [&_input]:[width:100%] [&_input]:[color:var(--foreground)] [&_input]:[background:transparent] [&_input]:[border:0] [&_input]:[outline:0] [&_input]:[font-size:12.5px] [height:38px] [margin:0_10px_6px] [padding:0_10px] [display:flex] [align-items:center] [gap:8px] [color:var(--muted-foreground)] [background:var(--input)] [border:1px_solid_var(--border-subtle)] [border-radius:10px] [&.settings-sidebar\_\_search]:[margin:0_0_24px]`}
+      >
         <Search aria-hidden="true" />
         <input
           type="search"
@@ -141,11 +179,16 @@ export function SettingsSidebar({
           onChange={(event) => onQueryChange(event.target.value)}
         />
       </label>
-      <nav className="settings-sidebar__sections" aria-label="Settings sections">
+      <nav
+        className="settings-sidebar__sections [display:grid] [gap:2px] [&_button_svg]:[width:16px] [&_button_svg]:[height:16px] [&_button_svg]:[flex:0_0_auto] [&_button]:[width:100%] [&_button]:[min-height:36px] [&_button]:[padding:7px_10px] [&_button]:[display:flex] [&_button]:[align-items:center] [&_button]:[gap:9px] [&_button]:[color:var(--muted)] [&_button]:[background:transparent] [&_button]:[border:0] [&_button]:[border-radius:9px] [&_button]:[font-size:13px] [&_button]:[font-weight:520] [&_button]:[text-align:left] [&_button]:[cursor:pointer] [&_button.is-active]:[font-weight:620]"
+        aria-label="Settings sections"
+      >
         {renderSections("Personal", personalSections)}
         {renderSections("System", systemSections)}
         {personalSections.length === 0 && systemSections.length === 0 && (
-          <span className="settings-sidebar__empty">No matching settings</span>
+          <span className="settings-sidebar__empty [padding:10px] [color:var(--muted-foreground)] [font-size:11.5px]">
+            No matching settings
+          </span>
         )}
       </nav>
     </div>
@@ -306,32 +349,50 @@ export function GeneralSettings({
 
   if (loading && !status) {
     return (
-      <section className="settings-workspace general-settings" aria-label="General settings">
-        <div className="settings-workspace__loading">
-          <Loader2 className="is-spinning" aria-hidden="true" /> Loading General settings…
+      <section
+        className="settings-workspace general-settings [width:100%] [height:100%] [min-width:0] [min-height:0] [overflow:hidden] [display:grid] [grid-template-rows:minmax(0,_1fr)] [color:var(--foreground)] [background:var(--background)]"
+        aria-label="General settings"
+      >
+        <div className="settings-workspace__loading [height:100%] [display:flex] [align-items:center] [justify-content:center] [gap:8px] [color:var(--muted-foreground)] [font-size:12px]">
+          <Loader2
+            className="is-spinning [animation:spin_0.9s_linear_infinite]"
+            aria-hidden="true"
+          />{" "}
+          Loading General settings…
         </div>
       </section>
     );
   }
 
   return (
-    <section className="settings-workspace general-settings" aria-label="General settings">
-      <div className="settings-workspace__body">
-        <div className="settings-workspace__content general-settings__content">
-          <div className="general-settings__heading">
+    <section
+      className="settings-workspace general-settings [width:100%] [height:100%] [min-width:0] [min-height:0] [overflow:hidden] [display:grid] [grid-template-rows:minmax(0,_1fr)] [color:var(--foreground)] [background:var(--background)]"
+      aria-label="General settings"
+    >
+      <div className="settings-workspace__body max-680:[display:block] [min-width:0] [min-height:0] [overflow:hidden] [display:block] [&.custom-agent-layout]:[height:100%] [&.custom-agent-layout]:[display:grid] [&.custom-agent-layout]:[grid-template-columns:260px_minmax(0,_1fr)]">
+        <div className="settings-workspace__content general-settings__content [min-width:0] [min-height:0] [overflow-y:auto] [height:100%] [padding:48px_clamp(32px,_6vw,_84px)_64px] [background:var(--background)] [padding-top:64px] max-680:[padding:24px_18px_40px] [&_>_.settings-provider-error]:[width:min(100%,_760px)] [&_>_.settings-provider-error]:[margin-right:auto] [&_>_.settings-provider-error]:[margin-left:auto] max-680:[padding-top:28px]">
+          <div className="general-settings__heading [width:min(100%,_760px)] [margin-right:auto] [margin-left:auto] [&_h2]:[margin:0] [&_h2]:[font-size:24px] [&_h2]:[font-weight:600] [&_h2]:[letter-spacing:-0.025em]">
             <h2>General</h2>
           </div>
 
           {Boolean(saveError || error || builtinToolsSaveError || builtinToolsError) && (
-            <div className="settings-provider-error">
+            <div className="settings-provider-error [margin:-10px_0_16px] [padding:9px_11px] [color:var(--danger)] [background:var(--danger-muted)] [border:1px_solid_color-mix(in_srgb,_var(--danger)_24%,_transparent)] [border-radius:7px] [font-size:11px] [line-height:1.4]">
               {saveError ?? builtinToolsSaveError ?? errorMessage(error ?? builtinToolsError)}
             </div>
           )}
 
-          <section className="general-settings__section" aria-labelledby="general-permissions">
+          <section
+            className="general-settings__section [margin-top:32px] [width:min(100%,_760px)] [margin-right:auto] [margin-left:auto] [&_>_h3]:[margin:0_0_13px] [&_>_h3]:[font-size:14px] [&_>_h3]:[font-weight:650] max-680:[margin-top:30px]"
+            aria-labelledby="general-permissions"
+          >
             <h3 id="general-permissions">Permissions</h3>
-            <fieldset className="general-permission-card" disabled={!status || Boolean(savingMode)}>
-              <legend className="sr-only">Available permission profiles</legend>
+            <fieldset
+              className="general-permission-card [margin:0] [padding:0_16px] [overflow:hidden] [background:var(--card)] [border:1px_solid_var(--border)] [border-radius:var(--radius-lg)] [box-shadow:var(--shadow-inset)] [&_label]:[position:relative] [&_label]:[min-height:76px] [&_label]:[padding:14px_0] [&_label]:[display:grid] [&_label]:[grid-template-columns:minmax(0,_1fr)_34px] [&_label]:[align-items:center] [&_label]:[gap:18px] [&_label]:[border-bottom:1px_solid_var(--border-subtle)] [&_label]:[cursor:pointer] [&_input]:[position:absolute] [&_input]:[width:1px] [&_input]:[height:1px] [&_input]:[opacity:0] [&_input]:[pointer-events:none] max-680:[padding:0_16px] max-680:[&_label]:[min-height:82px] max-680:[&_label]:[gap:12px]"
+              disabled={!status || Boolean(savingMode)}
+            >
+              <legend className="sr-only [position:absolute] [width:1px] [height:1px] [padding:0] [overflow:hidden] [clip:rect(0,_0,_0,_0)] [white-space:nowrap] [border:0]">
+                Available permission profiles
+              </legend>
               {GENERAL_PERMISSION_MODE_OPTIONS.map((option) => {
                 const enabled = status?.profileAvailability[option.id] ?? false;
                 return (
@@ -344,19 +405,23 @@ export function GeneralSettings({
                       checked={enabled}
                       onChange={() => void toggleProfile(option.id)}
                     />
-                    <span className="general-permission-card__copy">
+                    <span className="general-permission-card__copy [min-width:0] [display:grid] [gap:3px] [&_strong]:[color:var(--foreground)] [&_strong]:[font-size:13.5px] [&_strong]:[font-weight:650] [&_small]:[color:var(--muted-foreground)] [&_small]:[font-size:11.5px] [&_small]:[line-height:1.45]">
                       <strong>{option.label}</strong>
                       <small>{option.description}</small>
                     </span>
                     <span
                       className={cx(
-                        "general-permission-card__switch",
+                        "general-permission-card__switch [position:relative] [width:34px] [height:20px] [display:flex] [align-items:center] [padding:2px] [color:#fff] [background:color-mix(in_srgb,_var(--muted-foreground)_24%,_var(--input))] [border:0] [border-radius:999px] [transition:background_140ms_ease] [&_>_span]:[width:16px] [&_>_span]:[height:16px] [&_>_span]:[display:block] [&_>_span]:[background:#fff] [&_>_span]:[border-radius:999px] [&_>_span]:[box-shadow:0_1px_3px_rgba(18,_20,_28,_0.24)] [&_>_span]:[transform:translateX(0)] [&_>_span]:[transition:transform_140ms_ease] [&.is-enabled_>_span]:[transform:translateX(14px)] [&_svg]:[width:13px] [&_svg]:[height:13px]",
                         enabled && "is-enabled",
                         savingMode === option.id && "is-saving",
                       )}
                       aria-hidden="true"
                     >
-                      {savingMode === option.id ? <Loader2 className="is-spinning" /> : <span />}
+                      {savingMode === option.id ? (
+                        <Loader2 className="is-spinning [animation:spin_0.9s_linear_infinite]" />
+                      ) : (
+                        <span />
+                      )}
                     </span>
                   </label>
                 );
@@ -364,9 +429,12 @@ export function GeneralSettings({
             </fieldset>
           </section>
 
-          <section className="general-settings__section" aria-labelledby="general-agent-runtime">
+          <section
+            className="general-settings__section [margin-top:32px] [width:min(100%,_760px)] [margin-right:auto] [margin-left:auto] [&_>_h3]:[margin:0_0_13px] [&_>_h3]:[font-size:14px] [&_>_h3]:[font-weight:650] max-680:[margin-top:30px]"
+            aria-labelledby="general-agent-runtime"
+          >
             <h3 id="general-agent-runtime">Agent runtime</h3>
-            <div className="general-runtime-card">
+            <div className="general-runtime-card [padding:16px] [display:grid] [gap:12px] [background:var(--card)] [border:1px_solid_var(--border)] [border-radius:var(--radius-lg)] [box-shadow:var(--shadow-inset)] [&_label]:[display:grid] [&_label]:[grid-template-columns:minmax(0,_1fr)_minmax(160px,_220px)] [&_label]:[align-items:center] [&_label]:[gap:24px] [&_label_>_span]:[min-width:0] [&_label_>_span]:[display:grid] [&_label_>_span]:[gap:4px] [&_strong]:[font-size:13.5px] [&_strong]:[font-weight:650] [&_small]:[color:var(--muted-foreground)] [&_small]:[font-size:11.5px] [&_small]:[line-height:1.45] [&_p]:[color:var(--muted-foreground)] [&_p]:[font-size:11.5px] [&_p]:[line-height:1.45] [&_select]:[min-width:0] [&_select]:[height:34px] [&_select]:[padding:0_30px_0_10px] [&_select]:[color:var(--foreground)] [&_select]:[background:var(--input)] [&_select]:[border:1px_solid_var(--border)] [&_select]:[border-radius:var(--radius-md)] [&_p]:[margin:0] [&_p]:[padding-top:10px] [&_p]:[border-top:1px_solid_var(--border-subtle)] max-680:[&_label]:[grid-template-columns:1fr] max-680:[&_label]:[gap:12px] max-680:[&_select]:[width:100%]">
               <label htmlFor="general-builtin-tool-style">
                 <span>
                   <strong>Built-in tool style</strong>
@@ -454,11 +522,15 @@ export function PermissionsSettings({
   if (loading && !status) {
     return (
       <section
-        className="settings-workspace permission-settings"
+        className="settings-workspace permission-settings [width:100%] [height:100%] [min-width:0] [min-height:0] [overflow:hidden] [display:grid] [grid-template-rows:minmax(0,_1fr)] [color:var(--foreground)] [background:var(--background)]"
         aria-label="Advanced permissions settings"
       >
-        <div className="settings-workspace__loading">
-          <Loader2 className="is-spinning" aria-hidden="true" /> Loading permission policy…
+        <div className="settings-workspace__loading [height:100%] [display:flex] [align-items:center] [justify-content:center] [gap:8px] [color:var(--muted-foreground)] [font-size:12px]">
+          <Loader2
+            className="is-spinning [animation:spin_0.9s_linear_infinite]"
+            aria-hidden="true"
+          />{" "}
+          Loading permission policy…
         </div>
       </section>
     );
@@ -467,10 +539,12 @@ export function PermissionsSettings({
   if (error && !status) {
     return (
       <section
-        className="settings-workspace permission-settings"
+        className="settings-workspace permission-settings [width:100%] [height:100%] [min-width:0] [min-height:0] [overflow:hidden] [display:grid] [grid-template-rows:minmax(0,_1fr)] [color:var(--foreground)] [background:var(--background)]"
         aria-label="Advanced permissions settings"
       >
-        <div className="settings-provider-error">{errorMessage(error)}</div>
+        <div className="settings-provider-error [margin:-10px_0_16px] [padding:9px_11px] [color:var(--danger)] [background:var(--danger-muted)] [border:1px_solid_color-mix(in_srgb,_var(--danger)_24%,_transparent)] [border-radius:7px] [font-size:11px] [line-height:1.4]">
+          {errorMessage(error)}
+        </div>
       </section>
     );
   }
@@ -481,12 +555,14 @@ export function PermissionsSettings({
 
   return (
     <section
-      className="settings-workspace permission-settings"
+      className="settings-workspace permission-settings [width:100%] [height:100%] [min-width:0] [min-height:0] [overflow:hidden] [display:grid] [grid-template-rows:minmax(0,_1fr)] [color:var(--foreground)] [background:var(--background)]"
       aria-label="Advanced permissions settings"
     >
-      <div className="settings-workspace__body">
-        <div className="settings-workspace__content permission-settings__content">
-          <div className="settings-content-heading permission-settings__heading">
+      <div className="settings-workspace__body max-680:[display:block] [min-width:0] [min-height:0] [overflow:hidden] [display:block] [&.custom-agent-layout]:[height:100%] [&.custom-agent-layout]:[display:grid] [&.custom-agent-layout]:[grid-template-columns:260px_minmax(0,_1fr)]">
+        <div className="settings-workspace__content permission-settings__content [min-width:0] [min-height:0] [overflow-y:auto] [height:100%] [padding:48px_clamp(32px,_6vw,_84px)_64px] [background:var(--background)] [max-width:none] max-680:[padding:24px_18px_40px]">
+          <div
+            className={String.raw`settings-content-heading permission-settings__heading [&_>_span]:[min-width:0] [&_h2]:[margin:0] [&_p]:[margin:0] [&_small]:[margin:0] [&_small]:[display:block] [&_small]:[margin-bottom:5px] [&_small]:[color:var(--muted-foreground)] [&_small]:[font-size:10.5px] [&_small]:[font-weight:560] [&_small]:[letter-spacing:0.035em] [&_small]:[text-transform:uppercase] [&_h2]:[font-size:28px] [&_h2]:[font-weight:620] [&_h2]:[letter-spacing:-0.025em] [&_h2]:[line-height:1.25] [&_p]:[max-width:590px] [&_p]:[margin-top:7px] [&_p]:[color:var(--muted-foreground)] [&_p]:[font-size:12.5px] [&_p]:[line-height:1.5] [&_>_div]:[flex:0_0_auto] [&_>_div]:[display:flex] [&_>_div]:[align-items:center] [&_>_div]:[gap:7px] [&_>_div]:[flex-wrap:wrap] max-680:[align-items:flex-start] max-680:[flex-direction:column] max-680:[gap:14px] max-680:[&_>_div]:[width:100%] max-680:[&_>_div_button]:[flex:1_1_0] [width:min(100%,_1120px)] [margin-right:auto] [margin-left:auto] [&.permission-settings\_\_heading]:[margin-bottom:20px] [min-width:0] [margin-bottom:24px] [display:flex] [align-items:flex-end] [justify-content:space-between] [gap:20px]`}
+          >
             <span>
               <small>Exact rules and audit</small>
               <h2>Advanced permissions</h2>
@@ -497,7 +573,7 @@ export function PermissionsSettings({
             </span>
             <button
               type="button"
-              className="settings-primary-action"
+              className="settings-primary-action [color:var(--primary-foreground)] [background:var(--primary)] [border-color:var(--primary)] [min-height:32px] [padding:0_10px] [display:inline-flex] [align-items:center] [justify-content:center] [gap:6px] [border:1px_solid_var(--border)] [border-radius:7px] [font-size:11.5px] [font-weight:580] [cursor:pointer] [&_svg]:[width:13px] [&_svg]:[height:13px]"
               disabled={saving}
               onClick={() => void save()}
             >
@@ -506,10 +582,15 @@ export function PermissionsSettings({
           </div>
 
           {Boolean(saveError || error) && (
-            <div className="settings-provider-error">{saveError ?? errorMessage(error)}</div>
+            <div className="settings-provider-error [margin:-10px_0_16px] [padding:9px_11px] [color:var(--danger)] [background:var(--danger-muted)] [border:1px_solid_color-mix(in_srgb,_var(--danger)_24%,_transparent)] [border-radius:7px] [font-size:11px] [line-height:1.4]">
+              {saveError ?? errorMessage(error)}
+            </div>
           )}
 
-          <section className="permission-fallback" aria-labelledby="permission-fallback-title">
+          <section
+            className="permission-fallback [margin-bottom:14px] [padding:15px_17px] [display:flex] [align-items:center] [justify-content:space-between] [gap:24px] [background:var(--card)] [border:1px_solid_var(--border)] [border-radius:var(--radius-lg)] [box-shadow:var(--shadow-inset)] [width:min(100%,_1120px)] [margin-right:auto] [margin-left:auto] [&_>_span]:[min-width:0] [&_h3]:[margin:0] [&_p]:[margin:0] [&_h3]:[font-size:13px] [&_p]:[margin-top:4px] [&_p]:[color:var(--muted-foreground)] [&_p]:[font-size:10.5px] [&_p]:[line-height:1.45] [&_label]:[min-width:190px] [&_label]:[display:grid] [&_label]:[gap:5px] [&_label]:[color:var(--muted-foreground)] [&_label]:[font-size:9.5px] [&_select]:[min-height:34px] [&_select]:[padding:0_10px] [&_select]:[color:var(--foreground)] [&_select]:[background:var(--input)] [&_select]:[border:1px_solid_var(--border)] [&_select]:[border-radius:9px] [&_select]:[font:inherit] [&_select]:[font-size:11px] max-680:[align-items:stretch] max-680:[flex-direction:column] max-680:[gap:12px] max-680:[&_label]:[min-width:0]"
+            aria-labelledby="permission-fallback-title"
+          >
             <span>
               <h3 id="permission-fallback-title">Inherited fallback</h3>
               <p>
@@ -543,19 +624,20 @@ export function PermissionsSettings({
 
           <section
             className={cx(
-              "permission-effective",
-              status?.blocked && "permission-effective--blocked",
+              "permission-effective [width:min(100%,_1120px)] [margin-right:auto] [margin-left:auto] max-860:[grid-template-columns:46px_minmax(0,_1fr)] max-680:[grid-template-columns:38px_minmax(0,_1fr)] max-680:[padding:16px] [min-height:132px] [padding:22px] [display:grid] [grid-template-columns:46px_minmax(0,_1fr)_auto] [align-items:center] [gap:16px] [background:radial-gradient(_circle_at_8%_20%,_color-mix(in_srgb,_var(--accent)_13%,_transparent),_transparent_34%_),_var(--card)] [border:1px_solid_color-mix(in_srgb,_var(--accent)_30%,_var(--border))] [border-radius:var(--radius-lg)] [box-shadow:var(--shadow-inset)] [&.permission-effective--blocked]:[background:radial-gradient(_circle_at_8%_20%,_color-mix(in_srgb,_var(--danger)_12%,_transparent),_transparent_34%_),_var(--card)] [&.permission-effective--blocked]:[border-color:color-mix(in_srgb,_var(--danger)_42%,_var(--border))]",
+              status?.blocked &&
+                String.raw`permission-effective--blocked [&_.permission-effective\_\_icon]:[color:var(--danger)] [&_.permission-effective\_\_icon]:[background:color-mix(in_srgb,_var(--danger)_10%,_transparent)] [&_.permission-effective\_\_icon]:[border-color:color-mix(in_srgb,_var(--danger)_24%,_transparent)]`,
             )}
             aria-label="Effective permission policy"
           >
-            <div className="permission-effective__icon">
+            <div className="permission-effective__icon [width:46px] [height:46px] [display:grid] [place-items:center] [color:var(--accent)] [background:color-mix(in_srgb,_var(--accent)_10%,_transparent)] [border:1px_solid_color-mix(in_srgb,_var(--accent)_24%,_transparent)] [border-radius:14px] [&_svg]:[width:22px] [&_svg]:[height:22px] max-680:[width:38px] max-680:[height:38px] max-680:[border-radius:11px]">
               {status?.blocked ? (
                 <XCircle aria-hidden="true" />
               ) : (
                 <ShieldCheck aria-hidden="true" />
               )}
             </div>
-            <div className="permission-effective__copy">
+            <div className="permission-effective__copy [&_small]:[color:var(--accent)] [&_small]:[font-size:9.5px] [&_small]:[font-weight:650] [&_small]:[letter-spacing:0.09em] [&_small]:[text-transform:uppercase] [&_h3]:[margin:0] [&_p]:[margin:0] [&_h3]:[margin-top:4px] [&_h3]:[font-size:22px] [&_h3]:[letter-spacing:-0.02em] [&_p]:[margin-top:5px] [&_p]:[color:var(--muted-foreground)] [&_p]:[font-size:11.5px] [&_p]:[line-height:1.55]">
               <small>
                 {status?.blocked
                   ? "Execution blocked"
@@ -571,7 +653,7 @@ export function PermissionsSettings({
               </p>
             </div>
             {!status?.blocked && effective && (
-              <dl className="permission-effective__stats">
+              <dl className="permission-effective__stats [margin:0] [display:flex] [align-items:stretch] [border:1px_solid_var(--border-subtle)] [border-radius:11px] [overflow:hidden] [&_>_div]:[min-width:88px] [&_>_div]:[padding:11px_14px] [&_>_div]:[display:grid] [&_>_div]:[gap:2px] [&_>_div]:[border-right:1px_solid_var(--border-subtle)] [&_dt]:[color:var(--muted-foreground)] [&_dt]:[font-size:9.5px] [&_dd]:[margin:0] [&_dd]:[font-size:17px] [&_dd]:[font-weight:680] max-860:[grid-column:1_/_-1]">
                 <div>
                   <dt>Pre-approved</dt>
                   <dd>{effective.policy.allowedTools.length}</dd>
@@ -588,8 +670,11 @@ export function PermissionsSettings({
             )}
           </section>
 
-          <section className="permission-panel" aria-labelledby="personal-permission-heading">
-            <div className="permission-panel__heading">
+          <section
+            className="permission-panel [margin-top:18px] [padding:22px] [background:var(--card)] [border:1px_solid_var(--border-subtle)] [border-radius:var(--radius-lg)] [box-shadow:var(--shadow-inset)] [width:min(100%,_1120px)] [margin-right:auto] [margin-left:auto] max-680:[padding:16px]"
+            aria-labelledby="personal-permission-heading"
+          >
+            <div className="permission-panel__heading [display:flex] [align-items:flex-start] [justify-content:space-between] [gap:20px] [&_small]:[color:var(--accent)] [&_small]:[font-size:9.5px] [&_small]:[font-weight:650] [&_small]:[letter-spacing:0.09em] [&_small]:[text-transform:uppercase] [&_h3]:[margin:0] [&_p]:[margin:0] [&_p]:[margin-top:5px] [&_p]:[color:var(--muted-foreground)] [&_p]:[font-size:11.5px] [&_p]:[line-height:1.55] [&_h3]:[margin-top:4px] [&_h3]:[font-size:15px] [&_code]:[max-width:46%] [&_code]:[padding:5px_8px] [&_code]:[overflow:hidden] [&_code]:[color:var(--muted)] [&_code]:[background:var(--input)] [&_code]:[border:1px_solid_var(--border-subtle)] [&_code]:[border-radius:7px] [&_code]:[font-size:9.5px] [&_code]:[text-overflow:ellipsis] [&_code]:[white-space:nowrap] max-680:[display:grid] max-680:[&_code]:[max-width:100%]">
               <span>
                 <small>Editable on this device</small>
                 <h3 id="personal-permission-heading">Exact tool rules</h3>
@@ -598,10 +683,10 @@ export function PermissionsSettings({
                   Agent policy at execution time.
                 </p>
               </span>
-              <Badge tone="active">Personal</Badge>
+              <Badge tone="success">Personal</Badge>
             </div>
 
-            <div className="permission-rule-grid">
+            <div className="permission-rule-grid [margin-top:16px] [display:grid] [grid-template-columns:repeat(2,_minmax(0,_1fr))] [gap:10px] max-860:[grid-template-columns:1fr]">
               <PermissionToolRulesEditor
                 label="Pre-approved tools"
                 description="Exact tool names that may run without a prompt."
@@ -620,8 +705,11 @@ export function PermissionsSettings({
             </div>
           </section>
 
-          <section className="permission-panel" aria-labelledby="permission-sources-heading">
-            <div className="permission-panel__heading">
+          <section
+            className="permission-panel [margin-top:18px] [padding:22px] [background:var(--card)] [border:1px_solid_var(--border-subtle)] [border-radius:var(--radius-lg)] [box-shadow:var(--shadow-inset)] [width:min(100%,_1120px)] [margin-right:auto] [margin-left:auto] max-680:[padding:16px]"
+            aria-labelledby="permission-sources-heading"
+          >
+            <div className="permission-panel__heading [display:flex] [align-items:flex-start] [justify-content:space-between] [gap:20px] [&_small]:[color:var(--accent)] [&_small]:[font-size:9.5px] [&_small]:[font-weight:650] [&_small]:[letter-spacing:0.09em] [&_small]:[text-transform:uppercase] [&_h3]:[margin:0] [&_p]:[margin:0] [&_p]:[margin-top:5px] [&_p]:[color:var(--muted-foreground)] [&_p]:[font-size:11.5px] [&_p]:[line-height:1.55] [&_h3]:[margin-top:4px] [&_h3]:[font-size:15px] [&_code]:[max-width:46%] [&_code]:[padding:5px_8px] [&_code]:[overflow:hidden] [&_code]:[color:var(--muted)] [&_code]:[background:var(--input)] [&_code]:[border:1px_solid_var(--border-subtle)] [&_code]:[border-radius:7px] [&_code]:[font-size:9.5px] [&_code]:[text-overflow:ellipsis] [&_code]:[white-space:nowrap] max-680:[display:grid] max-680:[&_code]:[max-width:100%]">
               <span>
                 <small>Effective authority stack</small>
                 <h3 id="permission-sources-heading">Policy sources</h3>
@@ -633,20 +721,26 @@ export function PermissionsSettings({
               </span>
               <code>{status?.projectPolicyPath ?? ".swarmx/permissions.json"}</code>
             </div>
-            <div className="permission-layer-list">
+            <div className="permission-layer-list [margin-top:16px] [display:grid] [grid-template-columns:repeat(4,_minmax(0,_1fr))] [gap:8px] max-1100:[grid-template-columns:repeat(2,_minmax(0,_1fr))] max-680:[grid-template-columns:1fr]">
               {status?.layers.map((layer) => (
                 <article
                   key={layer.id}
                   className={cx(
-                    "permission-layer-card",
-                    layer.error && "permission-layer-card--error",
+                    "permission-layer-card [min-width:0] [min-height:130px] [padding:12px] [background:color-mix(in_srgb,_var(--input)_70%,_transparent)] [border:1px_solid_var(--border-subtle)] [border-radius:10px] [&_>_strong]:[display:block] [&_>_strong]:[overflow:hidden] [&_>_strong]:[font-size:11.5px] [&_>_strong]:[text-overflow:ellipsis] [&_>_strong]:[white-space:nowrap] [&_>_p]:[margin:8px_0_0] [&_>_p]:[color:var(--muted-foreground)] [&_>_p]:[font-size:9.5px] [&_>_p]:[line-height:1.45] [&_dl]:[margin:10px_0_0] [&_dl]:[display:grid] [&_dl]:[gap:5px] [&_dl_>_div]:[display:flex] [&_dl_>_div]:[justify-content:space-between] [&_dl_>_div]:[gap:8px] [&_dl_>_div]:[font-size:9.5px] [&_dt]:[color:var(--muted-foreground)] [&_dd]:[margin:0] [&_dd]:[overflow:hidden] [&_dd]:[text-overflow:ellipsis] [&_dd]:[white-space:nowrap]",
+                    layer.error &&
+                      "permission-layer-card--error [border-color:color-mix(in_srgb,_var(--danger)_42%,_var(--border))] [&_>_p]:[color:var(--danger)]",
                   )}
                 >
-                  <div className="permission-layer-card__heading">
-                    <span className={`permission-source permission-source--${layer.source}`}>
+                  <div className="permission-layer-card__heading [margin-bottom:12px] [display:flex] [align-items:center] [justify-content:space-between] [gap:6px]">
+                    <span
+                      className={cx(
+                        "permission-source [color:var(--muted)] [font-size:9px] [font-weight:680] [letter-spacing:0.06em] [text-transform:uppercase]",
+                        PERMISSION_SOURCE_CLASS[layer.source],
+                      )}
+                    >
                       {permissionSourceLabel(layer.source)}
                     </span>
-                    <Badge tone={layer.error ? "danger" : layer.configured ? "active" : "neutral"}>
+                    <Badge tone={layer.error ? "danger" : layer.configured ? "success" : "neutral"}>
                       {layer.error ? "Invalid" : layer.configured ? "Applied" : "Not configured"}
                     </Badge>
                   </div>
@@ -676,8 +770,11 @@ export function PermissionsSettings({
             </div>
           </section>
 
-          <section className="permission-panel" aria-labelledby="permission-history-heading">
-            <div className="permission-panel__heading">
+          <section
+            className="permission-panel [margin-top:18px] [padding:22px] [background:var(--card)] [border:1px_solid_var(--border-subtle)] [border-radius:var(--radius-lg)] [box-shadow:var(--shadow-inset)] [width:min(100%,_1120px)] [margin-right:auto] [margin-left:auto] max-680:[padding:16px]"
+            aria-labelledby="permission-history-heading"
+          >
+            <div className="permission-panel__heading [display:flex] [align-items:flex-start] [justify-content:space-between] [gap:20px] [&_small]:[color:var(--accent)] [&_small]:[font-size:9.5px] [&_small]:[font-weight:650] [&_small]:[letter-spacing:0.09em] [&_small]:[text-transform:uppercase] [&_h3]:[margin:0] [&_p]:[margin:0] [&_p]:[margin-top:5px] [&_p]:[color:var(--muted-foreground)] [&_p]:[font-size:11.5px] [&_p]:[line-height:1.55] [&_h3]:[margin-top:4px] [&_h3]:[font-size:15px] [&_code]:[max-width:46%] [&_code]:[padding:5px_8px] [&_code]:[overflow:hidden] [&_code]:[color:var(--muted)] [&_code]:[background:var(--input)] [&_code]:[border:1px_solid_var(--border-subtle)] [&_code]:[border-radius:7px] [&_code]:[font-size:9.5px] [&_code]:[text-overflow:ellipsis] [&_code]:[white-space:nowrap] max-680:[display:grid] max-680:[&_code]:[max-width:100%]">
               <span>
                 <small>Sanitized local audit trail</small>
                 <h3 id="permission-history-heading">Approval history</h3>
@@ -686,17 +783,17 @@ export function PermissionsSettings({
               <Badge>{status?.approvalReceipts.length ?? 0} receipts</Badge>
             </div>
             {(status?.approvalReceipts.length ?? 0) === 0 ? (
-              <div className="permission-history-empty">
+              <div className="permission-history-empty [min-height:80px] [margin-top:14px] [display:flex] [align-items:center] [justify-content:center] [gap:7px] [color:var(--muted-foreground)] [border:1px_dashed_var(--border-subtle)] [border-radius:10px] [font-size:10.5px] [&_svg]:[width:14px]">
                 <Clock3 aria-hidden="true" /> No approval decisions yet.
               </div>
             ) : (
-              <div className="permission-history-list">
+              <div className="permission-history-list [margin-top:14px] [display:grid] [&_article]:[min-width:0] [&_article]:[padding:9px_4px] [&_article]:[display:grid] [&_article]:[grid-template-columns:68px_minmax(0,_1fr)_auto] [&_article]:[align-items:center] [&_article]:[gap:10px] [&_article]:[border-bottom:1px_solid_var(--border-subtle)] [&_strong]:[overflow:hidden] [&_strong]:[font-size:10.5px] [&_strong]:[text-overflow:ellipsis] [&_strong]:[white-space:nowrap] [&_small]:[color:var(--muted-foreground)] [&_small]:[font-size:9px] [&_time]:[color:var(--muted-foreground)] [&_time]:[font-size:9px]">
                 {status?.approvalReceipts.map((receipt) => (
                   <article key={`${receipt.id}:${receipt.createdAt}`}>
                     <span
                       className={cx(
-                        "permission-decision",
-                        `permission-decision--${receipt.decision}`,
+                        "permission-decision [font-size:9px] [font-weight:680] [text-transform:capitalize]",
+                        PERMISSION_DECISION_CLASS[receipt.decision],
                       )}
                     >
                       {receipt.decision}
@@ -765,12 +862,17 @@ function PermissionToolRulesEditor({
   };
 
   return (
-    <div className={cx("permission-rule-editor", tone === "danger" && "is-danger")}>
+    <div
+      className={cx(
+        String.raw`permission-rule-editor [min-width:0] [padding:14px] [background:color-mix(in_srgb,_var(--input)_70%,_transparent)] [border:1px_solid_var(--border-subtle)] [border-radius:11px] [&_p]:[margin:4px_0_0] [&_p]:[color:var(--muted-foreground)] [&_p]:[font-size:9.5px] [&_p]:[line-height:1.45] [&.is-danger_.permission-rule-editor\_\_chips_>_span]:[background:color-mix(in_srgb,_var(--danger)_7%,_var(--card))]`,
+        tone === "danger" && "is-danger",
+      )}
+    >
       <div>
         <strong>{label}</strong>
         <p>{description}</p>
       </div>
-      <div className="permission-rule-editor__input">
+      <div className="permission-rule-editor__input [margin-top:12px] [display:grid] [grid-template-columns:minmax(0,_1fr)_auto] [gap:6px] [&_input]:[min-width:0] [&_input]:[width:100%] [&_input]:[height:34px] [&_input]:[padding:7px_9px] [&_input]:[color:var(--foreground)] [&_input]:[background:var(--background)] [&_input]:[border:1px_solid_var(--border-subtle)] [&_input]:[border-radius:8px] [&_input]:[outline:none] [&_button]:[min-height:34px] [&_button]:[padding:6px_10px] [&_button]:[display:flex] [&_button]:[align-items:center] [&_button]:[gap:4px] [&_button]:[color:var(--foreground)] [&_button]:[background:var(--card-hover)] [&_button]:[border:1px_solid_var(--border-subtle)] [&_button]:[border-radius:8px] [&_button]:[font-size:10px] [&_button]:[cursor:pointer] [&_button_svg]:[width:12px]">
         <input
           list={listId}
           value={draft}
@@ -797,8 +899,15 @@ function PermissionToolRulesEditor({
           <Plus aria-hidden="true" /> Add
         </button>
       </div>
-      {inputError && <small className="permission-rule-editor__error">{inputError}</small>}
-      <div className="permission-rule-editor__chips" aria-label={`${label} rules`}>
+      {inputError && (
+        <small className="permission-rule-editor__error [display:block] [margin-top:6px] [color:var(--danger)] [font-size:9.5px]">
+          {inputError}
+        </small>
+      )}
+      <div
+        className="permission-rule-editor__chips [min-height:30px] [margin-top:10px] [display:flex] [flex-wrap:wrap] [align-items:center] [gap:5px] [&_>_small]:[color:var(--muted-foreground)] [&_>_small]:[font-size:9.5px] [&_>_span]:[padding:4px_4px_4px_8px] [&_>_span]:[display:inline-flex] [&_>_span]:[align-items:center] [&_>_span]:[gap:4px] [&_>_span]:[color:var(--foreground)] [&_>_span]:[background:color-mix(in_srgb,_var(--accent)_7%,_var(--card))] [&_>_span]:[border:1px_solid_var(--border-subtle)] [&_>_span]:[border-radius:999px] [&_code]:[font-size:9.5px] [&_button]:[width:20px] [&_button]:[height:20px] [&_button]:[padding:0] [&_button]:[display:grid] [&_button]:[place-items:center] [&_button]:[color:var(--muted)] [&_button]:[background:transparent] [&_button]:[border:0] [&_button]:[border-radius:999px] [&_button]:[cursor:pointer] [&_svg]:[width:11px]"
+        aria-label={`${label} rules`}
+      >
         {values.length === 0 ? (
           <small>No exact-tool rules.</small>
         ) : (
@@ -941,10 +1050,13 @@ export function ConversationPermissionPicker({
   };
 
   return (
-    <div className="conversation-permission-picker" ref={rootRef}>
+    <div
+      className="conversation-permission-picker [position:relative] [min-width:0] [flex:0_0_auto]"
+      ref={rootRef}
+    >
       <button
         type="button"
-        className="conversation-permission-picker__trigger"
+        className="conversation-permission-picker__trigger [min-height:32px] [max-width:150px] [padding:5px_8px] [display:inline-flex] [align-items:center] [gap:6px] [color:var(--muted-foreground)] [background:transparent] [border:0] [border-radius:8px] [font:inherit] [font-size:12px] [font-weight:600] [cursor:pointer] [&_span]:[min-width:0] [&_span]:[overflow:hidden] [&_span]:[text-overflow:ellipsis] [&_span]:[white-space:nowrap] [&_svg]:[width:14px] [&_svg]:[height:14px] [&_svg]:[flex:0_0_auto] max-680:[max-width:116px]"
         aria-haspopup="menu"
         aria-expanded={open}
         aria-describedby={descriptionId}
@@ -960,18 +1072,21 @@ export function ConversationPermissionPicker({
         <span>{supported ? selected?.shortLabel : "Harness managed"}</span>
         <ChevronDown aria-hidden="true" />
       </button>
-      <span id={descriptionId} className="sr-only">
+      <span
+        id={descriptionId}
+        className="sr-only [position:absolute] [width:1px] [height:1px] [padding:0] [overflow:hidden] [clip:rect(0,_0,_0,_0)] [white-space:nowrap] [border:0]"
+      >
         {supported
           ? "This selection applies to this conversation only."
           : "External ACP Harnesses keep their native permission controls."}
       </span>
       {open && supported && (
         <section
-          className="conversation-permission-picker__menu"
+          className="conversation-permission-picker__menu [position:absolute] [z-index:44] [right:0] [bottom:calc(100%_+_8px)] [width:min(304px,_calc(100vw_-_24px))] [padding:5px] [color:var(--foreground)] [background:var(--popover,_var(--card-solid))] [border:1px_solid_var(--border)] [border-radius:12px] [box-shadow:0_18px_48px_rgba(0,_0,_0,_0.32),_var(--shadow-inset)]"
           role="menu"
           aria-label="Conversation permissions"
         >
-          <div className="conversation-permission-picker__options">
+          <div className="conversation-permission-picker__options [padding:0] [display:grid] [gap:2px] [&_>_button]:[width:100%] [&_>_button]:[min-height:47px] [&_>_button]:[padding:7px_8px] [&_>_button]:[display:grid] [&_>_button]:[grid-template-columns:22px_minmax(0,_1fr)] [&_>_button]:[align-items:center] [&_>_button]:[gap:7px] [&_>_button]:[color:var(--foreground)] [&_>_button]:[background:transparent] [&_>_button]:[border:0] [&_>_button]:[border-radius:8px] [&_>_button]:[text-align:left] [&_>_button]:[cursor:pointer] [&_>_button.is-trusted_strong]:[color:color-mix(in_srgb,_var(--danger)_80%,_var(--foreground))] [&_>_button.is-secondary]:[margin-top:3px] [&_>_button.is-secondary]:[border-radius:0_0_8px_8px] [&_>_button.is-secondary]:[box-shadow:inset_0_1px_var(--border-subtle)] [&_strong]:[font-size:11.5px] [&_strong]:[font-weight:640] [&_small]:[color:var(--muted-foreground)] [&_small]:[font-size:9.5px] [&_small]:[line-height:1.4]">
             {availableOptions.map((option) => (
               <button
                 key={option.id}
@@ -986,9 +1101,12 @@ export function ConversationPermissionPicker({
                 disabled={Boolean(savingMode)}
                 onClick={() => void selectMode(option.id)}
               >
-                <span className="conversation-permission-picker__check">
+                <span className="conversation-permission-picker__check [width:20px] [height:20px] [display:grid] [place-items:center] [color:var(--accent)] [&_svg]:[width:14px] [&_svg]:[height:14px]">
                   {savingMode === option.id ? (
-                    <Loader2 className="is-spinning" aria-hidden="true" />
+                    <Loader2
+                      className="is-spinning [animation:spin_0.9s_linear_infinite]"
+                      aria-hidden="true"
+                    />
                   ) : mode === option.id ? (
                     <Check aria-hidden="true" />
                   ) : null}
@@ -1207,12 +1325,15 @@ export function CustomAgentsSettings({
 
   return (
     <section
-      className="settings-workspace custom-agents-settings"
+      className="settings-workspace custom-agents-settings [width:100%] [height:100%] [min-width:0] [min-height:0] [overflow:hidden] [display:grid] [grid-template-rows:minmax(0,_1fr)] [color:var(--foreground)] [background:var(--background)]"
       aria-label="Custom Agents settings"
     >
-      <div className="settings-workspace__body custom-agent-layout">
-        <aside className="custom-agent-list" aria-label="Agent profiles">
-          <div className="custom-agent-list__heading">
+      <div className="settings-workspace__body custom-agent-layout max-680:[display:block] max-860:[grid-template-columns:210px_minmax(0,_1fr)] [min-width:0] [min-height:0] [overflow:hidden] [display:block] [&.custom-agent-layout]:[height:100%] [&.custom-agent-layout]:[display:grid] [&.custom-agent-layout]:[grid-template-columns:260px_minmax(0,_1fr)]">
+        <aside
+          className="custom-agent-list [min-width:0] [min-height:0] [overflow-y:auto] [padding:20px_12px] [border-right:1px_solid_var(--border-subtle)] [background:color-mix(in_srgb,_var(--background)_84%,_var(--card))] [&_>_button_span]:[min-width:0] [&_>_button_span]:[display:grid] [&_>_button_span]:[gap:2px] [&_>_button_span]:[text-align:left] [&_small]:[color:var(--muted-foreground)] [&_small]:[font-size:10.5px] [&_>_button]:[width:100%] [&_>_button]:[margin-bottom:4px] [&_>_button]:[padding:9px] [&_>_button]:[display:grid] [&_>_button]:[grid-template-columns:30px_minmax(0,_1fr)] [&_>_button]:[align-items:center] [&_>_button]:[gap:8px] [&_>_button]:[color:var(--foreground)] [&_>_button]:[background:transparent] [&_>_button]:[border:1px_solid_transparent] [&_>_button]:[border-radius:10px] [&_>_button]:[cursor:pointer] [&_>_button_>_svg]:[width:18px] [&_>_button_>_svg]:[color:var(--accent)] max-680:[max-height:210px] max-680:[border-right:0] max-680:[border-bottom:1px_solid_var(--border-subtle)]"
+          aria-label="Agent profiles"
+        >
+          <div className="custom-agent-list__heading [margin-bottom:16px] [padding:0_6px] [display:flex] [align-items:center] [justify-content:space-between] [gap:10px] [&_span]:[min-width:0] [&_span]:[display:grid] [&_span]:[gap:2px] [&_span]:[text-align:left]">
             <span>
               <small>Agent = Harness + Model</small>
               <strong>Custom Agents</strong>
@@ -1222,7 +1343,9 @@ export function CustomAgentsSettings({
             </Button>
           </div>
           {customAgents.length === 0 && (
-            <p className="custom-agent-list__empty">No custom agents yet.</p>
+            <p className="custom-agent-list__empty [margin:22px_8px] [color:var(--muted-foreground)] [font-size:10.5px]">
+              No custom agents yet.
+            </p>
           )}
           {customAgents.map((agent) => (
             <button
@@ -1241,7 +1364,7 @@ export function CustomAgentsSettings({
             </button>
           ))}
           {nativeAgents.length > 0 && (
-            <div className="custom-agent-list__readonly">
+            <div className="custom-agent-list__readonly [margin-top:22px] [padding:14px_8px_0] [display:grid] [gap:8px] [border-top:1px_solid_var(--border-subtle)] [&_span]:[display:flex] [&_span]:[align-items:center] [&_span]:[gap:7px] [&_span]:[color:var(--muted)] [&_span]:[font-size:11.5px] [&_svg]:[width:13px]">
               <small>Native definitions · read-only</small>
               {nativeAgents.map((agent) => (
                 <span key={agent.id} title={agent.definition?.path}>
@@ -1253,7 +1376,7 @@ export function CustomAgentsSettings({
             </div>
           )}
           {extensionAgents.length > 0 && (
-            <div className="custom-agent-list__readonly">
+            <div className="custom-agent-list__readonly [margin-top:22px] [padding:14px_8px_0] [display:grid] [gap:8px] [border-top:1px_solid_var(--border-subtle)] [&_span]:[display:flex] [&_span]:[align-items:center] [&_span]:[gap:7px] [&_span]:[color:var(--muted)] [&_span]:[font-size:11.5px] [&_svg]:[width:13px]">
               <small>Extension profiles · read-only</small>
               {extensionAgents.map((agent) => (
                 <span key={agent.id}>
@@ -1265,8 +1388,13 @@ export function CustomAgentsSettings({
           )}
         </aside>
 
-        <form className="custom-agent-editor" onSubmit={(event) => void submit(event)}>
-          <div className="settings-content-heading">
+        <form
+          className="custom-agent-editor [min-width:0] [min-height:0] [overflow-y:auto] [padding:42px_clamp(28px,_5vw,_76px)_68px] [&_>_*]:[width:min(100%,_1120px)] [&_>_*]:[margin-right:auto] [&_>_*]:[margin-left:auto] [&_label]:[min-width:0] [&_label]:[display:grid] [&_label]:[gap:6px] [&_label]:[color:var(--muted)] [&_label]:[font-size:11px] [&_textarea]:[min-height:76px] [&_textarea]:[resize:vertical] max-860:[padding:32px_24px_52px] max-680:[overflow:visible] max-680:[padding:24px_18px_40px]"
+          onSubmit={(event) => void submit(event)}
+        >
+          <div
+            className={String.raw`settings-content-heading [&_>_span]:[min-width:0] [&_h2]:[margin:0] [&_p]:[margin:0] [&_small]:[margin:0] [&_small]:[display:block] [&_small]:[margin-bottom:5px] [&_small]:[color:var(--muted-foreground)] [&_small]:[font-size:10.5px] [&_small]:[font-weight:560] [&_small]:[letter-spacing:0.035em] [&_small]:[text-transform:uppercase] [&_h2]:[font-size:28px] [&_h2]:[font-weight:620] [&_h2]:[letter-spacing:-0.025em] [&_h2]:[line-height:1.25] [&_p]:[max-width:590px] [&_p]:[margin-top:7px] [&_p]:[color:var(--muted-foreground)] [&_p]:[font-size:12.5px] [&_p]:[line-height:1.5] [&_>_div]:[flex:0_0_auto] [&_>_div]:[display:flex] [&_>_div]:[align-items:center] [&_>_div]:[gap:7px] [&_>_div]:[flex-wrap:wrap] max-680:[align-items:flex-start] max-680:[flex-direction:column] max-680:[gap:14px] max-680:[&_>_div]:[width:100%] max-680:[&_>_div_button]:[flex:1_1_0] [&.permission-settings\_\_heading]:[margin-bottom:20px] [min-width:0] [margin-bottom:24px] [display:flex] [align-items:flex-end] [justify-content:space-between] [gap:20px]`}
+          >
             <span>
               <small>Reusable composition</small>
               <h2>{editingId ? `Edit ${name}` : "New Custom Agent"}</h2>
@@ -1279,7 +1407,7 @@ export function CustomAgentsSettings({
               {editingId && (
                 <button
                   type="button"
-                  className="settings-secondary-action is-danger"
+                  className="settings-secondary-action is-danger [min-height:32px] [padding:0_10px] [display:inline-flex] [align-items:center] [justify-content:center] [gap:6px] [border:1px_solid_var(--border)] [border-radius:7px] [font-size:11.5px] [font-weight:580] [cursor:pointer] [color:var(--foreground)] [background:transparent] [&_svg]:[width:13px] [&_svg]:[height:13px] [&_.is-spinning]:[animation:spin_0.8s_linear_infinite]"
                   onClick={() =>
                     void onRemove(editingId)
                       .then(reset)
@@ -1290,14 +1418,22 @@ export function CustomAgentsSettings({
                   Delete
                 </button>
               )}
-              <button type="submit" className="settings-primary-action" disabled={saving}>
+              <button
+                type="submit"
+                className="settings-primary-action [color:var(--primary-foreground)] [background:var(--primary)] [border-color:var(--primary)] [min-height:32px] [padding:0_10px] [display:inline-flex] [align-items:center] [justify-content:center] [gap:6px] [border:1px_solid_var(--border)] [border-radius:7px] [font-size:11.5px] [font-weight:580] [cursor:pointer] [&_svg]:[width:13px] [&_svg]:[height:13px]"
+                disabled={saving}
+              >
                 {saving ? "Saving…" : "Save Agent"}
               </button>
             </div>
           </div>
-          {formError && <div className="settings-provider-error">{formError}</div>}
+          {formError && (
+            <div className="settings-provider-error [margin:-10px_0_16px] [padding:9px_11px] [color:var(--danger)] [background:var(--danger-muted)] [border:1px_solid_color-mix(in_srgb,_var(--danger)_24%,_transparent)] [border-radius:7px] [font-size:11px] [line-height:1.4]">
+              {formError}
+            </div>
+          )}
 
-          <div className="custom-agent-identity-grid">
+          <div className="custom-agent-identity-grid [display:grid] [grid-template-columns:repeat(2,_minmax(0,_1fr))] [gap:12px] max-860:[grid-template-columns:1fr]">
             <label>
               <span>Name</span>
               <input
@@ -1337,17 +1473,17 @@ export function CustomAgentsSettings({
             </label>
           </div>
 
-          <section className="harness-recipe-card">
-            <div className="harness-recipe-card__heading">
+          <section className="harness-recipe-card [margin-top:18px] [padding:20px] [background:linear-gradient(145deg,_rgba(149,_233,_255,_0.045),_transparent_48%),_var(--card)] [border:1px_solid_var(--border)] [border-radius:var(--radius-lg)] [box-shadow:var(--shadow-inset)] [&_label]:[min-width:0] [&_label]:[display:grid] [&_label]:[gap:6px] [&_label]:[color:var(--muted)] [&_label]:[font-size:11px]">
+            <div className="harness-recipe-card__heading [margin-bottom:16px] [display:flex] [align-items:center] [justify-content:space-between] [gap:12px] [&_small]:[display:block] [&_small]:[margin:0] [&_h3]:[display:block] [&_h3]:[margin:0] [&_small]:[margin-bottom:4px] [&_small]:[color:var(--accent)] [&_small]:[font-size:10px] [&_small]:[letter-spacing:0.08em] [&_small]:[text-transform:uppercase]">
               <span>
                 <small>Harness recipe</small>
                 <h3>Software + Skills + MCP + Context + Policy</h3>
               </span>
-              <Badge tone={softwareHealth?.status === "ready" ? "active" : "danger"}>
+              <Badge tone={softwareHealth?.status === "ready" ? "success" : "danger"}>
                 {softwareHealth?.status === "ready" ? "Software ready" : "Setup needed"}
               </Badge>
             </div>
-            <label className="harness-software-picker">
+            <label className="harness-software-picker [position:relative] [padding:14px] [grid-template-columns:minmax(0,_1fr)_auto] [align-items:end] [background:rgba(255,_255,_255,_0.025)] [border:1px_solid_var(--border-subtle)] [border-radius:11px] [&_>_span]:[grid-column:1_/_-1] [&_>_small]:[grid-column:1_/_-1]">
               <span>Software</span>
               <select
                 required
@@ -1389,8 +1525,11 @@ export function CustomAgentsSettings({
               )}
             </label>
 
-            <section className="harness-permission-section" aria-label="Agent permission policy">
-              <div className="harness-permission-section__heading">
+            <section
+              className="harness-permission-section [margin-top:14px] [padding:14px] [background:color-mix(in_srgb,_var(--accent)_4%,_rgba(255,_255,_255,_0.02))] [border:1px_solid_color-mix(in_srgb,_var(--accent)_20%,_var(--border-subtle))] [border-radius:11px]"
+              aria-label="Agent permission policy"
+            >
+              <div className="harness-permission-section__heading [display:flex] [align-items:flex-start] [gap:9px] [&_>_svg]:[width:17px] [&_>_svg]:[color:var(--accent)] [&_>_span]:[display:grid] [&_>_span]:[gap:3px] [&_strong]:[font-size:12px] [&_small]:[color:var(--muted-foreground)] [&_small]:[font-size:9.5px]">
                 <ShieldCheck aria-hidden="true" />
                 <span>
                   <strong>Agent permission policy</strong>
@@ -1399,7 +1538,7 @@ export function CustomAgentsSettings({
                   </small>
                 </span>
               </div>
-              <label className="harness-permission-mode">
+              <label className="harness-permission-mode [margin-top:12px] [grid-template-columns:92px_minmax(180px,_260px)_minmax(0,_1fr)] [align-items:center] [&_>_small]:[color:var(--muted-foreground)] [&_>_small]:[font-size:9.5px] [&_>_small]:[padding-left:4px] [&_>_small]:[line-height:1.4] max-860:[grid-template-columns:72px_minmax(180px,_1fr)] max-860:[&_>_small]:[grid-column:1_/_-1] max-860:[&_>_small]:[padding-left:0]">
                 <span>Mode</span>
                 <select
                   aria-label="Permission mode"
@@ -1416,7 +1555,7 @@ export function CustomAgentsSettings({
                 </select>
                 <small>{permissionModeDescription(permissionMode)}</small>
               </label>
-              <div className="permission-rule-grid">
+              <div className="permission-rule-grid [margin-top:16px] [display:grid] [grid-template-columns:repeat(2,_minmax(0,_1fr))] [gap:10px] max-860:[grid-template-columns:1fr]">
                 <PermissionToolRulesEditor
                   label="Pre-approved tools"
                   description="Exact tool names that skip a prompt for this Agent."
@@ -1435,15 +1574,18 @@ export function CustomAgentsSettings({
               </div>
             </section>
 
-            <div className="harness-recipe-columns">
+            <div className="harness-recipe-columns [margin-top:14px] [display:grid] [grid-template-columns:repeat(2,_minmax(0,_1fr))] [gap:14px] [&_fieldset]:[min-width:0] [&_fieldset]:[margin:0] [&_fieldset]:[padding:14px] [&_fieldset]:[border:1px_solid_var(--border-subtle)] [&_fieldset]:[border-radius:11px] [&_legend]:[padding:0_5px] [&_legend]:[color:var(--foreground)] [&_legend]:[font-size:12px] [&_legend]:[font-weight:680] [&_fieldset_>_p]:[margin:0_0_12px] [&_fieldset_>_p]:[color:var(--muted-foreground)] [&_fieldset_>_p]:[font-size:10.5px] max-860:[grid-template-columns:1fr]">
               <fieldset>
                 <legend>Skills</legend>
                 <p>Only add constraints this Agent/Model actually needs.</p>
-                <div className="harness-capability-list">
+                <div className="harness-capability-list [max-height:260px] [overflow-y:auto] [display:grid] [gap:6px]">
                   {skills.map((skill) => {
                     const binding = skillModes[skill.id];
                     return (
-                      <div key={skill.id} className="harness-capability-row">
+                      <div
+                        key={skill.id}
+                        className="harness-capability-row [padding:8px] [display:grid] [grid-template-columns:minmax(0,_1fr)_auto] [gap:7px] [background:rgba(255,_255,_255,_0.025)] [border:1px_solid_var(--border-subtle)] [border-radius:8px] [&_>_label]:[display:flex] [&_>_label]:[align-items:center] [&_>_label]:[gap:8px] [&_label_span]:[min-width:0] [&_label_span]:[display:grid] [&_label_span]:[gap:2px] [&_small]:[color:var(--muted-foreground)] [&_small]:[font-size:9.5px] [&_select]:[width:auto] [&_select]:[max-width:170px] [&_select]:[height:30px] [&_select]:[padding:4px_7px] [&_select]:[font-size:10px]"
+                      >
                         <label>
                           <input
                             type="checkbox"
@@ -1509,7 +1651,7 @@ export function CustomAgentsSettings({
                     );
                   })}
                 </div>
-                <div className="harness-context-cost">
+                <div className="harness-context-cost [margin-top:10px] [padding:9px] [display:flex] [align-items:center] [gap:8px] [color:var(--accent)] [background:rgba(149,_233,_255,_0.045)] [border-radius:8px] [&_span]:[min-width:0] [&_span]:[display:grid] [&_span]:[gap:2px] [&_small]:[color:var(--muted-foreground)] [&_small]:[font-size:9.5px] [&_svg]:[width:16px]">
                   <Gauge aria-hidden="true" />
                   <span>
                     <strong>~{contextTokenEstimate.toLocaleString()} tokens</strong>
@@ -1525,9 +1667,12 @@ export function CustomAgentsSettings({
               <fieldset>
                 <legend>MCP servers</legend>
                 <p>Attach only tools required by this Harness.</p>
-                <div className="harness-capability-list">
+                <div className="harness-capability-list [max-height:260px] [overflow-y:auto] [display:grid] [gap:6px]">
                   {mcpServers.map((server) => (
-                    <label key={server.id} className="harness-simple-capability">
+                    <label
+                      key={server.id}
+                      className="harness-simple-capability [padding:8px] [background:rgba(255,_255,_255,_0.025)] [border:1px_solid_var(--border-subtle)] [border-radius:8px] [display:flex] [align-items:center] [gap:8px] [&_span]:[min-width:0] [&_span]:[display:grid] [&_span]:[gap:2px] [&_small]:[color:var(--muted-foreground)] [&_small]:[font-size:9.5px]"
+                    >
                       <input
                         type="checkbox"
                         checked={selectedMcps.has(server.id)}
@@ -1550,7 +1695,7 @@ export function CustomAgentsSettings({
               </fieldset>
             </div>
 
-            <div className="harness-policy-grid">
+            <div className="harness-policy-grid [margin-top:14px] [display:grid] [grid-template-columns:repeat(2,_minmax(0,_1fr))] [gap:12px] max-860:[grid-template-columns:1fr]">
               <label>
                 <span>Project context paths</span>
                 <textarea
@@ -1580,7 +1725,7 @@ export function CustomAgentsSettings({
             </div>
           </section>
 
-          <label className="custom-agent-instructions">
+          <label className="custom-agent-instructions [margin-top:18px]">
             <span>Agent instructions</span>
             <textarea
               value={instructions}
@@ -1652,6 +1797,8 @@ export function SettingsWorkspace({
   );
   const deepSeekForm = isDeepSeekProviderUrl(providerBaseUrl);
   const openCodeGoForm = isOpenCodeGoProviderUrl(providerBaseUrl);
+  const openRouterForm = isOpenRouterProviderUrl(providerBaseUrl);
+  const multiProtocolProviderForm = deepSeekForm || openCodeGoForm || openRouterForm;
   const editingProvider = providers.find((provider) => provider.id === editingProviderId);
 
   const resetProviderForm = () => {
@@ -1755,11 +1902,19 @@ export function SettingsWorkspace({
   };
 
   return (
-    <section className="settings-workspace" aria-label="Settings">
-      <div className="settings-workspace__body">
-        <div className="settings-workspace__content">
-          <section className="settings-providers" aria-labelledby="settings-providers-title">
-            <div className="settings-content-heading">
+    <section
+      className="settings-workspace [width:100%] [height:100%] [min-width:0] [min-height:0] [overflow:hidden] [display:grid] [grid-template-rows:minmax(0,_1fr)] [color:var(--foreground)] [background:var(--background)]"
+      aria-label="Settings"
+    >
+      <div className="settings-workspace__body max-680:[display:block] [min-width:0] [min-height:0] [overflow:hidden] [display:block] [&.custom-agent-layout]:[height:100%] [&.custom-agent-layout]:[display:grid] [&.custom-agent-layout]:[grid-template-columns:260px_minmax(0,_1fr)]">
+        <div className="settings-workspace__content [min-width:0] [min-height:0] [overflow-y:auto] [height:100%] [padding:48px_clamp(32px,_6vw,_84px)_64px] [background:var(--background)] max-680:[padding:24px_18px_40px]">
+          <section
+            className="settings-providers [width:min(100%,_1380px)] [margin:0_auto]"
+            aria-labelledby="settings-providers-title"
+          >
+            <div
+              className={String.raw`settings-content-heading [&_>_span]:[min-width:0] [&_h2]:[margin:0] [&_p]:[margin:0] [&_small]:[margin:0] [&_small]:[display:block] [&_small]:[margin-bottom:5px] [&_small]:[color:var(--muted-foreground)] [&_small]:[font-size:10.5px] [&_small]:[font-weight:560] [&_small]:[letter-spacing:0.035em] [&_small]:[text-transform:uppercase] [&_h2]:[font-size:28px] [&_h2]:[font-weight:620] [&_h2]:[letter-spacing:-0.025em] [&_h2]:[line-height:1.25] [&_p]:[max-width:590px] [&_p]:[margin-top:7px] [&_p]:[color:var(--muted-foreground)] [&_p]:[font-size:12.5px] [&_p]:[line-height:1.5] [&_>_div]:[flex:0_0_auto] [&_>_div]:[display:flex] [&_>_div]:[align-items:center] [&_>_div]:[gap:7px] [&_>_div]:[flex-wrap:wrap] max-680:[align-items:flex-start] max-680:[flex-direction:column] max-680:[gap:14px] max-680:[&_>_div]:[width:100%] max-680:[&_>_div_button]:[flex:1_1_0] [&.permission-settings\_\_heading]:[margin-bottom:20px] [min-width:0] [margin-bottom:24px] [display:flex] [align-items:flex-end] [justify-content:space-between] [gap:20px]`}
+            >
               <span>
                 <small>Connections and usage</small>
                 <h2 id="settings-providers-title">Providers</h2>
@@ -1768,31 +1923,39 @@ export function SettingsWorkspace({
               <div>
                 <button
                   type="button"
-                  className="settings-secondary-action"
+                  className="settings-secondary-action [min-height:32px] [padding:0_10px] [display:inline-flex] [align-items:center] [justify-content:center] [gap:6px] [border:1px_solid_var(--border)] [border-radius:7px] [font-size:11.5px] [font-weight:580] [cursor:pointer] [color:var(--foreground)] [background:transparent] [&_svg]:[width:13px] [&_svg]:[height:13px] [&_.is-spinning]:[animation:spin_0.8s_linear_infinite]"
                   disabled={providerUsageRefreshing || providerUsageRefreshingIds.size > 0}
                   onClick={() => void onRefreshUsage()}
                 >
                   <RefreshCw
-                    className={providerUsageRefreshing ? "is-spinning" : undefined}
+                    className={
+                      providerUsageRefreshing
+                        ? "is-spinning [animation:spin_0.9s_linear_infinite]"
+                        : undefined
+                    }
                     aria-hidden="true"
                   />
                   {providerUsageRefreshing ? "Refreshing…" : "Refresh all"}
                 </button>
                 <button
                   type="button"
-                  className="settings-secondary-action"
+                  className="settings-secondary-action [min-height:32px] [padding:0_10px] [display:inline-flex] [align-items:center] [justify-content:center] [gap:6px] [border:1px_solid_var(--border)] [border-radius:7px] [font-size:11.5px] [font-weight:580] [cursor:pointer] [color:var(--foreground)] [background:transparent] [&_svg]:[width:13px] [&_svg]:[height:13px] [&_.is-spinning]:[animation:spin_0.8s_linear_infinite]"
                   disabled={modelCatalogRefreshing}
                   onClick={() => void onRefreshModels()}
                 >
                   <RefreshCw
-                    className={modelCatalogRefreshing ? "is-spinning" : undefined}
+                    className={
+                      modelCatalogRefreshing
+                        ? "is-spinning [animation:spin_0.9s_linear_infinite]"
+                        : undefined
+                    }
                     aria-hidden="true"
                   />
                   {modelCatalogRefreshing ? "Refreshing…" : "Refresh Models"}
                 </button>
                 <button
                   type="button"
-                  className="settings-primary-action"
+                  className="settings-primary-action [color:var(--primary-foreground)] [background:var(--primary)] [border-color:var(--primary)] [min-height:32px] [padding:0_10px] [display:inline-flex] [align-items:center] [justify-content:center] [gap:6px] [border:1px_solid_var(--border)] [border-radius:7px] [font-size:11.5px] [font-weight:580] [cursor:pointer] [&_svg]:[width:13px] [&_svg]:[height:13px]"
                   onClick={beginAddProvider}
                 >
                   <Plus aria-hidden="true" />
@@ -1801,22 +1964,28 @@ export function SettingsWorkspace({
               </div>
             </div>
             {(providerError || modelCatalogError) && (
-              <div className="settings-provider-error" role="alert">
+              <div
+                className="settings-provider-error [margin:-10px_0_16px] [padding:9px_11px] [color:var(--danger)] [background:var(--danger-muted)] [border:1px_solid_color-mix(in_srgb,_var(--danger)_24%,_transparent)] [border-radius:7px] [font-size:11px] [line-height:1.4]"
+                role="alert"
+              >
                 {providerError ?? modelCatalogError}
               </div>
             )}
             {providerUsageError && (
-              <div className="settings-provider-error" role="alert">
+              <div
+                className="settings-provider-error [margin:-10px_0_16px] [padding:9px_11px] [color:var(--danger)] [background:var(--danger-muted)] [border:1px_solid_color-mix(in_srgb,_var(--danger)_24%,_transparent)] [border-radius:7px] [font-size:11px] [line-height:1.4]"
+                role="alert"
+              >
                 {providerUsageError}
               </div>
             )}
             {providerFormOpen && (
               <form
-                className="settings-provider-form"
+                className={String.raw`settings-provider-form [margin-bottom:14px] [padding:16px] [&_p]:[margin:0] [border:1px_solid_var(--border-subtle)] [border-radius:9px] [background:var(--card-solid)] [&_label]:[min-width:0] [&_label]:[display:grid] [&_label]:[gap:6px] [&_label_>_span]:[color:var(--muted)] [&_label_>_span]:[font-size:10.5px] [&_label_>_span]:[font-weight:560] [&_.settings-provider-form\_\_checkbox_input]:[width:15px] [&_.settings-provider-form\_\_checkbox_input]:[height:15px] [&_.settings-provider-form\_\_checkbox_input]:[margin:0] [&_input]:[min-width:0] [&_input]:[width:100%] [&_input]:[height:34px] [&_input]:[padding:0_9px] [&_input]:[color:var(--foreground)] [&_input]:[background:var(--background)] [&_input]:[border:1px_solid_var(--border)] [&_input]:[border-radius:6px] [&_input]:[outline:0] [&_input]:[font:inherit] [&_input]:[font-size:11.5px] [&_select]:[min-width:0] [&_select]:[width:100%] [&_select]:[height:34px] [&_select]:[padding:0_9px] [&_select]:[color:var(--foreground)] [&_select]:[background:var(--background)] [&_select]:[border:1px_solid_var(--border)] [&_select]:[border-radius:6px] [&_select]:[outline:0] [&_select]:[font:inherit] [&_select]:[font-size:11.5px] [&_textarea]:[min-width:0] [&_textarea]:[width:100%] [&_textarea]:[color:var(--foreground)] [&_textarea]:[background:var(--background)] [&_textarea]:[border:1px_solid_var(--border)] [&_textarea]:[border-radius:6px] [&_textarea]:[outline:0] [&_textarea]:[font:inherit] [&_textarea]:[font-size:11.5px] [&_textarea]:[height:auto] [&_textarea]:[min-height:82px] [&_textarea]:[padding:8px_9px] [&_textarea]:[resize:vertical] [&_textarea]:[font-family:var(--font-mono)] [&_textarea]:[line-height:1.45]`}
                 aria-label={editingProviderId ? "Edit Provider" : "Add Provider"}
                 onSubmit={(event) => void submitProvider(event)}
               >
-                <div className="settings-provider-form__heading">
+                <div className="settings-provider-form__heading [min-width:0] [margin-bottom:16px] [display:flex] [align-items:center] [justify-content:space-between] [gap:12px] [&_button]:[display:inline-flex] [&_button]:[align-items:center] [&_button]:[justify-content:center] [&_button]:[gap:6px] [&_button]:[border:1px_solid_var(--border)] [&_button]:[border-radius:7px] [&_button]:[font-size:11.5px] [&_button]:[font-weight:580] [&_button]:[cursor:pointer] [&_button]:[color:var(--foreground)] [&_button]:[background:transparent] [&_>_span]:[min-width:0] [&_>_span]:[display:flex] [&_>_span]:[flex-direction:column] [&_>_span]:[gap:1px] [&_small]:[color:var(--muted-foreground)] [&_small]:[font-size:10px] [&_strong]:[font-size:13px] [&_strong]:[font-weight:610] [&_button]:[width:28px] [&_button]:[min-width:28px] [&_button]:[min-height:28px] [&_button]:[padding:0] [&_button]:[border-color:transparent] [&_svg]:[width:14px] [&_svg]:[height:14px]">
                   <span>
                     <small>{editingProviderId ? "Existing connection" : "New connection"}</small>
                     <strong>{editingProviderId ? "Edit Provider" : "Add Provider"}</strong>
@@ -1829,7 +1998,7 @@ export function SettingsWorkspace({
                     <X aria-hidden="true" />
                   </button>
                 </div>
-                <div className="settings-provider-form__grid">
+                <div className="settings-provider-form__grid [display:grid] [grid-template-columns:minmax(0,_1fr)_minmax(0,_1fr)] [gap:13px_14px] max-680:[grid-template-columns:1fr]">
                   <label>
                     <span>Provider name</span>
                     <input
@@ -1841,11 +2010,11 @@ export function SettingsWorkspace({
                   </label>
                   <label>
                     <span>
-                      {deepSeekForm || openCodeGoForm ? "Preferred API protocol" : "API protocol"}
+                      {multiProtocolProviderForm ? "Preferred API protocol" : "API protocol"}
                     </span>
                     <select
                       aria-label={
-                        deepSeekForm || openCodeGoForm ? "Preferred API protocol" : "API protocol"
+                        multiProtocolProviderForm ? "Preferred API protocol" : "API protocol"
                       }
                       value={providerKind}
                       onChange={(event) => setProviderKind(event.target.value as ModelApiProtocol)}
@@ -1853,24 +2022,30 @@ export function SettingsWorkspace({
                       <option value="anthropic">Anthropic</option>
                       <option value="openai_responses">OpenAI Responses</option>
                       <option value="openai_chat">OpenAI Chat</option>
-                      {!openCodeGoForm && <option value="ollama">Ollama</option>}
+                      {!multiProtocolProviderForm && <option value="ollama">Ollama</option>}
                     </select>
                     {deepSeekForm && (
-                      <small className="settings-provider-form__helper">
+                      <small className="settings-provider-form__helper [color:var(--muted-foreground)] [font-size:9.5px] [font-weight:400] [line-height:1.4]">
                         DeepSeek supports native OpenAI and Anthropic APIs. This selects the
                         preferred route while keeping them in one Provider.
                       </small>
                     )}
                     {openCodeGoForm && (
-                      <small className="settings-provider-form__helper">
+                      <small className="settings-provider-form__helper [color:var(--muted-foreground)] [font-size:9.5px] [font-weight:400] [line-height:1.4]">
                         The official Go endpoint routes each documented model through its native
                         Anthropic, OpenAI Chat, or OpenAI Responses API. Verified compatibility
                         exceptions may expose more than one route. Models are loaded from
                         /zen/go/v1/models.
                       </small>
                     )}
+                    {openRouterForm && (
+                      <small className="settings-provider-form__helper [color:var(--muted-foreground)] [font-size:9.5px] [font-weight:400] [line-height:1.4]">
+                        OpenRouter keeps Anthropic on /api and OpenAI Chat and Responses on /api/v1.
+                        Models are loaded from /api/v1/models.
+                      </small>
+                    )}
                   </label>
-                  <label className="settings-provider-form__wide">
+                  <label className="settings-provider-form__wide [grid-column:1_/_-1] max-680:[grid-column:auto]">
                     <span>Base URL</span>
                     <input
                       required
@@ -1880,29 +2055,40 @@ export function SettingsWorkspace({
                       onChange={(event) => {
                         const value = event.target.value;
                         setProviderBaseUrl(value);
-                        if (
-                          isOpenCodeGoProviderUrl(value) &&
-                          !["anthropic", "openai_chat", "openai_responses"].includes(providerKind)
-                        ) {
+                        const officialMultiProtocolUrl =
+                          isDeepSeekProviderUrl(value) ||
+                          isOpenCodeGoProviderUrl(value) ||
+                          isOpenRouterProviderUrl(value);
+                        if (officialMultiProtocolUrl && providerKind === "ollama") {
                           setProviderKind("openai_chat");
                         }
+                        if (isOpenRouterProviderUrl(value)) setProviderAuthMode("auth_token");
                       }}
                     />
                   </label>
                   <label>
                     <span>Authentication</span>
                     <select
+                      aria-label="Authentication"
                       value={providerAuthMode}
+                      disabled={openRouterForm}
                       onChange={(event) =>
                         setProviderAuthMode(event.target.value as "api_key" | "auth_token")
                       }
                     >
                       <option value="api_key">API Key</option>
-                      <option value="auth_token">Auth Token</option>
+                      <option value="auth_token">
+                        {openRouterForm ? "API Key (Bearer)" : "Auth Token"}
+                      </option>
                     </select>
+                    {openRouterForm && (
+                      <small className="settings-provider-form__helper [color:var(--muted-foreground)] [font-size:9.5px] [font-weight:400] [line-height:1.4]">
+                        OpenRouter API keys use Bearer authentication on every route.
+                      </small>
+                    )}
                   </label>
                   {openCodeGoForm ? (
-                    <div className="settings-provider-form__section">
+                    <div className="settings-provider-form__section [padding-top:3px] [display:grid] [gap:3px] [border-top:1px_solid_var(--border-subtle)] [&_small]:[color:var(--muted-foreground)] [&_small]:[font-size:9.5px] [&_small]:[font-weight:400] [&_small]:[line-height:1.4] [&_strong]:[padding-top:12px] [&_strong]:[font-size:11px] [&_strong]:[font-weight:610]">
                       <strong>Local usage tracking</strong>
                       <small>
                         No usage endpoint is queried. Quota errors cool and rotate keys.
@@ -1922,10 +2108,12 @@ export function SettingsWorkspace({
                       </select>
                     </label>
                   )}
-                  <label className="settings-provider-form__wide">
+                  <label className="settings-provider-form__wide [grid-column:1_/_-1] max-680:[grid-column:auto]">
                     <span>
                       {openCodeGoForm
                         ? "Primary API key"
+                        : openRouterForm
+                          ? "API key"
                         : providerUsageAdapter === "new_api"
                           ? "Primary API token"
                           : providerAuthMode === "auth_token"
@@ -1936,6 +2124,8 @@ export function SettingsWorkspace({
                       aria-label={
                         openCodeGoForm
                           ? "Primary API key"
+                          : openRouterForm
+                            ? "API key"
                           : providerUsageAdapter === "new_api"
                             ? "Primary API token"
                             : providerAuthMode === "auth_token"
@@ -1954,14 +2144,14 @@ export function SettingsWorkspace({
                       onChange={(event) => setProviderSecret(event.target.value)}
                     />
                     {!openCodeGoForm && providerUsageAdapter === "new_api" && (
-                      <small className="settings-provider-form__helper">
+                      <small className="settings-provider-form__helper [color:var(--muted-foreground)] [font-size:9.5px] [font-weight:400] [line-height:1.4]">
                         Used for Model requests and its own /api/usage/token quota.
                       </small>
                     )}
                   </label>
                   {openCodeGoForm && (
                     <>
-                      <label className="settings-provider-form__wide">
+                      <label className="settings-provider-form__wide [grid-column:1_/_-1] max-680:[grid-column:auto]">
                         <span>Additional API keys</span>
                         <textarea
                           aria-label="Additional API keys"
@@ -1970,14 +2160,14 @@ export function SettingsWorkspace({
                           placeholder="One API key per line"
                           onChange={(event) => setProviderAdditionalApiKeys(event.target.value)}
                         />
-                        <small className="settings-provider-form__helper">
+                        <small className="settings-provider-form__helper [color:var(--muted-foreground)] [font-size:9.5px] [font-weight:400] [line-height:1.4]">
                           Saved in the local Provider auth file. Edit that file directly when
                           needed.
                         </small>
                       </label>
                       {editingProvider?.runtimeKeyUsage &&
                         editingProvider.runtimeKeyUsage.length > 0 && (
-                          <div className="settings-provider-form__wide settings-provider-key-editor">
+                          <div className="settings-provider-form__wide settings-provider-key-editor [grid-column:1_/_-1] [display:grid] [gap:6px] max-680:[grid-column:auto] [&_>_strong]:[font-size:11px] [&_>_span]:[min-height:38px] [&_>_span]:[padding:6px_8px] [&_>_span]:[display:flex] [&_>_span]:[align-items:center] [&_>_span]:[justify-content:space-between] [&_>_span]:[gap:10px] [&_>_span]:[background:var(--background)] [&_>_span]:[border:1px_solid_var(--border-subtle)] [&_>_span]:[border-radius:6px] [&_>_span.is-removed]:[opacity:0.58] [&_>_span_>_span]:[min-width:0] [&_>_span_>_span]:[display:grid] [&_>_span_>_span]:[gap:2px] [&_small]:[color:var(--muted-foreground)] [&_small]:[font-size:8.5px] [&_button]:[min-height:26px] [&_button]:[padding:0_8px] [&_button]:[font-size:8.5px]">
                             <strong>Saved keys</strong>
                             {editingProvider.runtimeKeyUsage.map((key) => {
                               const removed = providerRemovedApiKeyIds.includes(key.id);
@@ -2014,7 +2204,7 @@ export function SettingsWorkspace({
                   )}
                   {!openCodeGoForm && providerUsageAdapter === "new_api" && (
                     <>
-                      <div className="settings-provider-form__section settings-provider-form__wide">
+                      <div className="settings-provider-form__section settings-provider-form__wide [padding-top:3px] [display:grid] [gap:3px] [border-top:1px_solid_var(--border-subtle)] [grid-column:1_/_-1] [&_small]:[color:var(--muted-foreground)] [&_small]:[font-size:9.5px] [&_small]:[font-weight:400] [&_small]:[line-height:1.4] [&_strong]:[padding-top:12px] [&_strong]:[font-size:11px] [&_strong]:[font-weight:610] max-680:[grid-column:auto]">
                         <strong>Account usage</strong>
                         <small>
                           Optional high-privilege management credential for /api/user/self and the
@@ -2049,7 +2239,7 @@ export function SettingsWorkspace({
                       {editingProviderId &&
                         providers.find((provider) => provider.id === editingProviderId)
                           ?.accountAccessReady && (
-                          <label className="settings-provider-form__checkbox settings-provider-form__wide">
+                          <label className="settings-provider-form__checkbox settings-provider-form__wide [grid-column:1_/_-1] max-680:[grid-column:auto] ![display:flex] [align-items:center] [grid-template-columns:auto_minmax(0,_1fr)]">
                             <input
                               type="checkbox"
                               checked={providerClearAccountAccess}
@@ -2063,12 +2253,12 @@ export function SettingsWorkspace({
                     </>
                   )}
                 </div>
-                <p className="settings-provider-form__security">
+                <p className="settings-provider-form__security ![margin-top:13px] [color:var(--muted-foreground)] [font-size:10.5px] [line-height:1.45]">
                   Credentials are stored as plaintext in ~/.swarmx/provider-auth.json with
                   restrictive file permissions. The Renderer never reads this file; the Main process
                   uses credentials only for the configured Provider operation.
                 </p>
-                <div className="settings-provider-form__actions">
+                <div className="settings-provider-form__actions [margin-top:16px] [justify-content:flex-end] [flex:0_0_auto] [display:flex] [align-items:center] [gap:7px] [&_button]:[min-height:32px] [&_button]:[padding:0_10px] [&_button]:[display:inline-flex] [&_button]:[align-items:center] [&_button]:[justify-content:center] [&_button]:[gap:6px] [&_button]:[border:1px_solid_var(--border)] [&_button]:[border-radius:7px] [&_button]:[font-size:11.5px] [&_button]:[font-weight:580] [&_button]:[cursor:pointer] [&_button]:[color:var(--foreground)] [&_button]:[background:transparent] [&_button[type='submit']]:[color:var(--primary-foreground)] [&_button[type='submit']]:[background:var(--primary)] [&_button[type='submit']]:[border-color:var(--primary)]">
                   <button type="button" onClick={resetProviderForm}>
                     Cancel
                   </button>
@@ -2086,8 +2276,11 @@ export function SettingsWorkspace({
                 </div>
               </form>
             )}
-            <section className="settings-provider-matrix" aria-label="Provider usage matrix">
-              <div className="settings-provider-matrix__header">
+            <section
+              className="settings-provider-matrix [--provider-matrix-columns:minmax(190px,_1.75fr)_minmax(78px,_0.8fr)_minmax(78px,_0.8fr)_minmax(116px,_1.1fr)_minmax(68px,_0.65fr)_minmax(82px,_0.8fr)_minmax(88px,_auto)] [position:relative] [overflow:visible] [border:1px_solid_var(--border-subtle)] [border-radius:9px] [background:var(--card-solid)]"
+              aria-label="Provider usage matrix"
+            >
+              <div className="settings-provider-matrix__header [min-height:34px] [padding:0_10px] [color:var(--muted-foreground)] [background:var(--input)] [border-bottom:1px_solid_var(--border-subtle)] [border-radius:9px_9px_0_0] [min-width:0] [display:grid] [grid-template-columns:var(--provider-matrix-columns)] [align-items:stretch] [&_span]:[min-width:0] [&_span]:[padding:0_7px] [&_span]:[font-size:8.5px] [&_span]:[font-weight:620] [&_span]:[letter-spacing:0.025em] [&_span]:[text-transform:uppercase] max-1100:[display:none]">
                 <span>Provider</span>
                 <span>5-hour</span>
                 <span>7-day</span>
@@ -2228,16 +2421,25 @@ function ProviderMatrixRow({
 
   return (
     <article
-      className={cx("settings-provider-matrix__row", loading && "is-loading")}
+      className={cx(
+        String.raw`settings-provider-matrix__row [padding:0_10px] [background:var(--card-solid)] [min-width:0] [display:grid] [grid-template-columns:var(--provider-matrix-columns)] [align-items:stretch] [&_+_.settings-provider-matrix\_\_row]:[border-top:1px_solid_var(--border-subtle)] max-1100:[padding:10px] max-1100:[grid-template-columns:repeat(2,_minmax(0,_1fr))] max-1100:[gap:0_8px] max-680:[grid-template-columns:minmax(0,_1fr)]`,
+        loading && "is-loading",
+      )}
       aria-label={`${label} Provider`}
     >
-      <div className="settings-provider-matrix__provider" data-label="Provider">
+      <div
+        className="settings-provider-matrix__provider [display:flex] [align-items:center] [gap:9px] [min-width:0] [min-height:82px] [padding:12px_7px] [align-content:center] max-1100:[grid-column:1_/_-1] max-1100:[min-height:64px] max-1100:[padding:6px_7px_11px] max-1100:[border-bottom:1px_solid_var(--border-subtle)] max-680:[grid-column:1]"
+        data-label="Provider"
+      >
         <ProviderBrandIcon label={label} sourceId={sourceId} provider={provider} />
-        <span className="settings-provider-matrix__identity">
+        <span className="settings-provider-matrix__identity [min-width:0] [display:grid] [gap:2px] [&_strong]:[font-size:11.5px] [&_strong]:[font-weight:620]">
           <span>
             <strong>{label}</strong>
             <small
-              className={cx("settings-provider-status", `is-${status.tone}`)}
+              className={cx(
+                "settings-provider-status [flex:0_0_auto] [padding:2px_5px] [color:var(--muted-foreground)] [background:var(--input)] [border-radius:999px] [font-size:7.75px] [font-weight:590]",
+                VISUAL_STATUS_CLASS[status.tone],
+              )}
               title={entry?.detail}
             >
               {status.label}
@@ -2255,9 +2457,15 @@ function ProviderMatrixRow({
         entry={entry}
         loading={loading && !entry}
       />
-      <div className="settings-provider-matrix__metric" data-label="Resets">
+      <div
+        className="settings-provider-matrix__metric [display:grid] [position:relative] [gap:3px] [min-width:0] [min-height:82px] [padding:12px_7px] [align-content:center] [&_strong]:[min-width:0] [&_strong]:[overflow:hidden] [&_strong]:[text-overflow:ellipsis] [&_strong]:[white-space:nowrap] [&_small]:[min-width:0] [&_small]:[overflow:hidden] [&_small]:[text-overflow:ellipsis] [&_small]:[white-space:nowrap] [&_strong]:[font-size:10.5px] [&_strong]:[font-weight:620] [&_small]:[color:var(--muted-foreground)] [&_small]:[font-size:8.25px] max-1100:[min-height:68px] max-1100:[padding:10px_7px]"
+        data-label="Resets"
+      >
         {loading && !entry ? (
-          <span className="settings-provider-matrix__skeleton" aria-label="Loading resets" />
+          <span
+            className="settings-provider-matrix__skeleton [width:72%] [height:24px] [background:color-mix(in_srgb,_var(--muted-foreground)_12%,_transparent)] [border-radius:5px]"
+            aria-label="Loading resets"
+          />
         ) : reset ? (
           <>
             <strong>{reset.remaining}</strong>
@@ -2267,11 +2475,22 @@ function ProviderMatrixRow({
           <NotProvided />
         )}
       </div>
-      <div className="settings-provider-matrix__updated" data-label="Updated">
-        {loading && <Loader2 className="is-spinning" aria-hidden="true" />}
+      <div
+        className="settings-provider-matrix__updated [display:flex] [align-items:center] [gap:4px] [line-height:1.35] [min-width:0] [min-height:82px] [padding:12px_7px] [align-content:center] [&_span]:[min-width:0] [&_span]:[overflow:hidden] [&_span]:[text-overflow:ellipsis] [&_span]:[white-space:nowrap] [color:var(--muted-foreground)] [font-size:8.25px] [&_svg]:[flex:0_0_auto] [&_svg]:[width:11px] [&_svg]:[height:11px] max-1100:[min-height:68px] max-1100:[padding:10px_7px] max-1100:[display:grid] max-1100:[align-content:center] max-1100:[justify-items:start] max-1100:[gap:3px]"
+        data-label="Updated"
+      >
+        {loading && (
+          <Loader2
+            className="is-spinning [animation:spin_0.9s_linear_infinite]"
+            aria-hidden="true"
+          />
+        )}
         <span>{updatedAt ? formatTimestamp(updatedAt) : "Not checked"}</span>
       </div>
-      <div className="settings-provider-matrix__actions" data-label="Actions">
+      <div
+        className="settings-provider-matrix__actions [display:flex] [align-items:center] [justify-content:flex-end] [gap:4px] [min-width:0] [min-height:82px] [padding:12px_7px] [align-content:center] [&_button]:[min-width:26px] [&_button]:[min-height:26px] [&_button]:[padding:0_6px] [&_button]:[display:inline-flex] [&_button]:[align-items:center] [&_button]:[justify-content:center] [&_button]:[color:var(--foreground)] [&_button]:[background:transparent] [&_button]:[border:1px_solid_var(--border-subtle)] [&_button]:[border-radius:6px] [&_button]:[font-size:9px] [&_button]:[font-weight:580] [&_button]:[cursor:pointer] [&_svg]:[width:11px] [&_svg]:[height:11px] max-1100:[min-height:68px] max-1100:[padding:10px_7px] max-1100:[display:grid] max-1100:[grid-template-columns:repeat(3,_auto)] max-1100:[align-content:center] max-1100:[justify-content:start]"
+        data-label="Actions"
+      >
         <button
           type="button"
           aria-label={`Refresh ${label} usage`}
@@ -2279,7 +2498,10 @@ function ProviderMatrixRow({
           disabled={loading}
           onClick={() => void onRefresh()}
         >
-          <RefreshCw className={loading ? "is-spinning" : undefined} aria-hidden="true" />
+          <RefreshCw
+            className={loading ? "is-spinning [animation:spin_0.9s_linear_infinite]" : undefined}
+            aria-hidden="true"
+          />
         </button>
         {userManaged && onEdit && (
           <button type="button" aria-label={`Edit Provider ${label}`} onClick={onEdit}>
@@ -2321,9 +2543,12 @@ function ProviderWindowCell({
 }) {
   if (loading) {
     return (
-      <div className="settings-provider-matrix__metric" data-label={label}>
+      <div
+        className="settings-provider-matrix__metric [display:grid] [position:relative] [gap:3px] [min-width:0] [min-height:82px] [padding:12px_7px] [align-content:center] [&_strong]:[min-width:0] [&_strong]:[overflow:hidden] [&_strong]:[text-overflow:ellipsis] [&_strong]:[white-space:nowrap] [&_small]:[min-width:0] [&_small]:[overflow:hidden] [&_small]:[text-overflow:ellipsis] [&_small]:[white-space:nowrap] [&_strong]:[font-size:10.5px] [&_strong]:[font-weight:620] [&_small]:[color:var(--muted-foreground)] [&_small]:[font-size:8.25px] max-1100:[min-height:68px] max-1100:[padding:10px_7px]"
+        data-label={label}
+      >
         <span
-          className="settings-provider-matrix__skeleton"
+          className="settings-provider-matrix__skeleton [width:72%] [height:24px] [background:color-mix(in_srgb,_var(--muted-foreground)_12%,_transparent)] [border-radius:5px]"
           aria-label={`Loading ${label} quota`}
         />
       </div>
@@ -2331,17 +2556,23 @@ function ProviderWindowCell({
   }
   if (!meter) {
     return (
-      <div className="settings-provider-matrix__metric" data-label={label}>
+      <div
+        className="settings-provider-matrix__metric [display:grid] [position:relative] [gap:3px] [min-width:0] [min-height:82px] [padding:12px_7px] [align-content:center] [&_strong]:[min-width:0] [&_strong]:[overflow:hidden] [&_strong]:[text-overflow:ellipsis] [&_strong]:[white-space:nowrap] [&_small]:[min-width:0] [&_small]:[overflow:hidden] [&_small]:[text-overflow:ellipsis] [&_small]:[white-space:nowrap] [&_strong]:[font-size:10.5px] [&_strong]:[font-weight:620] [&_small]:[color:var(--muted-foreground)] [&_small]:[font-size:8.25px] max-1100:[min-height:68px] max-1100:[padding:10px_7px]"
+        data-label={label}
+      >
         <NotProvided />
       </div>
     );
   }
   const remaining = Math.max(0, Math.min(100, meter.remainingPercent));
   return (
-    <div className="settings-provider-matrix__metric" data-label={label}>
+    <div
+      className="settings-provider-matrix__metric [display:grid] [position:relative] [gap:3px] [min-width:0] [min-height:82px] [padding:12px_7px] [align-content:center] [&_strong]:[min-width:0] [&_strong]:[overflow:hidden] [&_strong]:[text-overflow:ellipsis] [&_strong]:[white-space:nowrap] [&_small]:[min-width:0] [&_small]:[overflow:hidden] [&_small]:[text-overflow:ellipsis] [&_small]:[white-space:nowrap] [&_strong]:[font-size:10.5px] [&_strong]:[font-weight:620] [&_small]:[color:var(--muted-foreground)] [&_small]:[font-size:8.25px] max-1100:[min-height:68px] max-1100:[padding:10px_7px]"
+      data-label={label}
+    >
       <strong>{formatUsagePercent(meter.remainingPercent)} left</strong>
       <span
-        className="settings-provider-matrix__track"
+        className="settings-provider-matrix__track [width:100%] [height:3px] [overflow:hidden] [background:color-mix(in_srgb,_var(--muted-foreground)_18%,_transparent)] [border-radius:999px] [&_>_span]:[height:100%] [&_>_span]:[display:block] [&_>_span]:[background:var(--muted)] [&_>_span]:[border-radius:inherit]"
         role="progressbar"
         aria-label={`${label} remaining`}
         aria-valuemin={0}
@@ -2371,9 +2602,12 @@ function ProviderFinanceCell({
 }) {
   if (loading) {
     return (
-      <div className="settings-provider-matrix__metric" data-label="Credit & balance">
+      <div
+        className="settings-provider-matrix__metric [display:grid] [position:relative] [gap:3px] [min-width:0] [min-height:82px] [padding:12px_7px] [align-content:center] [&_strong]:[min-width:0] [&_strong]:[overflow:hidden] [&_strong]:[text-overflow:ellipsis] [&_strong]:[white-space:nowrap] [&_small]:[min-width:0] [&_small]:[overflow:hidden] [&_small]:[text-overflow:ellipsis] [&_small]:[white-space:nowrap] [&_strong]:[font-size:10.5px] [&_strong]:[font-weight:620] [&_small]:[color:var(--muted-foreground)] [&_small]:[font-size:8.25px] max-1100:[min-height:68px] max-1100:[padding:10px_7px]"
+        data-label="Credit & balance"
+      >
         <span
-          className="settings-provider-matrix__skeleton"
+          className="settings-provider-matrix__skeleton [width:72%] [height:24px] [background:color-mix(in_srgb,_var(--muted-foreground)_12%,_transparent)] [border-radius:5px]"
           aria-label="Loading credit and balance"
         />
       </div>
@@ -2382,23 +2616,33 @@ function ProviderFinanceCell({
   const finance = providerFinanceSummary(entry);
   if (!finance) {
     return (
-      <div className="settings-provider-matrix__metric" data-label="Credit & balance">
+      <div
+        className="settings-provider-matrix__metric [display:grid] [position:relative] [gap:3px] [min-width:0] [min-height:82px] [padding:12px_7px] [align-content:center] [&_strong]:[min-width:0] [&_strong]:[overflow:hidden] [&_strong]:[text-overflow:ellipsis] [&_strong]:[white-space:nowrap] [&_small]:[min-width:0] [&_small]:[overflow:hidden] [&_small]:[text-overflow:ellipsis] [&_small]:[white-space:nowrap] [&_strong]:[font-size:10.5px] [&_strong]:[font-weight:620] [&_small]:[color:var(--muted-foreground)] [&_small]:[font-size:8.25px] max-1100:[min-height:68px] max-1100:[padding:10px_7px]"
+        data-label="Credit & balance"
+      >
         <NotProvided />
       </div>
     );
   }
   const tooltipId = `provider-finance-${id.replace(/[^a-zA-Z0-9_-]/g, "-")}`;
   return (
-    <div className="settings-provider-matrix__metric" data-label="Credit & balance">
+    <div
+      className="settings-provider-matrix__metric [display:grid] [position:relative] [gap:3px] [min-width:0] [min-height:82px] [padding:12px_7px] [align-content:center] [&_strong]:[min-width:0] [&_strong]:[overflow:hidden] [&_strong]:[text-overflow:ellipsis] [&_strong]:[white-space:nowrap] [&_small]:[min-width:0] [&_small]:[overflow:hidden] [&_small]:[text-overflow:ellipsis] [&_small]:[white-space:nowrap] [&_strong]:[font-size:10.5px] [&_strong]:[font-weight:620] [&_small]:[color:var(--muted-foreground)] [&_small]:[font-size:8.25px] max-1100:[min-height:68px] max-1100:[padding:10px_7px]"
+      data-label="Credit & balance"
+    >
       <button
         type="button"
-        className="settings-provider-finance"
+        className="settings-provider-finance [min-width:0] [width:100%] [padding:0] [display:grid] [position:relative] [gap:2px] [color:inherit] [background:transparent] [border:0] [border-radius:4px] [outline:0] [font:inherit] [text-align:left] [cursor:help]"
         aria-label={`${label} credit and balance: ${finance.primary}. Focus for breakdown.`}
         aria-describedby={tooltipId}
       >
         <strong>{finance.primary}</strong>
         <small>{finance.caption}</small>
-        <span id={tooltipId} className="settings-provider-finance__popup" role="tooltip">
+        <span
+          id={tooltipId}
+          className="settings-provider-finance__popup [position:absolute] [right:0] [bottom:calc(100%_+_7px)] [z-index:20] [width:max-content] [max-width:260px] [padding:9px_10px] [display:grid] [gap:3px] [opacity:0] [color:var(--foreground)] [background:var(--card-strong)] [border:1px_solid_var(--border)] [border-radius:7px] [box-shadow:var(--shadow-soft)] [font-size:9px] [line-height:1.35] [pointer-events:none] [transform:translateY(3px)] [transition:opacity_120ms_ease,_transform_120ms_ease] [&_strong]:[margin-bottom:2px] [&_strong]:[font-size:9.5px] max-680:[right:auto] max-680:[left:0] max-680:[max-width:min(260px,_calc(100vw_-_56px))]"
+          role="tooltip"
+        >
           <strong>Credit &amp; balance</strong>
           {finance.lines.map((line) => (
             <span key={line}>{line}</span>
@@ -2426,24 +2670,29 @@ function NewApiAccountDetails({
       ? "Refresh to load account"
       : "Account access not configured";
   return (
-    <details className="settings-provider-account">
+    <details className="settings-provider-account [grid-column:1_/_-1] [min-width:0] [margin:0_7px_11px] [border-top:1px_solid_var(--border-subtle)] [&_summary]:[min-height:34px] [&_summary]:[display:flex] [&_summary]:[align-items:center] [&_summary]:[justify-content:space-between] [&_summary]:[gap:12px] [&_summary]:[color:var(--muted)] [&_summary]:[font-size:9.5px] [&_summary]:[font-weight:590] [&_summary]:[cursor:pointer] [&_summary_small]:[color:var(--muted-foreground)] [&_summary_small]:[font-size:8.5px] [&_summary_small]:[font-weight:400] max-1100:[grid-column:1_/_-1] max-680:[grid-column:1]">
       <summary>
         <span>Account &amp; API tokens</span>
         <small>{accountLabel}</small>
       </summary>
-      <div className="settings-provider-account__content">
-        <div className="settings-provider-account__summary">
+      <div className="settings-provider-account__content [padding:8px_10px_10px] [display:grid] [gap:8px] [background:var(--input)] [border:1px_solid_var(--border-subtle)] [border-radius:7px] [&_p]:[margin:0] [&_p]:[color:var(--muted-foreground)] [&_p]:[font-size:9px] [&_p]:[line-height:1.4]">
+        <div className="settings-provider-account__summary [display:flex] [align-items:center] [justify-content:space-between] [gap:10px] [&_>_span]:[min-width:0] [&_>_span]:[display:grid] [&_>_span]:[gap:1px] [&_strong]:[font-size:10px] [&_strong]:[font-weight:610] [&_small]:[color:var(--muted-foreground)] [&_small]:[font-size:8.5px]">
           <span>
             <strong>{account?.displayName ?? "New API account"}</strong>
             <small>{account?.group ? `Group: ${account.group}` : "Account-level usage"}</small>
           </span>
-          <small className={cx("settings-provider-status", `is-${account?.status ?? "muted"}`)}>
+          <small
+            className={cx(
+              "settings-provider-status [flex:0_0_auto] [padding:2px_5px] [color:var(--muted-foreground)] [background:var(--input)] [border-radius:999px] [font-size:7.75px] [font-weight:590]",
+              VISUAL_STATUS_CLASS[account?.status ?? "muted"],
+            )}
+          >
             {account ? capitalize(account.status) : "Not configured"}
           </small>
         </div>
         {account?.detail && <p>{account.detail}</p>}
         {!account && !provider?.accountAccessReady && (
-          <div className="settings-provider-account__connect">
+          <div className="settings-provider-account__connect [display:flex] [align-items:center] [justify-content:space-between] [gap:10px] [&_button]:[min-height:26px] [&_button]:[padding:0_8px] [&_button]:[color:var(--foreground)] [&_button]:[background:transparent] [&_button]:[border:1px_solid_var(--border-subtle)] [&_button]:[border-radius:6px] [&_button]:[font-size:8.5px] [&_button]:[font-weight:580] [&_button]:[cursor:pointer]">
             <p>Connect account access to see wallet and API tokens.</p>
             {onManage && (
               <button type="button" onClick={onManage}>
@@ -2454,8 +2703,11 @@ function NewApiAccountDetails({
         )}
         {account &&
           (account.tokens.length ? (
-            <section className="settings-provider-token-list" aria-label="New API tokens">
-              <div className="settings-provider-token-list__header">
+            <section
+              className="settings-provider-token-list [min-width:0] [overflow:hidden] [border:1px_solid_var(--border-subtle)] [border-radius:6px]"
+              aria-label="New API tokens"
+            >
+              <div className="settings-provider-token-list__header [min-height:25px] [color:var(--muted-foreground)] [background:var(--card-solid)] [font-size:7.75px] [font-weight:620] [text-transform:uppercase] [min-width:0] [display:grid] [grid-template-columns:minmax(120px,_1.4fr)_repeat(4,_minmax(70px,_1fr))] [align-items:center] [&_span]:[min-width:0] [&_span]:[padding:5px_7px] [&_span]:[overflow:hidden] [&_span]:[text-overflow:ellipsis] [&_span]:[white-space:nowrap] max-680:[display:none]">
                 <span>Token</span>
                 <span>Status</span>
                 <span>Remaining</span>
@@ -2463,12 +2715,15 @@ function NewApiAccountDetails({
                 <span>Expires</span>
               </div>
               {account.tokens.map((token) => (
-                <div className="settings-provider-token-list__row" key={token.id}>
+                <div
+                  className="settings-provider-token-list__row [min-height:34px] [color:var(--muted-foreground)] [border-top:1px_solid_var(--border-subtle)] [font-size:8.5px] [min-width:0] [display:grid] [grid-template-columns:minmax(120px,_1.4fr)_repeat(4,_minmax(70px,_1fr))] [align-items:center] [&_>_span]:[min-width:0] [&_>_span]:[padding:5px_7px] [&_>_span]:[overflow:hidden] [&_>_span]:[text-overflow:ellipsis] [&_>_span]:[white-space:nowrap] [&_strong]:[color:var(--foreground)] [&_strong]:[font-size:9px] [&_strong]:[font-weight:590] [&_small]:[font-size:7.75px] max-680:[padding:7px] max-680:[grid-template-columns:repeat(2,_minmax(0,_1fr))] max-680:[gap:6px] max-680:[&_>_span]:[padding:0] max-680:[&_>_span]:[display:grid] max-680:[&_>_span]:[gap:1px] max-680:[&_>_span]:[white-space:normal]"
+                  key={token.id}
+                >
                   <span data-label="Token">
                     <strong>{token.name}</strong>
                     <small>{maskProviderTokenId(token.id)}</small>
                   </span>
-                  <span data-label="Status" className={`is-${token.status}`}>
+                  <span data-label="Status" className={VISUAL_STATUS_CLASS[token.status]}>
                     {capitalize(token.status)}
                   </span>
                   <span data-label="Remaining">{token.remaining}</span>
@@ -2497,26 +2752,32 @@ function ProviderKeyPoolDetails({
   const [resettingKeyId, setResettingKeyId] = useState<string | null>(null);
   const ready = keys.filter((key) => key.status === "ready").length;
   return (
-    <details className="settings-provider-account settings-provider-key-pool">
+    <details className="settings-provider-account settings-provider-key-pool [grid-column:1_/_-1] [min-width:0] [margin:0_7px_11px] [border-top:1px_solid_var(--border-subtle)] [&_summary]:[min-height:34px] [&_summary]:[display:flex] [&_summary]:[align-items:center] [&_summary]:[justify-content:space-between] [&_summary]:[gap:12px] [&_summary]:[color:var(--muted)] [&_summary]:[font-size:9.5px] [&_summary]:[font-weight:590] [&_summary]:[cursor:pointer] [&_summary_small]:[color:var(--muted-foreground)] [&_summary_small]:[font-size:8.5px] [&_summary_small]:[font-weight:400] max-1100:[grid-column:1_/_-1] max-680:[grid-column:1]">
       <summary>
         <span>API key pool</span>
         <small>
           {ready}/{keys.length} ready · local counters
         </small>
       </summary>
-      <div className="settings-provider-account__content">
+      <div className="settings-provider-account__content [padding:8px_10px_10px] [display:grid] [gap:8px] [background:var(--input)] [border:1px_solid_var(--border-subtle)] [border-radius:7px] [&_p]:[margin:0] [&_p]:[color:var(--muted-foreground)] [&_p]:[font-size:9px] [&_p]:[line-height:1.4]">
         <p>
           Keys rotate only after an explicit quota-exhausted response and only before any output or
           tool event has been emitted.
         </p>
-        <section className="settings-provider-key-list" aria-label="OpenCode Go API keys">
+        <section
+          className="settings-provider-key-list [min-width:0] [overflow:hidden] [border:1px_solid_var(--border-subtle)] [border-radius:6px]"
+          aria-label="OpenCode Go API keys"
+        >
           {keys.map((key) => (
-            <div className="settings-provider-key-list__row" key={key.id}>
+            <div
+              className="settings-provider-key-list__row [min-height:42px] [padding:6px_7px] [display:grid] [grid-template-columns:minmax(100px,_1.15fr)_minmax(55px,_0.55fr)_minmax(85px,_0.75fr)_minmax(115px,_1.2fr)_minmax(86px,_auto)] [align-items:center] [gap:8px] [color:var(--muted-foreground)] [border-top:1px_solid_var(--border-subtle)] [font-size:8.5px] [&_>_span]:[min-width:0] [&_>_span]:[overflow:hidden] [&_>_span]:[text-overflow:ellipsis] [&_strong]:[color:var(--foreground)] [&_strong]:[font-size:9px] [&_small]:[font-size:7.75px] [&_.is-ready]:[color:var(--success)] [&_.is-cooling]:[color:var(--accent)] [&_button]:[min-height:26px] [&_button]:[padding:0_7px] [&_button]:[font-size:8px] max-680:[grid-template-columns:repeat(2,_minmax(0,_1fr))]"
+              key={key.id}
+            >
               <span>
                 <strong>{key.label}</strong>
                 <small>{key.id === "primary" ? "Primary" : "Additional key"}</small>
               </span>
-              <span className={`is-${key.status}`}>{capitalize(key.status)}</span>
+              <span className={VISUAL_STATUS_CLASS[key.status]}>{capitalize(key.status)}</span>
               <span>
                 <strong>{key.totalTokens.toLocaleString()}</strong>
                 <small>{key.requestCount.toLocaleString()} requests</small>
@@ -2554,7 +2815,7 @@ function ProviderKeyPoolDetails({
 
 function NotProvided() {
   return (
-    <span className="settings-provider-matrix__missing">
+    <span className="settings-provider-matrix__missing [display:grid] [gap:1px] [&_strong]:[color:var(--muted-foreground)]">
       <strong>—</strong>
       <small>Not provided</small>
     </span>

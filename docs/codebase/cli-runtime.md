@@ -41,7 +41,6 @@ environment accidentally.
 | `packages/cli/src/eval-run.ts` | Loads/validates workflow and eval arguments, executes `Swarm`, and formats deterministic eval result/error records with context-token usage; supports request-scoped `prompt_fragment` Skill delivery via `--skill-delivery` + `--skill-content-path`, and `--resolve-skill` binding to the evolved active revision. `fs` |
 | `packages/cli/src/evolution-command.ts` | Thin CLI adapters for the skill evolution loop: `digest` (launch environment digest over worker/project/lockfile/evolution sources/Python), `evolve` (optimization WorkItem + candidate ingest with credential-free `--model-command` gateway wiring), `evaluate` (paired holdout or strictly validated Inspect evidence), `status` (ledger-only), `promote`, `reject`, `quarantine`, `rollback`, and `resolveActiveSkillDeliveriesForAgent` (the production entry that binds promoted revisions to named Agent nodes for new executions); business rules stay in Core. `fs` + `proc` via Core |
 | `packages/cli/src/send-config.ts` | Builds a canonical one-agent `SwarmConfig` from CLI model/harness options. `pure` |
-| `packages/cli/src/session-migration.ts` | CLI adapter for dry-run/migrate Session commands and concise result formatting. `fs` via Core |
 
 ## ACP server (`@swarmx/acp-server`)
 
@@ -57,7 +56,6 @@ environment accidentally.
 | Source | Contract |
 | --- | --- |
 | `packages/swarmx/bin/swarmx.js` | Package-installed bootstrap: selects Desktop for no/`desktop` args, delegates CLI args to `@swarmx/cli`, repairs Electron path metadata, forwards signals, and routes Electron stderr through the Desktop launch filter. `fs` + `proc` |
-| `packages/swarmx/bin/migrate-sessions.js` | Minimal executable alias for the Core/CLI Session migration command. `proc` |
 
 ## Package/launcher tests
 

@@ -41,7 +41,7 @@ swarmx
 
 ## First run
 
-Open **Anonymous user → Settings → Providers**, add an OpenAI-, Anthropic-, DeepSeek-, OpenCode Go-, or Ollama-compatible connection, then choose a Harness and Model in the composer. Custom Providers use one exact Base URL and key. OpenCode Go loads its live model list, routes models through their documented APIs plus narrow runtime-verified compatibility exceptions, and can keep additional plaintext backup keys with local usage counters and quota failover. A newly discovered Go model without a known native route uses the Provider's selected preferred protocol until SwarmX is updated with its official route.
+Open **Local workspace → Settings → Providers**, add an OpenAI-, Anthropic-, DeepSeek-, OpenCode Go-, OpenRouter-, or Ollama-compatible connection, then choose a Harness and Model in the composer. Custom Providers use one exact Base URL and key. Official OpenRouter `/api` and `/api/v1` URLs normalize to one Provider with Anthropic, OpenAI Chat, and OpenAI Responses routes. OpenCode Go loads its live model list, routes models through their documented APIs plus narrow runtime-verified compatibility exceptions, and can keep additional plaintext backup keys with local usage counters and quota failover. A newly discovered Go model without a known native route uses the Provider's selected preferred protocol until SwarmX is updated with its official route.
 
 Provider credentials are stored as plaintext in the editable `~/.swarmx/provider-auth.json` file with restrictive permissions. The renderer never reads the file or receives plaintext credentials. The current file format is `schemaVersion: 2`; older encrypted auth files and legacy `local_keychain` Provider references are intentionally not migrated.
 
@@ -58,15 +58,10 @@ npx swarmx cli --help
 
 Use `npx swarmx desktop` as an explicit Desktop alias.
 
-Existing installs can preview and migrate legacy Session JSON files safely:
-
-```shell
-npx swarmx sessions migrate --dry-run
-npx swarmx sessions migrate
-```
-
-The migration supports both prior TypeScript and Rust desktop formats, verifies
-JSONL replay, then moves each old file into a timestamped backup.
+Session history uses append-only JSONL grouped by working directory under
+`~/.swarmx/projects/`; sessions without Project context use `__recents__`.
+Each directory has a rebuildable index. Older `.json` Session files and
+migration backups are unsupported and are not read.
 
 ## Develop from source
 

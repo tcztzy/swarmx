@@ -20,9 +20,9 @@ the list below makes the coverage route searchable without loading every test.
 | `packages/core/tests/task-control-service.test.ts` |
 
 Coverage focus: schema acceptance/rejection, graph scheduling/cycles, provider
-redaction and routing, ACP/MCP cancellation, append-only persistence and
-migration, capability composition, rendering sanitization, and deterministic
-workflow evaluation. Activity tests enforce one aggregate `run_summary` per
+redaction and routing, ACP/MCP cancellation, per-Project JSONL-only append-only
+persistence and recovery, capability composition, rendering sanitization, and
+deterministic workflow evaluation. Activity tests enforce one aggregate `run_summary` per
 run; audit tests enforce secret-free hash-chain replay and recovery. Durable
 runtime tests additionally cover event replay and
 idempotency collisions, fenced lease expiry, cancellation, retry and checkpoint
@@ -87,7 +87,7 @@ Exact Core test paths: `packages/core/tests/acp.test.ts`,
 | --- |
 | `packages/desktop/src/renderer/src/App.test.tsx`, `agent-interaction-dialog.test.tsx`, `agent-picker-layout.test.ts`, `app-brand.test.tsx`, `app-icon-data.test.ts`, `composer.test.tsx`, `conversation-messages.test.ts` |
 | `packages/desktop/src/renderer/src/media-preview.test.tsx`, `message-attachments.test.tsx`, `message-content.test.tsx`, `model-display.test.ts`, `session-navigation.test.ts`, `settings-workspace.test.ts` |
-| `packages/desktop/src/renderer/src/text-utils.test.ts`, `workflow-workspace.test.ts`, `workspace-panel-layout.test.ts`, `workspace-panel.test.tsx`, `harness-icon-data.test.ts` |
+| `packages/desktop/src/renderer/src/styling-architecture.test.ts`, `ui-primitives.test.tsx`, `text-utils.test.ts`, `workflow-workspace.test.ts`, `workspace-panel-layout.test.ts`, `workspace-panel.test.tsx`, `harness-icon-data.test.ts` |
 
 Coverage focus: IPC boundary validation, renderer-safe data, permission and
 containment rules, provider credential isolation, terminal cancellation,
@@ -142,7 +142,9 @@ Exact Desktop test paths: `packages/desktop/src/main/acp-session-runtime.test.ts
 `packages/desktop/src/renderer/src/model-display.test.ts`,
 `packages/desktop/src/renderer/src/session-navigation.test.ts`,
 `packages/desktop/src/renderer/src/settings-workspace.test.ts`,
+`packages/desktop/src/renderer/src/styling-architecture.test.ts`,
 `packages/desktop/src/renderer/src/text-utils.test.ts`,
+`packages/desktop/src/renderer/src/ui-primitives.test.tsx`,
 `packages/desktop/src/renderer/src/workflow-workspace.test.ts`,
 `packages/desktop/src/renderer/src/workspace-panel-layout.test.ts`,
 `packages/desktop/src/renderer/src/workspace-panel.test.tsx`.
@@ -151,14 +153,13 @@ Exact Desktop test paths: `packages/desktop/src/main/acp-session-runtime.test.ts
 
 | Test paths |
 | --- |
-| `packages/cli/tests/audit-command.test.ts`, `doctor.test.ts`, `eval-run.test.ts`, `send-config.test.ts`, `session-migration.test.ts`, `evolution-command.test.ts` (incl. real-chain promoted-revision resolution) |
+| `packages/cli/tests/audit-command.test.ts`, `doctor.test.ts`, `eval-run.test.ts`, `send-config.test.ts`, `evolution-command.test.ts` (incl. real-chain promoted-revision resolution) |
 | `packages/acp-server/src/server.test.ts`, `packages/runtime/src/doctor.test.ts`, `packages/runtime/src/python-environment.test.ts`, `packages/runtime/src/python-worker-smoke.test.ts`, `packages/swarmx/tests/launcher.test.ts` (including exact macOS InputMethodKit diagnostic filtering and preservation of all other Electron stderr) |
 | `evals/inspect/__init__.py`, `evals/inspect/tasks.py`, `evals/inspect/tasks_test.py`, `evals/inspect/skill_eval.py`, `evals/inspect/skill_eval_test.py` |
 
 Exact CLI test paths: `packages/cli/tests/audit-command.test.ts`,
 `packages/cli/tests/doctor.test.ts`,
 `packages/cli/tests/eval-run.test.ts`, `packages/cli/tests/send-config.test.ts`,
-`packages/cli/tests/session-migration.test.ts`,
 `packages/cli/tests/evolution-command.test.ts`.
 
 CLI coverage includes the shared `agent.run` action and its

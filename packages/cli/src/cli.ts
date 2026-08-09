@@ -30,7 +30,6 @@ import {
   runEvolutionStatus,
 } from "./evolution-command.js";
 import { createSendSwarmConfig } from "./send-config.js";
-import { runSessionMigrationCommand } from "./session-migration.js";
 
 const program = new Command();
 const cliAudit = new AuditStore();
@@ -286,7 +285,10 @@ program
     },
   );
 
-const sessionsCommand = program.command("sessions").description("List or migrate local sessions");
+const sessionsCommand = program
+  .command("sessions")
+  .description("List local sessions")
+  .allowExcessArguments(false);
 
 sessionsCommand.action(() => {
   const sessions = listSessionSummaries();
@@ -298,38 +300,6 @@ sessionsCommand.action(() => {
     console.log(`[${s.id.slice(0, 8)}] ${s.title} (${s.harness}) - ${s.messageCount} messages`);
   }
 });
-
-sessionsCommand
-  .command("migrate")
-  .description("Migrate legacy Session JSON files to append-only JSONL")
-  .option("--dry-run", "Validate and report without changing files", false)
-  .option("--sessions-dir <path>", "Override the Session directory")
-  .option("--backup-dir <path>", "Write reversible legacy backups to this directory")
-  .option("--json", "Print a structured migration report", false)
-  .action(
-    (options: { dryRun?: boolean; sessionsDir?: string; backupDir?: string; json?: boolean }) => {
-      const requestId = cliRequestId();
-      recordCliAudit("cli.sessions.migrate", "attempted", requestId, {
-        dryRun: options.dryRun === true,
-      });
-      try {
-        const command = runSessionMigrationCommand(options);
-        process.stdout.write(command.output);
-        if (command.exitCode !== 0) process.exitCode = command.exitCode;
-        recordCliAudit(
-          "cli.sessions.migrate",
-          command.exitCode === 0 ? "completed" : "failed",
-          requestId,
-          { dryRun: options.dryRun === true },
-        );
-      } catch (error) {
-        recordCliAudit("cli.sessions.migrate", "failed", requestId, {
-          errorType: errorName(error),
-        });
-        throw error;
-      }
-    },
-  );
 
 program
   .command("harnesses")

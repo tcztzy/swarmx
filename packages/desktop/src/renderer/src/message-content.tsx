@@ -13,6 +13,9 @@ import {
 } from "./code-highlighter.js";
 import "katex/dist/katex.min.css";
 
+export const MESSAGE_ACTION_CLASS_NAME =
+  "run-event__action [width:30px] [height:28px] [padding:0] [display:inline-grid] [place-items:center] [color:var(--muted-foreground)] [background:transparent] [border:1px_solid_transparent] [border-radius:8px] [cursor:pointer] [transition:color_var(--duration-fast)_var(--ease-out),_background-color_var(--duration-fast)_var(--ease-out),_border-color_var(--duration-fast)_var(--ease-out)] [&_svg]:[width:16px] [&_svg]:[height:16px]";
+
 export type MessageContentKind =
   | "message"
   | "thinking"
@@ -52,7 +55,7 @@ export function MessageContent({ kind, content }: MessageContentProps) {
 
   return createElement(
     "div",
-    { className: "run-event__markdown" },
+    { className: "run-event__markdown [min-width:0] [white-space:normal]" },
     createElement(
       ReactMarkdown,
       {
@@ -100,7 +103,7 @@ export function MessageCopyButton({ content }: { content: string }) {
     "button",
     {
       "aria-label": label,
-      className: "run-event__action",
+      className: MESSAGE_ACTION_CLASS_NAME,
       disabled: !content,
       onClick: copyMessage,
       title: label,
@@ -157,7 +160,8 @@ function MarkdownImage({ alt, src, title }: React.ImgHTMLAttributes<HTMLImageEle
     return createElement(
       "span",
       {
-        className: "run-event__image-placeholder",
+        className:
+          "run-event__image-placeholder [display:inline-flex] [max-width:100%] [padding:7px_9px] [color:var(--muted)] [background:rgba(255,_255,_255,_0.04)] [border:1px_solid_var(--border)] [border-radius:9px] [font-size:12px] [line-height:1.3]",
         title: source,
       },
       `Remote image blocked${alt ? `: ${alt}` : ""}`,
@@ -168,7 +172,8 @@ function MarkdownImage({ alt, src, title }: React.ImgHTMLAttributes<HTMLImageEle
     return createElement(
       "span",
       {
-        className: "run-event__image-placeholder",
+        className:
+          "run-event__image-placeholder [display:inline-flex] [max-width:100%] [padding:7px_9px] [color:var(--muted)] [background:rgba(255,_255,_255,_0.04)] [border:1px_solid_var(--border)] [border-radius:9px] [font-size:12px] [line-height:1.3]",
         title: source,
       },
       failed ? "Image unavailable" : "Loading image",
@@ -204,18 +209,30 @@ function MarkdownPre({ children }: React.HTMLAttributes<HTMLPreElement>) {
   return createElement(
     "figure",
     {
-      className: "run-event__code-block",
+      className:
+        "run-event__code-block [max-width:100%] [margin:0_0_10px] [overflow:hidden] [background:rgba(5,_6,_9,_0.88)] [border:1px_solid_var(--border)] [border-radius:10px]",
       "data-language": language || undefined,
     },
     createElement(
       "figcaption",
-      { className: "run-event__code-header" },
-      createElement("span", { className: "run-event__code-language" }, language || "text"),
+      {
+        className:
+          "run-event__code-header [display:flex] [align-items:center] [justify-content:space-between] [gap:8px] [min-height:34px]",
+      },
+      createElement(
+        "span",
+        {
+          className:
+            "run-event__code-language [min-width:0] [overflow:hidden] [text-overflow:ellipsis] [white-space:nowrap]",
+        },
+        language || "text",
+      ),
       createElement(
         "button",
         {
           "aria-label": copied ? "Code copied" : "Copy code",
-          className: "run-event__code-copy",
+          className:
+            "run-event__code-copy [display:inline-flex] [flex:0_0_auto] [align-items:center] [justify-content:center] [width:26px] [height:24px] [color:var(--muted)] [background:rgba(255,_255,_255,_0.06)] [border:1px_solid_rgba(255,_255,_255,_0.08)] [border-radius:7px]",
           disabled: !codeText,
           onClick: copyCode,
           title: copied ? "Code copied" : "Copy code",
@@ -257,7 +274,11 @@ function CodeBlockBody({
   if (highlightedCode) {
     return createElement(
       "pre",
-      { className: "run-event__code-highlight shiki github-dark", tabIndex: 0 },
+      {
+        className:
+          "run-event__code-highlight shiki github-dark [max-width:100%] [margin:0] [overflow-x:auto] [min-width:max-content] [padding:10px_12px] ![background:transparent]",
+        tabIndex: 0,
+      },
       createElement(
         "code",
         null,

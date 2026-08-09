@@ -48,7 +48,6 @@ import {
   SquarePen,
   Telescope,
   Trash2,
-  User,
   Workflow,
   X,
   XCircle,
@@ -125,6 +124,7 @@ import {
   type ProjectSortMode,
   preloadSessionCandidates,
   projectDisplayName,
+  RECENTS_GROUP_ID,
   type SessionContextMenuState,
   type SessionGroupMode,
   sameProjectPath,
@@ -253,6 +253,14 @@ const EMPTY_RUN_SUGGESTIONS: Array<{
     tone: "orange",
   },
 ];
+
+const EMPTY_RUN_SUGGESTION_CLASS = {
+  blue: "is-blue",
+  violet: "is-violet",
+  green: "is-green",
+  orange: "is-orange",
+} satisfies Record<(typeof EMPTY_RUN_SUGGESTIONS)[number]["tone"], string>;
+
 const DEFAULT_HARNESS_MCPS = [{ name: "filesystem", transport: "stdio", scope: "project" }];
 const DEFAULT_HARNESS_SKILLS = ["test-driven-development", "backprop"];
 const DEFAULT_PROJECT_FILES = ["AGENTS.md", "CLAUDE.md"];
@@ -467,7 +475,9 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
   const [projectHeaderMenu, setProjectHeaderMenu] = useState<"organize" | "add" | null>(null);
   const [projectActionMenuId, setProjectActionMenuId] = useState<string | null>(null);
   const [projectPreview, setProjectPreview] = useState<ProjectPreviewState | null>(null);
-  const [projectExpandedById, setProjectExpandedById] = useState<Record<string, boolean>>({});
+  const [sessionGroupExpandedById, setSessionGroupExpandedById] = useState<Record<string, boolean>>(
+    {},
+  );
   const [projectOrganizationMode, setProjectOrganizationMode] =
     useState<ProjectOrganizationMode>("project");
   const [projectSortMode, setProjectSortMode] = useState<ProjectSortMode>("priority");
@@ -3052,9 +3062,13 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
           const rect = event.currentTarget.getBoundingClientRect();
           openSessionContextMenu(session, rect.left + 20, rect.top + 24);
         }}
-        className={cx("session-item", isActive && "is-active", isPending && "is-loading")}
+        className={cx(
+          String.raw`session-item [position:relative] [width:100%] [min-height:48px] [padding:8px] [display:grid] [grid-template-columns:28px_minmax(0,_1fr)] [gap:8px] [align-items:center] [text-align:left] [color:var(--foreground)] [background:transparent] [border:1px_solid_transparent] [border-radius:var(--radius)] [cursor:pointer] [transition:transform_var(--duration-fast)_var(--ease-out),_background-color_var(--duration-fast)_var(--ease-out),_border-color_var(--duration-fast)_var(--ease-out),_box-shadow_var(--duration-fast)_var(--ease-out)] [&.is-loading_.session-item\_\_icon_svg]:[animation:spin_900ms_linear_infinite]`,
+          isActive && "is-active",
+          isPending && "is-loading",
+        )}
       >
-        <span className="session-item__icon">
+        <span className="session-item__icon [width:28px] [height:28px] [display:grid] [place-items:center] [color:var(--muted)] [background:rgba(255,_255,_255,_0.055)] [border:1px_solid_var(--border-subtle)] [border-radius:8px] [box-shadow:inset_0_1px_0_rgba(255,_255,_255,_0.045)] [&_svg]:[width:14px] [&_svg]:[height:14px]">
           {isPending ? (
             <Loader2 aria-hidden="true" />
           ) : isLocal ? (
@@ -3063,11 +3077,20 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
             <GitBranch aria-hidden="true" />
           )}
         </span>
-        <span className="session-item__body">
-          <span className="session-item__title">{session.title || "Untitled"}</span>
-          <span className="session-item__meta">{sessionMeta(session, sessionGroupMode)}</span>
+        <span className="session-item__body [min-width:0] [display:flex] [flex-direction:column] [gap:2px]">
+          <span className="session-item__title [color:var(--foreground)] [font-size:13px] [font-weight:560] [line-height:1.2] [min-width:0] [overflow:hidden] [text-overflow:ellipsis] [white-space:nowrap]">
+            {session.title || "Untitled"}
+          </span>
+          <span className="session-item__meta [color:var(--muted-foreground)] [font-size:11.5px] [min-width:0] [overflow:hidden] [text-overflow:ellipsis] [white-space:nowrap]">
+            {sessionMeta(session, sessionGroupMode)}
+          </span>
         </span>
-        {session.pinned && <Pin className="session-item__pin" aria-label="Pinned task" />}
+        {session.pinned && (
+          <Pin
+            className="session-item__pin [position:absolute] [top:7px] [right:7px] [width:12px] [height:12px] [color:var(--muted-foreground)]"
+            aria-label="Pinned task"
+          />
+        )}
       </button>
     );
   };
@@ -3078,17 +3101,22 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
   return (
     <div
       className={cx(
-        "app-shell",
-        !sidebarOpen && "app-shell--collapsed",
-        settingsSection && "app-shell--settings",
+        "app-shell [@media(prefers-color-scheme:light)]:[background:linear-gradient(180deg,_rgba(255,_255,_255,_0.82),_transparent_260px),_linear-gradient(115deg,_rgba(8,_124,_155,_0.07),_transparent_34%),_var(--background)] max-860:[grid-template-columns:248px_minmax(0,_1fr)] max-680:[grid-template-columns:0_minmax(0,_1fr)] [position:relative] [isolation:isolate] [display:grid] [grid-template-columns:288px_minmax(0,_1fr)] [grid-template-rows:54px_minmax(0,_1fr)] [width:100vw] [height:100vh] [min-width:0] [min-height:0] [overflow:hidden] [background:linear-gradient(180deg,_rgba(255,_255,_255,_0.036),_rgba(255,_255,_255,_0)_260px),_linear-gradient(115deg,_rgba(149,_233,_255,_0.055),_transparent_34%),_linear-gradient(290deg,_rgba(52,_211,_153,_0.035),_transparent_42%),_var(--background)] [transition:grid-template-columns_var(--duration-med)_var(--ease-out)] [&.app-shell--collapsed]:[grid-template-columns:0_minmax(0,_1fr)] [&.app-shell--settings]:[grid-template-rows:0_minmax(0,_1fr)]",
+        !sidebarOpen &&
+          "app-shell--collapsed [&_.sidebar]:[opacity:0] [&_.sidebar]:[transform:translateX(-12px)] [&_.sidebar]:[pointer-events:none] max-680:[&_.sidebar]:[opacity:0] max-680:[&_.sidebar]:[transform:translateX(-100%)] max-680:[&_.sidebar]:[pointer-events:none]",
+        settingsSection &&
+          String.raw`app-shell--settings [@media(prefers-color-scheme:light)]:[&_.sidebar]:[background:rgba(250,_250,_251,_0.94)] [@media(prefers-color-scheme:light)]:[&_.settings-workspace]:[background:#fbfbfc] [@media(prefers-color-scheme:light)]:[&_.settings-workspace\_\_content]:[background:#fbfbfc] max-680:[&_.sidebar]:[position:static] max-680:[&_.sidebar]:[width:auto] max-680:[&_.sidebar]:[opacity:1] max-680:[&_.sidebar]:[transform:none] max-680:[&_.sidebar]:[pointer-events:auto]`,
       )}
     >
       {!settingsSection && (
         <header
-          className={cx("app-titlebar", isMacOS && !sidebarOpen && "app-titlebar--macos")}
+          className={cx(
+            "app-titlebar [position:relative] [z-index:2] [grid-column:2] [grid-row:1] [height:54px] [padding:0_12px] [display:flex] [align-items:center] [justify-content:space-between] [gap:12px] [border-bottom:1px_solid_var(--border-subtle)] [background:rgba(7,_8,_11,_0.76)] [box-shadow:var(--shadow-inset)] [-webkit-backdrop-filter:saturate(155%)_blur(var(--glass-blur))] [-webkit-app-region:drag] [@media(prefers-color-scheme:light)]:[background:linear-gradient(180deg,_rgba(255,_255,_255,_0.66),_transparent_310px)] max-680:[height:54px] max-680:[min-height:54px] max-680:[padding:0_8px] max-680:[align-items:center] max-680:[flex-direction:row] max-680:[gap:6px]",
+            isMacOS && !sidebarOpen && "app-titlebar--macos",
+          )}
           aria-label="Window title bar"
         >
-          <div className="runtime__titlebar">
+          <div className="runtime__titlebar [flex:1_1_auto] [min-width:0] [display:flex] [align-items:center] [gap:4px]">
             {!sidebarOpen && (
               <>
                 <Button
@@ -3123,14 +3151,14 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
               </>
             )}
             {headerTitle && (
-              <div className="runtime__title">
+              <div className="runtime__title [margin-left:7px] [min-width:0] [display:flex] [flex-direction:column] [gap:1px] [&_h1]:[margin:0] [&_h1]:[min-width:0] [&_h1]:[overflow:hidden] [&_h1]:[text-overflow:ellipsis] [&_h1]:[white-space:nowrap] [&_h1]:[color:var(--foreground)] [&_h1]:[font-size:13.5px] [&_h1]:[font-weight:650] [&_h1]:[letter-spacing:0] [&_h1]:[line-height:1.2] [&_p]:[margin:0] [&_p]:[min-width:0] [&_p]:[overflow:hidden] [&_p]:[text-overflow:ellipsis] [&_p]:[white-space:nowrap] [&_p]:[color:var(--muted-foreground)] [&_p]:[font-size:10.5px] [&_p]:[line-height:1.2] max-680:[display:none]">
                 <h1>{headerTitle}</h1>
                 <p>{runSubtitle}</p>
               </div>
             )}
           </div>
 
-          <div className="runtime__actions">
+          <div className="runtime__actions [flex:0_1_auto] [justify-content:flex-end] [min-width:0] [display:flex] [align-items:center] [gap:4px] max-680:[width:auto] max-680:[justify-content:flex-end] max-680:[flex-wrap:nowrap]">
             {!settingsSection && (
               <>
                 <Button
@@ -3147,11 +3175,13 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
                   }
                   aria-label={sideChatPaneOpen ? "Hide side chats" : "Show side chats"}
                   aria-pressed={sideChatPaneOpen}
-                  className="side-chat-titlebar-button"
+                  className="side-chat-titlebar-button [position:relative]"
                 >
                   <MessageSquarePlus data-icon aria-hidden="true" />
                   {unreadSideChatCount > 0 && (
-                    <span className="side-chat-unread-badge">{unreadSideChatCount}</span>
+                    <span className="side-chat-unread-badge [position:absolute] [top:1px] [right:1px] [min-width:14px] [height:14px] [padding:0_3px] [display:grid] [place-items:center] [color:#071015] [background:var(--accent)] [border:2px_solid_var(--background)] [border-radius:999px] [font-size:8px] [font-weight:800] [line-height:1]">
+                      {unreadSideChatCount}
+                    </span>
                   )}
                 </Button>
                 <Button
@@ -3201,9 +3231,15 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
         </header>
       )}
 
-      <aside className="sidebar" aria-label={settingsSection ? "Settings navigation" : "Sessions"}>
+      <aside
+        className="sidebar [position:relative] [z-index:1] [grid-column:1] [grid-row:1_/_-1] [min-width:0] [overflow:hidden] [background:rgba(12,_14,_20,_0.74)] [border-right:1px_solid_var(--border-subtle)] [display:flex] [flex-direction:column] [box-shadow:14px_0_42px_rgba(0,_0,_0,_0.18),_inset_-1px_0_0_rgba(255,_255,_255,_0.035)] [-webkit-backdrop-filter:saturate(150%)_blur(var(--glass-blur))] [transition:opacity_var(--duration-med)_var(--ease-out),_transform_var(--duration-med)_var(--ease-out)] [@media(prefers-color-scheme:light)]:[background:rgba(247,_249,_252,_0.82)] max-680:[position:absolute] max-680:[top:0] max-680:[bottom:0] max-680:[left:0] max-680:[z-index:30] max-680:[width:min(288px,_86vw)] max-680:[opacity:1] max-680:[transform:none] max-680:[pointer-events:auto]"
+        aria-label={settingsSection ? "Settings navigation" : "Sessions"}
+      >
         <div
-          className={cx("sidebar__titlebar", isMacOS && "sidebar__titlebar--macos")}
+          className={cx(
+            "sidebar__titlebar [height:54px] [padding:0_10px] [display:flex] [flex:0_0_auto] [align-items:center] [gap:2px] [-webkit-app-region:drag]",
+            isMacOS && "sidebar__titlebar--macos [padding-left:84px]",
+          )}
           aria-label="Window navigation"
         >
           {sidebarOpen && !settingsSection && (
@@ -3254,19 +3290,23 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
           />
         ) : (
           <>
-            <div className="sidebar__brand">
-              <div className="brand-identity">
-                <AppBrandIcon className="brand-mark" />
-                <div className="brand-copy">
-                  <div className="brand-title">{productConfig.name}</div>
+            <div className="sidebar__brand [min-height:62px] [padding:14px_14px_10px] [display:flex] [align-items:center] [justify-content:space-between] [gap:12px] [-webkit-app-region:drag] [@media(prefers-color-scheme:light)]:[background:linear-gradient(180deg,_rgba(255,_255,_255,_0.66),_transparent_310px)]">
+              <div className="brand-identity [min-width:0] [display:flex] [align-items:center] [gap:9px]">
+                <AppBrandIcon className="brand-mark [width:34px] [height:34px] [flex:0_0_auto] [border:0] [border-radius:var(--radius)] [background:transparent] [box-shadow:none] [object-fit:contain] [display:grid] [place-items:center] [color:var(--foreground)] [&_svg]:[width:17px] [&_svg]:[height:17px]" />
+                <div className="brand-copy [min-width:0]">
+                  <div className="brand-title [font-size:17px] [font-weight:680] [line-height:1.15]">
+                    {productConfig.name}
+                  </div>
                   {productConfig.subtitle && (
-                    <div className="brand-subtitle">{productConfig.subtitle}</div>
+                    <div className="brand-subtitle [margin-top:2px] [color:var(--muted-foreground)] [font-size:10.5px] [line-height:1.2]">
+                      {productConfig.subtitle}
+                    </div>
                   )}
                 </div>
               </div>
               <button
                 type="button"
-                className="sidebar__search-toggle"
+                className="sidebar__search-toggle [width:34px] [height:34px] [flex:0_0_auto] [display:grid] [place-items:center] [color:var(--muted)] [background:transparent] [border:0] [border-radius:9px] [cursor:pointer] [&_svg]:[width:17px] [&_svg]:[height:17px] [&_svg]:[flex:0_0_auto]"
                 aria-label={sidebarSearchOpen ? "Close session search" : "Search sessions"}
                 aria-pressed={sidebarSearchOpen}
                 onClick={() => {
@@ -3279,7 +3319,9 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
             </div>
 
             {sidebarSearchOpen && (
-              <div className="sidebar-search">
+              <div
+                className={String.raw`sidebar-search [&_>_svg]:[width:17px] [&_>_svg]:[height:17px] [&_>_svg]:[flex:0_0_auto] [&_input]:[min-width:0] [&_input]:[width:100%] [&_input]:[color:var(--foreground)] [&_input]:[background:transparent] [&_input]:[border:0] [&_input]:[outline:0] [&_input]:[font-size:12.5px] [height:38px] [margin:0_10px_6px] [padding:0_10px] [display:flex] [align-items:center] [gap:8px] [color:var(--muted-foreground)] [background:var(--input)] [border:1px_solid_var(--border-subtle)] [border-radius:10px] [&.settings-sidebar\_\_search]:[margin:0_0_24px]`}
+              >
                 <Search aria-hidden="true" />
                 <input
                   ref={sidebarSearchRef}
@@ -3297,10 +3339,13 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
               </div>
             )}
 
-            <nav className="sidebar-primary-nav" aria-label="Workspace">
+            <nav
+              className="sidebar-primary-nav [padding:4px_10px_8px] [display:grid] [gap:2px] [border-bottom:1px_solid_var(--border-subtle)]"
+              aria-label="Workspace"
+            >
               <button
                 type="button"
-                className="sidebar-primary-nav__item"
+                className="sidebar-primary-nav__item [width:100%] [min-height:36px] [padding:7px_9px] [display:flex] [align-items:center] [gap:9px] [color:var(--foreground)] [background:transparent] [border:0] [border-radius:9px] [text-align:left] [cursor:pointer] [&_>_svg]:[width:17px] [&_>_svg]:[height:17px] [&_>_svg]:[flex:0_0_auto] [&_>_span]:[min-width:0] [&_>_span]:[flex:1] [&_>_span]:[overflow:hidden] [&_>_span]:[text-overflow:ellipsis] [&_>_span]:[white-space:nowrap] [&_>_span]:[font-size:13px] [&_>_span]:[font-weight:560] [&_>_small]:[min-width:20px] [&_>_small]:[padding:2px_5px] [&_>_small]:[color:var(--danger)] [&_>_small]:[background:var(--danger-muted)] [&_>_small]:[border-radius:999px] [&_>_small]:[font-size:10px] [&_>_small]:[line-height:1.2] [&_>_small]:[text-align:center]"
                 onClick={() => newSession()}
               >
                 <MessageSquarePlus aria-hidden="true" />
@@ -3308,7 +3353,10 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
               </button>
               <button
                 type="button"
-                className={cx("sidebar-primary-nav__item", workflowPanelOpen && "is-active")}
+                className={cx(
+                  "sidebar-primary-nav__item [width:100%] [min-height:36px] [padding:7px_9px] [display:flex] [align-items:center] [gap:9px] [color:var(--foreground)] [background:transparent] [border:0] [border-radius:9px] [text-align:left] [cursor:pointer] [&_>_svg]:[width:17px] [&_>_svg]:[height:17px] [&_>_svg]:[flex:0_0_auto] [&_>_span]:[min-width:0] [&_>_span]:[flex:1] [&_>_span]:[overflow:hidden] [&_>_span]:[text-overflow:ellipsis] [&_>_span]:[white-space:nowrap] [&_>_span]:[font-size:13px] [&_>_span]:[font-weight:560] [&_>_small]:[min-width:20px] [&_>_small]:[padding:2px_5px] [&_>_small]:[color:var(--danger)] [&_>_small]:[background:var(--danger-muted)] [&_>_small]:[border-radius:999px] [&_>_small]:[font-size:10px] [&_>_small]:[line-height:1.2] [&_>_small]:[text-align:center]",
+                  workflowPanelOpen && "is-active",
+                )}
                 onClick={() => {
                   setWorkflowPanelOpen((open) => !open);
                   setSettingsSection(null);
@@ -3323,8 +3371,11 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
             </nav>
 
             {registeredUiContributions.length > 0 && (
-              <nav className="sidebar-extension-nav" aria-label="Registered GUI contributions">
-                <div className="sidebar-extension-nav__header">
+              <nav
+                className="sidebar-extension-nav [min-width:0] [padding:10px_12px] [display:grid] [gap:7px] [border-bottom:1px_solid_var(--border-subtle)] [background:rgba(9,_11,_16,_0.26)]"
+                aria-label="Registered GUI contributions"
+              >
+                <div className="sidebar-extension-nav__header [min-width:0] [display:flex] [align-items:center] [justify-content:space-between] [color:var(--muted-foreground)] [font-size:11px] [font-weight:650] [line-height:1.2] [text-transform:uppercase]">
                   <span>Apps</span>
                   <span>{registeredUiContributions.length}</span>
                 </div>
@@ -3333,7 +3384,7 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
                     key={contribution.id}
                     type="button"
                     className={cx(
-                      "sidebar-extension-nav__item",
+                      "sidebar-extension-nav__item [width:100%] [min-width:0] [min-height:34px] [padding:7px_9px] [border:1px_solid_transparent] [border-radius:var(--radius)] [display:flex] [align-items:center] [gap:8px] [color:var(--foreground)] [background:transparent] [font:inherit] [font-size:12px] [line-height:1.2] [text-align:left] [cursor:pointer] [&_svg]:[width:15px] [&_svg]:[height:15px] [&_svg]:[flex:0_0_auto] [&_svg]:[color:var(--muted-foreground)] [&_span]:[min-width:0] [&_span]:[overflow:hidden] [&_span]:[text-overflow:ellipsis] [&_span]:[white-space:nowrap] [&.is-active_svg]:[color:var(--accent)]",
                       activeUiContributionId === contribution.id && "is-active",
                     )}
                     onClick={() => {
@@ -3351,10 +3402,16 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
               </nav>
             )}
 
-            <div className="session-scroll" onScroll={() => setProjectPreview(null)}>
-              <div className="project-list__header">
+            <div
+              className="session-scroll [flex:1] [min-height:0] [overflow-y:auto] [padding:6px_8px_14px]"
+              onScroll={() => setProjectPreview(null)}
+            >
+              <div className="project-list__header [position:relative] [min-height:32px] [padding:2px_6px_4px_8px] [display:flex] [align-items:center] [justify-content:space-between] [gap:8px] [color:var(--muted-foreground)] [font-size:11.5px] [font-weight:590] [letter-spacing:0.01em]">
                 <span>Projects</span>
-                <div className="project-list__actions" ref={projectHeaderMenuRef}>
+                <div
+                  className="project-list__actions [gap:1px] [position:relative] [display:flex] [align-items:center]"
+                  ref={projectHeaderMenuRef}
+                >
                   <button
                     type="button"
                     aria-label="Project options"
@@ -3377,7 +3434,10 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
                     }}
                   >
                     {projectActionPending ? (
-                      <Loader2 className="is-spinning" aria-hidden="true" />
+                      <Loader2
+                        className="is-spinning [animation:spin_0.9s_linear_infinite]"
+                        aria-hidden="true"
+                      />
                     ) : (
                       <Plus aria-hidden="true" />
                     )}
@@ -3385,7 +3445,7 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
                   {projectHeaderMenu && (
                     <div
                       className={cx(
-                        "project-list__menu",
+                        String.raw`project-list__menu [&_button]:[width:100%] [&_button]:[min-height:34px] [&_button]:[padding:7px_9px] [&_button]:[display:flex] [&_button]:[align-items:center] [&_button]:[gap:9px] [&_button]:[color:var(--foreground)] [&_button]:[background:transparent] [&_button]:[border:0] [&_button]:[border-radius:8px] [&_button]:[font:inherit] [&_button]:[font-size:12.5px] [&_button]:[font-weight:400] [&_button]:[text-align:left] [&_button]:[cursor:pointer] [&_button_svg]:[width:15px] [&_button_svg]:[height:15px] [&_button_svg]:[flex:0_0_auto] [position:absolute] [z-index:20] [top:30px] [right:-4px] [width:224px] [padding:5px] [display:grid] [gap:2px] [background:var(--popover,_var(--card-strong))] [border:1px_solid_var(--border)] [border-radius:11px] [box-shadow:var(--shadow-soft),_var(--shadow-inset)] [&.project-list\_\_menu--project]:[padding:6px] [&.project-list\_\_menu--project]:[background:var(--card-solid)] [&.project-list\_\_menu--project]:[border-radius:13px] [&.project-list\_\_menu--organize]:[width:196px] [&.project-list\_\_menu--organize]:[padding:8px] [&.project-list\_\_menu--organize]:[gap:1px] [&.project-list\_\_menu--organize]:[background:var(--card-solid)] [&.project-list\_\_menu--organize]:[border-radius:14px] [&.project-list\_\_menu--project_button]:[min-height:40px] [&.project-list\_\_menu--project_button]:[font-size:13px] [&.project-list\_\_menu--organize_button]:[min-height:36px] [&.project-list\_\_menu--organize_button]:[padding:6px_7px] [&.project-list\_\_menu--organize_button]:[gap:8px] [&.project-list\_\_menu--organize_button]:[font-size:13px]`,
                         projectHeaderMenu === "organize" && "project-list__menu--organize",
                       )}
                       role="menu"
@@ -3414,7 +3474,9 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
                         </>
                       ) : (
                         <>
-                          <div className="project-list__menu-label">Organize</div>
+                          <div className="project-list__menu-label [padding:6px_8px_3px] [color:var(--muted-foreground)] [font-size:12.5px] [line-height:1.2]">
+                            Organize
+                          </div>
                           <button
                             type="button"
                             role="menuitemradio"
@@ -3424,7 +3486,7 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
                               setProjectHeaderMenu(null);
                             }}
                           >
-                            <span className="project-list__menu-check">
+                            <span className="project-list__menu-check [width:17px] [height:17px] [display:grid] [flex:0_0_17px] [place-items:center] [&_svg]:[width:16px] [&_svg]:[height:16px]">
                               {projectOrganizationMode === "project" && (
                                 <Check aria-hidden="true" />
                               )}
@@ -3440,13 +3502,15 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
                               setProjectHeaderMenu(null);
                             }}
                           >
-                            <span className="project-list__menu-check">
+                            <span className="project-list__menu-check [width:17px] [height:17px] [display:grid] [flex:0_0_17px] [place-items:center] [&_svg]:[width:16px] [&_svg]:[height:16px]">
                               {projectOrganizationMode === "list" && <Check aria-hidden="true" />}
                             </span>
                             <span>In one list</span>
                           </button>
-                          <div className="project-list__menu-separator" />
-                          <div className="project-list__menu-label">Sort by</div>
+                          <div className="project-list__menu-separator [height:1px] [margin:5px_6px] [background:var(--border)]" />
+                          <div className="project-list__menu-label [padding:6px_8px_3px] [color:var(--muted-foreground)] [font-size:12.5px] [line-height:1.2]">
+                            Sort by
+                          </div>
                           <button
                             type="button"
                             role="menuitemradio"
@@ -3456,7 +3520,7 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
                               setProjectHeaderMenu(null);
                             }}
                           >
-                            <span className="project-list__menu-check">
+                            <span className="project-list__menu-check [width:17px] [height:17px] [display:grid] [flex:0_0_17px] [place-items:center] [&_svg]:[width:16px] [&_svg]:[height:16px]">
                               {projectSortMode === "priority" && <Check aria-hidden="true" />}
                             </span>
                             <span>Priority</span>
@@ -3470,7 +3534,7 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
                               setProjectHeaderMenu(null);
                             }}
                           >
-                            <span className="project-list__menu-check">
+                            <span className="project-list__menu-check [width:17px] [height:17px] [display:grid] [flex:0_0_17px] [place-items:center] [&_svg]:[width:16px] [&_svg]:[height:16px]">
                               {projectSortMode === "last-updated" && <Check aria-hidden="true" />}
                             </span>
                             <span>Last updated</span>
@@ -3484,7 +3548,7 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
                               setProjectHeaderMenu(null);
                             }}
                           >
-                            <span className="project-list__menu-check">
+                            <span className="project-list__menu-check [width:17px] [height:17px] [display:grid] [flex:0_0_17px] [place-items:center] [&_svg]:[width:16px] [&_svg]:[height:16px]">
                               {projectSortMode === "manual" && <Check aria-hidden="true" />}
                             </span>
                             <span>Manual order</span>
@@ -3495,33 +3559,46 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
                   )}
                 </div>
               </div>
-              {projectError && <div className="session-error">{projectError}</div>}
-              {sessionActionError && !renamingSession && (
-                <div className="session-error">{sessionActionError}</div>
+              {projectError && (
+                <div className="session-error [margin:10px_4px_0] [padding:9px] [display:flex] [align-items:flex-start] [gap:8px] [color:var(--danger)] [background:var(--danger-muted)] [border:1px_solid_rgba(248,_113,_113,_0.26)] [border-radius:var(--radius)] [box-shadow:var(--shadow-inset)] [font-size:12px] [line-height:1.35] [&_svg]:[flex:0_0_auto] [&_svg]:[width:14px] [&_svg]:[height:14px] [&_svg]:[margin-top:1px]">
+                  {projectError}
+                </div>
               )}
-              {sessionsLoading && <div className="session-status">Loading projects</div>}
+              {sessionActionError && !renamingSession && (
+                <div className="session-error [margin:10px_4px_0] [padding:9px] [display:flex] [align-items:flex-start] [gap:8px] [color:var(--danger)] [background:var(--danger-muted)] [border:1px_solid_rgba(248,_113,_113,_0.26)] [border-radius:var(--radius)] [box-shadow:var(--shadow-inset)] [font-size:12px] [line-height:1.35] [&_svg]:[flex:0_0_auto] [&_svg]:[width:14px] [&_svg]:[height:14px] [&_svg]:[margin-top:1px]">
+                  {sessionActionError}
+                </div>
+              )}
+              {sessionsLoading && (
+                <div className="session-status [margin:12px_8px] [color:var(--muted-foreground)] [font-size:12px]">
+                  Loading projects
+                </div>
+              )}
               {!sessionsLoading && visibleDisplayGroups.length === 0 && (
-                <div className="session-status">
-                  {sidebarQuery.trim() ? "No matching projects" : "No projects"}
+                <div className="session-status [margin:12px_8px] [color:var(--muted-foreground)] [font-size:12px]">
+                  {sidebarQuery.trim() ? "No matching sessions" : "No sessions"}
                 </div>
               )}
               {projectOrganizationMode === "list" ? (
-                <div className="session-group__items project-list__flat">
+                <div
+                  className={String.raw`session-group__items project-list__flat [display:flex] [flex-direction:column] [gap:3px] [padding:1px_0_4px] [&_.session-item\_\_pin]:[top:9px] [&_.session-item\_\_pin]:[right:8px]`}
+                >
                   {visibleFlatSessions.map(renderSidebarSessionItem)}
                 </div>
               ) : (
                 visibleDisplayGroups.map((group) => {
                   const projectId = group.project?.id;
-                  const expanded = projectId
-                    ? sidebarQuery.trim().length > 0 ||
-                      (projectExpandedById[projectId] ?? activeProjectId === projectId)
-                    : true;
-                  const ProjectFolderIcon = expanded ? FolderOpen : Folder;
+                  const expanded =
+                    sidebarQuery.trim().length > 0 ||
+                    (sessionGroupExpandedById[group.id] ??
+                      (projectId ? activeProjectId === projectId : true));
+                  const ProjectFolderIcon =
+                    group.id === RECENTS_GROUP_ID ? Clock3 : expanded ? FolderOpen : Folder;
                   return (
                     <section
                       key={group.id}
                       className={cx(
-                        "project-group",
+                        String.raw`project-group [margin-left:-8px] [margin-right:16px] [margin-bottom:1px] [&.has-open-menu_.project-group\_\_actions]:[opacity:1] [&.has-open-menu_.project-group\_\_actions]:[transition:none] [&_.session-group\_\_items]:[gap:1px] [&_.session-item.is-active]:[border:0] [&_.session-item.is-active]:[box-shadow:none] [&_.session-item\_\_pin]:[top:9px] [&_.session-item\_\_pin]:[right:8px]`,
                         expanded && "is-expanded",
                         projectActionMenuId === group.project?.id && "has-open-menu",
                       )}
@@ -3529,7 +3606,7 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
                     >
                       {group.project?.id === renamingProjectId ? (
                         <form
-                          className="project-group__rename"
+                          className="project-group__rename [min-height:32px] [padding:4px_7px] [display:grid] [grid-template-columns:17px_minmax(0,_1fr)] [align-items:center] [gap:7px] [background:var(--card-hover)] [border-radius:8px] [&_>_svg]:[width:15px] [&_>_svg]:[height:15px] [&_>_svg]:[color:var(--foreground)] [&_input]:[width:100%] [&_input]:[min-width:0] [&_input]:[height:24px] [&_input]:[padding:2px_5px] [&_input]:[color:var(--foreground)] [&_input]:[background:var(--input)] [&_input]:[border:1px_solid_var(--focus-ring)] [&_input]:[border-radius:5px] [&_input]:[outline:none] [&_input]:[font:inherit] [&_input]:[font-size:12.5px]"
                           onSubmit={(event) => {
                             event.preventDefault();
                             void commitProjectRename();
@@ -3552,7 +3629,7 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
                       ) : (
                         <div
                           className={cx(
-                            "project-group__header-row",
+                            "project-group__header-row [position:relative] [min-height:32px] [display:grid] [grid-template-columns:minmax(0,_1fr)_auto] [align-items:center] [color:var(--muted)] [border-radius:8px] [transition:color_var(--duration-fast)_ease,_background-color_var(--duration-fast)_ease]",
                             group.project?.id === activeProjectId && "is-active",
                           )}
                           onPointerEnter={(event) => {
@@ -3568,14 +3645,13 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
                         >
                           <button
                             type="button"
-                            className="project-group__trigger"
+                            className="project-group__trigger [width:100%] [min-height:32px] [padding:5px_7px] [display:grid] [grid-template-columns:17px_minmax(0,_1fr)] [align-items:center] [gap:7px] [color:inherit] [background:transparent] [border:0] [border-radius:8px] [font:inherit] [text-align:left] [cursor:pointer] [&_>_span]:[min-width:0] [&_>_span]:[overflow:hidden] [&_>_span]:[text-overflow:ellipsis] [&_>_span]:[white-space:nowrap] [&_>_span]:[font-size:12.5px] [&_>_span]:[font-weight:470]"
                             title={group.cwd || group.label}
-                            aria-expanded={group.project ? expanded : undefined}
+                            aria-expanded={expanded}
                             onClick={() => {
-                              if (!projectId) return;
-                              setProjectExpandedById((current) => ({
+                              setSessionGroupExpandedById((current) => ({
                                 ...current,
-                                [projectId]: !expanded,
+                                [group.id]: !expanded,
                               }));
                             }}
                           >
@@ -3584,7 +3660,7 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
                           </button>
                           {group.project && (
                             <div
-                              className="project-group__actions"
+                              className={String.raw`project-group__actions [opacity:0] [transition:opacity_var(--duration-fast)_ease] [position:relative] [display:flex] [align-items:center] [&_.project-list\_\_menu]:[top:29px] [&_.project-list\_\_menu]:[right:0] [&_.project-list\_\_menu]:[z-index:30]`}
                               ref={
                                 projectActionMenuId === group.project.id
                                   ? projectActionMenuRef
@@ -3619,7 +3695,7 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
                               </button>
                               {projectActionMenuId === group.project.id && (
                                 <div
-                                  className="project-list__menu project-list__menu--project"
+                                  className={String.raw`project-list__menu project-list__menu--project [&_button]:[width:100%] [&_button]:[min-height:34px] [&_button]:[padding:7px_9px] [&_button]:[display:flex] [&_button]:[align-items:center] [&_button]:[gap:9px] [&_button]:[color:var(--foreground)] [&_button]:[background:transparent] [&_button]:[border:0] [&_button]:[border-radius:8px] [&_button]:[font:inherit] [&_button]:[font-size:12.5px] [&_button]:[font-weight:400] [&_button]:[text-align:left] [&_button]:[cursor:pointer] [&_button_svg]:[width:15px] [&_button_svg]:[height:15px] [&_button_svg]:[flex:0_0_auto] [position:absolute] [z-index:20] [top:30px] [right:-4px] [width:224px] [padding:5px] [display:grid] [gap:2px] [background:var(--popover,_var(--card-strong))] [border:1px_solid_var(--border)] [border-radius:11px] [box-shadow:var(--shadow-soft),_var(--shadow-inset)] [&.project-list\_\_menu--project]:[padding:6px] [&.project-list\_\_menu--project]:[background:var(--card-solid)] [&.project-list\_\_menu--project]:[border-radius:13px] [&.project-list\_\_menu--organize]:[width:196px] [&.project-list\_\_menu--organize]:[padding:8px] [&.project-list\_\_menu--organize]:[gap:1px] [&.project-list\_\_menu--organize]:[background:var(--card-solid)] [&.project-list\_\_menu--organize]:[border-radius:14px] [&.project-list\_\_menu--project_button]:[min-height:40px] [&.project-list\_\_menu--project_button]:[font-size:13px] [&.project-list\_\_menu--organize_button]:[min-height:36px] [&.project-list\_\_menu--organize_button]:[padding:6px_7px] [&.project-list\_\_menu--organize_button]:[gap:8px] [&.project-list\_\_menu--organize_button]:[font-size:13px]`}
                                   role="menu"
                                   aria-label={`Project actions for ${group.label}`}
                                 >
@@ -3672,7 +3748,14 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
                         </div>
                       )}
                       {expanded && (
-                        <div className="session-group__items">
+                        <div
+                          className={cx(
+                            "session-group__items [display:flex] [flex-direction:column] [gap:3px]",
+                            group.id === RECENTS_GROUP_ID
+                              ? "[padding:1px_0_4px]"
+                              : "[padding:1px_0_4px_23px]",
+                          )}
+                        >
                           {group.sessions.map(renderSidebarSessionItem)}
                         </div>
                       )}
@@ -3681,7 +3764,10 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
                 })
               )}
               {visibleSessionErrors.map((error) => (
-                <div key={error.harnessId} className="session-error">
+                <div
+                  key={error.harnessId}
+                  className="session-error [margin:10px_4px_0] [padding:9px] [display:flex] [align-items:flex-start] [gap:8px] [color:var(--danger)] [background:var(--danger-muted)] [border:1px_solid_rgba(248,_113,_113,_0.26)] [border-radius:var(--radius)] [box-shadow:var(--shadow-inset)] [font-size:12px] [line-height:1.35] [&_svg]:[flex:0_0_auto] [&_svg]:[width:14px] [&_svg]:[height:14px] [&_svg]:[margin-top:1px]"
+                >
                   <XCircle aria-hidden="true" />
                   <span>
                     {error.harnessLabel}: {error.message}
@@ -3689,19 +3775,33 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
                 </div>
               ))}
             </div>
-            <footer className="sidebar-account-area" ref={sidebarAccountRef}>
+            <footer
+              className="sidebar-account-area [position:relative] [z-index:4] [flex:0_0_auto] [padding:6px_10px_10px] [border-top:1px_solid_var(--border-subtle)] [background:color-mix(in_srgb,_var(--background)_92%,_transparent)]"
+              ref={sidebarAccountRef}
+            >
               {accountMenuOpen && (
-                <div className="sidebar-account-menu" role="menu" aria-label="Anonymous user menu">
-                  <div className="sidebar-account-menu__identity">
-                    <span className="sidebar-account-avatar" aria-hidden="true">
-                      <User />
+                <div
+                  className="sidebar-account-menu [position:absolute] [right:10px] [bottom:51px] [left:10px] [z-index:12] [overflow:hidden] [color:var(--foreground)] [background:var(--card-solid)] [border:1px_solid_var(--border)] [border-radius:13px] [box-shadow:0_12px_32px_rgba(0,_0,_0,_0.16)]"
+                  role="menu"
+                  aria-label="Local workspace menu"
+                >
+                  <div className="sidebar-account-menu__identity [min-height:50px] [padding:9px_11px] [display:flex] [align-items:center] [gap:9px] [&_strong]:[overflow:hidden] [&_strong]:[font-size:12.5px] [&_strong]:[font-weight:610] [&_strong]:[text-overflow:ellipsis] [&_strong]:[white-space:nowrap] [&_small]:[color:var(--muted-foreground)] [&_small]:[font-size:10.5px]">
+                    <span
+                      className="sidebar-account-avatar [width:27px] [height:27px] [flex:0_0_auto] [display:grid] [place-items:center] [color:var(--muted)] [background:var(--input)] [border:1px_solid_var(--border)] [border-radius:999px] [&_svg]:[width:14px] [&_svg]:[height:14px]"
+                      aria-hidden="true"
+                    >
+                      <FolderOpen />
                     </span>
                     <span>
-                      <strong>Anonymous user</strong>
-                      <small>Local profile</small>
+                      <strong>Local workspace</strong>
+                      <small>
+                        {composerWorkspaceRoot
+                          ? abbreviateHomePath(composerWorkspaceRoot)
+                          : "No Project selected"}
+                      </small>
                     </span>
                   </div>
-                  <div className="sidebar-account-menu__items">
+                  <div className="sidebar-account-menu__items [padding:5px] [display:grid] [gap:1px] [border-top:1px_solid_var(--border-subtle)] [&_button]:[width:100%] [&_button]:[min-height:36px] [&_button]:[padding:6px_8px] [&_button]:[display:grid] [&_button]:[grid-template-columns:16px_minmax(0,_1fr)_14px] [&_button]:[align-items:center] [&_button]:[gap:8px] [&_button]:[color:var(--foreground)] [&_button]:[background:transparent] [&_button]:[border:0] [&_button]:[border-radius:7px] [&_button]:[font-size:12.5px] [&_button]:[text-align:left] [&_button]:[cursor:pointer] [&_button_svg]:[width:15px] [&_button_svg]:[height:15px] [&_button_svg]:[color:var(--muted)]">
                     <button type="button" role="menuitem" onClick={() => openSettings("general")}>
                       <Settings aria-hidden="true" />
                       <span>Settings</span>
@@ -3709,24 +3809,35 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
                   </div>
                 </div>
               )}
-              <div className={cx("sidebar-account-row", accountMenuOpen && "is-open")}>
+              <div
+                className={cx(
+                  "sidebar-account-row [width:100%] [min-width:0] [min-height:42px] [padding:5px_8px] [display:flex] [align-items:center] [gap:7px] [border-radius:9px]",
+                  accountMenuOpen && "is-open",
+                )}
+              >
                 <button
                   type="button"
-                  className="sidebar-account-trigger"
-                  aria-label="Open anonymous user menu"
+                  className="sidebar-account-trigger [min-width:0] [min-height:32px] [padding:0] [flex:1_1_auto] [display:flex] [align-items:center] [gap:9px] [color:var(--foreground)] [background:transparent] [border:0] [border-radius:7px] [font-size:13px] [font-weight:560] [text-align:left] [cursor:pointer]"
+                  aria-label="Open local workspace menu"
                   aria-haspopup="menu"
                   aria-expanded={accountMenuOpen}
                   onClick={() => setAccountMenuOpen((open) => !open)}
                 >
-                  <span className="sidebar-account-avatar" aria-hidden="true">
-                    <User />
+                  <span
+                    className="sidebar-account-avatar [width:27px] [height:27px] [flex:0_0_auto] [display:grid] [place-items:center] [color:var(--muted)] [background:var(--input)] [border:1px_solid_var(--border)] [border-radius:999px] [&_svg]:[width:14px] [&_svg]:[height:14px]"
+                    aria-hidden="true"
+                  >
+                    <FolderOpen />
                   </span>
-                  <span>Anonymous user</span>
+                  <span>Local workspace</span>
                 </button>
                 {updateVisible && (
                   <button
                     type="button"
-                    className={cx("sidebar-update-control", updateBusy && "is-busy")}
+                    className={cx(
+                      "sidebar-update-control [width:30px] [min-width:30px] [height:30px] [padding:0_8px] [flex:0_0_auto] [overflow:hidden] [display:flex] [align-items:center] [justify-content:center] [gap:0] [color:#ffffff] [background:#626bd8] [border:0] [border-radius:999px] [font-size:11.5px] [font-weight:650] [line-height:1] [cursor:pointer] [transition:width_var(--duration-fast)_var(--ease-out),_background-color_var(--duration-fast)_var(--ease-out)] [&_svg]:[width:14px] [&_svg]:[height:14px] [&_svg]:[flex:0_0_auto] [&_svg]:[opacity:1] [&_svg]:[transition:width_var(--duration-fast)_var(--ease-out),_opacity_var(--duration-fast)_var(--ease-out)] [&_>_span]:[max-width:0] [&_>_span]:[overflow:hidden] [&_>_span]:[opacity:0] [&_>_span]:[white-space:nowrap] [&_>_span]:[transition:max-width_var(--duration-fast)_var(--ease-out),_opacity_var(--duration-fast)_var(--ease-out)]",
+                      updateBusy && "is-busy",
+                    )}
                     data-phase={desktopUpdate.phase}
                     aria-label={updateAccessibleLabel}
                     title={updateTitle}
@@ -3745,30 +3856,32 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
 
       <main
         className={cx(
-          "runtime",
-          rightPanelMounted && "runtime--right-panel",
-          sideChatPaneOpen && "runtime--side-chat",
+          "runtime [position:relative] [z-index:1] [grid-column:2] [grid-row:2] [min-width:0] [min-height:0] [height:100%] [overflow:hidden] [display:grid] [grid-template-rows:minmax(0,_1fr)_auto_auto] [background:rgba(7,_8,_11,_0.26)] [@media(prefers-color-scheme:light)]:[background:linear-gradient(180deg,_rgba(255,_255,_255,_0.66),_transparent_310px)]",
+          rightPanelMounted &&
+            "runtime--right-panel [&_>_.composer-dock]:[width:calc(100%_-_var(--right-panel-width,_50%))] [&_>_.panel-transition--bottom]:[width:calc(100%_-_var(--right-panel-width,_50%))] max-680:[&_>_.composer-dock]:[width:100%] max-680:[&_>_.panel-transition--bottom]:[width:100%]",
+          sideChatPaneOpen &&
+            "runtime--side-chat [&_>_.composer-dock]:[width:calc(100%_-_var(--side-chat-width))] [&_>_.panel-transition--bottom]:[width:calc(100%_-_var(--side-chat-width))] max-860:[&_>_.composer-dock]:[display:none] max-860:[&_>_.panel-transition--bottom]:[width:100%]",
         )}
         style={{ "--side-chat-width": `${sidePaneWidth}%` } as React.CSSProperties}
       >
         <div
           className={cx(
-            "runtime__body",
-            rightPanelMounted && "runtime__body--right-panel",
-            sideChatPaneOpen && "runtime__body--side-chat",
+            String.raw`runtime__body [min-width:0] [min-height:0] [overflow:hidden] [display:grid] [grid-template-columns:minmax(0,_1fr)] [&.runtime\_\_body--right-panel]:[padding-right:var(--right-panel-width,_50%)] [&.runtime\_\_body--right-panel]:[overflow:visible] [&.runtime\_\_body--right-panel]:[grid-template-columns:minmax(0,_1fr)] [&&.runtime\_\_body--side-chat]:[padding-right:var(--side-chat-width)] [&&.runtime\_\_body--side-chat]:[overflow:visible] [&&.runtime\_\_body--side-chat]:[grid-template-columns:minmax(0,_1fr)]`,
+            rightPanelMounted && "runtime__body--right-panel max-680:[padding-right:0]",
+            sideChatPaneOpen && "runtime__body--side-chat max-860:[padding-right:0]",
           )}
         >
-          <div className="runtime__content">
+          <div className="runtime__content [display:grid] [grid-template-rows:auto_minmax(0,_1fr)] [min-width:0] [min-height:0] [overflow:hidden]">
             {pinnedSummaryMounted && (
               <div
                 className={cx(
-                  "panel-transition panel-transition--pinned",
+                  "panel-transition panel-transition--pinned [display:grid] [grid-template-rows:0fr] [--panel-transition-transform:translateY(-10px)] [opacity:0] [pointer-events:none] [transform:var(--panel-transition-transform)] [transition:opacity_var(--duration-fast)_var(--ease-out),_transform_var(--duration-med)_var(--ease-out),_grid-template-rows_var(--duration-med)_var(--ease-out)] [will-change:opacity,_transform] [&.panel-transition--right]:[--panel-transition-transform:translateX(16px)] [&.panel-transition--right]:[position:absolute] [&.panel-transition--right]:[top:0] [&.panel-transition--right]:[right:0] [&.panel-transition--right]:[bottom:0] [&.panel-transition--right]:[z-index:18] [&.panel-transition--right]:[width:var(--right-panel-width,_50%)] [&.panel-transition--right]:[min-width:0] [&.panel-transition--right]:[min-height:0] [&.panel-transition--right]:[overflow:hidden]",
                   pinnedSummaryOpen && "is-open",
                 )}
                 aria-hidden={!pinnedSummaryOpen}
                 inert={!pinnedSummaryOpen}
               >
-                <div className="panel-transition__inner">
+                <div className="panel-transition__inner [min-width:0] [min-height:0] [overflow:hidden]">
                   <PinnedSummary
                     title={runTitle}
                     subtitle={runSubtitle}
@@ -3780,7 +3893,7 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
                 </div>
               </div>
             )}
-            <div className="runtime__surface">
+            <div className="runtime__surface [display:block] [grid-row:2] [min-width:0] [min-height:0] [overflow:hidden] [&_>_*]:[height:100%]">
               {settingsSection === "general" ? (
                 <GeneralSettings
                   status={permissionStatus}
@@ -3944,11 +4057,16 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
               ) : (
                 <div
                   ref={chatRef}
-                  className="transcript-scroll"
+                  className="transcript-scroll [min-height:0] [overflow-y:auto]"
                   onMouseUp={captureTranscriptSelection}
                   onKeyUp={captureTranscriptSelection}
                 >
-                  <div className={cx("transcript", emptyRun && "transcript--empty")}>
+                  <div
+                    className={cx(
+                      "transcript max-860:[padding:22px_16px_28px] [width:min(100%,_960px)] [min-height:100%] [margin:0_auto] [padding:38px_30px_52px] [display:flex] [flex-direction:column] [gap:0] [&.transcript--empty]:[width:min(100%,_1120px)] [&.transcript--empty]:[padding-top:0] [&.transcript--empty]:[padding-bottom:0]",
+                      emptyRun && "transcript--empty",
+                    )}
+                  >
                     {emptyRun ? (
                       <EmptyRun
                         projectLabel={emptyProjectLabel}
@@ -4020,14 +4138,14 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
           {rightPanelMounted && (
             <div
               className={cx(
-                "panel-transition panel-transition--right",
+                "panel-transition panel-transition--right [&_>_.runtime-right-panel]:[height:100%] max-860:[position:absolute] max-860:[top:0] max-860:[right:0] max-860:[bottom:0] max-860:[z-index:20] max-860:[width:var(--right-panel-width,_50%)] max-680:[width:min(100%,_var(--right-panel-width,_100%))] max-680:[box-shadow:-12px_0_32px_rgba(15,_23,_42,_0.14)] [--panel-transition-transform:translateY(-10px)] [opacity:0] [pointer-events:none] [transform:var(--panel-transition-transform)] [transition:opacity_var(--duration-fast)_var(--ease-out),_transform_var(--duration-med)_var(--ease-out),_grid-template-rows_var(--duration-med)_var(--ease-out)] [will-change:opacity,_transform] [&.panel-transition--right]:[--panel-transition-transform:translateX(16px)] [&.panel-transition--right]:[position:absolute] [&.panel-transition--right]:[top:0] [&.panel-transition--right]:[right:0] [&.panel-transition--right]:[bottom:0] [&.panel-transition--right]:[z-index:18] [&.panel-transition--right]:[width:var(--right-panel-width,_50%)] [&.panel-transition--right]:[min-width:0] [&.panel-transition--right]:[min-height:0] [&.panel-transition--right]:[overflow:hidden]",
                 activeRightPanelKind && "is-open",
               )}
               aria-hidden={activeRightPanelKind === null}
               inert={activeRightPanelKind === null}
             >
               <div
-                className="right-panel-resize"
+                className="right-panel-resize [position:absolute] [z-index:3] [top:0] [bottom:0] [left:-5px] [width:10px] [cursor:col-resize] [touch-action:none] max-680:[display:none]"
                 role="separator"
                 tabIndex={0}
                 aria-label="Resize right panel"
@@ -4109,13 +4227,13 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
           )}
           {sideChatPaneOpen && activeSideChat && sideChatState && (
             <aside
-              className="side-chat-pane"
+              className="side-chat-pane [position:absolute] [inset:0_0_0_auto] [z-index:24] [min-width:360px] [max-width:55%] [min-height:0] [display:grid] [grid-template-rows:auto_auto_minmax(0,_1fr)_auto] [color:var(--foreground)] [background:rgba(13,_15,_20,_0.98)] [border-left:1px_solid_var(--border)] [box-shadow:-18px_0_42px_rgba(0,_0,_0,_0.22)] max-860:![width:100%] max-860:[max-width:none] max-860:[min-width:0] max-860:[border-left:0]"
               ref={sidePaneRef}
               aria-label="Side chats"
               style={{ width: `${sidePaneWidth}%` }}
             >
               <div
-                className="side-chat-pane__resizer"
+                className="side-chat-pane__resizer [position:absolute] [top:0] [bottom:0] [left:-4px] [z-index:2] [width:8px] [cursor:col-resize] [touch-action:none] max-860:[display:none]"
                 role="separator"
                 aria-label="Resize side chat"
                 aria-orientation="vertical"
@@ -4132,38 +4250,51 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
                   );
                 }}
               />
-              <header className="side-chat-pane__header">
+              <header className="side-chat-pane__header [min-width:0] [min-height:48px] [padding:6px_8px] [display:flex] [align-items:center] [gap:7px] [border-bottom:1px_solid_var(--border-subtle)] [background:var(--card-solid)]">
                 <button
                   type="button"
-                  className="side-chat-pane__back"
+                  className="side-chat-pane__back [display:none] [height:30px] [color:var(--muted-foreground)] [background:transparent] [border:0] [border-radius:7px] [cursor:pointer] [&_svg]:[width:14px] [&_svg]:[height:14px] max-860:[padding:0_7px] max-860:[display:inline-flex] max-860:[align-items:center] max-860:[gap:4px] max-860:[flex:0_0_auto] max-860:[font-size:10px]"
                   onClick={() => void hideSideChats()}
                 >
                   <ArrowLeft aria-hidden="true" />
                   <span>Main chat</span>
                 </button>
-                <div className="side-chat-tabs" role="tablist" aria-label="Side chat tabs">
+                <div
+                  className="side-chat-tabs [min-width:0] [flex:1] [display:flex] [align-items:center] [gap:4px] [overflow-x:auto] [scrollbar-width:none]"
+                  role="tablist"
+                  aria-label="Side chat tabs"
+                >
                   {sideChatState.chats.map((chat) => (
                     <button
                       type="button"
                       role="tab"
                       aria-selected={chat.id === activeSideChat.id}
-                      className={cx("side-chat-tab", chat.id === activeSideChat.id && "is-active")}
+                      className={cx(
+                        "side-chat-tab [min-width:76px] [max-width:132px] [padding:0_8px] [display:flex] [align-items:center] [gap:5px] [font-size:10.5px] [height:30px] [color:var(--muted-foreground)] [background:transparent] [border:0] [border-radius:7px] [cursor:pointer]",
+                        chat.id === activeSideChat.id && "is-active",
+                      )}
                       key={chat.id}
                       onClick={() => void activateSideChat(chat.id)}
                       title={chat.title}
                     >
                       <span>{chat.title}</span>
                       {chat.runState !== "idle" && (
-                        <Loader2 className="side-chat-tab__running" aria-label="Running" />
+                        <Loader2
+                          className="side-chat-tab__running [width:12px] [height:12px] [flex:0_0_auto] [animation:spin_0.9s_linear_infinite]"
+                          aria-label="Running"
+                        />
                       )}
                       {chat.unread && (
-                        <span className="side-chat-tab__unread" aria-label="Unread" />
+                        <span
+                          className="side-chat-tab__unread [width:6px] [height:6px] [flex:0_0_auto] [background:var(--accent)] [border-radius:999px]"
+                          aria-label="Unread"
+                        />
                       )}
                     </button>
                   ))}
                   <button
                     type="button"
-                    className="side-chat-tabs__add"
+                    className="side-chat-tabs__add [height:30px] [color:var(--muted-foreground)] [background:transparent] [border:0] [border-radius:7px] [cursor:pointer] [width:30px] [flex:0_0_auto] [display:grid] [place-items:center] [&_svg]:[width:14px] [&_svg]:[height:14px]"
                     onClick={() => void createSideChat()}
                     aria-label="New side chat"
                     title="New side chat"
@@ -4171,7 +4302,7 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
                     <Plus aria-hidden="true" />
                   </button>
                 </div>
-                <div className="side-chat-pane__actions">
+                <div className="side-chat-pane__actions [display:flex] [align-items:center] [gap:2px] [&_button]:[height:30px] [&_button]:[color:var(--muted-foreground)] [&_button]:[background:transparent] [&_button]:[border:0] [&_button]:[border-radius:7px] [&_button]:[cursor:pointer] [&_button]:[width:30px] [&_button]:[flex:0_0_auto] [&_button]:[display:grid] [&_button]:[place-items:center] [&_svg]:[width:14px] [&_svg]:[height:14px]">
                   <button
                     type="button"
                     onClick={() => void promoteActiveSideChat()}
@@ -4200,14 +4331,17 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
                   </button>
                 </div>
               </header>
-              <div className="side-chat-pane__boundary">
+              <div className="side-chat-pane__boundary [min-width:0] [padding:6px_12px] [display:flex] [align-items:center] [gap:7px] [overflow:hidden] [color:var(--muted-foreground)] [border-bottom:1px_solid_var(--border-subtle)] [font-size:9px] [&_span]:[overflow:hidden] [&_span]:[text-overflow:ellipsis] [&_span]:[white-space:nowrap]">
                 <span>Transient fork</span>
                 <span>Anchored after parent message {activeSideChat.anchor.messageIndex + 1}</span>
                 <span>Read-only lane</span>
               </div>
-              <div ref={sideChatScrollRef} className="side-chat-pane__transcript">
+              <div
+                ref={sideChatScrollRef}
+                className="side-chat-pane__transcript [min-height:0] [overflow-y:auto] [padding:24px_20px_34px] [&_.conversation-turn_+_.conversation-turn]:[margin-top:34px]"
+              >
                 {activeSideChat.messages.length === 0 ? (
-                  <div className="side-chat-pane__empty">
+                  <div className="side-chat-pane__empty [min-height:100%] [padding:34px_18px] [display:grid] [align-content:center] [justify-items:center] [text-align:center] [color:var(--muted-foreground)] [&_svg]:[width:24px] [&_svg]:[height:24px] [&_svg]:[color:var(--accent)] [&_h2]:[margin:12px_0_6px] [&_h2]:[color:var(--foreground)] [&_h2]:[font-size:15px] [&_p]:[max-width:320px] [&_p]:[margin:0] [&_p]:[font-size:11.5px] [&_p]:[line-height:1.55]">
                     <MessageCircle aria-hidden="true" />
                     <h2>Ask without derailing the task</h2>
                     <p>
@@ -4244,9 +4378,14 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
                   />
                 )}
               </div>
-              <footer className="side-chat-pane__composer">
+              <footer
+                className={String.raw`side-chat-pane__composer [min-width:0] [padding:8px_10px_10px] [border-top:1px_solid_var(--border-subtle)] [background:rgba(7,_8,_11,_0.88)] [&_.composer]:[padding:7px_8px_6px] [&_.composer]:[border-radius:12px] [&_.composer\_\_textarea]:[min-height:38px] [&_.composer\_\_textarea]:[max-height:148px] [&_.composer\_\_textarea]:[padding-bottom:5px] [&_.composer\_\_textarea]:[font-size:13px]`}
+              >
                 {activeSideChat.contextChips.length > 0 && (
-                  <div className="side-chat-context-chips" aria-label="Selected side chat context">
+                  <div
+                    className="side-chat-context-chips [margin-bottom:6px] [display:flex] [gap:5px] [overflow-x:auto] [&_span]:[min-width:0] [&_span]:[max-width:260px] [&_span]:[padding:4px_7px] [&_span]:[display:inline-flex] [&_span]:[align-items:center] [&_span]:[gap:4px] [&_span]:[overflow:hidden] [&_span]:[color:var(--muted-foreground)] [&_span]:[background:var(--accent-soft)] [&_span]:[border:1px_solid_rgba(149,_233,_255,_0.16)] [&_span]:[border-radius:999px] [&_span]:[font-size:9px] [&_span]:[text-overflow:ellipsis] [&_span]:[white-space:nowrap] [&_svg]:[width:11px] [&_svg]:[height:11px] [&_svg]:[flex:0_0_auto]"
+                    aria-label="Selected side chat context"
+                  >
                     {activeSideChat.contextChips.map((chip) => (
                       <span key={chip.id} title={chip.text}>
                         <FileSearch aria-hidden="true" />
@@ -4279,7 +4418,7 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
                   onFilesSelected={addSideChatAttachments}
                   onContextError={(error) => setSideChatError(errorMessage(error))}
                 >
-                  <span className="side-chat-pane__mode">
+                  <span className="side-chat-pane__mode [display:inline-flex] [align-items:center] [gap:4px] [color:var(--muted-foreground)] [font-size:9px] [&_svg]:[width:12px] [&_svg]:[height:12px] [&_svg]:[color:var(--accent)]">
                     <ShieldCheck aria-hidden="true" />
                     Read-only
                   </span>
@@ -4292,7 +4431,10 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
         {!settingsSection &&
           (activeToolApproval || (!workflowPanelOpen && !activeUiContribution)) && (
             <footer
-              className={cx("composer-dock", activeToolApproval && "composer-dock--approval")}
+              className={cx(
+                "composer-dock [padding:9px_18px_12px] [border-top:1px_solid_var(--border-subtle)] [background:linear-gradient(180deg,_rgba(7,_8,_11,_0),_rgba(7,_8,_11,_0.82)_34%),_rgba(7,_8,_11,_0.82)] [-webkit-backdrop-filter:blur(18px)] [@media(prefers-color-scheme:light)]:[background:linear-gradient(180deg,_rgba(244,_246,_249,_0),_rgba(244,_246,_249,_0.9)_34%),_rgba(244,_246,_249,_0.86)] max-860:[padding:12px_14px_14px] max-680:[padding:10px_14px]",
+                activeToolApproval && "composer-dock--approval [padding-top:12px]",
+              )}
             >
               {activeToolApproval ? (
                 <AgentInteractionDialog
@@ -4424,11 +4566,14 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
           )}
 
         <div
-          className={cx("panel-transition panel-transition--bottom", bottomPanelOpen && "is-open")}
+          className={cx(
+            "panel-transition panel-transition--bottom [display:grid] [grid-template-rows:0fr] [--panel-transition-transform:translateY(-10px)] [opacity:0] [pointer-events:none] [transform:var(--panel-transition-transform)] [transition:opacity_var(--duration-fast)_var(--ease-out),_transform_var(--duration-med)_var(--ease-out),_grid-template-rows_var(--duration-med)_var(--ease-out)] [will-change:opacity,_transform] [&.panel-transition--right]:[--panel-transition-transform:translateX(16px)] [&.panel-transition--right]:[position:absolute] [&.panel-transition--right]:[top:0] [&.panel-transition--right]:[right:0] [&.panel-transition--right]:[bottom:0] [&.panel-transition--right]:[z-index:18] [&.panel-transition--right]:[width:var(--right-panel-width,_50%)] [&.panel-transition--right]:[min-width:0] [&.panel-transition--right]:[min-height:0] [&.panel-transition--right]:[overflow:hidden]",
+            bottomPanelOpen && "is-open",
+          )}
           aria-hidden={!bottomPanelOpen}
           inert={!bottomPanelOpen}
         >
-          <div className="panel-transition__inner">
+          <div className="panel-transition__inner [min-width:0] [min-height:0] [overflow:hidden]">
             <RuntimeBottomPanel
               key={composerWorkspaceRoot || "."}
               active={bottomPanelOpen}
@@ -4442,7 +4587,7 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
         ? createPortal(
             <button
               type="button"
-              className="ask-in-side-chat-action"
+              className="ask-in-side-chat-action [position:fixed] [z-index:100] [min-height:30px] [padding:0_10px] [display:inline-flex] [align-items:center] [gap:6px] [color:var(--foreground)] [background:var(--card-strong)] [border:1px_solid_var(--border)] [border-radius:8px] [box-shadow:var(--shadow)] [cursor:pointer] [font-size:10.5px] [&_svg]:[width:14px] [&_svg]:[height:14px] [&_svg]:[color:var(--accent)]"
               style={{
                 left: selectedTranscriptContext.x,
                 top: selectedTranscriptContext.y,
@@ -4475,7 +4620,7 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
         ? createPortal(
             <div
               ref={sessionContextMenuRef}
-              className="session-context-menu"
+              className="session-context-menu [position:fixed] [z-index:120] [width:200px] [padding:6px] [display:grid] [gap:2px] [color:var(--foreground)] [background:var(--card-solid)] [border:1px_solid_var(--border)] [border-radius:13px] [box-shadow:var(--shadow),_var(--shadow-inset)] [&_button]:[width:100%] [&_button]:[min-height:38px] [&_button]:[padding:7px_9px] [&_button]:[display:flex] [&_button]:[align-items:center] [&_button]:[gap:9px] [&_button]:[color:inherit] [&_button]:[background:transparent] [&_button]:[border:0] [&_button]:[border-radius:8px] [&_button]:[font:inherit] [&_button]:[font-size:13px] [&_button]:[text-align:left] [&_button]:[cursor:pointer] [&_button.is-danger]:[color:var(--danger)] [&_button_svg]:[width:15px] [&_button_svg]:[height:15px]"
               role="menu"
               aria-label={`Task actions for ${sessionContextMenu.session.title}`}
               style={{ left: sessionContextMenu.x, top: sessionContextMenu.y }}
@@ -4498,7 +4643,7 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
                 <Pencil aria-hidden="true" />
                 <span>Rename task</span>
               </button>
-              <div className="session-context-menu__separator" />
+              <div className="session-context-menu__separator [height:1px] [margin:4px_6px] [background:var(--border)]" />
               <button
                 type="button"
                 role="menuitem"
@@ -4525,7 +4670,7 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
       {renamingSession
         ? createPortal(
             <div
-              className="session-rename-backdrop"
+              className="session-rename-backdrop [position:fixed] [z-index:130] [inset:0] [padding:24px] [display:grid] [place-items:center] [background:rgba(0,_0,_0,_0.42)] [-webkit-backdrop-filter:blur(7px)]"
               onMouseDown={(event) => {
                 if (event.target === event.currentTarget && !sessionActionPending) {
                   setRenamingSession(null);
@@ -4534,7 +4679,7 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
             >
               <dialog
                 open
-                className="session-rename-dialog"
+                className="session-rename-dialog [width:min(100%,_560px)] [padding:26px_28px_24px] [color:var(--foreground)] [background:var(--card-solid)] [border:1px_solid_var(--border)] [border-radius:24px] [box-shadow:0_24px_80px_rgba(0,_0,_0,_0.42),_var(--shadow-inset)] [&_>_header]:[display:flex] [&_>_header]:[align-items:center] [&_>_header]:[justify-content:space-between] [&_>_header]:[gap:16px] [&_h2]:[margin:0] [&_h2]:[font-size:25px] [&_h2]:[line-height:1.2] [&_>_header_button]:[width:34px] [&_>_header_button]:[height:34px] [&_>_header_button]:[padding:0] [&_>_header_button]:[display:grid] [&_>_header_button]:[place-items:center] [&_>_header_button]:[color:var(--muted-foreground)] [&_>_header_button]:[background:transparent] [&_>_header_button]:[border:0] [&_>_header_button]:[border-radius:9px] [&_>_header_button]:[cursor:pointer] [&_>_header_svg]:[width:19px] [&_>_header_svg]:[height:19px] [&_>_p]:[margin:12px_0_22px] [&_>_p]:[color:var(--muted-foreground)] [&_>_p]:[font-size:15px] [&_form]:[display:grid] [&_form]:[gap:12px] [&_input]:[width:100%] [&_input]:[height:52px] [&_input]:[padding:0_14px] [&_input]:[color:var(--foreground)] [&_input]:[background:var(--input)] [&_input]:[border:1px_solid_var(--border)] [&_input]:[border-radius:14px] [&_input]:[box-shadow:var(--shadow-inset)] [&_input]:[font:inherit] [&_input]:[font-size:17px] [&_input]:[outline:none] [&_footer]:[margin-top:10px] [&_footer]:[display:flex] [&_footer]:[justify-content:flex-end] [&_footer]:[gap:10px] [&_footer_button]:[min-width:96px] [&_footer_button]:[height:42px] [&_footer_button]:[padding:0_18px] [&_footer_button]:[color:var(--foreground)] [&_footer_button]:[background:transparent] [&_footer_button]:[border:1px_solid_var(--border)] [&_footer_button]:[border-radius:12px] [&_footer_button]:[font:inherit] [&_footer_button]:[font-weight:600] [&_footer_button]:[cursor:pointer] [&_footer_button.is-primary]:[color:var(--primary-foreground,_#09090b)] [&_footer_button.is-primary]:[background:var(--foreground)] [&_footer_button.is-primary]:[border-color:var(--foreground)]"
                 aria-modal="true"
                 aria-labelledby="session-rename-title"
               >
@@ -4568,7 +4713,10 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
                     }}
                   />
                   {sessionActionError && (
-                    <div className="session-rename-dialog__error" role="alert">
+                    <div
+                      className="session-rename-dialog__error [color:var(--danger)] [font-size:13px]"
+                      role="alert"
+                    >
                       {sessionActionError}
                     </div>
                   )}
@@ -4594,7 +4742,7 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
         ? createPortal(
             <dialog
               open
-              className="project-preview-card"
+              className="project-preview-card [position:fixed] [z-index:200] [width:min(344px,_calc(100vw_-_16px))] [margin:0] [padding:6px] [color:var(--foreground)] [background:var(--card-solid)] [border:1px_solid_var(--border)] [border-radius:12px] [box-shadow:var(--shadow-soft),_var(--shadow-inset)]"
               aria-label={`${previewProject.name} project details`}
               style={{ top: projectPreview.top, left: projectPreview.left }}
               onPointerEnter={cancelProjectPreviewClose}
@@ -4602,7 +4750,9 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
               onFocus={cancelProjectPreviewClose}
               onBlur={scheduleProjectPreviewClose}
             >
-              <div className="project-preview-card__row project-preview-card__row--title">
+              <div
+                className={String.raw`project-preview-card__row project-preview-card__row--title [&_>_svg]:[width:17px] [&_>_svg]:[height:17px] [&_strong]:[min-width:0] [&_strong]:[overflow:hidden] [&_strong]:[text-overflow:ellipsis] [&_strong]:[white-space:nowrap] [&_strong]:[font-size:15px] [&_strong]:[font-weight:560] [&_>_svg]:[color:var(--foreground)] [&_>_strong]:[color:var(--foreground)] [&_button]:[width:26px] [&_button]:[height:26px] [&_button]:[padding:0] [&_button]:[display:grid] [&_button]:[place-items:center] [&_button]:[color:var(--muted-foreground)] [&_button]:[background:transparent] [&_button]:[border:0] [&_button]:[border-radius:7px] [&_button]:[cursor:pointer] [&_button_svg]:[width:16px] [&_button_svg]:[height:16px] [min-height:28px] [padding:2px_3px] [display:grid] [grid-template-columns:22px_minmax(0,_1fr)] [align-items:center] [gap:8px] [font-size:13.5px] [&.project-preview-card\_\_row--title]:[grid-template-columns:22px_minmax(0,_1fr)_26px]`}
+              >
                 <Folder aria-hidden="true" />
                 <strong>{previewProject.name}</strong>
                 <button
@@ -4615,15 +4765,19 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
                   <Pin aria-hidden="true" />
                 </button>
               </div>
-              <div className="project-preview-card__row">
+              <div
+                className={String.raw`project-preview-card__row [&_>_svg]:[width:17px] [&_>_svg]:[height:17px] [&_>_svg]:[color:var(--muted-foreground)] [&_strong]:[min-width:0] [&_strong]:[overflow:hidden] [&_strong]:[text-overflow:ellipsis] [&_strong]:[white-space:nowrap] [&_strong]:[font-size:15px] [&_strong]:[font-weight:560] [min-height:28px] [padding:2px_3px] [display:grid] [grid-template-columns:22px_minmax(0,_1fr)] [align-items:center] [gap:8px] [font-size:13.5px] [&.project-preview-card\_\_row--title]:[grid-template-columns:22px_minmax(0,_1fr)_26px]`}
+              >
                 <MessageCircle aria-hidden="true" />
                 <span>
                   {previewProjectGroup?.sessions.length ?? 0}{" "}
                   {(previewProjectGroup?.sessions.length ?? 0) === 1 ? "thread" : "threads"}
                 </span>
               </div>
-              <div className="project-preview-card__separator" />
-              <div className="project-preview-card__row project-preview-card__row--path">
+              <div className="project-preview-card__separator [height:1px] [margin:2px_4px] [background:var(--border)]" />
+              <div
+                className={String.raw`project-preview-card__row project-preview-card__row--path [&_>_svg]:[width:17px] [&_>_svg]:[height:17px] [&_>_svg]:[color:var(--muted-foreground)] [&_strong]:[min-width:0] [&_strong]:[overflow:hidden] [&_strong]:[text-overflow:ellipsis] [&_strong]:[white-space:nowrap] [&_strong]:[font-size:15px] [&_strong]:[font-weight:560] [&_span]:[min-width:0] [&_span]:[overflow:hidden] [&_span]:[text-overflow:ellipsis] [&_span]:[white-space:nowrap] [min-height:28px] [padding:2px_3px] [display:grid] [grid-template-columns:22px_minmax(0,_1fr)] [align-items:center] [gap:8px] [font-size:13.5px] [&.project-preview-card\_\_row--title]:[grid-template-columns:22px_minmax(0,_1fr)_26px]`}
+              >
                 <Folder aria-hidden="true" />
                 <span>{abbreviateHomePath(previewProject.cwd)}</span>
               </div>
@@ -4647,18 +4801,19 @@ function EmptyRun({
   const suggestions = rightPanelOpen ? EMPTY_RUN_SUGGESTIONS.slice(0, 2) : EMPTY_RUN_SUGGESTIONS;
 
   return (
-    <div className="empty-run">
-      <div className="empty-run__mark">
-        <AppBrandIcon className="empty-run__icon" />
+    <div className="empty-run [min-height:100%] [padding:clamp(36px,_8vh,_92px)_12px_32px] [display:flex] [flex-direction:column] [align-items:center] [justify-content:center] [gap:20px] [text-align:center] [animation:event-enter_var(--duration-med)_var(--ease-out)_both] max-680:[justify-content:flex-start] max-680:[padding-top:34px]">
+      <div className="empty-run__mark [width:50px] [height:50px] [color:var(--muted)] [background:transparent] [border-color:var(--border-subtle)] [border-radius:16px] [box-shadow:none] [display:grid] [place-items:center] [border:1px_solid_var(--border)] [&_svg]:[width:17px] [&_svg]:[height:17px]">
+        <AppBrandIcon className="empty-run__icon [width:100%] [height:100%] [object-fit:contain]" />
       </div>
-      <div className="empty-run__copy">
+      <div className="empty-run__copy [display:flex] [flex-direction:column] [gap:7px] [&_h2]:[margin:0] [&_h2]:[color:var(--foreground)] [&_h2]:[font-size:clamp(24px,_3vw,_32px)] [&_h2]:[font-weight:620] [&_h2]:[letter-spacing:-0.025em] [&_h2]:[line-height:1.16] [&_p]:[margin:0] [&_p]:[color:var(--muted-foreground)] [&_p]:[font-size:12.5px] max-680:[&_h2]:[font-size:22px]">
         <h2>What should we build in {projectLabel}?</h2>
         <p>Choose a starting point or describe anything below.</p>
       </div>
       <div
         className={cx(
-          "empty-run__suggestions",
-          rightPanelOpen && "empty-run__suggestions--right-panel",
+          String.raw`empty-run__suggestions max-860:[max-width:620px] max-860:[grid-template-columns:repeat(2,_minmax(0,_1fr))] max-680:[grid-template-columns:1fr] [width:min(100%,_940px)] [display:grid] [grid-template-columns:repeat(4,_minmax(0,_1fr))] [gap:12px] [&.empty-run\_\_suggestions--right-panel]:[width:min(100%,_520px)] [&.empty-run\_\_suggestions--right-panel]:[grid-template-columns:repeat(2,_minmax(0,_1fr))]`,
+          rightPanelOpen &&
+            "empty-run__suggestions--right-panel max-680:[width:100%] max-680:[grid-template-columns:1fr]",
         )}
         aria-label="Suggested tasks"
       >
@@ -4668,7 +4823,10 @@ function EmptyRun({
             <button
               key={suggestion.id}
               type="button"
-              className={cx("empty-run__suggestion", `is-${suggestion.tone}`)}
+              className={cx(
+                "empty-run__suggestion [min-width:0] [min-height:126px] [padding:16px] [display:flex] [flex-direction:column] [align-items:flex-start] [justify-content:space-between] [gap:18px] [color:var(--foreground)] [background:var(--card)] [border:1px_solid_var(--border-subtle)] [border-radius:15px] [box-shadow:var(--shadow-inset),_0_10px_28px_rgba(0,_0,_0,_0.08)] [text-align:left] [cursor:pointer] [transition:transform_var(--duration-fast)_var(--ease-out),_background-color_var(--duration-fast)_var(--ease-out),_border-color_var(--duration-fast)_var(--ease-out)] [&_svg]:[width:18px] [&_svg]:[height:18px] [&_span]:[font-size:13px] [&_span]:[font-weight:610] [&_span]:[line-height:1.35] [&.is-blue_svg]:[color:#7597ff] [&.is-violet_svg]:[color:#a987ff] [&.is-green_svg]:[color:#34d399] [&.is-orange_svg]:[color:#fb923c] max-680:[min-height:82px] max-680:[flex-direction:row] max-680:[align-items:center] max-680:[justify-content:flex-start]",
+                EMPTY_RUN_SUGGESTION_CLASS[suggestion.tone],
+              )}
               onClick={() => onSelectPrompt(suggestion.prompt)}
             >
               <Icon aria-hidden="true" />
@@ -4697,14 +4855,17 @@ function PinnedSummary({
   onClose: () => void;
 }) {
   return (
-    <section className="pinned-summary" aria-label="Pinned summary">
+    <section
+      className="pinned-summary [min-width:0] [min-height:58px] [padding:9px_12px] [display:flex] [align-items:center] [gap:10px] [border-bottom:1px_solid_var(--border-subtle)] [background:var(--card-solid)] [&_>_svg]:[width:15px] [&_>_svg]:[height:15px] [&_>_svg]:[flex:0_0_auto] [&_>_svg]:[color:var(--accent)]"
+      aria-label="Pinned summary"
+    >
       <Pin aria-hidden="true" />
-      <div className="pinned-summary__copy">
+      <div className="pinned-summary__copy [min-width:0] [flex:1] [display:flex] [flex-direction:column] [gap:1px] [&_strong]:[overflow:hidden] [&_strong]:[text-overflow:ellipsis] [&_strong]:[white-space:nowrap] [&_span]:[overflow:hidden] [&_span]:[text-overflow:ellipsis] [&_span]:[white-space:nowrap] [&_strong]:[font-size:12.5px] [&_strong]:[line-height:1.2] [&_span]:[color:var(--muted-foreground)] [&_span]:[font-size:10.5px] max-680:[&_span]:[display:none]">
         <strong>{title}</strong>
         <span>{subtitle}</span>
       </div>
-      <div className="pinned-summary__meta">
-        <Badge tone={status === "Running" ? "active" : "neutral"}>{status}</Badge>
+      <div className="pinned-summary__meta [display:flex] [align-items:center] [gap:6px] max-680:[display:none]">
+        <Badge tone={status === "Running" ? "success" : "neutral"}>{status}</Badge>
         <Badge tone="neutral">{messageCount} events</Badge>
         <Badge tone="neutral">{workflowLabel}</Badge>
       </div>
@@ -4728,18 +4889,21 @@ function GuiContributionWorkspace({
 }) {
   return (
     <section
-      className="gui-contribution-workspace"
+      className="gui-contribution-workspace [height:100%] [min-width:0] [min-height:0] [overflow:hidden] [display:grid] [grid-template-rows:58px_minmax(0,_1fr)] [background:rgba(9,_10,_14,_0.72)]"
       aria-label={`${contribution.name} contribution`}
     >
-      <div className="gui-contribution-topbar">
-        <div className="extension-title">
+      <div className="gui-contribution-topbar [min-width:0] [padding:0_16px] [display:flex] [align-items:center] [justify-content:space-between] [gap:14px] [border-bottom:1px_solid_var(--border-subtle)] [background:rgba(15,_17,_23,_0.84)] [box-shadow:var(--shadow-inset)]">
+        <div className="extension-title [min-width:0] [display:flex] [align-items:center] [gap:10px] [&_>_svg]:[flex:0_0_auto] [&_>_svg]:[width:18px] [&_>_svg]:[height:18px] [&_>_svg]:[color:var(--accent)] [&_h2]:[margin:0] [&_h2]:[color:var(--foreground)] [&_h2]:[font-size:14px] [&_h2]:[font-weight:680] [&_h2]:[line-height:1.2] [&_span]:[display:block] [&_span]:[margin-top:2px] [&_span]:[color:var(--muted-foreground)] [&_span]:[font-size:12px] [&_span]:[line-height:1.2]">
           <Package aria-hidden="true" />
           <div>
             <h2>{contribution.name}</h2>
             <span>{contribution.description ?? contribution.componentRef}</span>
           </div>
         </div>
-        <div className="extension-stats" aria-label="Contribution metadata">
+        <div
+          className="extension-stats [justify-content:flex-end] [flex-wrap:wrap] [min-width:0] [display:flex] [align-items:center] [gap:10px] max-680:[width:100%] max-680:[justify-content:flex-start]"
+          aria-label="Contribution metadata"
+        >
           <Badge tone="neutral">{contribution.kind}</Badge>
           <Badge tone="neutral">{contribution.placement}</Badge>
           {contribution.sourcePluginId && (
@@ -4748,7 +4912,7 @@ function GuiContributionWorkspace({
           {contribution.readOnly && <Badge tone="neutral">read-only</Badge>}
         </div>
       </div>
-      <div className="gui-contribution-body">
+      <div className="gui-contribution-body [min-width:0] [min-height:0] [overflow:auto] [padding:16px]">
         <Component
           contribution={contribution}
           inventory={inventory}

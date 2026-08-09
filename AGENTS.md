@@ -66,8 +66,8 @@ Dependency versions are authoritative in package manifests and lockfiles.
 - **Workflows:** `SwarmConfig` is the only persisted workflow format.
 - **ACP:** External Harnesses own their native tools, authentication, sessions,
   and permissions. Do not inject duplicate SwarmX tools.
-- **Sessions:** Canonical history is append-only JSONL under
-  `~/.swarmx/sessions/`; the metadata index is rebuildable.
+- **Sessions:** Canonical history is append-only JSONL grouped by Project under
+  `~/.swarmx/projects/`; each metadata index is rebuildable.
 - **Boundaries:** Use zod at persistence, IPC, protocol, plugin, and public input
   boundaries. Renderer imports must use browser-safe Core subpaths.
 - **Side effects:** Discovery and planning are read-only. Installation, repair,

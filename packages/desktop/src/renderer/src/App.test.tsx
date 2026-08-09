@@ -232,6 +232,22 @@ afterEach(() => {
 });
 
 describe("App user workflow", () => {
+  it("keeps session history scrollable above the bottom-pinned Local workspace control", async () => {
+    await renderApp(createDesktopApiMock());
+
+    const sidebar = screen.getByRole("complementary", { name: "Sessions" });
+    const sessionScroll = sidebar.querySelector(".session-scroll");
+    const accountArea = sidebar.querySelector(".sidebar-account-area");
+
+    expect(sessionScroll).not.toBeNull();
+    expect(accountArea).not.toBeNull();
+    expect(sessionScroll?.nextElementSibling).toBe(accountArea);
+    expect(sessionScroll?.classList.contains("[flex:1]")).toBe(true);
+    expect(sessionScroll?.classList.contains("[min-height:0]")).toBe(true);
+    expect(sessionScroll?.classList.contains("[overflow-y:auto]")).toBe(true);
+    expect(accountArea?.classList.contains("[flex:0_0_auto]")).toBe(true);
+  });
+
   it("uses one accessible send/stop control and cancels only the active request", async () => {
     const reply = deferred<{ success: boolean; messages: MessageChunk[] }>();
     const api = createDesktopApiMock({
@@ -717,19 +733,21 @@ describe("App user workflow", () => {
     expect(api.refreshModelCatalog).not.toHaveBeenCalled();
   });
 
-  it("keeps a single Settings action in the account menu and hides the updater when current", async () => {
+  it("keeps a single Settings action in the Local workspace menu and hides the updater when current", async () => {
     const api = createDesktopApiMock();
     await renderApp(api);
     const user = userEvent.setup();
 
     const accountTrigger = await screen.findByRole("button", {
-      name: "Open anonymous user menu",
+      name: "Open local workspace menu",
     });
+    expect(within(accountTrigger).getByText("Local workspace")).toBeTruthy();
     expect(screen.queryByRole("button", { name: /Update SwarmX/ })).toBeNull();
     expect(screen.queryByText("Check for updates")).toBeNull();
 
     await user.click(accountTrigger);
-    const accountMenu = screen.getByRole("menu", { name: "Anonymous user menu" });
+    const accountMenu = screen.getByRole("menu", { name: "Local workspace menu" });
+    expect(within(accountMenu).getByText("~/swarmx")).toBeTruthy();
     expect(within(accountMenu).getAllByRole("menuitem")).toHaveLength(1);
     expect(within(accountMenu).queryByRole("menuitem", { name: "Usage remaining" })).toBeNull();
     expect(within(accountMenu).getByRole("menuitem", { name: "Settings" })).toBeTruthy();
@@ -737,11 +755,11 @@ describe("App user workflow", () => {
     expect(within(accountMenu).queryByText("Log out")).toBeNull();
 
     await user.keyboard("{Escape}");
-    expect(screen.queryByRole("menu", { name: "Anonymous user menu" })).toBeNull();
+    expect(screen.queryByRole("menu", { name: "Local workspace menu" })).toBeNull();
 
     await user.click(accountTrigger);
     fireEvent.pointerDown(document.body);
-    expect(screen.queryByRole("menu", { name: "Anonymous user menu" })).toBeNull();
+    expect(screen.queryByRole("menu", { name: "Local workspace menu" })).toBeNull();
 
     await user.click(accountTrigger);
     await user.click(screen.getByRole("menuitem", { name: "Settings" }));
@@ -788,7 +806,7 @@ describe("App user workflow", () => {
     await renderApp(api);
     const user = userEvent.setup();
 
-    await user.click(await screen.findByRole("button", { name: "Open anonymous user menu" }));
+    await user.click(await screen.findByRole("button", { name: "Open local workspace menu" }));
     await user.click(screen.getByRole("menuitem", { name: "Settings" }));
 
     await user.click(screen.getByRole("button", { name: "Profile" }));
@@ -807,7 +825,7 @@ describe("App user workflow", () => {
     const api = createDesktopApiMock();
     const user = userEvent.setup();
     await renderApp(api);
-    await user.click(await screen.findByRole("button", { name: "Open anonymous user menu" }));
+    await user.click(await screen.findByRole("button", { name: "Open local workspace menu" }));
     await user.click(screen.getByRole("menuitem", { name: "Settings" }));
     const general = await screen.findByLabelText("General settings");
     expect(within(general).getByRole("switch", { name: /Default permissions/ })).toBeTruthy();
@@ -853,6 +871,26 @@ describe("App user workflow", () => {
         { cwd: "/Users/tcztzy/swarmx" },
       ),
     );
+  });
+
+  it("presents OpenRouter bearer credentials as API keys", async () => {
+    const api = createDesktopApiMock();
+    const user = userEvent.setup();
+    await renderApp(api);
+
+    await user.click(await screen.findByRole("button", { name: "Open local workspace menu" }));
+    await user.click(screen.getByRole("menuitem", { name: "Settings" }));
+    await user.click(screen.getByRole("button", { name: "Providers" }));
+    await user.click(screen.getByRole("button", { name: "Add Provider" }));
+    fireEvent.change(screen.getByLabelText("Base URL"), {
+      target: { value: "https://openrouter.ai/api/v1" },
+    });
+
+    expect(screen.getByLabelText("Preferred API protocol")).toBeTruthy();
+    const authentication = screen.getByLabelText("Authentication") as HTMLSelectElement;
+    expect(authentication.disabled).toBe(true);
+    expect(authentication.selectedOptions[0]?.textContent).toBe("API Key (Bearer)");
+    expect(screen.getByLabelText("API key")).toBeTruthy();
   });
 
   it("shows Codex, OpenAI, and DeepSeek as peers in one fixed Provider matrix", async () => {
@@ -972,7 +1010,7 @@ describe("App user workflow", () => {
     await renderApp(api);
     const user = userEvent.setup();
 
-    await user.click(await screen.findByRole("button", { name: "Open anonymous user menu" }));
+    await user.click(await screen.findByRole("button", { name: "Open local workspace menu" }));
     await user.click(screen.getByRole("menuitem", { name: "Settings" }));
     await user.click(screen.getByRole("button", { name: "Providers" }));
 
@@ -1120,7 +1158,7 @@ describe("App user workflow", () => {
     await renderApp(api);
     const user = userEvent.setup();
 
-    await user.click(await screen.findByRole("button", { name: "Open anonymous user menu" }));
+    await user.click(await screen.findByRole("button", { name: "Open local workspace menu" }));
     await user.click(screen.getByRole("menuitem", { name: "Settings" }));
     await user.click(screen.getByRole("button", { name: "Providers" }));
     const card = await screen.findByRole("article", { name: "OpenCode Go Provider" });
@@ -1232,7 +1270,7 @@ describe("App user workflow", () => {
     await renderApp(api);
     const user = userEvent.setup();
 
-    await user.click(await screen.findByRole("button", { name: "Open anonymous user menu" }));
+    await user.click(await screen.findByRole("button", { name: "Open local workspace menu" }));
     await user.click(screen.getByRole("menuitem", { name: "Settings" }));
     await user.click(screen.getByRole("button", { name: "Providers" }));
     const refreshDeepSeek = await screen.findByRole("button", {
@@ -1373,7 +1411,7 @@ describe("App user workflow", () => {
     await renderApp(api);
     const user = userEvent.setup();
 
-    await user.click(await screen.findByRole("button", { name: "Open anonymous user menu" }));
+    await user.click(await screen.findByRole("button", { name: "Open local workspace menu" }));
     await user.click(screen.getByRole("menuitem", { name: "Settings" }));
     await user.click(screen.getByRole("button", { name: "Providers" }));
     const packy = await screen.findByRole("article", { name: "packy cc sale Provider" });
@@ -1525,7 +1563,7 @@ describe("App user workflow", () => {
     const user = userEvent.setup();
 
     expect(api.refreshModelCatalog).not.toHaveBeenCalled();
-    await user.click(await screen.findByRole("button", { name: "Open anonymous user menu" }));
+    await user.click(await screen.findByRole("button", { name: "Open local workspace menu" }));
     await user.click(screen.getByRole("menuitem", { name: "Settings" }));
     await user.click(screen.getByRole("button", { name: "Providers" }));
     expect(screen.getByRole("heading", { name: "Providers" })).toBeTruthy();
@@ -1819,7 +1857,7 @@ describe("App user workflow", () => {
     expect(screen.getByRole("button", { name: "Workflow" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Extensions" })).toBeNull();
 
-    await user.click(screen.getByRole("button", { name: "Open anonymous user menu" }));
+    await user.click(screen.getByRole("button", { name: "Open local workspace menu" }));
     await user.click(screen.getByRole("menuitem", { name: "Settings" }));
     expect(screen.getByRole("button", { name: "Extensions" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Custom Agents" })).toBeTruthy();
@@ -1928,6 +1966,72 @@ describe("App user workflow", () => {
     expect(projectTrigger.getAttribute("aria-expanded")).toBe("true");
     expect(projectTrigger.querySelector(".lucide-folder-open")).toBeTruthy();
     expect(within(projectGroup as HTMLElement).getByText("ACP investigation")).toBeTruthy();
+  });
+
+  it("toggles Project groups, indents their Sessions, and keeps flush Recents last", async () => {
+    const discoveredProjectSession: DiscoveredSession = {
+      ...discoveredAcpSession,
+      id: "acp-miniprot",
+      title: "Optimize miniprot",
+      cwd: "/Users/tcztzy/miniprot-rs",
+      updatedAt: "2026-06-12T10:00:00.000Z",
+    };
+    const api = createDesktopApiMock({
+      listGroupedSessions: vi.fn(async () => ({
+        mode: "project" as const,
+        groups: [
+          {
+            id: "codex",
+            label: "Codex",
+            sessions: [discoveredAcpSession, discoveredProjectSession],
+          },
+        ],
+        errors: [],
+      })),
+    });
+    await renderApp(api);
+    const user = userEvent.setup();
+    const sidebar = screen.getByRole("complementary", { name: "Sessions" });
+    const miniprotGroup = await screen.findByLabelText("miniprot-rs");
+    const miniprotTrigger = within(miniprotGroup).getByRole("button", {
+      name: "miniprot-rs",
+    });
+
+    await waitFor(() => expect(miniprotTrigger.getAttribute("aria-expanded")).toBe("true"));
+    expect(within(miniprotGroup).getByText("Optimize miniprot")).toBeTruthy();
+    expect(screen.queryByLabelText("No project")).toBeNull();
+    const recentsGroup = screen.getByLabelText("Recents");
+    expect(
+      Array.from(sidebar.querySelectorAll(".project-group")).at(-1)?.getAttribute("aria-label"),
+    ).toBe("Recents");
+    expect(
+      miniprotGroup
+        .querySelector(".session-group__items")
+        ?.classList.contains("[padding:1px_0_4px_23px]"),
+    ).toBe(true);
+    expect(
+      recentsGroup
+        .querySelector(".session-group__items")
+        ?.classList.contains("[padding:1px_0_4px_23px]"),
+    ).toBe(false);
+    expect(
+      recentsGroup
+        .querySelector(".session-group__items")
+        ?.classList.contains("[padding:1px_0_4px]"),
+    ).toBe(true);
+    expect(recentsGroup.querySelector(".lucide-clock-3")).not.toBeNull();
+
+    await user.click(miniprotTrigger);
+    expect(miniprotTrigger.getAttribute("aria-expanded")).toBe("false");
+    expect(within(miniprotGroup).queryByText("Optimize miniprot")).toBeNull();
+
+    await user.click(miniprotTrigger);
+    expect(miniprotTrigger.getAttribute("aria-expanded")).toBe("true");
+    expect(within(miniprotGroup).getByText("Optimize miniprot")).toBeTruthy();
+
+    await user.click(screen.getByRole("button", { name: "Search sessions" }));
+    await user.type(screen.getByRole("searchbox", { name: "Search sessions" }), "missing");
+    expect(screen.getByText("No matching sessions")).toBeTruthy();
   });
 
   it("V329 matches the per-project hover row, controls, and semantic detail card", async () => {
@@ -2768,7 +2872,7 @@ describe("App user workflow", () => {
 
     await renderApp(api);
 
-    await user.click(screen.getByRole("button", { name: "Open anonymous user menu" }));
+    await user.click(screen.getByRole("button", { name: "Open local workspace menu" }));
     await user.click(screen.getByRole("menuitem", { name: "Settings" }));
     await user.click(screen.getByRole("button", { name: "Extensions" }));
 
@@ -2875,7 +2979,7 @@ describe("App user workflow", () => {
     const user = userEvent.setup();
 
     await renderApp(api);
-    await user.click(screen.getByRole("button", { name: "Open anonymous user menu" }));
+    await user.click(screen.getByRole("button", { name: "Open local workspace menu" }));
     await user.click(screen.getByRole("menuitem", { name: "Settings" }));
     await user.click(screen.getByRole("button", { name: "Custom Agents" }));
 
@@ -2974,7 +3078,7 @@ describe("App user workflow", () => {
     const user = userEvent.setup();
 
     await renderApp(api);
-    await user.click(screen.getByRole("button", { name: "Open anonymous user menu" }));
+    await user.click(screen.getByRole("button", { name: "Open local workspace menu" }));
     await user.click(screen.getByRole("menuitem", { name: "Settings" }));
     await user.click(screen.getByRole("button", { name: "Custom Agents" }));
 
@@ -3055,7 +3159,7 @@ describe("App user workflow", () => {
     const user = userEvent.setup();
 
     await renderApp(api);
-    await user.click(screen.getByRole("button", { name: "Open anonymous user menu" }));
+    await user.click(screen.getByRole("button", { name: "Open local workspace menu" }));
     await user.click(screen.getByRole("menuitem", { name: "Settings" }));
     await user.click(screen.getByRole("button", { name: "Custom Agents" }));
 
@@ -3072,7 +3176,7 @@ describe("App user workflow", () => {
 
     await renderApp(api);
     expect(screen.queryByRole("button", { name: /Open Doctor/ })).toBeNull();
-    await user.click(screen.getByRole("button", { name: "Open anonymous user menu" }));
+    await user.click(screen.getByRole("button", { name: "Open local workspace menu" }));
     await user.click(screen.getByRole("menuitem", { name: "Settings" }));
     await user.click(screen.getByRole("button", { name: "Runtime" }));
 
@@ -3191,7 +3295,7 @@ describe("App user workflow", () => {
     expect(screen.getByRole("textbox")).toBeTruthy();
     expect(screen.getByText("Environment ready")).toBeTruthy();
     expect(screen.queryByRole("heading", { name: "Diagnostics" })).toBeNull();
-    expect(screen.getByText("0.69.0").classList.contains("badge--active")).toBe(true);
+    expect(screen.getByText("0.69.0").classList.contains("text-success")).toBe(true);
     expect(screen.queryByText("Built in.")).toBeNull();
     expect(document.querySelector(".doctor-harness [data-harness-icon='codex']")).not.toBeNull();
     expect(document.querySelector(".doctor-harness [data-harness-icon='kimi']")).not.toBeNull();
@@ -3639,6 +3743,16 @@ describe("App user workflow", () => {
     });
     const userActions = userCopy.closest(".run-event__actions") as HTMLElement;
     const assistantActions = assistantCopy.closest(".run-event__actions") as HTMLElement;
+    for (const actions of [userActions, assistantActions]) {
+      expect(actions.classList.contains("opacity-0")).toBe(true);
+      expect(actions.classList.contains("pointer-events-none")).toBe(true);
+      expect(actions.classList.contains("group-hover:opacity-100")).toBe(true);
+      expect(actions.classList.contains("group-hover:pointer-events-auto")).toBe(true);
+      expect(actions.classList.contains("group-focus-within:opacity-100")).toBe(true);
+      expect(actions.classList.contains("group-focus-within:pointer-events-auto")).toBe(true);
+    }
+    expect(userEventNode?.classList.contains("group")).toBe(true);
+    expect(assistantEventNode?.classList.contains("group")).toBe(true);
     const userTimestamp = userActions.querySelector("time");
     const assistantTimestamp = assistantActions.querySelector("time");
     expect(userTimestamp?.getAttribute("datetime")).toBe("2026-06-11T09:59:00.000Z");
@@ -3836,11 +3950,14 @@ describe("App user workflow", () => {
 
     const firstReply = screen.getByText("First reply").closest(".run-event") as HTMLElement;
     expect(screen.getAllByRole("button", { name: "Continue in new chat" })).toHaveLength(2);
-    await user.click(
-      within(firstReply).getByRole("button", {
-        name: "Continue in new chat",
-      }),
-    );
+    const firstReplyCopy = within(firstReply).getByRole("button", { name: "Copy message" });
+    const firstReplyFork = within(firstReply).getByRole("button", {
+      name: "Continue in new chat",
+    });
+    expect(firstReplyCopy.className).toBe(firstReplyFork.className);
+    expect(firstReplyCopy.classList.contains("[background:transparent]")).toBe(true);
+    expect(firstReplyCopy.classList.contains("[border:1px_solid_transparent]")).toBe(true);
+    await user.click(firstReplyFork);
 
     await waitFor(() => {
       expect(forkSession).toHaveBeenCalledWith({
@@ -4889,7 +5006,7 @@ describe("App user workflow", () => {
     expect(screen.queryByLabelText("Harness")).toBeNull();
     expect(screen.queryByLabelText("Session grouping")).toBeNull();
     expect(screen.getByLabelText("swarmx")).toBeTruthy();
-    expect(screen.getByLabelText("No project")).toBeTruthy();
+    expect(screen.getByLabelText("Recents")).toBeTruthy();
     expect(api.listGroupedSessions).toHaveBeenCalledWith({ mode: "project" });
 
     await user.click(screen.getByRole("button", { name: /ACP investigation/i }));

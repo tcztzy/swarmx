@@ -17,7 +17,6 @@
     "dist/renderer",
     "dist/shared",
     "build",
-    "src/renderer/src/assets/styles.css",
     "LICENSE",
     "THIRD_PARTY_NOTICES.md",
     "third_party_licenses",
@@ -42,7 +41,7 @@
       "types": "./dist/renderer/App.d.ts",
       "import": "./dist/renderer/App.js"
     },
-    "./styles.css": "./src/renderer/src/assets/styles.css"
+    "./styles.css": "./out/renderer/assets/swarmx.css"
   },
   "scripts": {
     "dev": "vite",
@@ -57,6 +56,7 @@
     "@swarmx/runtime": "workspace:*",
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/xterm": "^6.0.0",
+    "class-variance-authority": "^0.7.1",
     "cron-parser": "5.6.2",
     "katex": "^0.18.1",
     "lucide-react": "^1.28.0",
@@ -75,6 +75,7 @@
     "react-dom": "^19.0.0"
   },
   "devDependencies": {
+    "@tailwindcss/vite": "^4.3.3",
     "@testing-library/react": "^16.3.2",
     "@testing-library/user-event": "^14.6.1",
     "@types/node": "^26.1.2",
@@ -83,11 +84,12 @@
     "@vitejs/plugin-react": "^6.0.5",
     "electron": "^43.2.0",
     "electron-builder": "^26.15.3",
-    "vite": "^8.2.0",
-    "vite-plugin-electron": "^1.1.0",
     "jsdom": "^30.0.1",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
-    "typescript": "^7.0.2"
+    "tailwindcss": "^4.3.3",
+    "typescript": "^7.0.2",
+    "vite": "^8.2.0",
+    "vite-plugin-electron": "^1.1.0"
   }
 }

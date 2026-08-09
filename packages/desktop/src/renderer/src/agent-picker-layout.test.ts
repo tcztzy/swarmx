@@ -1,46 +1,50 @@
 /** @vitest-environment node */
 
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { readStylesheet } from "./stylesheet-test-utils.js";
 
 const styles = readStylesheet(new URL("./assets/styles.css", import.meta.url));
+const source = readFileSync(new URL("./agent-picker.tsx", import.meta.url), "utf8");
 
-function ruleBody(selector: string): string {
-  const escapedSelector = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const matches = [...styles.matchAll(new RegExp(`^${escapedSelector}\\s*\\{`, "gm"))];
-  const match = matches.at(-1);
-  if (!match || match.index === undefined) throw new Error(`Missing CSS rule: ${selector}`);
-  const start = match.index;
-  const bodyStart = styles.indexOf("{", start) + 1;
-  const bodyEnd = styles.indexOf("}", bodyStart);
-  return styles.slice(bodyStart, bodyEnd);
+function staticClasses(marker: string): string {
+  const escapedMarker = marker.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const match =
+    source.match(new RegExp(`className="([^"]*\\b${escapedMarker}\\b[^"]*)"`)) ??
+    source.match(
+      new RegExp(`className=\\{String\\.raw\`([^\`]*\\b${escapedMarker}\\b[^\`]*)\`\\}`),
+    );
+  if (!match) throw new Error(`Missing static class list: ${marker}`);
+  return match[1];
 }
 
 describe("agent picker layout contracts", () => {
   it("V204 keeps secondary options out of primary layout flow", () => {
-    const menu = ruleBody(".agent-picker__menu");
-    const primary = ruleBody(".agent-picker__primary");
-    const secondary = ruleBody(".agent-picker__secondary");
+    const menu = staticClasses("agent-picker__menu");
+    const primary = staticClasses("agent-picker__primary");
+    const secondary = staticClasses("agent-picker__secondary");
 
-    expect(menu).toMatch(/width:\s*var\(--agent-picker-primary-width\)/);
-    expect(menu).toMatch(/overflow:\s*visible/);
-    expect(menu).toMatch(/left:\s*var\(--agent-picker-inline-offset, 0px\)/);
-    expect(menu).not.toMatch(/display:\s*(grid|flex)/);
-    expect(primary).toMatch(/height:\s*fit-content/);
-    expect(secondary).toMatch(/position:\s*absolute/);
-    expect(secondary).toMatch(/left:\s*calc\(100% \+ var\(--agent-picker-panel-gap\)\)/);
-    expect(secondary).toMatch(/bottom:\s*0/);
-    expect(secondary).toMatch(/max-height:\s*min\(360px, 56vh\)/);
-    expect(secondary).toMatch(/overflow-y:\s*auto/);
+    expect(menu).toContain("[width:var(--agent-picker-primary-width)]");
+    expect(menu).toContain("[overflow:visible]");
+    expect(menu).toContain("[left:var(--agent-picker-inline-offset,_0px)]");
+    expect(menu).not.toMatch(/\[(?:display):(grid|flex)\]/);
+    expect(primary).toContain("[height:fit-content]");
+    expect(secondary).toContain("[position:absolute]");
+    expect(secondary).toContain("[left:calc(100%_+_var(--agent-picker-panel-gap))]");
+    expect(secondary).toContain("[bottom:0]");
+    expect(secondary).toContain("[max-height:min(360px,_56vh)]");
+    expect(secondary).toContain("[overflow-y:auto]");
   });
 
   it("keeps edge flipping on the secondary panel instead of moving primary layout", () => {
-    const flippedSecondary = ruleBody(
-      '.agent-picker__menu[data-secondary-side="left"] .agent-picker__secondary',
-    );
+    const menu = staticClasses("agent-picker__menu");
 
-    expect(flippedSecondary).toMatch(/right:\s*calc\(100% \+ var\(--agent-picker-panel-gap\)\)/);
-    expect(flippedSecondary).toMatch(/left:\s*auto/);
+    expect(menu).toContain(
+      "[&[data-secondary-side='left']_.agent-picker\\_\\_secondary]:[right:calc(100%_+_var(--agent-picker-panel-gap))]",
+    );
+    expect(menu).toContain(
+      "[&[data-secondary-side='left']_.agent-picker\\_\\_secondary]:[left:auto]",
+    );
   });
 
   it("keeps keyboard focus visible after removing the global button outline", () => {

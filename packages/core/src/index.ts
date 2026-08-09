@@ -627,10 +627,6 @@ export type {
   EditSessionUserMessageInput,
   ForkSessionInput,
   PromoteTransientSessionForkInput,
-  SessionMigrationEntry,
-  SessionMigrationOptions,
-  SessionMigrationResult,
-  SessionMigrationStatus,
   SessionSummary,
 } from "./session.js";
 export {
@@ -647,7 +643,6 @@ export {
   listSessionSummaries,
   listSessions,
   loadSession,
-  migrateLegacySessions,
   promoteTransientSessionFork,
   saveSession,
   setSessionPinned,

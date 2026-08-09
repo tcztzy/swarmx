@@ -68,16 +68,24 @@ export function ProfileWorkspace({
 
   if (loading && !summary) {
     return (
-      <section className="profile-workspace" aria-label="Settings">
-        <output className="profile-workspace__state">Loading local activity…</output>
+      <section
+        className="profile-workspace [width:100%] [height:100%] [min-width:0] [min-height:0] [overflow-y:auto] [color:var(--foreground)] [background:var(--background)]"
+        aria-label="Settings"
+      >
+        <output className="profile-workspace__state [height:100%] [display:grid] [place-content:center] [gap:4px] [color:var(--muted-foreground)] [font-size:13px] [text-align:center] [&.is-error_strong]:[color:var(--foreground)] [&.is-error_strong]:[font-size:15px]">
+          Loading local activity…
+        </output>
       </section>
     );
   }
 
   if (error || !summary) {
     return (
-      <section className="profile-workspace" aria-label="Settings">
-        <div className="profile-workspace__state is-error">
+      <section
+        className="profile-workspace [width:100%] [height:100%] [min-width:0] [min-height:0] [overflow-y:auto] [color:var(--foreground)] [background:var(--background)]"
+        aria-label="Settings"
+      >
+        <div className="profile-workspace__state is-error [height:100%] [display:grid] [place-content:center] [gap:4px] [color:var(--muted-foreground)] [font-size:13px] [text-align:center] [&.is-error_strong]:[color:var(--foreground)] [&.is-error_strong]:[font-size:15px]">
           <strong>Activity is unavailable</strong>
           <span>{error ?? "The local activity store could not be read."}</span>
         </div>
@@ -95,10 +103,16 @@ export function ProfileWorkspace({
   const topModel = summary.models[0];
 
   return (
-    <section className="profile-workspace" aria-label="Settings">
-      <div className="profile-workspace__content">
-        <header className="profile-hero">
-          <span className="profile-hero__avatar" aria-hidden="true">
+    <section
+      className="profile-workspace [width:100%] [height:100%] [min-width:0] [min-height:0] [overflow-y:auto] [color:var(--foreground)] [background:var(--background)]"
+      aria-label="Settings"
+    >
+      <div className="profile-workspace__content [width:min(100%,_1080px)] [min-width:0] [margin:0_auto] [padding:82px_clamp(30px,_5vw,_72px)_56px] max-680:[padding:36px_18px_40px]">
+        <header className="profile-hero [display:flex] [flex-direction:column] [align-items:center] [text-align:center] [&_h2]:[margin:18px_0_5px] [&_h2]:[font-size:23px] [&_h2]:[font-weight:620] [&_h2]:[letter-spacing:-0.025em] [&_p]:[margin:0] [&_p]:[display:flex] [&_p]:[align-items:center] [&_p]:[gap:7px] [&_p]:[color:var(--muted-foreground)] [&_p]:[font-size:12.5px] [&_p_em]:[padding:2px_7px] [&_p_em]:[background:var(--input)] [&_p_em]:[border:1px_solid_var(--border-subtle)] [&_p_em]:[border-radius:999px] [&_p_em]:[font-size:10px] [&_p_em]:[font-style:normal] [&_small]:[margin-top:9px] [&_small]:[color:var(--muted-foreground)] [&_small]:[font-size:10.5px]">
+          <span
+            className="profile-hero__avatar [width:78px] [height:78px] [display:grid] [place-items:center] [color:var(--primary-foreground)] [background:var(--primary)] [border-radius:999px] [&_svg]:[width:33px] [&_svg]:[height:33px] [&_svg]:[stroke-width:1.7]"
+            aria-hidden="true"
+          >
             <User />
           </span>
           <h2>Anonymous user</h2>
@@ -110,7 +124,10 @@ export function ProfileWorkspace({
           <small>Usage stays on this device and never includes prompt or response text.</small>
         </header>
 
-        <dl className="profile-metrics" aria-label="Lifetime activity summary">
+        <dl
+          className="profile-metrics [margin:42px_0_0] [padding:11px_2px] [display:grid] [grid-template-columns:repeat(5,_minmax(0,_1fr))] [border:1px_solid_var(--border-subtle)] [border-radius:14px] [&_>_div]:[min-width:0] [&_>_div]:[padding:3px_12px] [&_>_div]:[display:flex] [&_>_div]:[flex-direction:column] [&_>_div]:[align-items:center] [&_>_div]:[border-right:1px_solid_var(--border-subtle)] [&_>_div]:[text-align:center] [&_dt]:[color:var(--muted-foreground)] [&_dt]:[font-size:11.5px] [&_dt]:[white-space:nowrap] [&_dd]:[order:-1] [&_dd]:[margin:0_0_1px] [&_dd]:[overflow:hidden] [&_dd]:[font-size:13.5px] [&_dd]:[font-variant-numeric:tabular-nums] [&_dd]:[font-weight:590] [&_dd]:[text-overflow:ellipsis] [&_dd]:[white-space:nowrap] max-680:[grid-template-columns:repeat(2,_minmax(0,_1fr))] max-680:[&_>_div]:[padding:9px] max-680:[&_>_div]:[border-right:0] max-680:[&_>_div]:[border-bottom:1px_solid_var(--border-subtle)]"
+          aria-label="Lifetime activity summary"
+        >
           <ProfileMetric
             label="Lifetime tokens"
             value={formatCompactNumber(lifetime.totalTokens)}
@@ -121,10 +138,16 @@ export function ProfileWorkspace({
           <ProfileMetric label="Longest streak" value={`${lifetime.longestStreakDays} days`} />
         </dl>
 
-        <section className="profile-activity" aria-labelledby="profile-token-activity">
-          <div className="profile-section-heading">
+        <section
+          className="profile-activity [margin-top:38px]"
+          aria-labelledby="profile-token-activity"
+        >
+          <div className="profile-section-heading [min-height:28px] [display:flex] [align-items:center] [justify-content:space-between] [gap:16px] [&_h3]:[margin:0] [&_h3]:[font-size:13px] [&_h3]:[font-weight:620]">
             <h3 id="profile-token-activity">Token activity</h3>
-            <fieldset className="profile-tabs" aria-label="Token activity aggregation">
+            <fieldset
+              className="profile-tabs [margin:0] [padding:0] [display:flex] [align-items:center] [gap:2px] [border:0] [&_button]:[min-height:26px] [&_button]:[padding:3px_8px] [&_button]:[color:var(--muted-foreground)] [&_button]:[background:transparent] [&_button]:[border:0] [&_button]:[border-radius:7px] [&_button]:[font-size:11.5px] [&_button]:[cursor:pointer] [&_button.is-active]:[color:var(--foreground)] [&_button.is-active]:[font-weight:600]"
+              aria-label="Token activity aggregation"
+            >
               {(["daily", "weekly", "cumulative"] as const).map((mode) => (
                 <button
                   key={mode}
@@ -138,23 +161,26 @@ export function ProfileWorkspace({
               ))}
             </fieldset>
           </div>
-          <div className="profile-heatmap-scroll">
-            <div className="profile-heatmap-frame">
+          <div className="profile-heatmap-scroll [width:100%] [margin-top:10px] [padding-bottom:4px] [overflow-x:auto]">
+            <div className="profile-heatmap-frame [width:100%] [min-width:680px]">
               <div
-                className="profile-heatmap"
+                className="profile-heatmap [display:grid] [grid-auto-flow:column] [grid-auto-columns:minmax(8px,_1fr)] [grid-template-rows:repeat(7,_12px)] [gap:4px]"
                 role="img"
                 aria-label={`${capitalize(activityMode)} token activity for the last 53 weeks`}
               >
                 {heatmapDays.map((day) => (
                   <span
                     key={day.date}
-                    className="profile-heatmap__day"
+                    className="profile-heatmap__day [display:block] [width:100%] [height:12px] [background:color-mix(in_srgb,_var(--muted-foreground)_9%,_transparent)] [border-radius:3px]"
                     data-level={day.intensity}
                     title={`${formatCalendarDate(day.date)}: ${formatNumber(day.tokens)} tokens`}
                   />
                 ))}
               </div>
-              <div className="profile-heatmap__months" aria-hidden="true">
+              <div
+                className="profile-heatmap__months [margin-top:8px] [display:grid] [grid-template-columns:repeat(53,_minmax(8px,_1fr))] [gap:4px] [color:var(--muted-foreground)] [font-size:9.5px] [&_span]:[white-space:nowrap]"
+                aria-hidden="true"
+              >
                 {monthLabels.map((month) => (
                   <span key={`${month.label}-${month.column}`} style={{ gridColumn: month.column }}>
                     {month.label}
@@ -163,7 +189,7 @@ export function ProfileWorkspace({
               </div>
             </div>
           </div>
-          <div className="profile-token-breakdown">
+          <div className="profile-token-breakdown [margin-top:20px] [display:flex] [flex-wrap:wrap] [gap:7px_18px] [color:var(--muted-foreground)] [font-size:10.5px] [font-variant-numeric:tabular-nums]">
             <span>Input {formatCompactNumber(lifetime.inputTokens)}</span>
             <span>Output {formatCompactNumber(lifetime.outputTokens)}</span>
             <span>Reasoning {formatCompactNumber(lifetime.reasoningTokens)}</span>
@@ -171,8 +197,11 @@ export function ProfileWorkspace({
           </div>
         </section>
 
-        <div className="profile-details-grid">
-          <section className="profile-insights" aria-labelledby="profile-insights-title">
+        <div className="profile-details-grid [margin-top:40px] [display:grid] [grid-template-columns:minmax(0,_1fr)_minmax(0,_1fr)] [gap:54px] max-680:[grid-template-columns:1fr] max-680:[gap:34px]">
+          <section
+            className="profile-insights [&_h3]:[margin:0] [&_h3]:[font-size:13px] [&_h3]:[font-weight:620] [&_dl]:[margin:13px_0_0] [&_dl]:[display:grid] [&_dl]:[gap:10px] [&_dl_>_div]:[min-width:0] [&_dl_>_div]:[display:flex] [&_dl_>_div]:[align-items:baseline] [&_dl_>_div]:[justify-content:space-between] [&_dl_>_div]:[gap:18px] [&_dt]:[color:var(--muted-foreground)] [&_dt]:[font-size:11.5px] [&_dd]:[max-width:60%] [&_dd]:[margin:0] [&_dd]:[overflow:hidden] [&_dd]:[font-size:11.5px] [&_dd]:[font-variant-numeric:tabular-nums] [&_dd]:[font-weight:570] [&_dd]:[text-overflow:ellipsis] [&_dd]:[white-space:nowrap]"
+            aria-labelledby="profile-insights-title"
+          >
             <h3 id="profile-insights-title">Activity insights</h3>
             <dl>
               <Insight label="Measured tokens" value={`${measuredShare}%`} />
@@ -193,10 +222,16 @@ export function ProfileWorkspace({
             </dl>
           </section>
 
-          <section className="profile-ranking" aria-labelledby="profile-ranking-title">
-            <div className="profile-section-heading">
+          <section
+            className="profile-ranking [&_ol]:[margin:8px_0_0] [&_ol]:[padding:0] [&_ol]:[display:grid] [&_ol]:[gap:4px] [&_ol]:[list-style:none] [&_li]:[min-width:0] [&_li]:[min-height:30px] [&_li]:[padding:3px_4px] [&_li]:[display:grid] [&_li]:[grid-template-columns:26px_minmax(0,_1fr)_auto] [&_li]:[align-items:center] [&_li]:[gap:7px] [&_li]:[border-radius:7px] [&_li_strong]:[overflow:hidden] [&_li_strong]:[font-size:11.5px] [&_li_strong]:[font-weight:570] [&_li_strong]:[text-overflow:ellipsis] [&_li_strong]:[white-space:nowrap]"
+            aria-labelledby="profile-ranking-title"
+          >
+            <div className="profile-section-heading [min-height:28px] [display:flex] [align-items:center] [justify-content:space-between] [gap:16px] [&_h3]:[margin:0] [&_h3]:[font-size:13px] [&_h3]:[font-weight:620]">
               <h3 id="profile-ranking-title">Most used</h3>
-              <fieldset className="profile-tabs" aria-label="Most used capability type">
+              <fieldset
+                className="profile-tabs [margin:0] [padding:0] [display:flex] [align-items:center] [gap:2px] [border:0] [&_button]:[min-height:26px] [&_button]:[padding:3px_8px] [&_button]:[color:var(--muted-foreground)] [&_button]:[background:transparent] [&_button]:[border:0] [&_button]:[border-radius:7px] [&_button]:[font-size:11.5px] [&_button]:[cursor:pointer] [&_button.is-active]:[color:var(--foreground)] [&_button.is-active]:[font-weight:600]"
+                aria-label="Most used capability type"
+              >
                 {(["skills", "tools"] as const).map((mode) => (
                   <button
                     key={mode}
@@ -214,7 +249,10 @@ export function ProfileWorkspace({
               <ol>
                 {ranked.slice(0, 6).map((item) => (
                   <li key={item.name}>
-                    <span className="profile-ranking__icon" aria-hidden="true">
+                    <span
+                      className="profile-ranking__icon [width:24px] [height:24px] [display:grid] [place-items:center] [color:var(--muted)] [background:var(--input)] [border:1px_solid_var(--border-subtle)] [border-radius:999px] [&_svg]:[width:12px] [&_svg]:[height:12px]"
+                      aria-hidden="true"
+                    >
                       {rankingMode === "skills" ? <Sparkles /> : <Wrench />}
                     </span>
                     <strong title={item.name}>{item.name}</strong>
@@ -223,14 +261,14 @@ export function ProfileWorkspace({
                 ))}
               </ol>
             ) : (
-              <p className="profile-ranking__empty">
+              <p className="profile-ranking__empty [margin:14px_0_0] [color:var(--muted-foreground)] [font-size:11.5px]">
                 {rankingMode === "skills" ? "No skills loaded yet." : "No tools called yet."}
               </p>
             )}
           </section>
         </div>
 
-        <footer className="profile-tracking-note">
+        <footer className="profile-tracking-note [margin-top:42px] [padding-top:14px] [color:var(--muted-foreground)] [border-top:1px_solid_var(--border-subtle)] [font-size:9.5px] [text-align:center]">
           {summary.trackingSince
             ? `Tracking since ${new Date(summary.trackingSince).toLocaleDateString()}`
             : "Tracking starts with your next task"}

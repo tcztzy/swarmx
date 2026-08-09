@@ -155,7 +155,8 @@ granted limits are actually enforced end to end.
 ## Data and security
 
 - Only explicitly provided synthetic/golden JSONL is accepted. No automatic
-  scanning of `~/.swarmx/sessions` or external Agent histories.
+  scanning of `~/.swarmx/projects`, the prior `~/.swarmx/sessions` layout, or
+  external Agent histories.
 - Candidates are untrusted: digest re-verification, lineage checks, budget
   bounds, and secret scans run before anything may be evaluated; a secret scan
   failure quarantines the candidate.

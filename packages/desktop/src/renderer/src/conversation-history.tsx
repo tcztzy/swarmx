@@ -5,6 +5,7 @@ import {
   type RenderArtifactReference,
   type RenderProvenance,
 } from "@swarmx/core/rendering";
+import { cva, type VariantProps } from "class-variance-authority";
 import {
   Bot,
   Check,
@@ -29,7 +30,7 @@ import type {
 } from "../../shared/desktop-api.js";
 import { mergeToolProgress, messageKey } from "./conversation-messages.js";
 import { MessageAttachments } from "./message-attachments.js";
-import { MessageContent, MessageCopyButton } from "./message-content.js";
+import { MESSAGE_ACTION_CLASS_NAME, MessageContent, MessageCopyButton } from "./message-content.js";
 import { formatFullMessageTimestamp, formatMessageTimestamp, isRecord } from "./text-utils.js";
 import { cx } from "./ui-primitives.js";
 
@@ -67,6 +68,54 @@ interface ToolActivity {
 type WorkActivity =
   | { kind: "message"; message: MessageChunk; sourceIndex: number }
   | { kind: "tool"; activity: ToolActivity };
+
+const runEventVariants = cva(
+  "run-event group [display:grid] [grid-template-columns:34px_minmax(0,_1fr)] [gap:12px] [align-items:start] [animation:event-enter_var(--duration-med)_var(--ease-out)_both] max-680:[grid-template-columns:28px_minmax(0,_1fr)] max-680:[gap:9px]",
+  {
+    variants: {
+      tone: {
+        user: String.raw`run-event--user [&_.run-event\_\_header]:[color:rgba(9,_9,_11,_0.58)]`,
+        system: "run-event--system",
+        thinking: "run-event--thinking",
+        tool: "run-event--tool",
+        assistant: "run-event--assistant",
+      },
+      compact: {
+        true: "run-event--compact",
+        false: null,
+      },
+    },
+    defaultVariants: {
+      compact: false,
+    },
+  },
+);
+
+type RunEventTone = NonNullable<VariantProps<typeof runEventVariants>["tone"]>;
+
+const traceStatusVariants = cva(
+  "trace-card__status [flex:0_0_auto] [padding:2px_6px] [border:1px_solid_var(--border-subtle)] [border-radius:999px] [font-family:var(--font-mono)] [font-size:10px] [text-transform:none]",
+  {
+    variants: {
+      status: {
+        queued:
+          "trace-card__status--queued [color:var(--muted)] [background:rgba(255,_255,_255,_0.05)]",
+        running:
+          "trace-card__status--running [color:var(--muted)] [background:rgba(255,_255,_255,_0.05)]",
+        succeeded:
+          "trace-card__status--succeeded [color:var(--success)] [background:rgba(52,_211,_153,_0.1)] [border-color:rgba(52,_211,_153,_0.22)]",
+        failed:
+          "trace-card__status--failed [color:var(--danger)] [background:var(--danger-muted)] [border-color:rgba(248,_113,_113,_0.24)]",
+        canceled:
+          "trace-card__status--canceled [color:var(--muted)] [background:rgba(255,_255,_255,_0.05)]",
+        skipped:
+          "trace-card__status--skipped [color:var(--muted)] [background:rgba(255,_255,_255,_0.05)]",
+        completed:
+          "trace-card__status--completed [color:var(--success)] [background:rgba(52,_211,_153,_0.1)] [border-color:rgba(52,_211,_153,_0.22)]",
+      },
+    },
+  },
+);
 
 function RunEvent({
   actionsDisabled = false,
@@ -127,34 +176,40 @@ function RunEvent({
 
   return (
     <article
-      className={cx("run-event", `run-event--${tone}`, compact && "run-event--compact")}
+      className={runEventVariants({ tone, compact })}
       data-render-event-id={renderEvent.eventId}
       data-render-kind={renderEvent.kind}
       data-render-status={renderEvent.status}
     >
       {plainNarrative ? (
-        <div className="run-event__content">
+        <div className="run-event__content [min-width:0] [white-space:pre-wrap] [overflow-wrap:anywhere] [font-size:14px] [line-height:1.58] [.run-event--tool_&]:[color:#d4d4d8] [.run-event--tool_&]:[font-family:var(--font-mono)] [.run-event--tool_&]:[font-size:12.5px] [.run-event--tool_&]:[line-height:1.55]">
           <MessageContent kind={msg.kind} content={displayContent} />
         </div>
       ) : (
         <>
-          <div className="run-event__rail">
+          <div className="run-event__rail [position:relative] [width:34px] [height:34px] [display:grid] [place-items:center] [color:var(--muted)] [background:var(--card)] [border:1px_solid_var(--border)] [border-radius:var(--radius)] [box-shadow:var(--shadow-inset)] [-webkit-backdrop-filter:saturate(140%)_blur(16px)] [&_svg]:[width:16px] [&_svg]:[height:16px] max-680:[width:28px] max-680:[height:28px]">
             <Icon aria-hidden="true" />
           </div>
-          <div className="run-event__card">
-            <div className="run-event__header">
+          <div className="run-event__card [min-width:0] [padding:14px_15px] [color:var(--foreground)] [background:var(--card)] [border:1px_solid_var(--border-subtle)] [border-radius:var(--radius-lg)] [box-shadow:var(--shadow-inset),_0_12px_34px_rgba(0,_0,_0,_0.18)] [-webkit-backdrop-filter:saturate(140%)_blur(18px)] [transition:border-color_var(--duration-fast)_var(--ease-out),_background-color_var(--duration-fast)_var(--ease-out),_box-shadow_var(--duration-fast)_var(--ease-out)] [.run-event--system_&]:[color:var(--danger)] [.run-event--system_&]:[background:var(--danger-muted)] [.run-event--system_&]:[border-color:rgba(248,_113,_113,_0.28)] [.run-event--thinking_&]:[color:var(--muted)] [.run-event--thinking_&]:[background:rgba(255,_255,_255,_0.04)] [.run-event--tool_&]:[background:rgba(8,_10,_14,_0.84)] [.run-event--tool_&]:[border-color:var(--border)] max-680:[padding:11px]">
+            <div className="run-event__header [margin-bottom:8px] [display:flex] [align-items:center] [justify-content:space-between] [gap:10px] [color:var(--muted-foreground)] [font-size:11px] [font-weight:700] [line-height:1.2] [text-transform:uppercase]">
               <span>{label}</span>
               <span>{renderEvent.status === "completed" ? meta : renderEvent.status}</span>
             </div>
             {msg.toolName && (
-              <div className="run-event__tool">
+              <div className="run-event__tool [margin-bottom:8px] [display:inline-flex] [max-width:100%] [align-items:center] [gap:6px] [color:var(--muted)] [background:rgba(255,_255,_255,_0.048)] [border:1px_solid_var(--border-subtle)] [border-radius:8px] [padding:4px_7px] [font-family:var(--font-mono)] [font-size:12px] [line-height:1.25] [&_svg]:[flex:0_0_auto] [&_svg]:[width:13px] [&_svg]:[height:13px] [&_span]:[overflow:hidden] [&_span]:[text-overflow:ellipsis] [&_span]:[white-space:nowrap]">
                 <Code2 aria-hidden="true" />
                 <span>{msg.toolName}</span>
-                <span className="run-event__tool-status">{renderEvent.status}</span>
+                <span className="run-event__tool-status [color:var(--muted-foreground)]">
+                  {renderEvent.status}
+                </span>
               </div>
             )}
-            {msg.swarmEvent && <div className="run-event__event">{msg.swarmEvent}</div>}
-            <div className="run-event__content">
+            {msg.swarmEvent && (
+              <div className="run-event__event [margin-bottom:8px] [display:inline-flex] [max-width:100%] [align-items:center] [gap:6px] [color:var(--muted)] [background:rgba(255,_255,_255,_0.048)] [border:1px_solid_var(--border-subtle)] [border-radius:8px] [padding:4px_7px] [font-family:var(--font-mono)] [font-size:12px] [line-height:1.25] [overflow:hidden] [text-overflow:ellipsis] [white-space:nowrap]">
+                {msg.swarmEvent}
+              </div>
+            )}
+            <div className="run-event__content [min-width:0] [white-space:pre-wrap] [overflow-wrap:anywhere] [font-size:14px] [line-height:1.58] [.run-event--tool_&]:[color:#d4d4d8] [.run-event--tool_&]:[font-family:var(--font-mono)] [.run-event--tool_&]:[font-size:12.5px] [.run-event--tool_&]:[line-height:1.55]">
               <MessageContent kind={msg.kind} content={content} />
             </div>
             {msg.attachments && msg.attachments.length > 0 && (
@@ -163,7 +218,7 @@ function RunEvent({
             {showTraceCard && <TraceCard event={renderEvent} />}
           </div>
           {(showMessageCopy || showMessageEdit || showContinueInNewChat) && (
-            <div className="run-event__actions">
+            <div className="run-event__actions pointer-events-none opacity-0 transition-opacity duration-[var(--duration-fast)] ease-[var(--ease-out)] group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100">
               {msg.role === "user" && messageTimestamp && (
                 <MessageTimestamp createdAt={messageTimestamp} />
               )}
@@ -171,7 +226,7 @@ function RunEvent({
               {showMessageEdit && (
                 <button
                   aria-label="Edit message"
-                  className="run-event__action"
+                  className={MESSAGE_ACTION_CLASS_NAME}
                   disabled={actionsDisabled}
                   onClick={onEdit}
                   title="Edit message"
@@ -183,7 +238,7 @@ function RunEvent({
               {showContinueInNewChat && (
                 <button
                   aria-label="Continue in new chat"
-                  className="run-event__action"
+                  className={MESSAGE_ACTION_CLASS_NAME}
                   disabled={actionsDisabled}
                   onClick={onContinueInNewChat}
                   title="Continue in new chat"
@@ -211,7 +266,7 @@ function MessageTimestamp({ createdAt }: { createdAt: string }) {
   return (
     <time
       aria-label={`Created ${fullLabel}`}
-      className="run-event__timestamp"
+      className="run-event__timestamp [min-width:max-content] [color:var(--muted-foreground)] [font-size:11.5px] [line-height:28px] [opacity:0] [visibility:hidden] [white-space:nowrap] [transition:opacity_var(--duration-fast)_var(--ease-out)]"
       dateTime={createdAt}
       title={fullLabel}
     >
@@ -246,10 +301,15 @@ function EditableUserMessage({
   }, []);
 
   return (
-    <article className="run-event run-event--user run-event--editing">
-      <div className="run-event__card">
+    <article
+      className={runEventVariants({
+        tone: "user",
+        className: "run-event--editing",
+      })}
+    >
+      <div className="run-event__card [min-width:0] [padding:14px_15px] [color:var(--foreground)] [background:var(--card)] [border:1px_solid_var(--border-subtle)] [border-radius:var(--radius-lg)] [box-shadow:var(--shadow-inset),_0_12px_34px_rgba(0,_0,_0,_0.18)] [-webkit-backdrop-filter:saturate(140%)_blur(18px)] [transition:border-color_var(--duration-fast)_var(--ease-out),_background-color_var(--duration-fast)_var(--ease-out),_box-shadow_var(--duration-fast)_var(--ease-out)] [.run-event--system_&]:[color:var(--danger)] [.run-event--system_&]:[background:var(--danger-muted)] [.run-event--system_&]:[border-color:rgba(248,_113,_113,_0.28)] [.run-event--thinking_&]:[color:var(--muted)] [.run-event--thinking_&]:[background:rgba(255,_255,_255,_0.04)] [.run-event--tool_&]:[background:rgba(8,_10,_14,_0.84)] [.run-event--tool_&]:[border-color:var(--border)] max-680:[padding:11px]">
         <form
-          className="message-editor"
+          className="message-editor [min-width:0] [&_textarea]:[width:100%] [&_textarea]:[min-height:92px] [&_textarea]:[max-height:260px] [&_textarea]:[resize:vertical] [&_textarea]:[padding:10px_11px] [&_textarea]:[color:var(--foreground)] [&_textarea]:[background:var(--input)] [&_textarea]:[border:1px_solid_var(--border)] [&_textarea]:[border-radius:11px] [&_textarea]:[font-size:14.5px] [&_textarea]:[line-height:1.55]"
           onSubmit={(event) => {
             event.preventDefault();
             if (canSubmit) onSubmit();
@@ -275,11 +335,14 @@ function EditableUserMessage({
             ref={textareaRef}
             value={draft}
           />
-          <div className="message-editor__footer">
-            <p id={noteId} className="message-editor__note">
+          <div className="message-editor__footer [margin-top:9px] [display:flex] [align-items:center] [justify-content:space-between] [gap:9px_14px] [flex-wrap:wrap]">
+            <p
+              id={noteId}
+              className="message-editor__note [flex:1_1_240px] [color:var(--muted)] [margin:0] [font-size:11.5px] [line-height:1.45]"
+            >
               This replaces the latest turn and generates a new reply.
             </p>
-            <div className="message-editor__actions">
+            <div className="message-editor__actions [display:flex] [align-items:center] [justify-content:flex-end] [gap:7px] [&_button]:[min-height:30px] [&_button]:[padding:5px_10px] [&_button]:[display:inline-flex] [&_button]:[align-items:center] [&_button]:[justify-content:center] [&_button]:[gap:6px] [&_button]:[color:var(--foreground)] [&_button]:[background:transparent] [&_button]:[border:1px_solid_var(--border)] [&_button]:[border-radius:8px] [&_button]:[cursor:pointer] [&_button]:[font-size:12px] [&_button]:[font-weight:620] [&_svg]:[width:13px] [&_svg]:[height:13px] [&_svg]:[animation:spin_900ms_linear_infinite]">
               <button type="button" disabled={actionsDisabled} onClick={onCancel}>
                 Cancel
               </button>
@@ -290,7 +353,10 @@ function EditableUserMessage({
             </div>
           </div>
           {error && (
-            <p className="message-editor__error" role="alert">
+            <p
+              className="message-editor__error [margin-top:8px] [color:var(--danger)] [margin:0] [font-size:11.5px] [line-height:1.45]"
+              role="alert"
+            >
               {error}
             </p>
           )}
@@ -313,20 +379,25 @@ function ProviderErrorEvent({
 }) {
   return (
     <article
-      className="provider-error-notice"
+      className="provider-error-notice [min-width:0] [padding:18px] [display:grid] [grid-template-columns:36px_minmax(0,_1fr)] [gap:13px] [color:var(--foreground)] [background:color-mix(in_srgb,_var(--accent)_5%,_var(--card))] [border:1px_solid_color-mix(in_srgb,_var(--accent)_26%,_var(--border-subtle))] [border-radius:var(--radius-lg)] [box-shadow:var(--shadow-inset),_0_12px_34px_rgba(0,_0,_0,_0.12)] [&_h3]:[margin:0] [&_p]:[margin:0] [&_h3]:[font-size:15px] [&_h3]:[font-weight:650] [&_h3]:[line-height:1.35] [&_p]:[margin-top:6px] [&_p]:[color:var(--muted)] [&_p]:[font-size:13.5px] [&_p]:[line-height:1.55] max-680:[padding:15px] max-680:[grid-template-columns:32px_minmax(0,_1fr)] max-680:[gap:11px]"
       aria-label={notice.title}
       data-provider-error-code={notice.code}
       role="alert"
     >
-      <div className="provider-error-notice__icon" aria-hidden="true">
+      <div
+        className="provider-error-notice__icon [width:36px] [height:36px] [display:grid] [place-items:center] [color:var(--accent)] [background:var(--accent-muted)] [border-radius:10px] [&_svg]:[width:17px] [&_svg]:[height:17px] max-680:[width:32px] max-680:[height:32px]"
+        aria-hidden="true"
+      >
         <RefreshCw />
       </div>
-      <div className="provider-error-notice__body">
-        <span className="provider-error-notice__eyebrow">Provider issue</span>
+      <div className="provider-error-notice__body [min-width:0]">
+        <span className="provider-error-notice__eyebrow [display:block] [margin:1px_0_4px] [color:var(--muted-foreground)] [font-size:10px] [font-weight:720] [letter-spacing:0.09em] [text-transform:uppercase]">
+          Provider issue
+        </span>
         <h3>{notice.title}</h3>
         <p>{notice.message}</p>
         {(onChangeModel || (notice.retryable && onRetry)) && (
-          <div className="provider-error-notice__actions">
+          <div className="provider-error-notice__actions [margin-top:14px] [display:flex] [flex-wrap:wrap] [gap:8px] [&_button]:[min-height:32px] [&_button]:[padding:0_11px] [&_button]:[display:inline-flex] [&_button]:[align-items:center] [&_button]:[gap:7px] [&_button]:[color:var(--foreground)] [&_button]:[background:var(--card-hover)] [&_button]:[border:1px_solid_var(--border)] [&_button]:[border-radius:8px] [&_button]:[cursor:pointer] [&_button]:[font:inherit] [&_button]:[font-size:12.5px] [&_button]:[font-weight:590] [&_svg]:[width:14px] [&_svg]:[height:14px] max-680:[align-items:stretch] max-680:[flex-direction:column] max-680:[&_button]:[justify-content:center]">
             {notice.retryable && onRetry && (
               <button type="button" disabled={actionsDisabled} onClick={onRetry}>
                 <RefreshCw aria-hidden="true" />
@@ -463,7 +534,10 @@ function ConversationTurnView({
   const userCreatedAt = turn.userMessage ? turnUserMessageCreatedAt(turn) : undefined;
 
   return (
-    <section className="conversation-turn" data-turn-status={turnStatus}>
+    <section
+      className={String.raw`conversation-turn [min-width:0] [display:flow-root] [animation:event-enter_var(--duration-med)_var(--ease-out)_both] [&_+_.conversation-turn]:[margin-top:48px] [&_>_.run-event--user_+_.work-disclosure]:[margin-top:32px] [&_>_.run-event--user_+_.run-event]:[margin-top:32px] [&_>_.work-disclosure_+_.run-event]:[margin-top:26px] [&_>_.run-event--user]:[display:flex] [&_>_.run-event--user]:[align-items:flex-end] [&_>_.run-event--user]:[flex-direction:column] [&_>_.run-event--assistant]:[display:block] [&_>_.run-event--system]:[display:block] [&_>_.run-event_>_.run-event\_\_rail]:[display:none] [&_>_.run-event--assistant_>_.run-event\_\_card]:[padding:0] [&_>_.run-event--assistant_>_.run-event\_\_card]:[background:transparent] [&_>_.run-event--assistant_>_.run-event\_\_card]:[border:0] [&_>_.run-event--assistant_>_.run-event\_\_card]:[border-radius:0] [&_>_.run-event--assistant_>_.run-event\_\_card]:[box-shadow:none] [&_>_.run-event--assistant_>_.run-event\_\_card]:[-webkit-backdrop-filter:none] [&_>_.run-event--assistant_.run-event\_\_header]:[display:none] [&_>_.run-event--user_.run-event\_\_header]:[display:none] [&_>_.run-event--assistant_.run-event\_\_content]:[font-size:15px] [&_>_.run-event--assistant_.run-event\_\_content]:[line-height:1.72] [&_>_.run-event--user_.run-event\_\_card]:[width:fit-content] [&_>_.run-event--user_.run-event\_\_card]:[max-width:min(76%,_680px)] [&_>_.run-event--user_.run-event\_\_card]:[padding:10px_16px] [&_>_.run-event--user_.run-event\_\_card]:[color:var(--user-message-foreground)] [&_>_.run-event--user_.run-event\_\_card]:[background:var(--user-message-background)] [&_>_.run-event--user_.run-event\_\_card]:[border:0] [&_>_.run-event--user_.run-event\_\_card]:[border-radius:22px] [&_>_.run-event--user_.run-event\_\_card]:[box-shadow:none] [&_>_.run-event--user_.run-event\_\_card]:[-webkit-backdrop-filter:none] [&_>_.run-event--user_.run-event\_\_content]:[font-size:14.5px] [&_>_.run-event--user_.run-event\_\_content]:[line-height:1.55] [&_>_.run-event--assistant_.run-event\_\_actions]:[margin-top:5px] [&_>_.run-event--assistant_.run-event\_\_actions]:[display:flex] [&_>_.run-event--assistant_.run-event\_\_actions]:[align-items:center] [&_>_.run-event--assistant_.run-event\_\_actions]:[gap:4px] [&_>_.run-event--user_.run-event\_\_actions]:[margin-top:5px] [&_>_.run-event--user_.run-event\_\_actions]:[display:flex] [&_>_.run-event--user_.run-event\_\_actions]:[align-items:center] [&_>_.run-event--user_.run-event\_\_actions]:[gap:4px] [&_>_.run-event--assistant_.run-event\_\_actions]:[justify-content:flex-start] [&_>_.run-event--user_.run-event\_\_actions]:[justify-content:flex-end] [&_>_.run-event--editing_.run-event\_\_card]:[width:min(100%,_680px)] [&_>_.run-event--editing_.run-event\_\_card]:[max-width:88%] [&_>_.run-event--editing_.run-event\_\_card]:[padding:12px] [&_>_.run-event--editing_.run-event\_\_card]:[border-radius:16px] max-680:[&_+_.conversation-turn]:[margin-top:38px] max-680:[&_>_.run-event--user_+_.work-disclosure]:[margin-top:26px] max-680:[&_>_.run-event--user_+_.run-event]:[margin-top:26px] max-680:[&_>_.run-event--user_.run-event\_\_card]:[max-width:88%]`}
+      data-turn-status={turnStatus}
+    >
       {turn.userMessage &&
         (editing ? (
           <EditableUserMessage
@@ -578,28 +652,30 @@ function WorkDisclosure({
   return (
     <section
       className={cx(
-        "work-disclosure",
+        String.raw`work-disclosure [min-width:0] [border-bottom:1px_solid_var(--border-subtle)] [&.is-open_.work-disclosure\_\_toggle_svg]:[transform:rotate(90deg)] [&.is-active_.work-disclosure\_\_toggle]:[color:var(--muted)] [&.is-interrupted_.work-disclosure\_\_toggle]:[color:var(--muted)] [&.is-active_.work-disclosure\_\_label]:[color:transparent] [&.is-active_.work-disclosure\_\_label]:[background:linear-gradient(_100deg,_var(--muted-foreground)_25%,_var(--foreground)_50%,_var(--muted-foreground)_75%_)] [&.is-active_.work-disclosure\_\_label]:[background-size:220%_100%] [&.is-active_.work-disclosure\_\_label]:[-webkit-background-clip:text] [&.is-active_.work-disclosure\_\_label]:[background-clip:text] [&.is-active_.work-disclosure\_\_label]:[animation:work-label-shimmer_1.8s_linear_infinite] [&.is-active_.run-event--thinking_.run-event\_\_rail_svg]:[animation:spin_900ms_linear_infinite]`,
         active && "is-active",
         interrupted && "is-interrupted",
         expanded && "is-open",
       )}
     >
-      <div className="work-disclosure__bar">
+      <div className="work-disclosure__bar [min-width:0] [display:flex] [align-items:flex-start] [justify-content:space-between] [gap:12px]">
         <button
           type="button"
-          className="work-disclosure__toggle"
+          className="work-disclosure__toggle [min-width:0] [min-height:38px] [padding:0_2px_12px] [display:inline-flex] [align-items:center] [gap:6px] [color:var(--muted-foreground)] [background:transparent] [border:0] [border-radius:5px] [cursor:pointer] [font-size:13.5px] [font-weight:520] [line-height:1.2] [text-align:left] [&_svg]:[width:16px] [&_svg]:[height:16px] [&_svg]:[transition:transform_var(--duration-fast)_var(--ease-out)]"
           aria-controls={detailsId}
           aria-expanded={expanded}
           onClick={() => setExpanded((value) => !value)}
           ref={toggleRef}
         >
-          <span className="work-disclosure__label">{label}</span>
+          <span className="work-disclosure__label [display:inline-block] [min-width:0] [overflow:hidden] [text-overflow:ellipsis] [white-space:nowrap]">
+            {label}
+          </span>
           <ChevronRight aria-hidden="true" />
         </button>
         {interrupted && latest && onContinue && (
           <button
             type="button"
-            className="work-disclosure__continue"
+            className="work-disclosure__continue [min-height:28px] [padding:4px_9px] [display:inline-flex] [flex:0_0_auto] [align-items:center] [gap:6px] [color:var(--muted)] [background:transparent] [border:1px_solid_var(--border)] [border-radius:7px] [cursor:pointer] [font-size:12px] [font-weight:560] [line-height:1.2] [&_svg]:[width:13px] [&_svg]:[height:13px]"
             disabled={actionsDisabled}
             onClick={onContinue}
           >
@@ -609,14 +685,20 @@ function WorkDisclosure({
         )}
       </div>
       {expanded && (
-        <div className="work-disclosure__details" id={detailsId} ref={detailsRef}>
+        <div
+          className="work-disclosure__details [min-width:0] [padding:3px_0_17px]"
+          id={detailsId}
+          ref={detailsRef}
+        >
           {interrupted && (
-            <p className="work-disclosure__interruption">
+            <p className="work-disclosure__interruption [margin:0_0_11px] [color:var(--muted-foreground)] [font-size:12px] [line-height:1.5]">
               This run ended before a final response. Unfinished tools were not resumed.
             </p>
           )}
           {messages.length > 0 ? (
-            <div className="work-disclosure__events">
+            <div
+              className={String.raw`work-disclosure__events [min-width:0] [display:grid] [gap:10px] [&_.run-event]:[grid-template-columns:24px_minmax(0,_1fr)] [&_.run-event]:[gap:10px] [&_.run-event]:[animation:none] [&_.run-event\_\_rail]:[width:24px] [&_.run-event\_\_rail]:[height:24px] [&_.run-event\_\_rail]:[color:var(--muted-foreground)] [&_.run-event\_\_rail]:[background:transparent] [&_.run-event\_\_rail]:[border:0] [&_.run-event\_\_rail]:[border-radius:0] [&_.run-event\_\_rail]:[box-shadow:none] [&_.run-event\_\_rail]:[-webkit-backdrop-filter:none] [&_.run-event\_\_rail_svg]:[width:14px] [&_.run-event\_\_rail_svg]:[height:14px] [&_.run-event\_\_card]:[padding:10px_12px] [&_.run-event\_\_card]:[background:rgba(255,_255,_255,_0.026)] [&_.run-event\_\_card]:[border-color:var(--border-subtle)] [&_.run-event\_\_card]:[border-radius:10px] [&_.run-event\_\_card]:[box-shadow:none] [&_.run-event\_\_card]:[-webkit-backdrop-filter:none] [&_.run-event--compact]:[grid-template-columns:minmax(0,_1fr)] [&_.run-event--compact_.run-event\_\_rail]:[display:none] [&_.run-event--compact_.run-event\_\_card]:[padding:10px_12px_11px] [&_.run-event--compact_.run-event\_\_card]:[border-left:2px_solid_var(--border)] [&_.run-event--compact_.run-event\_\_card]:[border-radius:7px] [&_.run-event--compact.run-event--thinking]:[display:block] [&_.run-event--compact.run-event--assistant]:[display:block] [&_.run-event--compact.run-event--thinking_.run-event\_\_content]:[color:var(--foreground)] [&_.run-event--compact.run-event--thinking_.run-event\_\_content]:[font-size:15px] [&_.run-event--compact.run-event--thinking_.run-event\_\_content]:[line-height:1.72] [&_.run-event--compact.run-event--assistant_.run-event\_\_content]:[color:var(--foreground)] [&_.run-event--compact.run-event--assistant_.run-event\_\_content]:[font-size:15px] [&_.run-event--compact.run-event--assistant_.run-event\_\_content]:[line-height:1.72] [&_.run-event--compact_.run-event\_\_header]:[margin-bottom:5px] [&_.run-event--compact_.run-event\_\_header]:[text-transform:none] [&_.run-event--compact_.run-event\_\_header]:[letter-spacing:0] [&_.run-event--tool_.run-event\_\_card]:[background:var(--input)] [&_.run-event--tool_.run-event\_\_card]:[border-color:var(--border-subtle)] [&_.run-event\_\_header]:[margin-bottom:7px] [&_.run-event\_\_header]:[font-size:10px] [&_.run-event\_\_content]:[font-size:13px] [&_.run-event\_\_content]:[line-height:1.55] [&_.run-event--tool_.run-event\_\_content]:[color:var(--foreground)] max-680:[&_.run-event]:[grid-template-columns:22px_minmax(0,_1fr)] max-680:[&_.run-event]:[gap:8px] max-680:[&_.run-event\_\_rail]:[width:22px] max-680:[&_.run-event\_\_rail]:[height:22px]`}
+            >
               {activities.map((activity) =>
                 activity.kind === "message" ? (
                   <RunEvent
@@ -634,7 +716,7 @@ function WorkDisclosure({
               )}
             </div>
           ) : (
-            <output className="work-disclosure__pending">
+            <output className="work-disclosure__pending [min-height:34px] [display:flex] [align-items:center] [gap:8px] [color:var(--muted-foreground)] [font-size:12.5px] [&_svg]:[width:15px] [&_svg]:[height:15px] [&_svg]:[animation:spin_900ms_linear_infinite]">
               <Loader2 aria-hidden="true" />
               <span>Waiting for agent output</span>
             </output>
@@ -768,7 +850,7 @@ function ToolActivityEvent({
   return (
     <article
       className={cx(
-        "tool-activity",
+        String.raw`tool-activity [min-width:0] [color:var(--muted)] [&.is-running_.tool-activity\_\_status]:[color:var(--muted-foreground)] [&.is-running_.tool-activity\_\_status_svg]:[animation:spin_900ms_linear_infinite] [&.is-open_.tool-activity\_\_chevron]:[transform:rotate(90deg)]`,
         running && "is-running",
         failed && "is-failed",
         interruptedTool && "is-interrupted",
@@ -780,25 +862,42 @@ function ToolActivityEvent({
     >
       <button
         type="button"
-        className="tool-activity__summary"
+        className="tool-activity__summary [width:100%] [min-width:0] [min-height:28px] [padding:2px_0] [display:flex] [align-items:center] [gap:8px] [color:inherit] [background:transparent] [border:0] [border-radius:6px] [font-size:13px] [line-height:1.45] [text-align:left]"
         aria-controls={hasDetails ? detailsId : undefined}
         aria-expanded={hasDetails ? expanded : undefined}
         aria-label={`${summary}, ${humanToolStatus(event.status, interruptedTool)}`}
         disabled={!hasDetails}
         onClick={() => hasDetails && setExpanded((value) => !value)}
       >
-        <span className="tool-activity__status" aria-hidden="true">
+        <span
+          className="tool-activity__status [width:16px] [height:16px] [flex:0_0_auto] [display:grid] [place-items:center] [color:var(--success)] [&_svg]:[width:14px] [&_svg]:[height:14px]"
+          aria-hidden="true"
+        >
           <StatusIcon />
         </span>
-        <span className="tool-activity__label">{summary}</span>
-        {hasDetails && <ChevronRight className="tool-activity__chevron" aria-hidden="true" />}
+        <span className="tool-activity__label [min-width:0] [flex:1_1_auto] [overflow:hidden] [text-overflow:ellipsis] [white-space:nowrap]">
+          {summary}
+        </span>
+        {hasDetails && (
+          <ChevronRight
+            className="tool-activity__chevron [width:14px] [height:14px] [flex:0_0_auto] [color:var(--muted-foreground)] [transition:transform_var(--duration-fast)_var(--ease-out)]"
+            aria-hidden="true"
+          />
+        )}
       </button>
       {expanded && hasDetails && (
-        <div className="tool-activity__details" id={detailsId}>
+        <div
+          className="tool-activity__details [min-width:0] [margin:6px_0_4px_24px] [display:grid] [gap:8px]"
+          id={detailsId}
+        >
           {transcript && <ToolActivityTranscript live={running} transcript={transcript} />}
           {failure &&
             !(transcript?.stderr ?? transcript?.output ?? "").includes(failure) &&
-            transcript?.command !== failure && <p className="tool-activity__error">{failure}</p>}
+            transcript?.command !== failure && (
+              <p className="tool-activity__error [margin:0] [color:var(--danger)] [font-size:12px] [line-height:1.5]">
+                {failure}
+              </p>
+            )}
           <TraceArtifacts artifacts={event.artifacts} />
         </div>
       )}
@@ -829,8 +928,17 @@ function ToolActivityTranscript({
   });
 
   return (
-    <div className={cx("tool-activity__terminal", live && "is-live")}>
-      {transcript.truncated && <em className="tool-activity__truncated">truncated</em>}
+    <div
+      className={cx(
+        "tool-activity__terminal [position:relative] [min-width:0] [background:var(--input)] [border:1px_solid_var(--border-subtle)] [border-radius:8px] [&_pre]:[min-width:0] [&_pre]:[max-height:260px] [&_pre]:[margin:0] [&_pre]:[padding:10px_12px] [&_pre]:[overflow:auto] [&_pre]:[color:var(--foreground)] [&_pre]:[font:12px_/_1.55_var(--font-mono)] [&_pre]:[white-space:pre-wrap] [&_pre]:[overflow-wrap:anywhere]",
+        live && "is-live",
+      )}
+    >
+      {transcript.truncated && (
+        <em className="tool-activity__truncated [position:absolute] [top:6px] [right:10px] [color:var(--muted-foreground)] [font-size:10px] [font-style:normal]">
+          truncated
+        </em>
+      )}
       <pre
         onScroll={(event) => {
           const output = event.currentTarget;
@@ -838,13 +946,24 @@ function ToolActivityTranscript({
         }}
         ref={outputRef}
       >
-        {transcript.command && <span className="tool-activity__prompt">$ </span>}
+        {transcript.command && (
+          <span className="tool-activity__prompt [color:var(--success)] [user-select:none]">
+            {"$ "}
+          </span>
+        )}
         {transcript.command}
         {transcript.command && (transcript.output || transcript.stderr) ? "\n" : null}
         {transcript.output}
         {transcript.output && transcript.stderr ? "\n" : null}
-        {transcript.stderr && <span className="tool-activity__stderr">{transcript.stderr}</span>}
-        {live && <span className="tool-activity__cursor" aria-hidden="true" />}
+        {transcript.stderr && (
+          <span className="tool-activity__stderr [color:var(--danger)]">{transcript.stderr}</span>
+        )}
+        {live && (
+          <span
+            className="tool-activity__cursor [display:inline-block] [width:7px] [height:14px] [margin-left:2px] [vertical-align:-2px] [background:var(--muted-foreground)] [animation:tool-cursor-blink_1.1s_steps(2,_start)_infinite]"
+            aria-hidden="true"
+          />
+        )}
       </pre>
     </div>
   );
@@ -1253,19 +1372,20 @@ function TraceCard({ event }: { event: NormalizedRenderEvent }) {
   const specialized = specializedTracePresentation(event);
 
   return (
-    <section className="trace-card" aria-label={`${event.title} trace details`}>
-      <div className="trace-card__summary">
-        <div className="trace-card__title">
+    <section
+      className="trace-card [display:grid] [gap:10px] [margin-top:12px] [padding-top:12px] [border-top:1px_solid_var(--border-subtle)]"
+      aria-label={`${event.title} trace details`}
+    >
+      <div className="trace-card__summary [display:grid] [gap:5px] [min-width:0] [&_p]:[margin:0] [&_p]:[color:var(--muted)] [&_p]:[font-size:12.5px] [&_p]:[line-height:1.45] [&_p]:[overflow-wrap:anywhere]">
+        <div className="trace-card__title [display:flex] [align-items:center] [justify-content:space-between] [gap:10px] [min-width:0] [color:var(--muted-foreground)] [font-size:11px] [font-weight:750] [letter-spacing:0] [text-transform:uppercase]">
           <span>{event.title}</span>
-          <span className={cx("trace-card__status", `trace-card__status--${event.status}`)}>
-            {event.status}
-          </span>
+          <span className={traceStatusVariants({ status: event.status })}>{event.status}</span>
         </div>
         <p>{event.summary || event.status}</p>
       </div>
       <button
         type="button"
-        className="trace-card__toggle"
+        className="trace-card__toggle [display:inline-flex] [width:fit-content] [align-items:center] [gap:6px] [padding:5px_8px] [color:var(--muted)] [background:rgba(255,_255,_255,_0.045)] [border:1px_solid_var(--border-subtle)] [border-radius:7px] [font-size:12px] [font-weight:680] [&_svg]:[width:13px] [&_svg]:[height:13px]"
         aria-controls={detailsId}
         aria-expanded={expanded}
         onClick={() => setExpanded((value) => !value)}
@@ -1274,14 +1394,10 @@ function TraceCard({ event }: { event: NormalizedRenderEvent }) {
         {expanded ? "Hide details" : "Show details"}
       </button>
       {expanded && (
-        <div className="trace-card__details" id={detailsId}>
+        <div className="trace-card__details [display:grid] [gap:10px] [min-width:0]" id={detailsId}>
           {specialized && <SpecializedTracePresentation presentation={specialized} />}
-          {event.input !== undefined && (
-            <TraceDetailBlock title="Input" payload={event.input} tone="input" />
-          )}
-          {event.output !== undefined && (
-            <TraceDetailBlock title="Output" payload={event.output} tone="output" />
-          )}
+          {event.input !== undefined && <TraceDetailBlock title="Input" payload={event.input} />}
+          {event.output !== undefined && <TraceDetailBlock title="Output" payload={event.output} />}
           <TraceMetadata title="Provenance" entries={metadataEntries(event.provenance)} />
           <TraceArtifacts artifacts={event.artifacts} />
           {event.rawPayloadRef && (
@@ -1302,7 +1418,6 @@ interface TracePresentationBlock {
 interface SpecializedTracePresentationModel {
   blocks: TracePresentationBlock[];
   fields: Array<[string, string]>;
-  kind: string;
   live?: boolean;
   title: string;
 }
@@ -1310,7 +1425,6 @@ interface SpecializedTracePresentationModel {
 interface SpecializedTracePresentationDraft {
   blocks: Array<TracePresentationBlock | null>;
   fields: Array<[string, string] | null>;
-  kind: string;
   live?: boolean;
   title: string;
 }
@@ -1321,12 +1435,15 @@ function SpecializedTracePresentation({
   presentation: SpecializedTracePresentationModel;
 }) {
   return (
-    <div className={cx("trace-card__special", `trace-card__special--${presentation.kind}`)}>
+    <div className="trace-card__special [display:grid] [gap:8px] [min-width:0] [padding:9px] [background:rgba(255,_255,_255,_0.035)] [border:1px_solid_var(--border-subtle)] [border-radius:9px] [&_h4]:[margin:0] [&_h4]:[color:var(--foreground)] [&_h4]:[font-size:12px] [&_h4]:[font-weight:760] [&_h4]:[letter-spacing:0]">
       <h4>{presentation.title}</h4>
       {presentation.fields.length > 0 && (
-        <div className="trace-card__field-grid">
+        <div className="trace-card__field-grid [display:grid] [grid-template-columns:repeat(auto-fit,_minmax(132px,_1fr))] [gap:6px] [min-width:0] max-680:[grid-template-columns:1fr]">
           {presentation.fields.map(([label, value]) => (
-            <div className="trace-card__field" key={`${label}:${value}`}>
+            <div
+              className="trace-card__field [display:grid] [gap:2px] [min-width:0] [padding:6px_7px] [background:rgba(0,_0,_0,_0.18)] [border:1px_solid_var(--border-subtle)] [border-radius:7px] [&_span]:[color:var(--muted-foreground)] [&_span]:[font-size:10px] [&_span]:[font-weight:720] [&_span]:[letter-spacing:0] [&_span]:[text-transform:uppercase] [&_strong]:[min-width:0] [&_strong]:[overflow:hidden] [&_strong]:[color:var(--foreground)] [&_strong]:[font-family:var(--font-mono)] [&_strong]:[font-size:11px] [&_strong]:[font-weight:620] [&_strong]:[text-overflow:ellipsis] [&_strong]:[white-space:nowrap]"
+              key={`${label}:${value}`}
+            >
               <span>{label}</span>
               <strong>{value}</strong>
             </div>
@@ -1356,8 +1473,13 @@ function TracePresentationBlockView({
   });
 
   return (
-    <div className={cx("trace-card__excerpt", live && "is-live")}>
-      <div className="trace-card__excerpt-title">
+    <div
+      className={cx(
+        "trace-card__excerpt [display:grid] [gap:5px] [min-width:0] [&_pre]:[max-width:100%] [&_pre]:[max-height:260px] [&_pre]:[margin:0] [&_pre]:[overflow:auto] [&_pre]:[padding:8px_9px] [&_pre]:[color:#d4d4d8] [&_pre]:[background:rgba(0,_0,_0,_0.28)] [&_pre]:[border:1px_solid_var(--border-subtle)] [&_pre]:[border-radius:8px] [&_pre]:[font-family:var(--font-mono)] [&_pre]:[font-size:12px] [&_pre]:[line-height:1.45] [&_pre]:[white-space:pre] [&.is-live_pre]:[border-color:color-mix(in_srgb,_var(--accent)_32%,_var(--border-subtle))]",
+        live && "is-live",
+      )}
+    >
+      <div className="trace-card__excerpt-title [display:flex] [align-items:center] [gap:6px] [color:var(--muted-foreground)] [font-size:10px] [font-weight:720] [letter-spacing:0] [text-transform:uppercase] [&_em]:[color:var(--accent)] [&_em]:[font-style:normal] [&_em]:[text-transform:none]">
         <span>{block.title}</span>
         {block.truncated && <em>truncated</em>}
         {live && <em>live</em>}
@@ -1375,17 +1497,9 @@ function TracePresentationBlockView({
   );
 }
 
-function TraceDetailBlock({
-  payload,
-  title,
-  tone,
-}: {
-  payload: unknown;
-  title: string;
-  tone: "input" | "output";
-}) {
+function TraceDetailBlock({ payload, title }: { payload: unknown; title: string }) {
   return (
-    <div className={cx("trace-card__detail", `trace-card__detail--${tone}`)}>
+    <div className="trace-card__detail [min-width:0] [&_h4]:[margin:0_0_6px] [&_h4]:[color:var(--muted-foreground)] [&_h4]:[font-size:11px] [&_h4]:[font-weight:740] [&_h4]:[letter-spacing:0] [&_h4]:[text-transform:uppercase] [&_pre]:[max-width:100%] [&_pre]:[margin:0] [&_pre]:[overflow-x:auto] [&_pre]:[padding:9px_10px] [&_pre]:[color:#d4d4d8] [&_pre]:[background:rgba(0,_0,_0,_0.26)] [&_pre]:[border:1px_solid_var(--border-subtle)] [&_pre]:[border-radius:8px] [&_pre]:[font-family:var(--font-mono)] [&_pre]:[font-size:12px] [&_pre]:[line-height:1.45] [&_pre]:[white-space:pre]">
       <h4>{title}</h4>
       <pre>{stringifyRenderPayload(payload)}</pre>
     </div>
@@ -1396,11 +1510,14 @@ function TraceMetadata({ entries, title }: { entries: Array<[string, string]>; t
   if (entries.length === 0) return null;
 
   return (
-    <div className="trace-card__metadata">
+    <div className="trace-card__metadata [min-width:0] [&_h4]:[margin:0_0_6px] [&_h4]:[color:var(--muted-foreground)] [&_h4]:[font-size:11px] [&_h4]:[font-weight:740] [&_h4]:[letter-spacing:0] [&_h4]:[text-transform:uppercase]">
       <h4>{title}</h4>
-      <div className="trace-card__chips">
+      <div className="trace-card__chips [display:flex] [flex-wrap:wrap] [gap:6px] [min-width:0]">
         {entries.map(([key, value]) => (
-          <span className="trace-card__chip" key={`${key}:${value}`}>
+          <span
+            className="trace-card__chip [display:inline-flex] [max-width:100%] [align-items:center] [gap:5px] [padding:4px_6px] [color:var(--muted)] [background:rgba(255,_255,_255,_0.045)] [border:1px_solid_var(--border-subtle)] [border-radius:7px] [font-family:var(--font-mono)] [font-size:11px] [line-height:1.25] [&_strong]:[min-width:0] [&_strong]:[overflow:hidden] [&_strong]:[color:var(--foreground)] [&_strong]:[font-style:normal] [&_strong]:[font-weight:650] [&_strong]:[text-overflow:ellipsis] [&_strong]:[white-space:nowrap] [&_em]:[min-width:0] [&_em]:[overflow:hidden] [&_em]:[font-style:normal] [&_em]:[font-weight:650] [&_em]:[text-overflow:ellipsis] [&_em]:[white-space:nowrap] [&_em]:[color:var(--accent)]"
+            key={`${key}:${value}`}
+          >
             <span>{key}</span>
             <strong>{value}</strong>
           </span>
@@ -1414,12 +1531,12 @@ function TraceArtifacts({ artifacts }: { artifacts: RenderArtifactReference[] })
   if (artifacts.length === 0) return null;
 
   return (
-    <div className="trace-card__metadata">
+    <div className="trace-card__metadata [min-width:0] [&_h4]:[margin:0_0_6px] [&_h4]:[color:var(--muted-foreground)] [&_h4]:[font-size:11px] [&_h4]:[font-weight:740] [&_h4]:[letter-spacing:0] [&_h4]:[text-transform:uppercase]">
       <h4>Artifacts</h4>
-      <div className="trace-card__chips">
+      <div className="trace-card__chips [display:flex] [flex-wrap:wrap] [gap:6px] [min-width:0]">
         {artifacts.map((artifact, index) => (
           <span
-            className="trace-card__chip trace-card__chip--artifact"
+            className="trace-card__chip trace-card__chip--artifact [display:inline-flex] [max-width:100%] [align-items:center] [gap:5px] [padding:4px_6px] [color:var(--muted)] [background:rgba(255,_255,_255,_0.045)] [border:1px_solid_var(--border-subtle)] [border-radius:7px] [font-family:var(--font-mono)] [font-size:11px] [line-height:1.25] [&_strong]:[min-width:0] [&_strong]:[overflow:hidden] [&_strong]:[color:var(--foreground)] [&_strong]:[font-style:normal] [&_strong]:[font-weight:650] [&_strong]:[text-overflow:ellipsis] [&_strong]:[white-space:nowrap] [&_em]:[min-width:0] [&_em]:[overflow:hidden] [&_em]:[font-style:normal] [&_em]:[font-weight:650] [&_em]:[text-overflow:ellipsis] [&_em]:[white-space:nowrap] [&_em]:[color:var(--accent)]"
             key={artifact.artifactId ?? `${artifact.kind}:${artifact.path ?? index}`}
           >
             <span>{artifact.kind}</span>
@@ -1483,7 +1600,6 @@ function terminalTracePresentation(
       traceField("exit", stringValue(payload, ["exitCode", "exit_code", "code"])),
       traceField("duration", durationText(payload, event)),
     ],
-    kind: "terminal",
     live: event.status === "queued" || event.status === "running",
     title: "Terminal",
   });
@@ -1507,7 +1623,6 @@ function diffTracePresentation(
       ),
       traceField("artifacts", hasDiffArtifact ? String(event.artifacts.length) : undefined),
     ],
-    kind: "diff",
     title: "Diff",
   });
 }
@@ -1537,7 +1652,6 @@ function testTracePresentation(
       traceField("failed", stringValue(payload, ["failed", "failedCount"])),
       traceField("tests", stringValue(payload, ["testCount", "tests"])),
     ],
-    kind: "test",
     title: "Test/check",
   });
 }
@@ -1568,7 +1682,6 @@ function fileTracePresentation(
       traceField("range", rangeText(payload)),
       traceField("bytes", stringValue(payload, ["byteCount", "bytes"])),
     ],
-    kind: "file",
     title: "File",
   });
 }
@@ -1603,7 +1716,6 @@ function mcpTracePresentation(
       traceField("tool", tool),
       traceField("plugin", event.provenance.pluginId),
     ],
-    kind: "mcp",
     title: "MCP",
   });
 }
@@ -1632,7 +1744,6 @@ function automationTracePresentation(
         hasAutomationArtifact(event) ? String(event.artifacts.length) : undefined,
       ),
     ],
-    kind: "automation",
     title: "Automation",
   });
 }
@@ -1654,7 +1765,6 @@ function mediaTracePresentation(
         Array.from(new Set(mediaArtifacts.map((artifact) => artifact.kind))).join(", "),
       ),
     ],
-    kind: "media",
     title: "Generated media",
   });
 }
@@ -1781,7 +1891,7 @@ function metadataEntries(provenance: RenderProvenance): Array<[string, string]> 
 function messagePresentation(msg: MessageChunk): {
   icon: LucideIcon;
   label: string;
-  tone: string;
+  tone: RunEventTone;
   meta: string;
 } {
   if (msg.role === "user") {

@@ -66,6 +66,7 @@ export interface SessionContextMenuState {
 }
 
 const LOCAL_SESSION_PRELOAD_LIMIT = 24;
+export const RECENTS_GROUP_ID = "__no_project__";
 
 export function buildSessionErrors(
   discoveredErrors: SessionDiscoveryError[],
@@ -146,13 +147,13 @@ export function mergeProjectsIntoSessionGroups(
   const unmatched = groups
     .filter((group) => remaining.has(group.id))
     .flatMap<ProjectSessionGroup>((group) => {
-      const sessions = group.sessions.filter((session) => !session.projectId);
+      const sessions = group.sessions;
       if (sessions.length === 0) return [];
       return [
         {
           ...group,
-          label: group.id === "__no_project__" ? "No project" : projectDisplayName(group.label),
-          cwd: group.id === "__no_project__" ? "" : group.label,
+          label: group.id === RECENTS_GROUP_ID ? "Recents" : projectDisplayName(group.label),
+          cwd: group.id === RECENTS_GROUP_ID ? "" : group.label,
           sessions,
         },
       ];
@@ -164,14 +165,18 @@ export function sortProjectSessionGroups(
   groups: ProjectSessionGroup[],
   mode: ProjectSortMode,
 ): ProjectSessionGroup[] {
-  if (mode === "manual") return groups;
-  return [...groups].sort((left, right) => {
-    if (mode === "priority" && Boolean(left.project?.pinned) !== Boolean(right.project?.pinned)) {
-      return left.project?.pinned ? -1 : 1;
-    }
-    const timeDifference = projectSessionGroupTime(right) - projectSessionGroupTime(left);
-    return timeDifference || left.label.localeCompare(right.label);
-  });
+  const projectGroups = groups.filter((group) => group.id !== RECENTS_GROUP_ID);
+  const recentsGroups = groups.filter((group) => group.id === RECENTS_GROUP_ID);
+  if (mode === "manual") return [...projectGroups, ...recentsGroups];
+  return projectGroups
+    .sort((left, right) => {
+      if (mode === "priority" && Boolean(left.project?.pinned) !== Boolean(right.project?.pinned)) {
+        return left.project?.pinned ? -1 : 1;
+      }
+      const timeDifference = projectSessionGroupTime(right) - projectSessionGroupTime(left);
+      return timeDifference || left.label.localeCompare(right.label);
+    })
+    .concat(recentsGroups);
 }
 
 export function flattenProjectSessions(
@@ -265,8 +270,8 @@ function groupDisplaySessions(
 
   for (const session of sortDisplaySessions(sessions)) {
     const project = session.cwd.trim();
-    const groupId = mode === "harness" ? session.harnessId : project || "__no_project__";
-    const groupLabel = mode === "harness" ? session.harnessLabel : project || "No project";
+    const groupId = mode === "harness" ? session.harnessId : project || RECENTS_GROUP_ID;
+    const groupLabel = mode === "harness" ? session.harnessLabel : project || "Recents";
     const existing = grouped.get(groupId);
     if (existing) {
       existing.sessions.push(session);

@@ -51,4 +51,70 @@ describe("Session and Project navigation", () => {
     expect(filterSessionGroups(groups, "codex")).toEqual(groups);
     expect(filterSessionGroups(groups, "missing")).toEqual([]);
   });
+
+  it("labels sessions without a Project as Recents and keeps them after every Project group", () => {
+    const discoveredProjectSession: DiscoveredSession = {
+      ...SESSION,
+      id: "session-2",
+      projectId: undefined,
+      cwd: "/work/discovered",
+      updatedAt: "2026-08-02T01:00:00.000Z",
+    };
+    const recentSession: DiscoveredSession = {
+      ...SESSION,
+      id: "session-3",
+      projectId: undefined,
+      cwd: "",
+      updatedAt: "2026-08-03T01:00:00.000Z",
+    };
+    const groups = mergeProjectsIntoSessionGroups(
+      [PROJECT],
+      [
+        { id: PROJECT.cwd, label: PROJECT.cwd, sessions: [SESSION] },
+        {
+          id: "__no_project__",
+          label: "No project",
+          sessions: [recentSession],
+        },
+        {
+          id: discoveredProjectSession.cwd,
+          label: discoveredProjectSession.cwd,
+          sessions: [discoveredProjectSession],
+        },
+      ],
+    );
+
+    expect(groups.find((group) => group.id === "__no_project__")?.label).toBe("Recents");
+    for (const mode of ["priority", "last-updated", "manual"] as const) {
+      expect(sortProjectSessionGroups(groups, mode).at(-1)?.id).toBe("__no_project__");
+    }
+  });
+
+  it("keeps sessions reachable when their persisted Project no longer exists", () => {
+    const orphanedSession: DiscoveredSession = {
+      ...SESSION,
+      id: "session-orphaned",
+      title: "Orphaned project session",
+      projectId: "removed-project",
+      cwd: "/work/removed-project",
+    };
+    const groups = mergeProjectsIntoSessionGroups(
+      [PROJECT],
+      [
+        { id: PROJECT.cwd, label: PROJECT.cwd, sessions: [SESSION] },
+        {
+          id: orphanedSession.cwd,
+          label: orphanedSession.cwd,
+          sessions: [orphanedSession],
+        },
+      ],
+    );
+
+    expect(groups.find((group) => group.id === orphanedSession.cwd)?.sessions).toEqual([
+      orphanedSession,
+    ]);
+    expect(filterSessionGroups(groups, "orphaned").flatMap((group) => group.sessions)).toEqual([
+      orphanedSession,
+    ]);
+  });
 });

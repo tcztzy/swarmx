@@ -72,7 +72,7 @@ application failure; all other Electron standard-error output remains visible.
 
 In Desktop:
 
-1. Open **Anonymous user -> Settings -> Providers**.
+1. Open **Local workspace -> Settings -> Providers**.
 2. Add an explicit Provider connection.
 3. Refresh its Model catalog.
 4. Choose a Harness and Model in the composer.
@@ -215,14 +215,11 @@ platform sandboxing where supported.
 External ACP Harnesses own their native tools and permission systems. They do
 not receive duplicate SwarmX coding tools.
 
-Sessions are append-only JSONL event logs under `~/.swarmx/sessions/`. A
-rebuildable index supports task lists without loading every message body.
-Legacy Session JSON can be migrated with:
-
-```shell
-swarmx sessions migrate --dry-run
-swarmx sessions migrate
-```
+Sessions are append-only JSONL event logs grouped by working directory under
+`~/.swarmx/projects/`, with projectless history in `__recents__`. Each Project
+directory has a rebuildable index, so task lists do not load message bodies.
+Older `.json` Session files and migration backups are unsupported and are not
+discovered, loaded, indexed, or migrated.
 
 Durable WorkItems use a separate append-only authority under
 `~/.swarmx/task-runtime/`. Multiple Sessions may observe the same WorkItem;

@@ -6,6 +6,16 @@ import { api } from "./renderer-api.js";
 import { errorMessage, projectName } from "./text-utils.js";
 import { Button, cx } from "./ui-primitives.js";
 
+type TerminalStatus = "idle" | "starting" | "running" | "exited" | "error";
+
+const TERMINAL_STATUS_CLASS = {
+  idle: "is-idle",
+  starting: "is-starting",
+  running: "is-running",
+  exited: "is-exited",
+  error: "is-error",
+} satisfies Record<TerminalStatus, string>;
+
 export function RuntimeBottomPanel({
   active,
   cwd,
@@ -25,9 +35,7 @@ export function RuntimeBottomPanel({
   const disposedRef = useRef(false);
   const pendingInputRef = useRef("");
   const fitAndResizeRef = useRef<() => void>(() => undefined);
-  const [status, setStatus] = useState<"idle" | "starting" | "running" | "exited" | "error">(
-    "idle",
-  );
+  const [status, setStatus] = useState<TerminalStatus>("idle");
 
   const startTerminal = useCallback(async () => {
     const terminal = terminalRef.current;
@@ -171,13 +179,31 @@ export function RuntimeBottomPanel({
   }, [active, startTerminal]);
 
   return (
-    <section className="runtime-bottom-panel" aria-label="Bottom panel">
-      <div className="terminal-panel__tabbar">
-        <div className="terminal-panel__tabs" role="tablist" aria-label="Terminals">
-          <button type="button" className="terminal-panel__tab" role="tab" aria-selected="true">
+    <section
+      className="runtime-bottom-panel [min-width:0] [height:clamp(180px,_29vh,_320px)] [min-height:0] [overflow:hidden] [display:grid] [grid-template-rows:40px_minmax(0,_1fr)] [border-top:1px_solid_var(--border-subtle)] [background:#0b0d12] [box-shadow:0_-12px_32px_rgba(0,_0,_0,_0.1)] [@media(prefers-color-scheme:light)]:[background:#ffffff] max-860:[grid-template-columns:1fr] max-680:[max-height:210px]"
+      aria-label="Bottom panel"
+    >
+      <div className="terminal-panel__tabbar [justify-content:space-between] [border-bottom:1px_solid_var(--border-subtle)] [background:var(--card-solid)] [color:var(--muted-foreground)] [min-width:0] [display:flex] [align-items:center] [&_>_.button]:[width:34px] [&_>_.button]:[height:34px] [&_>_.button]:[margin:0_5px]">
+        <div
+          className="terminal-panel__tabs [height:100%] [flex:1] [min-width:0] [display:flex] [align-items:center] [&_>_.button]:[width:34px] [&_>_.button]:[height:34px] [&_>_.button]:[margin:0_5px]"
+          role="tablist"
+          aria-label="Terminals"
+        >
+          <button
+            type="button"
+            className="terminal-panel__tab [align-self:stretch] [width:min(220px,_40vw)] [padding:0_14px] [gap:8px] [border:0] [border-right:1px_solid_var(--border-subtle)] [background:rgba(255,_255,_255,_0.035)] [color:var(--foreground)] [cursor:default] [font-size:12px] [min-width:0] [display:flex] [align-items:center] [&_svg]:[width:14px] [&_svg]:[height:14px] [&_svg]:[flex:0_0_auto]"
+            role="tab"
+            aria-selected="true"
+          >
             <TerminalIcon aria-hidden="true" />
             <span>{projectName(cwd)}</span>
-            <span className={cx("terminal-panel__status", `is-${status}`)} aria-hidden="true" />
+            <span
+              className={cx(
+                "terminal-panel__status [width:6px] [height:6px] [margin-left:auto] [flex:0_0_auto] [border-radius:999px] [background:var(--muted-foreground)]",
+                TERMINAL_STATUS_CLASS[status],
+              )}
+              aria-hidden="true"
+            />
           </button>
           <Button
             variant="ghost"
@@ -202,10 +228,13 @@ export function RuntimeBottomPanel({
       </div>
       <div
         ref={terminalElementRef}
-        className="terminal-panel__viewport"
+        className="terminal-panel__viewport [min-width:0] [min-height:0] [overflow:hidden] [padding:9px_12px_10px] [background:#0b0d12] [@media(prefers-color-scheme:light)]:[background:#ffffff]"
         aria-label="Internal terminal"
       />
-      <span className="sr-only" aria-live="polite">
+      <span
+        className="sr-only [position:absolute] [width:1px] [height:1px] [padding:0] [overflow:hidden] [clip:rect(0,_0,_0,_0)] [white-space:nowrap] [border:0]"
+        aria-live="polite"
+      >
         Terminal {status}
       </span>
     </section>

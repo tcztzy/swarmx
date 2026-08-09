@@ -1,4 +1,5 @@
 import { fileURLToPath } from "node:url";
+import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 import { notBundle } from "vite-plugin-electron/plugin";
@@ -16,6 +17,7 @@ function electronProcessEnv(): NodeJS.ProcessEnv {
 export default defineConfig(async () => ({
   root: `${desktopRoot}/src/renderer`,
   plugins: [
+    tailwindcss(),
     react(),
     ...(await electron({
       main: {
@@ -54,6 +56,15 @@ export default defineConfig(async () => ({
   build: {
     outDir: `${desktopRoot}/out/renderer`,
     emptyOutDir: true,
+    cssCodeSplit: false,
+    rolldownOptions: {
+      output: {
+        assetFileNames: (assetInfo) =>
+          assetInfo.names.some((name) => name.endsWith(".css"))
+            ? "assets/swarmx.css"
+            : "assets/[name]-[hash][extname]",
+      },
+    },
   },
   resolve: {
     alias: {

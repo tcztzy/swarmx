@@ -1343,21 +1343,23 @@ function normalizeUserProviderInput(
   }
   const deepSeekRouting = officialDeepSeekRouting(parsedUrl, kind);
   const openCodeGoRouting = officialOpenCodeGoRouting(parsedUrl, kind);
+  const openRouterRouting = officialOpenRouterRouting(parsedUrl, kind);
   if (openCodeGoRouting && usageAdapter === "new_api") {
     throw new Error("OpenCode Go usage is tracked locally and does not use the New API Usage API.");
   }
   const modelDiscovery =
     deepSeekRouting ??
     openCodeGoRouting ??
+    openRouterRouting ??
     (usageAdapter === "new_api" ? newApiModelDiscovery(parsedUrl) : undefined);
-  const routing = deepSeekRouting ?? openCodeGoRouting;
+  const routing = deepSeekRouting ?? openCodeGoRouting ?? openRouterRouting;
   return {
     id,
     label,
     kind,
     baseUrl: routing?.baseUrl ?? baseUrl,
     apiEntrypoints: routing?.apiEntrypoints ?? {},
-    authMode: ProviderAuthModeSchema.parse(input.authMode),
+    authMode: openRouterRouting ? "auth_token" : ProviderAuthModeSchema.parse(input.authMode),
     usageAdapter,
     ...(usageAdapter === "new_api" && accountUserId ? { accountUserId } : {}),
     ...(modelDiscovery
@@ -1471,6 +1473,42 @@ function officialOpenCodeGoRouting(
   };
 }
 
+function officialOpenRouterRouting(
+  baseUrl: URL,
+  preferredApi: ModelApi,
+):
+  | {
+      baseUrl: string;
+      apiEntrypoints: Partial<Record<ModelApi, string>>;
+      modelDiscoveryUrl: string;
+      modelDiscoveryApi: ModelApi;
+    }
+  | undefined {
+  const pathname = baseUrl.pathname.replace(/\/+$/, "");
+  const official =
+    baseUrl.protocol === "https:" &&
+    baseUrl.hostname.toLowerCase() === "openrouter.ai" &&
+    !baseUrl.port &&
+    (pathname === "/api" || pathname === "/api/v1");
+  if (!official) return undefined;
+  if (preferredApi === "ollama") {
+    throw new Error(
+      "OpenRouter supports the Anthropic Messages, OpenAI Chat, or OpenAI Responses API protocol.",
+    );
+  }
+  const apiEntrypoints = {
+    anthropic: `${baseUrl.origin}/api`,
+    openai_chat: `${baseUrl.origin}/api/v1`,
+    openai_responses: `${baseUrl.origin}/api/v1`,
+  } satisfies Partial<Record<ModelApi, string>>;
+  return {
+    baseUrl: apiEntrypoints[preferredApi],
+    apiEntrypoints,
+    modelDiscoveryUrl: `${baseUrl.origin}/api/v1/models`,
+    modelDiscoveryApi: "openai_chat",
+  };
+}
+
 function normalizePersistedProvider(provider: ProviderProfile): ProviderProfile {
   if (!provider.baseUrl) return provider;
   let parsedUrl: URL;
@@ -1479,9 +1517,11 @@ function normalizePersistedProvider(provider: ProviderProfile): ProviderProfile 
   } catch {
     return provider;
   }
+  const openRouter = officialOpenRouterRouting(parsedUrl, provider.kind);
   const routing =
     officialDeepSeekRouting(parsedUrl, provider.kind) ??
-    officialOpenCodeGoRouting(parsedUrl, provider.kind);
+    officialOpenCodeGoRouting(parsedUrl, provider.kind) ??
+    openRouter;
   const modelDiscovery =
     routing ??
     (stringProperty(provider, "usageAdapter") === "new_api"
@@ -1496,6 +1536,7 @@ function normalizePersistedProvider(provider: ProviderProfile): ProviderProfile 
           apiEntrypoints: routing.apiEntrypoints,
         }
       : {}),
+    ...(openRouter ? { authMode: "auth_token" as const } : {}),
     modelDiscoveryUrl: modelDiscovery?.modelDiscoveryUrl,
     modelDiscoveryApi: modelDiscovery?.modelDiscoveryApi,
   };

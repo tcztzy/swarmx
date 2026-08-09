@@ -29,7 +29,7 @@ this complete action set:
 | Terminal | `terminal.create`, `terminal.write`, `terminal.resize`, `terminal.close`, `terminal.exit` |
 | Tool and permission decisions | `tool.invoke`, `tool.decision` |
 | CLI agent execution | Action `agent.run`; metadata `surface` is `cli_send`, `eval`, or `repl` |
-| Other CLI lifecycles | `cli.doctor`, `cli.serve`, `cli.sessions.migrate`, `cli.repl.session` |
+| Other CLI lifecycles | `cli.doctor`, `cli.serve`, `cli.repl.session` |
 | HTTP server | `http.request`; bounded metadata identifies method and allowlisted route |
 | ACP server | `acp.initialize`, `acp.authenticate`, `acp.session.new`, `acp.session.load`, `acp.session.list`, `acp.session.resume`, `acp.session.close`, `acp.prompt` |
 | Verified export | `audit.export` |

@@ -17,7 +17,6 @@ import {
   planBlockedTitle,
   uniqueById,
 } from "./extension-presentation.js";
-import { HarnessBrandIcon, harnessOption } from "./harness-presentation.js";
 import { capitalize, errorMessage, slugId } from "./text-utils.js";
 import { Badge, Button } from "./ui-primitives.js";
 
@@ -201,9 +200,12 @@ export function ExtensionWorkspace({
   };
 
   return (
-    <section className="extension-workspace" aria-label="Extension inventory">
-      <div className="extension-topbar">
-        <div className="extension-title">
+    <section
+      className="extension-workspace [height:100%] [min-width:0] [min-height:0] [overflow:hidden] [display:flex] [flex-direction:column] [background:var(--background)] max-680:[grid-template-rows:auto_minmax(0,_1fr)]"
+      aria-label="Extension inventory"
+    >
+      <div className="extension-topbar [min-width:0] [min-height:72px] [padding:12px_clamp(20px,_4vw,_48px)] [display:flex] [align-items:center] [justify-content:space-between] [gap:14px] [border-bottom:1px_solid_var(--border-subtle)] [background:color-mix(in_srgb,_var(--background)_88%,_var(--card))] [box-shadow:var(--shadow-inset)] max-680:[padding:10px_12px] max-680:[align-items:flex-start] max-680:[flex-direction:column]">
+        <div className="extension-title [min-width:0] [display:flex] [align-items:center] [gap:10px] [&_>_svg]:[flex:0_0_auto] [&_>_svg]:[width:18px] [&_>_svg]:[height:18px] [&_>_svg]:[color:var(--accent)] [&_h2]:[margin:0] [&_h2]:[color:var(--foreground)] [&_h2]:[font-size:14px] [&_h2]:[font-weight:680] [&_h2]:[line-height:1.2] [&_span]:[display:block] [&_span]:[margin-top:2px] [&_span]:[color:var(--muted-foreground)] [&_span]:[font-size:12px] [&_span]:[line-height:1.2]">
           <Package aria-hidden="true" />
           <div>
             <h2>Extensions</h2>
@@ -214,7 +216,10 @@ export function ExtensionWorkspace({
             </span>
           </div>
         </div>
-        <div className="extension-stats" aria-label="Extension counts">
+        <div
+          className="extension-stats [justify-content:flex-end] [flex-wrap:wrap] [min-width:0] [display:flex] [align-items:center] [gap:10px] max-680:[width:100%] max-680:[justify-content:flex-start]"
+          aria-label="Extension counts"
+        >
           <Badge tone="neutral">{pluginCatalog.length} plugins</Badge>
           <Badge tone="neutral">{agents.length} agents</Badge>
           <Badge tone="neutral">{skills.length} skills</Badge>
@@ -224,7 +229,7 @@ export function ExtensionWorkspace({
           {warnings.length > 0 && <Badge tone="danger">{warnings.length} warnings</Badge>}
           <button
             type="button"
-            className="settings-primary-action"
+            className="settings-primary-action [color:var(--primary-foreground)] [background:var(--primary)] [border-color:var(--primary)] [min-height:32px] [padding:0_10px] [display:inline-flex] [align-items:center] [justify-content:center] [gap:6px] [border:1px_solid_var(--border)] [border-radius:7px] [font-size:11.5px] [font-weight:580] [cursor:pointer] [&_svg]:[width:13px] [&_svg]:[height:13px]"
             onClick={() => setSourceFormOpen((open) => !open)}
           >
             <Plus aria-hidden="true" />
@@ -234,13 +239,19 @@ export function ExtensionWorkspace({
       </div>
 
       {Boolean(managementError || error) && (
-        <div className="settings-provider-error" role="alert">
+        <div
+          className="settings-provider-error [margin:-10px_0_16px] [padding:9px_11px] [color:var(--danger)] [background:var(--danger-muted)] [border:1px_solid_color-mix(in_srgb,_var(--danger)_24%,_transparent)] [border-radius:7px] [font-size:11px] [line-height:1.4]"
+          role="alert"
+        >
           {managementError ?? errorMessage(error)}
         </div>
       )}
 
       {sourceFormOpen && (
-        <form className="extension-source-form" onSubmit={(event) => void submitSource(event)}>
+        <form
+          className="extension-source-form [margin:18px_clamp(20px,_4vw,_48px)_0] [padding:16px] [display:grid] [grid-template-columns:minmax(160px,_0.7fr)_minmax(160px,_0.6fr)_minmax(260px,_1.7fr)] [gap:12px] [background:var(--card)] [border:1px_solid_var(--border)] [border-radius:var(--radius-lg)] [box-shadow:var(--shadow-inset)] [&_label]:[display:grid] [&_label]:[gap:6px] [&_label]:[color:var(--muted)] [&_label]:[font-size:11px] [&_input]:[min-width:0] [&_input]:[height:36px] [&_input]:[padding:0_10px] [&_input]:[color:var(--foreground)] [&_input]:[background:var(--input)] [&_input]:[border:1px_solid_var(--border-subtle)] [&_input]:[border-radius:8px] [&_input]:[outline:none] [&_select]:[min-width:0] [&_select]:[height:36px] [&_select]:[padding:0_10px] [&_select]:[color:var(--foreground)] [&_select]:[background:var(--input)] [&_select]:[border:1px_solid_var(--border-subtle)] [&_select]:[border-radius:8px] [&_select]:[outline:none] max-860:[grid-template-columns:1fr] max-680:[margin:12px]"
+          onSubmit={(event) => void submitSource(event)}
+        >
           <label>
             <span>Source name</span>
             <input
@@ -277,7 +288,7 @@ export function ExtensionWorkspace({
               onChange={(event) => setSourceLocation(event.target.value)}
             />
           </label>
-          <div className="extension-source-form__actions">
+          <div className="extension-source-form__actions [grid-column:1_/_-1] [display:flex] [justify-content:flex-end] [gap:8px]">
             <Button type="button" variant="ghost" onClick={() => setSourceFormOpen(false)}>
               Cancel
             </Button>
@@ -288,28 +299,36 @@ export function ExtensionWorkspace({
         </form>
       )}
 
-      <div className="extension-layout">
-        <section className="extension-section" aria-label="Plugin bundles">
-          <div className="extension-section__header">
+      <div className="extension-layout [min-width:0] [min-height:0] [overflow-y:auto] [flex:1_1_auto] [padding:24px_clamp(20px,_4vw,_48px)_56px] [display:grid] [grid-template-columns:repeat(2,_minmax(280px,_1fr))] [align-content:start] [gap:14px] max-860:[grid-template-columns:1fr] max-680:[padding:12px]">
+        <section
+          className="extension-section [min-width:0] [display:flex] [flex-direction:column] [gap:10px] [&_h3]:[margin:0] [&_h3]:[color:var(--foreground)] [&_h3]:[font-size:14px] [&_h3]:[font-weight:680] [&_h3]:[line-height:1.2]"
+          aria-label="Plugin bundles"
+        >
+          <div className="extension-section__header [min-width:0] [display:flex] [align-items:center] [justify-content:space-between] [gap:10px] [color:var(--muted-foreground)] [font-size:12px] [font-weight:700] [&_span]:[flex:0_0_auto] [&_span]:[color:var(--muted)] [&_span]:[font-family:var(--font-mono)] [&_span]:[font-size:12px]">
             <h3>Plugin bundles</h3>
             <span>{bundles.length}</span>
           </div>
           {bundles.length === 0 ? (
-            <div className="extension-empty">No bundles</div>
+            <div className="extension-empty [color:var(--muted-foreground)] [font-size:12px] [min-width:0] [padding:11px] [background:var(--card)] [border:1px_solid_var(--border-subtle)] [border-radius:var(--radius)] [box-shadow:var(--shadow-inset)]">
+              No bundles
+            </div>
           ) : (
-            <ul className="extension-list">
+            <ul className="extension-list [margin:0] [padding:0] [display:flex] [flex-direction:column] [gap:8px] [list-style:none] [&.extension-list--compact]:[gap:6px]">
               {bundles.map((bundle) => (
-                <li key={bundle.id} className="extension-item">
-                  <div className="extension-item__main">
+                <li
+                  key={bundle.id}
+                  className="extension-item [display:flex] [flex-direction:column] [gap:8px] [min-width:0] [padding:11px] [color:var(--foreground)] [background:var(--card)] [border:1px_solid_var(--border-subtle)] [border-radius:var(--radius)] [box-shadow:var(--shadow-inset)]"
+                >
+                  <div className="extension-item__main [min-width:0] [display:flex] [align-items:center] [gap:8px] [&_strong]:[min-width:0] [&_strong]:[overflow:hidden] [&_strong]:[text-overflow:ellipsis] [&_strong]:[white-space:nowrap] [&_strong]:[font-size:13px] [&_strong]:[font-weight:650] [&_span]:[min-width:0] [&_span]:[overflow:hidden] [&_span]:[text-overflow:ellipsis] [&_span]:[white-space:nowrap] [&_span]:[color:var(--muted-foreground)] [&_span]:[font-family:var(--font-mono)] [&_span]:[font-size:11px] [&_.button]:[flex:0_0_auto] [&_.button]:[margin-left:auto]">
                     <strong>{bundle.name}</strong>
                     <span>{bundle.id}</span>
                   </div>
-                  <div className="extension-item__meta">
+                  <div className="extension-item__meta [flex-wrap:wrap] [color:var(--muted)] [font-size:11.5px] [min-width:0] [display:flex] [align-items:center] [gap:8px] [&_span]:[min-width:0] [&_span]:[overflow:hidden] [&_span]:[text-overflow:ellipsis] [&_span]:[white-space:nowrap]">
                     <span>{bundle.version}</span>
                     <span>{bundle.trust ?? "local"}</span>
                     {bundle.readOnly && <span>read-only</span>}
                   </div>
-                  <div className="extension-item__chips">
+                  <div className="extension-item__chips [flex-wrap:wrap] [min-width:0] [display:flex] [align-items:center] [gap:8px] [&_span]:[min-width:0] [&_span]:[overflow:hidden] [&_span]:[text-overflow:ellipsis] [&_span]:[white-space:nowrap] [&_span]:[padding:3px_6px] [&_span]:[color:var(--muted)] [&_span]:[background:rgba(255,_255,_255,_0.055)] [&_span]:[border:1px_solid_var(--border-subtle)] [&_span]:[border-radius:6px] [&_span]:[font-family:var(--font-mono)] [&_span]:[font-size:10.5px] [&_span]:[line-height:1.2]">
                     <span>{capabilityCount(bundle, "harnesses")} harnesses</span>
                     <span>{capabilityCount(bundle, "agents")} agents</span>
                     <span>{capabilityCount(bundle, "skills")} skills</span>
@@ -325,22 +344,30 @@ export function ExtensionWorkspace({
           )}
         </section>
 
-        <section className="extension-section" aria-label="Marketplace sources">
-          <div className="extension-section__header">
+        <section
+          className="extension-section [min-width:0] [display:flex] [flex-direction:column] [gap:10px] [&_h3]:[margin:0] [&_h3]:[color:var(--foreground)] [&_h3]:[font-size:14px] [&_h3]:[font-weight:680] [&_h3]:[line-height:1.2]"
+          aria-label="Marketplace sources"
+        >
+          <div className="extension-section__header [min-width:0] [display:flex] [align-items:center] [justify-content:space-between] [gap:10px] [color:var(--muted-foreground)] [font-size:12px] [font-weight:700] [&_span]:[flex:0_0_auto] [&_span]:[color:var(--muted)] [&_span]:[font-family:var(--font-mono)] [&_span]:[font-size:12px]">
             <h3>Marketplace sources</h3>
             <span>{marketplaceSources.length}</span>
           </div>
           {marketplaceSources.length === 0 ? (
-            <div className="extension-empty">No marketplace sources</div>
+            <div className="extension-empty [color:var(--muted-foreground)] [font-size:12px] [min-width:0] [padding:11px] [background:var(--card)] [border:1px_solid_var(--border-subtle)] [border-radius:var(--radius)] [box-shadow:var(--shadow-inset)]">
+              No marketplace sources
+            </div>
           ) : (
-            <ul className="extension-list">
+            <ul className="extension-list [margin:0] [padding:0] [display:flex] [flex-direction:column] [gap:8px] [list-style:none] [&.extension-list--compact]:[gap:6px]">
               {marketplaceSources.map((source) => (
-                <li key={source.id} className="extension-item">
-                  <div className="extension-item__main">
+                <li
+                  key={source.id}
+                  className="extension-item [display:flex] [flex-direction:column] [gap:8px] [min-width:0] [padding:11px] [color:var(--foreground)] [background:var(--card)] [border:1px_solid_var(--border-subtle)] [border-radius:var(--radius)] [box-shadow:var(--shadow-inset)]"
+                >
+                  <div className="extension-item__main [min-width:0] [display:flex] [align-items:center] [gap:8px] [&_strong]:[min-width:0] [&_strong]:[overflow:hidden] [&_strong]:[text-overflow:ellipsis] [&_strong]:[white-space:nowrap] [&_strong]:[font-size:13px] [&_strong]:[font-weight:650] [&_span]:[min-width:0] [&_span]:[overflow:hidden] [&_span]:[text-overflow:ellipsis] [&_span]:[white-space:nowrap] [&_span]:[color:var(--muted-foreground)] [&_span]:[font-family:var(--font-mono)] [&_span]:[font-size:11px] [&_.button]:[flex:0_0_auto] [&_.button]:[margin-left:auto]">
                     <strong>{source.name}</strong>
                     <span>{source.id}</span>
                     {management?.sources.some((managed) => managed.id === source.id) && (
-                      <span className="extension-item__actions">
+                      <span className="extension-item__actions [&_.button]:[margin-left:0] [margin-left:auto] [display:inline-flex] [align-items:center] [justify-content:flex-end] [flex-wrap:wrap] [gap:6px] ![overflow:visible]">
                         <Button
                           size="sm"
                           variant="secondary"
@@ -371,14 +398,14 @@ export function ExtensionWorkspace({
                       </span>
                     )}
                   </div>
-                  <div className="extension-item__meta">
+                  <div className="extension-item__meta [flex-wrap:wrap] [color:var(--muted)] [font-size:11.5px] [min-width:0] [display:flex] [align-items:center] [gap:8px] [&_span]:[min-width:0] [&_span]:[overflow:hidden] [&_span]:[text-overflow:ellipsis] [&_span]:[white-space:nowrap]">
                     <span>{source.host ?? "custom"}</span>
                     <span>{source.kind ?? "local_path"}</span>
                     <span>{source.trust ?? "local"}</span>
                     {source.enabled === false && <span>disabled</span>}
                     {source.readOnly && <span>read-only</span>}
                   </div>
-                  <div className="extension-item__chips">
+                  <div className="extension-item__chips [flex-wrap:wrap] [min-width:0] [display:flex] [align-items:center] [gap:8px] [&_span]:[min-width:0] [&_span]:[overflow:hidden] [&_span]:[text-overflow:ellipsis] [&_span]:[white-space:nowrap] [&_span]:[padding:3px_6px] [&_span]:[color:var(--muted)] [&_span]:[background:rgba(255,_255,_255,_0.055)] [&_span]:[border:1px_solid_var(--border-subtle)] [&_span]:[border-radius:6px] [&_span]:[font-family:var(--font-mono)] [&_span]:[font-size:10.5px] [&_span]:[line-height:1.2]">
                     <span>{source.path ?? source.url ?? source.package ?? "host-native"}</span>
                   </div>
                 </li>
@@ -387,15 +414,20 @@ export function ExtensionWorkspace({
           )}
         </section>
 
-        <section className="extension-section" aria-label="Plugin catalog">
-          <div className="extension-section__header">
+        <section
+          className="extension-section [min-width:0] [display:flex] [flex-direction:column] [gap:10px] [&_h3]:[margin:0] [&_h3]:[color:var(--foreground)] [&_h3]:[font-size:14px] [&_h3]:[font-weight:680] [&_h3]:[line-height:1.2]"
+          aria-label="Plugin catalog"
+        >
+          <div className="extension-section__header [min-width:0] [display:flex] [align-items:center] [justify-content:space-between] [gap:10px] [color:var(--muted-foreground)] [font-size:12px] [font-weight:700] [&_span]:[flex:0_0_auto] [&_span]:[color:var(--muted)] [&_span]:[font-family:var(--font-mono)] [&_span]:[font-size:12px]">
             <h3>Plugin catalog</h3>
             <span>{pluginCatalog.length}</span>
           </div>
           {pluginCatalog.length === 0 ? (
-            <div className="extension-empty">No plugin catalog entries</div>
+            <div className="extension-empty [color:var(--muted-foreground)] [font-size:12px] [min-width:0] [padding:11px] [background:var(--card)] [border:1px_solid_var(--border-subtle)] [border-radius:var(--radius)] [box-shadow:var(--shadow-inset)]">
+              No plugin catalog entries
+            </div>
           ) : (
-            <ul className="extension-list">
+            <ul className="extension-list [margin:0] [padding:0] [display:flex] [flex-direction:column] [gap:8px] [list-style:none] [&.extension-list--compact]:[gap:6px]">
               {pluginCatalog.map((entry) => {
                 const installed = installedById.get(entry.id);
                 const updateAvailable = Boolean(
@@ -404,11 +436,14 @@ export function ExtensionWorkspace({
                     installed.currentRevision?.version !== entry.version,
                 );
                 return (
-                  <li key={entry.id} className="extension-item">
-                    <div className="extension-item__main">
+                  <li
+                    key={entry.id}
+                    className="extension-item [display:flex] [flex-direction:column] [gap:8px] [min-width:0] [padding:11px] [color:var(--foreground)] [background:var(--card)] [border:1px_solid_var(--border-subtle)] [border-radius:var(--radius)] [box-shadow:var(--shadow-inset)]"
+                  >
+                    <div className="extension-item__main [min-width:0] [display:flex] [align-items:center] [gap:8px] [&_strong]:[min-width:0] [&_strong]:[overflow:hidden] [&_strong]:[text-overflow:ellipsis] [&_strong]:[white-space:nowrap] [&_strong]:[font-size:13px] [&_strong]:[font-weight:650] [&_span]:[min-width:0] [&_span]:[overflow:hidden] [&_span]:[text-overflow:ellipsis] [&_span]:[white-space:nowrap] [&_span]:[color:var(--muted-foreground)] [&_span]:[font-family:var(--font-mono)] [&_span]:[font-size:11px] [&_.button]:[flex:0_0_auto] [&_.button]:[margin-left:auto]">
                       <strong>{entry.name}</strong>
                       <span>{entry.id}</span>
-                      <span className="extension-item__actions">
+                      <span className="extension-item__actions [&_.button]:[margin-left:0] [margin-left:auto] [display:inline-flex] [align-items:center] [justify-content:flex-end] [flex-wrap:wrap] [gap:6px] ![overflow:visible]">
                         {!installed ? (
                           <Button
                             size="sm"
@@ -463,7 +498,7 @@ export function ExtensionWorkspace({
                         )}
                       </span>
                     </div>
-                    <div className="extension-item__meta">
+                    <div className="extension-item__meta [flex-wrap:wrap] [color:var(--muted)] [font-size:11.5px] [min-width:0] [display:flex] [align-items:center] [gap:8px] [&_span]:[min-width:0] [&_span]:[overflow:hidden] [&_span]:[text-overflow:ellipsis] [&_span]:[white-space:nowrap]">
                       {entry.version && <span>{entry.version}</span>}
                       <span>{installed?.state ?? entry.installState ?? "available"}</span>
                       <span>{entry.updateState ?? "unknown"}</span>
@@ -471,7 +506,7 @@ export function ExtensionWorkspace({
                       {entry.providesHarness && <span>runnable harness</span>}
                       {entry.readOnly && <span>read-only</span>}
                     </div>
-                    <div className="extension-item__chips">
+                    <div className="extension-item__chips [flex-wrap:wrap] [min-width:0] [display:flex] [align-items:center] [gap:8px] [&_span]:[min-width:0] [&_span]:[overflow:hidden] [&_span]:[text-overflow:ellipsis] [&_span]:[white-space:nowrap] [&_span]:[padding:3px_6px] [&_span]:[color:var(--muted)] [&_span]:[background:rgba(255,_255,_255,_0.055)] [&_span]:[border:1px_solid_var(--border-subtle)] [&_span]:[border-radius:6px] [&_span]:[font-family:var(--font-mono)] [&_span]:[font-size:10.5px] [&_span]:[line-height:1.2]">
                       {(entry.hosts ?? []).map((host) => (
                         <span key={`${entry.id}:${host}`}>{host}</span>
                       ))}
@@ -489,20 +524,20 @@ export function ExtensionWorkspace({
         </section>
 
         <section
-          className="extension-section extension-section--evolution"
+          className="extension-section extension-section--evolution [min-width:0] [display:flex] [flex-direction:column] [gap:10px] [padding:16px] [background:linear-gradient(145deg,_rgba(149,_233,_255,_0.055),_transparent_64%),_var(--card)] [border:1px_solid_var(--border-subtle)] [border-radius:var(--radius-lg)] [&_h3]:[margin:0] [&_h3]:[color:var(--foreground)] [&_h3]:[font-size:14px] [&_h3]:[font-weight:680] [&_h3]:[line-height:1.2]"
           aria-label="Skill evolution"
         >
-          <div className="extension-section__header">
+          <div className="extension-section__header [min-width:0] [display:flex] [align-items:center] [justify-content:space-between] [gap:10px] [color:var(--muted-foreground)] [font-size:12px] [font-weight:700] [&_span]:[flex:0_0_auto] [&_span]:[color:var(--muted)] [&_span]:[font-family:var(--font-mono)] [&_span]:[font-size:12px]">
             <h3>Skill evolution</h3>
-            <Badge tone={management?.skillEvolutionEnabled ? "active" : "neutral"}>
+            <Badge tone={management?.skillEvolutionEnabled ? "success" : "neutral"}>
               {management?.skillEvolutionEnabled ? "Enabled" : "Off"}
             </Badge>
           </div>
-          <p className="extension-section__description">
+          <p className="extension-section__description [margin:0] [color:var(--muted)] [font-size:12px] [line-height:1.55]">
             Generate agent/model-specific candidate variants, evaluate them against the active
             baseline, and keep promotion gated with immutable lineage and rollback.
           </p>
-          <div className="extension-evolution-controls">
+          <div className="extension-evolution-controls [display:flex] [align-items:end] [justify-content:space-between] [gap:14px] [&_label]:[display:grid] [&_label]:[gap:6px] [&_label]:[color:var(--muted)] [&_label]:[font-size:11px] [&_select]:[min-width:0] [&_select]:[height:36px] [&_select]:[padding:0_10px] [&_select]:[color:var(--foreground)] [&_select]:[background:var(--input)] [&_select]:[border:1px_solid_var(--border-subtle)] [&_select]:[border-radius:8px] [&_select]:[outline:none] max-680:[align-items:stretch] max-680:[flex-direction:column]">
             <label>
               <input
                 type="checkbox"
@@ -538,26 +573,34 @@ export function ExtensionWorkspace({
           </div>
         </section>
 
-        <section className="extension-section" aria-label="Plugin components">
-          <div className="extension-section__header">
+        <section
+          className="extension-section [min-width:0] [display:flex] [flex-direction:column] [gap:10px] [&_h3]:[margin:0] [&_h3]:[color:var(--foreground)] [&_h3]:[font-size:14px] [&_h3]:[font-weight:680] [&_h3]:[line-height:1.2]"
+          aria-label="Plugin components"
+        >
+          <div className="extension-section__header [min-width:0] [display:flex] [align-items:center] [justify-content:space-between] [gap:10px] [color:var(--muted-foreground)] [font-size:12px] [font-weight:700] [&_span]:[flex:0_0_auto] [&_span]:[color:var(--muted)] [&_span]:[font-family:var(--font-mono)] [&_span]:[font-size:12px]">
             <h3>Plugin components</h3>
             <span>{pluginComponents.length}</span>
           </div>
           {pluginComponents.length === 0 ? (
-            <div className="extension-empty">No plugin components</div>
+            <div className="extension-empty [color:var(--muted-foreground)] [font-size:12px] [min-width:0] [padding:11px] [background:var(--card)] [border:1px_solid_var(--border-subtle)] [border-radius:var(--radius)] [box-shadow:var(--shadow-inset)]">
+              No plugin components
+            </div>
           ) : (
-            <ul className="extension-list">
+            <ul className="extension-list [margin:0] [padding:0] [display:flex] [flex-direction:column] [gap:8px] [list-style:none] [&.extension-list--compact]:[gap:6px]">
               {pluginComponents.map((component) => (
-                <li key={`${component.kind}:${component.id}`} className="extension-item">
-                  <div className="extension-item__main">
+                <li
+                  key={`${component.kind}:${component.id}`}
+                  className="extension-item [display:flex] [flex-direction:column] [gap:8px] [min-width:0] [padding:11px] [color:var(--foreground)] [background:var(--card)] [border:1px_solid_var(--border-subtle)] [border-radius:var(--radius)] [box-shadow:var(--shadow-inset)]"
+                >
+                  <div className="extension-item__main [min-width:0] [display:flex] [align-items:center] [gap:8px] [&_strong]:[min-width:0] [&_strong]:[overflow:hidden] [&_strong]:[text-overflow:ellipsis] [&_strong]:[white-space:nowrap] [&_strong]:[font-size:13px] [&_strong]:[font-weight:650] [&_span]:[min-width:0] [&_span]:[overflow:hidden] [&_span]:[text-overflow:ellipsis] [&_span]:[white-space:nowrap] [&_span]:[color:var(--muted-foreground)] [&_span]:[font-family:var(--font-mono)] [&_span]:[font-size:11px] [&_.button]:[flex:0_0_auto] [&_.button]:[margin-left:auto]">
                     <strong>{component.title}</strong>
                     <span>{component.kind}</span>
                   </div>
-                  <div className="extension-item__meta">
+                  <div className="extension-item__meta [flex-wrap:wrap] [color:var(--muted)] [font-size:11.5px] [min-width:0] [display:flex] [align-items:center] [gap:8px] [&_span]:[min-width:0] [&_span]:[overflow:hidden] [&_span]:[text-overflow:ellipsis] [&_span]:[white-space:nowrap]">
                     <span>{component.id}</span>
                     {component.detail && <span>{component.detail}</span>}
                   </div>
-                  <div className="extension-item__chips">
+                  <div className="extension-item__chips [flex-wrap:wrap] [min-width:0] [display:flex] [align-items:center] [gap:8px] [&_span]:[min-width:0] [&_span]:[overflow:hidden] [&_span]:[text-overflow:ellipsis] [&_span]:[white-space:nowrap] [&_span]:[padding:3px_6px] [&_span]:[color:var(--muted)] [&_span]:[background:rgba(255,_255,_255,_0.055)] [&_span]:[border:1px_solid_var(--border-subtle)] [&_span]:[border-radius:6px] [&_span]:[font-family:var(--font-mono)] [&_span]:[font-size:10.5px] [&_span]:[line-height:1.2]">
                     {component.chips.map((chip) => (
                       <span key={`${component.kind}:${component.id}:${chip}`}>{chip}</span>
                     ))}
@@ -568,29 +611,37 @@ export function ExtensionWorkspace({
           )}
         </section>
 
-        <section className="extension-section" aria-label="GUI contributions">
-          <div className="extension-section__header">
+        <section
+          className="extension-section [min-width:0] [display:flex] [flex-direction:column] [gap:10px] [&_h3]:[margin:0] [&_h3]:[color:var(--foreground)] [&_h3]:[font-size:14px] [&_h3]:[font-weight:680] [&_h3]:[line-height:1.2]"
+          aria-label="GUI contributions"
+        >
+          <div className="extension-section__header [min-width:0] [display:flex] [align-items:center] [justify-content:space-between] [gap:10px] [color:var(--muted-foreground)] [font-size:12px] [font-weight:700] [&_span]:[flex:0_0_auto] [&_span]:[color:var(--muted)] [&_span]:[font-family:var(--font-mono)] [&_span]:[font-size:12px]">
             <h3>GUI contributions</h3>
             <span>{uiContributions.length}</span>
           </div>
           {uiContributions.length === 0 ? (
-            <div className="extension-empty">No GUI contributions</div>
+            <div className="extension-empty [color:var(--muted-foreground)] [font-size:12px] [min-width:0] [padding:11px] [background:var(--card)] [border:1px_solid_var(--border-subtle)] [border-radius:var(--radius)] [box-shadow:var(--shadow-inset)]">
+              No GUI contributions
+            </div>
           ) : (
-            <ul className="extension-list">
+            <ul className="extension-list [margin:0] [padding:0] [display:flex] [flex-direction:column] [gap:8px] [list-style:none] [&.extension-list--compact]:[gap:6px]">
               {uiContributions.map((contribution) => (
-                <li key={contribution.id} className="extension-item">
-                  <div className="extension-item__main">
+                <li
+                  key={contribution.id}
+                  className="extension-item [display:flex] [flex-direction:column] [gap:8px] [min-width:0] [padding:11px] [color:var(--foreground)] [background:var(--card)] [border:1px_solid_var(--border-subtle)] [border-radius:var(--radius)] [box-shadow:var(--shadow-inset)]"
+                >
+                  <div className="extension-item__main [min-width:0] [display:flex] [align-items:center] [gap:8px] [&_strong]:[min-width:0] [&_strong]:[overflow:hidden] [&_strong]:[text-overflow:ellipsis] [&_strong]:[white-space:nowrap] [&_strong]:[font-size:13px] [&_strong]:[font-weight:650] [&_span]:[min-width:0] [&_span]:[overflow:hidden] [&_span]:[text-overflow:ellipsis] [&_span]:[white-space:nowrap] [&_span]:[color:var(--muted-foreground)] [&_span]:[font-family:var(--font-mono)] [&_span]:[font-size:11px] [&_.button]:[flex:0_0_auto] [&_.button]:[margin-left:auto]">
                     <strong>{contribution.name}</strong>
                     <span>{contribution.kind}</span>
                   </div>
-                  <div className="extension-item__meta">
+                  <div className="extension-item__meta [flex-wrap:wrap] [color:var(--muted)] [font-size:11.5px] [min-width:0] [display:flex] [align-items:center] [gap:8px] [&_span]:[min-width:0] [&_span]:[overflow:hidden] [&_span]:[text-overflow:ellipsis] [&_span]:[white-space:nowrap]">
                     <span>{contribution.id}</span>
                     <span>{contribution.placement}</span>
                     {contribution.route && <span>{contribution.route}</span>}
                     {contribution.componentRef && <span>{contribution.componentRef}</span>}
                     {contribution.readOnly && <span>read-only</span>}
                   </div>
-                  <div className="extension-item__chips">
+                  <div className="extension-item__chips [flex-wrap:wrap] [min-width:0] [display:flex] [align-items:center] [gap:8px] [&_span]:[min-width:0] [&_span]:[overflow:hidden] [&_span]:[text-overflow:ellipsis] [&_span]:[white-space:nowrap] [&_span]:[padding:3px_6px] [&_span]:[color:var(--muted)] [&_span]:[background:rgba(255,_255,_255,_0.055)] [&_span]:[border:1px_solid_var(--border-subtle)] [&_span]:[border-radius:6px] [&_span]:[font-family:var(--font-mono)] [&_span]:[font-size:10.5px] [&_span]:[line-height:1.2]">
                     {extensionUiContributionChips(contribution).map((chip) => (
                       <span key={`${contribution.id}:${chip}`}>{chip}</span>
                     ))}
@@ -601,23 +652,29 @@ export function ExtensionWorkspace({
           )}
         </section>
 
-        <section className="extension-section" aria-label="Harnesses">
-          <div className="extension-section__header">
+        <section
+          className="extension-section [min-width:0] [display:flex] [flex-direction:column] [gap:10px] [&_h3]:[margin:0] [&_h3]:[color:var(--foreground)] [&_h3]:[font-size:14px] [&_h3]:[font-weight:680] [&_h3]:[line-height:1.2]"
+          aria-label="Harnesses"
+        >
+          <div className="extension-section__header [min-width:0] [display:flex] [align-items:center] [justify-content:space-between] [gap:10px] [color:var(--muted-foreground)] [font-size:12px] [font-weight:700] [&_span]:[flex:0_0_auto] [&_span]:[color:var(--muted)] [&_span]:[font-family:var(--font-mono)] [&_span]:[font-size:12px]">
             <h3>Harnesses</h3>
             <span>{harnesses.length}</span>
           </div>
-          <ul className="extension-list">
+          <ul className="extension-list [margin:0] [padding:0] [display:flex] [flex-direction:column] [gap:8px] [list-style:none] [&.extension-list--compact]:[gap:6px]">
             {harnesses.map((harness) => (
-              <li key={harness.id} className="extension-item">
-                <div className="extension-item__main">
+              <li
+                key={harness.id}
+                className="extension-item [display:flex] [flex-direction:column] [gap:8px] [min-width:0] [padding:11px] [color:var(--foreground)] [background:var(--card)] [border:1px_solid_var(--border-subtle)] [border-radius:var(--radius)] [box-shadow:var(--shadow-inset)]"
+              >
+                <div className="extension-item__main [min-width:0] [display:flex] [align-items:center] [gap:8px] [&_strong]:[min-width:0] [&_strong]:[overflow:hidden] [&_strong]:[text-overflow:ellipsis] [&_strong]:[white-space:nowrap] [&_strong]:[font-size:13px] [&_strong]:[font-weight:650] [&_span]:[min-width:0] [&_span]:[overflow:hidden] [&_span]:[text-overflow:ellipsis] [&_span]:[white-space:nowrap] [&_span]:[color:var(--muted-foreground)] [&_span]:[font-family:var(--font-mono)] [&_span]:[font-size:11px] [&_.button]:[flex:0_0_auto] [&_.button]:[margin-left:auto]">
                   <strong>{harness.label}</strong>
                   <span>{harness.id}</span>
                 </div>
-                <div className="extension-item__meta">
+                <div className="extension-item__meta [flex-wrap:wrap] [color:var(--muted)] [font-size:11.5px] [min-width:0] [display:flex] [align-items:center] [gap:8px] [&_span]:[min-width:0] [&_span]:[overflow:hidden] [&_span]:[text-overflow:ellipsis] [&_span]:[white-space:nowrap]">
                   <span>{formatSoftwareSummary(harness.software)}</span>
                   {harness.readOnly && <span>read-only</span>}
                 </div>
-                <div className="extension-item__chips">
+                <div className="extension-item__chips [flex-wrap:wrap] [min-width:0] [display:flex] [align-items:center] [gap:8px] [&_span]:[min-width:0] [&_span]:[overflow:hidden] [&_span]:[text-overflow:ellipsis] [&_span]:[white-space:nowrap] [&_span]:[padding:3px_6px] [&_span]:[color:var(--muted)] [&_span]:[background:rgba(255,_255,_255,_0.055)] [&_span]:[border:1px_solid_var(--border-subtle)] [&_span]:[border-radius:6px] [&_span]:[font-family:var(--font-mono)] [&_span]:[font-size:10.5px] [&_span]:[line-height:1.2]">
                   <span>{harness.modelControl}</span>
                   {(harness.supportedModelApis ?? []).map((api) => (
                     <span key={`${harness.id}:${api}`}>{modelApiLabel(api)}</span>
@@ -628,21 +685,29 @@ export function ExtensionWorkspace({
           </ul>
         </section>
 
-        <section className="extension-section" aria-label="Agent profiles">
-          <div className="extension-section__header">
+        <section
+          className="extension-section [min-width:0] [display:flex] [flex-direction:column] [gap:10px] [&_h3]:[margin:0] [&_h3]:[color:var(--foreground)] [&_h3]:[font-size:14px] [&_h3]:[font-weight:680] [&_h3]:[line-height:1.2]"
+          aria-label="Agent profiles"
+        >
+          <div className="extension-section__header [min-width:0] [display:flex] [align-items:center] [justify-content:space-between] [gap:10px] [color:var(--muted-foreground)] [font-size:12px] [font-weight:700] [&_span]:[flex:0_0_auto] [&_span]:[color:var(--muted)] [&_span]:[font-family:var(--font-mono)] [&_span]:[font-size:12px]">
             <h3>Agent profiles</h3>
             <span>{agents.length}</span>
           </div>
           {agents.length === 0 ? (
-            <div className="extension-empty">No agent profiles</div>
+            <div className="extension-empty [color:var(--muted-foreground)] [font-size:12px] [min-width:0] [padding:11px] [background:var(--card)] [border:1px_solid_var(--border-subtle)] [border-radius:var(--radius)] [box-shadow:var(--shadow-inset)]">
+              No agent profiles
+            </div>
           ) : (
-            <ul className="extension-list">
+            <ul className="extension-list [margin:0] [padding:0] [display:flex] [flex-direction:column] [gap:8px] [list-style:none] [&.extension-list--compact]:[gap:6px]">
               {agents.map((agent) => {
                 const plan = planByAgentId.get(agent.id);
                 const canUseAgent = !plan || plan.status === "ready";
                 return (
-                  <li key={agent.id} className="extension-item">
-                    <div className="extension-item__main">
+                  <li
+                    key={agent.id}
+                    className="extension-item [display:flex] [flex-direction:column] [gap:8px] [min-width:0] [padding:11px] [color:var(--foreground)] [background:var(--card)] [border:1px_solid_var(--border-subtle)] [border-radius:var(--radius)] [box-shadow:var(--shadow-inset)]"
+                  >
+                    <div className="extension-item__main [min-width:0] [display:flex] [align-items:center] [gap:8px] [&_strong]:[min-width:0] [&_strong]:[overflow:hidden] [&_strong]:[text-overflow:ellipsis] [&_strong]:[white-space:nowrap] [&_strong]:[font-size:13px] [&_strong]:[font-weight:650] [&_span]:[min-width:0] [&_span]:[overflow:hidden] [&_span]:[text-overflow:ellipsis] [&_span]:[white-space:nowrap] [&_span]:[color:var(--muted-foreground)] [&_span]:[font-family:var(--font-mono)] [&_span]:[font-size:11px] [&_.button]:[flex:0_0_auto] [&_.button]:[margin-left:auto]">
                       <strong>{agent.name}</strong>
                       <span>{agent.id}</span>
                       {plan && <Badge tone={agentPlanTone(plan)}>{plan.status}</Badge>}
@@ -659,7 +724,7 @@ export function ExtensionWorkspace({
                         {selectedAgentId === agent.id ? "Selected" : "Use"}
                       </Button>
                     </div>
-                    <div className="extension-item__meta">
+                    <div className="extension-item__meta [flex-wrap:wrap] [color:var(--muted)] [font-size:11.5px] [min-width:0] [display:flex] [align-items:center] [gap:8px] [&_span]:[min-width:0] [&_span]:[overflow:hidden] [&_span]:[text-overflow:ellipsis] [&_span]:[white-space:nowrap]">
                       <span>{plan?.canonicalSelector ?? agent.selector ?? agent.id}</span>
                       <span>{plan?.harnessLabel ?? agent.harnessId ?? "no harness"}</span>
                       <span>{plan?.modelId ?? agent.modelId ?? "no model"}</span>
@@ -669,7 +734,7 @@ export function ExtensionWorkspace({
                       {agent.permissionMode && <span>permission {agent.permissionMode}</span>}
                       {agent.memory && <span>memory {agent.memory}</span>}
                     </div>
-                    <div className="extension-item__chips">
+                    <div className="extension-item__chips [flex-wrap:wrap] [min-width:0] [display:flex] [align-items:center] [gap:8px] [&_span]:[min-width:0] [&_span]:[overflow:hidden] [&_span]:[text-overflow:ellipsis] [&_span]:[white-space:nowrap] [&_span]:[padding:3px_6px] [&_span]:[color:var(--muted)] [&_span]:[background:rgba(255,_255,_255,_0.055)] [&_span]:[border:1px_solid_var(--border-subtle)] [&_span]:[border-radius:6px] [&_span]:[font-family:var(--font-mono)] [&_span]:[font-size:10.5px] [&_span]:[line-height:1.2]">
                       {agentPlanChips(plan, agent).map((chip) => (
                         <span key={`${agent.id}:${chip}`}>{chip}</span>
                       ))}
@@ -681,19 +746,25 @@ export function ExtensionWorkspace({
           )}
         </section>
 
-        <section className="extension-section" aria-label="Models and supplies">
-          <div className="extension-section__header">
+        <section
+          className="extension-section [min-width:0] [display:flex] [flex-direction:column] [gap:10px] [&_h3]:[margin:0] [&_h3]:[color:var(--foreground)] [&_h3]:[font-size:14px] [&_h3]:[font-weight:680] [&_h3]:[line-height:1.2]"
+          aria-label="Models and supplies"
+        >
+          <div className="extension-section__header [min-width:0] [display:flex] [align-items:center] [justify-content:space-between] [gap:10px] [color:var(--muted-foreground)] [font-size:12px] [font-weight:700] [&_span]:[flex:0_0_auto] [&_span]:[color:var(--muted)] [&_span]:[font-family:var(--font-mono)] [&_span]:[font-size:12px]">
             <h3>Models and supplies</h3>
             <span>{models.length + modelSupplies.length}</span>
           </div>
-          <ul className="extension-list extension-list--compact">
+          <ul className="extension-list extension-list--compact [margin:0] [padding:0] [display:flex] [flex-direction:column] [gap:8px] [list-style:none] [&.extension-list--compact]:[gap:6px]">
             {models.map((model) => (
-              <li key={`model:${model.id}`} className="extension-item">
-                <div className="extension-item__main">
+              <li
+                key={`model:${model.id}`}
+                className="extension-item [display:flex] [flex-direction:column] [gap:8px] [min-width:0] [padding:11px] [color:var(--foreground)] [background:var(--card)] [border:1px_solid_var(--border-subtle)] [border-radius:var(--radius)] [box-shadow:var(--shadow-inset)]"
+              >
+                <div className="extension-item__main [min-width:0] [display:flex] [align-items:center] [gap:8px] [&_strong]:[min-width:0] [&_strong]:[overflow:hidden] [&_strong]:[text-overflow:ellipsis] [&_strong]:[white-space:nowrap] [&_strong]:[font-size:13px] [&_strong]:[font-weight:650] [&_span]:[min-width:0] [&_span]:[overflow:hidden] [&_span]:[text-overflow:ellipsis] [&_span]:[white-space:nowrap] [&_span]:[color:var(--muted-foreground)] [&_span]:[font-family:var(--font-mono)] [&_span]:[font-size:11px] [&_.button]:[flex:0_0_auto] [&_.button]:[margin-left:auto]">
                   <strong>{model.label ?? model.id}</strong>
                   <span>{model.id}</span>
                 </div>
-                <div className="extension-item__meta">
+                <div className="extension-item__meta [flex-wrap:wrap] [color:var(--muted)] [font-size:11.5px] [min-width:0] [display:flex] [align-items:center] [gap:8px] [&_span]:[min-width:0] [&_span]:[overflow:hidden] [&_span]:[text-overflow:ellipsis] [&_span]:[white-space:nowrap]">
                   <span>{model.runtimeModel}</span>
                   {model.apiProtocols.map((api) => (
                     <span key={`${model.id}:${api}`}>{modelApiLabel(api)}</span>
@@ -702,8 +773,11 @@ export function ExtensionWorkspace({
               </li>
             ))}
             {modelSupplies.map((supply) => (
-              <li key={`supply:${supply.id}`} className="extension-item">
-                <div className="extension-item__main">
+              <li
+                key={`supply:${supply.id}`}
+                className="extension-item [display:flex] [flex-direction:column] [gap:8px] [min-width:0] [padding:11px] [color:var(--foreground)] [background:var(--card)] [border:1px_solid_var(--border-subtle)] [border-radius:var(--radius)] [box-shadow:var(--shadow-inset)]"
+              >
+                <div className="extension-item__main [min-width:0] [display:flex] [align-items:center] [gap:8px] [&_strong]:[min-width:0] [&_strong]:[overflow:hidden] [&_strong]:[text-overflow:ellipsis] [&_strong]:[white-space:nowrap] [&_strong]:[font-size:13px] [&_strong]:[font-weight:650] [&_span]:[min-width:0] [&_span]:[overflow:hidden] [&_span]:[text-overflow:ellipsis] [&_span]:[white-space:nowrap] [&_span]:[color:var(--muted-foreground)] [&_span]:[font-family:var(--font-mono)] [&_span]:[font-size:11px] [&_.button]:[flex:0_0_auto] [&_.button]:[margin-left:auto]">
                   <strong>{supply.id}</strong>
                   <span>
                     {supply.modelId} → {supply.providerProfileId}
@@ -714,22 +788,30 @@ export function ExtensionWorkspace({
           </ul>
         </section>
 
-        <section className="extension-section" aria-label="Providers">
-          <div className="extension-section__header">
+        <section
+          className="extension-section [min-width:0] [display:flex] [flex-direction:column] [gap:10px] [&_h3]:[margin:0] [&_h3]:[color:var(--foreground)] [&_h3]:[font-size:14px] [&_h3]:[font-weight:680] [&_h3]:[line-height:1.2]"
+          aria-label="Providers"
+        >
+          <div className="extension-section__header [min-width:0] [display:flex] [align-items:center] [justify-content:space-between] [gap:10px] [color:var(--muted-foreground)] [font-size:12px] [font-weight:700] [&_span]:[flex:0_0_auto] [&_span]:[color:var(--muted)] [&_span]:[font-family:var(--font-mono)] [&_span]:[font-size:12px]">
             <h3>Providers</h3>
             <span>{providers.length}</span>
           </div>
           {providers.length === 0 ? (
-            <div className="extension-empty">No provider profiles</div>
+            <div className="extension-empty [color:var(--muted-foreground)] [font-size:12px] [min-width:0] [padding:11px] [background:var(--card)] [border:1px_solid_var(--border-subtle)] [border-radius:var(--radius)] [box-shadow:var(--shadow-inset)]">
+              No provider profiles
+            </div>
           ) : (
-            <ul className="extension-list">
+            <ul className="extension-list [margin:0] [padding:0] [display:flex] [flex-direction:column] [gap:8px] [list-style:none] [&.extension-list--compact]:[gap:6px]">
               {providers.map((provider) => (
-                <li key={provider.id} className="extension-item">
-                  <div className="extension-item__main">
+                <li
+                  key={provider.id}
+                  className="extension-item [display:flex] [flex-direction:column] [gap:8px] [min-width:0] [padding:11px] [color:var(--foreground)] [background:var(--card)] [border:1px_solid_var(--border-subtle)] [border-radius:var(--radius)] [box-shadow:var(--shadow-inset)]"
+                >
+                  <div className="extension-item__main [min-width:0] [display:flex] [align-items:center] [gap:8px] [&_strong]:[min-width:0] [&_strong]:[overflow:hidden] [&_strong]:[text-overflow:ellipsis] [&_strong]:[white-space:nowrap] [&_strong]:[font-size:13px] [&_strong]:[font-weight:650] [&_span]:[min-width:0] [&_span]:[overflow:hidden] [&_span]:[text-overflow:ellipsis] [&_span]:[white-space:nowrap] [&_span]:[color:var(--muted-foreground)] [&_span]:[font-family:var(--font-mono)] [&_span]:[font-size:11px] [&_.button]:[flex:0_0_auto] [&_.button]:[margin-left:auto]">
                     <strong>{provider.label}</strong>
                     <span>{provider.id}</span>
                   </div>
-                  <div className="extension-item__meta">
+                  <div className="extension-item__meta [flex-wrap:wrap] [color:var(--muted)] [font-size:11.5px] [min-width:0] [display:flex] [align-items:center] [gap:8px] [&_span]:[min-width:0] [&_span]:[overflow:hidden] [&_span]:[text-overflow:ellipsis] [&_span]:[white-space:nowrap]">
                     <span>{provider.kind}</span>
                     {provider.runtimeReady === false && <span>not ready</span>}
                     {provider.runtimeNote && <span>{provider.runtimeNote}</span>}
@@ -740,19 +822,25 @@ export function ExtensionWorkspace({
           )}
         </section>
 
-        <section className="extension-section" aria-label="Skills and MCP">
-          <div className="extension-section__header">
+        <section
+          className="extension-section [min-width:0] [display:flex] [flex-direction:column] [gap:10px] [&_h3]:[margin:0] [&_h3]:[color:var(--foreground)] [&_h3]:[font-size:14px] [&_h3]:[font-weight:680] [&_h3]:[line-height:1.2]"
+          aria-label="Skills and MCP"
+        >
+          <div className="extension-section__header [min-width:0] [display:flex] [align-items:center] [justify-content:space-between] [gap:10px] [color:var(--muted-foreground)] [font-size:12px] [font-weight:700] [&_span]:[flex:0_0_auto] [&_span]:[color:var(--muted)] [&_span]:[font-family:var(--font-mono)] [&_span]:[font-size:12px]">
             <h3>Skills and MCP</h3>
             <span>{skills.length + mcpServers.length + appConnectors.length}</span>
           </div>
-          <ul className="extension-list extension-list--compact">
+          <ul className="extension-list extension-list--compact [margin:0] [padding:0] [display:flex] [flex-direction:column] [gap:8px] [list-style:none] [&.extension-list--compact]:[gap:6px]">
             {skills.map((skill) => (
-              <li key={`skill:${skill.id}`} className="extension-item">
-                <div className="extension-item__main">
+              <li
+                key={`skill:${skill.id}`}
+                className="extension-item [display:flex] [flex-direction:column] [gap:8px] [min-width:0] [padding:11px] [color:var(--foreground)] [background:var(--card)] [border:1px_solid_var(--border-subtle)] [border-radius:var(--radius)] [box-shadow:var(--shadow-inset)]"
+              >
+                <div className="extension-item__main [min-width:0] [display:flex] [align-items:center] [gap:8px] [&_strong]:[min-width:0] [&_strong]:[overflow:hidden] [&_strong]:[text-overflow:ellipsis] [&_strong]:[white-space:nowrap] [&_strong]:[font-size:13px] [&_strong]:[font-weight:650] [&_span]:[min-width:0] [&_span]:[overflow:hidden] [&_span]:[text-overflow:ellipsis] [&_span]:[white-space:nowrap] [&_span]:[color:var(--muted-foreground)] [&_span]:[font-family:var(--font-mono)] [&_span]:[font-size:11px] [&_.button]:[flex:0_0_auto] [&_.button]:[margin-left:auto]">
                   <strong>{skill.name ?? skill.id}</strong>
                   <span>{skill.path ?? skill.id}</span>
                 </div>
-                <div className="extension-item__chips">
+                <div className="extension-item__chips [flex-wrap:wrap] [min-width:0] [display:flex] [align-items:center] [gap:8px] [&_span]:[min-width:0] [&_span]:[overflow:hidden] [&_span]:[text-overflow:ellipsis] [&_span]:[white-space:nowrap] [&_span]:[padding:3px_6px] [&_span]:[color:var(--muted)] [&_span]:[background:rgba(255,_255,_255,_0.055)] [&_span]:[border:1px_solid_var(--border-subtle)] [&_span]:[border-radius:6px] [&_span]:[font-family:var(--font-mono)] [&_span]:[font-size:10.5px] [&_span]:[line-height:1.2]">
                   {extensionSkillChips(skill).map((chip) => (
                     <span key={`${skill.id}:${chip}`}>{chip}</span>
                   ))}
@@ -760,16 +848,22 @@ export function ExtensionWorkspace({
               </li>
             ))}
             {mcpServers.map((server) => (
-              <li key={`mcp:${server.id}`} className="extension-item">
-                <div className="extension-item__main">
+              <li
+                key={`mcp:${server.id}`}
+                className="extension-item [display:flex] [flex-direction:column] [gap:8px] [min-width:0] [padding:11px] [color:var(--foreground)] [background:var(--card)] [border:1px_solid_var(--border-subtle)] [border-radius:var(--radius)] [box-shadow:var(--shadow-inset)]"
+              >
+                <div className="extension-item__main [min-width:0] [display:flex] [align-items:center] [gap:8px] [&_strong]:[min-width:0] [&_strong]:[overflow:hidden] [&_strong]:[text-overflow:ellipsis] [&_strong]:[white-space:nowrap] [&_strong]:[font-size:13px] [&_strong]:[font-weight:650] [&_span]:[min-width:0] [&_span]:[overflow:hidden] [&_span]:[text-overflow:ellipsis] [&_span]:[white-space:nowrap] [&_span]:[color:var(--muted-foreground)] [&_span]:[font-family:var(--font-mono)] [&_span]:[font-size:11px] [&_.button]:[flex:0_0_auto] [&_.button]:[margin-left:auto]">
                   <strong>{server.name ?? server.id}</strong>
                   <span>{server.scope ?? "MCP server"}</span>
                 </div>
               </li>
             ))}
             {appConnectors.map((connector) => (
-              <li key={`connector:${connector.id}`} className="extension-item">
-                <div className="extension-item__main">
+              <li
+                key={`connector:${connector.id}`}
+                className="extension-item [display:flex] [flex-direction:column] [gap:8px] [min-width:0] [padding:11px] [color:var(--foreground)] [background:var(--card)] [border:1px_solid_var(--border-subtle)] [border-radius:var(--radius)] [box-shadow:var(--shadow-inset)]"
+              >
+                <div className="extension-item__main [min-width:0] [display:flex] [align-items:center] [gap:8px] [&_strong]:[min-width:0] [&_strong]:[overflow:hidden] [&_strong]:[text-overflow:ellipsis] [&_strong]:[white-space:nowrap] [&_strong]:[font-size:13px] [&_strong]:[font-weight:650] [&_span]:[min-width:0] [&_span]:[overflow:hidden] [&_span]:[text-overflow:ellipsis] [&_span]:[white-space:nowrap] [&_span]:[color:var(--muted-foreground)] [&_span]:[font-family:var(--font-mono)] [&_span]:[font-size:11px] [&_.button]:[flex:0_0_auto] [&_.button]:[margin-left:auto]">
                   <strong>{connector.name}</strong>
                   <span>{connector.kind}</span>
                 </div>
@@ -780,22 +874,25 @@ export function ExtensionWorkspace({
 
         {(error || warnings.length > 0) && (
           <section
-            className="extension-section extension-section--alerts"
+            className="extension-section extension-section--alerts [min-width:0] [display:flex] [flex-direction:column] [gap:10px] [grid-column:1_/_-1] [&_h3]:[margin:0] [&_h3]:[color:var(--foreground)] [&_h3]:[font-size:14px] [&_h3]:[font-weight:680] [&_h3]:[line-height:1.2]"
             aria-label="Extension alerts"
           >
-            <div className="extension-section__header">
+            <div className="extension-section__header [min-width:0] [display:flex] [align-items:center] [justify-content:space-between] [gap:10px] [color:var(--muted-foreground)] [font-size:12px] [font-weight:700] [&_span]:[flex:0_0_auto] [&_span]:[color:var(--muted)] [&_span]:[font-family:var(--font-mono)] [&_span]:[font-size:12px]">
               <h3>Alerts</h3>
               <span>{warnings.length + (error ? 1 : 0)}</span>
             </div>
-            <ul className="extension-list extension-list--compact">
+            <ul className="extension-list extension-list--compact [margin:0] [padding:0] [display:flex] [flex-direction:column] [gap:8px] [list-style:none] [&.extension-list--compact]:[gap:6px]">
               {error ? (
-                <li className="extension-alert">
+                <li className="extension-alert [display:flex] [align-items:flex-start] [gap:8px] [color:var(--danger)] [background:var(--danger-muted)] [border-color:rgba(248,_113,_113,_0.26)] [font-size:12px] [line-height:1.35] [min-width:0] [padding:11px] [border:1px_solid_var(--border-subtle)] [border-radius:var(--radius)] [box-shadow:var(--shadow-inset)] [&_svg]:[flex:0_0_auto] [&_svg]:[width:14px] [&_svg]:[height:14px] [&_svg]:[margin-top:1px] [&.extension-alert--success]:[color:var(--success)] [&.extension-alert--success]:[background:var(--success-muted)] [&.extension-alert--success]:[border-color:rgba(52,_211,_153,_0.24)]">
                   <XCircle aria-hidden="true" />
                   <span>{errorMessage(error)}</span>
                 </li>
               ) : null}
               {warnings.map((warning) => (
-                <li key={`${warning.source}:${warning.message}`} className="extension-alert">
+                <li
+                  key={`${warning.source}:${warning.message}`}
+                  className="extension-alert [display:flex] [align-items:flex-start] [gap:8px] [color:var(--danger)] [background:var(--danger-muted)] [border-color:rgba(248,_113,_113,_0.26)] [font-size:12px] [line-height:1.35] [min-width:0] [padding:11px] [border:1px_solid_var(--border-subtle)] [border-radius:var(--radius)] [box-shadow:var(--shadow-inset)] [&_svg]:[flex:0_0_auto] [&_svg]:[width:14px] [&_svg]:[height:14px] [&_svg]:[margin-top:1px] [&.extension-alert--success]:[color:var(--success)] [&.extension-alert--success]:[background:var(--success-muted)] [&.extension-alert--success]:[border-color:rgba(52,_211,_153,_0.24)]"
+                >
                   <XCircle aria-hidden="true" />
                   <span>
                     {warning.source}: {warning.message}

@@ -13,8 +13,7 @@
     "test": "vitest run"
   },
   "bin": {
-    "swarmx": "./bin/swarmx.js",
-    "swarmx-migrate-sessions": "./bin/migrate-sessions.js"
+    "swarmx": "./bin/swarmx.js"
   },
   "files": [
     "bin"

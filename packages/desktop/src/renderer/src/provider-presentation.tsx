@@ -27,7 +27,10 @@ export function ProviderBrandIcon({
               ? "./provider-icons/new-api.png"
               : undefined;
   return (
-    <span className="settings-provider-matrix__icon" aria-hidden="true">
+    <span
+      className="settings-provider-matrix__icon [flex:0_0_auto] [width:30px] [height:30px] [display:grid] [place-items:center] [overflow:hidden] [color:var(--muted)] [background:var(--input)] [border:1px_solid_var(--border-subtle)] [border-radius:7px] [&_img]:[width:18px] [&_img]:[height:18px] [&_img]:[object-fit:contain] [&_svg]:[width:13px] [&_svg]:[height:13px]"
+      aria-hidden="true"
+    >
       {iconUrl ? <img src={iconUrl} alt="" /> : <KeyRound />}
     </span>
   );
@@ -63,6 +66,21 @@ export function isOpenCodeGoProviderUrl(value: string): boolean {
       url.hostname.toLowerCase() === "opencode.ai" &&
       !url.port &&
       (pathname === "/zen/go" || pathname === "/zen/go/v1")
+    );
+  } catch {
+    return false;
+  }
+}
+
+export function isOpenRouterProviderUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    const pathname = url.pathname.replace(/\/+$/, "");
+    return (
+      url.protocol === "https:" &&
+      url.hostname.toLowerCase() === "openrouter.ai" &&
+      !url.port &&
+      (pathname === "/api" || pathname === "/api/v1")
     );
   } catch {
     return false;

@@ -193,8 +193,8 @@ export function extensionSkillChips(skill: ExtensionSkill): string[] {
   return uniqueStrings(chips.filter((chip): chip is string => Boolean(chip)));
 }
 
-export function agentPlanTone(plan: ExtensionAgentPlan): string {
-  if (plan.status === "ready") return "active";
+export function agentPlanTone(plan: ExtensionAgentPlan): "success" | "neutral" | "danger" {
+  if (plan.status === "ready") return "success";
   if (plan.status === "draft" || plan.status === "stale") return "neutral";
   return "danger";
 }
