@@ -5,6 +5,7 @@ import type { AcpPermissionHandler } from "./acp.js";
 import { AgentDefinitionSourceSchema } from "./agent-profiles.js";
 import { ContextPacketModeSchema, ContextStrategySchema } from "./context.js";
 import { HARNESSES, harnessModelRuntimeEnv, harnessModelRuntimeModel } from "./harness.js";
+import type { HookRuntimeOptions } from "./hook.js";
 import type { LocalTool } from "./mcp.js";
 import { ModelApiModeSchema, ModelApiSchema } from "./model-api.js";
 import {
@@ -15,6 +16,7 @@ import {
   normalizeModelReasoningEffort,
   resolveHarnessModelInventory,
 } from "./model-capabilities.js";
+import type { PersonalMemorySnapshot } from "./personal-memory.js";
 import {
   assertNoProviderOwnedModelFields,
   buildProviderRuntimeEnv,
@@ -865,6 +867,8 @@ export interface ExecuteAgentCompositionOptions {
   onAcpSessionId?: (sessionId: string | undefined) => void | Promise<void>;
   onChunk?: (chunk: MessageChunk) => void;
   onUsage?: (usage: ModelTokenUsage) => void;
+  hook?: HookRuntimeOptions;
+  personalMemory?: PersonalMemorySnapshot;
 }
 
 export interface ValidateSkillHostCompatibilityOptions {
@@ -1537,12 +1541,14 @@ export async function executeAgentComposition(
   const swarm = new Swarm(
     singleAgentSwarmConfig(agentConfigWithRuntimeEnv(agentConfig, runtimeEnv, options.cwd)),
     {
+      hook: options.hook,
       agent: {
         localTools: options.localTools,
         acpPermissionHandler: options.acpPermissionHandler,
         acpMode: options.acpMode,
         acpSessionId: options.acpSessionId,
         onAcpSessionId: options.onAcpSessionId,
+        personalMemory: options.personalMemory,
       },
     },
   );

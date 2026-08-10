@@ -7,6 +7,7 @@ import type {
 } from "@swarmx/runtime";
 import { CircleCheck, Download, Loader2, RefreshCw, Wrench, XCircle } from "lucide-react";
 import { useState } from "react";
+import type { DesktopTaskRuntimeListResult } from "../../shared/desktop-api.js";
 import { type DoctorHarnessVersionState, requirementStatusLabel } from "./doctor-panel.js";
 import { HarnessBrandIcon, harnessOption } from "./harness-presentation.js";
 import { errorMessage, formatTimestamp } from "./text-utils.js";
@@ -32,6 +33,9 @@ export function RuntimeSettings({
   fixRunning,
   fixResult,
   installingHarnessId,
+  taskRuntime,
+  taskRuntimeLoading,
+  taskRuntimeError,
   onRefresh,
   onSetupContainer,
   onInstallHarness,
@@ -39,6 +43,9 @@ export function RuntimeSettings({
   onRequestFix,
   onCancelFix,
   onConfirmFix,
+  onRefreshTasks,
+  onCancelTask,
+  onDecideApproval,
 }: {
   environment?: HarnessEnvironmentStatus;
   loading: boolean;
@@ -51,6 +58,9 @@ export function RuntimeSettings({
   fixRunning: boolean;
   fixResult: DoctorFixResult | null;
   installingHarnessId: string | null;
+  taskRuntime?: DesktopTaskRuntimeListResult;
+  taskRuntimeLoading: boolean;
+  taskRuntimeError: unknown;
   onRefresh: () => Promise<void>;
   onSetupContainer: (containerRuntimeId: string) => Promise<void>;
   onInstallHarness: (harnessId: string) => Promise<void>;
@@ -58,6 +68,12 @@ export function RuntimeSettings({
   onRequestFix: () => void;
   onCancelFix: () => void;
   onConfirmFix: () => void;
+  onRefreshTasks: () => Promise<void>;
+  onCancelTask: (workItemId: string) => Promise<void>;
+  onDecideApproval: (
+    approvalId: string,
+    status: "approved" | "rejected" | "waived",
+  ) => Promise<void>;
 }) {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -67,6 +83,12 @@ export function RuntimeSettings({
   const repairActions = doctorReport?.repairActions ?? [];
   const doctorHealthy = Boolean(doctorReport?.healthy && doctorIssues.length === 0);
   const repairLogs = fixResult?.setupResults.flatMap((result) => result.log) ?? [];
+  const activeWorkItemIds = new Set(taskRuntime?.activeWorkItemIds ?? []);
+  const pendingApprovals = new Map(
+    (taskRuntime?.approvals ?? [])
+      .filter((approval) => approval.status === "requested")
+      .map((approval) => [approval.approvalId, approval]),
+  );
   const run = async (id: string, action: () => Promise<void>) => {
     setBusyId(id);
     setActionError(null);
@@ -491,6 +513,113 @@ export function RuntimeSettings({
                       </li>
                     ))}
                   </ul>
+                </section>
+
+                <section
+                  className="runtime-settings__section [margin-top:24px]"
+                  aria-labelledby="runtime-work-items-title"
+                >
+                  <div className="[display:flex] [align-items:flex-end] [justify-content:space-between] [gap:12px] [&_h3]:[margin:0] [&_h3]:[font-size:13px] [&_p]:[margin:4px_0_0] [&_p]:[color:var(--muted-foreground)] [&_p]:[font-size:10.5px]">
+                    <span>
+                      <h3 id="runtime-work-items-title">Detached WorkItems</h3>
+                      <p>
+                        Active credential-free workers continue under the local supervisor after
+                        Desktop closes. Sessions only observe this durable state.
+                      </p>
+                    </span>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      disabled={taskRuntimeLoading || busyId !== null}
+                      onClick={() => void run("tasks:refresh", onRefreshTasks)}
+                    >
+                      <RefreshCw aria-hidden="true" />
+                      Refresh
+                    </Button>
+                  </div>
+                  {taskRuntimeError ? (
+                    <div
+                      className="[margin-top:10px] [color:var(--danger)] [font-size:10.5px]"
+                      role="alert"
+                    >
+                      {errorMessage(taskRuntimeError)}
+                    </div>
+                  ) : (
+                    <ul className="[margin:12px_0_0] [padding:0] [overflow:hidden] [background:var(--card)] [border:1px_solid_var(--border-subtle)] [border-radius:var(--radius-lg)] [list-style:none] [&_li]:[padding:11px_14px] [&_li]:[display:flex] [&_li]:[align-items:center] [&_li]:[justify-content:space-between] [&_li]:[gap:12px] [&_li]:[border-bottom:1px_solid_var(--border-subtle)]">
+                      {taskRuntimeLoading && !taskRuntime ? (
+                        <li>Loading durable work…</li>
+                      ) : (taskRuntime?.workItems.length ?? 0) === 0 ? (
+                        <li>No durable WorkItems yet.</li>
+                      ) : (
+                        taskRuntime?.workItems.map((workItem) => {
+                          const approval = workItem.approvalIds
+                            .map((approvalId) => pendingApprovals.get(approvalId))
+                            .find(Boolean);
+                          return (
+                            <li key={workItem.id}>
+                              <span className="[min-width:0] [display:grid] [gap:3px] [&_strong]:[font-family:var(--font-mono)] [&_strong]:[font-size:11px] [&_small]:[color:var(--muted-foreground)] [&_small]:[font-size:10px]">
+                                <strong>{workItem.id}</strong>
+                                <small>
+                                  {workItem.executor.backend} · {workItem.executor.operation} ·{" "}
+                                  {workItem.status}
+                                  {approval?.reason ? ` · ${approval.reason}` : ""}
+                                </small>
+                              </span>
+                              <span className="[display:flex] [align-items:center] [gap:5px]">
+                                <Badge
+                                  tone={activeWorkItemIds.has(workItem.id) ? "success" : "neutral"}
+                                >
+                                  {activeWorkItemIds.has(workItem.id)
+                                    ? "Supervisor active"
+                                    : workItem.status}
+                                </Badge>
+                                {approval ? (
+                                  <>
+                                    <Button
+                                      size="sm"
+                                      disabled={busyId !== null}
+                                      onClick={() =>
+                                        void run(`approval:${approval.approvalId}:approve`, () =>
+                                          onDecideApproval(approval.approvalId, "approved"),
+                                        )
+                                      }
+                                    >
+                                      Approve
+                                    </Button>
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      disabled={busyId !== null}
+                                      onClick={() =>
+                                        void run(`approval:${approval.approvalId}:reject`, () =>
+                                          onDecideApproval(approval.approvalId, "rejected"),
+                                        )
+                                      }
+                                    >
+                                      Reject
+                                    </Button>
+                                  </>
+                                ) : activeWorkItemIds.has(workItem.id) ? (
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    disabled={busyId !== null}
+                                    onClick={() =>
+                                      void run(`task:${workItem.id}:cancel`, () =>
+                                        onCancelTask(workItem.id),
+                                      )
+                                    }
+                                  >
+                                    Cancel
+                                  </Button>
+                                ) : null}
+                              </span>
+                            </li>
+                          );
+                        })
+                      )}
+                    </ul>
+                  )}
                 </section>
 
                 <div className="runtime-settings__path [margin-top:24px] [padding:12px_14px] [display:grid] [gap:5px] [background:var(--card)] [border:1px_solid_var(--border-subtle)] [border-radius:10px] [&_span]:[color:var(--muted-foreground)] [&_span]:[font-size:10.5px] [&_code]:[overflow:hidden] [&_code]:[text-overflow:ellipsis] [&_code]:[white-space:nowrap] [&_code]:[color:var(--muted)] [&_code]:[font-size:10.5px] [&_pre]:[max-height:160px] [&_pre]:[margin:8px_0_0] [&_pre]:[overflow:auto] [&_pre]:[padding-top:10px] [&_pre]:[color:var(--muted-foreground)] [&_pre]:[border-top:1px_solid_var(--border-subtle)] [&_pre]:[font-family:var(--font-mono)] [&_pre]:[font-size:9.5px] [&_pre]:[white-space:pre-wrap]">

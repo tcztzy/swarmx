@@ -21,6 +21,8 @@ implementation map, test plan, backlog, changelog, or incident log.
 | Harness | A reproducible runtime recipe: Software, selected Skills and MCP servers, Project context, delivery capabilities, and permission policy. |
 | Agent | Exactly one Harness paired with one Model. Its identity is `harnessId:modelId`; Provider routing and effort do not change it. |
 | Session | The canonical, resumable conversation record, persisted as an append-only event log. It may observe a WorkItem but is not task authority. |
+| Memory | User-owned subjective durable knowledge. Personal Memory is its bounded Settings snapshot; the current linked-page organization provides explicit CRUD and revisions. An organization method is replaceable implementation, not a separate product concept. Memory is not Activity Profile data, Session history, Project context, task authority, or an executable workflow. |
+| Reference Library | An explicitly configured, read-only local objective source. It is not editable Memory, Session history, Project context, or a download service. |
 | WorkItem | A durable unit of language-independent work whose runs, leases, checkpoints, artifacts, and events survive Session changes. |
 | Workflow | A `SwarmConfig` graph of agents, tools, nested swarms, and explicit edges. |
 
@@ -62,6 +64,46 @@ implementation map, test plan, backlog, changelog, or incident log.
     correlated, structured, secret-free audit events. Intent is durable before
     authority expands or an effect starts, and an unavailable audit authority
     fails closed at those boundaries.
+12. **Transparent bounded memory.** Personal Memory is explicitly viewable,
+    editable, and forgettable, has a strict capacity, and is injected only as a
+    read-only per-run snapshot. Direct Agents, external ACP Harness prompts, and
+    Agent-bearing workflows report the actual snapshot use; plaintext Memory is
+    never audit, trace, telemetry, or unrelated transport data. Agent-initiated
+    save or forget requests require an in-run human confirmation before effect.
+13. **Independent durable execution.** Eligible WorkItems run under one
+    authenticated local supervisor that owns leases and cancellation independently
+    from Electron, so closing Desktop does not terminate active durable work.
+14. **Revision-safe linked-page Memory.** Memory pages are created, read, listed,
+    searched, updated, deleted, versioned, diffed, and restored through strict
+    bounded schemas. Updates, deletes, and restores require the current page
+    revision; success is reported only after the Markdown write, Git commit,
+    and search-index refresh complete. Markdown plus Git is the current Memory
+    authority, while search indexes and knowledge edges remain rebuildable
+    projections. SwarmX-owned Agents receive bounded on-demand reads
+    and may mutate only after one-call user confirmation; external ACP Harnesses
+    do not receive the local tool.
+15. **Verified module runtimes.** Language-native feature modules run
+    as SwarmX-managed, version-pinned MCP servers over private stdio. Runtime
+    inspection is read-only, launch revalidates code or executable digests,
+    protocol version, server identity, and an exact allowlisted tool surface;
+    ordinary module calls never download, compile, install, or repair
+    dependencies. The Rust `swarmx-mem` server is a root-workspace crate under
+    `crates/`. Python ships as one standard `swarmx` distribution with regular
+    `swarmx.rsi`, `swarmx.ref`, and `swarmx.worker` subpackages; its private MCP
+    server identities remain `swarmx-rsi` and `swarmx-ref`, but they are not
+    separately discovered distributions or dependency groups. They receive
+    sanitized environments and bounded,
+    explicitly granted inputs, are never registered as Agent-facing MCP
+    servers, and do not acquire persistence, scheduling, permission, Provider
+    credential, or audit authority from MCP itself.
+16. **Subjective Memory versus objective Reference.** Memory is curated,
+    user/Agent-authored subjective knowledge with CRUD and Git versions.
+    Reference Library is read-only access to one explicitly configured local
+    ZIM archive: it can report source metadata, search, and return bounded
+    plaintext article excerpts, but cannot download, create, update, delete, or
+    silently promote reference text into Memory. Active HTML is stripped before
+    model use. When it is not configured, its Agent tool is not injected and
+    SwarmX never claims that Reference was used.
 
 ## Required capabilities
 
@@ -81,6 +123,9 @@ implementation map, test plan, backlog, changelog, or incident log.
 - Describe external effects as at-least-once, require stable idempotency keys
   and durable outcome receipts, and preserve an `unknown` outcome when a crash
   prevents proof of completion. Never advertise exactly-once delivery.
+- Submit, inspect, and cancel eligible WorkItems through an authenticated local
+  supervisor that reuses the canonical event store, fencing, worker protocol,
+  capability grants, and recovery logic. Electron is a client, not task authority.
 - Structurally import n8n workflow JSON into `SwarmConfig`, preserving topology
   and inert metadata without importing secrets or executing n8n node runtimes.
 - Run native Provider APIs and external ACP Harnesses with streaming,
@@ -105,6 +150,11 @@ implementation map, test plan, backlog, changelog, or incident log.
 - Resolve and display composition readiness before execution. Inventory loading
   alone never executes bundled code, starts services, changes trust, or mutates
   host configuration.
+- Execute configured Agent and Swarm lifecycle hooks only through an explicit
+  host-owned capability executor. Matching handlers run concurrently with
+  bounded timeouts and structured input/output; missing executors, malformed
+  output, timeouts, denials, and handler failures fail closed. Hook target
+  strings are capability names and never become implicit shell commands.
 - Read native Claude Code Markdown and Codex TOML Agent definitions without
   activating or rewriting their source files.
 
@@ -138,6 +188,15 @@ implementation map, test plan, backlog, changelog, or incident log.
 
 ### Desktop experience
 
+- Let the user view, edit, and explicitly forget Personal Memory in Settings.
+  Direct SwarmX runs, external ACP Harness prompts, and Agent-bearing workflows
+  receive the current bounded read-only snapshot and persist a concise
+  Session-visible usage receipt. Direct Agents may request save or forget, but
+  Main applies it only after explicit user confirmation.
+- Let SwarmX-owned Agents list, get, search, and inspect linked-page Memory graph data
+  on demand. Agent-proposed page creation, update, or deletion must show the
+  proposed change and require explicit one-call confirmation; mutation audit
+  records must exclude titles, aliases, and Markdown bodies.
 - When no compatible Model is available, replace starter task suggestions with
   an actionable readiness state. Its primary action opens Provider setup, and
   the UI must not imply that a blocked task can run.
@@ -177,12 +236,24 @@ implementation map, test plan, backlog, changelog, or incident log.
   Models, Harnesses, Agent profiles, Extensions, Skills, actions, context,
   normalized rendering, telemetry, managed dependencies, and the generic
   durable-task runtime.
+- Persist bounded local Memory as Markdown entity pages with CRUD,
+  optimistic revision checks, title/alias/content search, and derived
+  double-bracket links. Unknown, malformed, and self references remain explicit
+  graph diagnostics; the linked Markdown organization is not a `SwarmConfig`
+  workflow or a second Memory concept.
 - Keep browser-safe public subpaths free of Node-only imports.
 - Provide a CLI, ACP server adapter, runtime Doctor, and Desktop-first npm
   launcher without launching GUI code during package installation.
 - Discover the product Python worker, `uv`, a compatible uv-managed Python, and
-  its locked environment without mutation. Installation and synchronization
-  are explicit setup/repair actions and never occur implicitly during a run.
+  the one locked `swarmx` environment without mutation. Runtime dependencies
+  for the worker, RSI, and Reference subpackages are normal project
+  dependencies, never module-specific dependency groups. Installation and
+  synchronization are explicit setup/repair actions and never occur implicitly
+  during a run.
+- Discover and verify the packaged Memory runtime without mutation, then start it
+  only from a digest-checked launch description. A missing, incompatible, or
+  modified runtime produces an explicit setup/repair state rather than falling
+  back to an unverified binary or installing Cargo on the user's machine.
 - Package releases from one version-aligned, quality-gated commit; release
   artifacts must not contain generated residue, credentials, or known avoidable
   production vulnerabilities.
@@ -198,15 +269,26 @@ implementation map, test plan, backlog, changelog, or incident log.
 - A Python task operation is an executor capability, not an Agent, Harness, ACP
   Session, or new `SwarmConfig` node kind. The worker lease/checkpoint protocol
   is not carried over ACP.
-- The current durable controller is app-attached. Its state survives a host
-  restart, but tasks do not continue executing while Desktop is closed until a
-  separately supervised local service is implemented.
+- The local task supervisor continues active eligible WorkItems after Desktop
+  closes. Automatic login/startup installation and remote/cloud execution remain
+  outside this local service contract.
 - Extension manifests are declarative metadata, not executable UI or script
   delivery. Executable UI components must be registered by the embedding host.
 - Raw conversations, prompts, responses, source files, terminal output, and
   credentials are neither telemetry nor audit payloads. Canonical Session and
   task histories retain their own product data; the audit chain records only
   compact decision/effect metadata.
+- Personal Memory is user-authored context, not inferred Activity Profile data,
+  Session search, Project context, a Skill, or autonomous learning. Agents may
+  propose a bounded save or forget action, but cannot bypass human confirmation
+  or mutate the active run's frozen snapshot.
+- The linked-page organization does not ingest sources, call an LLM, invent missing entities,
+  mutate itself without confirmation, run vector retrieval, or render an
+  interactive graph. BM25 search and linked-Markdown graph analysis operate only over
+  explicit current pages and remain rebuildable from Markdown plus Git.
+- The Memory runtime stops with Desktop and is not hosted by the detached task
+  supervisor. Persisted Memory survives normally, but this slice does not
+  claim Desktop-closed background Memory execution.
 - Local audit verification is tamper-evidence, not remote attestation or
   non-repudiation against a user who controls both the log and its checkpoint.
 - Claude-compatible `PowerShell`, `SendMessage`, and `Workflow` remain absent

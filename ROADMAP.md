@@ -168,10 +168,8 @@ measurement, or failure repair.
 
 ### Durable task service boundary
 
-- [ ] Move the current app-attached task controller behind an authenticated
-  local `swarmxd`-style service, with explicit launchd/systemd lifecycle,
-  single-authority startup, graceful handoff, and recovery tests, so eligible
-  work can continue while Desktop is closed.
+- [ ] Add optional login startup plus graceful upgrade/handoff for the on-demand
+  local supervisor, without changing the canonical task authority or format.
 - [ ] Add continuous lease-expiry/watchdog scheduling around the existing
   startup recovery path, including crash injection and concurrent-controller
   fencing tests. Route cancellation across controller processes so it does not
@@ -182,9 +180,6 @@ measurement, or failure repair.
 - [ ] Materialize artifact-backed execution checkpoints into the immutable
   runtime store. The current app-attached slice resumes only inline checkpoint
   payloads and fails closed on artifact-backed checkpoint payloads.
-- [ ] Wire the durable controller through authorized Desktop Main handlers and a
-  narrow Preload view without exposing event-store, process, or credential
-  authority to Renderer.
 - [ ] Implement production capability-gateway adapters with per-operation
   grants, Project/tool containment, Provider request brokering, audit receipts,
   and sandbox policy. Keep plaintext Provider credentials out of worker

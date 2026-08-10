@@ -107,6 +107,9 @@ importers:
 
   packages/desktop:
     dependencies:
+      '@modelcontextprotocol/sdk':
+        specifier: ^1.30.0
+        version: 1.30.0(supports-color@7.2.0)(zod@4.4.3)
       '@swarmx/core':
         specifier: workspace:*
         version: link:../core
@@ -213,6 +216,9 @@ importers:
       '@swarmx/core':
         specifier: workspace:*
         version: link:../core
+      zod:
+        specifier: ^4.4.3
+        version: 4.4.3
     devDependencies:
       '@types/node':
         specifier: ^26.1.2

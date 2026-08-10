@@ -7,6 +7,7 @@ import type {
   SwarmConfig,
 } from "@swarmx/core";
 import { getHarness } from "@swarmx/core/harness";
+import type { PersonalMemoryState } from "@swarmx/core/personal-memory";
 import type {
   DoctorFixResult,
   DoctorReport,
@@ -59,6 +60,7 @@ import useSWR, { useSWRConfig } from "swr";
 import type {
   DesktopMediaAttachment,
   DesktopPermissionStatus,
+  DesktopTaskRuntimeListResult,
   DesktopUpdateState,
   ExtensionCapabilityInventory,
   ExtensionManagementState,
@@ -139,6 +141,7 @@ import {
   GeneralSettings,
   mergeProviderUsageSnapshot,
   PermissionsSettings,
+  PersonalMemorySettings,
   providerUsageTargetKey,
   type SettingsSection,
   SettingsSidebar,
@@ -191,6 +194,8 @@ export interface AppProps {
 const LOCAL_SESSIONS_KEY = "sessions:local";
 const GROUPED_SESSIONS_KEY = "sessions:grouped";
 const ACTIVITY_PROFILE_KEY = "activity:profile";
+const PERSONAL_MEMORY_KEY = "settings:personal-memory";
+const TASK_RUNTIME_KEY = "runtime:work-items";
 const PROJECTS_KEY = "projects:local";
 const EXTENSIONS_KEY = "extensions:inventory";
 const EXTENSION_MANAGEMENT_KEY = "extensions:management";
@@ -812,6 +817,26 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
     { revalidateOnFocus: true, revalidateOnReconnect: false },
   );
   const {
+    data: personalMemory,
+    error: personalMemoryError,
+    isLoading: personalMemoryLoading,
+    mutate: mutatePersonalMemory,
+  } = useSWR<PersonalMemoryState>(
+    settingsSection === "memory" ? PERSONAL_MEMORY_KEY : null,
+    () => api.getPersonalMemory(),
+    { revalidateOnFocus: true, revalidateOnReconnect: false },
+  );
+  const {
+    data: taskRuntime,
+    error: taskRuntimeError,
+    isLoading: taskRuntimeLoading,
+    mutate: mutateTaskRuntime,
+  } = useSWR<DesktopTaskRuntimeListResult>(
+    settingsSection === "runtime" ? TASK_RUNTIME_KEY : null,
+    () => api.listTaskWorkItems(),
+    { revalidateOnFocus: true, revalidateOnReconnect: false },
+  );
+  const {
     data: extensionInventory,
     error: extensionInventoryError,
     isLoading: extensionInventoryLoading,
@@ -1387,9 +1412,11 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
   const runSubtitle = settingsSection
     ? settingsSection === "general"
       ? "Defaults for new conversations"
-      : settingsSection === "profile"
-        ? "Private, on-device activity"
-        : "Providers, extensions, and runtime"
+      : settingsSection === "memory"
+        ? "Durable, user-managed context"
+        : settingsSection === "profile"
+          ? "Private, on-device activity"
+          : "Providers, extensions, and runtime"
     : activeUiContribution
       ? `${activeUiContribution.placement} contribution${
           activeUiContribution.sourcePluginId ? ` via ${activeUiContribution.sourcePluginId}` : ""
@@ -1407,9 +1434,11 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
   const headerTitle = settingsSection
     ? settingsSection === "general"
       ? "General"
-      : settingsSection === "profile"
-        ? "Profile"
-        : "Settings"
+      : settingsSection === "memory"
+        ? "Personal Memory"
+        : settingsSection === "profile"
+          ? "Profile"
+          : "Settings"
     : activeUiContribution?.name
       ? activeUiContribution.name
       : workflowPanelOpen
@@ -3919,6 +3948,18 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
                     );
                   }}
                 />
+              ) : settingsSection === "memory" ? (
+                <PersonalMemorySettings
+                  memory={personalMemory}
+                  loading={personalMemoryLoading}
+                  error={personalMemoryError}
+                  onSave={async (input) => {
+                    await mutatePersonalMemory(await api.savePersonalMemory(input), false);
+                  }}
+                  onForget={async (input) => {
+                    await mutatePersonalMemory(await api.forgetPersonalMemory(input), false);
+                  }}
+                />
               ) : settingsSection === "profile" ? (
                 <ProfileWorkspace
                   summary={activityProfile}
@@ -4015,6 +4056,9 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
                   fixRunning={doctorFixRunning}
                   fixResult={doctorFixResult}
                   installingHarnessId={doctorInstallingHarnessId}
+                  taskRuntime={taskRuntime}
+                  taskRuntimeLoading={taskRuntimeLoading}
+                  taskRuntimeError={taskRuntimeError}
                   onRefresh={async () => {
                     await refreshRuntimeDoctor(true);
                   }}
@@ -4033,6 +4077,21 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
                   onRequestFix={() => setDoctorFixPending(true)}
                   onCancelFix={() => setDoctorFixPending(false)}
                   onConfirmFix={() => void confirmDoctorFix()}
+                  onRefreshTasks={async () => {
+                    await mutateTaskRuntime();
+                  }}
+                  onCancelTask={async (workItemId) => {
+                    await api.cancelTaskWorkItem({ workItemId });
+                    await mutateTaskRuntime();
+                  }}
+                  onDecideApproval={async (approvalId, status) => {
+                    await api.decideTaskApproval({
+                      approvalId,
+                      status,
+                      decidedBy: "desktop-user",
+                    });
+                    await mutateTaskRuntime();
+                  }}
                 />
               ) : activeUiContribution && ActiveUiContributionComponent ? (
                 <GuiContributionWorkspace

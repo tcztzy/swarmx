@@ -1,4 +1,5 @@
-import { dirname, join } from "node:path";
+import { homedir } from "node:os";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { configureDesktopHarnessEnvironment } from "@swarmx/runtime";
 import {
@@ -15,6 +16,8 @@ import {
   registerIpcHandlers,
   resolveDesktopMediaProtocolUrl,
 } from "./ipc.js";
+import { MemoryRuntimeService } from "./memory-runtime-service.js";
+import { ReferenceLibraryHost } from "./reference-library-host.js";
 import { NpmDesktopUpdateService } from "./updater.js";
 import {
   installMainWindowNavigationGuards,
@@ -49,6 +52,20 @@ const RENDERER_DIST = join(__dirname, "../renderer");
 const APP_ICON_PATH = app.isPackaged
   ? join(process.resourcesPath, "icon.png")
   : join(MAIN_DIST, "../build/icon.png");
+const MEMORY_RUNTIME_MANIFEST_PATH = app.isPackaged
+  ? join(process.resourcesPath, "mem-runtime", "manifest.json")
+  : join(MAIN_DIST, "../build/mem-runtime/manifest.json");
+const memoryRuntime = new MemoryRuntimeService({
+  manifestPath: MEMORY_RUNTIME_MANIFEST_PATH,
+  memoryRoot: join(homedir(), ".swarmx", "memory"),
+});
+const referenceLibraryRuntime =
+  process.env.SWARMX_REFERENCE_PYTHON && process.env.SWARMX_REFERENCE_ZIM
+    ? new ReferenceLibraryHost({
+        pythonPath: resolve(process.env.SWARMX_REFERENCE_PYTHON),
+        zimPath: resolve(process.env.SWARMX_REFERENCE_ZIM),
+      })
+    : undefined;
 
 const preloadPath = join(__dirname, "../preload/index.mjs");
 const rendererUrl =
@@ -121,6 +138,8 @@ app.whenReady().then(() => {
   registerIpcHandlers({
     authorizeIpcSender: (event) => isTrustedRendererIpcEvent(event, rendererUrl),
     updateService: desktopUpdater,
+    memoryBackend: memoryRuntime,
+    ...(referenceLibraryRuntime ? { referenceLibraryBackend: referenceLibraryRuntime } : {}),
     broadcastUpdateState: (state) => {
       for (const window of BrowserWindow.getAllWindows()) {
         if (!window.isDestroyed()) window.webContents.send("appUpdate:state", state);
@@ -137,6 +156,8 @@ app.on("before-quit", () => {
   if (updateCheckTimer) clearInterval(updateCheckTimer);
   updateCheckTimer = null;
   disposeDesktopTerminals();
+  void memoryRuntime.close();
+  void referenceLibraryRuntime?.close();
 });
 
 app.on("window-all-closed", () => {

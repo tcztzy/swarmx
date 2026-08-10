@@ -375,6 +375,7 @@ describe("desktop settings primitives", () => {
   it("creates default settings without choosing product-owned roots", () => {
     expect(createDefaultDesktopSettings()).toMatchObject({
       schemaVersion: 1,
+      personalMemory: null,
       desktop: {},
       server: {},
       ui: { theme: "system", composer: { selectionsByHarness: {} } },
@@ -401,6 +402,28 @@ describe("desktop settings primitives", () => {
         approvalReceipts: [],
       },
     });
+  });
+
+  it("validates persisted Personal Memory independently from Profile and Session data", () => {
+    expect(
+      parseDesktopSettingsDocument({
+        personalMemory: {
+          content: "Prefer concise answers.",
+          updatedAt: "2026-08-09T08:00:00.000Z",
+        },
+      }).personalMemory,
+    ).toEqual({
+      content: "Prefer concise answers.",
+      updatedAt: "2026-08-09T08:00:00.000Z",
+    });
+    expect(() =>
+      parseDesktopSettingsDocument({
+        personalMemory: {
+          content: "invalid\u0000memory",
+          updatedAt: "2026-08-09T08:00:00.000Z",
+        },
+      }),
+    ).toThrow();
   });
 
   it("defaults and validates per-Harness Composer preferences", () => {

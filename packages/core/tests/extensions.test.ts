@@ -1596,6 +1596,14 @@ describe("extension inventory", () => {
             supportedModelApis: ["openai_responses"],
             backend: { type: "echo" },
           },
+          {
+            id: "external",
+            label: "External",
+            modelControl: "direct",
+            modelCompatibility: "declared_apis",
+            supportedModelApis: ["openai_responses"],
+            backend: { type: "custom", program: "external-agent" },
+          },
         ],
         agents: [
           {

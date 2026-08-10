@@ -439,7 +439,24 @@ export {
   parseHarnessInvocationMetadata,
   resolveHarnessSelector,
 } from "./harness-management.js";
-export { Hook } from "./hook.js";
+export type {
+  HookDispatchResult,
+  HookEvent,
+  HookExecutor,
+  HookExecutorContext,
+  HookInvocation,
+  HookResult,
+  HookRuntimeOptions,
+} from "./hook.js";
+export {
+  appendHookContext,
+  dispatchHooks,
+  Hook,
+  HookDeniedError,
+  HookEventSchema,
+  HookExecutionError,
+  HookResultSchema,
+} from "./hook.js";
 export type {
   LocalMcpTool,
   LocalTextTool,
@@ -471,6 +488,9 @@ export {
   mediaKindFromMimeType,
   validateMediaAttachments,
 } from "./media.js";
+export * from "./memory.js";
+export * from "./memory-links.js";
+export * from "./memory-runtime-protocol.js";
 export type { ModelApi, ModelApiMode } from "./model-api.js";
 export { ModelApiModeSchema, ModelApiSchema } from "./model-api.js";
 export type {
@@ -519,6 +539,7 @@ export {
 } from "./model-capabilities.js";
 export type { N8nImportResult } from "./n8n.js";
 export { importN8nWorkflow, N8nImportError } from "./n8n.js";
+export * from "./personal-memory.js";
 export type { ProjectData } from "./project.js";
 export {
   dismissProject,
@@ -570,6 +591,7 @@ export {
   resolveProviderProfile,
 } from "./providers.js";
 export { QuotaManager } from "./quota.js";
+export * from "./reference-library.js";
 export type {
   NormalizedRenderEvent,
   NormalizeMessageChunkOptions,
@@ -760,6 +782,7 @@ export { Swarm, SwarmNode } from "./swarm.js";
 export * from "./task-control-service.js";
 export * from "./task-runtime.js";
 export * from "./task-runtime-store.js";
+export * from "./task-supervisor.js";
 export * from "./task-worker-process.js";
 export * from "./task-worker-protocol.js";
 export type {

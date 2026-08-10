@@ -13,6 +13,7 @@
     "docs:check": "node scripts/check-codebase-docs.mjs",
     "eval:inspect": "uv run --locked --group inspect inspect eval evals/inspect/tasks.py@swarmx_smoke --model none",
     "test:python": "uv run --locked --no-default-groups python -m unittest discover -s tests/python -p '*_test.py'",
+    "test:mem": "cargo test --workspace --locked",
     "lint": "biome check .",
     "format": "biome format --write .",
     "test": "vitest run",

@@ -23,11 +23,13 @@ export const McpServerConfigSchema = z.discriminatedUnion("type", [
 
 // ── Hook ─────────────────────────────────────────────────────────────────────
 
+const HookTargetSchema = z.string().trim().min(1).max(512);
+
 export const HookConfigSchema = z.object({
-  onStart: z.string().optional(),
-  onEnd: z.string().optional(),
-  onHandoff: z.string().optional(),
-  onChunk: z.string().optional(),
+  onStart: HookTargetSchema.optional(),
+  onEnd: HookTargetSchema.optional(),
+  onHandoff: HookTargetSchema.optional(),
+  onChunk: HookTargetSchema.optional(),
 });
 
 // ── AgentBackend ─────────────────────────────────────────────────────────────
@@ -68,7 +70,7 @@ export const AgentConfigSchema = z.object({
   instructions: z.string().optional(),
   client: z.record(z.string(), z.unknown()).optional(),
   mcpServers: z.record(z.string(), McpServerConfigSchema).optional(),
-  hooks: z.array(HookConfigSchema).optional(),
+  hooks: z.array(HookConfigSchema).max(64).optional(),
   backend: AgentBackendSchema.optional(),
   process: ProcessOptionsSchema.optional(),
 });
@@ -119,7 +121,7 @@ export const SwarmConfigSchema = z.object({
   nodes: z.record(z.string(), SwarmNodeConfigSchema),
   edges: z.array(EdgeConfigSchema),
   root: z.string().min(1),
-  hooks: z.array(HookConfigSchema).optional(),
+  hooks: z.array(HookConfigSchema).max(64).optional(),
 });
 
 // ── Messages ──────────────────────────────────────────────────���──────────────

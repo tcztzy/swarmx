@@ -14,6 +14,8 @@ asarUnpack:
 extraResources:
   - from: build/icon.png
     to: icon.png
+  - from: build/mem-runtime
+    to: mem-runtime
 mac:
   category: public.app-category.developer-tools
   icon: build/icon.icns

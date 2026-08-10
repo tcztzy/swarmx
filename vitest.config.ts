@@ -7,6 +7,7 @@ const desktopNodeModules = "./packages/desktop/node_modules";
 export default defineConfig({
   plugins: [react()],
   test: {
+    maxWorkers: 4,
     coverage: {
       provider: "v8",
       reporter: ["text", "json-summary"],
@@ -63,6 +64,20 @@ export default defineConfig({
       {
         find: /^@swarmx\/core\/harness$/,
         replacement: fileURLToPath(new URL("./packages/core/src/harness.ts", import.meta.url)),
+      },
+      {
+        find: /^@swarmx\/core\/memory-runtime-protocol$/,
+        replacement: fileURLToPath(
+          new URL("./packages/core/src/memory-runtime-protocol.ts", import.meta.url),
+        ),
+      },
+      {
+        find: /^@swarmx\/core\/memory-links$/,
+        replacement: fileURLToPath(new URL("./packages/core/src/memory-links.ts", import.meta.url)),
+      },
+      {
+        find: /^@swarmx\/core\/memory$/,
+        replacement: fileURLToPath(new URL("./packages/core/src/memory.ts", import.meta.url)),
       },
       {
         find: /^@swarmx\/runtime$/,

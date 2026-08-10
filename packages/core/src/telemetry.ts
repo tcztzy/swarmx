@@ -5,7 +5,7 @@ import { isForbiddenSecretKey, REDACTED_VALUE } from "./secret-scanner.js";
 const OMITTED_VALUE = "[omitted]";
 const DEFAULT_SCHEMA_VERSION = "swarmx.telemetry.v1";
 const RAW_CONTENT_KEY_PATTERN =
-  /(prompt|response|message[_-]?text|conversation|wiki[_-]?body|source[_-]?code|terminal[_-]?output|stdout|stderr|stack[_-]?trace|run[_-]?log|process[_-]?log|worker[_-]?log|raw[_-]?payload)/i;
+  /(prompt|response|message[_-]?text|conversation|memory[_-]?(body|content)|source[_-]?code|terminal[_-]?output|stdout|stderr|stack[_-]?trace|run[_-]?log|process[_-]?log|worker[_-]?log|raw[_-]?payload)/i;
 
 export const TelemetrySchemaVersionSchema = z.string().regex(/^[a-z0-9_.-]+\.telemetry\.v1$/);
 

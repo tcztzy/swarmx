@@ -18,6 +18,8 @@ The event store defaults to:
 ```text
 ~/.swarmx/task-runtime/events.jsonl
 ~/.swarmx/task-runtime/blobs/<sha256>.blob
+~/.swarmx/task-runtime/supervisor-token
+~/.swarmx/task-runtime/supervisor.sock   # Unix hosts
 ```
 
 Events are appended and fsynced, then replayed into current WorkItem, Run,
@@ -25,14 +27,24 @@ checkpoint, artifact, approval, link, and receipt state. One unterminated crash
 tail can be inspected and explicitly truncated. A complete malformed record,
 event-id collision, or idempotency-key collision fails closed.
 
-`AppAttachedTaskControlService` is the runnable controller in this release. A
-host calls `recoverOnStartup()` to repair a torn tail and mark expired leases,
-then may retry eligible work within its attempt budget. A run does not become
+`AppAttachedTaskControlService` remains the in-process controller primitive. The
+Desktop-facing host runs it inside one authenticated local supervisor process,
+so Electron can disconnect or exit without ending active work. The supervisor
+calls `recoverOnStartup()` to repair a torn tail and mark expired leases, then
+may retry eligible work within its attempt budget. A run does not become
 active or consume an attempt until its lease is durably acquired, so a crash
 after only `run_created` leaves the WorkItem safely runnable. Startup also
 repairs a crash between a retryable failure and its retry-scheduled event. The
 service does not silently start all queued work and does not install runtime
 dependencies.
+
+Desktop starts the supervisor on demand with a credential-free ambient
+environment, then disconnects after each request. The supervisor token and
+socket are Main/Core-only and mode-restricted. Renderer can list current
+WorkItems and pending approvals, cancel an active run, or record an explicit
+human decision through narrow typed IPC. It cannot submit a worker program,
+launch environment, token, or arbitrary process. Main-owned services submit
+eligible launch/grant contracts directly to the supervisor.
 
 Cancellation is also event-first: Core records `cancel_requested` before it
 signals the worker. A cooperative worker returns `canceled`; an unresponsive
@@ -106,16 +118,22 @@ The reference Python 3.11+ worker currently provides a minimal vertical slice:
 | `swarmx.count` | Emits per-step heartbeat, progress, and resumable checkpoints; supports cooperative cancellation. |
 | `swarmx.fail` | Produces a requested retryable or non-retryable failure. |
 | `swarmx.needs_human` | Checkpoints, persists the full request, and can resume with a bounded human decision payload. |
+| `swarmx.evolve_skill` | Runs the dependency-free deterministic test optimizer or delegates locked DSPy/GEPA to the private `swarmx.rsi` MCP server, then reports the immutable candidate artifact. |
 
-The worker is dependency-free and does not currently call the capability
-gateway itself. The gateway protocol is present as the boundary for future
-model/tool-backed operations.
+The worker source remains dependency-free, but it runs in the same locked
+`swarmx` environment as RSI and Reference. For GEPA, the worker reads exactly the
+three granted artifacts through the capability gateway, launches
+  `swarmx.rsi` server over sanitized stdio, and calls only `swarmx_rsi_optimize`.
+Reflection/model requests travel back as MCP sampling and are mapped to the
+grant-checked model capability; plaintext Provider credentials never enter the
+worker, RSI server, or either protocol.
 
-`@swarmx/runtime` inspects three product assets (`pyproject.toml`, `uv.lock`, and
-the worker source), `uv`, a compatible uv-managed Python, and the locked worker
-environment. Inspection is read-only and uses offline/no-download checks. The
-environment path is derived from a digest covering those assets plus `uv`, the
-Python implementation/version, platform, and architecture.
+`@swarmx/runtime` inspects the product metadata and lock, worker source, any
+configured RSI server/client and optimizer sources, `uv`, a compatible
+uv-managed Python, and the one locked `swarmx` environment. Inspection is
+read-only and uses offline/no-download checks. The environment path is derived
+from a digest covering those assets, `uv`, the Python implementation/version,
+platform, and architecture; dependency groups do not select product modules.
 
 When ready, task execution launches the verified environment interpreter
 directly; it does not invoke `uv` on the run path. The launch method reruns the
@@ -123,24 +141,21 @@ read-only health check, rejects a changed digest, and passes a hash-verified
 snapshot of the worker source to isolated Python rather than reopening a mutable
 source path. Missing Python or a stale environment produces an explicit
 setup/repair plan for a separately confirmed host action. The root Python
-project is named `swarmx`, has no required product dependencies, and keeps
-Inspect-only evaluation packages in the opt-in `inspect` dependency group.
+project is named `swarmx`; DSPy, MCP, and libzim are direct product dependencies,
+while Inspect-only evaluation packages remain in the opt-in `inspect`
+dependency group.
 
 ## Current boundary
 
-Durable state survives a controller or Desktop restart, and expired leases can
-be recovered on the next startup. Execution does not continue after Desktop
-closes: there is no independently supervised `swarmxd`, launchd, or systemd
-service yet. Desktop IPC/Renderer integration, a background orphan-lease
-sweeper, production capability adapters, artifact-backed checkpoint
-materialization, asynchronous store isolation from Electron Main, and stronger
-OS-level worker sandboxing remain explicit roadmap work. Active app-attached
-workers do have heartbeat and wall-time watchdogs; they do not constitute an
-independent service. The bundled Python operations do not read Provider auth and
-receive no Provider credential variables, but the current same-user process has
-not yet been placed in an OS/filesystem sandbox. Strong isolation from the
-Main-owned Provider auth file is therefore a required boundary before untrusted
-or third-party worker operations can run.
+The authenticated local supervisor lets active eligible WorkItems continue after
+Desktop closes and accepts status/cancel requests when Desktop reconnects. It is
+started on demand and is not installed as a login daemon, launchd unit, systemd
+unit, or remote service. Production capability adapters, artifact-backed
+checkpoint materialization, asynchronous store isolation from Electron Main,
+automatic login/startup installation, and stronger OS-level worker sandboxing
+remain explicit roadmap work. The bundled Python operations do not read Provider
+auth and receive no Provider credential variables; untrusted or third-party
+worker operations remain disabled without a stronger sandbox.
 
 `WorkspaceShell` is intentionally not reused for this purpose; it remains a
 temporary interactive execution surface.

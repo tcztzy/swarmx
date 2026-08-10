@@ -10,7 +10,7 @@ lockfile, not here.
 | Package | Owns |
 | --- | --- |
 | `@swarmx/core` | Agent and workflow execution, the durable task control plane, ACP/MCP clients, Sessions, Projects, schemas, and reusable platform contracts |
-| `@swarmx/runtime` | Host runtime detection, Python worker environment inspection, Doctor reports, and explicit setup/repair planning |
+| `@swarmx/runtime` | Host runtime detection, Python worker and managed module environment inspection, Doctor reports, and explicit setup/repair planning |
 | `@swarmx/acp-server` | ACP server implementation backed by Core Sessions |
 | `@swarmx/cli` | Commander-based terminal interface and HTTP server commands |
 | `@swarmx/desktop` | Electron Main, Preload, Renderer, and host integrations |
@@ -148,7 +148,7 @@ and cancellation must match implemented behavior.
 - a named `root`;
 - a map of `agent`, `tool`, or nested `swarm` nodes;
 - explicit edges with optional CEL conditions;
-- optional MCP server and hook metadata.
+- optional MCP servers and Agent/Swarm lifecycle hooks.
 
 `Swarm` parses the config, materializes nodes into a `Map`, and stores edges as
 `Edge` objects. Construction rejects unconditional cycles and warns about
@@ -159,8 +159,141 @@ declared predecessors, schedules a node at most once, and enforces a step bound.
 Execution output is an ordered collection of normalized message chunks. Eval
 execution additionally records deterministic step metadata and metrics.
 
+Lifecycle hooks preserve the existing `onStart`, `onChunk`, `onHandoff`, and
+`onEnd` configuration shape. A hook target is resolved only by an explicitly
+injected host capability executor; Core never treats the target string as a
+shell command. Matching targets for one event start concurrently, receive a
+structured invocation, and have a bounded timeout. Start and handoff handlers
+may stop execution or add bounded model-visible context. Missing executors,
+timeouts, malformed results, denials, and failures fail closed. End hooks run
+for both success and failure, while chunk hooks observe streamed chunks in
+order. This follows the event/handler and structured-I/O model used by Claude
+Code and Codex while retaining SwarmX's host-authority boundary.
+
 The n8n importer is a boundary adapter into `SwarmConfig`; it is not another
 runtime.
+
+## Managed feature modules over MCP
+
+Language-native feature processes use MCP over private stdio as the common
+capability boundary. MCP supplies initialization, server identity, tool
+discovery, calls, progress, cancellation, structured results, and—where
+explicitly granted—client sampling. It does not supply trust by itself. The
+owning SwarmX host still verifies the packaged runtime or locked source digest,
+starts it with a sanitized environment, requires one exact allowlisted tool
+surface, enforces request/response size and timeout limits, and validates the
+TypeScript-facing boundary with zod.
+
+These private servers are implementation modules, not user-configured MCP
+servers. Their tools are never registered with the Agent-facing `McpManager`.
+The host projects only the product capability it has authorized, preserving
+confirmation, audit, credential, persistence, and Renderer boundaries. A new
+module may follow this runtime pattern without becoming a `SwarmConfig` node or
+receiving filesystem, scheduling, Provider, or durable-state authority.
+
+The first modules are:
+
+- `swarmx-mem`, a Rust MCP server with the single private
+  `swarmx_memory` tool. Desktop Main owns its lifecycle and projects it to the
+  confirmed `Memory` Agent tool. The current linked Markdown organization is
+  an implementation behind that generic product contract.
+- `swarmx-rsi`, a locked Python MCP server with the single private
+  `swarmx_rsi_optimize` tool. The durable Python worker launches it for
+  DSPy/GEPA optimization and implements MCP sampling by forwarding only
+  grant-checked `model.generate` calls to the host capability gateway.
+- `swarmx-ref`, a locked Python MCP server with the single private
+  `swarmx_reference` tool. It opens one explicit local ZIM with the official
+  `python-libzim` binding and exposes only bounded `status`, `search`, and
+  `get` operations. It strips active HTML, never downloads or mutates the ZIM,
+  and has no path-scanning or Memory authority.
+
+Python is one standard root `swarmx` distribution with a regular
+`src/swarmx/__init__.py` package. The worker and the `rsi` and `ref` private MCP
+implementations are ordinary subpackages in the same wheel and locked
+environment; there is no namespace-package discovery, module entry-point
+registry, uv member workspace, or module-specific dependency group. Hosts
+launch the explicitly owned `swarmx.rsi.server` or `swarmx.ref.server` module
+over private stdio and still validate its MCP identity and exact tool surface.
+Rust separately uses a root Cargo workspace with `crates/*` members, so
+Node/pnpm, Python/uv, and Rust/Cargo ownership remain visible from the repository
+root.
+
+The durable worker protocol remains a control-plane protocol rather than a
+feature-module tool surface. Its lease fencing, monotonic event stream,
+heartbeats, checkpoints, human suspension, artifact receipts, and uncertain
+external-effect receipts are authoritative WorkItem semantics. An MCP
+transport could carry those messages later, but replacing the framing cannot
+remove or transfer those semantics. Feature work belongs in a private MCP
+module; task authority remains in Core and the supervisor.
+
+## Memory organization and knowledge graph projection
+
+The current Memory organization follows the LLM Wiki pattern of interlinked
+Markdown entity pages. SwarmX exposes only the smallest reusable graph
+primitive from that pattern: a pure, browser-safe projection from one entity's
+Markdown and a caller-supplied entity registry to directed `memory_link` edges.
+This knowledge relationship is distinct from the executable transition in
+`SwarmConfig` and never enters `Edge` or `Swarm` scheduling.
+
+The linked Markdown projection accepts the forms `[[Target]]`,
+`[[Target.md]]`, `[[Target#Heading]]`, `[[Target|Label]]`, and `![[Target]]`.
+Titles and caller-declared aliases resolve case-insensitively after Unicode NFC
+normalization. The resolver never creates a Memory entity: unknown, ambiguous,
+malformed, and self references produce bounded diagnostics. Repeated links
+collapse into one source-to-target edge while retaining bounded occurrence
+metadata, and double-bracket links inside inline or fenced code are ignored.
+
+The pure projection remains browser-safe and has no filesystem access. The
+production persistence host is a SwarmX-owned Rust sidecar built against an
+exactly pinned `llm-wiki-engine` crate. It stores one Markdown page per stable
+entity id under `~/.swarmx/memory/`, commits every accepted mutation to the same
+local Git repository, and treats the engine's Tantivy index plus the host's
+linked graph as rebuildable projections. Titles and aliases must resolve uniquely, and
+updates/deletes/restores require `expectedRevision` so a stale LLM or client
+cannot silently overwrite newer knowledge. There is no JSON fallback, legacy
+importer, or second persistence authority.
+
+Create, get, list, BM25 search, update, recoverable delete, history, version
+read, diff, and restore all cross zod schemas. A successful mutation means the
+Markdown write, validation, Git commit, and index refresh have completed as one
+semantic lifecycle. Markdown plus Git remains authoritative if index refresh
+fails, and reopening the runtime rebuilds that projection before serving.
+`graph()` is derived from indexed current pages and edges are never a second
+authority. A delete writes a content-free
+tombstone so history remains recoverable; restore creates a new revision from a
+selected historical version rather than moving Git HEAD backwards.
+
+SwarmX-owned native Agent execution receives one `Memory` local tool with
+strict list/get/search/graph/history/get-version/diff/create/update/delete/
+restore operations. Reads are bounded. Every create, update, delete, or restore
+request is brokered to the owning Renderer for one-time confirmation, and its
+semantic audit event excludes title, aliases, Markdown content, and diffs.
+Custom ACP Harnesses keep ownership of their tool surface and never receive
+this local tool.
+
+The sidecar deliberately does not call an LLM, ingest source files, admit
+claims, inject all pages into model context, provide vector retrieval, or render
+Markdown. The Desktop host grants bounded on-demand access and retains
+responsibility for approvals.
+
+### Memory runtime boundary
+
+`@swarmx/runtime` owns read-only Memory executable inspection and returns either
+a verified launch description or an explicit missing/invalid/repair state. The
+description pins the platform target, version, protocol version, executable
+path, and SHA-256 digest. Desktop Main recomputes the digest immediately before
+launch, passes an explicit credential-free environment, and owns one lazy Memory
+process for the app lifecycle. There is no `cargo install` path and an ordinary
+Memory operation never downloads or repairs code.
+
+The host talks to `swarmx-mem` through a private MCP-over-stdio connection
+and requires its only tool to be `swarmx_memory`. Core zod schemas validate
+every request and operation-matched structured response; malformed, oversized,
+mismatched, text-only, or contradictory responses fail closed. The existing
+public `Memory` local tool is the only Agent surface, so mutation
+confirmation and body-free audit remain host-owned. The Memory server is not a
+WorkItem executor: it has no lease, checkpoint, artifact, capability-grant, or
+detached-supervisor semantics, and it stops when Desktop exits.
 
 ## Durable task runtime
 
@@ -265,19 +398,30 @@ mutable worker source path is not reopened by the child. Missing Python or stale
 dependencies yield an explicit setup/repair plan; task execution never installs
 Python or synchronizes dependencies as a side effect.
 
-The root Python project is named `swarmx`. Its product worker has no required
-third-party Python dependencies; Inspect evaluation tooling is isolated in the
-opt-in `inspect` dependency group and setup uses no default groups. The
-environment digest covers the project metadata, lock, worker source, `uv`,
-Python implementation/version, platform, and architecture so incompatible
-checkpoints fail closed.
+The root Python project is the sole `swarmx` distribution. DSPy, MCP, and libzim
+are normal locked product dependencies shared by its worker, RSI, and Reference
+subpackages; only Inspect evaluation tooling remains isolated in the opt-in
+`inspect` dependency group. The environment digest covers the project metadata,
+lock, worker and explicitly monitored module sources, `uv`, Python
+implementation/version, platform, and architecture. Changing from grouped to
+the unified environment changes the digest schema so incompatible checkpoints
+fail closed.
 
-The current service lifecycle is explicitly `app_attached`. Persisted work and
-startup lease recovery survive a Desktop restart, but no `swarmxd`, launchd, or
-systemd supervisor currently keeps execution alive after Desktop exits. A
-future daemon must reuse the same Core schemas, event store, fencing, and worker
-protocol behind an authenticated local control boundary; it must not introduce
-a second task authority.
+`AppAttachedTaskControlService` remains the in-process control primitive, but
+Desktop hosts it in one on-demand detached local supervisor. The supervisor owns
+active run controllers, leases, recovery, cancellation, and human decisions;
+Electron is only an authenticated client and may exit without ending an active
+eligible worker. Requests cross a strict bounded JSONL socket protocol and use a
+random token stored with mode `0600`. Renderer receives only list, cancel, and
+decision IPC; worker launch specs, the token, event-store authority, and process
+creation remain in Main/Core. The supervisor reuses the sole canonical event
+store and never creates a second task format.
+
+The local supervisor is not installed at login and does not yet provide remote
+execution, production capability gateways, or OS isolation for untrusted
+workers. Its detached lifecycle covers active credential-free WorkItems after
+Desktop closes; reboot/login activation and sandbox expansion remain separate
+explicit work.
 
 ## Audit event authority
 
@@ -334,6 +478,38 @@ It stores exactly one `run_summary` for each run, containing status, duration,
 token totals, and aggregate tool/Skill counts. It does not store per-tool or
 per-Skill timeline events and cannot substitute for the verified audit chain or
 canonical Session history.
+
+## Personal Memory
+
+Personal Memory is a single user-edited record in
+`~/.swarmx/settings.json`, separate from Activity Profile, Session history,
+Project context, Agent profiles, Skills, and WorkItems. Its schema rejects empty
+writes, control characters, unknown IPC fields, and content beyond 4,000
+characters. Forget is a dedicated confirmed mutation that removes the record;
+deleting or archiving a Session never changes Memory.
+
+Main reads one immutable snapshot for each Agent-bearing run. Core serializes
+that snapshot into a dedicated read-only instruction block before native
+Provider execution, into the explicit Agent-instructions section of ACP prompt
+text, and into each Agent node of a `SwarmConfig`, including nested swarms. A
+tool-only workflow reports no consumer. The snapshot can be sent to the selected
+Provider or Harness as required model input, but is never copied into audit,
+Activity, trace, telemetry, hook input, or unrelated tool transport.
+
+Direct Agents receive a host-owned `PersonalMemory` mutation tool. Its strict
+input can propose `save` or `forget`; Main always asks the owning Renderer for a
+one-call confirmation and writes a secret-free audit intent before applying the
+settings mutation. Denial and lost Renderer ownership fail closed. The active
+Agent keeps its frozen starting snapshot, so a confirmed edit affects only later
+runs. ACP Harnesses keep their native tool surface and do not receive this tool.
+
+Each attempted Agent Composition run publishes and persists a concise Session
+message stating `used` or `not used`, the Settings source, and either a bounded
+preview plus snapshot size/update time or a reason such as empty Memory or an
+execution path. This receipt is deliberately excluded when
+Session messages are rebuilt for subsequent model calls, so it remains UI
+provenance rather than a second context source. Full Memory remains inspectable
+only through the dedicated Settings IPC surface.
 
 ## Sessions and Projects
 
@@ -530,12 +706,20 @@ mutates a running Session, active Skill files, or the persisted `SwarmConfig`.
   promotion, idempotency, persistence, audit, and rollback. It reuses the
   durable task runtime (`swarmx.evolve_skill` WorkItems), `TaskRuntimeStore`
   content-addressed blobs, leases, checkpoints, and the capability gateway.
-- **Python sidecar** reads only granted baseline/train/dev artifacts through
-  the capability gateway, runs the optimizer (deterministic fake for the
-  vertical slice, locked DSPy/GEPA in the `evolution` dependency group), and
-  reports heartbeat/progress/checkpoint plus an immutable candidate artifact.
-  It cannot move the active pointer, decide promotion, read
-  `provider-auth.json`, scan Sessions, or write the Skill install directory.
+- **Durable Python worker** owns no durable state. It obtains exactly the three
+  granted baseline/train/dev artifacts, records WorkItem progress/checkpoints,
+  launches the locked RSI MCP module for DSPy/GEPA, and writes the returned
+  immutable candidate into the granted artifact root. The dependency-free
+  deterministic fake remains a worker test path.
+- **Python RSI MCP server** runs the DSPy/GEPA optimizer from the locked
+  `swarmx.rsi` subpackage in the standard `swarmx` distribution behind
+  one `swarmx_rsi_optimize` tool. It
+  receives only the three verified artifact bodies, and any reflection/model
+  request uses MCP sampling. The worker-side MCP client maps sampling to the
+  grant-checked capability gateway; Provider credentials never enter either
+  Python process. Neither process can move the active pointer, decide
+  promotion, read `provider-auth.json`, scan Sessions, or write the Skill
+  install directory.
 - **Evaluation** runs baseline and candidate through the same real SwarmX
   execution path on a hidden holdout; Inspect produces independent evidence,
   Core computes the gate verdict.
@@ -544,9 +728,11 @@ mutates a running Session, active Skill files, or the persisted `SwarmConfig`.
 
 The optimization request names only baseline and train/dev content digests —
 a holdout ref is rejected by the strict schema before the WorkItem is created.
-The optimizer worker receives exactly three granted artifact refs and a
-grant-checked `model.generate` capability whose credentials are resolved inside
-a host-owned handler that never crosses the protocol. Candidates are
+The optimizer worker receives exactly three granted artifact refs. It resolves
+and digest-checks them before the private RSI MCP call, while MCP sampling is
+mapped to a grant-checked `model.generate` capability whose credentials are
+resolved inside a host-owned handler and never cross either protocol.
+Candidates are
 untrusted data: ingestion verifies the content digest against the artifact
 receipt, re-checks lineage against the request, enforces the artifact budget,
 and secret-scans content before anything may proceed to evaluation.
@@ -610,11 +796,11 @@ model-call budget is a hard error for GEPA (never silently defaulted), and
 tokens are a hard budget: zero denies every call before dispatch, the worker
 denies exhausted budgets before the next call, and the host gateway re-checks
 remaining tokens from durable receipts before each dispatch. The CLI launch
-digest covers the worker source, pyproject, `uv.lock`, evolution sidecar
-sources, the resolved Python version, and the interpreter's installed `dspy`
-version verified against the pinned `evolution` group; the runtime environment
-service can synchronize the opt-in group explicitly. Reflection/model calls
-cross the grant-checked capability gateway; the CLI only enables
+digest covers the worker source, the `swarmx.rsi` server/client and optimizer
+sources, pyproject, `uv.lock`, the resolved Python version, and the
+interpreter's installed `dspy` and `mcp` versions verified against the pinned
+root `swarmx` project. Reflection/model calls cross MCP sampling and then the
+grant-checked capability gateway; the CLI only enables
 `proposer: gateway` with an explicit `--model-command` whose environment
 carries no credentials.
 

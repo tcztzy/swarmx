@@ -8,6 +8,7 @@ import {
 import { cva, type VariantProps } from "class-variance-authority";
 import {
   Bot,
+  Brain,
   Check,
   ChevronRight,
   Code2,
@@ -524,7 +525,11 @@ function ConversationTurnView({
   onSubmitEdit: (messageIndex: number, content: string) => void;
   turn: ConversationTurn;
 }) {
-  const hasWork = active || interrupted || turn.workMessages.length > 0;
+  const memoryReceipts = turn.workMessages.flatMap((message, sourceIndex) =>
+    isPersonalMemoryReceipt(message) ? [{ message, sourceIndex }] : [],
+  );
+  const collapsibleWork = turn.workMessages.filter((message) => !isPersonalMemoryReceipt(message));
+  const hasWork = active || interrupted || collapsibleWork.length > 0;
   const retryText = turn.userMessage?.content ?? "";
   const retryAttachments = turn.userMessage?.attachments;
   const canRetry = Boolean(retryText || retryAttachments?.length);
@@ -563,6 +568,9 @@ function ConversationTurnView({
             }
           />
         ))}
+      {memoryReceipts.map(({ message, sourceIndex }) => (
+        <RunEvent key={`${messageKey(message)}\u001fmemory-${sourceIndex}`} msg={message} />
+      ))}
       {hasWork && (
         <WorkDisclosure
           active={active}
@@ -570,7 +578,7 @@ function ConversationTurnView({
           actionsDisabled={actionsDisabled}
           interrupted={interrupted}
           latest={latest}
-          messages={turn.workMessages}
+          messages={collapsibleWork}
           onContinue={onContinue}
           turnId={turn.id}
         />
@@ -591,6 +599,10 @@ function ConversationTurnView({
       )}
     </section>
   );
+}
+
+function isPersonalMemoryReceipt(message: MessageChunk): boolean {
+  return message.render?.source === "personal_memory_receipt";
 }
 
 function WorkDisclosure({
@@ -1896,6 +1908,9 @@ function messagePresentation(msg: MessageChunk): {
 } {
   if (msg.role === "user") {
     return { icon: User, label: "you", tone: "user", meta: "message" };
+  }
+  if (msg.render?.source === "personal_memory_receipt") {
+    return { icon: Brain, label: "personal memory", tone: "system", meta: "context" };
   }
   if (msg.role === "system") {
     return { icon: XCircle, label: "system", tone: "system", meta: msg.kind };

@@ -7,6 +7,7 @@ import {
   InstalledExtensionSchema,
 } from "./extension-management.js";
 import { ModelSchema, ModelSupplySchema } from "./model-capabilities.js";
+import { type PersonalMemoryRecord, PersonalMemoryRecordSchema } from "./personal-memory.js";
 import { ProviderProfileMetadataSchema } from "./providers.js";
 import { findInlineSecretFields } from "./secret-scanner.js";
 import {
@@ -170,6 +171,7 @@ export const DesktopSettingsDocumentSchema = z.preprocess(
       agents: z.array(AgentProfileMetadataSchema).default([]),
       extensions: DesktopExtensionSettingsSchema.prefault({}),
       permissions: DesktopPermissionSettingsSchema.prefault({}),
+      personalMemory: PersonalMemoryRecordSchema.nullable().default(null),
     })
     .passthrough()
     .superRefine(addSecretIssues),
@@ -274,6 +276,7 @@ export interface DesktopSettingsDocument {
   agents: Array<z.infer<typeof AgentProfileMetadataSchema>>;
   extensions: DesktopExtensionSettings;
   permissions: DesktopPermissionSettings;
+  personalMemory: PersonalMemoryRecord | null;
   [key: string]: unknown;
 }
 export type DesktopRootSource = z.infer<typeof DesktopRootSourceSchema>;
@@ -325,6 +328,7 @@ export function createDefaultDesktopSettings(
     agents: [],
     extensions: {},
     permissions: {},
+    personalMemory: null,
     ...input,
   });
 }

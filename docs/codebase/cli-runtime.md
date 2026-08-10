@@ -11,6 +11,7 @@ second workflow or persistence model.
 | `packages/runtime/src/harness-environment.ts` | Detects Harness executables/versions, container runtimes, protection modes, and setup requirements; explicit host callbacks perform installation/setup. `fs` + `proc` |
 | `packages/runtime/src/doctor.ts` | `HarnessDoctor` converts environment status into inspect reports, risk-labelled repair plans, and explicit fix results. Discovery is read-only; repair is opt-in. `proc` through host |
 | `packages/runtime/src/python-environment.ts` | Read-only product-worker asset, `uv`, uv-managed Python, and digest-addressed locked-environment inspection; computes the environment digest (including opt-in module sources) and returns an asynchronously reverified direct-Python launch with a hash-checked source snapshot, or an explicit install/repair plan. Status checks are offline/no-download and never mutate during task execution. `fs` + `proc` |
+| `packages/runtime/src/memory-runtime-environment.ts` | Zod-validated packaged Memory runtime manifest, read-only executable/digest/version inspection, explicit repair planning, launch-time revalidation, and secret-minimal launch spec for the private Rust MCP server. Never installs or compiles on an operation path. `fs` + `proc` |
 | `src/swarmx/__init__.py` | Regular package marker and installed `swarmx` distribution version. Python does not use a PEP 420 namespace or feature-distribution discovery. `pure` |
 | `src/swarmx/worker.py` | Python 3.11+ reference backend for protocol v1. Executes the minimal operations plus `swarmx.evolve_skill`; the deterministic fake stays local while DSPy/GEPA is delegated to the locked RSI MCP server. Reports durable-task events and issues grant-checked capability calls, but owns no task authority. `proc` worker |
 | `src/swarmx/rsi/__init__.py`, `src/swarmx/rsi/contract.py`, `src/swarmx/rsi/errors.py` | RSI subpackage plus strict process-boundary request validation and module-local error contract. |
@@ -24,6 +25,7 @@ second workflow or persistence model.
 | `packages/runtime/src/doctor.test.ts` | Contract tests for inspection, plan risk, and explicit repair behavior. |
 | `packages/runtime/src/python-environment.test.ts` | Contract tests for read-only/no-download discovery, digest stability, environment readiness, forged/stale-status rejection, hash-snapshotted sanitized launch specs, and explicit setup/repair plans. |
 | `packages/runtime/src/python-worker-smoke.test.ts` | End-to-end smoke contract between the Core app-attached controller and reference Python worker, including progress/checkpoint completion, partial and final-checkpoint resume, cancellation, and persisted human-decision resume. |
+| `packages/runtime/src/memory-runtime-environment.test.ts` | Memory runtime inspection tests for read-only status, digest tampering, protocol identity, sanitized launch, explicit repair, and launch-time revalidation. |
 
 Exact RSI module paths are
 `src/swarmx/rsi/__init__.py`, `contract.py`, `errors.py`, `server.py`,
@@ -34,6 +36,13 @@ acceptance tests are `tests/python/roundtrip_test.py`,
 Exact Reference module paths are `src/swarmx/ref/__init__.py`, `service.py`, and
 `server.py`. Its acceptance tests are `tests/python/reference_service_test.py`
 and `reference_mcp_server_test.py`.
+
+The root Cargo workspace discovers `crates/*`; `crates/swarmx-mem/` is the
+private Rust Memory MCP module. Its manifest and root `Cargo.lock` pin the build graph;
+`crates/swarmx-mem/src/main.rs` exposes only `swarmx_memory`;
+`crates/swarmx-mem/src/lib.rs` owns bounded Markdown/Git/BM25 CRUD and version
+semantics; `crates/swarmx-mem/tests/memory_service.rs` covers
+persistence, conflicts, history/diff/restore, bounds, and restart recovery.
 
 The root `pyproject.toml` owns the one installable, regular `swarmx` package.
 DSPy, MCP, and libzim are direct project dependencies in the same lock and

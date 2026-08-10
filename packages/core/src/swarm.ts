@@ -1,7 +1,13 @@
 import { randomUUID } from "node:crypto";
 import { Agent, type AgentRuntimeOptions } from "./agent.js";
 import { Edge } from "./edge.js";
-import { Hook } from "./hook.js";
+import {
+  appendHookContext,
+  dispatchHooks,
+  Hook,
+  type HookInvocation,
+  type HookRuntimeOptions,
+} from "./hook.js";
 import { Tool } from "./tool.js";
 import {
   type EvalRunResult,
@@ -20,6 +26,7 @@ const MAX_STEPS = 100;
 
 export interface SwarmRuntimeOptions {
   agent?: AgentRuntimeOptions;
+  hook?: HookRuntimeOptions;
 }
 
 interface EvalTraceCollector {
@@ -38,7 +45,10 @@ export class SwarmNode {
     const parsed = SwarmNodeConfigSchema.parse(config);
     this.kind = parsed.kind;
     if (parsed.kind === "agent") {
-      this.agent = new Agent(parsed.agent, options.agent);
+      this.agent = new Agent(parsed.agent, {
+        ...options.agent,
+        hook: options.agent?.hook ?? options.hook,
+      });
     } else if (parsed.kind === "tool") {
       this.tool = new Tool(parsed.tool);
     } else {
@@ -65,6 +75,7 @@ export class Swarm {
   edges: Edge[];
   root: string;
   hooks: Hook[];
+  private hookRuntime?: HookRuntimeOptions;
 
   constructor(config: SwarmConfig, options: SwarmRuntimeOptions = {}) {
     const parsed = SwarmConfigSchema.parse(config) as SwarmConfig;
@@ -80,6 +91,7 @@ export class Swarm {
     this.edges = (parsed.edges ?? []).map((e) => new Edge(e));
     this.root = parsed.root;
     this.hooks = (parsed.hooks ?? []).map((h) => new Hook(h));
+    this.hookRuntime = options.hook;
 
     this.validateDag();
   }
@@ -203,16 +215,93 @@ export class Swarm {
     onUsage?: (usage: ModelTokenUsage) => void,
   ): Promise<MessageChunk[]> {
     const ctx = { ...(context ?? {}) };
-    const newMessages: MessageChunk[] = [];
+    let effectiveArguments = arguments_;
+    let chunkHooks = Promise.resolve();
+    let newMessages: MessageChunk[];
 
-    if (!this.nodes.has(this.root)) {
-      throw new Error(`Root node "${this.root}" not found in swarm "${this.name}"`);
+    try {
+      if (!this.nodes.has(this.root)) {
+        throw new Error(`Root node "${this.root}" not found in swarm "${this.name}"`);
+      }
+      const start = await dispatchHooks(
+        this.hooks,
+        "onStart",
+        this.hookInvocation(effectiveArguments, ctx),
+        this.hookRuntime,
+      );
+      effectiveArguments = appendHookContext(effectiveArguments, start.additionalContext);
+      const emitChunk = onChunk
+        ? (chunk: MessageChunk): void => {
+            onChunk(chunk);
+            chunkHooks = chunkHooks.then(async () => {
+              await dispatchHooks(
+                this.hooks,
+                "onChunk",
+                this.hookInvocation(effectiveArguments, ctx, { chunk }),
+                this.hookRuntime,
+              );
+            });
+          }
+        : undefined;
+      newMessages = await this.executeDag(
+        effectiveArguments,
+        ctx,
+        trace,
+        emitChunk,
+        onUsage,
+        async (node, source, target) => {
+          const [agentContext, swarmContext] = await Promise.all([
+            node.agent?.runHandoffHooks(effectiveArguments, ctx, { source, target }) ?? [],
+            dispatchHooks(
+              this.hooks,
+              "onHandoff",
+              this.hookInvocation(effectiveArguments, ctx, {
+                handoff: { source, target },
+              }),
+              this.hookRuntime,
+            ).then((result) => result.additionalContext),
+          ]);
+          effectiveArguments = appendHookContext(effectiveArguments, [
+            ...agentContext,
+            ...swarmContext,
+          ]);
+          return effectiveArguments;
+        },
+      );
+      await chunkHooks;
+    } catch (error) {
+      await this.runFailedEndHook(effectiveArguments, ctx, error);
+      throw error;
     }
 
+    await dispatchHooks(
+      this.hooks,
+      "onEnd",
+      this.hookInvocation(effectiveArguments, ctx, {
+        outcome: { status: "completed", messages: newMessages },
+      }),
+      this.hookRuntime,
+    );
+    return newMessages;
+  }
+
+  private async executeDag(
+    initialArguments: Record<string, unknown>,
+    context: Record<string, unknown>,
+    trace: EvalTraceCollector | undefined,
+    onChunk: ((chunk: MessageChunk) => void) | undefined,
+    onUsage: ((usage: ModelTokenUsage) => void) | undefined,
+    onHandoff: (
+      node: SwarmNode,
+      source: string,
+      target: string,
+    ) => Promise<Record<string, unknown>>,
+  ): Promise<MessageChunk[]> {
+    let effectiveArguments = initialArguments;
+    const newMessages: MessageChunk[] = [];
     const { predecessors } = this.rebuildGraphs();
     const visited = new Set<string>();
     const scheduled = new Set<string>();
-
     const queue: string[] = [this.root];
     scheduled.add(this.root);
 
@@ -226,41 +315,69 @@ export class Swarm {
       const nodeMessages = await this.runNode(
         nodeName,
         node,
-        arguments_,
-        ctx,
+        effectiveArguments,
+        context,
         trace,
         onChunk,
         onUsage,
       );
       visited.add(nodeName);
-
-      if (nodeMessages.length > 0) {
-        newMessages.push(...nodeMessages);
-      }
+      if (nodeMessages.length > 0) newMessages.push(...nodeMessages);
 
       for (const edge of this.edges) {
-        if (edge.source !== nodeName) continue;
-        if (!edge.evaluate(ctx)) continue;
-
-        const targets = edge.resolveTargets(ctx);
-        for (const target of targets) {
+        if (edge.source !== nodeName || !edge.evaluate(context)) continue;
+        for (const target of edge.resolveTargets(context)) {
           if (!this.nodes.has(target)) {
             throw new Error(`Unknown target "${target}" in swarm "${this.name}"`);
           }
           if (visited.has(target) || scheduled.has(target)) continue;
-
           const required = predecessors.get(target) ?? new Set();
           if (!isSubset(required, visited)) continue;
 
+          effectiveArguments = await onHandoff(node, nodeName, target);
           queue.push(target);
           scheduled.add(target);
         }
       }
-
       steps++;
     }
-
     return newMessages;
+  }
+
+  private async runFailedEndHook(
+    arguments_: Record<string, unknown>,
+    context: Record<string, unknown>,
+    error: unknown,
+  ): Promise<void> {
+    try {
+      await dispatchHooks(
+        this.hooks,
+        "onEnd",
+        this.hookInvocation(arguments_, context, {
+          outcome: { status: "failed", error: errorMessage(error) },
+        }),
+        this.hookRuntime,
+      );
+    } catch (endError) {
+      throw new AggregateError(
+        [error, endError],
+        `Swarm "${this.name}" failed and its onEnd hook also failed.`,
+      );
+    }
+  }
+
+  private hookInvocation(
+    arguments_: Record<string, unknown>,
+    context: Record<string, unknown>,
+    extra: Pick<HookInvocation, "chunk" | "handoff" | "outcome"> = {},
+  ): Omit<HookInvocation, "event"> {
+    return {
+      scope: "swarm",
+      target: { name: this.name },
+      arguments: arguments_,
+      context,
+      ...extra,
+    };
   }
 
   private async runNode(
@@ -332,7 +449,7 @@ export class Swarm {
       case "agent": {
         if (!node.agent) return [];
         const result = onChunk
-          ? await node.agent.callStream(arguments_, onChunk, onUsage)
+          ? await node.agent.callStream(arguments_, onChunk, onUsage, context)
           : await node.agent.call(arguments_, context, onUsage);
         const messages = result.messages as MessageChunk[] | undefined;
         return messages ?? [];

@@ -46,12 +46,14 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build && tsc -p tsconfig.renderer-lib.json && tsc -p tsconfig.main-lib.json && tsc -p tsconfig.preload-lib.json",
+    "build:mem-runtime": "node scripts/build-mem-runtime.mjs",
     "dist:mac": "pnpm build && node scripts/build-macos-artifacts.mjs",
     "preview": "vite preview",
     "start": "node scripts/start-electron.mjs",
     "test": "vitest run"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.0",
     "@swarmx/core": "workspace:*",
     "@swarmx/runtime": "workspace:*",
     "@xterm/addon-fit": "^0.11.0",

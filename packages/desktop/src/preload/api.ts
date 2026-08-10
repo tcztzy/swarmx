@@ -121,6 +121,18 @@ export function createSwarmxDesktopApi(
 
     getActivityProfile: () => invoke("activity:profile"),
 
+    getPersonalMemory: () => invoke("personalMemory:get"),
+
+    savePersonalMemory: (input) => invoke("personalMemory:save", input),
+
+    forgetPersonalMemory: (input) => invoke("personalMemory:forget", input),
+
+    listTaskWorkItems: () => invoke("taskRuntime:list"),
+
+    cancelTaskWorkItem: (input) => invoke("taskRuntime:cancel", input),
+
+    decideTaskApproval: (input) => invoke("taskRuntime:decide", input),
+
     listAuditEvents: (query = {}) => invoke("audit:list", query),
 
     verifyAuditLog: () => invoke("audit:verify"),

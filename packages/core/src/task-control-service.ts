@@ -106,8 +106,8 @@ export class TaskCheckpointEnvironmentMismatchError extends Error {
 }
 
 /**
- * Restartable control-plane slice attached to its host process. Its event log survives the host,
- * but a separate swarmxd/service manager is still required to execute while Desktop is closed.
+ * Restartable control-plane primitive attached to its host process. Desktop runs it inside the
+ * detached authenticated task supervisor when execution must outlive Electron.
  */
 export class AppAttachedTaskControlService {
   readonly lifecycle = "app_attached" as const;
@@ -479,7 +479,7 @@ export class AppAttachedTaskControlService {
           payload: {
             claim: { leaseId: lease.leaseId, fencingToken: lease.fencingToken },
             expiredAt: now,
-            reason: "The app-attached controller recovered an expired worker lease.",
+            reason: "The task controller recovered an expired worker lease.",
           },
         }),
       ).state;

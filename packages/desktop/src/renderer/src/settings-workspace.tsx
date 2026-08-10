@@ -5,10 +5,12 @@ import type {
   HarnessPermissionPolicyLayer,
   SessionPermissionMode,
 } from "@swarmx/core";
+import type { PersonalMemoryState } from "@swarmx/core/personal-memory";
 import type { HarnessEnvironmentStatus } from "@swarmx/runtime";
 import {
   ArrowLeft,
   Bot,
+  Brain,
   Check,
   ChevronDown,
   Clock3,
@@ -66,6 +68,7 @@ import { Badge, Button, cx } from "./ui-primitives.js";
 
 export type SettingsSection =
   | "general"
+  | "memory"
   | "profile"
   | "permissions"
   | "providers"
@@ -121,6 +124,7 @@ export function SettingsSidebar({
   const normalizedQuery = query.trim().toLowerCase();
   const personalSections = [
     { id: "general" as const, label: "General", icon: Settings },
+    { id: "memory" as const, label: "Personal Memory", icon: Brain },
     { id: "profile" as const, label: "Profile", icon: User },
   ].filter((item) => item.label.toLowerCase().includes(normalizedQuery));
   const systemSections = [
@@ -466,6 +470,180 @@ export function GeneralSettings({
                   )?.description
                 }
               </p>
+            </div>
+          </section>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+export function PersonalMemorySettings({
+  memory,
+  loading,
+  error,
+  onSave,
+  onForget,
+}: {
+  memory?: PersonalMemoryState;
+  loading: boolean;
+  error: unknown;
+  onSave: (input: { content: string }) => Promise<void>;
+  onForget: (input: { confirmed: true }) => Promise<void>;
+}) {
+  const [draft, setDraft] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [forgetting, setForgetting] = useState(false);
+  const [confirmForget, setConfirmForget] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const maxCharacters = memory?.maxCharacters ?? 4_000;
+
+  useEffect(() => {
+    setDraft(memory?.status === "saved" ? memory.content : "");
+    setConfirmForget(false);
+    setActionError(null);
+  }, [memory]);
+
+  const save = async () => {
+    if (!draft.trim() || draft.length > maxCharacters || saving) return;
+    setSaving(true);
+    setActionError(null);
+    try {
+      await onSave({ content: draft });
+    } catch (saveFailure) {
+      setActionError(errorMessage(saveFailure));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const forget = async () => {
+    if (forgetting) return;
+    setForgetting(true);
+    setActionError(null);
+    try {
+      await onForget({ confirmed: true });
+      setDraft("");
+      setConfirmForget(false);
+    } catch (forgetFailure) {
+      setActionError(errorMessage(forgetFailure));
+    } finally {
+      setForgetting(false);
+    }
+  };
+
+  return (
+    <section
+      className="settings-workspace personal-memory-settings [width:100%] [height:100%] [min-width:0] [min-height:0] [overflow:hidden] [display:grid] [grid-template-rows:minmax(0,_1fr)] [color:var(--foreground)] [background:var(--background)]"
+      aria-label="Personal Memory settings"
+    >
+      <div className="settings-workspace__content [min-width:0] [min-height:0] [overflow-y:auto] [height:100%] [padding:64px_clamp(32px,_6vw,_84px)_64px] [background:var(--background)] max-680:[padding:28px_18px_40px]">
+        <div className="[width:min(100%,_760px)] [margin:0_auto]">
+          <div className="[display:flex] [align-items:flex-start] [justify-content:space-between] [gap:20px] [&_h2]:[margin:0] [&_h2]:[font-size:24px] [&_h2]:[font-weight:600] [&_h2]:[letter-spacing:-0.025em] [&_p]:[max-width:620px] [&_p]:[margin:8px_0_0] [&_p]:[color:var(--muted-foreground)] [&_p]:[font-size:12px] [&_p]:[line-height:1.55]">
+            <span>
+              <h2>Personal Memory</h2>
+              <p>
+                Durable facts and preferences for supported direct SwarmX runs. This is separate
+                from Profile activity, Session history, and Project context.
+              </p>
+            </span>
+            <Badge tone={memory?.status === "saved" ? "success" : "neutral"}>
+              {memory?.status === "saved" ? "Saved" : "Empty"}
+            </Badge>
+          </div>
+
+          {Boolean(actionError || error) && (
+            <div
+              className="settings-provider-error [margin:18px_0_0] [padding:9px_11px] [color:var(--danger)] [background:var(--danger-muted)] [border:1px_solid_color-mix(in_srgb,_var(--danger)_24%,_transparent)] [border-radius:7px] [font-size:11px] [line-height:1.4]"
+              role="alert"
+            >
+              {actionError ?? errorMessage(error)}
+            </div>
+          )}
+
+          <section className="[margin-top:28px] [padding:18px] [background:var(--card)] [border:1px_solid_var(--border)] [border-radius:var(--radius-lg)] [box-shadow:var(--shadow-inset)]">
+            <label className="[display:grid] [gap:8px]" htmlFor="personal-memory-editor">
+              <span className="[display:flex] [align-items:center] [justify-content:space-between] [gap:12px] [&_strong]:[font-size:13.5px] [&_small]:[color:var(--muted-foreground)] [&_small]:[font-size:10.5px]">
+                <strong>What SwarmX should remember</strong>
+                <small>
+                  {draft.length.toLocaleString("en-US")} / {maxCharacters.toLocaleString("en-US")}{" "}
+                  characters
+                </small>
+              </span>
+              <textarea
+                id="personal-memory-editor"
+                aria-label="Personal Memory"
+                value={draft}
+                maxLength={maxCharacters}
+                rows={12}
+                disabled={loading || saving || forgetting}
+                placeholder="Examples: response preferences, durable working conventions, or facts that should carry across Projects."
+                className="[width:100%] [min-height:220px] [padding:12px] [resize:vertical] [color:var(--foreground)] [background:var(--background)] [border:1px_solid_var(--border)] [border-radius:var(--radius-md)] [outline:none] [font:inherit] [font-size:12px] [line-height:1.55]"
+                onChange={(event) => {
+                  setDraft(event.target.value);
+                  setActionError(null);
+                }}
+              />
+            </label>
+            <p className="[margin:10px_0_0] [color:var(--muted-foreground)] [font-size:10.5px] [line-height:1.5]">
+              The current snapshot is sent to the selected Provider or ACP Harness for direct and
+              Agent-bearing workflow runs. Do not store credentials here. Every run shows whether a
+              snapshot was used and how many Agents received it.
+            </p>
+            {memory?.status === "saved" && (
+              <p className="[margin:7px_0_0] [color:var(--muted-foreground)] [font-size:10px]">
+                Last updated {formatTimestamp(memory.updatedAt)}
+              </p>
+            )}
+            <div className="[margin-top:18px] [display:flex] [align-items:center] [justify-content:space-between] [gap:12px] [flex-wrap:wrap]">
+              <div className="[display:flex] [align-items:center] [gap:8px]">
+                <Button
+                  type="button"
+                  onClick={() => void save()}
+                  disabled={
+                    loading || saving || forgetting || !draft.trim() || draft.length > maxCharacters
+                  }
+                >
+                  {saving && (
+                    <Loader2 className="[animation:spin_0.9s_linear_infinite]" aria-hidden="true" />
+                  )}
+                  Save Memory
+                </Button>
+              </div>
+              {memory?.status === "saved" && !confirmForget && (
+                <Button type="button" variant="ghost" onClick={() => setConfirmForget(true)}>
+                  <Trash2 aria-hidden="true" /> Forget Personal Memory
+                </Button>
+              )}
+              {memory?.status === "saved" && confirmForget && (
+                <div className="[display:flex] [align-items:center] [gap:8px]">
+                  <span className="[color:var(--danger)] [font-size:10.5px]">
+                    This cannot be restored from Session history.
+                  </span>
+                  <Button
+                    type="button"
+                    variant="destructive"
+                    onClick={() => void forget()}
+                    disabled={forgetting}
+                  >
+                    {forgetting && (
+                      <Loader2
+                        className="[animation:spin_0.9s_linear_infinite]"
+                        aria-hidden="true"
+                      />
+                    )}
+                    Confirm forget
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    onClick={() => setConfirmForget(false)}
+                    disabled={forgetting}
+                  >
+                    Cancel
+                  </Button>
+                </div>
+              )}
             </div>
           </section>
         </div>

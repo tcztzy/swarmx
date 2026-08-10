@@ -90,6 +90,18 @@ Copyright OpenAI. License: Apache License 2.0. The complete Apache License 2.0
 text is already included at
 `third_party_licenses/ACP_REGISTRY_APACHE-2.0.txt`.
 
+## llm-wiki-engine
+
+The packaged `swarmx-mem` Rust MCP server links the exact
+`llm-wiki-engine` crate selected in
+`crates/swarmx-mem/Cargo.toml` and the root locked Cargo dependency graph.
+
+Source: <https://github.com/geronimo-iia/llm-wiki>
+
+License: MIT OR Apache License 2.0. SwarmX distributes it under the Apache
+License 2.0 option; the complete license text is included at
+`third_party_licenses/ACP_REGISTRY_APACHE-2.0.txt`.
+
 ## Provider product marks
 
 The Provider matrix bundles the following official product marks so runtime

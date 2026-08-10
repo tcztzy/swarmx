@@ -18,9 +18,12 @@ import type {
   HarnessPermissionMode,
   ListGroupedSessionsOptions,
   MediaAttachment,
+  MemoryAgentMutation,
+  MemoryBackend,
   MessageChunk,
   ModelTokenUsage,
   ProjectData,
+  ReferenceLibraryBackend,
   SessionData,
   SessionPermissionMode,
   SessionSummary,
@@ -33,6 +36,10 @@ import {
   appendMessages,
   archiveProjectSessions,
   archiveSession,
+  buildPersonalMemoryUseReceipt,
+  countPersonalMemoryAgentTargets,
+  createMemoryAgentTool,
+  createReferenceLibraryAgentTool,
   createSession,
   detectMediaMimeType,
   dismissProject,
@@ -50,6 +57,7 @@ import {
   loadExtensionInventory,
   loadSession,
   mergeModelTokenUsage,
+  personalMemoryReceiptMessage,
   RequestCancelledError,
   registerDefaultProject,
   registerProject,
@@ -59,6 +67,7 @@ import {
   saveSession,
   setProjectPinned,
   setSessionPinned,
+  TaskSupervisorCommandSchema,
   updateSessionTitle,
   validateMediaAttachments,
 } from "@swarmx/core";
@@ -109,6 +118,11 @@ import {
 } from "./model-catalog.js";
 import { PermissionAutoReviewer, type PermissionReviewResult } from "./permission-review.js";
 import { PermissionService, type RecordPermissionDecisionInput } from "./permission-service.js";
+import {
+  createPersonalMemoryAgentTool,
+  PersonalMemoryService,
+  type PersonalMemoryServiceLike,
+} from "./personal-memory.js";
 import { FileProviderAuthStore } from "./provider-auth.js";
 import { providerErrorMessage } from "./provider-error.js";
 import {
@@ -138,6 +152,7 @@ import {
 } from "./session-title.js";
 import { DesktopSettingsStore } from "./settings-store.js";
 import { SideChatService } from "./side-chat-service.js";
+import { DesktopTaskSupervisor, type DesktopTaskSupervisorLike } from "./task-supervisor.js";
 import { type TerminalAuditEvent, TerminalHost } from "./terminal-host.js";
 import {
   createDisabledDesktopUpdateService,
@@ -171,6 +186,12 @@ const IPC_AUDIT_POLICIES = {
   "agent:send": "intent_outcome",
   "sideChat:send": "intent_outcome",
   "activity:profile": "failure_only",
+  "personalMemory:get": "failure_only",
+  "personalMemory:save": "intent_outcome",
+  "personalMemory:forget": "intent_outcome",
+  "taskRuntime:list": "failure_only",
+  "taskRuntime:cancel": "intent_outcome",
+  "taskRuntime:decide": "intent_outcome",
   "agent:cancel": "intent_outcome",
   "sideChat:list": "intent_outcome",
   "sideChat:create": "intent_outcome",
@@ -306,6 +327,8 @@ const composerPreferences = new ComposerPreferenceService(desktopSettingsStore);
 const builtinToolSettings = new BuiltinToolSettingsService(desktopSettingsStore);
 const customAgents = new CustomAgentService(desktopSettingsStore);
 const permissionService = new PermissionService(desktopSettingsStore);
+const desktopPersonalMemory = new PersonalMemoryService(desktopSettingsStore);
+const desktopTaskSupervisor = new DesktopTaskSupervisor();
 const mediaService = new DesktopMediaService(
   process.env.NODE_ENV === "test"
     ? path.join(tmpdir(), `swarmx-media-test-${process.pid}`)
@@ -325,6 +348,10 @@ export interface RegisterIpcHandlersOptions {
   activityStore?: ActivityStore;
   auditStore?: DesktopAuditStore;
   authorizeIpcSender?: (event: RendererIpcEvent) => boolean;
+  personalMemoryService?: PersonalMemoryServiceLike;
+  taskSupervisor?: DesktopTaskSupervisorLike;
+  memoryBackend?: MemoryBackend;
+  referenceLibraryBackend?: ReferenceLibraryBackend;
 }
 
 interface DesktopAgentSendParams {
@@ -455,6 +482,10 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
   const updateService = options.updateService ?? createDisabledDesktopUpdateService();
   const activityStore = options.activityStore ?? desktopActivity;
   const auditStore = options.auditStore ?? desktopAudit;
+  const personalMemoryService = options.personalMemoryService ?? desktopPersonalMemory;
+  const taskSupervisor = options.taskSupervisor ?? desktopTaskSupervisor;
+  const memoryBackend = options.memoryBackend ?? unavailableMemoryBackend();
+  const referenceLibraryBackend = options.referenceLibraryBackend;
   activeAuditStore = auditStore;
   const authorizeIpcSender = options.authorizeIpcSender ?? (() => false);
   const assertAuthorized = (event: RendererIpcEvent): void => {
@@ -588,6 +619,7 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
     const observedMessages: MessageChunk[] = [];
     const tokenUsages: ModelTokenUsage[] = [];
     const usedSkillIds = new Set<string>();
+    let memoryReceipt: MessageChunk | undefined;
     let foregroundRuntime: ClaudeSessionRuntime | undefined;
     let activeChunkPublisher: AgentChunkPublisher | undefined;
     let activeSideChat: TransientSessionData | undefined;
@@ -793,6 +825,89 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
             throw error;
           }
         };
+        const personalMemoryTool = createPersonalMemoryAgentTool(personalMemoryService, {
+          confirm: async (mutation) => {
+            const response = await agentInteractions.request(event.sender, params.requestId, {
+              kind: "tool_approval",
+              title:
+                mutation.operation === "save" ? "Save Personal Memory" : "Forget Personal Memory",
+              toolKind: "personal_memory",
+              source: "direct",
+              summary:
+                mutation.operation === "save"
+                  ? `The Agent proposes replacing Personal Memory for future runs with:\n\n${mutation.content}`
+                  : "The Agent proposes permanently forgetting all saved Personal Memory for future runs.",
+              options: [
+                { optionId: "allow_once", name: "Confirm once", kind: "allow_once" },
+                { optionId: "reject_once", name: "Keep current Memory", kind: "reject_once" },
+              ],
+            });
+            return response.kind === "tool_approval" && response.optionId === "allow_once";
+          },
+          audit: (memoryEvent) => {
+            auditStore.append({
+              category: "system",
+              action: "personal_memory.agent_mutation",
+              actor: { kind: "agent" },
+              target: { kind: "personal-memory", id: "desktop-settings" },
+              requestId: params.requestId,
+              ...(params.sessionId ? { sessionId: params.sessionId } : {}),
+              outcome: memoryEvent.outcome,
+              metadata: {
+                operation: memoryEvent.operation,
+                ...(memoryEvent.characterCount === undefined
+                  ? {}
+                  : { characterCount: memoryEvent.characterCount }),
+              },
+            });
+          },
+        });
+        const memoryTool = createMemoryAgentTool(memoryBackend, {
+          confirm: async (mutation) => {
+            const response = await agentInteractions.request(event.sender, params.requestId, {
+              kind: "tool_approval",
+              title: `${memoryMutationLabel(mutation.operation)} Memory page`,
+              toolKind: "memory",
+              source: "direct",
+              summary: memoryMutationSummary(mutation),
+              options: [
+                { optionId: "allow_once", name: "Confirm once", kind: "allow_once" },
+                { optionId: "reject_once", name: "Keep Memory", kind: "reject_once" },
+              ],
+            });
+            return response.kind === "tool_approval" && response.optionId === "allow_once";
+          },
+          audit: (memoryEvent) => {
+            auditStore.append({
+              category: "system",
+              action: "memory.agent_mutation",
+              actor: { kind: "agent" },
+              target: {
+                kind: "memory",
+                ...(memoryEvent.pageId ? { id: memoryEvent.pageId } : {}),
+              },
+              requestId: params.requestId,
+              ...(params.sessionId ? { sessionId: params.sessionId } : {}),
+              outcome: memoryEvent.outcome,
+              metadata: {
+                operation: memoryEvent.operation,
+                ...(memoryEvent.expectedRevision === undefined
+                  ? {}
+                  : { expectedRevision: memoryEvent.expectedRevision }),
+                ...(memoryEvent.characterCount === undefined
+                  ? {}
+                  : { characterCount: memoryEvent.characterCount }),
+              },
+            });
+          },
+        });
+        const privateKnowledgeTools = [
+          personalMemoryTool,
+          memoryTool,
+          ...(referenceLibraryBackend
+            ? [createReferenceLibraryAgentTool(referenceLibraryBackend)]
+            : []),
+        ];
         let swarm: Swarm;
         const cwd = await normalizeWorkingDirectory(params.cwd);
 
@@ -804,9 +919,23 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
           const config = cwd
             ? swarmConfigWithWorkingDirectory(params.swarmConfig, cwd)
             : params.swarmConfig;
+          const agentCount = countPersonalMemoryAgentTargets(config);
+          const personalMemorySnapshot = await personalMemoryService.snapshot();
           swarm = new Swarm(await protectSwarmConfigBackends(config), {
-            agent: { acpPermissionHandler },
+            agent: {
+              acpPermissionHandler,
+              localTools: privateKnowledgeTools,
+              ...(personalMemorySnapshot ? { personalMemory: personalMemorySnapshot } : {}),
+            },
           });
+          memoryReceipt = personalMemoryReceiptMessage(
+            buildPersonalMemoryUseReceipt({
+              snapshot: personalMemorySnapshot,
+              executionPath: "workflow",
+              agentCount,
+            }),
+          );
+          onChunk(memoryReceipt);
         } else if (params.agentComposition) {
           const inventory = await modelCatalog.list(await loadDesktopExtensionInventory());
           const plan = resolveAgentCompositionPlan(params.agentComposition, inventory);
@@ -825,6 +954,15 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
           );
           const compositionBackend = protectedHarness?.backend;
           const compositionUsesAcp = compositionBackend?.type === "custom";
+          const personalMemorySnapshot = await personalMemoryService.snapshot();
+          memoryReceipt = personalMemoryReceiptMessage(
+            buildPersonalMemoryUseReceipt({
+              snapshot: personalMemorySnapshot,
+              executionPath: compositionUsesAcp ? "external_acp" : "direct_agent",
+              agentCount: 1,
+            }),
+          );
+          onChunk(memoryReceipt);
           const compositionIsProtected =
             compositionBackend?.type === "custom" && compositionBackend.program === "container";
           const mainSession =
@@ -877,6 +1015,8 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
           }
           const projectTools =
             cwd && runtimeHarnessId === "swarmx" ? new WorkspaceTools(cwd) : null;
+          const agentMemoryTools =
+            !compositionUsesAcp && !params.sideChatId ? privateKnowledgeTools : [];
           const directSession = params.sessionId ? loadSession(params.sessionId) : undefined;
           const builtinToolBinding = projectTools
             ? resolveRunBuiltinTools({
@@ -1085,13 +1225,19 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
                           providerSecrets,
                           cwd: sessionRuntime.root,
                           acpPermissionHandler,
-                          localTools: workspaceAgentTools(
-                            backgroundTools,
-                            sessionRuntime.shell,
-                            backgroundToolOptions,
-                          ),
+                          localTools: [
+                            ...agentMemoryTools,
+                            ...workspaceAgentTools(
+                              backgroundTools,
+                              sessionRuntime.shell,
+                              backgroundToolOptions,
+                            ),
+                          ],
                           onChunk: () => observation.markOutput(),
                           onUsage: (usage) => observation.recordUsage(usage),
+                          ...(personalMemorySnapshot
+                            ? { personalMemory: personalMemorySnapshot }
+                            : {}),
                         },
                       ),
                     ),
@@ -1201,16 +1347,18 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
                             providerSecrets,
                             cwd: root,
                             acpPermissionHandler,
-                            localTools: workspaceAgentTools(
-                              childTools,
-                              undefined,
-                              childToolOptions,
-                            ),
+                            localTools: [
+                              ...agentMemoryTools,
+                              ...workspaceAgentTools(childTools, undefined, childToolOptions),
+                            ],
                             onChunk: () => observation.markOutput(),
                             onUsage: (usage) => {
                               childUsages.push(usage);
                               observation.recordUsage(usage);
                             },
+                            ...(personalMemorySnapshot
+                              ? { personalMemory: personalMemorySnapshot }
+                              : {}),
                           }),
                         ),
                     );
@@ -1282,15 +1430,19 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
                     acpSessionId,
                     onAcpSessionId,
                     ...(params.sideChatId ? { acpMode: "plan" } : {}),
-                    ...(projectTools
-                      ? {
-                          localTools: workspaceAgentTools(
-                            projectTools,
-                            sessionRuntime?.shell,
-                            workspaceToolOptions,
-                          ),
-                        }
-                      : {}),
+                    ...(() => {
+                      const localTools = [
+                        ...agentMemoryTools,
+                        ...(projectTools
+                          ? workspaceAgentTools(
+                              projectTools,
+                              sessionRuntime?.shell,
+                              workspaceToolOptions,
+                            )
+                          : []),
+                      ];
+                      return localTools.length > 0 ? { localTools } : {};
+                    })(),
                     onChunk: (chunk) => {
                       observation.markOutput();
                       onChunk(chunk);
@@ -1299,12 +1451,16 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
                       tokenUsages.push(usage);
                       observation.recordUsage(usage);
                     },
+                    ...(personalMemorySnapshot ? { personalMemory: personalMemorySnapshot } : {}),
                   },
                 ),
               ),
           );
           assertFinalAssistantMessage(messages);
-          return { success: true, messages };
+          return {
+            success: true,
+            messages: [...(memoryReceipt ? [memoryReceipt] : []), ...messages],
+          };
         } else if (params.agentConfig) {
           throw new Error(
             "Inline agentConfig is not accepted by the desktop runtime; use Agent Composition.",
@@ -1326,7 +1482,10 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
           (usage) => tokenUsages.push(usage),
         );
 
-        return { success: true, messages: result };
+        return {
+          success: true,
+          messages: [...(memoryReceipt ? [memoryReceipt] : []), ...result],
+        };
       });
       const persistedMessages = timedMessages(result.messages, startedAt);
       const { sessionPersisted, sideChat } = persistOutcome(persistedMessages);
@@ -1399,6 +1558,36 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
   ipcMain.handle("sideChat:send", handleAgentSend);
 
   ipcMain.handle("activity:profile", () => activityStore.summary());
+
+  ipcMain.handle("personalMemory:get", () => personalMemoryService.get());
+
+  ipcMain.handle("personalMemory:save", (_event: IpcMainInvokeEvent, input: unknown) =>
+    personalMemoryService.save(input),
+  );
+
+  ipcMain.handle("personalMemory:forget", (_event: IpcMainInvokeEvent, input: unknown) =>
+    personalMemoryService.forget(input),
+  );
+
+  ipcMain.handle("taskRuntime:list", () => taskSupervisor.request({ operation: "list" }));
+
+  ipcMain.handle("taskRuntime:cancel", (_event: IpcMainInvokeEvent, input: unknown) =>
+    taskSupervisor.request(
+      TaskSupervisorCommandSchema.parse({
+        operation: "cancel",
+        ...(isRecord(input) ? input : {}),
+      }),
+    ),
+  );
+
+  ipcMain.handle("taskRuntime:decide", (_event: IpcMainInvokeEvent, input: unknown) =>
+    taskSupervisor.request(
+      TaskSupervisorCommandSchema.parse({
+        operation: "decide",
+        ...(isRecord(input) ? input : {}),
+      }),
+    ),
+  );
 
   ipcMain.handle("audit:list", (_event: IpcMainInvokeEvent, query?: AuditQuery) =>
     auditStore.query(query ?? {}),
@@ -2864,6 +3053,62 @@ function boundedPermissionLabel(value: string): string {
   if (!compact) return "Tool permission request";
   if (SENSITIVE_PERMISSION_LABEL_PATTERN.test(compact)) return "Tool permission request";
   return compact.length <= 160 ? compact : `${compact.slice(0, 159)}…`;
+}
+
+function memoryMutationLabel(operation: MemoryAgentMutation["operation"]): string {
+  return operation === "create"
+    ? "Create"
+    : operation === "update"
+      ? "Update"
+      : operation === "restore"
+        ? "Restore"
+        : "Delete";
+}
+
+function memoryMutationSummary(mutation: MemoryAgentMutation): string {
+  if (mutation.operation === "delete") {
+    return `The Agent proposes deleting Memory page ${mutation.id} at revision ${mutation.expectedRevision}.`;
+  }
+  if (mutation.operation === "create") {
+    return [
+      `The Agent proposes creating Memory page "${mutation.title}".`,
+      mutation.aliases?.length ? `Aliases: ${mutation.aliases.join(", ")}` : "Aliases: none",
+      `Markdown (${mutation.content.length} characters):`,
+      mutation.content,
+    ].join("\n\n");
+  }
+  if (mutation.operation === "restore") {
+    return `The Agent proposes restoring Memory page ${mutation.id} at revision ${mutation.expectedRevision} from version ${mutation.version}.`;
+  }
+  return [
+    `The Agent proposes updating Memory page ${mutation.id} at revision ${mutation.expectedRevision}.`,
+    ...(mutation.title === undefined ? [] : [`Title: ${mutation.title}`]),
+    ...(mutation.aliases === undefined
+      ? []
+      : [`Aliases: ${mutation.aliases.length ? mutation.aliases.join(", ") : "none"}`]),
+    ...(mutation.content === undefined
+      ? []
+      : [`Markdown (${mutation.content.length} characters):`, mutation.content]),
+  ].join("\n\n");
+}
+
+function unavailableMemoryBackend(): MemoryBackend {
+  const unavailable = async (): Promise<never> => {
+    throw new Error("Managed Memory runtime is unavailable on this execution path.");
+  };
+  return {
+    create: unavailable,
+    get: unavailable,
+    list: unavailable,
+    search: unavailable,
+    update: unavailable,
+    delete: unavailable,
+    graph: unavailable,
+    history: unavailable,
+    getVersion: unavailable,
+    diff: unavailable,
+    restore: unavailable,
+  };
 }
 
 function errorMessage(error: unknown): string {

@@ -60,6 +60,13 @@ export type {
   LspTextPosition,
 } from "./lsp-host.js";
 export { LspHost } from "./lsp-host.js";
+export { MemoryRuntimeBackend } from "./memory-runtime-backend.js";
+export type {
+  MemoryRuntimeConnection,
+  MemoryRuntimeHostOptions,
+} from "./memory-runtime-host.js";
+export { MemoryRuntimeHost } from "./memory-runtime-host.js";
+export { MemoryRuntimeService } from "./memory-runtime-service.js";
 export type {
   ManualModelInput,
   ModelCatalogInventory,
@@ -83,6 +90,8 @@ export type {
   ResolveDesktopPermissionOptions,
 } from "./permission-service.js";
 export { PermissionService } from "./permission-service.js";
+export type { PersonalMemoryServiceLike } from "./personal-memory.js";
+export { PersonalMemoryService } from "./personal-memory.js";
 export type {
   FileProviderAuthStoreOptions,
   ProviderAuthStore,
@@ -99,6 +108,11 @@ export type {
   ProviderWindowUsageMeter,
 } from "./provider-usage.js";
 export { ProviderUsageService, queryCodexAppServer } from "./provider-usage.js";
+export type {
+  ReferenceLibraryConnection,
+  ReferenceLibraryHostOptions,
+} from "./reference-library-host.js";
+export { ReferenceLibraryHost } from "./reference-library-host.js";
 export type { RequestOwner } from "./request-registry.js";
 export { DesktopRequestRegistry } from "./request-registry.js";
 export type {
@@ -112,6 +126,12 @@ export type {
   UpdateSideChatInput,
 } from "./side-chat-service.js";
 export { SideChatService } from "./side-chat-service.js";
+export type {
+  DesktopTaskSupervisorLike,
+  DesktopTaskSupervisorOptions,
+  TaskSupervisorSuccessResponse,
+} from "./task-supervisor.js";
+export { DesktopTaskSupervisor } from "./task-supervisor.js";
 export type {
   CreateTerminalRequest,
   TerminalOwner,

@@ -83,12 +83,15 @@ pnpm test:python
 pnpm test:mem
 ```
 
-Root `package.json` / pnpm own the TypeScript product, while root
-`pyproject.toml` / `uv.lock` own one standard Python `swarmx` package:
+SwarmX is intentionally one polyglot workspace. Root `package.json` / pnpm own
+the TypeScript product, root `pyproject.toml` / `uv.lock` own one standard
+Python `swarmx` package, and root `Cargo.toml` / `Cargo.lock` discover Rust
+`crates/*` modules:
 
 - `src/swarmx/rsi` — DSPy/GEPA private MCP implementation
 - `src/swarmx/ref` — read-only offline ZIM Reference MCP implementation
 - `src/swarmx/worker.py` — durable Python worker
+- `crates/swarmx-mem` — versioned subjective Memory MCP module
 
 The Python worker and private MCP servers use the same locked package environment:
 

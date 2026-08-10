@@ -9,8 +9,8 @@ the list below makes the coverage route searchable without loading every test.
 | Test paths |
 | --- |
 | `packages/core/tests/acp.test.ts`, `actions.test.ts`, `activity.test.ts`, `audit.test.ts`, `agent-profiles.test.ts`, `agent.test.ts`, `builtin-tools.test.ts`, `context.test.ts` |
-| `packages/core/tests/conversation.test.ts`, `dependencies.test.ts`, `desktop-settings.test.ts`, `edge.test.ts`, `extension-management.test.ts`, `extensions.test.ts`, `harness-management.test.ts`, `harness.test.ts` |
-| `packages/core/tests/mcp.test.ts`, `media.test.ts`, `model-capabilities.test.ts`, `n8n.test.ts`, `project.test.ts`, `providers.test.ts`, `rendering.test.ts`, `secrets.test.ts` |
+| `packages/core/tests/conversation.test.ts`, `dependencies.test.ts`, `desktop-settings.test.ts`, `edge.test.ts`, `memory-links.test.ts`, `memory.test.ts`, `packages/core/tests/memory-runtime-protocol.test.ts`, `extension-management.test.ts`, `extensions.test.ts`, `harness-management.test.ts`, `harness.test.ts` |
+| `packages/core/tests/mcp.test.ts`, `media.test.ts`, `model-capabilities.test.ts`, `n8n.test.ts`, `personal-memory.test.ts`, `project.test.ts`, `providers.test.ts`, `rendering.test.ts`, `secrets.test.ts` |
 | `packages/core/tests/server.test.ts`, `session-discovery.test.ts`, `session.test.ts`, `skill-variants.test.ts`, `swarm-eval.test.ts`, `swarm.test.ts`, `telemetry.test.ts`, `version.test.ts` |
 | `packages/core/tests/skill-evolution.test.ts`, `skill-evolution-store.test.ts`, `skill-evolution-service.test.ts`, `skill-evaluation.test.ts`, `skill-delivery.test.ts` |
 | `packages/core/tests/task-runtime.test.ts` |
@@ -18,6 +18,7 @@ the list below makes the coverage route searchable without loading every test.
 | `packages/core/tests/task-worker-protocol.test.ts` |
 | `packages/core/tests/task-worker-process.test.ts` |
 | `packages/core/tests/task-control-service.test.ts` |
+| `packages/core/tests/task-supervisor.test.ts` |
 
 Coverage focus: schema acceptance/rejection, graph scheduling/cycles, provider
 redaction and routing, ACP/MCP cancellation, per-Project JSONL-only append-only
@@ -28,7 +29,8 @@ runtime tests additionally cover event replay and
 idempotency collisions, fenced lease expiry, cancellation, retry and checkpoint
 lineage/resume (including corrupted identity/environment rejection), torn-tail
 recovery, Session-observer links, rejected human approval, protocol rejection,
-and app-attached control-plane behavior.
+app-attached control-plane behavior, authenticated supervisor rejection, and
+execution continuing after a requesting client disconnects.
 
 Skill evolution tests cover the end-to-end closed loop with the real Python
 worker (deterministic optimizer), candidate immutability and lineage, static
@@ -58,11 +60,12 @@ Exact Core test paths: `packages/core/tests/acp.test.ts`,
 `packages/core/tests/skill-delivery.test.ts`,
 `packages/core/tests/context.test.ts`, `packages/core/tests/conversation.test.ts`,
 `packages/core/tests/dependencies.test.ts`, `packages/core/tests/desktop-settings.test.ts`,
-`packages/core/tests/edge.test.ts`, `packages/core/tests/extension-management.test.ts`,
+`packages/core/tests/edge.test.ts`, `packages/core/tests/memory-links.test.ts`, `packages/core/tests/memory.test.ts`, `packages/core/tests/extension-management.test.ts`,
 `packages/core/tests/extensions.test.ts`, `packages/core/tests/harness-management.test.ts`,
 `packages/core/tests/harness.test.ts`, `packages/core/tests/mcp.test.ts`,
 `packages/core/tests/media.test.ts`, `packages/core/tests/model-capabilities.test.ts`,
-`packages/core/tests/n8n.test.ts`, `packages/core/tests/project.test.ts`,
+`packages/core/tests/n8n.test.ts`, `packages/core/tests/personal-memory.test.ts`,
+`packages/core/tests/project.test.ts`,
 `packages/core/tests/providers.test.ts`, `packages/core/tests/rendering.test.ts`,
 `packages/core/tests/secrets.test.ts`, `packages/core/tests/server.test.ts`,
 `packages/core/tests/session-discovery.test.ts`, `packages/core/tests/session.test.ts`,
@@ -78,7 +81,8 @@ Exact Core test paths: `packages/core/tests/acp.test.ts`,
 | --- |
 | `packages/desktop/src/main/acp-session-runtime.test.ts`, `agent-interactions.test.ts`, `browser-host.test.ts`, `builtin-tool-settings.test.ts`, `child-agent-host.test.ts`, `claude-scheduled-tasks.test.ts`, `claude-session-runtime.test.ts`, `codex-auth.test.ts` |
 | `packages/desktop/src/main/composer-preferences.test.ts`, `custom-agents.test.ts`, `extension-manager.test.ts`, `harness-environment.test.ts`, `library.test.ts`, `lsp-host.test.ts`, `media-faults.test.ts`, `media-preview-hash.test.ts` |
-| `packages/desktop/src/main/media.test.ts`, `model-catalog.test.ts`, `permission-review.test.ts`, `permission-service.test.ts`, `preload.test.ts`, `provider-auth.test.ts`, `provider-error.test.ts`, `provider-key-pool.test.ts`, `provider-usage.test.ts` |
+| `packages/desktop/src/main/media.test.ts`, `model-catalog.test.ts`, `permission-review.test.ts`, `permission-service.test.ts`, `personal-memory.test.ts`, `preload.test.ts`, `provider-auth.test.ts`, `provider-error.test.ts`, `provider-key-pool.test.ts`, `provider-usage.test.ts` |
+| `packages/desktop/src/main/memory-runtime-host.test.ts`, `packages/desktop/src/main/memory-runtime-integration.test.ts`, `packages/desktop/src/main/memory-runtime-backend.test.ts` |
 | `packages/desktop/src/main/request-registry.test.ts`, `session-title.test.ts`, `settings-store.test.ts`, `side-chat-service.test.ts`, `terminal-host.test.ts`, `updater.test.ts`, `window-security.test.ts`, `workspace-shell.test.ts`, `workspace-tools.test.ts` |
 
 ### Renderer
@@ -114,6 +118,7 @@ Exact Desktop test paths: `packages/desktop/src/main/acp-session-runtime.test.ts
 `packages/desktop/src/main/model-catalog.test.ts`,
 `packages/desktop/src/main/permission-review.test.ts`,
 `packages/desktop/src/main/permission-service.test.ts`,
+`packages/desktop/src/main/personal-memory.test.ts`,
 `packages/desktop/src/main/preload.test.ts`,
 `packages/desktop/src/main/provider-auth.test.ts`,
 `packages/desktop/src/main/provider-error.test.ts`,
@@ -154,7 +159,7 @@ Exact Desktop test paths: `packages/desktop/src/main/acp-session-runtime.test.ts
 | Test paths |
 | --- |
 | `packages/cli/tests/audit-command.test.ts`, `doctor.test.ts`, `eval-run.test.ts`, `send-config.test.ts`, `evolution-command.test.ts` (incl. real-chain promoted-revision resolution) |
-| `packages/acp-server/src/server.test.ts`, `packages/runtime/src/doctor.test.ts`, `packages/runtime/src/python-environment.test.ts`, `packages/runtime/src/python-worker-smoke.test.ts`, `packages/swarmx/tests/launcher.test.ts` (including exact macOS InputMethodKit diagnostic filtering and preservation of all other Electron stderr) |
+| `packages/acp-server/src/server.test.ts`, `packages/runtime/src/doctor.test.ts`, `packages/runtime/src/python-environment.test.ts`, `packages/runtime/src/python-worker-smoke.test.ts`, `packages/runtime/src/memory-runtime-environment.test.ts`, `packages/swarmx/tests/launcher.test.ts` (including exact macOS InputMethodKit diagnostic filtering and preservation of all other Electron stderr) |
 | `evals/inspect/__init__.py`, `evals/inspect/tasks.py`, `evals/inspect/tasks_test.py`, `evals/inspect/skill_eval.py`, `evals/inspect/skill_eval_test.py` |
 
 Exact CLI test paths: `packages/cli/tests/audit-command.test.ts`,
@@ -171,6 +176,12 @@ Exact Runtime test paths: `packages/runtime/src/doctor.test.ts`,
 `packages/runtime/src/python-environment.test.ts`, and
 `packages/runtime/src/python-worker-smoke.test.ts`.
 
+Reference boundary coverage lives in
+`packages/core/tests/reference-library.test.ts` and
+`packages/desktop/src/main/reference-library-host.test.ts`; Python service,
+real-ZIM MCP, and standard-package paths are indexed in
+[`cli-runtime.md`](cli-runtime.md).
+
 ## Auxiliary authored source
 
 | Source | Contract |
@@ -178,6 +189,7 @@ Exact Runtime test paths: `packages/runtime/src/doctor.test.ts`,
 | `packages/desktop/scripts/electron-stderr.mjs` | Shared launcher stream filter that removes only the known macOS InputMethodKit `IMKCFRunLoopWakeUpReliable` diagnostic and forwards all other Electron stderr. `proc` |
 | `packages/desktop/scripts/start-electron.mjs` | Development launcher that starts Electron against the Vite renderer and applies the shared stderr filter. `proc` |
 | `packages/desktop/scripts/build-macos-artifacts.mjs` | Packages the built Desktop application into macOS artifacts. `fs` + `proc` |
+| `packages/desktop/scripts/build-mem-runtime.mjs` | Builds the locked `swarmx-mem` crate for one target, copies the executable into Desktop resources, and writes its digest/version manifest. No install-at-runtime path. `fs` + `proc` |
 | `scripts/publish-npm.mjs` | Release helper for npm package publication. `proc` |
 | `scripts/rebuild-icon.py` | Rebuilds packaged icon assets from the canonical icon input. `fs` |
 | `scripts/check-codebase-docs.mjs` | CI/navigation guard: scans authoritative authored source/test roots and fails if a path is absent from `docs/codebase`. `fs` |

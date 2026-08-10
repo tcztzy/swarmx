@@ -24,6 +24,7 @@ export default defineConfig(async () => ({
         entry: {
           index: `${desktopRoot}/src/main/index.ts`,
           library: `${desktopRoot}/src/main/library.ts`,
+          "task-supervisor-entry": `${desktopRoot}/src/main/task-supervisor-entry.ts`,
         },
         onstart: async ({ startup }) => {
           const started = await startup(["."], {
@@ -71,6 +72,7 @@ export default defineConfig(async () => ({
       "@": `${desktopRoot}/src/renderer/src`,
       "@swarmx/core/harness": `${desktopRoot}/../core/src/harness.ts`,
       "@swarmx/core/rendering": `${desktopRoot}/../core/src/rendering.ts`,
+      "@swarmx/core/memory-runtime-protocol": `${desktopRoot}/../core/src/memory-runtime-protocol.ts`,
     },
   },
 }));

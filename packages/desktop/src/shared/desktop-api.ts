@@ -30,10 +30,16 @@ import type {
   TransientSessionData,
 } from "@swarmx/core";
 import type {
+  PersonalMemoryForgetInput,
+  PersonalMemorySaveInput,
+  PersonalMemoryState,
+} from "@swarmx/core/personal-memory";
+import type {
   NormalizeMessageChunkOptions,
   RenderArtifactReference,
   RenderProvenance,
 } from "@swarmx/core/rendering";
+import type { TaskApproval, TaskWorkItem } from "@swarmx/core/task-runtime";
 import type {
   DoctorFixResult,
   DoctorReport,
@@ -66,6 +72,22 @@ export interface DesktopTerminalExitEvent {
   id: string;
   exitCode: number;
   signal?: number;
+}
+
+export interface DesktopTaskRuntimeListResult {
+  requestId: string;
+  ok: true;
+  operation: "list";
+  workItems: TaskWorkItem[];
+  approvals: TaskApproval[];
+  activeWorkItemIds: string[];
+}
+
+export interface DesktopTaskRuntimeWorkItemResult {
+  requestId: string;
+  ok: true;
+  operation: "cancel" | "decide";
+  workItem: TaskWorkItem;
 }
 
 export interface DesktopMessageRenderMetadata {
@@ -590,6 +612,21 @@ export interface SwarmxAPI {
   }): Promise<DesktopSessionData | null>;
   listSessions(): Promise<DesktopSessionSummary[]>;
   getActivityProfile(): Promise<ActivityProfileSummary>;
+  getPersonalMemory(): Promise<PersonalMemoryState>;
+  savePersonalMemory(input: PersonalMemorySaveInput): Promise<PersonalMemoryState>;
+  forgetPersonalMemory(input: PersonalMemoryForgetInput): Promise<PersonalMemoryState>;
+  listTaskWorkItems(): Promise<DesktopTaskRuntimeListResult>;
+  cancelTaskWorkItem(input: {
+    workItemId: string;
+    reason?: string;
+  }): Promise<DesktopTaskRuntimeWorkItemResult>;
+  decideTaskApproval(input: {
+    approvalId: string;
+    status: "approved" | "rejected" | "waived";
+    decidedBy: string;
+    reason?: string;
+    response?: unknown;
+  }): Promise<DesktopTaskRuntimeWorkItemResult>;
   listAuditEvents(query?: AuditQuery): Promise<AuditEvent[]>;
   verifyAuditLog(): Promise<AuditVerification>;
   exportAuditLog(

@@ -209,6 +209,115 @@ describe("desktop main library entry", () => {
     }
   });
 
+  it("persists explicit Personal Memory IPC without copying plaintext into audit", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "swarmx-memory-ipc-"));
+    const auditStore = new AuditStore({ filePath: path.join(root, "audit.jsonl") });
+    const settings = new desktopMain.DesktopSettingsStore({
+      path: path.join(root, "settings.json"),
+    });
+    const personalMemoryService = new desktopMain.PersonalMemoryService(
+      settings,
+      () => "2026-08-09T08:00:00.000Z",
+    );
+    desktopMain.registerIpcHandlers({ ...trustedIpc, auditStore, personalMemoryService });
+    const handler = (channel: string) =>
+      electron.handle.mock.calls.filter(([registered]) => registered === channel).at(-1)?.[1];
+    const getMemory = handler("personalMemory:get");
+    const saveMemory = handler("personalMemory:save");
+    const forgetMemory = handler("personalMemory:forget");
+    if (
+      typeof getMemory !== "function" ||
+      typeof saveMemory !== "function" ||
+      typeof forgetMemory !== "function"
+    ) {
+      throw new Error("Personal Memory handlers were not registered");
+    }
+    const sender = Object.assign(new EventEmitter(), { id: 79 });
+
+    try {
+      await expect(
+        saveMemory({ sender }, { content: "Prefer concise answers." }),
+      ).resolves.toMatchObject({ status: "saved", characterCount: 23 });
+      await expect(getMemory({ sender })).resolves.toMatchObject({
+        status: "saved",
+        content: "Prefer concise answers.",
+      });
+      await expect(forgetMemory({ sender }, { confirmed: false })).rejects.toThrow();
+      await expect(forgetMemory({ sender }, { confirmed: true })).resolves.toEqual({
+        status: "empty",
+        maxCharacters: 4_000,
+      });
+
+      const events = auditStore.query({ action: "ipc.request" });
+      expect(events.map((event) => event.target?.id)).toEqual(
+        expect.arrayContaining(["personalmemory.save", "personalmemory.forget"]),
+      );
+      expect(JSON.stringify(events)).not.toContain("Prefer concise answers.");
+    } finally {
+      desktopMain.registerIpcHandlers(trustedIpc);
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("exposes strict WorkItem observation and control without Renderer launch authority", async () => {
+    const request = vi.fn(async (command: { operation: string }) => {
+      if (command.operation === "list") {
+        return {
+          requestId: "task-runtime-list",
+          ok: true as const,
+          operation: "list" as const,
+          workItems: [],
+          approvals: [],
+          activeWorkItemIds: [],
+        };
+      }
+      return {
+        requestId: "task-runtime-control",
+        ok: true as const,
+        operation: command.operation as "cancel" | "decide",
+        workItem: {},
+      };
+    });
+    desktopMain.registerIpcHandlers({
+      ...trustedIpc,
+      taskSupervisor: { request } as never,
+    });
+    const handler = (channel: string) =>
+      electron.handle.mock.calls.filter(([registered]) => registered === channel).at(-1)?.[1];
+    const list = handler("taskRuntime:list");
+    const cancel = handler("taskRuntime:cancel");
+    const decide = handler("taskRuntime:decide");
+    if (
+      typeof list !== "function" ||
+      typeof cancel !== "function" ||
+      typeof decide !== "function"
+    ) {
+      throw new Error("Task runtime handlers were not registered.");
+    }
+    const sender = Object.assign(new EventEmitter(), { id: 81 });
+
+    await expect(list({ sender })).resolves.toMatchObject({ operation: "list" });
+    await expect(cancel({ sender }, { workItemId: "awi_detached" })).resolves.toMatchObject({
+      operation: "cancel",
+    });
+    await expect(
+      decide(
+        { sender },
+        {
+          approvalId: "apr_detached",
+          status: "approved",
+          decidedBy: "desktop-user",
+        },
+      ),
+    ).resolves.toMatchObject({ operation: "decide" });
+    expect(() => cancel({ sender }, { workItemId: "awi_detached", program: "/bin/sh" })).toThrow();
+    expect(request).toHaveBeenCalledWith({ operation: "list" });
+    expect(request).not.toHaveBeenCalledWith(expect.objectContaining({ operation: "run" }));
+    expect(electron.handle.mock.calls.some(([channel]) => channel === "taskRuntime:run")).toBe(
+      false,
+    );
+  });
+
   it("suppresses successful transient UI and interaction transport events", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "swarmx-ipc-transient-"));
     const auditStore = new AuditStore({ filePath: path.join(root, "events.jsonl") });
@@ -631,6 +740,12 @@ describe("desktop main library entry", () => {
         { role: "assistant", content: "private reasoning", kind: "thinking" },
         { role: "assistant", content: "answer", kind: "message" },
         { role: "assistant", content: "{}", kind: "tool_call", toolName: "Read" },
+        {
+          role: "system",
+          content: "Personal Memory used\nSummary: Prefer concise answers.",
+          kind: "message",
+          render: { source: "personal_memory_receipt" },
+        },
         { role: "system", content: "scheduled event", kind: "message" },
       ],
     } as SessionData;

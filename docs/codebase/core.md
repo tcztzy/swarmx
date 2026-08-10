@@ -49,7 +49,11 @@ An Agent remains `harnessId:modelId`.
 | `packages/core/src/canonical-json.ts` | Internal deterministic JSON serialization and stable non-cryptographic hashing shared by ids, digests, and canonical records. `pure` |
 | `packages/core/src/secret-scanner.ts` | Internal recursive sensitive-field classifier shared by secret-free metadata boundaries; allows explicit references/redaction and path-scoped vault exceptions. `pure` |
 | `packages/core/src/edge.ts` | `Edge` graph object and CEL condition evaluation used by `Swarm`. `pure` |
-| `packages/core/src/hook.ts` | Hook config/runtime callback contract used by agent and swarm lifecycle events. `pure` |
+| `packages/core/src/memory-links.ts` | Browser-safe zod contracts and bounded double-bracket-link scanner/resolver that projects caller-owned entity Markdown into directed, non-executable knowledge edges with explicit diagnostics. `pure` |
+| `packages/core/src/memory.ts` | Memory zod schemas, async host-backend contract, graph projection, and strict `Memory` local Agent tool: bounded CRUD/search/version reads, optimistic revisions, confirmed create/update/delete/restore, and content-free audit callbacks. Persistence belongs only to the Rust Memory MCP server. `pure` |
+| `packages/core/src/memory-runtime-protocol.ts` | Strict versioned request/operation-matched response schemas for the private `swarmx-mem` MCP server, including its exact `swarmx_memory` tool identity and bounded structured-result limit. `pure` |
+| `packages/core/src/reference-library.ts` | Browser-safe zod contracts and the read-only `ReferenceLibrary` Agent tool for bounded source status, search, and plaintext article reads; unavailable paths report unsupported and no mutation operation exists. `pure` |
+| `packages/core/src/hook.ts` | Hook config plus fail-closed lifecycle dispatcher: explicit host executor, structured input/output, concurrent same-event handlers, bounded timeouts, denial, and additional-context limits. `pure` |
 | `packages/core/src/builtin-tools.ts` | Built-in tool style/revision schemas and style resolution for Claude Code, Codex, and Kimi Code contracts. `pure` |
 | `packages/core/src/actions.ts` | Action intent/confirmation/risk schemas, secret-safe payload sanitization, and explicit-confirmation checks for side effects. `pure` |
 | `packages/core/src/context.ts` | Context strategy, packet, summary checkpoint, and invocation metadata schemas/builders; controls isolated vs thread context. `pure` |
@@ -68,13 +72,14 @@ An Agent remains `harnessId:modelId`.
 | `packages/core/src/task-runtime-store.ts` | Append-only, fsynced task event store under `~/.swarmx/task-runtime/`, strict replay, narrow writer lock/stale-lock recovery, explicit torn-tail truncation, and content-addressed secret-safe JSON/binary blobs. Session files never participate in task replay. `fs` |
 | `packages/core/src/task-worker-protocol.ts` | Core-owned version 1 strict JSONL/stdio schemas and codecs for hello/capability negotiation, start, heartbeat/progress, checkpoint/artifact, human-needed, complete/fail/cancel, and grant-checked capability calls; rejects oversized, malformed, direction-invalid, secret-bearing, and unsafe-path messages. `pure` |
 | `packages/core/src/task-worker-process.ts` | One-run subprocess host: strict secret-key-free explicit launch schema, hello/backend/digest/operation negotiation, lease-envelope and sequence validation, heartbeat/wall-time/terminal-exit watchdogs, post-terminal rejection, cancellation grace/process-group termination, bounded redacted stderr, and selected-grant capability dispatch. Does not inherit ambient Provider credentials. `proc` |
-| `packages/core/src/task-control-service.ts` | Restartable app-attached control-plane slice: creates Session-independent WorkItems, links multiple observing Sessions, acquires fenced leases, records worker events/checkpoints/immutable artifacts/receipts, persists cancellation and human decisions, schedules eligible retries, and recovers torn tails/expired leases. Resume reparses the blob and binds checkpoint identity/checksum/environment to the new Run and launch; cross-Desktop-close execution remains a future daemon boundary. `fs` + `proc` + explicit gateway effects |
+| `packages/core/src/task-control-service.ts` | Restartable process-local control primitive: creates Session-independent WorkItems, links observing Sessions, acquires fenced leases, records worker events/checkpoints/artifacts/receipts, persists cancellation and decisions, schedules retries, and recovers torn tails/expired leases. Resume binds checkpoint identity/checksum/environment to the new Run; detached lifecycle is supplied only by `task-supervisor.ts`. `fs` + `proc` + explicit gateway effects |
+| `packages/core/src/task-supervisor.ts` | Authenticated local JSONL socket server/client for detached WorkItem execution: mode-restricted random token, strict create/run/list/cancel/decision schemas, canonical store/control-service reuse, per-run ownership independent from clients, and no Renderer token/process authority. `fs` + `net` + `proc` |
 
 ### Agents and execution adapters
 
 | Source | Contract |
 | --- | --- |
-| `packages/core/src/agent.ts` | `Agent` runtime: direct native model or external backend, hooks, MCP/tools, cancellation, streaming chunks, and request-scoped runtime environment. `net`/`proc` through adapters |
+| `packages/core/src/agent.ts` | `Agent` runtime: direct native model or external ACP backend, hooks, MCP/tools, cancellation, streaming chunks, request-scoped runtime environment, and per-run Personal Memory instruction assembly for native and ACP prompts. `net`/`proc` through adapters |
 | `packages/core/src/native-model.ts` | Native Anthropic/OpenAI/Ollama request construction, streaming, tool continuation, token usage, and request environment handling. `net` + `secret` |
 | `packages/core/src/acp.ts` | ACP client lifecycle, subprocess/session negotiation, prompt/update decoding, permission callbacks, request cancellation, and request-local abort scope. `net` + `proc` |
 | `packages/core/src/mcp.ts` | MCP client/server lifecycle, tool/resource discovery and calls, local tool contracts, content normalization, and cancellation. `net`/`proc` |
@@ -92,7 +97,7 @@ An Agent remains `harnessId:modelId`.
 | `packages/core/src/harness.ts` | Canonical built-in Harness recipes, software/version/command metadata, backend declarations, supported APIs, model controls, environment allowlists, and runtime/model compatibility. `pure` |
 | `packages/core/src/model-capabilities.ts` | Independent Model registry, capability metadata, reasoning normalization, model/supply schemas, and Harness × Model inventory resolution. `pure` |
 | `packages/core/src/providers.ts` | Provider profile/supply schemas, compatibility modes, secret-reference validation/redaction, runtime environment construction, and route selection. `pure` + `secret` at call boundary |
-| `packages/core/src/extensions.ts` | Passive extension manifest discovery/validation, component inventory, trust-safe normalization, agent composition/preflight, and extension-provided execution metadata. `fs` + `pure` |
+| `packages/core/src/extensions.ts` | Passive extension manifest discovery/validation, component inventory, trust-safe normalization, agent composition/preflight, extension-provided execution metadata, optional host hook-executor forwarding, and Personal Memory snapshot forwarding to the selected Agent execution path. `fs` + `pure` |
 | `packages/core/src/extension-management.ts` | Explicit extension install/update/rollback/trust/enable/repair plans and state transitions; discovery remains passive. `fs` |
 | `packages/core/src/dependencies.ts` | Managed dependency manifest schemas, runtime readiness, install/repair planning, and safe process/environment descriptors. `pure` + `fs`/`proc` through host |
 | `packages/core/src/harness-management.ts` | Harness inventory, setup/repair requirements, and composition readiness aggregation. `pure` |
@@ -105,7 +110,8 @@ An Agent remains `harnessId:modelId`.
 | `packages/core/src/session.ts` | Claude Code-style per-Project JSONL-only Session authority under `~/.swarmx/projects/`, projectless `__recents__`, rebuildable per-directory indexes, cross-Project lookup, locking, summaries, edits/forks/promotion, and write-time relocation of the prior flat JSONL layout. `fs` |
 | `packages/core/src/session-discovery.ts` | Discover/group/load external ACP Sessions and convert them to Core Session data without claiming ownership. `fs`/`proc` through ACP |
 | `packages/core/src/project.ts` | Project bookmark registry and normalization under `~/.swarmx/projects.json`; list/rename/pin/dismiss/remove. `fs` |
-| `packages/core/src/desktop-settings.ts` | Shared Desktop settings schemas/defaults and secret-free metadata sections. `pure` |
+| `packages/core/src/desktop-settings.ts` | Shared Desktop settings schemas/defaults, including the single nullable Personal Memory record and secret-free metadata sections. `pure` |
+| `packages/core/src/personal-memory.ts` | Strict bounded Personal Memory record/input/snapshot/mutation/state/receipt schemas, native/ACP instruction assembly, nested workflow Agent counting, and path-specific use/not-used receipts. `pure` |
 | `packages/core/src/secrets.ts` | Secret-reference and local vault document schemas, file-mode checks, redaction, and safe parsing; no renderer exposure. `fs` + `secret` |
 | `packages/core/src/rendering.ts` | Sanitized render event/artifact/provenance schemas and conversion from message chunks; rendering state is not canonical history. `pure` |
 | `packages/core/src/activity.ts` | Strict one-event-per-run `run_summary`, token estimates, aggregate tool/Skill counts, daily/profile summaries, and non-authoritative activity store. `fs` |
@@ -124,9 +130,12 @@ An Agent remains `harnessId:modelId`.
 The manifest currently exposes root plus `rendering`, `telemetry`, `activity`,
 `dependencies`, `conversation`, `providers`, `model-capabilities`,
 `builtin-tools`, `harness-management`, `agent-profiles`, `desktop-settings`,
-`secrets`, `actions`, `skill-variants`, `extension-management`, `harness`, and `project`.
+`personal-memory`, `memory-links`, `memory`, `secrets`, `actions`, `skill-variants`,
+`extension-management`, `harness`, and `project`.
+`memory-links` is browser-safe; `memory` is Node-only because it owns local
+filesystem persistence and its writer lock.
 The durable task modules are exposed from the Node-capable root barrel; the
-store, controller, and process host are not browser-safe Renderer subpaths.
+store, controller, supervisor, and process host are not browser-safe Renderer subpaths.
 The audit store is likewise Node-only and exported from the root barrel.
 Skill evolution and delivery modules are Node-capable root-barrel exports.
 When adding a public module, update the manifest and this map together.

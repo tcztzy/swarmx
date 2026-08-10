@@ -1,113 +1,147 @@
 # SwarmX Hooks
 
-SwarmX models lifecycle hooks as portable configuration metadata on agents and
-swarms. A hook value names a tool or host capability that an embedding runtime
-can call at a lifecycle point.
+SwarmX executes portable lifecycle hooks on Agents and Swarms. Hook values are
+names of host-owned capabilities. They are never interpreted as shell commands.
+The host must inject an executor that resolves each name to an already
+authorized command, MCP tool, HTTP integration, or in-process capability.
 
-The TypeScript core validates and preserves hook references. It does not start
-MCP servers or execute hook tools as a side effect of parsing a config.
+The design follows the event, matcher/handler, structured JSON, denial, and
+timeout ideas used by [Claude Code hooks](https://code.claude.com/docs/en/hooks)
+and [Codex hooks](https://learn.chatgpt.com/codex/hooks), while keeping process,
+network, filesystem, and trust authority outside Core.
 
 ## Hook Shape
 
-Hooks use camelCase fields in `SwarmConfig` JSON:
+Hooks retain the existing camelCase `SwarmConfig` fields:
 
-- `onStart` - host-defined capability to call before an agent or swarm starts.
-- `onEnd` - host-defined capability to call after an agent or swarm completes.
-- `onHandoff` - reserved for handoff-style host integrations.
-- `onChunk` - host-defined capability to call for streamed chunks.
+- `onStart`: before an Agent or Swarm starts. It may deny execution or add
+  model-visible context.
+- `onChunk`: once for each streamed chunk, in stream order.
+- `onHandoff`: before a Swarm schedules an edge target. Both the source Agent
+  and containing Swarm receive the event. It may deny the transition or add
+  model-visible context for subsequent nodes.
+- `onEnd`: after success or failure.
 
-Example:
+Each non-empty string is a capability name:
 
 ```json
 {
-  "onStart": "log_agent_start",
-  "onChunk": "log_stream_chunk",
-  "onEnd": "log_agent_end"
+  "onStart": "policy.check_start",
+  "onChunk": "telemetry.observe_chunk",
+  "onEnd": "telemetry.record_end"
 }
 ```
 
-## Agent Configuration
+Multiple hook objects can name handlers for the same event. Matching handlers
+start concurrently, so one handler cannot prevent another from starting. Each
+Agent or Swarm accepts at most 64 hook records.
 
-```ts
-import { Agent } from "@swarmx/core";
+## Runtime Execution
 
-const agent = new Agent({
-  name: "agent",
-  instructions: "You are a helpful assistant.",
-  hooks: [
-    {
-      onStart: "initialize_session",
-      onEnd: "cleanup_session",
-    },
-  ],
-});
-
-console.log(agent.hooks[0].onStart);
-```
-
-## Swarm Configuration
+Construction validates and preserves hook references. Execution requires an
+explicit host executor:
 
 ```ts
 import { Swarm } from "@swarmx/core";
 
-const swarm = new Swarm({
-  name: "hooked_workflow",
-  root: "agent",
-  hooks: [{ onStart: "workflow_started", onEnd: "workflow_finished" }],
-  nodes: {
-    agent: {
-      kind: "agent",
-      agent: {
-        name: "agent",
-        instructions: "Answer concisely.",
-        hooks: [{ onChunk: "record_agent_chunk" }],
-      },
+const swarm = new Swarm(config, {
+  hook: {
+    timeoutMs: 5_000,
+    execute: async (capability, input, { signal }) => {
+      return hostCapabilities.call(capability, input, { signal });
     },
   },
-  edges: [],
 });
 
-console.log(swarm.hooks[0].onEnd);
+await swarm.execute({ messages: [{ role: "user", content: "Hello" }] });
 ```
 
-## Host Execution
+If a configured event has no executor, execution fails closed. Core does not
+silently skip the hook or spawn the target string.
 
-If a desktop app, ACP adapter, or downstream product chooses to execute hooks,
-it should resolve hook names against explicit host-owned capabilities such as
-MCP tools. A typical hook input can include:
+The default timeout is 10 seconds per handler. A timeout aborts the handler's
+signal and fails the lifecycle event. Hosts must pass that signal through to
+their underlying process, network, or MCP operation.
 
-```json
-{
-  "messages": [
-    { "role": "user", "content": "Hello" }
-  ],
-  "context": {},
-  "agent": { "name": "agent" }
+## Structured Input
+
+Every invocation includes:
+
+```ts
+interface HookInvocation {
+  event: "onStart" | "onChunk" | "onHandoff" | "onEnd";
+  scope: "agent" | "swarm";
+  target: { name: string };
+  arguments: Record<string, unknown>;
+  context: Record<string, unknown>;
+  chunk?: MessageChunk;
+  handoff?: { source: string; target: string };
+  outcome?: {
+    status: "completed" | "failed";
+    messages?: MessageChunk[];
+    error?: string;
+  };
 }
 ```
 
-Hook outputs should be explicit and sanitized before being merged into runtime
-context. Keep secret values out of hook metadata and logs; use secret references
-or request-scoped runtime injection instead.
+Inputs are request-scoped and are not persisted by the dispatcher. Executors
+must not put raw prompts, responses, credentials, or hook payloads in audit or
+telemetry records.
 
-## Serialization
+## Structured Output
 
-Hooks are plain JSON-compatible records:
+Handlers return nothing or this strict JSON-compatible shape:
 
 ```ts
-import { Hook } from "@swarmx/core";
-
-const hook = new Hook({ onStart: "log_start" });
-const json = JSON.stringify(hook);
-const restored = new Hook(JSON.parse(json));
-
-console.log(restored.onStart);
+interface HookResult {
+  continue?: boolean;
+  stopReason?: string;
+  additionalContext?: string;
+}
 ```
 
-## Use Cases
+`continue: false` denies `onStart` or `onHandoff`; if several handlers return a
+decision, any denial wins. `additionalContext` is accepted only for those two
+events, is limited to 20,000 characters per handler and 50,000 characters per
+event, and is inserted as a system message for the remaining execution.
+`stopReason` is valid only with a denial.
 
-- Logging: record host-level lifecycle events.
-- Metrics: measure execution timing in a host-owned telemetry pipeline.
-- Debugging: capture selected sanitized state at lifecycle points.
-- Auditing: link external audit records to agent or swarm runs.
-- Integration: notify explicit host systems without baking product behavior into core.
+`onChunk` and `onEnd` are observational: they must return no decision or
+additional context. A malformed or event-incompatible result fails closed.
+
+`onEnd` runs after a successful result and after execution errors. Agent
+`onEnd` reports Agent start/chunk/run failures; Swarm `onEnd` additionally
+reports handoff failures. If both the main operation and `onEnd` fail, the
+surfaced error preserves both failures.
+
+## Agent and Swarm Configuration
+
+```json
+{
+  "name": "hooked_workflow",
+  "root": "agent",
+  "hooks": [
+    {
+      "onStart": "workflow.started",
+      "onHandoff": "workflow.handoff",
+      "onEnd": "workflow.finished"
+    }
+  ],
+  "nodes": {
+    "agent": {
+      "kind": "agent",
+      "agent": {
+        "name": "agent",
+        "instructions": "Answer concisely.",
+        "hooks": [{ "onChunk": "agent.chunk" }]
+      }
+    }
+  },
+  "edges": []
+}
+```
+
+Extension hook capabilities remain passive inventory. Loading an extension
+does not trust, enable, or execute its declared command. A host may resolve an
+enabled and explicitly authorized capability through the same executor
+contract.

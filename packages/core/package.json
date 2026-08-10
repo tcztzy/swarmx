@@ -70,6 +70,26 @@
       "types": "./dist/desktop-settings.d.ts",
       "import": "./dist/desktop-settings.js"
     },
+    "./personal-memory": {
+      "types": "./dist/personal-memory.d.ts",
+      "import": "./dist/personal-memory.js"
+    },
+    "./memory-links": {
+      "types": "./dist/memory-links.d.ts",
+      "import": "./dist/memory-links.js"
+    },
+    "./memory": {
+      "types": "./dist/memory.d.ts",
+      "import": "./dist/memory.js"
+    },
+    "./memory-runtime-protocol": {
+      "types": "./dist/memory-runtime-protocol.d.ts",
+      "import": "./dist/memory-runtime-protocol.js"
+    },
+    "./reference-library": {
+      "types": "./dist/reference-library.d.ts",
+      "import": "./dist/reference-library.js"
+    },
     "./secrets": {
       "types": "./dist/secrets.d.ts",
       "import": "./dist/secrets.js"

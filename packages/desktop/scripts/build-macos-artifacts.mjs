@@ -17,6 +17,11 @@ if (arch !== "arm64" && arch !== "x64") {
   throw new Error(`Unsupported macOS architecture: ${arch ?? "missing"}`);
 }
 
+execFileSync("node", ["scripts/build-mem-runtime.mjs", "--arch", arch], {
+  cwd: packageRoot,
+  stdio: "inherit",
+});
+
 const builderArgs = [
   "exec",
   "electron-builder",

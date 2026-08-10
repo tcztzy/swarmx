@@ -8,6 +8,13 @@ import {
   RequestCancelledError,
   throwIfCurrentRequestCancelled,
 } from "./acp.js";
+import {
+  appendHookContext,
+  dispatchHooks,
+  Hook,
+  type HookInvocation,
+  type HookRuntimeOptions,
+} from "./hook.js";
 import { type LocalTool, type LocalToolProgress, McpManager } from "./mcp.js";
 import {
   attachmentFallbackText,
@@ -22,6 +29,11 @@ import {
   callOpenAIResponses,
   type NativeProtocolContext,
 } from "./native-model.js";
+import {
+  appendPersonalMemoryInstructions,
+  type PersonalMemorySnapshot,
+  PersonalMemorySnapshotSchema,
+} from "./personal-memory.js";
 import {
   appendMessages,
   createSession,
@@ -82,6 +94,10 @@ export interface AgentRuntimeOptions {
   acpMode?: string;
   acpSessionId?: string;
   onAcpSessionId?: (sessionId: string | undefined) => void | Promise<void>;
+  /** Resolves configured hook capability names through explicit host authority. */
+  hook?: HookRuntimeOptions;
+  /** Request-scoped, read-only Personal Memory for direct SwarmX execution only. */
+  personalMemory?: PersonalMemorySnapshot;
 }
 
 interface AcpPromptClient {
@@ -129,6 +145,7 @@ export class Agent {
   private acpMode?: string;
   private acpSessionId?: string;
   private onAcpSessionId?: (sessionId: string | undefined) => void | Promise<void>;
+  private hookRuntime?: HookRuntimeOptions;
   private configuredModel?: string;
   private maxOutputTokens: number;
   private readonly skillInstructions: readonly SkillInstructionDelivery[];
@@ -166,10 +183,16 @@ export class Agent {
         `Skill prompt_fragment delivery is unsupported for backend "${parsed.backend?.type ?? "swarmx"}" on agent "${parsed.name}".`,
       );
     }
-    this.instructions = buildDeliveredInstructions(
+    const deliveredInstructions = buildDeliveredInstructions(
       parsed.instructions ?? "",
       this.skillInstructions,
     );
+    const personalMemory = options.personalMemory
+      ? PersonalMemorySnapshotSchema.parse(options.personalMemory)
+      : undefined;
+    this.instructions = personalMemory
+      ? appendPersonalMemoryInstructions(deliveredInstructions, personalMemory)
+      : deliveredInstructions;
     this.parameters = parsed.parameters ?? {};
     this.returns = parsed.returns;
     this.mcpServers = new Map(parsed.mcpServers ? Object.entries(parsed.mcpServers) : []);
@@ -182,6 +205,7 @@ export class Agent {
     this.acpMode = options.acpMode;
     this.acpSessionId = options.acpSessionId;
     this.onAcpSessionId = options.onAcpSessionId;
+    this.hookRuntime = options.hook;
     this.maxOutputTokens = positiveInteger(clientConfig.maxOutputTokens) ?? 8192;
 
     const configuredApiKey = stringProperty(clientConfig, "apiKey");
@@ -259,7 +283,16 @@ export class Agent {
 
   async call(
     arguments_: Record<string, unknown>,
-    _context?: Record<string, unknown>,
+    context: Record<string, unknown> = {},
+    onUsage?: (usage: ModelTokenUsage) => void,
+  ): Promise<{ messages: MessageChunk[] }> {
+    return this.runWithHooks(arguments_, context, undefined, (effectiveArguments) =>
+      this.callUnchecked(effectiveArguments, onUsage),
+    );
+  }
+
+  private async callUnchecked(
+    arguments_: Record<string, unknown>,
     onUsage?: (usage: ModelTokenUsage) => void,
   ): Promise<{ messages: MessageChunk[] }> {
     throwIfCurrentRequestCancelled();
@@ -419,6 +452,17 @@ export class Agent {
   }
 
   async callStream(
+    arguments_: Record<string, unknown>,
+    onChunk: (chunk: MessageChunk) => void,
+    onUsage?: (usage: ModelTokenUsage) => void,
+    context: Record<string, unknown> = {},
+  ): Promise<{ messages: MessageChunk[] }> {
+    return this.runWithHooks(arguments_, context, onChunk, (effectiveArguments, emitChunk) =>
+      this.callStreamUnchecked(effectiveArguments, emitChunk ?? onChunk, onUsage),
+    );
+  }
+
+  private async callStreamUnchecked(
     arguments_: Record<string, unknown>,
     onChunk: (chunk: MessageChunk) => void,
     onUsage?: (usage: ModelTokenUsage) => void,
@@ -692,6 +736,108 @@ export class Agent {
   }
 
   // ── Internal ──────────────────────────────────────────────────────────────
+
+  async runHandoffHooks(
+    arguments_: Record<string, unknown>,
+    context: Record<string, unknown>,
+    handoff: { source: string; target: string },
+  ): Promise<string[]> {
+    const result = await dispatchHooks(
+      this.hooks,
+      "onHandoff",
+      this.hookInvocation(arguments_, context, { handoff }),
+      this.hookRuntime,
+    );
+    return result.additionalContext;
+  }
+
+  private async runWithHooks(
+    arguments_: Record<string, unknown>,
+    context: Record<string, unknown>,
+    onChunk: ((chunk: MessageChunk) => void) | undefined,
+    run: (
+      effectiveArguments: Record<string, unknown>,
+      emitChunk?: (chunk: MessageChunk) => void,
+    ) => Promise<{ messages: MessageChunk[] }>,
+  ): Promise<{ messages: MessageChunk[] }> {
+    let effectiveArguments = arguments_;
+    let chunkHooks = Promise.resolve();
+    let result: { messages: MessageChunk[] };
+
+    try {
+      const start = await dispatchHooks(
+        this.hooks,
+        "onStart",
+        this.hookInvocation(effectiveArguments, context),
+        this.hookRuntime,
+      );
+      effectiveArguments = appendHookContext(effectiveArguments, start.additionalContext);
+      const emitChunk = onChunk
+        ? (chunk: MessageChunk): void => {
+            onChunk(chunk);
+            chunkHooks = chunkHooks.then(async () => {
+              await dispatchHooks(
+                this.hooks,
+                "onChunk",
+                this.hookInvocation(effectiveArguments, context, { chunk }),
+                this.hookRuntime,
+              );
+            });
+          }
+        : undefined;
+      result = await run(effectiveArguments, emitChunk);
+      await chunkHooks;
+    } catch (error) {
+      await this.runFailedEndHook(effectiveArguments, context, error);
+      throw error;
+    }
+
+    await dispatchHooks(
+      this.hooks,
+      "onEnd",
+      this.hookInvocation(effectiveArguments, context, {
+        outcome: { status: "completed", messages: result.messages },
+      }),
+      this.hookRuntime,
+    );
+    return result;
+  }
+
+  private async runFailedEndHook(
+    arguments_: Record<string, unknown>,
+    context: Record<string, unknown>,
+    error: unknown,
+  ): Promise<void> {
+    try {
+      await dispatchHooks(
+        this.hooks,
+        "onEnd",
+        this.hookInvocation(arguments_, context, {
+          outcome: { status: "failed", error: errorMessage(error) },
+        }),
+        this.hookRuntime,
+      );
+    } catch (endError) {
+      throw new AggregateError(
+        [error, endError],
+        `Agent "${this.name}" failed and its onEnd hook also failed.`,
+      );
+    }
+  }
+
+  private hookInvocation(
+    arguments_: Record<string, unknown>,
+    context: Record<string, unknown>,
+    extra: Pick<HookInvocation, "chunk" | "handoff" | "outcome"> = {},
+  ): Omit<HookInvocation, "event"> {
+    return {
+      scope: "agent",
+      target: { name: this.name },
+      arguments: arguments_,
+      context,
+      ...extra,
+    };
+  }
 
   private async ensureMcpConnected(): Promise<void> {
     if (this.mcp) return;
@@ -1179,21 +1325,4 @@ function requestOptions(): { signal?: AbortSignal } | undefined {
 
 // ── HookRef ──────────────────────────────────────────────────────────────────
 
-export class HookRef {
-  onStart?: string;
-  onEnd?: string;
-  onHandoff?: string;
-  onChunk?: string;
-
-  constructor(config: {
-    onStart?: string;
-    onEnd?: string;
-    onHandoff?: string;
-    onChunk?: string;
-  }) {
-    this.onStart = config.onStart;
-    this.onEnd = config.onEnd;
-    this.onHandoff = config.onHandoff;
-    this.onChunk = config.onChunk;
-  }
-}
+export class HookRef extends Hook {}

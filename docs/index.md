@@ -23,6 +23,9 @@ runtime diagnostics.
 
 Feature guides:
 
+- [Personal Memory](personal-memory.md)
+- [Memory](memory.md)
+- [Offline Reference Library](reference-library.md)
 - [Durable task runtime](durable-task-runtime.md)
 - [Auditability](auditability.md)
 - [Extensions and Custom Agents](extensions-custom-agents.md)
@@ -43,8 +46,12 @@ Feature guides:
 | Harness | Runtime recipe containing Software, Skills, MCP servers, context, and policy |
 | Agent | One Harness paired with one Model |
 | Session | Canonical persisted conversation history; an observer of durable work |
+| Personal Memory surface | Bounded Settings snapshot within Memory, injected with a visible per-run receipt |
+| Memory | User-owned subjective knowledge; currently organized as revision-safe Markdown/Git pages with CRUD, search, versions, restore, and derived links |
+| Reference Library | Read-only, on-demand search and bounded plaintext reads from one explicit local offline ZIM archive |
 | WorkItem | Session-independent durable work with event-replayed runs and checkpoints |
 | Workflow | A `SwarmConfig` graph |
+| Memory graph | A bounded projection of caller-owned entity Markdown into non-executable knowledge edges |
 
 Provider routing and reasoning effort do not change Agent identity. The ordinary
 Desktop composer selects Harness, Model, and Effort; runtime code resolves the
@@ -225,7 +232,7 @@ Durable WorkItems use a separate append-only authority under
 `~/.swarmx/task-runtime/`. Multiple Sessions may observe the same WorkItem;
 archiving a conversation does not terminate it. See the
 [durable task runtime guide](durable-task-runtime.md) for recovery, worker
-protocol, Python environment, and current app-attached lifecycle limits.
+protocol, Python environment, and the authenticated detached supervisor.
 
 ## Extensions and composition
 
@@ -266,7 +273,7 @@ variant, trust, and persistence details.
 | `@swarmx/desktop` | Electron host and reusable renderer shell |
 | `@swarmx/cli` | Terminal commands and OpenAI-compatible server |
 | `@swarmx/acp-server` | ACP server adapter |
-| `@swarmx/runtime` | Harness and Python runtime detection, Doctor, and repair planning |
+| `@swarmx/runtime` | Harness, Python worker, and managed module runtime detection, Doctor, and repair planning |
 
 ## Develop and validate
 

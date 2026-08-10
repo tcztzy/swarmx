@@ -139,6 +139,7 @@ node_modules/
 packages/*/dist/
 packages/desktop/out/
 packages/desktop/release/
+packages/desktop/build/mem-runtime/
 coverage/
 /logs/
 *.tsbuildinfo

@@ -4,6 +4,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testi
 import userEvent from "@testing-library/user-event";
 import { SWRConfig } from "swr";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { DesktopTaskRuntimeListResult } from "../../shared/desktop-api.js";
 import type { AppProps } from "./App.js";
 
 vi.mock("@xterm/addon-fit", () => ({
@@ -819,6 +820,81 @@ describe("App user workflow", () => {
     );
     await user.click(screen.getByRole("button", { name: "Tools" }));
     expect(screen.getByText("workspace_read_file")).toBeTruthy();
+  });
+
+  it("edits and explicitly forgets bounded Personal Memory in Settings", async () => {
+    const saved = {
+      status: "saved" as const,
+      content: "Prefer concise answers.",
+      updatedAt: "2026-08-09T08:00:00.000Z",
+      characterCount: 23,
+      maxCharacters: 4_000,
+    };
+    const api = createDesktopApiMock({
+      getPersonalMemory: vi.fn(async () => saved),
+      savePersonalMemory: vi.fn(async (input: { content: string }) => ({
+        ...saved,
+        content: input.content,
+        characterCount: input.content.length,
+      })),
+      forgetPersonalMemory: vi.fn(async () => ({
+        status: "empty" as const,
+        maxCharacters: 4_000,
+      })),
+    });
+    const user = userEvent.setup();
+    await renderApp(api);
+
+    await user.click(await screen.findByRole("button", { name: "Open local workspace menu" }));
+    await user.click(screen.getByRole("menuitem", { name: "Settings" }));
+    await user.click(screen.getByRole("button", { name: "Personal Memory" }));
+
+    const workspace = await screen.findByLabelText("Personal Memory settings");
+    const editor = within(workspace).getByRole("textbox", { name: "Personal Memory" });
+    expect((editor as HTMLTextAreaElement).value).toBe("Prefer concise answers.");
+    expect(within(workspace).getByText("23 / 4,000 characters")).toBeTruthy();
+    await user.clear(editor);
+    await user.type(editor, "Prefer TypeScript examples.");
+    await user.click(within(workspace).getByRole("button", { name: "Save Memory" }));
+    await waitFor(() =>
+      expect(api.savePersonalMemory).toHaveBeenCalledWith({
+        content: "Prefer TypeScript examples.",
+      }),
+    );
+
+    await user.click(within(workspace).getByRole("button", { name: "Forget Personal Memory" }));
+    expect(api.forgetPersonalMemory).not.toHaveBeenCalled();
+    await user.click(within(workspace).getByRole("button", { name: "Confirm forget" }));
+    await waitFor(() => expect(api.forgetPersonalMemory).toHaveBeenCalledWith({ confirmed: true }));
+  });
+
+  it("shows the persisted Personal Memory use receipt in Session history", async () => {
+    const memorySession: SessionData = {
+      ...localSession,
+      messages: [
+        ...localSession.messages,
+        {
+          role: "system",
+          kind: "message",
+          content:
+            "Personal Memory used\nSource: Settings → Personal Memory\nExecution: Direct Agent · 1 Agent\nSnapshot: 23 / 4,000 characters\nSummary: Prefer concise answers.",
+          render: { source: "personal_memory_receipt" },
+        },
+        { role: "assistant", kind: "message", content: "Here is the concise answer." },
+      ],
+    };
+    const api = createDesktopApiMock({
+      loadDiscoveredSession: vi.fn(async () => memorySession),
+    });
+    const user = userEvent.setup();
+    await renderApp(api);
+
+    await user.click(await screen.findByRole("button", { name: /Existing local run/ }));
+
+    await waitFor(() => expect(api.loadDiscoveredSession).toHaveBeenCalled());
+    expect(await screen.findByText(/Personal Memory used/)).toBeTruthy();
+    expect(screen.getByText(/Source: Settings → Personal Memory/)).toBeTruthy();
+    expect(screen.getByText(/Summary: Prefer concise answers\./)).toBeTruthy();
   });
 
   it("V453 exposes effective layers and saves conflict-checked personal permission rules", async () => {
@@ -3228,6 +3304,72 @@ describe("App user workflow", () => {
         refresh: true,
       });
     });
+  });
+
+  it("shows detached WorkItems and lets the user cancel a supervisor-owned run", async () => {
+    const taskRuntime: DesktopTaskRuntimeListResult = {
+      requestId: "task-list-visible",
+      ok: true,
+      operation: "list",
+      workItems: [
+        {
+          id: "awi_detached_visible",
+          status: "running",
+          executor: { backend: "python", operation: "swarmx.count" },
+          priority: 0,
+          createdAt: "2026-08-09T08:00:00.000Z",
+          updatedAt: "2026-08-09T08:01:00.000Z",
+          revision: 2,
+          budgetUsage: {
+            wallTimeMs: 1_000,
+            artifactBytes: 0,
+            checkpoints: 0,
+            progressEvents: 1,
+            capabilityCalls: {},
+          },
+          retry: { attemptsStarted: 1, maxAttempts: 1 },
+          lastFencingToken: 1,
+          runIds: ["run_detached_visible"],
+          activeRunId: "run_detached_visible",
+          artifactIds: [],
+          approvalIds: [],
+          sessionLinkIds: [],
+          sideEffectReceiptIds: [],
+          lease: {
+            leaseId: "lease_detached_visible",
+            workItemId: "awi_detached_visible",
+            runId: "run_detached_visible",
+            workerId: "supervisor:42",
+            fencingToken: 1,
+            acquiredAt: "2026-08-09T08:00:00.000Z",
+            heartbeatAt: "2026-08-09T08:01:00.000Z",
+            expiresAt: "2026-08-09T08:02:00.000Z",
+          },
+        },
+      ],
+      approvals: [],
+      activeWorkItemIds: ["awi_detached_visible"],
+    };
+    const api = createDesktopApiMock({
+      listTaskWorkItems: vi.fn(async () => taskRuntime),
+      cancelTaskWorkItem: vi.fn(async () => undefined),
+    });
+    const user = userEvent.setup();
+
+    await renderApp(api);
+    await user.click(screen.getByRole("button", { name: "Open local workspace menu" }));
+    await user.click(screen.getByRole("menuitem", { name: "Settings" }));
+    await user.click(screen.getByRole("button", { name: "Runtime" }));
+
+    expect(await screen.findByRole("heading", { name: "Detached WorkItems" })).toBeTruthy();
+    expect(screen.getByText("awi_detached_visible")).toBeTruthy();
+    expect(screen.getByText("Supervisor active")).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    await waitFor(() =>
+      expect(api.cancelTaskWorkItem).toHaveBeenCalledWith({
+        workItemId: "awi_detached_visible",
+      }),
+    );
   });
 
   it("renders harnesses while versions load and refreshes only the clicked version", async () => {
@@ -5746,6 +5888,30 @@ function createDefaultDesktopApiMock() {
     ),
     listSessions: vi.fn(async () => [localSession]),
     getActivityProfile: vi.fn(async () => activityProfileFixture()),
+    getPersonalMemory: vi.fn(async () => ({ status: "empty" as const, maxCharacters: 4_000 })),
+    savePersonalMemory: vi.fn(async (input: { content: string }) => ({
+      status: "saved" as const,
+      content: input.content,
+      updatedAt: "2026-08-09T08:00:00.000Z",
+      characterCount: input.content.length,
+      maxCharacters: 4_000,
+    })),
+    forgetPersonalMemory: vi.fn(async () => ({
+      status: "empty" as const,
+      maxCharacters: 4_000,
+    })),
+    listTaskWorkItems: vi.fn(
+      async (): Promise<DesktopTaskRuntimeListResult> => ({
+        requestId: "task-list-default",
+        ok: true as const,
+        operation: "list" as const,
+        workItems: [],
+        approvals: [],
+        activeWorkItemIds: [],
+      }),
+    ),
+    cancelTaskWorkItem: vi.fn(async () => undefined),
+    decideTaskApproval: vi.fn(async () => undefined),
     listProjects: vi.fn(async () => [swarmxProject]),
     addExistingProject: vi.fn(async () => null),
     createScratchProject: vi.fn(async () => null),

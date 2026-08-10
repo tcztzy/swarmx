@@ -1,7 +1,9 @@
 # Offline Reference Library
 
-SwarmX keeps subjective and objective knowledge separate. Personal Memory owns
-curated user knowledge; the `swarmx.ref` server owns no
+SwarmX keeps subjective and objective knowledge separate. `swarmx-mem` owns
+curated Memory pages that a user or confirmed Agent may create, edit, delete,
+diff, and restore. Its current organization uses linked Markdown, but that
+organization is not a separate product concept. The `swarmx.ref` server owns no
 knowledge: it is a read-only MCP
 view over one local offline ZIM archive, normally a Kiwix/OpenZIM Wikipedia
 edition. Reference results never become Memory unless a separate, confirmed

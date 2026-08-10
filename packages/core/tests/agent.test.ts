@@ -169,6 +169,153 @@ describe("Agent", () => {
     ]);
   });
 
+  it("runs streamed agent lifecycle hooks with structured input", async () => {
+    const invocations: Array<{
+      capability: string;
+      event: string;
+      arguments: Record<string, unknown>;
+      outcome?: { status: string };
+    }> = [];
+    const agent = new Agent(
+      {
+        name: "hooked_agent",
+        backend: { type: "echo" },
+        hooks: [
+          {
+            onStart: "agent.start",
+            onChunk: "agent.chunk",
+            onEnd: "agent.end",
+          },
+        ],
+      },
+      {
+        hook: {
+          execute: async (capability, input) => {
+            invocations.push({
+              capability,
+              event: input.event,
+              arguments: input.arguments,
+              outcome: input.outcome,
+            });
+            if (input.event === "onStart") {
+              (input.arguments.messages as Array<Record<string, unknown>>).push({
+                role: "user",
+                content: "mutated hook copy",
+              });
+              return { additionalContext: "Follow repository policy." };
+            }
+          },
+        },
+      },
+    );
+    const chunks: MessageChunk[] = [];
+
+    const result = await agent.callStream(
+      { messages: [{ role: "user", content: "hello" }] },
+      (chunk) => chunks.push(chunk),
+    );
+
+    expect(result.messages).toEqual(chunks);
+    expect(result.messages[0]?.content).toBe("hello");
+    expect(invocations.map(({ capability }) => capability)).toEqual([
+      "agent.start",
+      "agent.chunk",
+      "agent.end",
+    ]);
+    expect(invocations[1]?.arguments.messages).toEqual([
+      { role: "system", content: "Follow repository policy." },
+      { role: "user", content: "hello" },
+    ]);
+    expect(invocations[2]?.outcome).toEqual({ status: "completed", messages: result.messages });
+  });
+
+  it("starts matching hooks concurrently and any denial wins", async () => {
+    const started: string[] = [];
+    let release: (() => void) | undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const agent = new Agent(
+      {
+        name: "hooked_agent",
+        backend: { type: "echo" },
+        hooks: [{ onStart: "first" }, { onStart: "second" }],
+      },
+      {
+        hook: {
+          execute: async (capability) => {
+            started.push(capability);
+            await gate;
+            return capability === "second"
+              ? { continue: false, stopReason: "blocked by policy" }
+              : undefined;
+          },
+        },
+      },
+    );
+
+    const call = agent.call({ messages: [{ role: "user", content: "hello" }] });
+    await Promise.resolve();
+    expect(started).toEqual(["first", "second"]);
+    release?.();
+
+    await expect(call).rejects.toThrow(/blocked by policy/);
+  });
+
+  it("fails closed when a configured hook has no executor", async () => {
+    const agent = new Agent({
+      name: "hooked_agent",
+      backend: { type: "echo" },
+      hooks: [{ onStart: "policy.check" }],
+    });
+
+    await expect(agent.call({ messages: [{ role: "user", content: "hello" }] })).rejects.toThrow(
+      /hook executor/i,
+    );
+  });
+
+  it("aborts and fails a hook that exceeds its timeout", async () => {
+    const agent = new Agent(
+      {
+        name: "hooked_agent",
+        backend: { type: "echo" },
+        hooks: [{ onStart: "slow.policy" }],
+      },
+      {
+        hook: {
+          timeoutMs: 5,
+          execute: async (_capability, _input, { signal }) =>
+            new Promise((_, reject) => {
+              signal.addEventListener("abort", () => reject(signal.reason), { once: true });
+            }),
+        },
+      },
+    );
+
+    await expect(agent.call({ messages: [{ role: "user", content: "hello" }] })).rejects.toThrow(
+      /timed out/i,
+    );
+  });
+
+  it("rejects control output from observational hooks", async () => {
+    const agent = new Agent(
+      {
+        name: "hooked_agent",
+        backend: { type: "echo" },
+        hooks: [{ onEnd: "bad.observer" }],
+      },
+      {
+        hook: {
+          execute: async () => ({ additionalContext: "too late" }),
+        },
+      },
+    );
+
+    await expect(agent.call({ messages: [{ role: "user", content: "hello" }] })).rejects.toThrow(
+      /observational event onEnd/i,
+    );
+  });
+
   it("custom backend delegates prompts to the ACP client", async () => {
     let seen:
       | {

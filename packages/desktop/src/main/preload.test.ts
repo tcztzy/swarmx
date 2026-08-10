@@ -80,6 +80,45 @@ describe("preload API", () => {
     ]);
   });
 
+  it("exposes Personal Memory read, save, and explicit forget channels", async () => {
+    const api = exposedApi();
+
+    await api.getPersonalMemory();
+    await api.savePersonalMemory({ content: "Prefer concise answers." });
+    await api.forgetPersonalMemory({ confirmed: true });
+
+    expect(electron.invoke.mock.calls).toEqual([
+      ["personalMemory:get"],
+      ["personalMemory:save", { content: "Prefer concise answers." }],
+      ["personalMemory:forget", { confirmed: true }],
+    ]);
+  });
+
+  it("exposes durable WorkItem inspection, cancellation, and decisions", async () => {
+    const api = exposedApi();
+
+    await api.listTaskWorkItems();
+    await api.cancelTaskWorkItem({ workItemId: "awi_detached" });
+    await api.decideTaskApproval({
+      approvalId: "apr_detached",
+      status: "approved",
+      decidedBy: "desktop-user",
+    });
+
+    expect(electron.invoke.mock.calls).toEqual([
+      ["taskRuntime:list"],
+      ["taskRuntime:cancel", { workItemId: "awi_detached" }],
+      [
+        "taskRuntime:decide",
+        {
+          approvalId: "apr_detached",
+          status: "approved",
+          decidedBy: "desktop-user",
+        },
+      ],
+    ]);
+  });
+
   it("V457 forwards the persisted conversation permission when creating a session", async () => {
     const params = {
       agentName: "agent",
