@@ -437,17 +437,18 @@ evolutionCommand
         computeSkillEvolutionLaunchDigest,
         discoverEvolutionPythonPath,
         defaultPythonPath,
-        resolveLockedDspyVersion,
+        resolveLockedEvolutionVersions,
       } = await import("./evolution-command.js");
       const isGepa = opts.optimizer === "dspy.gepa.v1";
       const pythonPath =
         opts.python ?? (isGepa ? await discoverEvolutionPythonPath() : defaultPythonPath());
-      const dspyVersion = isGepa ? await resolveLockedDspyVersion({ pythonPath }) : undefined;
+      const dependencyVersions = isGepa
+        ? await resolveLockedEvolutionVersions({ pythonPath })
+        : undefined;
       const digest = await computeSkillEvolutionLaunchDigest({
         workerPath: opts.worker,
         pythonPath,
-        dependencyGroups: isGepa ? ["evolution"] : [],
-        dspyVersion,
+        dependencyVersions,
       });
       console.log(digest);
       recordCliAudit("skill.evolution.digest", "completed", requestId, {});

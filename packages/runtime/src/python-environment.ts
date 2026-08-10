@@ -7,7 +7,7 @@ import path from "node:path";
 
 const CHECK_TIMEOUT_MS = 8_000;
 const OUTPUT_LIMIT = 64 * 1024;
-const ENVIRONMENT_DIGEST_VERSION = 1;
+const ENVIRONMENT_DIGEST_VERSION = 2;
 const DEFAULT_PYTHON_REQUEST = ">=3.11";
 
 export type PythonEnvironmentComponentState = "ready" | "missing" | "failed";
@@ -34,10 +34,8 @@ export interface PythonWorkerEnvironmentConfig {
   environmentRoot: string;
   pythonRequest?: string;
   workingDirectory?: string;
-  /** Additional worker source files whose hashes join the environment digest. */
-  evolutionSources?: string[];
-  /** Opt-in uv dependency groups (for example ["evolution"]) synced into the environment. */
-  dependencyGroups?: string[];
+  /** Additional managed-module source files whose hashes join the environment digest. */
+  moduleSources?: string[];
 }
 
 export interface PythonEnvironmentCommandResult {
@@ -150,7 +148,6 @@ export interface PythonEnvironmentDigestInput {
   lockSha256: string;
   workerSha256: string;
   additionalSourceSha256s: string[];
-  dependencyGroups: string[];
   uvVersion: string;
   pythonRequest: string;
   pythonImplementation: string;
@@ -174,8 +171,7 @@ interface NormalizedPythonWorkerEnvironmentConfig {
   environmentRoot: string;
   pythonRequest: string;
   workingDirectory: string;
-  evolutionSources: string[];
-  dependencyGroups: string[];
+  moduleSources: string[];
 }
 
 export function computePythonEnvironmentDigest(input: PythonEnvironmentDigestInput): string {
@@ -185,7 +181,6 @@ export function computePythonEnvironmentDigest(input: PythonEnvironmentDigestInp
     lockSha256: input.lockSha256,
     workerSha256: input.workerSha256,
     additionalSourceSha256s: [...input.additionalSourceSha256s].sort(),
-    dependencyGroups: [...input.dependencyGroups].sort(),
     uvVersion: input.uvVersion,
     pythonRequest: input.pythonRequest,
     pythonImplementation: input.pythonImplementation,
@@ -225,7 +220,7 @@ export class PythonWorkerEnvironmentService {
     const checkedAt = this.now().toISOString();
     const discoveryEnv = pythonDiscoveryEnvironment(this.env, this.homeDir, this.platform);
     const additionalSources = await Promise.all(
-      this.config.evolutionSources.map((source) => hashAsset(source)),
+      this.config.moduleSources.map((source) => hashAsset(source)),
     );
     const [project, lock, worker, uv] = await Promise.all([
       hashAsset(this.config.projectPath),
@@ -288,7 +283,6 @@ export class PythonWorkerEnvironmentService {
       lockSha256: requiredHash(lock),
       workerSha256: requiredHash(worker),
       additionalSourceSha256s: additionalSources.map(requiredHash),
-      dependencyGroups: [...this.config.dependencyGroups].sort(),
       uvVersion: uv.version,
       pythonRequest: this.config.pythonRequest,
       pythonImplementation: managedPython.implementation,
@@ -350,7 +344,7 @@ export class PythonWorkerEnvironmentService {
       throw new Error("Python worker source changed during launch verification.");
     }
     const additionalHashes = await Promise.all(
-      this.config.evolutionSources.map(async (source) => {
+      this.config.moduleSources.map(async (source) => {
         const content = await readFile(source);
         return { source, sourceSha256: createHash("sha256").update(content).digest("hex") };
       }),
@@ -358,15 +352,10 @@ export class PythonWorkerEnvironmentService {
     for (const [index, source] of additionalHashes.entries()) {
       const expected = current.additionalSources[index]?.sha256;
       if (!expected || source.sourceSha256 !== expected) {
-        throw new Error("Python worker evolution sources changed during launch verification.");
+        throw new Error("Python worker module sources changed during launch verification.");
       }
     }
-    return this.createLaunchSpec(
-      current.environment,
-      discoveryEnv,
-      workerSource.toString("utf8"),
-      path.dirname(this.config.workerPath),
-    );
+    return this.createLaunchSpec(current.environment, discoveryEnv, workerSource.toString("utf8"));
   }
 
   private result(
@@ -520,7 +509,6 @@ export class PythonWorkerEnvironmentService {
         "--locked",
         "--check",
         "--no-default-groups",
-        ...dependencyGroupArgs(this.config.dependencyGroups),
         "--managed-python",
         "--python",
         requiredPath(managedPython),
@@ -584,7 +572,6 @@ export class PythonWorkerEnvironmentService {
     environment: PythonWorkerEnvironmentInstanceStatus,
     discoveryEnv: NodeJS.ProcessEnv,
     workerSource: string,
-    evolutionRoot: string,
   ): PythonWorkerLaunchSpec {
     const launchEnv = pythonWorkerEnvironment(discoveryEnv, environment.pythonPath);
     return {
@@ -592,10 +579,7 @@ export class PythonWorkerEnvironmentService {
       program: environment.pythonPath,
       args: ["-I", "-B", "-u", "-c", workerSource, "--environment-digest", environment.digest],
       cwd: this.config.workingDirectory,
-      env:
-        this.config.evolutionSources.length > 0
-          ? { ...launchEnv, SWARMX_EVOLUTION_PATH: evolutionRoot }
-          : launchEnv,
+      env: launchEnv,
       environmentDigest: environment.digest,
     };
   }
@@ -678,7 +662,6 @@ export function planPythonWorkerEnvironment(
           config.projectDirectory,
           "--locked",
           "--no-default-groups",
-          ...dependencyGroupArgs(config.dependencyGroups),
           "--managed-python",
           "--python",
           status.managedPython.path,
@@ -723,13 +706,8 @@ function normalizeConfig(
     environmentRoot: path.resolve(config.environmentRoot),
     pythonRequest,
     workingDirectory: path.resolve(config.workingDirectory ?? projectDirectory),
-    evolutionSources: (config.evolutionSources ?? []).map((source) => path.resolve(source)),
-    dependencyGroups: [...(config.dependencyGroups ?? [])].sort(),
+    moduleSources: (config.moduleSources ?? []).map((source) => path.resolve(source)),
   };
-}
-
-function dependencyGroupArgs(groups: string[]): string[] {
-  return groups.flatMap((group) => ["--group", group]);
 }
 
 function assertStatusMatchesConfig(

@@ -15,8 +15,9 @@ const SOURCE_EXTENSIONS = new Set([
 ]);
 const EXTRA_ROOTS = [
   "packages/desktop/scripts",
-  "packages/runtime/python",
   "packages/swarmx/bin",
+  "src",
+  "tests/python",
   "scripts",
   "evals/inspect",
 ];
@@ -35,6 +36,7 @@ function walk(relativeRoot, extensions = SOURCE_EXTENSIONS) {
 
   const files = [];
   for (const entry of readdirSync(absoluteRoot, { withFileTypes: true })) {
+    if (entry.isDirectory() && entry.name === "__pycache__") continue;
     const relativePath = path.join(relativeRoot, entry.name);
     if (entry.isDirectory()) {
       files.push(...walk(relativePath, extensions));

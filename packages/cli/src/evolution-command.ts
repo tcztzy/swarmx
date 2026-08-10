@@ -28,18 +28,12 @@ import {
 } from "@swarmx/core";
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
-const DEFAULT_WORKER_PATH = path.join(
-  REPO_ROOT,
-  "packages",
-  "runtime",
-  "python",
-  "swarmx_worker.py",
-);
+const DEFAULT_WORKER_PATH = path.join(REPO_ROOT, "src", "swarmx", "worker.py");
 const DEFAULT_PROJECT_PATH = path.join(REPO_ROOT, "pyproject.toml");
 const DEFAULT_LOCK_PATH = path.join(REPO_ROOT, "uv.lock");
 const DEFAULT_TASK_ROOT = path.join(os.homedir(), ".swarmx", "task-runtime");
 const DEFAULT_EVOLUTION_ROOT = path.join(os.homedir(), ".swarmx", "skill-evolution");
-const EVOLUTION_SOURCES_ROOT = path.join(REPO_ROOT, "packages", "runtime", "python", "evolution");
+const RSI_SOURCES_ROOT = path.join(REPO_ROOT, "src", "swarmx", "rsi");
 
 export interface EvolutionCliContext {
   audit: AuditStore;
@@ -122,9 +116,8 @@ export async function computeSkillEvolutionLaunchDigest(options: {
   pythonPath?: string;
   projectPath?: string;
   lockPath?: string;
-  evolutionSources?: string[];
-  dependencyGroups?: string[];
-  dspyVersion?: string;
+  rsiSources?: string[];
+  dependencyVersions?: { dspy: string; mcp: string };
 }): Promise<string> {
   const workerPath = path.resolve(options.workerPath ?? DEFAULT_WORKER_PATH);
   const pythonPath = options.pythonPath ?? defaultPythonPath();
@@ -132,43 +125,44 @@ export async function computeSkillEvolutionLaunchDigest(options: {
     hashFile(workerPath),
     hashFile(options.projectPath ?? DEFAULT_PROJECT_PATH),
     hashFile(options.lockPath ?? DEFAULT_LOCK_PATH),
-    ...(options.evolutionSources ?? defaultEvolutionSources()).map(async (source) => ({
+    ...(options.rsiSources ?? defaultRsiSources()).map(async (source) => ({
       source,
       sha256: await hashFile(source),
     })),
   ]);
   const pythonVersion = await detectPythonVersion(pythonPath);
   const canonical = JSON.stringify({
-    schemaVersion: 3,
+    schemaVersion: 5,
     workerSha256,
     projectSha256,
     lockSha256,
-    evolutionSources: sources.map((entry) => entry.sha256).sort(),
-    dependencyGroups: [...(options.dependencyGroups ?? [])].sort(),
-    dspyVersion: options.dspyVersion ?? null,
+    rsiSources: sources.map((entry) => entry.sha256).sort(),
+    dependencyVersions: options.dependencyVersions ?? null,
     pythonVersion,
   });
   return `sha256:${createHash("sha256").update(canonical).digest("hex")}`;
 }
 
 /**
- * Resolves the interpreter's installed dspy version and verifies it equals the
- * version pinned by the locked `evolution` dependency group, and that the
- * interpreter's environment satisfies the strict locked sync
- * (`uv sync --locked --check --no-default-groups --group evolution`), so a
- * launch can never silently run against an unverified DSPy installation.
+ * Resolves the interpreter's installed DSPy and MCP versions and verifies they
+ * equal the versions pinned by the standard `swarmx` distribution, and that
+ * the interpreter's environment satisfies the strict locked sync
+ * (`uv sync --locked --check --no-default-groups`), so a
+ * launch can never silently run against unverified optimizer dependencies.
  */
-export async function resolveLockedDspyVersion(options: {
+export async function resolveLockedEvolutionVersions(options: {
   pythonPath: string;
   projectPath?: string;
-}): Promise<string> {
+}): Promise<{ dspy: string; mcp: string }> {
   const projectPath = options.projectPath ?? DEFAULT_PROJECT_PATH;
   const pyproject = readFileSync(projectPath, "utf8");
-  const match = /dspy\s*==\s*([0-9]+\.[0-9]+\.[0-9]+)/.exec(pyproject);
-  if (!match?.[1]) {
-    throw new Error("The locked evolution dependency group does not pin dspy==X.Y.Z.");
+  const expected = {
+    dspy: /dspy\s*==\s*([0-9]+\.[0-9]+\.[0-9]+)/.exec(pyproject)?.[1],
+    mcp: /mcp\s*==\s*([0-9]+\.[0-9]+\.[0-9]+)/.exec(pyproject)?.[1],
+  };
+  if (!expected.dspy || !expected.mcp) {
+    throw new Error("The locked swarmx project must pin dspy==X.Y.Z and mcp==X.Y.Z.");
   }
-  const expected = match[1];
   const envRoot = environmentRootForInterpreter(options.pythonPath);
   const check = await runCommand(
     "uv",
@@ -179,8 +173,6 @@ export async function resolveLockedDspyVersion(options: {
       "--locked",
       "--check",
       "--no-default-groups",
-      "--group",
-      "evolution",
       "--python",
       options.pythonPath,
       "--managed-python",
@@ -192,30 +184,41 @@ export async function resolveLockedDspyVersion(options: {
   );
   if (check.code !== 0) {
     throw new Error(
-      `The interpreter "${options.pythonPath}" is not a strictly locked evolution environment (uv sync --locked --check --no-default-groups --group evolution failed). ${check.stderr.slice(0, 300)}`,
+      `The interpreter "${options.pythonPath}" is not the strictly locked SwarmX environment (uv sync --locked --check --no-default-groups failed). ${check.stderr.slice(0, 300)}`,
     );
   }
-  const actual = await new Promise<string>((resolve, reject) => {
+  const actual = await new Promise<{ dspy: string; mcp: string }>((resolve, reject) => {
     execFile(
       options.pythonPath,
-      ["-c", "import dspy; print(dspy.__version__)"],
+      [
+        "-c",
+        "import importlib.metadata, json; print(json.dumps({'dspy': importlib.metadata.version('dspy'), 'mcp': importlib.metadata.version('mcp')}))",
+      ],
       { timeout: 30_000, env: { PATH: process.env.PATH ?? "" } },
       (error, stdout, stderr) => {
         if (error) {
           reject(
             new Error(
-              `The interpreter "${options.pythonPath}" cannot import the locked dspy; sync the evolution dependency group (${(stderr || "").slice(0, 200)}).`,
+              `The interpreter "${options.pythonPath}" cannot import the locked DSPy/MCP dependencies; sync the SwarmX project (${(stderr || "").slice(0, 200)}).`,
             ),
           );
           return;
         }
-        resolve(stdout.trim());
+        try {
+          const parsed = JSON.parse(stdout) as { dspy?: unknown; mcp?: unknown };
+          if (typeof parsed.dspy !== "string" || typeof parsed.mcp !== "string") {
+            throw new Error("invalid dependency version response");
+          }
+          resolve({ dspy: parsed.dspy, mcp: parsed.mcp });
+        } catch {
+          reject(new Error(`The interpreter "${options.pythonPath}" reported invalid versions.`));
+        }
       },
     );
   });
-  if (actual !== expected) {
+  if (actual.dspy !== expected.dspy || actual.mcp !== expected.mcp) {
     throw new Error(
-      `The interpreter "${options.pythonPath}" has dspy ${actual}; the locked evolution group requires ${expected}.`,
+      `The interpreter "${options.pythonPath}" has dspy ${actual.dspy} and mcp ${actual.mcp}; swarmx requires dspy ${expected.dspy} and mcp ${expected.mcp}.`,
     );
   }
   return actual;
@@ -252,12 +255,12 @@ function runCommand(
   });
 }
 
-function defaultEvolutionSources(): string[] {
+function defaultRsiSources(): string[] {
   try {
-    return readdirSync(EVOLUTION_SOURCES_ROOT)
+    return readdirSync(RSI_SOURCES_ROOT)
       .filter((entry) => entry.endsWith(".py"))
       .sort()
-      .map((entry) => path.join(EVOLUTION_SOURCES_ROOT, entry));
+      .map((entry) => path.join(RSI_SOURCES_ROOT, entry));
   } catch {
     return [];
   }
@@ -317,16 +320,17 @@ export async function runEvolutionEvolve(
   const isGepa = raw.optimizer.optimizerId === "dspy.gepa.v1";
   const pythonPath =
     options.python ?? (isGepa ? await discoverEvolutionPythonPath() : defaultPythonPath());
-  const dspyVersion = isGepa ? await resolveLockedDspyVersion({ pythonPath }) : undefined;
+  const dependencyVersions = isGepa
+    ? await resolveLockedEvolutionVersions({ pythonPath })
+    : undefined;
   const digest = await computeSkillEvolutionLaunchDigest({
     workerPath,
     pythonPath,
-    dependencyGroups: isGepa ? ["evolution"] : [],
-    dspyVersion,
+    dependencyVersions,
   });
   if (raw.optimizer.environmentDigest !== digest) {
     throw new Error(
-      `Optimizer environmentDigest ${raw.optimizer.environmentDigest} does not match the launch digest ${digest} (worker, lockfile, evolution sources, locked dspy version, and Python version).`,
+      `Optimizer environmentDigest ${raw.optimizer.environmentDigest} does not match the launch digest ${digest} (worker, lockfile, RSI sources, locked DSPy/MCP versions, and Python version).`,
     );
   }
   const baseline = readFileSync(path.resolve(raw.baselineContentPath));
@@ -636,28 +640,27 @@ export function nativeAgentTargetId(agent: { model?: string; name?: string }): s
 }
 
 /**
- * Discovers a strictly locked evolution interpreter (passing
- * `uv sync --locked --check --no-default-groups --group evolution`), or throws
- * with explicit setup instructions. The mixed project `.venv` is never assumed
- * to be a valid evolution environment.
+ * Discovers the strictly locked SwarmX interpreter (passing
+ * `uv sync --locked --check --no-default-groups`), or throws with explicit
+ * setup instructions.
  */
 export async function discoverEvolutionPythonPath(): Promise<string> {
-  const candidates = [".venv-evolution/bin/python", ".venv/bin/python"];
+  const candidates = [".venv/bin/python"];
   const failures: string[] = [];
   for (const candidate of candidates) {
     const pythonPath = path.resolve(REPO_ROOT, candidate);
     try {
-      await resolveLockedDspyVersion({ pythonPath });
+      await resolveLockedEvolutionVersions({ pythonPath });
       return pythonPath;
     } catch (error) {
       failures.push(`${candidate}: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
   throw new Error(
-    "No strictly locked evolution environment was found. Create one with:\n" +
-      "  UV_PROJECT_ENVIRONMENT=.venv-evolution uv sync --locked --no-default-groups --group evolution\n" +
-      "  UV_PROJECT_ENVIRONMENT=.venv-evolution uv sync --locked --check --no-default-groups --group evolution\n" +
-      "then pass --python .venv-evolution/bin/python.\n" +
+    "No strictly locked SwarmX environment was found. Create one with:\n" +
+      "  uv sync --locked --no-default-groups\n" +
+      "  uv sync --locked --check --no-default-groups\n" +
+      "then pass --python .venv/bin/python.\n" +
       `Attempts: ${failures.join(" | ")}`,
   );
 }
@@ -757,7 +760,6 @@ export function evolutionLaunchSpec(input: {
   digest: string;
   cwd: string;
 }): TaskWorkerLaunchSpec {
-  const evolutionRoot = path.dirname(input.workerPath);
   return {
     backendId: "python",
     program: input.python,
@@ -768,7 +770,6 @@ export function evolutionLaunchSpec(input: {
       PYTHONDONTWRITEBYTECODE: "1",
       PYTHONUNBUFFERED: "1",
       PYTHONUTF8: "1",
-      SWARMX_EVOLUTION_PATH: evolutionRoot,
     },
     environmentDigest: input.digest,
     artifactRoot: input.cwd,

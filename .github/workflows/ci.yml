@@ -92,6 +92,9 @@ jobs:
       - name: Sync Python dependencies
         run: uv sync --locked --group inspect
 
+      - name: Test the standard SwarmX Python package
+        run: uv run --locked --no-default-groups python -m unittest discover -s tests/python -p '*_test.py'
+
       - name: Test Inspect integration
         run: uv run --locked --group inspect python -m unittest discover -s evals/inspect -p '*_test.py'
 

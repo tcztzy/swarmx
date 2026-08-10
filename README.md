@@ -79,6 +79,22 @@ Validation:
 pnpm lint
 pnpm test
 pnpm -r build
+pnpm test:python
+pnpm test:mem
+```
+
+Root `package.json` / pnpm own the TypeScript product, while root
+`pyproject.toml` / `uv.lock` own one standard Python `swarmx` package:
+
+- `src/swarmx/rsi` — DSPy/GEPA private MCP implementation
+- `src/swarmx/ref` — read-only offline ZIM Reference MCP implementation
+- `src/swarmx/worker.py` — durable Python worker
+
+The Python worker and private MCP servers use the same locked package environment:
+
+```shell
+uv run --locked python -m swarmx.rsi.server --version-json
+uv run --locked python -m swarmx.ref.server --help
 ```
 
 Create local macOS DMG and ZIP packages with:

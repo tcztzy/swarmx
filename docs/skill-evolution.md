@@ -127,26 +127,28 @@ Optimizer ids:
 
 - `deterministic.v1` — dependency-free fake optimizer in the worker; the
   vertical slice runs entirely without model credentials.
-- `dspy.gepa.v1` — locked DSPy/GEPA optimizer in the `evolution` dependency
-  group. `proposer: gateway` requires `--model-command <cmd>` on
+- `dspy.gepa.v1` — locked DSPy/GEPA optimizer in the private `swarmx.rsi`
+  MCP server from the standard root `swarmx` distribution. The durable worker obtains
+  and verifies the three granted artifacts, then calls the server's only tool,
+  `swarmx_rsi_optimize`. `proposer: gateway` requires `--model-command <cmd>` on
   `swarmx evolution evolve` (a local credential-free command that reads a JSON
   request on stdin and writes `{content, usage: {totalTokens}}` on stdout;
-  Provider secrets never enter the worker); `proposer: deterministic` is the
-  offline test mode. A zero `maxModelCalls` budget is a hard error — GEPA
+  Provider secrets never enter the worker or RSI process); `proposer:
+  deterministic` is the offline test mode. A zero `maxModelCalls` budget is a
+  hard error — GEPA
   never silently defaults. Tokens are a hard budget: a zero `maxTokens` grant
   denies every model call before dispatch, exhausted budgets are denied before
   the next paid call, and the host gateway re-checks remaining tokens from
-  durable receipts before each dispatch. The CLI launch digest includes the
-  interpreter's installed `dspy` version verified against the pinned
-  `evolution` group, and the interpreter's environment must pass the strict
-  locked sync (`uv sync --locked --check --no-default-groups --group
-  evolution`), so a launch can never silently run against an unverified or
-  mixed DSPy installation; `@swarmx/runtime` environment setup accepts
-  `dependencyGroups: ["evolution"]` so the opt-in group can be synchronized
-  into a locked environment, and the CLI auto-discovers a strictly locked
-  evolution interpreter (`.venv-evolution/bin/python`, then `.venv/bin/python`)
-  instead of silently accepting a mixed environment. The worker fails with a diagnostic if the
-  evolution group is not installed; there is no silent optimizer fallback.
+  durable receipts before each dispatch. The RSI server requests model calls
+  with MCP sampling; the worker's private MCP client maps each request onto the
+  same grant-checked `skill_evolution:model.generate` gateway. The CLI launch
+  digest includes the `src/swarmx/rsi` server, MCP client, and
+  optimizer sources, plus
+  the interpreter's installed `dspy` and `mcp` versions verified against the pinned
+  root project. The interpreter's environment must pass the strict locked sync
+  (`uv sync --locked --check --no-default-groups`), so a launch can never
+  silently run against an unverified installation. The CLI auto-discovers the
+  standard locked `.venv/bin/python` and there is no silent optimizer fallback.
 
 The worker capability budget is keyed exactly like the durable receipts
 (`skill_evolution:read_artifact`, `skill_evolution:model.generate`) so the
@@ -162,9 +164,9 @@ granted limits are actually enforced end to end.
   failure quarantines the candidate.
 - Eval is read-only with no network side effects beyond the model calls the
   operator configured; the holdout never reaches the optimizer worker.
-- Provider credentials never enter the Python environment, stdio, artifacts,
-  traces, or logs: model calls cross the grant-checked capability gateway and
-  are resolved inside a host-owned handler.
+- Provider credentials never enter either Python process, private MCP stdio,
+  artifacts, traces, or logs: MCP sampling crosses the grant-checked capability
+  gateway and credentials are resolved inside a host-owned handler.
 - Audit events record intent before promotion/rollback/decide effects and only
   carry ids, digests, metric summaries, budget usage, and correlation ids.
   An unavailable audit authority fails the promotion closed.
@@ -248,10 +250,10 @@ promotion. A no-credential smoke runs the echo fixture end to end.
 - First generation supports `prompt_fragment` delivery in direct SwarmX
   runtimes only; external ACP Harnesses, native plugins, and rules files are
   rejected explicitly.
-- The CLI launch digest covers worker, project, lockfile, evolution sources,
-  Python version, and the verified locked dspy version; production Desktop
-  wiring should use the full `@swarmx/runtime` environment digest with
-  `dependencyGroups: ["evolution"]`.
+- The CLI launch digest covers worker, project, lockfile, RSI server/client and
+  optimizer sources, Python version, and the verified locked DSPy/MCP versions;
+  production Desktop wiring uses the full unified `@swarmx/runtime`
+  environment digest.
 - Not yet enabled (require separate authorization): opt-in Session datasets,
   canary and drift monitoring, scheduled optimization, policy auto-promotion,
   tool/system-prompt/code evolution, and blind LLM judges.

@@ -10,26 +10,36 @@ second workflow or persistence model.
 | --- | --- |
 | `packages/runtime/src/harness-environment.ts` | Detects Harness executables/versions, container runtimes, protection modes, and setup requirements; explicit host callbacks perform installation/setup. `fs` + `proc` |
 | `packages/runtime/src/doctor.ts` | `HarnessDoctor` converts environment status into inspect reports, risk-labelled repair plans, and explicit fix results. Discovery is read-only; repair is opt-in. `proc` through host |
-| `packages/runtime/src/python-environment.ts` | Read-only product-worker asset, `uv`, uv-managed Python, and digest-addressed locked-environment inspection; computes the environment digest (including evolution sidecar sources) and returns an asynchronously reverified direct-Python launch with a hash-checked source snapshot, or an explicit install/repair plan. Status checks are offline/no-download and never mutate during task execution. `fs` + `proc` |
-| `packages/runtime/python/swarmx_worker.py` | Dependency-free Python 3.11+ reference backend for protocol v1. Executes the minimal `swarmx.echo`, `swarmx.count`, `swarmx.fail`, and `swarmx.needs_human` operations plus `swarmx.evolve_skill` (deterministic fake optimizer, or DSPy/GEPA through the locked evolution sidecar); reports heartbeats/progress/checkpoints/artifacts/terminal events, acknowledges cancellation, and issues grant-checked `capability_call` requests with correlation, timeout, cancel, and budget handling. It is replaceable execution, not task authority, an Agent/Harness, ACP, or a workflow node. `proc` worker |
-| `packages/runtime/python/evolution/__init__.py` | Opt-in DSPy/GEPA skill optimization sidecar package marker; imported only by the `dspy.gepa.v1` optimizer under the locked `evolution` dependency group and never touches active pointers, promotions, Sessions, credentials, or Skill installs. |
-| `packages/runtime/python/evolution/skill_program.py` | Maps Skill Markdown to a DSPy `Predict` component whose instructions are exactly the Skill bytes, and exports optimized component instructions back to candidate Markdown. `proc` worker |
-| `packages/runtime/python/evolution/capability_lm.py` | DSPy `BaseLM` adapters: `CapabilityLm` relays model calls through the grant-checked capability gateway (credentials stay host-side); `DeterministicLm` is the offline test adapter. `proc` worker |
-| `packages/runtime/python/evolution/optimize.py` | GEPA runner with a score-plus-feedback-plus-deterministic-validator metric, gateway or deterministic instruction proposer (no silent fallback), canonical config digest, and optimizer report. `proc` worker |
-| `packages/runtime/python/evolution/tests/__init__.py` | Python test package marker for the evolution sidecar. |
-| `packages/runtime/python/evolution/tests/roundtrip_test.py` | Python round-trip tests: baseline -> DSPy program -> GEPA mutates the real component -> exported candidate digest differs, plus metric/proposer/config-digest contracts. |
-| `packages/runtime/python/evolution/tests/worker_capability_test.py` | Python worker capability-client tests: per-operation budget keys, token budget charging, timeout, and cancel. |
+| `packages/runtime/src/python-environment.ts` | Read-only product-worker asset, `uv`, uv-managed Python, and digest-addressed locked-environment inspection; computes the environment digest (including opt-in module sources) and returns an asynchronously reverified direct-Python launch with a hash-checked source snapshot, or an explicit install/repair plan. Status checks are offline/no-download and never mutate during task execution. `fs` + `proc` |
+| `src/swarmx/__init__.py` | Regular package marker and installed `swarmx` distribution version. Python does not use a PEP 420 namespace or feature-distribution discovery. `pure` |
+| `src/swarmx/worker.py` | Python 3.11+ reference backend for protocol v1. Executes the minimal operations plus `swarmx.evolve_skill`; the deterministic fake stays local while DSPy/GEPA is delegated to the locked RSI MCP server. Reports durable-task events and issues grant-checked capability calls, but owns no task authority. `proc` worker |
+| `src/swarmx/rsi/__init__.py`, `src/swarmx/rsi/contract.py`, `src/swarmx/rsi/errors.py` | RSI subpackage plus strict process-boundary request validation and module-local error contract. |
+| `src/swarmx/rsi/server.py`, `src/swarmx/rsi/client.py` | Private RSI FastMCP server and worker-side client: exact `swarmx_rsi_optimize` surface, sanitized module launch, identity/tool checks, cancellation/progress, and MCP sampling mapped to the grant-checked gateway. `proc` |
+| `src/swarmx/rsi/skill_program.py`, `src/swarmx/rsi/capability_lm.py`, `src/swarmx/rsi/optimize.py` | DSPy Skill component mapping, credential-free gateway/deterministic LM adapters, and GEPA runner with metric, proposer, config digest, and bounded report. `proc` worker |
+| `src/swarmx/ref/__init__.py`, `src/swarmx/ref/service.py`, `src/swarmx/ref/server.py` | Reference subpackage and private read-only ZIM MCP: official libzim adapter, strict status/search/get requests, serialized search, item/result bounds, and active-HTML-to-text filtering. `fs` + `proc` |
+| `tests/python/package_layout_test.py` | Single-distribution package/dependency/script boundary and absence of namespace entry points or split distributions. |
+| `tests/python/roundtrip_test.py`, `tests/python/worker_capability_test.py`, `tests/python/rsi_mcp_server_test.py` | Python round-trip, worker budget/cancel/timeout, and real stdio RSI MCP acceptance tests. |
+| `tests/python/reference_service_test.py`, `tests/python/reference_mcp_server_test.py` | Strict read-only/boundary tests plus a real generated-ZIM stdio MCP acceptance test. |
 | `packages/runtime/src/index.ts` | Runtime public barrel for Doctor, Harness, and Python worker-environment APIs. `pure` |
 | `packages/runtime/src/doctor.test.ts` | Contract tests for inspection, plan risk, and explicit repair behavior. |
 | `packages/runtime/src/python-environment.test.ts` | Contract tests for read-only/no-download discovery, digest stability, environment readiness, forged/stale-status rejection, hash-snapshotted sanitized launch specs, and explicit setup/repair plans. |
 | `packages/runtime/src/python-worker-smoke.test.ts` | End-to-end smoke contract between the Core app-attached controller and reference Python worker, including progress/checkpoint completion, partial and final-checkpoint resume, cancellation, and persisted human-decision resume. |
 
-The root `pyproject.toml` names the product project `swarmx` and has no required
-Python dependencies. Inspect evaluation tooling lives only in the opt-in
-`inspect` dependency group, the DSPy/GEPA skill optimizer lives only in the
-opt-in locked `evolution` dependency group, and product setup selects no default
-groups; eval and evolution dependencies therefore never enter the worker
-environment accidentally.
+Exact RSI module paths are
+`src/swarmx/rsi/__init__.py`, `contract.py`, `errors.py`, `server.py`,
+`client.py`, `skill_program.py`, `capability_lm.py`, and `optimize.py`. Its
+acceptance tests are `tests/python/roundtrip_test.py`,
+`worker_capability_test.py`, and `rsi_mcp_server_test.py`.
+
+Exact Reference module paths are `src/swarmx/ref/__init__.py`, `service.py`, and
+`server.py`. Its acceptance tests are `tests/python/reference_service_test.py`
+and `reference_mcp_server_test.py`.
+
+The root `pyproject.toml` owns the one installable, regular `swarmx` package.
+DSPy, MCP, and libzim are direct project dependencies in the same lock and
+environment; there are no Python workspace members, module entry points, or
+`rsi`/`ref` dependency groups. Inspect evaluation tooling alone remains in the
+opt-in `inspect` group.
 
 ## CLI (`@swarmx/cli`)
 
@@ -39,7 +49,7 @@ environment accidentally.
 | `packages/cli/src/audit-command.ts` | Verifies and filters the canonical audit chain, formats compact human/JSON output, and writes 0600 verified JSONL exports with intent/outcome events. `fs` via Core |
 | `packages/cli/src/doctor.ts` | Interactive/noninteractive doctor runner plus stable human/JSON formatting and confirmation handling. `proc` |
 | `packages/cli/src/eval-run.ts` | Loads/validates workflow and eval arguments, executes `Swarm`, and formats deterministic eval result/error records with context-token usage; supports request-scoped `prompt_fragment` Skill delivery via `--skill-delivery` + `--skill-content-path`, and `--resolve-skill` binding to the evolved active revision. `fs` |
-| `packages/cli/src/evolution-command.ts` | Thin CLI adapters for the skill evolution loop: `digest` (launch environment digest over worker/project/lockfile/evolution sources/Python), `evolve` (optimization WorkItem + candidate ingest with credential-free `--model-command` gateway wiring), `evaluate` (paired holdout or strictly validated Inspect evidence), `status` (ledger-only), `promote`, `reject`, `quarantine`, `rollback`, and `resolveActiveSkillDeliveriesForAgent` (the production entry that binds promoted revisions to named Agent nodes for new executions); business rules stay in Core. `fs` + `proc` via Core |
+| `packages/cli/src/evolution-command.ts` | Thin CLI adapters for the skill evolution loop: digest over worker/project/lockfile/RSI sources/Python and exact DSPy/MCP versions; optimization WorkItem + RSI MCP/gateway wiring; evaluation, status, human decisions, rollback, and active-revision delivery resolution. Business rules stay in Core. `fs` + `proc` via Core |
 | `packages/cli/src/send-config.ts` | Builds a canonical one-agent `SwarmConfig` from CLI model/harness options. `pure` |
 
 ## ACP server (`@swarmx/acp-server`)

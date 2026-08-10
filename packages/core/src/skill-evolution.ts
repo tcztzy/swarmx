@@ -74,7 +74,7 @@ export function skillCandidateRevisionId(contentDigest: string): string {
 }
 
 /**
- * Canonical optimizer configuration digest shared with the Python sidecar. The
+ * Canonical optimizer configuration digest shared with the Python RSI module. The
  * two implementations must agree byte-for-byte on the canonical JSON, so keys
  * are sorted alphabetically exactly like Python's `json.dumps(sort_keys=True,
  * separators=(",", ":"))`.

@@ -147,6 +147,7 @@ describe("PythonWorkerEnvironmentService", () => {
         "--no-cache",
       ]),
     );
+    expect(syncCheck?.[1]).not.toContain("--group");
     expect(syncCheck?.[2].env).toMatchObject({
       UV_PROJECT_ENVIRONMENT: status.environment?.path,
       UV_PYTHON_DOWNLOADS: "never",
@@ -194,6 +195,7 @@ describe("PythonWorkerEnvironmentService", () => {
         }),
       }),
     ]);
+    expect(plan.actions[0]?.command?.args).not.toContain("--group");
     expect(staleHost.runCommand).toHaveBeenCalledTimes(callsBeforePlan);
 
     const originalDigest = stale.environment?.digest;
@@ -209,7 +211,6 @@ describe("PythonWorkerEnvironmentService", () => {
       lockSha256: "2".repeat(64),
       workerSha256: "3".repeat(64),
       additionalSourceSha256s: [],
-      dependencyGroups: [],
       uvVersion: "0.11.21",
       pythonRequest: ">=3.11",
       pythonImplementation: "cpython",

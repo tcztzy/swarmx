@@ -5,9 +5,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 
-const WORKER_PATH = fileURLToPath(
-  new URL("../../runtime/python/swarmx_worker.py", import.meta.url),
-);
+const WORKER_PATH = fileURLToPath(new URL("../../../src/swarmx/worker.py", import.meta.url));
 const EVOLUTION_PYTHON = fileURLToPath(new URL("../../../.venv/bin/python", import.meta.url));
 
 import { type AuditInput, AuditStore } from "../src/audit.js";

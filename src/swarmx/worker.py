@@ -1,4 +1,4 @@
-"""Dependency-free reference Python backend for the SwarmX task worker protocol."""
+"""Reference Python backend for the SwarmX task worker protocol."""
 
 import argparse
 import asyncio
@@ -298,53 +298,62 @@ class WorkerRuntime:
 
     def _run_gepa_optimizer(self, start: JsonObject, request: JsonObject) -> None:
         client = _required_capability_client(self)
-        evolution_root = os.environ.get("SWARMX_EVOLUTION_PATH")
-        if evolution_root:
-            sys.path.insert(0, evolution_root)
+        budget = _required_mapping(request, "budget")
+        max_model_calls = budget.get("maxModelCalls")
+        if (
+            not isinstance(max_model_calls, int)
+            or isinstance(max_model_calls, bool)
+            or max_model_calls <= 0
+        ):
+            raise CapabilityError(
+                "dspy.gepa.v1 requires a positive maxModelCalls budget; none was granted."
+            )
         try:
-            from evolution import optimize as evolution_optimize
+            from swarmx.rsi import client as rsi_client
         except ImportError as error:
             self._emit_fail(
                 "optimizer_environment_unavailable",
-                f"dspy.gepa.v1 requires the locked evolution dependency group: {error}",
+                f"dspy.gepa.v1 requires the locked RSI MCP environment: {error}",
             )
             return
-        client.assert_optimizer_config_digest(
-            request, evolution_optimize.canonical_config_digest(request)
-        )
-        previous_stdout = sys.stdout
-
-        def stage_checkpoint(phase: str, state: JsonObject) -> None:
-            checkpoint_id = f"ckp_{self._run_id()}_gepa_{phase}"
-            self._thread_emit(
-                "checkpoint",
-                {
-                    "idempotencyKey": f"checkpoint:{self._run_id()}:gepa:{phase}",
-                    "checkpoint": {
-                        "checkpointId": checkpoint_id,
-                        "format": "swarmx.python.evolve_skill",
-                        "formatVersion": 1,
-                        "environmentDigest": self.environment_digest,
-                        "state": state,
-                    },
-                },
+        artifacts: dict[str, str] = {}
+        for ref in (
+            _required_string(request, "baselineContentRef"),
+            _required_string(_required_mapping(request, "trainDataset"), "contentRef"),
+            _required_string(_required_mapping(request, "devDataset"), "contentRef"),
+        ):
+            value = _succeeded_value(
+                client.call("skill_evolution", "read_artifact", {"ref": ref}),
+                "read RSI artifact",
             )
-
+            artifacts[ref] = _required_string(value, "content")
+        self._thread_emit(
+            "checkpoint",
+            {
+                "idempotencyKey": f"checkpoint:{self._run_id()}:rsi-mcp:started",
+                "checkpoint": {
+                    "checkpointId": f"ckp_{self._run_id()}_rsi_mcp_started",
+                    "format": "swarmx.python.evolve_skill",
+                    "formatVersion": 1,
+                    "environmentDigest": self.environment_digest,
+                    "state": {"phase": "rsi_mcp_started"},
+                },
+            },
+        )
         try:
-            # Library progress output must never corrupt the JSONL protocol
-            # stream on fd 1; heartbeats keep using _PROTOCOL_STDOUT.
-            sys.stdout = sys.stderr
-            report, candidate_text = evolution_optimize.run_gepa(
+            report, candidate_text = rsi_client.run_rsi_optimizer(
                 request=request,
+                artifacts=artifacts,
                 capability_client=client,
                 cancel_check=lambda: self.cancel_event.is_set(),
                 progress=lambda message, fraction: self._thread_emit(
                     "progress", {"message": message, "fraction": fraction}
                 ),
-                checkpoint=stage_checkpoint,
             )
-        finally:
-            sys.stdout = previous_stdout
+        except rsi_client.RsiCancelledError as error:
+            raise CapabilityCancelledError(str(error)) from error
+        except rsi_client.RsiError as error:
+            raise CapabilityError(str(error)) from error
         artifact_path, content_digest = self._write_candidate_artifact(
             start, candidate_text
         )

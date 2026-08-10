@@ -13,9 +13,7 @@ import {
   runEvolutionStatus,
 } from "../src/evolution-command.js";
 
-const WORKER_PATH = fileURLToPath(
-  new URL("../../runtime/python/swarmx_worker.py", import.meta.url),
-);
+const WORKER_PATH = fileURLToPath(new URL("../../../src/swarmx/worker.py", import.meta.url));
 const temporaryRoots: string[] = [];
 
 afterEach(async () => {
@@ -53,7 +51,7 @@ describe("launchDigestForWorker", () => {
 });
 
 describe("evolutionLaunchSpec", () => {
-  it("sets the evolution path and artifact root", () => {
+  it("sets a sanitized worker environment and artifact root", () => {
     const spec = evolutionLaunchSpec({
       workerPath: WORKER_PATH,
       python: "python3",
@@ -61,7 +59,7 @@ describe("evolutionLaunchSpec", () => {
       cwd: "/tmp/swarmx-evolution-worker",
     });
     expect(spec.artifactRoot).toBe("/tmp/swarmx-evolution-worker");
-    expect(spec.env.SWARMX_EVOLUTION_PATH).toBe(path.dirname(WORKER_PATH));
+    expect(spec.env.SWARMX_EVOLUTION_PATH).toBeUndefined();
     expect(spec.args).toContain(WORKER_PATH);
   });
 });

@@ -1,25 +1,17 @@
 """Unit tests for the worker capability client budget, cancel, and timeout rules.
 
-The capability client lives in the dependency-free `swarmx_worker.py`; the
+The capability client lives in `swarmx.worker`; the
 tests import it directly with a fake runtime so no subprocess is needed.
 """
 
 from __future__ import annotations
 
 import asyncio
-import os
-import sys
 import threading
 import time
 import unittest
 
-ROOT = os.path.dirname(
-    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-)
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
-
-from swarmx_worker import (  # noqa: E402
+from swarmx.worker import (
     CapabilityBudgetError,
     CapabilityCancelledError,
     CapabilityClient,

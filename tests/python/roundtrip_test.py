@@ -1,4 +1,4 @@
-"""Round-trip tests for the DSPy/GEPA skill evolution sidecar.
+"""Round-trip tests for the DSPy/GEPA skill evolution server.
 
 Covers: baseline -> DSPy program -> GEPA mutates the real component ->
 exported candidate Markdown differs in digest and carries the improvement, the
@@ -11,19 +11,11 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
-import sys
 import unittest
 
-ROOT = os.path.dirname(
-    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-)
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
-
-from evolution import optimize  # noqa: E402
-from evolution.capability_lm import DeterministicLm, mandated_keyword  # noqa: E402
-from evolution.skill_program import build_skill_program, export_skill_markdown  # noqa: E402
+from swarmx.rsi import optimize
+from swarmx.rsi.capability_lm import DeterministicLm, mandated_keyword
+from swarmx.rsi.skill_program import build_skill_program, export_skill_markdown
 
 BASELINE = "# Math Coach Skill\n\nAnswer the user's question."
 TRAIN_RECORDS = [

@@ -13,7 +13,7 @@ import {
 import { TASK_WORKER_PROTOCOL_VERSION } from "../../core/src/task-worker-protocol.js";
 
 const DIGEST = `sha256:${"b".repeat(64)}`;
-const WORKER_PATH = fileURLToPath(new URL("../python/swarmx_worker.py", import.meta.url));
+const WORKER_PATH = fileURLToPath(new URL("../../../src/swarmx/worker.py", import.meta.url));
 const temporaryRoots: string[] = [];
 
 afterEach(() => {

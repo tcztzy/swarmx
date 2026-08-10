@@ -19,7 +19,7 @@ import dspy
 
 from .capability_lm import CapabilityLm, DeterministicLm
 from .skill_program import build_skill_program, export_skill_markdown, skill_examples
-from swarmx_worker import CapabilityCancelledError
+from .errors import RsiCancelledError
 
 ProgressCallback = Callable[[str, float], None]
 CancelCheck = Callable[[], bool]
@@ -55,13 +55,11 @@ def run_gepa(
     """Run GEPA over the baseline Skill and return (report, candidate Markdown)."""
     start_wall = time.monotonic()
     if cancel_check():
-        raise CapabilityCancelledError("Skill optimization cancelled before start.")
+        raise RsiCancelledError("Skill optimization cancelled before start.")
 
     def stage(name: str, state: dict[str, Any]) -> None:
         if cancel_check():
-            raise CapabilityCancelledError(
-                f"Skill optimization cancelled during {name}."
-            )
+            raise RsiCancelledError(f"Skill optimization cancelled during {name}.")
         if checkpoint is not None:
             checkpoint(name, state)
 
@@ -124,7 +122,7 @@ def run_gepa(
             optimized = gepa.compile(program, trainset=trainset, valset=devset)
             stage("exporting", {"phase": "exporting"})
             candidate_markdown = export_skill_markdown(optimized)
-    except CapabilityCancelledError:
+    except RsiCancelledError:
         raise
     except Exception as error:  # noqa: BLE001 - surfaced explicitly in the report
         errors.append(f"{type(error).__name__}: {error}")
