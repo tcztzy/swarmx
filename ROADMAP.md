@@ -148,10 +148,6 @@ measurement, or failure repair.
 
 - [ ] Make registered Harness runtimes optional until a user selects them or a
   configured Agent requires them.
-- [ ] Finish removing ambient-environment Provider synthesis from Desktop so
-  discovery starts only from explicit connections and Extension metadata.
-- [ ] Verify the Model catalog persists across restarts without automatic
-  Provider discovery.
 - [ ] Finish native Anthropic Messages and OpenAI Responses execution in the
   direct SwarmX Harness, using compatibility bridges only as fallback.
 - [ ] Finish grouped Provider Model catalog persistence, safe Codex discovery,

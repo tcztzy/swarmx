@@ -20,7 +20,16 @@ import {
 import { Command } from "commander";
 import { runAuditCommand } from "./audit-command.js";
 import { runDoctorCommand } from "./doctor.js";
-import { type EvalRunOptions, errorEvalResult, formatEvalResult, runEval } from "./eval-run.js";
+import {
+  type EvalRunOptions,
+  errorEvalResult,
+  formatContextEvaluationError,
+  formatContextEvaluationReport,
+  formatEvalResult,
+  isContextEvalSuiteRequest,
+  runContextEvalSuite,
+  runEval,
+} from "./eval-run.js";
 import {
   errorName,
   runEvolutionDecide,
@@ -130,10 +139,15 @@ program
 
 program
   .command("eval-run [message]")
-  .description("Run a SwarmX eval sample and print a structured JSON result")
+  .description("Run one SwarmX eval sample or a context-strategy evaluation suite")
   .option("-c, --config <path>", "Path to swarm config JSON")
   .option("--input-json <json>", "Structured eval arguments JSON object")
   .option("--input-file <path>", "Path to structured eval arguments JSON object")
+  .option("--context-suite <path>", "Versioned context-evaluation suite JSON")
+  .option(
+    "--context-jsonl <path>",
+    "Exclusively create a content-free per-run JSONL artifact (requires --context-suite)",
+  )
   .option("--pretty", "Pretty-print JSON output", false)
   .option(
     "--skill-delivery <json>",
@@ -147,20 +161,36 @@ program
   .option("--evolution-root <path>", "Override the skill evolution ledger root")
   .action(async (message: string | undefined, opts: EvalRunOptions) => {
     const requestId = cliRequestId();
+    const contextSuite = isContextEvalSuiteRequest(opts);
     recordAgentRunAudit("eval", "attempted", requestId, {
       hasInlineMessage: Boolean(message),
       hasConfig: Boolean(opts.config),
       hasInputFile: Boolean(opts.inputFile),
       hasSkillDelivery: Boolean(opts.skillDelivery),
       resolvesEvolvedSkills: Boolean(opts.resolveSkill?.length),
+      contextSuite,
+      writesContextJsonl: Boolean(opts.contextJsonl),
     });
     try {
-      const result = await runEval(message, opts);
-      process.stdout.write(formatEvalResult(result, opts.pretty));
-      recordAgentRunAudit("eval", "completed", requestId);
+      if (contextSuite) {
+        const result = await runContextEvalSuite(message, opts);
+        process.stdout.write(formatContextEvaluationReport(result.report, opts.pretty));
+        recordAgentRunAudit("eval", "completed", requestId, {
+          contextSuite: true,
+          totalRuns: result.report.totalRuns,
+        });
+      } else {
+        const result = await runEval(message, opts);
+        process.stdout.write(formatEvalResult(result, opts.pretty));
+        recordAgentRunAudit("eval", "completed", requestId);
+      }
     } catch (err) {
       recordAgentRunAudit("eval", "failed", requestId, { errorType: errorName(err) });
-      process.stdout.write(formatEvalResult(errorEvalResult(err), opts.pretty));
+      process.stdout.write(
+        contextSuite
+          ? formatContextEvaluationError(err, opts.pretty)
+          : formatEvalResult(errorEvalResult(err), opts.pretty),
+      );
       process.exitCode = 1;
     }
   });

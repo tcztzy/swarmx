@@ -375,6 +375,34 @@ describe("npm launcher cold start", () => {
     expect(ciWorkflow).toContain("run: pnpm test:coverage");
   });
 
+  it("makes the direct Harness E2E block primary CI and tagged releases", () => {
+    const rootManifest = JSON.parse(
+      readFileSync(new URL("../../../package.json", import.meta.url), "utf8"),
+    ) as { scripts: Record<string, string> };
+    const desktopManifest = JSON.parse(
+      readFileSync(new URL("../../desktop/package.json", import.meta.url), "utf8"),
+    ) as { scripts: Record<string, string> };
+    const ciWorkflow = readFileSync(
+      new URL("../../../.github/workflows/ci.yml", import.meta.url),
+      "utf8",
+    );
+    const releaseWorkflow = readFileSync(
+      new URL("../../../.github/workflows/release.yml", import.meta.url),
+      "utf8",
+    );
+
+    expect(rootManifest.scripts["test:e2e:release"]).toBe(
+      "pnpm --filter @swarmx/desktop test:e2e:release",
+    );
+    expect(desktopManifest.scripts["test:e2e:release"]).toBe(
+      "vitest run src/main/direct-harness-release.e2e.test.ts",
+    );
+    expect(rootManifest.scripts["ci:node"]).toContain("pnpm test:e2e:release");
+    expect(ciWorkflow).toContain("run: pnpm test:e2e:release");
+    expect(releaseWorkflow).toContain("run: pnpm run ci");
+    expect(releaseWorkflow).toMatch(/\n {2}macos:\n(?:.*\n)*? {4}needs: quality\n/);
+  });
+
   it("keeps Inspect smoke output from dirtying a verified source tree", () => {
     const gitignore = readFileSync(new URL("../../../.gitignore", import.meta.url), "utf8");
 

@@ -1135,6 +1135,8 @@ describe("extension inventory", () => {
             id: "remote-model",
             runtimeModel: "remote-model",
             apiProtocols: ["openai_chat"],
+            contextWindowTokens: 200_000,
+            maxOutputTokens: 32_000,
           },
         ],
         providers: [
@@ -1165,6 +1167,8 @@ describe("extension inventory", () => {
             modelId: "remote-model",
             providerProfileId: "provider-ready",
             runtimeModel: "ready/remote-model",
+            contextWindowTokens: 128_000,
+            maxOutputTokens: 16_000,
           },
         ],
       },
@@ -1186,6 +1190,12 @@ describe("extension inventory", () => {
     expect(resolveAgentComposition(composition, inventory)).toMatchObject({
       name: "swarmx_remote_model",
       model: "ready/remote-model",
+      client: {
+        apiProtocol: "openai_chat",
+        contextWindowTokens: 128_000,
+        contextWindowSource: "supply",
+        maxOutputTokens: 16_000,
+      },
       parameters: {
         extension: {
           harnessId: "swarmx",

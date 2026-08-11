@@ -57,7 +57,8 @@ An Agent remains `harnessId:modelId`.
 | `packages/core/src/builtin-tools.ts` | Built-in tool style/revision schemas and style resolution for Claude Code, Codex, and Kimi Code contracts. `pure` |
 | `packages/core/src/actions.ts` | Action intent/confirmation/risk schemas, secret-safe payload sanitization, and explicit-confirmation checks for side effects. `pure` |
 | `packages/core/src/context.ts` | Context strategy, packet, summary checkpoint, and invocation metadata schemas/builders; controls isolated vs thread context. `pure` |
-| `packages/core/src/context-engine.ts` | Coding-agent Context Engine contracts and deterministic projections: immutable event snapshots, atomic tool units, masking, sourced task state, BM25 evidence, verification, component config, priority assembly, explicit overflow, and replay manifests. `pure` |
+| `packages/core/src/context-engine.ts` | Coding-agent Context Engine contracts and projections: immutable event snapshots, atomic tool units, complete-request accounting, two-phase finalization, named OpenCode/Codex/Claude Code/Hermes/Reasonix/LCM/Parallel/ReSum evaluation profiles, injected bounded summary providers, LCM read-only source tools, deterministic fallback, verified BM25 evidence, priority assembly, explicit overflow, and fidelity-bearing replay manifests. `pure` except injected model calls |
+| `packages/core/src/context-evaluation.ts` | Strict versioned coding-agent context benchmark: bounded profile/model/seed/parameter matrices, cloned-state seeded paired replay, one mutable simulator tool, isolated model-backed summary calls, analytic state/action/safety scoring, strategy-vs-infrastructure failure separation, usage/cost/latency accounting, content-free JSONL records, per-Agent leaderboards, and bounded non-promoting neighbor search. `pure` except injected Agent model calls |
 | `packages/core/src/context-engine-store.ts` | Standalone append-only SQLite WAL `EventStore`, JSONL replay adapter, and digest-verified local content-addressed `ArtifactStore`; production Session/WorkItem authority remains separate. `fs` |
 | `packages/core/src/skill-variants.ts` | Skill bindings, delivery modes, lineage, evaluation, promotion, optimization request, candidate/evaluation manifests, promotion receipts, active pointer, and policy schemas. `pure` |
 | `packages/core/src/skill-evolution.ts` | Pure skill evolution state machine: strict per-kind secret-free ledger records with typed payloads, immutable candidates/evaluations, candidate status transitions, gate verdicts (quality up; safety/failure/context not down; sample count and improvement-ratio minima), canonical optimizer config digests, and replay that enforces request-anchored compare-and-swap, staged-candidate/eligible-evaluation prerequisites, and idempotency. `pure` |
@@ -81,8 +82,8 @@ An Agent remains `harnessId:modelId`.
 
 | Source | Contract |
 | --- | --- |
-| `packages/core/src/agent.ts` | `Agent` runtime: direct native model or external ACP backend, hooks, MCP/tools, cancellation, streaming chunks, request-scoped runtime environment, strict official DeepSeek/OpenAI/Codex hosted-search endpoint detection, and per-run global Memory plus Session-scoped reflection instruction assembly. `net`/`proc` through adapters |
-| `packages/core/src/native-model.ts` | Native Anthropic/OpenAI/Ollama request construction, streaming, tool continuation, token usage, request environment handling, and opt-in Responses/DeepSeek-Anthropic hosted Web Search with opaque-state replay plus visible tool lifecycle chunks. `net` + `secret` |
+| `packages/core/src/agent.ts` | `Agent` runtime: direct native model or external ACP backend, hooks, MCP/tools (including Context Engine read-only tools), cancellation, streaming chunks, enforced output-token limits, two-phase context compilation with final tool-schema accounting, request-scoped runtime environment, strict official DeepSeek/OpenAI/Codex hosted-search endpoint detection with an explicit opt-out, and per-run global Memory plus Session-scoped reflection instruction assembly. `net`/`proc` through adapters |
+| `packages/core/src/native-model.ts` | Native Anthropic/OpenAI/Ollama request construction, enforced Provider output limits, streaming, tool continuation, token usage, request environment handling, and opt-in Responses/DeepSeek-Anthropic hosted Web Search with opaque-state replay plus visible tool lifecycle chunks. `net` + `secret` |
 | `packages/core/src/acp.ts` | ACP client lifecycle, subprocess/session negotiation, prompt/update decoding, permission callbacks, request cancellation, and request-local abort scope. `net` + `proc` |
 | `packages/core/src/mcp.ts` | MCP client/server lifecycle, tool/resource discovery and calls, local tool contracts, content normalization, and cancellation. `net`/`proc` |
 | `packages/core/src/tool.ts` | Validated named MCP tool wrapper; creates a manager, calls the tool, normalizes structured content, and closes servers. `net` |
@@ -97,7 +98,7 @@ An Agent remains `harnessId:modelId`.
 | Source | Contract |
 | --- | --- |
 | `packages/core/src/harness.ts` | Canonical built-in Harness recipes, software/version/command metadata, backend declarations, supported APIs, model controls, environment allowlists, and runtime/model compatibility. `pure` |
-| `packages/core/src/model-capabilities.ts` | Independent Model registry, capability metadata, reasoning normalization, model/supply schemas, and Harness × Model inventory resolution. `pure` |
+| `packages/core/src/model-capabilities.ts` | Independent Model registry, capability metadata, reasoning normalization, validated Model/ModelSupply context-window and output limits, and Harness × Model inventory resolution. `pure` |
 | `packages/core/src/providers.ts` | Provider profile/supply schemas, compatibility modes, secret-reference validation/redaction, runtime environment construction, and route selection. `pure` + `secret` at call boundary |
 | `packages/core/src/extensions.ts` | Passive extension manifest discovery/validation, component inventory, trust-safe normalization, agent composition/preflight, extension-provided execution metadata, optional host hook-executor forwarding, and global Memory/reflection forwarding to the selected Agent execution path. `fs` + `pure` |
 | `packages/core/src/extension-management.ts` | Explicit extension install/update/rollback/trust/enable/repair plans and state transitions; discovery remains passive. `fs` |
@@ -140,6 +141,9 @@ The durable task modules are exposed from the Node-capable root barrel; the
 store, controller, supervisor, and process host are not browser-safe Renderer subpaths.
 The Context Engine contracts and standalone store are Node-only because they use
 cryptographic hashing and local filesystem persistence.
+The context-evaluation runner is exported from the Node-capable root barrel; it
+uses cryptographic hashes and injected native model execution, not a
+browser-safe subpath.
 The audit store is likewise Node-only and exported from the root barrel.
 Skill evolution and delivery modules are Node-capable root-barrel exports.
 When adding a public module, update the manifest and this map together.

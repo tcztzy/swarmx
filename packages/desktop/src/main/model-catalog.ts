@@ -195,6 +195,8 @@ interface DiscoveredModelDescriptor {
   label?: string;
   runtimeModel?: string;
   group?: string;
+  contextWindowTokens?: number;
+  maxOutputTokens?: number;
   apiProtocols?: ModelApi[];
   preferredBuiltinToolStyle?: Model["preferredBuiltinToolStyle"];
   reasoning?: {
@@ -1023,11 +1025,19 @@ function parseOpenAiModels(
       const defaultEffort = stringMetadata(
         model.default_reasoning_effort ?? model.defaultReasoningEffort,
       );
+      const contextWindowTokens = positiveIntegerMetadata(
+        model.context_window ?? model.context_length ?? model.contextWindow,
+      );
+      const maxOutputTokens = positiveIntegerMetadata(
+        model.max_output_tokens ?? model.max_completion_tokens ?? model.maxOutputTokens,
+      );
       return [
         {
           id: model.id,
           label: stringMetadata(model.display_name ?? model.displayName),
           group: stringMetadata(model.owned_by ?? model.group),
+          ...(contextWindowTokens ? { contextWindowTokens } : {}),
+          ...(maxOutputTokens ? { maxOutputTokens } : {}),
           ...(supportedEfforts.length > 0
             ? {
                 reasoning: {
@@ -1071,12 +1081,20 @@ function parseCodexModels(input: unknown): {
             )
           : [];
         const defaultEffort = stringMetadata(model.defaultReasoningEffort);
+        const contextWindowTokens = positiveIntegerMetadata(
+          model.contextWindow ?? model.context_window ?? model.contextLength,
+        );
+        const maxOutputTokens = positiveIntegerMetadata(
+          model.maxOutputTokens ?? model.max_output_tokens,
+        );
         return [
           {
             id: model.id,
             runtimeModel: stringMetadata(model.model) ?? model.id,
             label: stringMetadata(model.displayName),
             preferredBuiltinToolStyle: "codex",
+            ...(contextWindowTokens ? { contextWindowTokens } : {}),
+            ...(maxOutputTokens ? { maxOutputTokens } : {}),
             ...(supportedEfforts.length > 0
               ? {
                   reasoning: {
@@ -1111,6 +1129,14 @@ function parseAnthropicModels(input: unknown): {
         const model = optionalRecord(item);
         if (!model || typeof model.id !== "string") return [];
         const effort = optionalRecord(optionalRecord(model.capabilities)?.effort);
+        const contextWindowTokens = positiveIntegerMetadata(
+          model.context_window ??
+            model.contextWindow ??
+            optionalRecord(model.capabilities)?.context_window,
+        );
+        const maxOutputTokens = positiveIntegerMetadata(
+          model.max_output_tokens ?? model.maxOutputTokens,
+        );
         const supportedEfforts = effort?.supported
           ? ["low", "medium", "high", "xhigh", "max"].filter((level) => {
               const support = optionalRecord(effort[level]);
@@ -1122,6 +1148,8 @@ function parseAnthropicModels(input: unknown): {
             id: model.id,
             label: typeof model.display_name === "string" ? model.display_name : undefined,
             preferredBuiltinToolStyle: "claude_code",
+            ...(contextWindowTokens ? { contextWindowTokens } : {}),
+            ...(maxOutputTokens ? { maxOutputTokens } : {}),
             ...(supportedEfforts.length > 0
               ? {
                   reasoning: {
@@ -1180,6 +1208,10 @@ function providerCache(
         apiProtocols,
         capabilityIds: [],
         reasoningCapabilities: [],
+        ...(descriptor.contextWindowTokens
+          ? { contextWindowTokens: descriptor.contextWindowTokens }
+          : {}),
+        ...(descriptor.maxOutputTokens ? { maxOutputTokens: descriptor.maxOutputTokens } : {}),
         ...((descriptor.preferredBuiltinToolStyle ?? providerPreferredBuiltinToolStyle)
           ? {
               preferredBuiltinToolStyle:
@@ -1212,6 +1244,10 @@ function providerCache(
           modelId: descriptor.id,
           providerProfileId: provider.id,
           runtimeModel: descriptor.runtimeModel ?? descriptor.id,
+          ...(descriptor.contextWindowTokens
+            ? { contextWindowTokens: descriptor.contextWindowTokens }
+            : {}),
+          ...(descriptor.maxOutputTokens ? { maxOutputTokens: descriptor.maxOutputTokens } : {}),
           apiCompatibility: { mode: "native", targetApi: apiProtocol },
           ...(descriptor.group ? { providerGroup: descriptor.group } : {}),
           ...(harnessIds ? { harnessIds } : {}),
@@ -1878,7 +1914,9 @@ function uniqueDescriptors(models: DiscoveredModelDescriptor[]): DiscoveredModel
   const byId = new Map<string, DiscoveredModelDescriptor>();
   for (const model of models) {
     const id = model.id.trim();
-    if (id) byId.set(`${id}\u0000${model.group ?? ""}`, { ...model, id });
+    if (!id) continue;
+    const key = `${id}\u0000${model.group ?? ""}`;
+    byId.set(key, { ...byId.get(key), ...model, id });
   }
   return [...byId.values()];
 }
@@ -1906,6 +1944,10 @@ function stringProperty(record: object, key: string): string | undefined {
 
 function stringMetadata(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value : undefined;
+}
+
+function positiveIntegerMetadata(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isInteger(value) && value > 0 ? value : undefined;
 }
 
 function stringArray(value: unknown): string[] {

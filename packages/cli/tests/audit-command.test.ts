@@ -156,6 +156,8 @@ describe("CLI agent run audit inputs", () => {
         hasInputFile: false,
         hasSkillDelivery: false,
         resolvesEvolvedSkills: false,
+        contextSuite: false,
+        writesContextJsonl: false,
       });
       expect(evaluation[1]?.metadata).toEqual({ surface: "eval" });
 

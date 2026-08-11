@@ -9,7 +9,7 @@
     "ci": "pnpm run ci:node && pnpm run ci:inspect && pnpm run ci:managed",
     "ci:inspect": "uv sync --locked --group inspect && pnpm test:inspect",
     "ci:managed": "pnpm test:python && pnpm test:mem && pnpm test:integration:memory",
-    "ci:node": "pnpm docs:check && pnpm lint && pnpm test:coverage && pnpm -r build",
+    "ci:node": "pnpm docs:check && pnpm lint && pnpm test:coverage && pnpm test:e2e:release && pnpm -r build",
     "dev": "pnpm -r dev",
     "docs:check": "node scripts/check-codebase-docs.mjs",
     "eval:inspect": "uv run --locked --group inspect inspect eval evals/inspect/tasks.py@swarmx_smoke --model none",
@@ -19,6 +19,7 @@
     "format": "biome format --write .",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
+    "test:e2e:release": "pnpm --filter @swarmx/desktop test:e2e:release",
     "test:integration:memory": "pnpm --filter @swarmx/desktop test:mem-runtime",
     "test:inspect": "uv run --locked --group inspect python -m unittest discover -s evals/inspect -p '*_test.py' && pnpm eval:inspect",
     "test:watch": "vitest"

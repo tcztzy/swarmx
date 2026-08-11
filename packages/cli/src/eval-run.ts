@@ -1,9 +1,28 @@
-import { readFileSync } from "node:fs";
 import {
+  closeSync,
+  fchmodSync,
+  fstatSync,
+  fsyncSync,
+  lstatSync,
+  openSync,
+  readFileSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
+import {
+  type ContextEvaluationExecutor,
+  type ContextEvaluationReport,
+  ContextEvaluationReportSchema,
+  type ContextEvaluationResult,
+  type ContextEvaluationSuite,
+  ContextEvaluationSuiteSchema,
+  classifyContextEvaluationError,
   type EvalRunResult,
   EvalRunResultSchema,
+  formatContextEvaluationJsonl,
   loadSkillFragmentContent,
   parseSkillInstructionDelivery,
+  runContextEvaluation,
   type SkillInstructionDelivery,
   Swarm,
   type SwarmConfig,
@@ -12,6 +31,8 @@ import {
 
 export interface EvalRunOptions {
   config?: string;
+  contextSuite?: string;
+  contextJsonl?: string;
   inputJson?: string;
   inputFile?: string;
   pretty?: boolean;
@@ -20,6 +41,11 @@ export interface EvalRunOptions {
   skillDeliveryAgent?: string;
   resolveSkill?: string[];
   evolutionRoot?: string;
+}
+
+export interface ContextEvalSuiteDependencies {
+  executor?: ContextEvaluationExecutor;
+  now?: () => Date;
 }
 
 export function buildEvalArguments(
@@ -55,6 +81,55 @@ export async function runEval(
   const swarmOptions = await evalSwarmOptions(options, config);
   const swarm = new Swarm(config, swarmOptions);
   return swarm.executeForEval(buildEvalArguments(message, options));
+}
+
+export function isContextEvalSuiteRequest(options: EvalRunOptions): boolean {
+  return Boolean(options.contextSuite || options.contextJsonl);
+}
+
+export function loadContextEvaluationSuite(path: string): ContextEvaluationSuite {
+  return ContextEvaluationSuiteSchema.parse(JSON.parse(readFileSync(path, "utf8")));
+}
+
+export async function runContextEvalSuite(
+  message: string | undefined,
+  options: EvalRunOptions,
+  dependencies: ContextEvalSuiteDependencies = {},
+): Promise<ContextEvaluationResult> {
+  validateContextEvalSuiteOptions(message, options);
+  const suite = loadContextEvaluationSuite(options.contextSuite as string);
+  const reservation = options.contextJsonl ? reserveContextJsonl(options.contextJsonl) : undefined;
+  try {
+    const result = await runContextEvaluation({
+      suite,
+      ...(dependencies.executor ? { executor: dependencies.executor } : {}),
+      ...(dependencies.now ? { now: dependencies.now } : {}),
+    });
+    if (reservation) commitContextJsonl(reservation, result);
+    return result;
+  } catch (error) {
+    if (reservation) abandonContextJsonl(reservation);
+    throw error;
+  }
+}
+
+export function formatContextEvaluationReport(
+  report: ContextEvaluationReport,
+  pretty = false,
+): string {
+  return `${JSON.stringify(ContextEvaluationReportSchema.parse(report), null, pretty ? 2 : 0)}\n`;
+}
+
+export function formatContextEvaluationError(error: unknown, pretty = false): string {
+  return `${JSON.stringify(
+    {
+      schemaVersion: 1,
+      recordType: "context_evaluation_error",
+      failure: classifyContextEvaluationError(error),
+    },
+    null,
+    pretty ? 2 : 0,
+  )}\n`;
 }
 
 export async function evalSwarmOptions(
@@ -220,4 +295,103 @@ function parseEvalArguments(source: string, label: string): Record<string, unkno
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+interface ContextJsonlReservation {
+  path: string;
+  fileDescriptor: number;
+  device: bigint;
+  inode: bigint;
+  closed: boolean;
+}
+
+function validateContextEvalSuiteOptions(
+  message: string | undefined,
+  options: EvalRunOptions,
+): void {
+  if (!options.contextSuite) {
+    throw new Error("--context-jsonl requires --context-suite <path>.");
+  }
+  const conflicts = [
+    ...(message === undefined ? [] : ["positional message"]),
+    ...(options.config ? ["--config"] : []),
+    ...(options.inputJson ? ["--input-json"] : []),
+    ...(options.inputFile ? ["--input-file"] : []),
+    ...(options.skillDelivery ? ["--skill-delivery"] : []),
+    ...(options.skillContentPath ? ["--skill-content-path"] : []),
+    ...(options.skillDeliveryAgent ? ["--skill-delivery-agent"] : []),
+    ...(options.resolveSkill?.length ? ["--resolve-skill"] : []),
+    ...(options.evolutionRoot ? ["--evolution-root"] : []),
+  ];
+  if (conflicts.length > 0) {
+    throw new Error(`--context-suite cannot be combined with ${conflicts.join(", ")}.`);
+  }
+}
+
+function reserveContextJsonl(path: string): ContextJsonlReservation {
+  let fileDescriptor: number;
+  try {
+    fileDescriptor = openSync(path, "wx", 0o600);
+  } catch (error) {
+    if (errorCode(error) === "EEXIST") {
+      throw new Error(`Context evaluation JSONL already exists; refusing to overwrite: ${path}`);
+    }
+    throw error;
+  }
+  let stats: ReturnType<typeof fstatSync>;
+  try {
+    stats = fstatSync(fileDescriptor, { bigint: true });
+  } catch (error) {
+    closeSync(fileDescriptor);
+    throw error;
+  }
+  const reservation: ContextJsonlReservation = {
+    path,
+    fileDescriptor,
+    device: stats.dev as bigint,
+    inode: stats.ino as bigint,
+    closed: false,
+  };
+  try {
+    fchmodSync(fileDescriptor, 0o600);
+    return reservation;
+  } catch (error) {
+    abandonContextJsonl(reservation);
+    throw error;
+  }
+}
+
+function commitContextJsonl(
+  reservation: ContextJsonlReservation,
+  result: ContextEvaluationResult,
+): void {
+  writeFileSync(reservation.fileDescriptor, formatContextEvaluationJsonl(result.records), "utf8");
+  fsyncSync(reservation.fileDescriptor);
+  closeSync(reservation.fileDescriptor);
+  reservation.closed = true;
+}
+
+function abandonContextJsonl(reservation: ContextJsonlReservation): void {
+  if (!reservation.closed) {
+    try {
+      closeSync(reservation.fileDescriptor);
+    } catch {
+      // Preserve the original evaluation error.
+    }
+    reservation.closed = true;
+  }
+  try {
+    const stats = lstatSync(reservation.path, { bigint: true });
+    if (stats.dev === reservation.device && stats.ino === reservation.inode) {
+      unlinkSync(reservation.path);
+    }
+  } catch {
+    // Preserve the original evaluation error or an already-cleaned reservation.
+  }
+}
+
+function errorCode(error: unknown): string | undefined {
+  return error && typeof error === "object" && "code" in error
+    ? String((error as { code?: unknown }).code)
+    : undefined;
 }

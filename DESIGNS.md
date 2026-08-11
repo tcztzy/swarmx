@@ -386,16 +386,59 @@ tool call and its result in one indivisible unit. Deterministic masking,
 structured task state, lexical evidence, and context manifests are rebuildable
 projections and never become execution authority.
 
-The first engine uses SQLite WAL, deterministic masking, rule-derived sourced state, BM25
-retrieval, a priority-and-slot assembler, and deterministic evidence
+The engine uses SQLite WAL, deterministic masking, rule-derived sourced state,
+BM25 retrieval, a priority-and-slot assembler, and deterministic evidence
 verification. Repository, filesystem, branch, and test freshness must be
 supplied as current observations at assembly time rather than inferred from an
 old summary. The assembler records the exact snapshot, configuration hash,
 model version, included event ids, and token estimates. Mandatory content that
 cannot fit produces `ContextOverflow`; Provider adapters must not truncate it.
-Vector retrieval, recursive summaries, static
-map-reduce, and RLM resolvers remain replaceable later implementations behind
-the same evidence and storage interfaces.
+
+Named profiles are immutable policy recipes over this shared compiler, not new
+history authorities. Open-source harness profiles reproduce publicly visible
+selection, prompt, and tail rules where those rules are portable; the Claude
+Code profile is explicitly behavior-level because its runtime is closed, and
+the Codex profile covers the public local compactor rather than the opaque
+hosted `/responses/compact` service. Paper profiles implement Lossless Context
+Management, Parallel Context Compaction, and ReSum using the same atomic event
+and manifest contracts. An injected `ContextSummaryProvider` has model-call
+authority but no persistence or tool authority. Preflight never calls it;
+finalization may call it with a bounded, source-identified transcript and a
+request cancellation signal. Missing or failed summarization either fails
+explicitly or activates the configured deterministic source-linked fallback,
+which the manifest records.
+
+Lossless Context Management additionally exposes read-only `context_search`
+and `context_read` tools over the immutable compile snapshot. These tools can
+recover exact source text but cannot mutate canonical history or expand host
+authority. Recursive Language Models remain a separate future runtime because
+their programmable REPL and recursive inference calls require a sandbox,
+budgets, and authorization that a projection policy does not possess.
+
+Context-policy evaluation is a separate Core layer over these projection
+contracts. A versioned suite expands a bounded profile/parameter matrix, clones
+one immutable case and in-memory action environment for each arm, randomizes
+arm order from a declared repetition seed, and executes arms sequentially.
+The continuation Agent receives only the Context Engine, one simulator tool,
+and trusted current-state observations. Evaluation rejects MCP servers, hooks,
+external Harnesses, hosted Web Search, and real Project tools. A separately
+configured summary Agent receives only one bounded summary request and no tool
+authority.
+
+Scoring uses simulator final state and content-free action receipts as the
+primary oracle. Exact output fragments are limited to identifiers or constraints
+whose verbatim retention is the construct. Unsafe actions or protected-state
+mutation globally zero a completed run; Provider/infrastructure failures remain
+distinct from profile overflow or summary-policy failure. JSONL records contain
+hashes, ids, score evidence, manifests, usage, cost, and latency but never raw
+history, prompts, responses, tool output, credentials, or state values.
+Leaderboards aggregate only interpretable runs while reporting both strategy
+and infrastructure failure rates. Optional bounded hill-climb rounds
+round-robin neighbors from each Agent's best profile configuration, rerun the
+canonical baseline in every search round for same-round deltas, and never
+self-promote a production default. The
+CLI exclusively reserves any requested 0600 JSONL artifact before model calls;
+stdout reports and failures remain content-free.
 
 ### Worker protocol and process boundary
 

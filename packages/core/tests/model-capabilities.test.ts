@@ -43,6 +43,27 @@ describe("standalone Model capabilities", () => {
     expect(ModelSchema.parse(gpt5)).toBeDefined();
   });
 
+  it("keeps context budgets on Model and ModelSupply boundaries", () => {
+    expect(
+      ModelSchema.parse({
+        id: "budgeted-model",
+        runtimeModel: "budgeted-model",
+        apiProtocols: ["openai_responses"],
+        contextWindowTokens: 200_000,
+        maxOutputTokens: 32_000,
+      }),
+    ).toMatchObject({ contextWindowTokens: 200_000, maxOutputTokens: 32_000 });
+    expect(
+      ModelSupplySchema.parse({
+        id: "budgeted-supply",
+        modelId: "budgeted-model",
+        providerProfileId: "provider",
+        contextWindowTokens: 128_000,
+        maxOutputTokens: 16_000,
+      }),
+    ).toMatchObject({ contextWindowTokens: 128_000, maxOutputTokens: 16_000 });
+  });
+
   it("looks up reasoning by Model and API only", () => {
     expect(
       findModelCapability({ modelId: "gpt-5.6", apiProtocol: "openai_responses" }),

@@ -123,9 +123,18 @@ describe("ModelCatalogService", () => {
         },
       ]),
     ]);
-    const fetch = vi
-      .fn()
-      .mockResolvedValue(response({ data: [{ id: "remote-gpt" }, { id: "remote-gpt" }] }));
+    const fetch = vi.fn().mockResolvedValue(
+      response({
+        data: [
+          {
+            id: "remote-gpt",
+            context_window: 200_000,
+            max_output_tokens: 32_000,
+          },
+          { id: "remote-gpt" },
+        ],
+      }),
+    );
     const service = new ModelCatalogService({
       ...paths,
       env: { OPENAI_API_KEY: "sk-runtime-only" },
@@ -146,12 +155,16 @@ describe("ModelCatalogService", () => {
         id: "remote-gpt",
         runtimeModel: "remote-gpt",
         apiProtocols: ["openai_chat"],
+        contextWindowTokens: 200_000,
+        maxOutputTokens: 32_000,
       }),
     ]);
     expect(catalog.modelSupplies).toEqual([
       expect.objectContaining({
         modelId: "remote-gpt",
         providerProfileId: "explicit-openai",
+        contextWindowTokens: 200_000,
+        maxOutputTokens: 32_000,
       }),
     ]);
     expect(catalog.modelCatalog.providers).toEqual([
@@ -1143,6 +1156,8 @@ describe("ModelCatalogService", () => {
             { reasoningEffort: "ultra", description: "Codex-only display tier" },
           ],
           defaultReasoningEffort: "max",
+          contextWindow: 200_000,
+          maxOutputTokens: 32_000,
         },
         {
           id: "gpt-5.3-codex-spark",
@@ -1192,6 +1207,8 @@ describe("ModelCatalogService", () => {
         id: "gpt-5.4",
         label: "GPT 5.4",
         runtimeModel: "gpt-5.4",
+        contextWindowTokens: 200_000,
+        maxOutputTokens: 32_000,
       }),
     );
     expect(catalog.models.some((model) => model.id === "hidden-codex-model")).toBe(false);
@@ -1199,6 +1216,8 @@ describe("ModelCatalogService", () => {
       expect.objectContaining({
         modelId: "gpt-5.4",
         harnessIds: ["codex", "swarmx"],
+        contextWindowTokens: 200_000,
+        maxOutputTokens: 32_000,
         reasoningCapabilities: [
           expect.objectContaining({
             supportedEfforts: ["none", "low", "max"],

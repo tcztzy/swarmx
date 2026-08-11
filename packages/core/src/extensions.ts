@@ -1396,6 +1396,8 @@ export function resolveAgentComposition(
 
   const name = toAgentConfigName(`${harness.id}-${model.id}`);
   const pluginIds = plan.pluginIds;
+  const contextWindowTokens = supply?.contextWindowTokens ?? model.contextWindowTokens;
+  const maxOutputTokens = supply?.maxOutputTokens ?? model.maxOutputTokens;
 
   return {
     name,
@@ -1403,7 +1405,19 @@ export function resolveAgentComposition(
     model: runtimeModel,
     instructions: profile?.instructions ?? "",
     backend: harness.backend as AgentBackend,
-    client: adapterId === "swarmx" ? { apiProtocol: matrixModel.apiProtocol } : undefined,
+    client:
+      adapterId === "swarmx"
+        ? {
+            apiProtocol: matrixModel.apiProtocol,
+            ...(contextWindowTokens
+              ? {
+                  contextWindowTokens,
+                  contextWindowSource: supply?.contextWindowTokens ? "supply" : "model",
+                }
+              : {}),
+            ...(maxOutputTokens ? { maxOutputTokens } : {}),
+          }
+        : undefined,
     mcpServers: Object.keys(mcpServers).length > 0 ? mcpServers : undefined,
     parameters: {
       ...(reasoning && effort

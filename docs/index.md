@@ -28,6 +28,7 @@ Feature guides:
 - [Reference Library](reference-library.md)
 - [Durable task runtime](durable-task-runtime.md)
 - [Coding-agent Context Engine](context-engine.md)
+- [Context-policy evaluation](context-evaluation.md)
 - [Auditability](auditability.md)
 - [Extensions and Custom Agents](extensions-custom-agents.md)
 - [Skill self-improvement (evolution)](skill-evolution.md)
@@ -36,6 +37,7 @@ Feature guides:
 - [Claude Code tool parity](claude-code-tool-parity.md)
 - [OpenAI-compatible server](server.md)
 - [Hooks](hooks.md)
+- [Direct Harness release acceptance](direct-harness-release-e2e.md)
 
 ## Core concepts
 

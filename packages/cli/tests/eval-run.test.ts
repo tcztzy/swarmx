@@ -1,9 +1,22 @@
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { SwarmConfig } from "@swarmx/core";
-import { describe, expect, it } from "vitest";
-import { buildEvalArguments, evalSwarmOptions, runEval } from "../src/eval-run.js";
+import { fileURLToPath } from "node:url";
+import {
+  type ContextEvaluationExecutor,
+  estimateContextEvaluationMaxRuns,
+  type SwarmConfig,
+} from "@swarmx/core";
+import { describe, expect, it, vi } from "vitest";
+import {
+  buildEvalArguments,
+  evalSwarmOptions,
+  formatContextEvaluationError,
+  formatContextEvaluationReport,
+  loadContextEvaluationSuite,
+  runContextEvalSuite,
+  runEval,
+} from "../src/eval-run.js";
 
 describe("eval-run skill delivery binding", () => {
   it("refuses a multi-agent config without --skill-delivery-agent", async () => {
@@ -161,3 +174,203 @@ describe("eval-run helpers", () => {
     });
   });
 });
+
+describe("eval-run context suite", () => {
+  it("keeps the checked-in harness and paper fixture at its declared run bound", () => {
+    const suitePath = fileURLToPath(
+      new URL("../../../evals/context/smoke-suite.json", import.meta.url),
+    );
+    const suite = loadContextEvaluationSuite(suitePath);
+
+    expect(suite.cases).toHaveLength(5);
+    expect(suite.agents).toHaveLength(2);
+    expect(suite.matrix.profiles).toHaveLength(10);
+    expect(estimateContextEvaluationMaxRuns(suite)).toBe(100);
+    expect(suite.maxRuns).toBe(100);
+  });
+
+  it("strictly loads a versioned context-evaluation suite", () => {
+    const dir = mkdtempSync(join(tmpdir(), "swarmx-context-suite-"));
+    const suitePath = join(dir, "suite.json");
+    writeFileSync(suitePath, JSON.stringify(contextSuiteInput()));
+
+    expect(loadContextEvaluationSuite(suitePath)).toMatchObject({
+      schemaVersion: 1,
+      suiteId: "cli_context_smoke_v1",
+    });
+
+    writeFileSync(suitePath, JSON.stringify({ ...contextSuiteInput(), unknownField: true }));
+    expect(() => loadContextEvaluationSuite(suitePath)).toThrow(/unknownField|unrecognized/i);
+  });
+
+  it("runs paired evaluation and exclusively writes content-free JSONL", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "swarmx-context-run-"));
+    const suitePath = join(dir, "suite.json");
+    const jsonlPath = join(dir, "runs.jsonl");
+    writeFileSync(suitePath, JSON.stringify(contextSuiteInput()));
+    const executor: ContextEvaluationExecutor = vi.fn(async () => ({
+      output: "TOP_SECRET_RESPONSE retained TOKEN-CLI.",
+      finalState: { inspected: true, patched: true, protected: "unchanged" },
+      actions: [
+        {
+          sequence: 1,
+          actionId: "apply_patch",
+          status: "completed",
+          recovery: false,
+        },
+      ],
+      usage: {
+        continuation: contextUsage("test-model", 100, 20),
+        summary: contextUsage("summary-model", 0, 0),
+      },
+      latencyMs: 12,
+      costUsd: 0.00012,
+    }));
+
+    const result = await runContextEvalSuite(
+      undefined,
+      { contextSuite: suitePath, contextJsonl: jsonlPath },
+      { executor, now: () => new Date("2026-08-12T00:00:00.000Z") },
+    );
+
+    expect(result.report.totalRuns).toBe(1);
+    expect(executor).toHaveBeenCalledTimes(1);
+    const jsonl = readFileSync(jsonlPath, "utf8");
+    expect(jsonl).not.toContain("TOP_SECRET_HISTORY");
+    expect(jsonl).not.toContain("TOP_SECRET_RESPONSE");
+    expect(jsonl).not.toContain("TOKEN-CLI");
+    expect(JSON.parse(jsonl.trim())).toMatchObject({
+      recordType: "context_evaluation_run",
+      suiteId: "cli_context_smoke_v1",
+    });
+    expect(statSync(jsonlPath).mode & 0o777).toBe(0o600);
+    expect(JSON.parse(formatContextEvaluationReport(result.report, true))).toMatchObject({
+      suiteId: "cli_context_smoke_v1",
+      totalRuns: 1,
+    });
+
+    const blockedExecutor: ContextEvaluationExecutor = vi.fn();
+    await expect(
+      runContextEvalSuite(
+        undefined,
+        { contextSuite: suitePath, contextJsonl: jsonlPath },
+        { executor: blockedExecutor },
+      ),
+    ).rejects.toThrow(/exist|exclusive/i);
+    expect(blockedExecutor).not.toHaveBeenCalled();
+  });
+
+  it("rejects context-suite option mixing before evaluation", async () => {
+    const executor: ContextEvaluationExecutor = vi.fn();
+    await expect(
+      runContextEvalSuite(
+        "do not mix",
+        { contextSuite: "/tmp/suite.json", inputJson: "{}" },
+        { executor },
+      ),
+    ).rejects.toThrow(/cannot be combined/i);
+    await expect(
+      runContextEvalSuite(undefined, { contextJsonl: "/tmp/runs.jsonl" }, { executor }),
+    ).rejects.toThrow(/requires --context-suite/i);
+    expect(executor).not.toHaveBeenCalled();
+
+    const formatted = formatContextEvaluationError(new Error("TOP_SECRET_PROVIDER_DETAIL"));
+    expect(formatted).not.toContain("TOP_SECRET_PROVIDER_DETAIL");
+    expect(JSON.parse(formatted)).toMatchObject({
+      recordType: "context_evaluation_error",
+      failure: { kind: "infrastructure_failure", code: "provider_or_runtime_failure" },
+    });
+  });
+});
+
+function contextSuiteInput(): unknown {
+  return {
+    schemaVersion: 1,
+    suiteId: "cli_context_smoke_v1",
+    description: "CLI context evaluation smoke suite.",
+    provenance: {
+      collectedAt: "2026-08-12",
+      split: "development",
+      exposureRisk: "public",
+      source: "repository-authored",
+      retirementPolicy: "Retire leaked or non-discriminating cases.",
+    },
+    agents: [
+      {
+        agentId: "model_a",
+        continuation: {
+          name: "continuation_agent",
+          model: "test-model",
+          client: {
+            apiProtocol: "openai_responses",
+            contextWindowTokens: 4_096,
+            maxOutputTokens: 512,
+          },
+        },
+      },
+    ],
+    cases: [
+      {
+        caseId: "durable_constraint",
+        objective: "Continue the pending patch.",
+        difficulty: "medium",
+        history: [
+          {
+            role: "user",
+            kind: "message",
+            content: "TOP_SECRET_HISTORY Retain TOKEN-CLI after the patch.",
+          },
+        ],
+        currentUserMessage: "Continue from the prior state.",
+        environment: {
+          initialState: { inspected: true, patched: false, protected: "unchanged" },
+          goalState: { patched: true },
+          immutableStateKeys: ["protected"],
+          actions: [
+            {
+              actionId: "apply_patch",
+              description: "Apply the pending safe patch.",
+              requires: { inspected: true },
+              effects: { patched: true },
+            },
+          ],
+        },
+        scoring: {
+          requiredOutputContains: ["TOKEN-CLI"],
+          forbiddenOutputContains: [],
+          requiredActionIds: ["apply_patch"],
+          forbiddenActionIds: [],
+          requiredRecoveryActionIds: [],
+          maxBlockedActions: 0,
+          maxRepeatedActions: 0,
+        },
+        provenance: {
+          source: "repository-authored",
+          collectedAt: "2026-08-12",
+          split: "development",
+          exposureRisk: "public",
+        },
+      },
+    ],
+    matrix: {
+      profiles: ["baseline_full"],
+      repetitionSeeds: [7],
+      summaryFailureMode: "error",
+    },
+    search: { rounds: 1 },
+    baselineProfile: "baseline_full",
+    maxRuns: 5,
+  };
+}
+
+function contextUsage(model: string, inputTokens: number, outputTokens: number) {
+  return {
+    inputTokens,
+    outputTokens,
+    reasoningTokens: 0,
+    cachedInputTokens: 0,
+    totalTokens: inputTokens + outputTokens,
+    estimated: false,
+    model,
+  };
+}

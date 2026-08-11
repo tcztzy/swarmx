@@ -23,6 +23,7 @@ and CLI send composition. Per-file thresholds live only in `vitest.config.ts`.
 | `packages/core/tests/task-control-service.test.ts` |
 | `packages/core/tests/task-supervisor.test.ts` |
 | `packages/core/tests/context-engine.test.ts` |
+| `packages/core/tests/context-evaluation.test.ts` |
 | `packages/core/tests/context-engine-store.test.ts` |
 
 Coverage focus: schema acceptance/rejection, graph scheduling/cycles, provider
@@ -64,7 +65,8 @@ Exact Core test paths: `packages/core/tests/acp.test.ts`,
 `packages/core/tests/skill-evaluation.test.ts`,
 `packages/core/tests/skill-delivery.test.ts`,
 `packages/core/tests/context.test.ts`, `packages/core/tests/conversation.test.ts`,
-`packages/core/tests/context-engine.test.ts`, `packages/core/tests/context-engine-store.test.ts`,
+`packages/core/tests/context-engine.test.ts`, `packages/core/tests/context-evaluation.test.ts`,
+`packages/core/tests/context-engine-store.test.ts`,
 `packages/core/tests/dependencies.test.ts`, `packages/core/tests/desktop-settings.test.ts`,
 `packages/core/tests/edge.test.ts`, `packages/core/tests/memory-links.test.ts`, `packages/core/tests/memory.test.ts`, `packages/core/tests/extension-management.test.ts`,
 `packages/core/tests/extensions.test.ts`, `packages/core/tests/harness-management.test.ts`,
@@ -85,7 +87,7 @@ Exact Core test paths: `packages/core/tests/acp.test.ts`,
 
 | Test paths |
 | --- |
-| `packages/desktop/src/main/acp-session-runtime.test.ts`, `agent-interactions.test.ts`, `browser-host.test.ts`, `builtin-tool-settings.test.ts`, `child-agent-host.test.ts`, `claude-scheduled-tasks.test.ts`, `claude-session-runtime.test.ts`, `codex-auth.test.ts` |
+| `packages/desktop/src/main/acp-session-runtime.test.ts`, `agent-interactions.test.ts`, `browser-host.test.ts`, `builtin-tool-settings.test.ts`, `child-agent-host.test.ts`, `claude-scheduled-tasks.test.ts`, `claude-session-runtime.test.ts`, `codex-auth.test.ts`, `direct-harness-release.e2e.test.ts` |
 | `packages/desktop/src/main/composer-preferences.test.ts`, `custom-agents.test.ts`, `extension-manager.test.ts`, `harness-environment.test.ts`, `library.test.ts`, `lsp-host.test.ts`, `media-faults.test.ts`, `media-preview-hash.test.ts` |
 | `packages/desktop/src/main/media.test.ts`, `model-catalog.test.ts`, `permission-review.test.ts`, `permission-service.test.ts`, `personal-memory.test.ts`, `preload.test.ts`, `provider-auth.test.ts`, `provider-error.test.ts`, `provider-key-pool.test.ts`, `provider-usage.test.ts` |
 | `packages/desktop/src/main/memory-runtime-host.test.ts`, `packages/desktop/src/main/memory-runtime-integration.test.ts`, `packages/desktop/src/main/memory-runtime-backend.test.ts` |
@@ -101,7 +103,8 @@ Exact Core test paths: `packages/core/tests/acp.test.ts`,
 
 Coverage focus: IPC boundary validation, renderer-safe data, floating-composer
 layout and transcript clearance, permission and containment rules, provider
-credential isolation, terminal cancellation,
+credential isolation, the isolated explicit-Provider direct-Harness release path
+through native streaming and restart recovery, terminal cancellation,
 transport-policy audit compaction, semantic terminal close reasons, workspace
 patching, media access, detached-supervisor startup/reconnection and environment
 isolation, session navigation, UI state transitions, and a built-Electron smoke
@@ -117,6 +120,7 @@ Exact Desktop test paths: `packages/desktop/src/main/acp-session-runtime.test.ts
 `packages/desktop/src/main/claude-scheduled-tasks.test.ts`,
 `packages/desktop/src/main/claude-session-runtime.test.ts`,
 `packages/desktop/src/main/codex-auth.test.ts`,
+`packages/desktop/src/main/direct-harness-release.e2e.test.ts`,
 `packages/desktop/src/main/composer-preferences.test.ts`,
 `packages/desktop/src/main/custom-agents.test.ts`,
 `packages/desktop/src/main/extension-manager.test.ts`,
@@ -179,8 +183,10 @@ Exact CLI test paths: `packages/cli/tests/audit-command.test.ts`,
 `packages/cli/tests/evolution-command.test.ts`.
 
 CLI coverage includes the real Session/Harness list entrypoints, multi-turn REPL
-history, the shared `agent.run` action and its `cli_send`/`eval`/`repl` surface
-metadata, plus verified audit export. ACP
+history, strict context-suite loading and Commander routing, exclusive 0600
+content-free JSONL output, checked-in matrix bounds, the shared `agent.run`
+action and its `cli_send`/`eval`/`repl` surface metadata, plus verified audit
+export. ACP
 coverage includes correlated `acp.prompt` cancellation without a duplicate
 cancel action or no-op mode events.
 
@@ -212,6 +218,8 @@ real-ZIM MCP, and standard-package paths are indexed in
 | `evals/inspect/skill_eval.py` | Inspect `skill_paired_eval` adapter: runs baseline/candidate through the real `swarmx eval-run` path on a hidden holdout, deterministic scoring, and Core evidence JSON emission. Never writes the active revision or decides promotion. `proc` through evaluator |
 | `evals/inspect/skill_eval_test.py` | Python tests for the paired adapter: seeded order, sample scoring, evidence serialization. |
 | `evals/inspect/__init__.py` | Python package marker for inspect evaluation discovery. |
+| `evals/context/README.md` | Operator guidance and validity limits for the editable context-strategy benchmark fixture. |
+| `evals/context/smoke-suite.json` | Strict development-split matrix with 10 harness/paper profiles, two replaceable Model slots, and five tool-rich coding continuation cases; its declared first-pass bound is 100 runs. |
 
 ## Non-code assets
 

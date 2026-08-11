@@ -51,6 +51,7 @@
     "preview": "vite preview",
     "start": "node scripts/start-electron.mjs",
     "test": "vitest run",
+    "test:e2e:release": "vitest run src/main/direct-harness-release.e2e.test.ts",
     "test:smoke": "node scripts/test-desktop-smoke.mjs",
     "test:mem-runtime": "node scripts/test-mem-runtime.mjs"
   },

@@ -149,6 +149,7 @@ export {
 } from "./context.js";
 export * from "./context-engine.js";
 export * from "./context-engine-store.js";
+export * from "./context-evaluation.js";
 export type {
   ConversationActor,
   ConversationArtifactReference,

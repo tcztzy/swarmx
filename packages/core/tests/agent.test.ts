@@ -714,6 +714,160 @@ describe("Agent", () => {
     );
   });
 
+  it("preflights before MCP startup and finalizes once with every Provider tool schema", async () => {
+    const snapshot = createContextHistorySnapshot([]);
+    const config = parseContextEngineConfig({
+      components: {
+        eventStore: "sqlite_wal",
+        artifactStore: "local_cas",
+        normalizer: "deterministic_atomic",
+        masker: "deterministic_capsule",
+        stateProjector: "sourced_state_v1",
+        evidenceProvider: "bm25",
+        assembler: "priority_quota",
+        verifier: "deterministic",
+      },
+      assembler: {
+        inputTokenBudget: 256,
+        reservedOutputTokens: 64,
+        slotTokenBudgets: {
+          system: 64,
+          taskContract: 0,
+          state: 128,
+          recent: 64,
+          evidence: 0,
+          summary: 0,
+          capsules: 0,
+        },
+      },
+    });
+    const buildCompiled = (requestId: string, modelVersion: string, content: string) =>
+      compileContext({
+        requestId,
+        snapshot,
+        config,
+        modelVersion,
+        requestedMode: "retrieval",
+        effectiveMode: "none",
+        items: [
+          {
+            itemId: `item_${content}`,
+            slot: "state",
+            content,
+            tokenCount: 4,
+            priority: 1,
+            mandatory: false,
+            trust: "trusted",
+            sourceEventIds: [],
+          },
+        ],
+      });
+    const compile = vi.fn((input: { requestId: string; modelVersion: string }) =>
+      buildCompiled(input.requestId, input.modelVersion, "preflight context"),
+    );
+    const finalize = vi.fn((input: { requestId: string; modelVersion: string }) =>
+      buildCompiled(input.requestId, input.modelVersion, "final context"),
+    );
+    const onCompiled = vi.fn();
+    const contextRead = {
+      name: "context_read",
+      description: "Read exact context history.",
+      inputSchema: {
+        type: "object",
+        properties: { eventId: { type: "string" } },
+        required: ["eventId"],
+      },
+      call: vi.fn(),
+    };
+    const agent = new Agent(
+      {
+        name: "finalized_context_agent",
+        model: "gpt-context",
+        instructions: "Base instructions.",
+        client: {
+          apiProtocol: "openai_responses",
+          apiKey: "test-key",
+          baseUrl: "https://api.openai.com/v1",
+          contextWindowTokens: 512,
+          contextWindowSource: "client",
+          maxOutputTokens: 64,
+        },
+      },
+      {
+        contextEngine: { compile, finalize, onCompiled, tools: [contextRead] },
+        localTools: [
+          {
+            name: "history_search",
+            description: "Search canonical history.",
+            inputSchema: {
+              type: "object",
+              properties: { query: { type: "string" } },
+              required: ["query"],
+            },
+            call: vi.fn(),
+          },
+        ],
+      },
+    );
+    const create = vi.fn().mockResolvedValue({
+      id: "resp_finalized_context",
+      status: "completed",
+      error: null,
+      output: [
+        {
+          id: "msg_finalized_context",
+          type: "message",
+          role: "assistant",
+          status: "completed",
+          content: [{ type: "output_text", text: "Done.", annotations: [] }],
+        },
+      ],
+    });
+    Object.defineProperty(agent.client.responses, "create", { value: create });
+
+    await agent.call({
+      requestId: "request_finalized_context",
+      messages: [{ role: "user", content: "Continue." }],
+    });
+
+    expect(compile).toHaveBeenCalledTimes(1);
+    expect(compile).toHaveBeenCalledWith(
+      expect.objectContaining({
+        requestBudget: expect.objectContaining({
+          phase: "preflight",
+          contextWindowTokens: 512,
+          reservedOutputTokens: 64,
+          toolDefinitions: [{ type: "web_search" }],
+        }),
+        instructions: expect.stringContaining("Use provider-hosted web_search"),
+      }),
+    );
+    expect(finalize).toHaveBeenCalledTimes(1);
+    expect(finalize).toHaveBeenCalledWith(
+      expect.objectContaining({
+        requestBudget: expect.objectContaining({
+          phase: "final",
+          contextWindowTokens: 512,
+          reservedOutputTokens: 64,
+          toolDefinitions: [
+            { type: "web_search" },
+            expect.objectContaining({
+              type: "function",
+              function: expect.objectContaining({ name: "history_search" }),
+            }),
+            expect.objectContaining({
+              type: "function",
+              function: expect.objectContaining({ name: "context_read" }),
+            }),
+          ],
+        }),
+      }),
+    );
+    expect(onCompiled).toHaveBeenCalledTimes(1);
+    expect(create.mock.calls[0]?.[0]?.instructions).toContain("final context");
+    expect(create.mock.calls[0]?.[0]?.instructions).not.toContain("preflight context");
+  });
+
   it("rejects context overflow before MCP startup or a Provider request", async () => {
     const snapshot = createContextHistorySnapshot([]);
     const createMcpManager = vi.fn(() => new McpManager());
@@ -1937,6 +2091,44 @@ describe("Agent", () => {
     expect(create.mock.calls[0]?.[0]?.instructions).toBeUndefined();
   });
 
+  it("honors an explicit hosted-search opt-out and the configured Responses output limit", async () => {
+    const agent = new Agent({
+      name: "restricted_responses_agent",
+      model: "gpt-context-eval",
+      client: {
+        apiProtocol: "openai_responses",
+        apiKey: "scoped-key",
+        baseUrl: "https://api.openai.com/v1",
+        providerHostedWebSearch: false,
+        maxOutputTokens: 321,
+      },
+    });
+    const create = vi.fn().mockResolvedValue({
+      id: "resp_restricted",
+      status: "completed",
+      error: null,
+      output: [
+        {
+          id: "msg_restricted",
+          type: "message",
+          role: "assistant",
+          status: "completed",
+          content: [{ type: "output_text", text: "Restricted.", annotations: [] }],
+        },
+      ],
+    });
+    Object.defineProperty(agent.client.responses, "create", { value: create });
+
+    await agent.call({ messages: [{ role: "user", content: "Continue." }] });
+
+    expect(create.mock.calls[0]?.[0]).toMatchObject({
+      model: "gpt-context-eval",
+      max_output_tokens: 321,
+    });
+    expect(create.mock.calls[0]?.[0]?.tools).toBeUndefined();
+    expect(create.mock.calls[0]?.[0]?.instructions).toBeUndefined();
+  });
+
   it("streams typed OpenAI Responses events without Chat conversion", async () => {
     const agent = new Agent({
       name: "responses_stream_agent",
@@ -2337,7 +2529,11 @@ describe("Agent", () => {
   );
 
   it("preserves provider reasoning content across tool-call continuation", async () => {
-    const agent = new Agent({ name: "deepseek_agent", model: "deepseek-v4-pro" });
+    const agent = new Agent({
+      name: "deepseek_agent",
+      model: "deepseek-v4-pro",
+      client: { maxOutputTokens: 321 },
+    });
     const callTool = vi
       .fn()
       .mockResolvedValue(localToolResult("chat model text", { result: "structured" }));
@@ -2384,6 +2580,8 @@ describe("Agent", () => {
         expect.objectContaining({ role: "tool", content: "chat model text" }),
       ]),
     );
+    expect(create.mock.calls[0]?.[0]?.max_completion_tokens).toBe(321);
+    expect(create.mock.calls[1]?.[0]?.max_completion_tokens).toBe(321);
     expect(result.messages).toEqual(
       expect.arrayContaining([
         expect.objectContaining({

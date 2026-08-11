@@ -70,6 +70,10 @@ jobs:
         if: matrix.primary
         run: pnpm test:coverage
 
+      - name: Test the direct Harness release path
+        if: matrix.primary
+        run: pnpm test:e2e:release
+
       - name: Build
         run: pnpm -r build
 

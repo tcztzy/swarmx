@@ -151,6 +151,33 @@ implementation map, test plan, backlog, changelog, or incident log.
   their results, derived historical claims cite source events, live repository
   observations outrank historical projections, and overflow fails explicitly
   before a Provider request instead of being silently truncated.
+- Budget the complete Provider request against the selected Model/Supply window,
+  including instructions, current input, attachments, tool schemas, projected
+  history, and output reserve. Below the configured pressure threshold, preserve
+  prior history losslessly; above it, use a source-linked checkpoint, verbatim
+  recent atomic tail, and verified evidence without replacing canonical history.
+- Select context behavior through a serializable, named evaluation profile. Ship
+  reproducible profiles for OpenCode, Codex CLI local compaction, Claude Code,
+  Hermes, Reasonix, Lossless Context Management, Parallel Context Compaction,
+  and ReSum alongside SwarmX and full-history baselines. Every manifest records
+  the selected profile, its public-source/behavior/paper fidelity class, summary
+  path, and subcall count; a closed or provider-hosted implementation is never
+  advertised as exact parity.
+- Keep Recursive Language Model execution outside the compaction-profile
+  boundary until the host supplies an explicitly authorized sandboxed program
+  environment and bounded recursive model-call protocol. Retrieval or ordinary
+  summarization alone must not be labelled RLM.
+- Evaluate context profiles through versioned agentic-coding suites. Every arm
+  receives the same immutable history and a fresh clone of the same simulated
+  environment; seeded execution order changes only arm order. Score observable
+  final state, exact retained constraints, recovery, repeated/blocked actions,
+  safety, strategy failures, Provider failures, tokens, cost, and latency.
+- Keep context-evaluation artifacts content-free: store source/config/output
+  hashes, action ids and statuses, manifests, metrics, and score evidence, never
+  raw prompts, histories, model responses, tool output, credentials, or state
+  values. Matrix size and adaptive search rounds are bounded before any model
+  call; summary and continuation Agents cannot receive MCP, hooks, hosted Web
+  Search, or real Project mutation authority.
 - Describe external effects as at-least-once, require stable idempotency keys
   and durable outcome receipts, and preserve an `unknown` outcome when a crash
   prevents proof of completion. Never advertise exactly-once delivery.

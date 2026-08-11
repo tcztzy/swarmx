@@ -34,13 +34,13 @@ import {
   MAX_INLINE_TEXT_DOCUMENT_BYTES,
   validateMediaAttachments,
 } from "./media.js";
-import type { ModelApiMode } from "./model-api.js";
+import type { ModelApi, ModelApiMode } from "./model-api.js";
 import type { MediaAttachment, MessageChunk, ModelTokenUsage } from "./types.js";
 import { ModelTokenUsageSchema } from "./types.js";
 
 const MAX_TOOL_STEPS = 20;
 const MAX_PROVIDER_WEB_SEARCH_USES = 5;
-const PROVIDER_HOSTED_WEB_SEARCH_INSTRUCTIONS = [
+export const PROVIDER_HOSTED_WEB_SEARCH_INSTRUCTIONS = [
   "Web Search routing:",
   "Use provider-hosted web_search when current Web information is needed.",
   "Do not use provider-hosted web_search for an offline ZIM or Zotero request.",
@@ -55,6 +55,24 @@ const OPENAI_RESPONSES_EFFORTS = new Set([
   "max",
 ]);
 const ANTHROPIC_EFFORTS = new Set(["low", "medium", "high", "xhigh", "max"]);
+
+export function appendProviderHostedWebSearchInstructions(instructions: string): string {
+  return [instructions.trim(), PROVIDER_HOSTED_WEB_SEARCH_INSTRUCTIONS]
+    .filter(Boolean)
+    .join("\n\n");
+}
+
+export function providerHostedWebSearchTool(apiProtocol: ModelApi): unknown | undefined {
+  if (apiProtocol === "openai_responses") return { type: "web_search" as const };
+  if (apiProtocol === "anthropic") {
+    return {
+      type: "web_search_20250305" as const,
+      name: "web_search" as const,
+      max_uses: MAX_PROVIDER_WEB_SEARCH_USES,
+    };
+  }
+  return undefined;
+}
 
 export interface NativeProtocolContext {
   agentName: string;
@@ -83,9 +101,7 @@ export async function callOpenAIResponses(
   const input = await responseInput(arguments_);
   const reasoning = responseReasoning(context.parameters, context.apiMode);
   const instructions = context.providerHostedWebSearch
-    ? [context.instructions.trim(), PROVIDER_HOSTED_WEB_SEARCH_INSTRUCTIONS]
-        .filter(Boolean)
-        .join("\n\n")
+    ? appendProviderHostedWebSearchInstructions(context.instructions)
     : context.instructions;
   const allChunks: MessageChunk[] = [];
 
@@ -95,6 +111,7 @@ export async function callOpenAIResponses(
     const request = {
       model: context.model,
       input,
+      max_output_tokens: context.maxOutputTokens,
       ...(instructions.trim() ? { instructions } : {}),
       ...(reasoning ? { reasoning } : {}),
       ...(tools.length > 0 ? { tools } : {}),
@@ -183,9 +200,7 @@ export async function callAnthropicMessages(
   onChunk?: (chunk: MessageChunk) => void,
 ): Promise<{ messages: MessageChunk[] }> {
   const instructions = context.providerHostedWebSearch
-    ? [context.instructions.trim(), PROVIDER_HOSTED_WEB_SEARCH_INSTRUCTIONS]
-        .filter(Boolean)
-        .join("\n\n")
+    ? appendProviderHostedWebSearchInstructions(context.instructions)
     : context.instructions;
   const built = await anthropicInput(instructions, arguments_);
   const messages = built.messages;
@@ -516,7 +531,9 @@ function responseTools(
   providerHostedWebSearch: boolean,
 ): ResponseTool[] {
   return [
-    ...(providerHostedWebSearch ? [{ type: "web_search" as const }] : []),
+    ...(providerHostedWebSearch
+      ? [providerHostedWebSearchTool("openai_responses") as ResponseTool]
+      : []),
     ...tools.map((tool): ResponseTool => {
       if (tool.type === "custom") {
         return {
@@ -544,11 +561,9 @@ function anthropicTools(
   return [
     ...(providerHostedWebSearch
       ? [
-          {
-            type: "web_search_20250305" as const,
-            name: "web_search" as const,
-            max_uses: MAX_PROVIDER_WEB_SEARCH_USES,
-          },
+          providerHostedWebSearchTool("anthropic") as NonNullable<
+            MessageCreateParamsBase["tools"]
+          >[number],
         ]
       : []),
     ...tools.filter(isNativeFunctionTool).map((tool) => ({

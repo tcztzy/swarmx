@@ -9,7 +9,12 @@ import {
   RequestCancelledError,
   throwIfCurrentRequestCancelled,
 } from "./acp.js";
-import type { AgentContextEngine, CompiledContext } from "./context-engine.js";
+import type {
+  AgentContextEngine,
+  CompiledContext,
+  ContextCompilePhase,
+  ContextWindowSource,
+} from "./context-engine.js";
 import {
   appendHookContext,
   dispatchHooks,
@@ -27,9 +32,11 @@ import {
 import type { ModelApi, ModelApiMode } from "./model-api.js";
 import { ModelApiModeSchema, ModelApiSchema } from "./model-api.js";
 import {
+  appendProviderHostedWebSearchInstructions,
   callAnthropicMessages,
   callOpenAIResponses,
   type NativeProtocolContext,
+  providerHostedWebSearchTool,
 } from "./native-model.js";
 import {
   appendGlobalMemoryInstructions,
@@ -162,6 +169,8 @@ export class Agent {
   private hookRuntime?: HookRuntimeOptions;
   private configuredModel?: string;
   private maxOutputTokens: number;
+  private readonly contextWindowTokens?: number;
+  private readonly contextWindowSource: ContextWindowSource;
   private readonly providerHostedWebSearch: boolean;
   private readonly skillInstructions: readonly SkillInstructionDelivery[];
   private readonly contextEngine?: AgentContextEngine;
@@ -236,6 +245,10 @@ export class Agent {
     this.hookRuntime = options.hook;
     this.contextEngine = options.contextEngine;
     this.maxOutputTokens = positiveInteger(clientConfig.maxOutputTokens) ?? 8192;
+    this.contextWindowTokens = positiveInteger(clientConfig.contextWindowTokens);
+    this.contextWindowSource = this.contextWindowTokens
+      ? contextWindowSource(clientConfig.contextWindowSource)
+      : "fallback_config";
 
     const configuredApiKey = stringProperty(clientConfig, "apiKey");
     const configuredBaseUrl =
@@ -244,6 +257,7 @@ export class Agent {
       stringProperty(clientConfig, "accessToken") ??
       stringProperty(clientConfig, "access_token") ??
       configuredApiKey;
+    const hostedWebSearchPreference = booleanProperty(clientConfig, "providerHostedWebSearch");
     const codexAccessToken =
       configuredAccessToken ??
       runtimeEnv.CODEX_ACCESS_TOKEN ??
@@ -288,12 +302,13 @@ export class Agent {
         undefined,
     });
     this.providerHostedWebSearch =
-      (this.apiProtocol === "openai_responses" &&
+      hostedWebSearchPreference !== false &&
+      ((this.apiProtocol === "openai_responses" &&
         this.client.apiKey !== "sk-no-key" &&
         isOfficialHostedResponsesEndpoint(this.client.baseURL)) ||
-      (this.apiProtocol === "anthropic" &&
-        Boolean(anthropicApiKey ?? anthropicAuthToken) &&
-        isOfficialDeepseekAnthropicEndpoint(this.anthropicClient.baseURL));
+        (this.apiProtocol === "anthropic" &&
+          Boolean(anthropicApiKey ?? anthropicAuthToken) &&
+          isOfficialDeepseekAnthropicEndpoint(this.anthropicClient.baseURL)));
   }
 
   toSwarmConfig(): Record<string, unknown> {
@@ -341,10 +356,19 @@ export class Agent {
     }
 
     try {
-      const modelRequest = await this.compileModelRequest(arguments_, runtimeContext);
+      let modelRequest = await this.compileModelRequest(arguments_, runtimeContext);
       throwIfCurrentRequestCancelled();
       await this.ensureMcpConnected();
       throwIfCurrentRequestCancelled();
+      if (this.contextEngine?.finalize) {
+        modelRequest = await this.compileModelRequest(
+          arguments_,
+          runtimeContext,
+          "final",
+          this.contextToolDefinitions(),
+        );
+        throwIfCurrentRequestCancelled();
+      }
 
       if (this.apiProtocol === "anthropic") {
         return await callAnthropicMessages(
@@ -378,6 +402,7 @@ export class Agent {
           {
             model: this.requiredNativeModel(),
             messages,
+            max_completion_tokens: this.maxOutputTokens,
             ...(reasoningEffort ? { reasoning_effort: reasoningEffort } : {}),
             tools:
               mcpTools.length > 0
@@ -523,10 +548,19 @@ export class Agent {
     }
 
     try {
-      const modelRequest = await this.compileModelRequest(arguments_, runtimeContext);
+      let modelRequest = await this.compileModelRequest(arguments_, runtimeContext);
       throwIfCurrentRequestCancelled();
       await this.ensureMcpConnected();
       throwIfCurrentRequestCancelled();
+      if (this.contextEngine?.finalize) {
+        modelRequest = await this.compileModelRequest(
+          arguments_,
+          runtimeContext,
+          "final",
+          this.contextToolDefinitions(),
+        );
+        throwIfCurrentRequestCancelled();
+      }
 
       if (this.apiProtocol === "anthropic") {
         return await callAnthropicMessages(
@@ -562,6 +596,7 @@ export class Agent {
           {
             model: this.requiredNativeModel(),
             messages,
+            max_completion_tokens: this.maxOutputTokens,
             ...(reasoningEffort ? { reasoning_effort: reasoningEffort } : {}),
             tools:
               mcpTools.length > 0
@@ -892,7 +927,7 @@ export class Agent {
   private async ensureMcpConnected(): Promise<void> {
     if (this.mcp) return;
     this.mcp = this.createMcpManager();
-    this.mcp.addLocalTools(this.localTools);
+    this.mcp.addLocalTools([...this.localTools, ...(this.contextEngine?.tools ?? [])]);
     const isClaudeCodeProfile = this.localTools.some((tool) => tool.name === "Bash");
     if (isClaudeCodeProfile && this.mcpServers.size > 0) {
       for (const [name, config] of this.mcpServers) this.mcp.startServer(name, config);
@@ -1003,6 +1038,8 @@ export class Agent {
   private async compileModelRequest(
     arguments_: Record<string, unknown>,
     runtimeContext: Record<string, unknown>,
+    phase: ContextCompilePhase = "preflight",
+    toolDefinitions: readonly unknown[] = [],
   ): Promise<{
     arguments: Record<string, unknown>;
     instructions: string;
@@ -1015,15 +1052,38 @@ export class Agent {
       stringProperty(arguments_, "requestId") ??
       stringProperty(runtimeContext, "requestId") ??
       randomUUID();
-    const compiled = await this.contextEngine.compile({
+    const compile =
+      phase === "final" && this.contextEngine.finalize
+        ? this.contextEngine.finalize.bind(this.contextEngine)
+        : this.contextEngine.compile.bind(this.contextEngine);
+    const budgetInstructions = this.providerHostedWebSearch
+      ? appendProviderHostedWebSearchInstructions(this.instructions)
+      : this.instructions;
+    const hostedWebSearchTool = this.providerHostedWebSearch
+      ? providerHostedWebSearchTool(this.apiProtocol)
+      : undefined;
+    const compiled = await compile({
       requestId,
       agentName: this.name,
       modelVersion: this.requiredNativeModel(),
-      instructions: this.instructions,
+      instructions: budgetInstructions,
       arguments: arguments_,
       runtimeContext,
+      ...(currentRequestSignal() ? { signal: currentRequestSignal() } : {}),
+      requestBudget: {
+        phase,
+        ...(this.contextWindowTokens ? { contextWindowTokens: this.contextWindowTokens } : {}),
+        reservedOutputTokens: this.maxOutputTokens,
+        source: this.contextWindowSource,
+        toolDefinitions: [
+          ...(hostedWebSearchTool ? [hostedWebSearchTool] : []),
+          ...toolDefinitions,
+        ],
+      },
     });
-    await this.contextEngine.onCompiled?.(compiled.manifest);
+    if (phase === "final" || !this.contextEngine.finalize) {
+      await this.contextEngine.onCompiled?.(compiled.manifest);
+    }
     const instructions = [this.instructions.trim(), compiled.context.trim()]
       .filter(Boolean)
       .join("\n\n---\n\n");
@@ -1032,6 +1092,13 @@ export class Agent {
       instructions,
       compiled,
     };
+  }
+
+  private contextToolDefinitions(): readonly unknown[] {
+    if (!this.mcp) return [];
+    return this.apiProtocol === "openai_chat"
+      ? this.mcp.toolsForOpenai()
+      : this.mcp.toolsForNative();
   }
 
   private chatReasoningEffort(): OpenAI.Chat.Completions.ChatCompletionReasoningEffort | undefined {
@@ -1247,6 +1314,10 @@ function positiveInteger(value: unknown): number | undefined {
   return typeof value === "number" && Number.isInteger(value) && value > 0 ? value : undefined;
 }
 
+function contextWindowSource(value: unknown): ContextWindowSource {
+  return value === "model" || value === "supply" || value === "client" ? value : "client";
+}
+
 function latestUserContent(arguments_: Record<string, unknown>): string {
   const raw = arguments_.messages as
     | Array<{
@@ -1383,6 +1454,12 @@ function stringProperty(value: unknown, key: string): string | undefined {
   if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
   const property = (value as Record<string, unknown>)[key];
   return typeof property === "string" && property.length > 0 ? property : undefined;
+}
+
+function booleanProperty(value: unknown, key: string): boolean | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const property = (value as Record<string, unknown>)[key];
+  return typeof property === "boolean" ? property : undefined;
 }
 
 function reportOpenAIChatUsage(
