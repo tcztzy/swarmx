@@ -64,16 +64,11 @@ const memoryRuntime = new MemoryRuntimeService({
 const referenceZoteroEnabled = process.env.SWARMX_REFERENCE_ZOTERO === "1";
 const referenceLibraryRuntime =
   process.env.SWARMX_REFERENCE_PYTHON &&
-  (process.env.SWARMX_REFERENCE_ZIM ||
-    process.env.SWARMX_REFERENCE_WEB_SEARCH_URL ||
-    referenceZoteroEnabled)
+  (process.env.SWARMX_REFERENCE_ZIM || referenceZoteroEnabled)
     ? new ReferenceLibraryHost({
         pythonPath: resolve(process.env.SWARMX_REFERENCE_PYTHON),
         ...(process.env.SWARMX_REFERENCE_ZIM
           ? { zimPath: resolve(process.env.SWARMX_REFERENCE_ZIM) }
-          : {}),
-        ...(process.env.SWARMX_REFERENCE_WEB_SEARCH_URL
-          ? { webSearchUrl: process.env.SWARMX_REFERENCE_WEB_SEARCH_URL }
           : {}),
         zotero: referenceZoteroEnabled,
       })

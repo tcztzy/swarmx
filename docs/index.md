@@ -49,7 +49,7 @@ Feature guides:
 | Session | Canonical persisted conversation history; an observer of durable work |
 | Personal Memory surface | Bounded Settings snapshot within Memory, injected with a visible per-run receipt |
 | Memory | User-owned subjective knowledge; currently organized as revision-safe Markdown/Git pages with CRUD, search, versions, restore, and derived links |
-| Reference Library | Read-only, on-demand search and bounded plaintext reads from explicit ZIM, Web Search, and local Zotero sources |
+| Reference Library | Read-only, on-demand search and bounded plaintext reads from explicit ZIM and local Zotero sources |
 | WorkItem | Session-independent durable work with event-replayed runs and checkpoints |
 | Workflow | A `SwarmConfig` graph |
 | Memory graph | A bounded projection of caller-owned entity Markdown into non-executable knowledge edges |

@@ -6,7 +6,6 @@ import unittest
 
 from swarmx.ref.service import (
     ReferenceService,
-    SearxngReferenceBackend,
     ZoteroReferenceBackend,
     html_to_text,
 )
@@ -39,9 +38,7 @@ class FakeBackend:
 
 class ReferenceServiceTest(unittest.TestCase):
     def setUp(self) -> None:
-        self.service = ReferenceService(
-            {"zim": FakeBackend(), "web": FakeBackend("web")}
-        )
+        self.service = ReferenceService({"zim": FakeBackend()})
 
     def test_supports_only_bounded_read_operations(self) -> None:
         self.assertEqual(
@@ -49,17 +46,6 @@ class ReferenceServiceTest(unittest.TestCase):
                 "matches"
             ][0]["title"],
             "Test",
-        )
-        self.assertEqual(
-            self.service.handle(
-                {
-                    "operation": "search",
-                    "source": "web",
-                    "query": "SwarmX",
-                    "limit": 1,
-                }
-            )["source"],
-            "web",
         )
         self.assertEqual(
             self.service.handle({"operation": "get", "path": "A/Test", "maxChars": 9})[
@@ -77,6 +63,8 @@ class ReferenceServiceTest(unittest.TestCase):
             self.service.handle(
                 {"operation": "search", "source": "unknown", "query": "x"}
             )
+        with self.assertRaises(ValueError):
+            self.service.handle({"operation": "search", "source": "web", "query": "x"})
         with self.assertRaises(ValueError):
             self.service.handle({"operation": "search", "query": "x" * 257})
         with self.assertRaises(ValueError):
@@ -98,68 +86,8 @@ class ReferenceServiceTest(unittest.TestCase):
                 source["id"]
                 for source in self.service.handle({"operation": "status"})["sources"]
             ],
-            ["zim", "web"],
+            ["zim"],
         )
-
-
-class SearxngReferenceBackendTest(unittest.TestCase):
-    def test_searches_json_endpoint_and_gets_only_cached_snippets(self) -> None:
-        requested: list[str] = []
-
-        def fetch_json(url: str) -> tuple[object, dict[str, str]]:
-            requested.append(url)
-            return (
-                {
-                    "number_of_results": 7,
-                    "results": [
-                        {
-                            "url": "https://example.com/result",
-                            "title": "Result title",
-                            "content": "<b>Bounded</b> result snippet",
-                        }
-                    ],
-                },
-                {},
-            )
-
-        service = ReferenceService(
-            {
-                "web": SearxngReferenceBackend(
-                    "https://search.example.com", fetch_json=fetch_json
-                )
-            }
-        )
-        with self.assertRaises(ValueError):
-            service.handle({"operation": "search", "query": "must stay local"})
-        self.assertEqual(requested, [])
-        searched = service.handle(
-            {"operation": "search", "source": "web", "query": "SwarmX", "limit": 1}
-        )
-        self.assertIn("q=SwarmX", requested[0])
-        self.assertIn("format=json", requested[0])
-        self.assertEqual(searched["matches"][0]["snippet"], "Bounded result snippet")
-        cached = service.handle(
-            {
-                "operation": "get",
-                "source": "web",
-                "path": "https://example.com/result",
-            }
-        )
-        self.assertIn("Bounded result snippet", cached["text"])
-        with self.assertRaises(ValueError):
-            service.handle(
-                {
-                    "operation": "get",
-                    "source": "web",
-                    "path": "https://unsearched.example/private",
-                }
-            )
-
-    def test_requires_https_or_loopback_http_endpoint(self) -> None:
-        with self.assertRaises(ValueError):
-            SearxngReferenceBackend("http://search.example.com")
-        with self.assertRaises(ValueError):
-            SearxngReferenceBackend("https://user:secret@search.example.com")
 
 
 class ZoteroReferenceBackendTest(unittest.TestCase):

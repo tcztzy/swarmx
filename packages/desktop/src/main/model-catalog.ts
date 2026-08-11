@@ -61,6 +61,7 @@ const CODEX_ACP_RUNTIME_MODELS = new Set([
   "gpt-5.6-sol",
   "gpt-5.6-terra",
 ]);
+const DEEPSEEK_RESPONSES_MODELS = new Set(["deepseek-v4-flash"]);
 type ModelApiRoutes = readonly [ModelApi, ...ModelApi[]];
 
 // The Go Models endpoint omits wire protocols; documented routes may have verified additions.
@@ -635,8 +636,18 @@ export class ModelCatalogService {
     const url = discoveryUrl(provider);
     const payload = await this.fetchJson(url, providerHeaders(provider, secret));
     const descriptors = parseOpenAiModels(payload, discoveryApi, url);
+    const routedDescriptors = isOfficialDeepSeekProvider(provider)
+      ? descriptors.map((descriptor) => ({
+          ...descriptor,
+          apiProtocols: providerApiProtocols(provider).filter(
+            (apiProtocol) =>
+              apiProtocol !== "openai_responses" ||
+              DEEPSEEK_RESPONSES_MODELS.has(descriptor.id.toLowerCase()),
+          ),
+        }))
+      : descriptors;
     return isOpenCodeGoProvider(provider)
-      ? descriptors.map((descriptor) => {
+      ? routedDescriptors.map((descriptor) => {
           const apiProtocols: ModelApiRoutes = OPENCODE_GO_MODEL_APIS[
             descriptor.id.toLowerCase()
           ] ?? [provider.kind];
@@ -652,7 +663,7 @@ export class ModelCatalogService {
               : {}),
           };
         })
-      : descriptors;
+      : routedDescriptors;
   }
 
   private async discoverCodexModels(): Promise<DiscoveredModelDescriptor[]> {
@@ -1420,7 +1431,13 @@ function officialDeepSeekRouting(
   if (
     baseUrl.protocol !== "https:" ||
     baseUrl.hostname.toLowerCase() !== "api.deepseek.com" ||
-    !["anthropic", "openai_chat"].includes(preferredApi)
+    baseUrl.port !== "" ||
+    baseUrl.username !== "" ||
+    baseUrl.password !== "" ||
+    baseUrl.search !== "" ||
+    baseUrl.hash !== "" ||
+    !["", "/v1", "/anthropic"].includes(baseUrl.pathname.replace(/\/+$/, "")) ||
+    !["anthropic", "openai_chat", "openai_responses"].includes(preferredApi)
   ) {
     return undefined;
   }
@@ -1428,13 +1445,23 @@ function officialDeepSeekRouting(
   const apiEntrypoints = {
     anthropic: `${origin}/anthropic`,
     openai_chat: origin,
+    openai_responses: origin,
   } satisfies Partial<Record<ModelApi, string>>;
   return {
-    baseUrl: apiEntrypoints[preferredApi as "anthropic" | "openai_chat"],
+    baseUrl: apiEntrypoints[preferredApi as "anthropic" | "openai_chat" | "openai_responses"],
     apiEntrypoints,
     modelDiscoveryUrl: `${origin}/models`,
     modelDiscoveryApi: "openai_chat",
   };
+}
+
+function isOfficialDeepSeekProvider(provider: ProviderProfile): boolean {
+  if (!provider.baseUrl) return false;
+  try {
+    return officialDeepSeekRouting(new URL(provider.baseUrl), provider.kind) !== undefined;
+  } catch {
+    return false;
+  }
 }
 
 function officialOpenCodeGoRouting(

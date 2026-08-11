@@ -5,7 +5,7 @@ export const MAX_REFERENCE_QUERY_CHARS = 256;
 export const MAX_REFERENCE_SEARCH_RESULTS = 20;
 export const MAX_REFERENCE_PAGE_CHARS = 32_000;
 export const MAX_REFERENCE_PATH_CHARS = 4_096;
-export const ReferenceSourceIdSchema = z.enum(["zim", "web", "zotero"]);
+export const ReferenceSourceIdSchema = z.enum(["zim", "zotero"]);
 
 const ReferenceQuerySchema = z
   .string()
@@ -67,26 +67,16 @@ const ZimReferenceSourceSchema = LegacyZimReferenceSourceSchema.extend({
   name: z.string().min(1).max(2_048),
 });
 
-const NetworkReferenceSourceSchema = z.discriminatedUnion("kind", [
-  z
-    .object({
-      id: z.literal("web"),
-      kind: z.literal("web"),
-      name: z.string().min(1).max(2_048),
-      endpoint: z.url().max(MAX_REFERENCE_PATH_CHARS),
-    })
-    .strict(),
-  z
-    .object({
-      id: z.literal("zotero"),
-      kind: z.literal("zotero"),
-      name: z.string().min(1).max(2_048),
-      endpoint: z.url().max(MAX_REFERENCE_PATH_CHARS),
-    })
-    .strict(),
-]);
+const ZoteroReferenceSourceSchema = z
+  .object({
+    id: z.literal("zotero"),
+    kind: z.literal("zotero"),
+    name: z.string().min(1).max(2_048),
+    endpoint: z.url().max(MAX_REFERENCE_PATH_CHARS),
+  })
+  .strict();
 
-const ReferenceSourceSchema = z.union([ZimReferenceSourceSchema, NetworkReferenceSourceSchema]);
+const ReferenceSourceSchema = z.union([ZimReferenceSourceSchema, ZoteroReferenceSourceSchema]);
 
 const ReferenceMatchSchema = z
   .object({
@@ -102,7 +92,7 @@ export const ReferenceLibraryResultSchema = z.discriminatedUnion("operation", [
   z
     .object({
       operation: z.literal("status"),
-      sources: z.array(ReferenceSourceSchema).min(1).max(3),
+      sources: z.array(ReferenceSourceSchema).min(1).max(2),
       source: LegacyZimReferenceSourceSchema.optional(),
     })
     .strict(),
@@ -111,7 +101,7 @@ export const ReferenceLibraryResultSchema = z.discriminatedUnion("operation", [
       operation: z.literal("search"),
       source: ReferenceSourceIdSchema,
       query: ReferenceQuerySchema,
-      mode: z.enum(["full_text", "suggestion", "web", "zotero"]),
+      mode: z.enum(["full_text", "suggestion", "zotero"]),
       estimatedMatches: z.number().int().nonnegative(),
       matches: z.array(ReferenceMatchSchema).max(MAX_REFERENCE_SEARCH_RESULTS),
     })
@@ -149,7 +139,7 @@ export function createReferenceLibraryAgentTool(backend: ReferenceLibraryBackend
   return {
     name: "ReferenceLibrary",
     description:
-      "Read configured objective ZIM, Web Search, and Zotero sources. Web and Zotero requests must explicitly select their source; Web get reads only a cached search snippet. This tool cannot download, fetch arbitrary URLs, read Zotero attachments/full text, mutate a source, or write Memory.",
+      "Read configured objective ZIM and Zotero sources. Zotero requests must explicitly select their source. This tool cannot search the Web, download, fetch arbitrary URLs, read Zotero attachments/full text, mutate a source, or write Memory.",
     inputSchema: z.toJSONSchema(ReferenceLibraryRequestSchema) as Record<string, unknown>,
     async call(arguments_) {
       const request = ReferenceLibraryRequestSchema.parse(arguments_);

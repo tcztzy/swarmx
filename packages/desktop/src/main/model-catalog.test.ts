@@ -760,6 +760,7 @@ describe("ModelCatalogService", () => {
         apiEntrypoints: {
           anthropic: "https://api.deepseek.com/anthropic",
           openai_chat: "https://api.deepseek.com",
+          openai_responses: "https://api.deepseek.com",
         },
       }),
     ]);
@@ -831,11 +832,71 @@ describe("ModelCatalogService", () => {
         apiEntrypoints: {
           anthropic: "https://api.deepseek.com/anthropic",
           openai_chat: "https://api.deepseek.com",
+          openai_responses: "https://api.deepseek.com",
         },
       }),
     );
     expect(fetch).toHaveBeenCalledTimes(1);
     expect(await authStore.get(providerId)).toBe("shared-deepseek-key");
+  });
+
+  it("exposes DeepSeek Responses only for models documented to support it", async () => {
+    const paths = await catalogPaths();
+    const authStore = new MemoryProviderAuthStore();
+    const fetch = vi
+      .fn()
+      .mockResolvedValue(
+        response({ data: [{ id: "deepseek-v4-flash" }, { id: "deepseek-v4-pro" }] }),
+      );
+    const service = new ModelCatalogService({
+      ...paths,
+      env: {},
+      authStore,
+      fetch,
+      now: fixedClock(),
+    });
+    const inventory = createExtensionInventory([]);
+
+    const saved = await service.saveProvider(inventory, {
+      label: "DeepSeek Responses",
+      kind: "openai_responses",
+      baseUrl: "https://api.deepseek.com/anthropic/",
+      authMode: "api_key",
+      secret: "deepseek-responses-key",
+    });
+    const providerId = saved.modelCatalog.userProviderIds[0] as string;
+    expect(saved.providers[0]).toEqual(
+      expect.objectContaining({
+        id: providerId,
+        kind: "openai_responses",
+        baseUrl: "https://api.deepseek.com",
+        apiEntrypoints: {
+          anthropic: "https://api.deepseek.com/anthropic",
+          openai_chat: "https://api.deepseek.com",
+          openai_responses: "https://api.deepseek.com",
+        },
+      }),
+    );
+
+    const refreshed = await service.refresh(inventory);
+    expect(refreshed.models.find((model) => model.id === "deepseek-v4-flash")).toEqual(
+      expect.objectContaining({
+        apiProtocols: ["openai_responses", "anthropic", "openai_chat"],
+      }),
+    );
+    expect(refreshed.models.find((model) => model.id === "deepseek-v4-pro")).toEqual(
+      expect.objectContaining({ apiProtocols: ["anthropic", "openai_chat"] }),
+    );
+    expect(
+      refreshed.modelSupplies
+        .filter((supply) => supply.modelId === "deepseek-v4-flash")
+        .map((supply) => supply.apiCompatibility.targetApi),
+    ).toEqual(["openai_responses", "anthropic", "openai_chat"]);
+    expect(
+      refreshed.modelSupplies
+        .filter((supply) => supply.modelId === "deepseek-v4-pro")
+        .map((supply) => supply.apiCompatibility.targetApi),
+    ).toEqual(["anthropic", "openai_chat"]);
   });
 
   it("normalizes a legacy persisted DeepSeek Provider before discovery", async () => {
@@ -885,6 +946,7 @@ describe("ModelCatalogService", () => {
         apiEntrypoints: {
           anthropic: "https://api.deepseek.com/anthropic",
           openai_chat: "https://api.deepseek.com",
+          openai_responses: "https://api.deepseek.com",
         },
       }),
     );

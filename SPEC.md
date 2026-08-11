@@ -22,7 +22,7 @@ implementation map, test plan, backlog, changelog, or incident log.
 | Agent | Exactly one Harness paired with one Model. Its identity is `harnessId:modelId`; Provider routing and effort do not change it. |
 | Session | The canonical, resumable conversation record, persisted as an append-only event log. It may observe a WorkItem but is not task authority. |
 | Memory | User-owned subjective durable knowledge. Personal Memory is its bounded Settings snapshot; the current linked-page organization provides explicit CRUD and revisions. An organization method is replaceable implementation, not a separate product concept. Memory is not Activity Profile data, Session history, Project context, task authority, or an executable workflow. |
-| Reference Library | Explicitly configured, read-only objective sources: a local ZIM archive, opt-in Web Search, and the local Zotero library. It is not editable Memory, Session history, Project context, or a download service. |
+| Reference Library | Explicitly configured, read-only objective sources: a local ZIM archive and the local Zotero library. It is not editable Memory, Session history, Project context, Web Search, or a download service. |
 | WorkItem | A durable unit of language-independent work whose runs, leases, checkpoints, artifacts, and events survive Session changes. |
 | Workflow | A `SwarmConfig` graph of agents, tools, nested swarms, and explicit edges. |
 
@@ -99,14 +99,21 @@ implementation map, test plan, backlog, changelog, or incident log.
 16. **Subjective Memory versus objective Reference.** Memory is curated,
     user/Agent-authored subjective knowledge with CRUD and Git versions.
     Reference Library is read-only access to explicitly configured sources: a
-    local ZIM archive, an opt-in Web Search endpoint, and Zotero Desktop's local
+    local ZIM archive and Zotero Desktop's local
     API. It can report source metadata, search, and return bounded plaintext
     records, but cannot download, create, update, delete, read Zotero attachment
-    content, fetch arbitrary search-result URLs, or silently promote reference
-    text into Memory. Active HTML is stripped before model use. Web queries are
-    sent only when the caller explicitly selects the Web source. When no source
-    is configured, the Agent tool is not injected and SwarmX never claims that
-    Reference was used.
+    content, access Web Search, fetch arbitrary URLs, or silently promote
+    reference text into Memory. Active HTML is stripped before model use. A
+    direct Agent configured with official DeepSeek, OpenAI API, or Codex
+    Responses credentials exposes that Provider's server-side Web Search.
+    Hosted search calls remain visible as correlated tool lifecycle events, and
+    continuation preserves Provider-owned search state. Anthropic `pause_turn`
+    responses are continued by replaying the complete assistant content without
+    fabricating a client tool result. DeepSeek's official Anthropic endpoint
+    keeps the same provider-native behavior for models that do not support
+    Responses. Gateways, unsupported protocols, and lookalike endpoints do not
+    gain hosted search. When no Reference source is configured, the Agent tool
+    is not injected and SwarmX never claims that Reference was used.
 
 ## Required capabilities
 

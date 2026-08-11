@@ -359,12 +359,12 @@ Anthropic documents [web search](https://platform.claude.com/docs/en/agents-and-
 and [web fetch](https://platform.claude.com/docs/en/agents-and-tools/tool-use/web-fetch-tool)
 as server-executed tools. Codex likewise registers search through its hosted
 Responses tool path. SwarmX exposes those native tools only after the selected
-provider and protocol advertise the hosted capability; the local Project shell
-continues to deny network access. Separately, an explicitly configured
-Reference Library may expose bounded SearXNG results through its read-only
-`ReferenceLibrary` tool. That route requires `source: "web"` for every query,
-does not grant Project shell network access, and does not fetch arbitrary result
-URLs.
+provider and protocol advertise the hosted capability, projects observed calls
+into correlated tool lifecycle events, and preserves hosted call state across
+Responses continuation. Anthropic `pause_turn` continuation replays the complete
+assistant content with the same tools and no fabricated client tool result. The
+local Project shell continues to deny network access, and Reference Library has
+no Web Search backend.
 
 ## Maintenance checklist
 

@@ -449,6 +449,7 @@ function nativeContext(
     apiMode: "standard",
     openai: (clients.openai ?? {}) as OpenAI,
     anthropic: (clients.anthropic ?? {}) as Anthropic,
+    providerHostedWebSearch: false,
     tools: [],
     async callTool() {
       throw new Error("No tools expected");

@@ -11,7 +11,7 @@ from html import unescape
 from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any, Callable, Mapping, Protocol
-from urllib.parse import urlencode, urlsplit, urlunsplit
+from urllib.parse import urlencode, urlsplit
 from urllib.request import HTTPRedirectHandler, ProxyHandler, Request, build_opener
 
 MAX_QUERY_CHARS = 256
@@ -24,7 +24,7 @@ MAX_NETWORK_BYTES = 256 * 1024
 MAX_ESTIMATED_MATCHES = 2_147_483_647
 NETWORK_TIMEOUT_SECONDS = 10
 ZOTERO_API_URL = "http://127.0.0.1:23119/api"
-SOURCE_IDS = frozenset({"zim", "web", "zotero"})
+SOURCE_IDS = frozenset({"zim", "zotero"})
 
 JsonFetcher = Callable[[str], tuple[object, Mapping[str, str]]]
 
@@ -249,82 +249,6 @@ class LibzimReferenceBackend:
         return _bounded_output(str(value))
 
 
-class SearxngReferenceBackend:
-    """Explicit SearXNG JSON search with cached-snippet reads only."""
-
-    def __init__(self, endpoint: str, *, fetch_json: JsonFetcher | None = None) -> None:
-        self._endpoint = _validated_web_endpoint(endpoint)
-        self._fetch_json = fetch_json or _fetch_json
-        self._cache: dict[str, dict[str, str]] = {}
-        self._lock = threading.Lock()
-
-    def status(self) -> dict[str, Any]:
-        return {
-            "kind": "web",
-            "name": "Web Search",
-            "endpoint": self._endpoint,
-        }
-
-    def search(self, query: str, limit: int) -> dict[str, Any]:
-        url = _search_url(self._endpoint, query, limit)
-        with self._lock:
-            payload, _headers = self._fetch_json(url)
-            if not isinstance(payload, Mapping) or not isinstance(
-                payload.get("results"), list
-            ):
-                raise ValueError("Web Search returned an invalid response.")
-            matches: list[dict[str, str]] = []
-            cache: dict[str, dict[str, str]] = {}
-            for candidate in payload["results"]:
-                if len(matches) >= limit or not isinstance(candidate, Mapping):
-                    continue
-                result_url = _safe_result_url(candidate.get("url"))
-                title = _bounded_optional_output(candidate.get("title"))
-                if result_url is None or title is None:
-                    continue
-                snippet = (
-                    _bounded_optional_output(
-                        _normalize_text(html_to_text(str(candidate.get("content", ""))))
-                    )
-                    or ""
-                )
-                match = {
-                    "path": result_url,
-                    "title": title,
-                    "url": result_url,
-                    "snippet": snippet,
-                }
-                matches.append(match)
-                cache[result_url] = match
-            self._cache = cache
-        estimated = payload.get("number_of_results")
-        if isinstance(estimated, bool) or not isinstance(estimated, int):
-            estimated = len(matches)
-        return {
-            "query": query,
-            "mode": "web",
-            "estimatedMatches": max(len(matches), _bounded_estimate(estimated)),
-            "matches": matches,
-        }
-
-    def get(self, path: str, max_chars: int) -> dict[str, Any]:
-        with self._lock:
-            match = self._cache.get(path)
-        if match is None:
-            raise ValueError("Web Search result was not found in the bounded cache.")
-        text = _normalize_text(
-            "\n".join((match["title"], match["url"], match["snippet"]))
-        )
-        return {
-            "path": path,
-            "title": match["title"],
-            "mimeType": "text/plain",
-            "text": text[:max_chars],
-            "truncated": len(text) > max_chars,
-            "url": match["url"],
-        }
-
-
 class ZoteroReferenceBackend:
     """Read-only bibliographic metadata from Zotero Desktop's local API."""
 
@@ -467,46 +391,6 @@ class _NoRedirectHandler(HTTPRedirectHandler):
     def redirect_request(self, *args: Any, **kwargs: Any) -> None:
         del args, kwargs
         return None
-
-
-def _validated_web_endpoint(value: object) -> str:
-    if not isinstance(value, str) or not value or len(value) > MAX_PATH_CHARS:
-        raise ValueError("Web Search endpoint is invalid.")
-    parsed = urlsplit(value)
-    hostname = (parsed.hostname or "").lower()
-    loopback = hostname in {"127.0.0.1", "localhost", "::1"}
-    if (
-        parsed.username is not None
-        or parsed.password is not None
-        or parsed.query
-        or parsed.fragment
-        or not hostname
-        or (parsed.scheme != "https" and not (parsed.scheme == "http" and loopback))
-    ):
-        raise ValueError("Web Search endpoint is invalid.")
-    return urlunsplit((parsed.scheme, parsed.netloc, parsed.path.rstrip("/"), "", ""))
-
-
-def _search_url(endpoint: str, query: str, limit: int) -> str:
-    parsed = urlsplit(endpoint)
-    path = parsed.path if parsed.path.endswith("/search") else f"{parsed.path}/search"
-    return urlunsplit(
-        (
-            parsed.scheme,
-            parsed.netloc,
-            path,
-            urlencode(
-                {
-                    "q": query,
-                    "format": "json",
-                    "categories": "general",
-                    "pageno": 1,
-                    "limit": limit,
-                }
-            ),
-            "",
-        )
-    )
 
 
 def _safe_result_url(value: object) -> str | None:

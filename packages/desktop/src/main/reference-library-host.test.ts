@@ -34,13 +34,6 @@ describe("ReferenceLibraryHost", () => {
   it("validates absolute launch paths", () => {
     expect(() => new ReferenceLibraryHost({ pythonPath: "python", zimPath: "wiki.zim" })).toThrow();
     expect(path.isAbsolute(launch.zimPath)).toBe(true);
-    expect(
-      () =>
-        new ReferenceLibraryHost({
-          pythonPath: "/opt/swarmx/python",
-          webSearchUrl: "http://search.example.com",
-        }),
-    ).toThrow();
     expect(() => new ReferenceLibraryHost({ pythonPath: "/opt/swarmx/python" })).toThrow();
     expect(
       () => new ReferenceLibraryHost({ pythonPath: "/opt/swarmx/python", zotero: true }),
@@ -81,7 +74,7 @@ describe("ReferenceLibraryHost", () => {
       connect: async () => connection(),
     });
     await expect(
-      wrongSource.request({ operation: "search", source: "web", query: "SwarmX", limit: 1 }),
+      wrongSource.request({ operation: "search", source: "zotero", query: "SwarmX", limit: 1 }),
     ).rejects.toThrow(/source mismatch/);
   });
 });

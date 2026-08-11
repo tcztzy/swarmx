@@ -17,13 +17,13 @@ describe("ReferenceLibrary", () => {
     expect(() =>
       ReferenceLibraryRequestSchema.parse({ operation: "get", path: "A", maxChars: 32_001 }),
     ).toThrow();
-    expect(
+    expect(() =>
       ReferenceLibraryRequestSchema.parse({
         operation: "search",
         source: "web",
         query: "current research",
       }),
-    ).toMatchObject({ source: "web" });
+    ).toThrow();
     expect(
       ReferenceLibraryResultSchema.parse({
         operation: "status",
@@ -42,30 +42,30 @@ describe("ReferenceLibrary", () => {
   it("returns the source-qualified backend result", async () => {
     const request = vi.fn(async () => ({
       operation: "search" as const,
-      source: "web" as const,
+      source: "zotero" as const,
       query: "SwarmX",
-      mode: "web" as const,
+      mode: "zotero" as const,
       estimatedMatches: 1,
       matches: [
         {
-          source: "web" as const,
-          path: "https://example.com/swarmx",
+          source: "zotero" as const,
+          path: "ABCD2345",
           title: "SwarmX",
           url: "https://example.com/swarmx",
-          snippet: "Reference result",
+          snippet: "Bibliographic result",
         },
       ],
     }));
     const tool = createReferenceLibraryAgentTool({ request });
     const result = await tool.call({
       operation: "search",
-      source: "web",
+      source: "zotero",
       query: "SwarmX",
       limit: 1,
     });
     expect(request).toHaveBeenCalledWith({
       operation: "search",
-      source: "web",
+      source: "zotero",
       query: "SwarmX",
       limit: 1,
     });
@@ -73,8 +73,8 @@ describe("ReferenceLibrary", () => {
       structuredContent: {
         status: "ok",
         operation: "search",
-        source: "web",
-        matches: [{ source: "web", title: "SwarmX" }],
+        source: "zotero",
+        matches: [{ source: "zotero", title: "SwarmX" }],
       },
     });
   });
@@ -101,7 +101,7 @@ describe("ReferenceLibrary", () => {
         matches: [],
       }),
     });
-    await expect(tool.call({ operation: "search", source: "web", query: "paper" })).rejects.toThrow(
+    await expect(tool.call({ operation: "search", source: "zim", query: "paper" })).rejects.toThrow(
       /source mismatch/,
     );
   });

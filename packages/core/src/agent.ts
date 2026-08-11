@@ -152,6 +152,7 @@ export class Agent {
   private hookRuntime?: HookRuntimeOptions;
   private configuredModel?: string;
   private maxOutputTokens: number;
+  private readonly providerHostedWebSearch: boolean;
   private readonly skillInstructions: readonly SkillInstructionDelivery[];
   private readonly contextEngine?: AgentContextEngine;
 
@@ -264,6 +265,13 @@ export class Agent {
         (hasExplicitRuntimeEnv ? undefined : process.env.ANTHROPIC_BASE_URL) ??
         undefined,
     });
+    this.providerHostedWebSearch =
+      (this.apiProtocol === "openai_responses" &&
+        this.client.apiKey !== "sk-no-key" &&
+        isOfficialHostedResponsesEndpoint(this.client.baseURL)) ||
+      (this.apiProtocol === "anthropic" &&
+        Boolean(anthropicApiKey ?? anthropicAuthToken) &&
+        isOfficialDeepseekAnthropicEndpoint(this.anthropicClient.baseURL));
   }
 
   toSwarmConfig(): Record<string, unknown> {
@@ -908,6 +916,7 @@ export class Agent {
       apiMode: this.apiMode,
       openai: this.client,
       anthropic: this.anthropicClient,
+      providerHostedWebSearch: this.providerHostedWebSearch,
       tools: () => this.mcp?.toolsForNative() ?? [],
       callTool: (name, input, context) => this.getMcp().callTool(name, input, context),
       onUsage,
@@ -1145,6 +1154,48 @@ function nativeApiMode(
   const configured =
     clientConfig.apiMode ?? clientConfig.api_mode ?? runtimeEnv.SWARMX_API_MODE ?? "standard";
   return ModelApiModeSchema.parse(configured);
+}
+
+function isOfficialDeepseekAnthropicEndpoint(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return (
+      url.protocol === "https:" &&
+      url.hostname === "api.deepseek.com" &&
+      url.port === "" &&
+      url.username === "" &&
+      url.password === "" &&
+      url.search === "" &&
+      url.hash === "" &&
+      url.pathname.replace(/\/+$/, "") === "/anthropic"
+    );
+  } catch {
+    return false;
+  }
+}
+
+function isOfficialHostedResponsesEndpoint(value: string): boolean {
+  try {
+    const url = new URL(value);
+    if (
+      url.protocol !== "https:" ||
+      url.port !== "" ||
+      url.username !== "" ||
+      url.password !== "" ||
+      url.search !== "" ||
+      url.hash !== ""
+    ) {
+      return false;
+    }
+    const pathname = url.pathname.replace(/\/+$/, "");
+    return (
+      (url.hostname === "api.deepseek.com" && (pathname === "" || pathname === "/v1")) ||
+      (url.hostname === "api.openai.com" && pathname === "/v1") ||
+      (url.hostname === "chatgpt.com" && pathname === "/backend-api/codex")
+    );
+  } catch {
+    return false;
+  }
 }
 
 function nativeModelFromEnvironment(

@@ -97,10 +97,14 @@ swarmx launcher ───► Desktop or CLI
 - Personal Memory: one bounded user-edited record in `~/.swarmx/settings.json`;
   direct runs receive a read-only snapshot and Sessions retain only a concise
   usage receipt.
-- Reference Library: no SwarmX persistence authority; configured ZIM, Web
-  Search, and Zotero sources remain authoritative and are accessed read-only by
-  `swarmx.ref`. Web queries require explicit source selection, and Zotero access
-  is confined to its fixed loopback read API without attachment/full-text reads.
+- Reference Library: no SwarmX persistence authority; configured ZIM and Zotero
+  sources remain authoritative and are accessed read-only by `swarmx.ref`.
+  Direct Agents on exact official DeepSeek, OpenAI API, or Codex Responses
+  endpoints expose provider-hosted search, with the official DeepSeek Anthropic
+  route retained where Responses is unsupported. Hosted calls produce visible,
+  correlated tool lifecycle events. `swarmx.ref` has no Web Search backend.
+  Zotero access is confined to its fixed loopback read API without
+  attachment/full-text reads.
 - Worker transport: versioned strict JSONL over stdio with Core-owned schemas;
   it is not ACP and does not create a Python `SwarmConfig` node.
 - Managed module transport: private MCP over stdio with verified runtime/source

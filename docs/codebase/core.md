@@ -52,7 +52,7 @@ An Agent remains `harnessId:modelId`.
 | `packages/core/src/memory-links.ts` | Browser-safe zod contracts and bounded double-bracket-link scanner/resolver that projects caller-owned entity Markdown into directed, non-executable knowledge edges with explicit diagnostics. `pure` |
 | `packages/core/src/memory.ts` | Memory zod schemas, async host-backend contract, graph projection, and strict `Memory` local Agent tool: bounded CRUD/search/version reads, optimistic revisions, confirmed create/update/delete/restore, and content-free audit callbacks. Persistence belongs only to the Rust Memory MCP server. `pure` |
 | `packages/core/src/memory-runtime-protocol.ts` | Strict versioned request/operation-matched response schemas for the private `swarmx-mem` MCP server, including its exact `swarmx_memory` tool identity and bounded structured-result limit. `pure` |
-| `packages/core/src/reference-library.ts` | Browser-safe zod contracts and the read-only `ReferenceLibrary` Agent tool for bounded, source-qualified ZIM/Web/Zotero status, search, and plaintext reads; Web must be explicitly selected, unavailable paths report unsupported, and no mutation operation exists. `pure` |
+| `packages/core/src/reference-library.ts` | Browser-safe zod contracts and the read-only `ReferenceLibrary` Agent tool for bounded, source-qualified ZIM/Zotero status, search, and plaintext reads; reports unavailable paths as unsupported and has no Web or mutation operation. `pure` |
 | `packages/core/src/hook.ts` | Hook config plus fail-closed lifecycle dispatcher: explicit host executor, structured input/output, concurrent same-event handlers, bounded timeouts, denial, and additional-context limits. `pure` |
 | `packages/core/src/builtin-tools.ts` | Built-in tool style/revision schemas and style resolution for Claude Code, Codex, and Kimi Code contracts. `pure` |
 | `packages/core/src/actions.ts` | Action intent/confirmation/risk schemas, secret-safe payload sanitization, and explicit-confirmation checks for side effects. `pure` |
@@ -81,8 +81,8 @@ An Agent remains `harnessId:modelId`.
 
 | Source | Contract |
 | --- | --- |
-| `packages/core/src/agent.ts` | `Agent` runtime: direct native model or external ACP backend, hooks, MCP/tools, cancellation, streaming chunks, request-scoped runtime environment, and per-run Personal Memory instruction assembly for native and ACP prompts. `net`/`proc` through adapters |
-| `packages/core/src/native-model.ts` | Native Anthropic/OpenAI/Ollama request construction, streaming, tool continuation, token usage, and request environment handling. `net` + `secret` |
+| `packages/core/src/agent.ts` | `Agent` runtime: direct native model or external ACP backend, hooks, MCP/tools, cancellation, streaming chunks, request-scoped runtime environment, strict official DeepSeek/OpenAI/Codex hosted-search endpoint detection, and per-run Personal Memory instruction assembly for native and ACP prompts. `net`/`proc` through adapters |
+| `packages/core/src/native-model.ts` | Native Anthropic/OpenAI/Ollama request construction, streaming, tool continuation, token usage, request environment handling, and opt-in Responses/DeepSeek-Anthropic hosted Web Search with opaque-state replay plus visible tool lifecycle chunks. `net` + `secret` |
 | `packages/core/src/acp.ts` | ACP client lifecycle, subprocess/session negotiation, prompt/update decoding, permission callbacks, request cancellation, and request-local abort scope. `net` + `proc` |
 | `packages/core/src/mcp.ts` | MCP client/server lifecycle, tool/resource discovery and calls, local tool contracts, content normalization, and cancellation. `net`/`proc` |
 | `packages/core/src/tool.ts` | Validated named MCP tool wrapper; creates a manager, calls the tool, normalizes structured content, and closes servers. `net` |

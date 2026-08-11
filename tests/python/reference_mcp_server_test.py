@@ -3,11 +3,8 @@
 from __future__ import annotations
 
 import base64
-import json
 import tempfile
-import threading
 import unittest
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 from libzim.writer import Creator, Hint, Item, StringProvider
@@ -130,89 +127,6 @@ class ReferenceMcpServerTest(unittest.IsolatedAsyncioTestCase):
                         {"request": {"operation": "create", "title": "Opinion"}},
                     )
                     self.assertTrue(mutation.isError)
-
-    async def test_exposes_explicit_web_search_without_fetching_result_url(
-        self,
-    ) -> None:
-        requested_paths: list[str] = []
-
-        class SearchHandler(BaseHTTPRequestHandler):
-            def do_GET(self) -> None:
-                requested_paths.append(self.path)
-                body = json.dumps(
-                    {
-                        "number_of_results": 1,
-                        "results": [
-                            {
-                                "url": "https://example.com/objective",
-                                "title": "Objective Web Result",
-                                "content": "A bounded search snippet.",
-                            }
-                        ],
-                    }
-                ).encode()
-                self.send_response(200)
-                self.send_header("Content-Type", "application/json")
-                self.send_header("Content-Length", str(len(body)))
-                self.end_headers()
-                self.wfile.write(body)
-
-            def log_message(self, format: str, *args: object) -> None:
-                del format, args
-
-        search_server = ThreadingHTTPServer(("127.0.0.1", 0), SearchHandler)
-        search_thread = threading.Thread(target=search_server.serve_forever)
-        search_thread.start()
-        try:
-            host, port = search_server.server_address
-            server = StdioServerParameters(
-                command="python",
-                args=[
-                    "-I",
-                    "-B",
-                    "-u",
-                    "-m",
-                    "swarmx.ref.server",
-                    "--web-search-url",
-                    f"http://{host}:{port}",
-                    "--stdio",
-                ],
-            )
-            async with stdio_client(server) as (reader, writer):
-                async with ClientSession(reader, writer) as session:
-                    await session.initialize()
-                    searched = await session.call_tool(
-                        "swarmx_reference",
-                        {
-                            "request": {
-                                "operation": "search",
-                                "source": "web",
-                                "query": "objective",
-                                "limit": 1,
-                            }
-                        },
-                    )
-                    self.assertFalse(searched.isError)
-                    self.assertEqual(searched.structuredContent["source"], "web")
-                    cached = await session.call_tool(
-                        "swarmx_reference",
-                        {
-                            "request": {
-                                "operation": "get",
-                                "source": "web",
-                                "path": "https://example.com/objective",
-                            }
-                        },
-                    )
-                    self.assertIn(
-                        "bounded search snippet", cached.structuredContent["text"]
-                    )
-            self.assertEqual(len(requested_paths), 1)
-            self.assertIn("/search?", requested_paths[0])
-        finally:
-            search_server.shutdown()
-            search_server.server_close()
-            search_thread.join()
 
 
 if __name__ == "__main__":

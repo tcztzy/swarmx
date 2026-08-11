@@ -14,7 +14,6 @@ from .service import (
     LibzimReferenceBackend,
     ReferenceBackend,
     ReferenceService,
-    SearxngReferenceBackend,
     ZoteroReferenceBackend,
 )
 
@@ -61,19 +60,16 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     parser = argparse.ArgumentParser(prog="swarmx-ref")
     parser.add_argument("--zim")
-    parser.add_argument("--web-search-url")
     parser.add_argument("--zotero", action="store_true")
     parser.add_argument("--stdio", action="store_true", required=True)
     parsed = parser.parse_args(arguments)
     backends: dict[str, ReferenceBackend] = {}
     if parsed.zim:
         backends["zim"] = LibzimReferenceBackend(parsed.zim)
-    if parsed.web_search_url:
-        backends["web"] = SearxngReferenceBackend(parsed.web_search_url)
     if parsed.zotero:
         backends["zotero"] = ZoteroReferenceBackend()
     if not backends:
-        parser.error("at least one of --zim, --web-search-url, or --zotero is required")
+        parser.error("at least one of --zim or --zotero is required")
     global _service
     _service = ReferenceService(backends)
     mcp.run(transport="stdio")

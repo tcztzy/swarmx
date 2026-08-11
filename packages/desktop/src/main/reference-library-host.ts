@@ -15,7 +15,6 @@ const ReferenceLibraryLaunchSpecSchema = z
   .object({
     pythonPath: z.string().min(1).max(4_096),
     zimPath: z.string().min(1).max(4_096).optional(),
-    webSearchUrl: z.string().min(1).max(4_096).optional(),
     zotero: z.boolean().optional(),
   })
   .strict()
@@ -33,14 +32,7 @@ const ReferenceLibraryLaunchSpecSchema = z
         message: "must be an absolute .zim path",
       });
     }
-    if (value.webSearchUrl && !validWebSearchUrl(value.webSearchUrl)) {
-      context.addIssue({
-        code: "custom",
-        path: ["webSearchUrl"],
-        message: "must be HTTPS or loopback HTTP without credentials, query, or fragment",
-      });
-    }
-    if (!value.zimPath && !value.webSearchUrl && value.zotero !== true) {
+    if (!value.zimPath && value.zotero !== true) {
       context.addIssue({
         code: "custom",
         message: "at least one Reference source must be configured",
@@ -81,7 +73,6 @@ export class ReferenceLibraryHost implements ReferenceLibraryBackend {
     this.launch = ReferenceLibraryLaunchSpecSchema.parse({
       pythonPath: options.pythonPath,
       zimPath: options.zimPath,
-      webSearchUrl: options.webSearchUrl,
       zotero: options.zotero,
     });
     this.connectModule = options.connect ?? connectReferenceLibrary;
@@ -153,7 +144,6 @@ async function connectReferenceLibrary(
 ): Promise<ReferenceLibraryConnection> {
   const args = ["-I", "-B", "-u", "-m", "swarmx.ref.server"];
   if (launch.zimPath) args.push("--zim", launch.zimPath);
-  if (launch.webSearchUrl) args.push("--web-search-url", launch.webSearchUrl);
   if (launch.zotero) args.push("--zotero");
   args.push("--stdio");
   const transport = new StdioClientTransport({
@@ -190,22 +180,6 @@ async function connectReferenceLibrary(
       await Promise.allSettled([client.close(), transport.close()]);
     },
   };
-}
-
-function validWebSearchUrl(value: string): boolean {
-  try {
-    const url = new URL(value);
-    const loopback = ["127.0.0.1", "localhost", "[::1]"].includes(url.hostname);
-    return (
-      !url.username &&
-      !url.password &&
-      !url.search &&
-      !url.hash &&
-      (url.protocol === "https:" || (url.protocol === "http:" && loopback))
-    );
-  } catch {
-    return false;
-  }
 }
 
 function exactStructuredContent(result: ReferenceToolCallResult): unknown {

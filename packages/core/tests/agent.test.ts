@@ -1228,7 +1228,7 @@ describe("Agent", () => {
     expect(result.messages.some((chunk) => chunk.kind === "tool_progress")).toBe(false);
   });
 
-  it("executes Codex Responses with SwarmX context and stateless encrypted continuation", async () => {
+  it("executes Codex Responses with hosted Web Search and stateless encrypted continuation", async () => {
     const accessToken = fakeJwt({
       "https://api.openai.com/auth": { chatgpt_account_id: "account-123" },
     });
@@ -1248,6 +1248,12 @@ describe("Agent", () => {
           status: "completed",
           error: null,
           output: [
+            {
+              id: "ws_codex_1",
+              type: "web_search_call",
+              status: "completed",
+              action: { type: "search", query: "Shanghai weather" },
+            },
             {
               id: "reason_1",
               type: "reasoning",
@@ -1299,7 +1305,10 @@ describe("Agent", () => {
     });
     expect(create.mock.calls[0]?.[0]).toMatchObject({
       model: "gpt-5.4",
-      instructions: "Use only the SwarmX agent instructions.",
+      instructions: expect.stringContaining(
+        "Use provider-hosted web_search when current Web information is needed",
+      ),
+      tools: expect.arrayContaining([{ type: "web_search" }]),
       store: false,
       include: ["reasoning.encrypted_content"],
       reasoning: { summary: "auto" },
@@ -1310,6 +1319,12 @@ describe("Agent", () => {
     const replayInput = create.mock.calls[1]?.[0]?.input;
     expect(replayInput).toEqual(
       expect.arrayContaining([
+        {
+          id: "ws_codex_1",
+          type: "web_search_call",
+          status: "completed",
+          action: { type: "search", query: "Shanghai weather" },
+        },
         {
           type: "reasoning",
           encrypted_content: "encrypted-state",
@@ -1337,6 +1352,20 @@ describe("Agent", () => {
     );
     expect(result.messages).toContainEqual(
       expect.objectContaining({ kind: "message", content: "It is sunny." }),
+    );
+    expect(result.messages).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "tool_call",
+          toolName: "web_search",
+          render: { invocationId: "ws_codex_1", status: "running" },
+        }),
+        expect.objectContaining({
+          kind: "tool_result",
+          toolName: "web_search",
+          render: { invocationId: "ws_codex_1", status: "succeeded" },
+        }),
+      ]),
     );
   });
 
@@ -1493,6 +1522,419 @@ describe("Agent", () => {
         expect.objectContaining({ kind: "message", content: "It is cloudy." }),
       ]),
     );
+  });
+
+  it("continues Anthropic pause_turn with the complete assistant content", async () => {
+    const agent = new Agent({
+      name: "anthropic_pause_turn_agent",
+      model: "deepseek-v4-pro",
+      client: { apiProtocol: "anthropic" },
+      process: {
+        env: {
+          ANTHROPIC_AUTH_TOKEN: "scoped-token",
+          ANTHROPIC_BASE_URL: "https://api.deepseek.com/anthropic/",
+        },
+      },
+    });
+    const pausedContent = [
+      {
+        type: "server_tool_use",
+        id: "srvtoolu_pause_1",
+        name: "web_search",
+        input: { query: "latest Rust release" },
+      },
+      {
+        type: "web_search_tool_result",
+        tool_use_id: "srvtoolu_pause_1",
+        content: [
+          {
+            type: "web_search_result",
+            url: "https://example.com/rust",
+            title: "Rust release",
+            encrypted_content: "opaque",
+            page_age: null,
+          },
+        ],
+      },
+    ];
+    const create = vi
+      .fn()
+      .mockResolvedValueOnce({
+        id: "msg_pause_1",
+        type: "message",
+        role: "assistant",
+        model: "deepseek-v4-pro",
+        stop_reason: "pause_turn",
+        stop_sequence: null,
+        usage: {},
+        content: pausedContent,
+      })
+      .mockResolvedValueOnce({
+        id: "msg_pause_2",
+        type: "message",
+        role: "assistant",
+        model: "deepseek-v4-pro",
+        stop_reason: "end_turn",
+        stop_sequence: null,
+        usage: {},
+        content: [{ type: "text", text: "Rust is current." }],
+      });
+    Object.defineProperty(agent.anthropicClient.messages, "create", { value: create });
+
+    const result = await agent.call({
+      messages: [{ role: "user", content: "Search for the latest Rust release." }],
+    });
+
+    expect(create).toHaveBeenCalledTimes(2);
+    expect(create.mock.calls[1]?.[0]?.messages).toEqual([
+      { role: "user", content: "Search for the latest Rust release." },
+      { role: "assistant", content: pausedContent },
+    ]);
+    expect(create.mock.calls[1]?.[0]?.tools).toEqual(create.mock.calls[0]?.[0]?.tools);
+    expect(result.messages).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "tool_call",
+          toolName: "web_search",
+          render: { invocationId: "srvtoolu_pause_1", status: "running" },
+        }),
+        expect.objectContaining({
+          kind: "tool_result",
+          toolName: "web_search",
+          render: { invocationId: "srvtoolu_pause_1", status: "succeeded" },
+        }),
+        expect.objectContaining({ kind: "message", content: "Rust is current." }),
+      ]),
+    );
+  });
+
+  it.each([
+    ["DeepSeek", "deepseek-v4-flash", "https://api.deepseek.com"],
+    ["OpenAI", "gpt-5.6-sol", "https://api.openai.com/v1"],
+  ])(
+    "exposes %s Responses Web Search alongside configured local references",
+    async (_provider, model, baseUrl) => {
+      const agent = new Agent({
+        name: "responses_reference_agent",
+        model,
+        instructions: "Use configured references when needed.",
+        client: { apiProtocol: "openai_responses", apiKey: "scoped-key", baseUrl },
+      });
+      const callTool = vi.fn();
+      const referenceTool = nativeFunctionTool("ReferenceLibrary", "Local references");
+      Object.defineProperty(agent, "mcp", {
+        configurable: true,
+        writable: true,
+        value: {
+          toolsForOpenai: () => [referenceTool],
+          toolsForNative: () => [referenceTool],
+          callTool,
+          close: vi.fn().mockResolvedValue(undefined),
+        },
+      });
+      const response = {
+        id: "resp_web_search",
+        status: "completed",
+        error: null,
+        output: [
+          {
+            id: "ws_1",
+            type: "web_search_call",
+            status: "completed",
+            action: { type: "search", query: "latest Rust tutorial" },
+          },
+          {
+            id: "msg_web_search",
+            type: "message",
+            role: "assistant",
+            status: "completed",
+            content: [
+              { type: "output_text", text: "Use the official Rust tutorial.", annotations: [] },
+            ],
+          },
+        ],
+      };
+      const create = vi.fn().mockResolvedValue(openAIResponseStream(response));
+      Object.defineProperty(agent.client.responses, "create", { value: create });
+      const streamed: MessageChunk[] = [];
+
+      const result = await agent.callStream(
+        { messages: [{ role: "user", content: "Search the Web for a Rust tutorial." }] },
+        (chunk) => streamed.push(chunk),
+      );
+
+      expect(create.mock.calls[0]?.[0]).toMatchObject({
+        instructions: expect.stringContaining(
+          "Use provider-hosted web_search when current Web information is needed",
+        ),
+        tools: [
+          { type: "web_search" },
+          {
+            type: "function",
+            name: "ReferenceLibrary",
+            description: "Local references",
+            parameters: { type: "object" },
+            strict: false,
+          },
+        ],
+      });
+      expect(callTool).not.toHaveBeenCalled();
+      expect(streamed).toEqual([
+        expect.objectContaining({
+          kind: "tool_call",
+          toolName: "web_search",
+          content: JSON.stringify({ type: "search", query: "latest Rust tutorial" }),
+          render: { invocationId: "ws_1", status: "running" },
+        }),
+        expect.objectContaining({
+          kind: "tool_result",
+          toolName: "web_search",
+          content: "Provider-hosted Web Search completed.",
+          render: { invocationId: "ws_1", status: "succeeded" },
+        }),
+      ]);
+      expect(result.messages).toContainEqual(
+        expect.objectContaining({ kind: "message", content: "Use the official Rust tutorial." }),
+      );
+    },
+  );
+
+  it("enables DeepSeek Responses Web Search without a local Web service", async () => {
+    const agent = new Agent({
+      name: "deepseek_hosted_search_agent",
+      model: "deepseek-v4-flash",
+      client: {
+        apiProtocol: "openai_responses",
+        apiKey: "scoped-key",
+        baseUrl: "https://api.deepseek.com",
+      },
+    });
+    const create = vi.fn().mockResolvedValue({
+      id: "resp_hosted_only",
+      status: "completed",
+      error: null,
+      output: [
+        {
+          id: "msg_hosted_only",
+          type: "message",
+          role: "assistant",
+          status: "completed",
+          content: [{ type: "output_text", text: "Hosted result.", annotations: [] }],
+        },
+      ],
+    });
+    Object.defineProperty(agent.client.responses, "create", { value: create });
+
+    await agent.call({ messages: [{ role: "user", content: "Search the Web." }] });
+
+    expect(create.mock.calls[0]?.[0]).toMatchObject({
+      instructions: expect.stringContaining("Use provider-hosted web_search"),
+      tools: [{ type: "web_search" }],
+    });
+  });
+
+  it("retains DeepSeek Anthropic server Web Search when Responses is unavailable", async () => {
+    const agent = new Agent({
+      name: "deepseek_reference_agent",
+      model: "deepseek-v4-pro",
+      instructions: "Use configured references when needed.",
+      client: { apiProtocol: "anthropic" },
+      process: {
+        env: {
+          ANTHROPIC_AUTH_TOKEN: "scoped-token",
+          ANTHROPIC_BASE_URL: "https://api.deepseek.com/anthropic/",
+        },
+      },
+    });
+    const callTool = vi.fn();
+    const referenceTool = nativeFunctionTool("ReferenceLibrary", "Local references");
+    Object.defineProperty(agent, "mcp", {
+      configurable: true,
+      writable: true,
+      value: {
+        toolsForOpenai: () => [referenceTool],
+        toolsForNative: () => [referenceTool],
+        callTool,
+        close: vi.fn().mockResolvedValue(undefined),
+      },
+    });
+    const finalMessage = {
+      id: "msg_web_search",
+      type: "message",
+      role: "assistant",
+      model: "deepseek-v4-pro",
+      stop_reason: "end_turn",
+      stop_sequence: null,
+      usage: {},
+      content: [
+        {
+          type: "server_tool_use",
+          id: "srvtoolu_1",
+          name: "web_search",
+          input: { query: "latest Rust tutorial" },
+        },
+        {
+          type: "web_search_tool_result",
+          tool_use_id: "srvtoolu_1",
+          content: [
+            {
+              type: "web_search_result",
+              url: "https://example.com/rust",
+              title: "Rust tutorial",
+              encrypted_content: "opaque",
+              page_age: null,
+            },
+          ],
+        },
+        { type: "text", text: "Use the official Rust tutorial." },
+      ],
+    };
+    const stream = {
+      async *[Symbol.asyncIterator]() {},
+      finalMessage: vi.fn().mockResolvedValue(finalMessage),
+    };
+    const createStream = vi.fn().mockReturnValue(stream);
+    Object.defineProperty(agent.anthropicClient.messages, "stream", { value: createStream });
+    const streamed: MessageChunk[] = [];
+
+    const result = await agent.callStream(
+      { messages: [{ role: "user", content: "Search the Web for a Rust tutorial." }] },
+      (chunk) => streamed.push(chunk),
+    );
+
+    expect(createStream.mock.calls[0]?.[0]).toMatchObject({
+      system: expect.stringContaining(
+        "Use provider-hosted web_search when current Web information is needed",
+      ),
+      tools: [
+        { type: "web_search_20250305", name: "web_search", max_uses: 5 },
+        {
+          name: "ReferenceLibrary",
+          description: "Local references",
+          input_schema: { type: "object" },
+        },
+      ],
+    });
+    expect(callTool).not.toHaveBeenCalled();
+    expect(streamed).toEqual([
+      expect.objectContaining({
+        kind: "tool_call",
+        toolName: "web_search",
+        render: { invocationId: "srvtoolu_1", status: "running" },
+      }),
+      expect.objectContaining({
+        kind: "tool_result",
+        toolName: "web_search",
+        content: "Provider-hosted Web Search completed.",
+        render: { invocationId: "srvtoolu_1", status: "succeeded" },
+      }),
+    ]);
+    expect(result.messages).toContainEqual(
+      expect.objectContaining({ kind: "message", content: "Use the official Rust tutorial." }),
+    );
+  });
+
+  it.each([
+    "https://gateway.example/anthropic",
+    "https://api.deepseek.com.example/anthropic",
+    "http://api.deepseek.com/anthropic",
+  ])("does not enable DeepSeek server Web Search for non-official endpoint %s", async (baseUrl) => {
+    const agent = new Agent({
+      name: "non_official_deepseek_agent",
+      model: "deepseek-v4-pro",
+      client: { apiProtocol: "anthropic" },
+      process: {
+        env: {
+          ANTHROPIC_AUTH_TOKEN: "scoped-token",
+          ANTHROPIC_BASE_URL: baseUrl,
+        },
+      },
+    });
+    const referenceTool = nativeFunctionTool("ReferenceLibrary", "Local references");
+    Object.defineProperty(agent, "mcp", {
+      configurable: true,
+      writable: true,
+      value: {
+        toolsForOpenai: () => [referenceTool],
+        toolsForNative: () => [referenceTool],
+        callTool: vi.fn(),
+        close: vi.fn().mockResolvedValue(undefined),
+      },
+    });
+    const create = vi.fn().mockResolvedValue({
+      id: "msg_no_native_search",
+      type: "message",
+      role: "assistant",
+      model: "deepseek-v4-pro",
+      stop_reason: "end_turn",
+      stop_sequence: null,
+      usage: {},
+      content: [{ type: "text", text: "No native search." }],
+    });
+    Object.defineProperty(agent.anthropicClient.messages, "create", { value: create });
+
+    await agent.call({ messages: [{ role: "user", content: "Search the Web." }] });
+
+    expect(create.mock.calls[0]?.[0]?.tools).toEqual([
+      {
+        name: "ReferenceLibrary",
+        description: "Local references",
+        input_schema: { type: "object" },
+      },
+    ]);
+    expect(create.mock.calls[0]?.[0]?.system).toBeUndefined();
+  });
+
+  it.each([
+    "https://gateway.example/v1",
+    "https://api.openai.com.example/v1",
+    "https://api.deepseek.com.evil.test",
+    "http://api.deepseek.com",
+  ])("does not enable Responses Web Search for non-official endpoint %s", async (baseUrl) => {
+    const agent = new Agent({
+      name: "non_official_responses_agent",
+      model: "deepseek-v4-flash",
+      client: { apiProtocol: "openai_responses", apiKey: "scoped-key", baseUrl },
+    });
+    const referenceTool = nativeFunctionTool("ReferenceLibrary", "Local references");
+    Object.defineProperty(agent, "mcp", {
+      configurable: true,
+      writable: true,
+      value: {
+        toolsForOpenai: () => [referenceTool],
+        toolsForNative: () => [referenceTool],
+        callTool: vi.fn(),
+        close: vi.fn().mockResolvedValue(undefined),
+      },
+    });
+    const create = vi.fn().mockResolvedValue({
+      id: "resp_no_hosted_search",
+      status: "completed",
+      error: null,
+      output: [
+        {
+          id: "msg_no_hosted_search",
+          type: "message",
+          role: "assistant",
+          status: "completed",
+          content: [{ type: "output_text", text: "No hosted search.", annotations: [] }],
+        },
+      ],
+    });
+    Object.defineProperty(agent.client.responses, "create", { value: create });
+
+    await agent.call({ messages: [{ role: "user", content: "Search the Web." }] });
+
+    expect(create.mock.calls[0]?.[0]?.tools).toEqual([
+      {
+        type: "function",
+        name: "ReferenceLibrary",
+        description: "Local references",
+        parameters: { type: "object" },
+        strict: false,
+      },
+    ]);
+    expect(create.mock.calls[0]?.[0]?.instructions).toBeUndefined();
   });
 
   it("streams typed OpenAI Responses events without Chat conversion", async () => {
@@ -1713,11 +2155,11 @@ describe("Agent", () => {
 
       await agent.call({ messages: [{ role: "user", content: "List issues" }] });
 
-      const firstNames = create.mock.calls[0]?.[0]?.tools.map(
-        (tool: { name: string }) => tool.name,
+      const firstNames = create.mock.calls[0]?.[0]?.tools.flatMap((tool: { name?: string }) =>
+        tool.name ? [tool.name] : [],
       );
-      const secondNames = create.mock.calls[1]?.[0]?.tools.map(
-        (tool: { name: string }) => tool.name,
+      const secondNames = create.mock.calls[1]?.[0]?.tools.flatMap((tool: { name?: string }) =>
+        tool.name ? [tool.name] : [],
       );
       expect(firstNames).toEqual(["ToolSearch"]);
       expect(secondNames).toEqual(["ToolSearch", "mcp__github__list_issues"]);
@@ -1841,11 +2283,11 @@ describe("Agent", () => {
 
     expect(connectServer).toHaveBeenCalledTimes(1);
     expect(create).toHaveBeenCalledTimes(1);
-    expect(create.mock.calls[0]?.[0]?.tools.map((tool: { name: string }) => tool.name)).toEqual([
-      "Bash",
-      "ToolSearch",
-      "WaitForMcpServers",
-    ]);
+    expect(
+      create.mock.calls[0]?.[0]?.tools.flatMap((tool: { name?: string }) =>
+        tool.name ? [tool.name] : [],
+      ),
+    ).toEqual(["Bash", "ToolSearch", "WaitForMcpServers"]);
   });
 
   it.each(["anthropic", "openai_responses"] as const)(

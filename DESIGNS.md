@@ -203,13 +203,27 @@ The first modules are:
   grant-checked `model.generate` calls to the host capability gateway.
 - `swarmx-ref`, a locked Python MCP server with the single private
   `swarmx_reference` tool. It exposes bounded `status`, `search`, and `get`
-  operations over explicitly configured ZIM, Web Search, and Zotero sources.
-  ZIM uses the official `python-libzim` binding. Web Search uses one configured
-  SearXNG JSON endpoint, sends queries only under explicit `source: "web"`, and
-  returns cached result snippets instead of fetching arbitrary result URLs.
+  operations over explicitly configured ZIM and Zotero sources. ZIM uses the
+  official `python-libzim` binding.
   Zotero uses only the fixed unauthenticated loopback read API and excludes
   attachments and full text. The module strips active HTML, never mutates a
   source, and has no path-scanning or Memory authority.
+
+Provider-hosted Web Search is composed above that private module. When a direct
+Agent has credentials for an exact official DeepSeek, OpenAI API, or Codex
+Responses endpoint, the native Responses adapter supplies the server-side
+`web_search` tool. Responses continuation preserves the opaque hosted-search
+item, and each observed hosted invocation is projected as correlated
+`tool_call` and `tool_result` events for the Session, activity, and audit paths.
+An Anthropic `pause_turn` response is continued with its complete assistant
+content and the same tool definitions, without a synthesized user tool-result
+message. DeepSeek's official Anthropic endpoint retains its versioned server
+tool for models that do not support Responses. The Provider credential remains
+inside the Agent request boundary and is never passed to `swarmx-ref`. Endpoint
+and protocol matching are strict so a proxy, bridge, lookalike host, or ordinary
+Chat Completions route cannot silently gain hosted search behavior. Official
+DeepSeek discovery exposes Responses only for models documented to support that
+protocol. SwarmX does not provide a local or generic Web Search fallback.
 
 Python is one standard root `swarmx` distribution with a regular
 `src/swarmx/__init__.py` package. The worker and the `rsi` and `ref` private MCP

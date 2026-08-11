@@ -7,12 +7,15 @@ import type {
   Tool,
   ToolResultBlockParam,
   ToolUseBlock,
+  WebSearchToolResultBlockContent,
+  WebSearchToolResultError,
 } from "@anthropic-ai/sdk/resources/messages/messages";
 import type OpenAI from "openai";
 import type {
   Response,
   ResponseCustomToolCall,
   ResponseFunctionToolCall,
+  ResponseFunctionWebSearch,
   ResponseInputItem,
   ResponseOutputItem,
   ResponseReasoningItem,
@@ -36,6 +39,12 @@ import type { MediaAttachment, MessageChunk, ModelTokenUsage } from "./types.js"
 import { ModelTokenUsageSchema } from "./types.js";
 
 const MAX_TOOL_STEPS = 20;
+const MAX_PROVIDER_WEB_SEARCH_USES = 5;
+const PROVIDER_HOSTED_WEB_SEARCH_INSTRUCTIONS = [
+  "Web Search routing:",
+  "Use provider-hosted web_search when current Web information is needed.",
+  "Do not use provider-hosted web_search for an offline ZIM or Zotero request.",
+].join(" ");
 const OPENAI_RESPONSES_EFFORTS = new Set([
   "none",
   "minimal",
@@ -56,6 +65,7 @@ export interface NativeProtocolContext {
   apiMode: ModelApiMode;
   openai: OpenAI;
   anthropic: Anthropic;
+  providerHostedWebSearch: boolean;
   tools: NativeLocalToolDefinition[] | (() => NativeLocalToolDefinition[]);
   callTool(
     name: string,
@@ -72,15 +82,20 @@ export async function callOpenAIResponses(
 ): Promise<{ messages: MessageChunk[] }> {
   const input = await responseInput(arguments_);
   const reasoning = responseReasoning(context.parameters, context.apiMode);
+  const instructions = context.providerHostedWebSearch
+    ? [context.instructions.trim(), PROVIDER_HOSTED_WEB_SEARCH_INSTRUCTIONS]
+        .filter(Boolean)
+        .join("\n\n")
+    : context.instructions;
   const allChunks: MessageChunk[] = [];
 
   for (let step = 0; step < MAX_TOOL_STEPS; step++) {
     throwIfCurrentRequestCancelled();
-    const tools = responseTools(currentNativeTools(context.tools));
+    const tools = responseTools(currentNativeTools(context.tools), context.providerHostedWebSearch);
     const request = {
       model: context.model,
       input,
-      ...(context.instructions.trim() ? { instructions: context.instructions } : {}),
+      ...(instructions.trim() ? { instructions } : {}),
       ...(reasoning ? { reasoning } : {}),
       ...(tools.length > 0 ? { tools } : {}),
       ...(context.apiMode === "codex_responses"
@@ -101,6 +116,7 @@ export async function callOpenAIResponses(
     throwIfCurrentRequestCancelled();
 
     const responseChunks = responseChunksFromOutput(context.agentName, response.output);
+    emitProviderHostedWebSearchChunks(responseChunks, onChunk);
     reportOpenAIResponsesUsage(context, response);
     const stepChunks =
       responseChunks.length > 0
@@ -166,14 +182,22 @@ export async function callAnthropicMessages(
   arguments_: Record<string, unknown>,
   onChunk?: (chunk: MessageChunk) => void,
 ): Promise<{ messages: MessageChunk[] }> {
-  const built = await anthropicInput(context.instructions, arguments_);
+  const instructions = context.providerHostedWebSearch
+    ? [context.instructions.trim(), PROVIDER_HOSTED_WEB_SEARCH_INSTRUCTIONS]
+        .filter(Boolean)
+        .join("\n\n")
+    : context.instructions;
+  const built = await anthropicInput(instructions, arguments_);
   const messages = built.messages;
   const outputConfig = anthropicOutputConfig(context.parameters);
   const allChunks: MessageChunk[] = [];
 
   for (let step = 0; step < MAX_TOOL_STEPS; step++) {
     throwIfCurrentRequestCancelled();
-    const tools = anthropicTools(currentNativeTools(context.tools));
+    const tools = anthropicTools(
+      currentNativeTools(context.tools),
+      context.providerHostedWebSearch,
+    );
     const request: MessageCreateParamsBase = {
       model: context.model,
       max_tokens: context.maxOutputTokens,
@@ -188,7 +212,16 @@ export async function callAnthropicMessages(
     throwIfCurrentRequestCancelled();
     reportAnthropicUsage(context, response);
 
-    allChunks.push(...anthropicResponseChunks(context.agentName, response));
+    const responseChunks = anthropicResponseChunks(context.agentName, response);
+    emitProviderHostedWebSearchChunks(responseChunks, onChunk);
+    allChunks.push(...responseChunks);
+    if (response.stop_reason === "pause_turn") {
+      messages.push({
+        role: "assistant",
+        content: response.content as unknown as ContentBlockParam[],
+      });
+      continue;
+    }
     const toolCalls = response.content.filter(isAnthropicToolUse);
     if (toolCalls.length === 0) break;
 
@@ -478,32 +511,52 @@ function currentNativeTools(tools: NativeProtocolContext["tools"]): NativeLocalT
   return typeof tools === "function" ? tools() : tools;
 }
 
-function responseTools(tools: NativeLocalToolDefinition[]): ResponseTool[] {
-  return tools.map((tool): ResponseTool => {
-    if (tool.type === "custom") {
+function responseTools(
+  tools: NativeLocalToolDefinition[],
+  providerHostedWebSearch: boolean,
+): ResponseTool[] {
+  return [
+    ...(providerHostedWebSearch ? [{ type: "web_search" as const }] : []),
+    ...tools.map((tool): ResponseTool => {
+      if (tool.type === "custom") {
+        return {
+          type: "custom",
+          name: tool.name,
+          description: tool.description,
+          ...(tool.format ? { format: tool.format } : {}),
+        } as ResponseTool;
+      }
       return {
-        type: "custom",
-        name: tool.name,
-        description: tool.description,
-        ...(tool.format ? { format: tool.format } : {}),
-      } as ResponseTool;
-    }
-    return {
-      type: "function",
-      name: tool.function.name,
-      description: tool.function.description,
-      parameters: tool.function.parameters,
-      strict: false,
-    };
-  });
+        type: "function",
+        name: tool.function.name,
+        description: tool.function.description,
+        parameters: tool.function.parameters,
+        strict: false,
+      };
+    }),
+  ];
 }
 
-function anthropicTools(tools: NativeLocalToolDefinition[]): Tool[] {
-  return tools.filter(isNativeFunctionTool).map((tool) => ({
-    name: tool.function.name,
-    description: tool.function.description,
-    input_schema: tool.function.parameters as Tool.InputSchema,
-  }));
+function anthropicTools(
+  tools: NativeLocalToolDefinition[],
+  providerHostedWebSearch: boolean,
+): NonNullable<MessageCreateParamsBase["tools"]> {
+  return [
+    ...(providerHostedWebSearch
+      ? [
+          {
+            type: "web_search_20250305" as const,
+            name: "web_search" as const,
+            max_uses: MAX_PROVIDER_WEB_SEARCH_USES,
+          },
+        ]
+      : []),
+    ...tools.filter(isNativeFunctionTool).map((tool) => ({
+      name: tool.function.name,
+      description: tool.function.description,
+      input_schema: tool.function.parameters as Tool.InputSchema,
+    })),
+  ];
 }
 
 function responseReasoning(
@@ -559,6 +612,9 @@ function responseChunksFromOutput(agentName: string, output: ResponseOutputItem[
       const text = reasoningText(item);
       return text ? [thinkingChunk(agentName, text)] : [];
     }
+    if (item.type === "web_search_call") {
+      return providerHostedWebSearchChunks(agentName, item);
+    }
     return [];
   });
 }
@@ -569,8 +625,65 @@ function anthropicResponseChunks(agentName: string, response: Message): MessageC
     if (block.type === "thinking" && block.thinking) {
       return [thinkingChunk(agentName, block.thinking)];
     }
+    if (block.type === "server_tool_use" && block.name === "web_search") {
+      return [toolCallMessage(agentName, "web_search", jsonString(block.input), block.id)];
+    }
+    if (block.type === "web_search_tool_result") {
+      const error = isAnthropicWebSearchError(block.content) ? block.content : undefined;
+      const failed = error !== undefined;
+      return [
+        toolResultMessage(
+          agentName,
+          "web_search",
+          failed ? "Provider-hosted Web Search failed." : "Provider-hosted Web Search completed.",
+          {
+            providerHosted: true,
+            status: failed ? "failed" : "completed",
+            ...(error ? { errorCode: error.error_code } : {}),
+          },
+          failed,
+          block.tool_use_id,
+        ),
+      ];
+    }
     return [];
   });
+}
+
+function providerHostedWebSearchChunks(
+  agentName: string,
+  item: ResponseFunctionWebSearch,
+): MessageChunk[] {
+  const toolCall = toolCallMessage(agentName, "web_search", JSON.stringify(item.action), item.id);
+  if (item.status === "in_progress" || item.status === "searching") return [toolCall];
+
+  const failed = item.status === "failed";
+  return [
+    toolCall,
+    toolResultMessage(
+      agentName,
+      "web_search",
+      failed ? "Provider-hosted Web Search failed." : "Provider-hosted Web Search completed.",
+      { providerHosted: true, status: item.status },
+      failed,
+      item.id,
+    ),
+  ];
+}
+
+function emitProviderHostedWebSearchChunks(
+  chunks: MessageChunk[],
+  onChunk?: (chunk: MessageChunk) => void,
+): void {
+  if (!onChunk) return;
+  for (const chunk of chunks) {
+    if (
+      (chunk.kind === "tool_call" || chunk.kind === "tool_result") &&
+      chunk.toolName === "web_search"
+    ) {
+      onChunk(chunk);
+    }
+  }
 }
 
 function reasoningText(item: ResponseReasoningItem): string {
@@ -739,6 +852,9 @@ function responseReplayItems(
     if (item.type === "custom_tool_call") {
       return [item as unknown as ResponseInputItem];
     }
+    if (item.type === "web_search_call") {
+      return [item as unknown as ResponseInputItem];
+    }
     if (item.type === "message") {
       const content = item.content
         .flatMap((part) =>
@@ -754,6 +870,12 @@ function responseReplayItems(
 
 function isAnthropicToolUse(block: Message["content"][number]): block is ToolUseBlock {
   return block.type === "tool_use";
+}
+
+function isAnthropicWebSearchError(
+  content: WebSearchToolResultBlockContent,
+): content is WebSearchToolResultError {
+  return !Array.isArray(content);
 }
 
 function messageChunk(agent: string, content: string): MessageChunk {
