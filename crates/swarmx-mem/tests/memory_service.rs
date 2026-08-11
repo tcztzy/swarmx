@@ -52,6 +52,30 @@ fn persists_crud_search_and_recoverable_versions_in_markdown_git() {
         .expect("update version")
         .to_owned();
 
+    drop(service);
+    let mut service = MemoryService::open(root.path()).expect("reopen persisted memory");
+    let reopened = ok(service.handle(json!({
+        "protocolVersion": PROTOCOL_VERSION,
+        "operation": "get",
+        "id": id
+    })));
+    assert_eq!(reopened["page"]["revision"], 2);
+    assert_eq!(reopened["page"]["content"], "Uses versioned [[Memory]].");
+    let reopened_search = ok(service.handle(json!({
+        "protocolVersion": PROTOCOL_VERSION,
+        "operation": "search",
+        "query": "versioned",
+        "limit": 10
+    })));
+    assert_eq!(reopened_search["pages"][0]["id"], id);
+    let reopened_history = ok(service.handle(json!({
+        "protocolVersion": PROTOCOL_VERSION,
+        "operation": "history",
+        "id": id,
+        "limit": 20
+    })));
+    assert_eq!(reopened_history["versions"].as_array().expect("history").len(), 2);
+
     let conflict = service.handle(json!({
         "protocolVersion": PROTOCOL_VERSION,
         "operation": "update",

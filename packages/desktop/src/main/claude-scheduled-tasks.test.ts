@@ -16,7 +16,7 @@ afterEach(async () => {
 });
 
 describe("ClaudeScheduledTaskStore", () => {
-  it("V432 writes the exact private Claude scheduled_tasks document", async () => {
+  it("writes the exact private Claude scheduled_tasks document", async () => {
     const root = await tempRoot();
     const store = taskStore(root, { watch: false });
     await store.start();
@@ -52,7 +52,7 @@ describe("ClaudeScheduledTaskStore", () => {
     await store.close();
   });
 
-  it("V433 treats corrupt files as empty and filters malformed or invalid tasks", async () => {
+  it("treats corrupt files as empty and filters malformed or invalid tasks", async () => {
     const root = await tempRoot();
     const store = taskStore(root, { watch: false });
     await store.start();
@@ -77,7 +77,7 @@ describe("ClaudeScheduledTaskStore", () => {
     await store.close();
   });
 
-  it("V432 rejects a .claude symlink instead of persisting outside the Project", async () => {
+  it("rejects a .claude symlink instead of persisting outside the Project", async () => {
     const root = await tempRoot();
     const outside = await tempRoot();
     await mkdir(outside, { recursive: true });
@@ -87,7 +87,7 @@ describe("ClaudeScheduledTaskStore", () => {
     await store.close();
   });
 
-  it("V433 serializes concurrent mutations without losing tasks", async () => {
+  it("serializes concurrent mutations without losing tasks", async () => {
     const root = await tempRoot();
     const store = taskStore(root, { watch: false });
     await store.start();
@@ -105,7 +105,7 @@ describe("ClaudeScheduledTaskStore", () => {
     await store.close();
   });
 
-  it("V434 preserves a live lock and recovers a stale or PID-reused lock", async () => {
+  it("preserves a live lock and recovers a stale or PID-reused lock", async () => {
     const root = await tempRoot();
     const starts = new Map<number, string>([
       [101, "owner-start"],
@@ -134,7 +134,7 @@ describe("ClaudeScheduledTaskStore", () => {
     await store.close();
   });
 
-  it("V434 notifies subscribers when another writer changes the task file", async () => {
+  it("notifies subscribers when another writer changes the task file", async () => {
     const root = await tempRoot();
     const store = taskStore(root);
     await store.start();

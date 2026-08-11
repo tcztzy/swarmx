@@ -28,7 +28,7 @@ describe("harness registry", () => {
     },
   );
 
-  it("V309 V494 launches built-in ACP adapters through pinned Node.js npx packages", () => {
+  it("launches built-in ACP adapters through pinned Node.js npx packages", () => {
     for (const harnessId of ["claude_code", "codex", "pi"]) {
       const backend = getHarness(harnessId)?.backend;
       expect(backend).toMatchObject({ type: "custom", program: "npx" });
@@ -53,7 +53,7 @@ describe("harness registry", () => {
     );
   });
 
-  it("V502 launches Kimi Code through its native ACP entrypoint", () => {
+  it("launches Kimi Code through its native ACP entrypoint", () => {
     expect(getHarness("kimi")).toMatchObject({
       label: "Kimi Code",
       modelControl: "session",

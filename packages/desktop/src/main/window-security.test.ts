@@ -13,7 +13,7 @@ import {
 const RENDERER_URL = "file:///Applications/SwarmX/renderer/index.html";
 
 describe("Desktop window security", () => {
-  it("V549 enables renderer sandboxing and ships a restrictive CSP", async () => {
+  it("enables renderer sandboxing and ships a restrictive CSP", async () => {
     expect(secureMainWindowWebPreferences("/app/preload.mjs")).toEqual({
       preload: "/app/preload.mjs",
       contextIsolation: true,
@@ -29,7 +29,7 @@ describe("Desktop window security", () => {
     expect(html).toContain(`base-uri 'none'`);
   });
 
-  it("V547 trusts only the configured renderer entry and safe external HTTP(S) URLs", () => {
+  it("trusts only the configured renderer entry and safe external HTTP(S) URLs", () => {
     expect(isTrustedRendererUrl(`${RENDERER_URL}#task-1`, RENDERER_URL)).toBe(true);
     expect(
       isTrustedRendererUrl("file:///Applications/SwarmX/renderer/other.html", RENDERER_URL),
@@ -42,7 +42,7 @@ describe("Desktop window security", () => {
     expect(isSafeExternalUrl("not a URL")).toBe(false);
   });
 
-  it("V548 authorizes only the configured main frame", () => {
+  it("authorizes only the configured main frame", () => {
     const mainFrame = { url: RENDERER_URL };
     expect(
       isTrustedRendererIpcEvent({ sender: { mainFrame }, senderFrame: mainFrame }, RENDERER_URL),
@@ -67,7 +67,7 @@ describe("Desktop window security", () => {
     ).toBe(false);
   });
 
-  it("V547 blocks navigation, redirects, popups, and webviews before opening safe links externally", async () => {
+  it("blocks navigation, redirects, popups, and webviews before opening safe links externally", async () => {
     const contents = new EventEmitter() as EventEmitter & {
       setWindowOpenHandler: ReturnType<typeof vi.fn>;
     };

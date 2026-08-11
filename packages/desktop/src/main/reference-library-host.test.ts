@@ -12,10 +12,11 @@ function connection(
 ): ReferenceLibraryConnection {
   const structuredContent = {
     operation: "search",
+    source: "zim",
     query: "SwarmX",
     mode: "full_text",
     estimatedMatches: 1,
-    matches: [{ path: "A/SwarmX", title: "SwarmX" }],
+    matches: [{ source: "zim", path: "A/SwarmX", title: "SwarmX" }],
   };
   return {
     serverInfo: () => ({ name: "swarmx-ref", version: "3.2.0" }),
@@ -33,6 +34,17 @@ describe("ReferenceLibraryHost", () => {
   it("validates absolute launch paths", () => {
     expect(() => new ReferenceLibraryHost({ pythonPath: "python", zimPath: "wiki.zim" })).toThrow();
     expect(path.isAbsolute(launch.zimPath)).toBe(true);
+    expect(
+      () =>
+        new ReferenceLibraryHost({
+          pythonPath: "/opt/swarmx/python",
+          webSearchUrl: "http://search.example.com",
+        }),
+    ).toThrow();
+    expect(() => new ReferenceLibraryHost({ pythonPath: "/opt/swarmx/python" })).toThrow();
+    expect(
+      () => new ReferenceLibraryHost({ pythonPath: "/opt/swarmx/python", zotero: true }),
+    ).not.toThrow();
   });
 
   it("verifies the exact MCP surface and result boundary", async () => {
@@ -63,5 +75,13 @@ describe("ReferenceLibraryHost", () => {
         }),
     });
     await expect(contradictory.request({ operation: "status" })).rejects.toThrow(/contradictory/);
+
+    const wrongSource = new ReferenceLibraryHost({
+      ...launch,
+      connect: async () => connection(),
+    });
+    await expect(
+      wrongSource.request({ operation: "search", source: "web", query: "SwarmX", limit: 1 }),
+    ).rejects.toThrow(/source mismatch/);
   });
 });

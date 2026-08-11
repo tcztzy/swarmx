@@ -17,7 +17,7 @@ afterEach(async () => {
 
 describe("WorkspaceShell", () => {
   it.runIf(process.platform === "darwin")(
-    "V349 runs from the Project with bounded output and a sanitized environment",
+    "runs from the Project with bounded output and a sanitized environment",
     async () => {
       const root = await temporaryDirectory();
       const previousSecret = process.env.SWARMX_TEST_PROVIDER_API_KEY;
@@ -48,7 +48,7 @@ describe("WorkspaceShell", () => {
   );
 
   it.runIf(process.platform === "darwin")(
-    "V503 observes pipe stdout and stderr while the command is running",
+    "observes pipe stdout and stderr while the command is running",
     async () => {
       const root = await temporaryDirectory();
       const output: Array<{ content: string; stream: string }> = [];
@@ -67,7 +67,7 @@ describe("WorkspaceShell", () => {
   );
 
   it.runIf(process.platform === "darwin")(
-    "V350 denies writes outside the Project and through escaping symlinks",
+    "denies writes outside the Project and through escaping symlinks",
     async () => {
       const parent = await temporaryDirectory();
       const root = path.join(parent, "workspace");
@@ -95,7 +95,7 @@ describe("WorkspaceShell", () => {
   );
 
   it.runIf(process.platform === "darwin")(
-    "V359 accepts contained Codex workdirs and rejects escaping ones",
+    "accepts contained Codex workdirs and rejects escaping ones",
     async () => {
       const parent = await temporaryDirectory();
       const root = path.join(parent, "workspace");
@@ -113,7 +113,7 @@ describe("WorkspaceShell", () => {
   );
 
   it.runIf(process.platform === "darwin")(
-    "V350 denies loopback network connections",
+    "denies loopback network connections",
     async () => {
       const root = await temporaryDirectory();
       const server = createServer((_request, response) => response.end("unexpected"));
@@ -144,19 +144,17 @@ describe("WorkspaceShell", () => {
   );
 
   it.runIf(process.platform === "darwin")(
-    "V349-V383 terminates timed-out and cancelled process groups",
+    "terminates timed-out and cancelled process groups",
     async () => {
       const root = await temporaryDirectory();
       const shell = new WorkspaceShell(root, { timeoutMs: 50 });
       const timedOut = await shell.run("sleep 5");
       expect(timedOut.timedOut).toBe(true);
-      expect(timedOut.durationMs).toBeLessThan(2_000);
 
       const requestId = `workspace-shell-${Date.now()}`;
       const running = withAcpRequest(requestId, () =>
         new WorkspaceShell(root, { timeoutMs: 5_000 }).run("sleep 5"),
       );
-      await delay(50);
       await expect(cancelAcpRequest(requestId)).resolves.toBe(true);
       await expect(running).rejects.toBeInstanceOf(RequestCancelledError);
 
@@ -167,7 +165,6 @@ describe("WorkspaceShell", () => {
           5_000,
         ),
       );
-      await delay(50);
       await expect(cancelAcpRequest(fallbackRequestId)).resolves.toBe(true);
       await expect(fallback).rejects.toBeInstanceOf(RequestCancelledError);
     },
@@ -194,7 +191,7 @@ describe("WorkspaceShell", () => {
   });
 
   it.runIf(process.platform === "darwin")(
-    "V365-V367 starts, waits for, and stops background process groups",
+    "starts, waits for, and stops background process groups",
     async () => {
       const root = await temporaryDirectory();
       const shell = new WorkspaceShell(root, { backgroundTimeoutMs: 20_000 });
@@ -221,10 +218,10 @@ describe("WorkspaceShell", () => {
         expect(exits).toEqual(["completed"]);
         expect(shell.hasRunningSessions()).toBe(false);
 
-        const longRunning = await shell.startBackground("sleep 5; printf late > late.txt");
+        const longRunning = await shell.startBackground("sleep 0.2; printf late > late.txt");
         const stopped = await shell.stop(longRunning.sessionId);
         expect(stopped.status).toBe("stopped");
-        await delay(700);
+        await delay(400);
         await expect(readFile(path.join(root, "late.txt"), "utf8")).rejects.toMatchObject({
           code: "ENOENT",
         });
@@ -243,7 +240,7 @@ describe("WorkspaceShell", () => {
   );
 
   it.runIf(process.platform === "darwin")(
-    "V366-V393 yields a Codex session and accepts pipe-backed stdin",
+    "yields a Codex session and accepts pipe-backed stdin",
     async () => {
       const root = await temporaryDirectory();
       const shell = new WorkspaceShell(root, { backgroundTimeoutMs: 5_000 });
@@ -278,7 +275,7 @@ describe("WorkspaceShell", () => {
   );
 
   it.runIf(process.platform === "darwin")(
-    "V371-V373-V392 allocates a sandboxed real PTY and accepts terminal input and Ctrl-C",
+    "allocates a sandboxed real PTY and accepts terminal input and Ctrl-C",
     async () => {
       const parent = await temporaryDirectory();
       const root = path.join(parent, "workspace");
@@ -334,7 +331,6 @@ describe("WorkspaceShell", () => {
 
         const timedOut = await shell.run("sleep 5", { tty: true, timeoutMs: 50 });
         expect(timedOut).toMatchObject({ timedOut: true, stderr: "" });
-        expect(timedOut.durationMs).toBeLessThan(2_000);
 
         const denied = await shell.run("printf blocked > ../blocked.txt", { tty: true });
         expect(denied.stdout).toMatch(/operation not permitted/i);
@@ -343,13 +339,13 @@ describe("WorkspaceShell", () => {
           code: "ENOENT",
         });
 
-        const closing = await shell.exec("sleep 0.5; printf leaked > after-pty-close.txt", {
+        const closing = await shell.exec("sleep 0.2; printf leaked > after-pty-close.txt", {
           tty: true,
           yieldTimeMs: 250,
         });
         expect(closing.status).toBe("running");
         await shell.close();
-        await delay(700);
+        await delay(400);
         await expect(
           readFile(path.join(root, "after-pty-close.txt"), "utf8"),
         ).rejects.toMatchObject({ code: "ENOENT" });

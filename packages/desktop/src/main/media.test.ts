@@ -218,7 +218,7 @@ describe("DesktopMediaService", () => {
     ).rejects.toThrow(/at most 20 files/i);
   });
 
-  it("V558 applies count and byte limits to existing plus newly imported attachments", async () => {
+  it("applies count and byte limits to existing plus newly imported attachments", async () => {
     const root = await temporaryDirectory();
     const service = new DesktopMediaService(path.join(root, "media"));
     const existing = Array.from({ length: MAX_MEDIA_ATTACHMENTS }, (_, index) => ({

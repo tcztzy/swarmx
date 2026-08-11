@@ -204,7 +204,7 @@ describe("media attachments", () => {
     await expect(loadMediaAttachment(attachment)).rejects.toThrow(/changed after it was added/i);
   });
 
-  it("V561 validates unknown native-message attachments without a trusted type assertion", () => {
+  it("validates unknown native-message attachments without a trusted type assertion", () => {
     const untrusted: readonly unknown[] = [
       {
         id: "forged",

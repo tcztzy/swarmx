@@ -66,7 +66,7 @@ describe("normalized render events", () => {
     expect(JSON.stringify(event)).not.toContain('secret"}');
   });
 
-  it("V502 normalizes request-scoped tool progress as running output", () => {
+  it("normalizes request-scoped tool progress as running output", () => {
     const event = normalizeMessageChunk(
       {
         role: "tool",
@@ -190,7 +190,7 @@ describe("normalized render events", () => {
     expect(textual.output).toEqual({ text: "Command failed with exit code 1" });
   });
 
-  it("V501 prioritizes structured exit status over ordinary output text", () => {
+  it("prioritizes structured exit status over ordinary output text", () => {
     const succeeded = normalizeMessageChunk({
       role: "tool",
       kind: "tool_result",
@@ -218,7 +218,7 @@ describe("normalized render events", () => {
     expect(failed.status).toBe("failed");
   });
 
-  it("V363 renders structured tool content instead of model-facing text", () => {
+  it("renders structured tool content instead of model-facing text", () => {
     const event = normalizeMessageChunk({
       role: "tool",
       kind: "tool_result",

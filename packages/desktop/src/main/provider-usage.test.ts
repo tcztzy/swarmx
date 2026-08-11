@@ -7,7 +7,7 @@ import {
 } from "./provider-usage.js";
 
 describe("ProviderUsageService", () => {
-  it("V484 reports OpenCode Go usage only from local key observations", async () => {
+  it("reports OpenCode Go usage only from local key observations", async () => {
     const fetch = vi.fn();
     const service = new ProviderUsageService({ fetch, includeCodex: false, now: fixedClock() });
     const openCodeGo = {
@@ -984,7 +984,7 @@ describe("ProviderUsageService", () => {
         ]),
       ).rejects.toThrow("too much output");
     } finally {
-      if (previousSecret === undefined) process.env.DEEPSEEK_API_KEY = undefined;
+      if (previousSecret === undefined) Reflect.deleteProperty(process.env, "DEEPSEEK_API_KEY");
       else process.env.DEEPSEEK_API_KEY = previousSecret;
     }
   });

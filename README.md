@@ -23,7 +23,7 @@ Open the DMG and drag SwarmX to Applications.
 
 ### npm
 
-Requires Node.js 20 or newer.
+Requires Node.js 22.13 or newer.
 
 ```shell
 npm install swarmx

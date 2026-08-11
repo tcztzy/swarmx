@@ -19,7 +19,7 @@ afterEach(async () => {
 });
 
 describe("desktop ACP Session runtime", () => {
-  it("V565 matches bindings only for the exact execution identity", () => {
+  it("matches bindings only for the exact execution identity", () => {
     const plan = {
       id: "desktop-gpt-5",
       agentId: "codex:gpt-5",
@@ -50,7 +50,7 @@ describe("desktop ACP Session runtime", () => {
     ).toBeUndefined();
   });
 
-  it("V567 recognizes only the latest canonical user turn attachments", () => {
+  it("recognizes only the latest canonical user turn attachments", () => {
     const attached = {
       messages: [
         {
@@ -94,7 +94,7 @@ describe("desktop ACP Session runtime", () => {
     expect(latestUserMessageHasAttachments(attached)).toBe(true);
   });
 
-  it("V568 isolates Codex inputs and removes the exact temporary home", async () => {
+  it("isolates Codex inputs and removes the exact temporary home", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "swarmx-acp-runtime-"));
     roots.push(root);
     const sourceHome = path.join(root, "source");
@@ -125,7 +125,7 @@ describe("desktop ACP Session runtime", () => {
     await isolated.cleanup();
   });
 
-  it("V568 removes stale crash residue before creating another temporary home", async () => {
+  it("removes stale crash residue before creating another temporary home", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "swarmx-acp-stale-"));
     roots.push(root);
     const storageRoot = path.join(root, "ephemeral");

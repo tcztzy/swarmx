@@ -16,7 +16,7 @@ afterEach(() => {
 });
 
 describe("ClaudeSessionRuntime", () => {
-  it("V424/V426 turns bounded monitor stdout into serialized session activations", async () => {
+  it("turns bounded monitor stdout into serialized session activations", async () => {
     vi.useFakeTimers();
     let runOptions: WorkspaceShellRunOptions | undefined;
     const stop = vi.fn(async () => monitorSnapshot("stopped"));
@@ -57,7 +57,7 @@ describe("ClaudeSessionRuntime", () => {
     await runtime.close();
   });
 
-  it("V427-V428 schedules recurring and one-shot prompts in local time", async () => {
+  it("schedules recurring and one-shot prompts in local time", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date(2026, 6, 17, 12, 0, 30));
     const activate = vi.fn(async () => undefined);
@@ -97,7 +97,7 @@ describe("ClaudeSessionRuntime", () => {
     await runtime.close();
   });
 
-  it("V428 rejects invalid, impossible, and excess schedules", async () => {
+  it("rejects invalid, impossible, and excess schedules", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date(2026, 0, 1));
     const runtime = new ClaudeSessionRuntime("/tmp/project", {
@@ -138,7 +138,7 @@ describe("ClaudeSessionRuntime", () => {
     await runtime.close();
   });
 
-  it("V432/V437 persists, lists, and deletes a durable job", async () => {
+  it("persists, lists, and deletes a durable job", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date(2026, 6, 17, 12, 0, 30));
     const root = await mkdtemp(path.join(os.tmpdir(), "swarmx-durable-cron-"));
@@ -177,7 +177,7 @@ describe("ClaudeSessionRuntime", () => {
     await rm(root, { recursive: true, force: true });
   });
 
-  it("V436 removes a missed durable one-shot and asks before executing it", async () => {
+  it("removes a missed durable one-shot and asks before executing it", async () => {
     vi.useFakeTimers();
     const now = new Date(2026, 6, 17, 12, 5, 0).getTime();
     vi.setSystemTime(now);
@@ -211,7 +211,7 @@ describe("ClaudeSessionRuntime", () => {
     await rm(root, { recursive: true, force: true });
   });
 
-  it("V436 keeps an old durable one-shot whose first occurrence is still future", async () => {
+  it("keeps an old durable one-shot whose first occurrence is still future", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date(2026, 6, 17, 12, 0, 0));
     const root = await mkdtemp(path.join(os.tmpdir(), "swarmx-future-cron-"));
@@ -240,7 +240,7 @@ describe("ClaudeSessionRuntime", () => {
     await rm(root, { recursive: true, force: true });
   });
 
-  it("V436 persists recurring lastFiredAt before activating", async () => {
+  it("persists recurring lastFiredAt before activating", async () => {
     vi.useFakeTimers();
     const now = new Date(2026, 6, 17, 12, 2, 0).getTime();
     vi.setSystemTime(now);
@@ -275,7 +275,7 @@ describe("ClaudeSessionRuntime", () => {
     await rm(root, { recursive: true, force: true });
   });
 
-  it("V435 lets a live creator fire once without duplicate lock-owner execution", async () => {
+  it("lets a live creator fire once without duplicate lock-owner execution", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date(2026, 6, 17, 12, 0, 30));
     const root = await mkdtemp(path.join(os.tmpdir(), "swarmx-multisession-cron-"));
@@ -323,7 +323,7 @@ describe("ClaudeSessionRuntime", () => {
     await rm(root, { recursive: true, force: true });
   });
 
-  it("V435 lets the lock owner adopt a durable task after its creator session closes", async () => {
+  it("lets the lock owner adopt a durable task after its creator session closes", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date(2026, 6, 17, 12, 0, 30));
     const root = await mkdtemp(path.join(os.tmpdir(), "swarmx-orphan-cron-"));
@@ -369,7 +369,7 @@ describe("ClaudeSessionRuntime", () => {
     await rm(root, { recursive: true, force: true });
   });
 
-  it("V428 parses lists, ranges, steps, aliases, Sunday 7, and Vixie day OR semantics", () => {
+  it("parses lists, ranges, steps, aliases, Sunday 7, and Vixie day OR semantics", () => {
     const parsed = parseCronExpression("*/15 9-10 1,15 jan,mar 0,7");
     expect(cronExpressionMatches(parsed, new Date(2026, 0, 1, 9, 15))).toBe(true);
     expect(cronExpressionMatches(parsed, new Date(2026, 2, 15, 10, 30))).toBe(true);
@@ -385,7 +385,7 @@ describe("ClaudeSessionRuntime", () => {
     ).toBe(true);
   });
 
-  it("V424 replaces a session runtime when its Project root changes", async () => {
+  it("replaces a session runtime when its Project root changes", async () => {
     const parent = await mkdtemp(path.join(os.tmpdir(), "swarmx-runtime-registry-"));
     const projectA = path.join(parent, "project-a");
     const projectB = path.join(parent, "project-b");

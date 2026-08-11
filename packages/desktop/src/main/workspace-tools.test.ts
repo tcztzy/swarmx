@@ -32,7 +32,7 @@ afterEach(async () => {
 });
 
 describe("WorkspaceTools", () => {
-  it("V444-V447 enforces direct tool policy and one-call desktop approval", async () => {
+  it("enforces direct tool policy and one-call desktop approval", async () => {
     const root = await temporaryDirectory();
     const withoutBridge = workspaceAgentTools(new WorkspaceTools(root), undefined, {
       model: "claude-sonnet-4-6",
@@ -213,7 +213,7 @@ describe("WorkspaceTools", () => {
     });
   });
 
-  it("V356-V357 selects model-trained Project tool profiles", async () => {
+  it("selects model-trained Project tool profiles", async () => {
     const root = await temporaryDirectory();
     await writeFile(path.join(root, "README.md"), "# Workspace fixture\n");
     const workspace = new WorkspaceTools(root);
@@ -357,7 +357,7 @@ describe("WorkspaceTools", () => {
     ).rejects.toThrow(/cannot be escalated/i);
   });
 
-  it("V572 exposes and dispatches the implemented Kimi Code contract", async () => {
+  it("exposes and dispatches the implemented Kimi Code contract", async () => {
     const root = await temporaryDirectory();
     const workspace = new WorkspaceTools(root);
     const kimi = workspaceAgentTools(workspace, undefined, {
@@ -442,7 +442,7 @@ describe("WorkspaceTools", () => {
     });
   });
 
-  it("V408-V413 enters, rebinds, preserves, and guardedly removes Claude worktrees", async () => {
+  it("enters, rebinds, preserves, and guardedly removes Claude worktrees", async () => {
     const root = await temporaryDirectory();
     await git(root, "init", "-b", "main");
     await writeFile(path.join(root, "base.txt"), "main\n");
@@ -610,7 +610,7 @@ describe("WorkspaceTools", () => {
     await bash.dispose?.();
   }, 30_000);
 
-  it("V412 preserves an active Claude worktree when the tool manager closes", async () => {
+  it("preserves an active Claude worktree when the tool manager closes", async () => {
     const root = await temporaryDirectory();
     await git(root, "init", "-b", "main");
     await writeFile(path.join(root, "base.txt"), "main\n");
@@ -649,7 +649,7 @@ describe("WorkspaceTools", () => {
     );
   }, 30_000);
 
-  it("V402-V405 conditionally projects the exact Claude LSP tool contract", async () => {
+  it("conditionally projects the exact Claude LSP tool contract", async () => {
     const root = await temporaryDirectory();
     const lsp = vi.fn().mockResolvedValue({
       operation: "goToDefinition",
@@ -723,7 +723,7 @@ describe("WorkspaceTools", () => {
     });
   });
 
-  it("V416-V420 conditionally projects the synchronous Claude Agent contract", async () => {
+  it("conditionally projects the synchronous Claude Agent contract", async () => {
     const root = await temporaryDirectory();
     const agent = vi.fn().mockResolvedValue({
       status: "completed",
@@ -823,7 +823,7 @@ describe("WorkspaceTools", () => {
     ).rejects.toThrow(/isolation is unavailable/i);
   });
 
-  it("V375-V379 shares Claude task state and returns definite failures", async () => {
+  it("shares Claude task state and returns definite failures", async () => {
     const root = await temporaryDirectory();
     const tools = workspaceAgentTools(new WorkspaceTools(root), undefined, {
       model: "claude-sonnet-4-6",
@@ -903,7 +903,7 @@ describe("WorkspaceTools", () => {
     });
   });
 
-  it("V384 loads only selected Claude Skills and expands native arguments", async () => {
+  it("loads only selected Claude Skills and expands native arguments", async () => {
     const root = await temporaryDirectory();
     const skillDirectory = path.join(root, "skills", "review");
     const plainSkillDirectory = path.join(root, "skills", "plain");
@@ -974,7 +974,7 @@ Session=\${CLAUDE_SESSION_ID}
     await expect(skill.call({ skill: "missing" })).rejects.toThrow(/not available/i);
   });
 
-  it("V386-V389 bridges questions and enforces real plan approval state", async () => {
+  it("bridges questions and enforces real plan approval state", async () => {
     const root = await temporaryDirectory();
     await writeFile(path.join(root, "existing.txt"), "before\n");
     const interactionRequests: ClaudeInteractionRequest[] = [];
@@ -1139,7 +1139,7 @@ Session=\${CLAUDE_SESSION_ID}
     await expect(readFile(planPath, "utf8")).rejects.toThrow();
   });
 
-  it("V425/V427 exposes exact Monitor and Cron bridges only for session-backed Claude runs", async () => {
+  it("exposes exact Monitor and Cron bridges only for session-backed Claude runs", async () => {
     const root = await temporaryDirectory();
     const bridge: ClaudeSessionToolBridge = {
       monitor: vi.fn(async (request) => ({
@@ -1228,7 +1228,7 @@ Session=\${CLAUDE_SESSION_ID}
     expect(codexNames).not.toEqual(expect.arrayContaining(["Monitor", "CronCreate"]));
   });
 
-  it("V376 replaces Claude todos and validates review findings", async () => {
+  it("replaces Claude todos and validates review findings", async () => {
     const root = await temporaryDirectory();
     const tools = workspaceAgentTools(new WorkspaceTools(root), undefined, {
       model: "claude-opus-4-6",
@@ -1298,7 +1298,7 @@ Session=\${CLAUDE_SESSION_ID}
     ).rejects.toThrow(/at most 32/i);
   });
 
-  it("V377 edits notebook cells through guarded Project writes", async () => {
+  it("edits notebook cells through guarded Project writes", async () => {
     const root = await temporaryDirectory();
     const notebookPath = path.join(root, "analysis.ipynb");
     await writeFile(
@@ -1393,7 +1393,7 @@ Session=\${CLAUDE_SESSION_ID}
   });
 
   it.runIf(process.platform === "darwin")(
-    "V364-V366-V383 returns native-shaped background and session outputs",
+    "returns native-shaped background and session outputs",
     async () => {
       const root = await temporaryDirectory();
       const claude = workspaceAgentTools(new WorkspaceTools(root), undefined, {
@@ -1525,7 +1525,7 @@ Session=\${CLAUDE_SESSION_ID}
     15_000,
   );
 
-  it("V358-V359 applies Codex freeform patches through guarded mutations", async () => {
+  it("applies Codex freeform patches through guarded mutations", async () => {
     const root = await temporaryDirectory();
     await writeFile(path.join(root, "update.txt"), "before\nkeep\n");
     await writeFile(path.join(root, "delete.txt"), "delete me\n");
@@ -1561,7 +1561,7 @@ Session=\${CLAUDE_SESSION_ID}
     ).rejects.toThrow(/traversal/i);
   });
 
-  it("V357 exposes bounded Claude Glob and Grep adapters", async () => {
+  it("exposes bounded Claude Glob and Grep adapters", async () => {
     const root = await temporaryDirectory();
     await mkdir(path.join(root, "src"));
     await writeFile(path.join(root, "src", "one.ts"), "const trainedTool = true;\n");
@@ -1592,7 +1592,7 @@ Session=\${CLAUDE_SESSION_ID}
     });
   });
 
-  it("V382 applies Claude Glob ignore, mtime, and 100-result semantics", async () => {
+  it("applies Claude Glob ignore, mtime, and 100-result semantics", async () => {
     const root = await temporaryDirectory();
     await writeFile(path.join(root, ".gitignore"), "ignored.ts\n");
     await Promise.all([
@@ -1630,7 +1630,7 @@ Session=\${CLAUDE_SESSION_ID}
     expect(output.filenames).not.toContain(oldest);
   });
 
-  it("V347 creates files atomically and protects existing files with read digests", async () => {
+  it("creates files atomically and protects existing files with read digests", async () => {
     const root = await temporaryDirectory();
     await writeFile(path.join(root, "existing.txt"), "before\n");
     const tools = new WorkspaceTools(root);
@@ -1655,7 +1655,7 @@ Session=\${CLAUDE_SESSION_ID}
     await expect(readFile(path.join(root, "existing.txt"), "utf8")).resolves.toBe("external\n");
   });
 
-  it("V348 performs exact edits and rejects ambiguous or escaping mutations", async () => {
+  it("performs exact edits and rejects ambiguous or escaping mutations", async () => {
     const parent = await temporaryDirectory();
     const root = path.join(parent, "workspace");
     const outside = path.join(parent, "outside");

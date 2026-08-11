@@ -96,7 +96,7 @@ describe("Skill variants", () => {
     ).toThrow(/duplicate Skill/i);
   });
 
-  it("V443-V444 resolves typed permission modes with deny and plan precedence", () => {
+  it("resolves typed permission modes with deny and plan precedence", () => {
     expect(() =>
       HarnessRecipeSchema.parse({
         id: "unsafe-harness",
@@ -150,7 +150,7 @@ describe("Skill variants", () => {
     ).toEqual({ decision: "allow", reason: "trusted", sourceIds: [] });
   });
 
-  it("V449 merges permission ceilings and keeps Project policy restriction-only", () => {
+  it("merges permission ceilings and keeps Project policy restriction-only", () => {
     expect(() =>
       resolveHarnessPermissionLayers([
         {

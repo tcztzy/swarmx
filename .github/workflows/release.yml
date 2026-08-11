@@ -59,14 +59,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Lint, test, and build
-        run: pnpm run ci:node
-
-      - name: Test managed MCP modules
-        run: |
-          pnpm test:rsi
-          pnpm test:ref
-          pnpm test:python-modules
-          pnpm test:mem
+        run: pnpm run ci
 
       - name: Audit production dependencies
         run: pnpm run audit:prod

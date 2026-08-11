@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { createSendSwarmConfig } from "../src/send-config.js";
 
 describe("send command composition", () => {
-  it("V335 serializes the selected Harness, runtime Model, and bootstrap env", () => {
+  it("serializes the selected Harness, runtime Model, and bootstrap env", () => {
     const config = createSendSwarmConfig({
       harnessId: "claude_code",
       model: "claude-opus-4-6",
@@ -28,7 +28,7 @@ describe("send command composition", () => {
     });
   });
 
-  it("V335 rejects unknown and unsupported Harnesses", () => {
+  it("rejects unknown and unsupported Harnesses", () => {
     expect(() => createSendSwarmConfig({ harnessId: "missing", model: "gpt-5" })).toThrow(
       /Unknown harness/,
     );
@@ -37,7 +37,7 @@ describe("send command composition", () => {
     );
   });
 
-  it("V494 sends a provider-prefixed Pi Model through the pinned ACP adapter", () => {
+  it("sends a provider-prefixed Pi Model through the pinned ACP adapter", () => {
     const config = createSendSwarmConfig({
       harnessId: "pi",
       model: "anthropic/claude-sonnet-4-20250514",
@@ -58,7 +58,7 @@ describe("send command composition", () => {
     });
   });
 
-  it("V502 sends a configured Kimi model alias through the native ACP entrypoint", () => {
+  it("sends a configured Kimi model alias through the native ACP entrypoint", () => {
     const config = createSendSwarmConfig({
       harnessId: "kimi",
       model: "kimi-managed",

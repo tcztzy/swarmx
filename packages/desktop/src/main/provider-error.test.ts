@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { classifyProviderError, providerErrorMessage } from "./provider-error.js";
 
 describe("Provider error presentation", () => {
-  it("V506 classifies only allowlisted transient Provider signatures", () => {
+  it("classifies only allowlisted transient Provider signatures", () => {
     expect(
       classifyProviderError("Our servers are currently overloaded. Please try again later."),
     ).toMatchObject({
@@ -22,7 +22,7 @@ describe("Provider error presentation", () => {
     expect(classifyProviderError("Unknown harness: local-agent")).toBeNull();
   });
 
-  it("V507 creates a fixed-copy message without retaining the raw Provider error", () => {
+  it("creates a fixed-copy message without retaining the raw Provider error", () => {
     const message = providerErrorMessage(
       "overloaded_error request=req_private_123 bearer=provider_secret_456",
     );

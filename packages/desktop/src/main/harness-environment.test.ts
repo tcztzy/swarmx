@@ -173,7 +173,7 @@ describe("HarnessEnvironmentService", () => {
     expect(status.setupAvailable).toBe(false);
   });
 
-  it("V217 V219 treats unavailable OpenClaw as optional and skips unscoped setup", async () => {
+  it("treats unavailable OpenClaw as optional and skips unscoped setup", async () => {
     const runCommand = vi.fn(async () => ({ exitCode: 0, stdout: "v22.17.0\n", stderr: "" }));
     const service = new HarnessEnvironmentService({
       env: { PATH: "/usr/bin" },
@@ -373,7 +373,7 @@ describe("HarnessEnvironmentService", () => {
     );
   });
 
-  it("V495 installs the official Pi CLI only through confirmed Runtime setup", async () => {
+  it("installs the official Pi CLI only through confirmed Runtime setup", async () => {
     let piInstalled = false;
     const runCommand = vi.fn(async (program: string, args: string[]) => {
       if (
@@ -425,7 +425,7 @@ describe("HarnessEnvironmentService", () => {
     );
   });
 
-  it("V503 installs the official Kimi Code CLI only through confirmed Runtime setup", async () => {
+  it("installs the official Kimi Code CLI only through confirmed Runtime setup", async () => {
     let kimiInstalled = false;
     const runCommand = vi.fn(async (program: string, args: string[]) => {
       if (
@@ -475,7 +475,7 @@ describe("HarnessEnvironmentService", () => {
     );
   });
 
-  it("V505 recognizes the native Kimi ACP backend", () => {
+  it("recognizes the native Kimi ACP backend", () => {
     const service = new HarnessEnvironmentService({ protectionMode: "native" });
 
     expect(
@@ -613,7 +613,7 @@ describe("HarnessEnvironmentService", () => {
     );
   });
 
-  it("V336 mounts a private official Codex auth file read-only", async () => {
+  it("mounts a private official Codex auth file read-only", async () => {
     const homeDir = await mkdtemp(join(tmpdir(), "swarmx-protected-codex-"));
     try {
       const codexHome = join(homeDir, "managed-codex");

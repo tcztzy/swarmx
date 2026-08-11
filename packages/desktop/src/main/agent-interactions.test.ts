@@ -22,7 +22,7 @@ class FakeOwner extends EventEmitter implements AgentInteractionOwner {
 }
 
 describe("AgentInteractionBroker", () => {
-  it("V445-V446 accepts only an offered tool approval option", async () => {
+  it("accepts only an offered tool approval option", async () => {
     const broker = new AgentInteractionBroker();
     const owner = new FakeOwner(1);
     const pending = broker.request(owner, "permission-request", {
@@ -56,7 +56,7 @@ describe("AgentInteractionBroker", () => {
     await expect(pending).resolves.toEqual({ kind: "tool_approval", optionId: "allow" });
   });
 
-  it("V387 resolves only a matching owner, request, id, and response kind", async () => {
+  it("resolves only a matching owner, request, id, and response kind", async () => {
     const broker = new AgentInteractionBroker();
     const owner = new FakeOwner(1);
     const stranger = new FakeOwner(2);
@@ -110,7 +110,7 @@ describe("AgentInteractionBroker", () => {
     expect(owner.listenerCount("destroyed")).toBe(0);
   });
 
-  it("V387 rejects and cleans a pending prompt when its request is cancelled", async () => {
+  it("rejects and cleans a pending prompt when its request is cancelled", async () => {
     const broker = new AgentInteractionBroker();
     const owner = new FakeOwner(1);
     const requestId = "cancel-interaction";
@@ -129,7 +129,7 @@ describe("AgentInteractionBroker", () => {
     expect(owner.listenerCount("destroyed")).toBe(0);
   });
 
-  it("V387 rejects every owner-bound prompt when its renderer is destroyed", async () => {
+  it("rejects every owner-bound prompt when its renderer is destroyed", async () => {
     const broker = new AgentInteractionBroker();
     const owner = new FakeOwner(1);
     const pending = broker.request(owner, "destroyed-interaction", {
@@ -143,7 +143,7 @@ describe("AgentInteractionBroker", () => {
     expect(broker.size).toBe(0);
   });
 
-  it("V387 lets tool-manager close cancel only its own request interactions", async () => {
+  it("lets tool-manager close cancel only its own request interactions", async () => {
     const broker = new AgentInteractionBroker();
     const owner = new FakeOwner(1);
     const first = broker.request(owner, "request-first", {

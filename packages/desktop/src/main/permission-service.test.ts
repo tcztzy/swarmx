@@ -13,7 +13,7 @@ afterEach(async () => {
 });
 
 describe("PermissionService", () => {
-  it("V450 resolves managed, Project, personal, and Agent authority ceilings", async () => {
+  it("resolves managed, Project, personal, and Agent authority ceilings", async () => {
     const { root, service } = await fixture({
       SWARMX_MANAGED_PERMISSION_POLICY: JSON.stringify({
         mode: "default",
@@ -51,7 +51,7 @@ describe("PermissionService", () => {
     });
   });
 
-  it("V451 blocks execution on malformed managed or Project policy", async () => {
+  it("blocks execution on malformed managed or Project policy", async () => {
     const managed = await fixture({ SWARMX_MANAGED_PERMISSION_POLICY: "{" });
     await expect(
       managed.service.resolve({
@@ -74,7 +74,7 @@ describe("PermissionService", () => {
     ).rejects.toThrow(/Project policy is invalid:[\s\S]*cannot pre-approve/i);
   });
 
-  it("V458 applies a conversation mode without bypassing ceilings or explicit denials", async () => {
+  it("applies a conversation mode without bypassing ceilings or explicit denials", async () => {
     const managed = await fixture({
       SWARMX_MANAGED_PERMISSION_POLICY: JSON.stringify({
         mode: "default",
@@ -137,7 +137,7 @@ describe("PermissionService", () => {
     ).resolves.toMatchObject({ policy: { mode: "plan" }, modeSourceIds: ["project"] });
   });
 
-  it("V463-V464 persists profile availability and safely degrades disabled modes", async () => {
+  it("persists profile availability and safely degrades disabled modes", async () => {
     const { service } = await fixture();
     await service.savePersonalPolicy({
       mode: "auto",
@@ -170,7 +170,7 @@ describe("PermissionService", () => {
     ).resolves.toMatchObject({ policy: { mode: "plan" }, modeSourceIds: ["session"] });
   });
 
-  it("V452 persists structured personal policy and sanitized newest-first receipts", async () => {
+  it("persists structured personal policy and sanitized newest-first receipts", async () => {
     const { service } = await fixture(undefined, {
       now: () => "2026-07-18T12:00:00.000Z",
       id: () => "prm_12345678",
@@ -216,7 +216,7 @@ describe("PermissionService", () => {
     ).rejects.toThrow(/secret/i);
   });
 
-  it("V452 bounds approval history to the newest 200 receipts", async () => {
+  it("bounds approval history to the newest 200 receipts", async () => {
     let sequence = 0;
     const service = new PermissionService(new MemorySettingsStore(), {
       now: () => "2026-07-18T12:00:00.000Z",

@@ -4,6 +4,7 @@ import { z } from "zod";
 import type { AcpPermissionHandler } from "./acp.js";
 import { AgentDefinitionSourceSchema } from "./agent-profiles.js";
 import { ContextPacketModeSchema, ContextStrategySchema } from "./context.js";
+import type { AgentContextEngine } from "./context-engine.js";
 import { HARNESSES, harnessModelRuntimeEnv, harnessModelRuntimeModel } from "./harness.js";
 import type { HookRuntimeOptions } from "./hook.js";
 import type { LocalTool } from "./mcp.js";
@@ -869,6 +870,7 @@ export interface ExecuteAgentCompositionOptions {
   onUsage?: (usage: ModelTokenUsage) => void;
   hook?: HookRuntimeOptions;
   personalMemory?: PersonalMemorySnapshot;
+  contextEngine?: AgentContextEngine;
 }
 
 export interface ValidateSkillHostCompatibilityOptions {
@@ -1549,6 +1551,7 @@ export async function executeAgentComposition(
         acpSessionId: options.acpSessionId,
         onAcpSessionId: options.onAcpSessionId,
         personalMemory: options.personalMemory,
+        contextEngine: options.contextEngine,
       },
     },
   );

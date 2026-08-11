@@ -28,8 +28,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - name: Node 20 compatibility
-            node-version: 20.x
+          - name: Node 22.13 minimum
+            node-version: 22.13.0
             primary: false
           - name: quality
             node-version: 22.x
@@ -62,7 +62,7 @@ jobs:
         if: matrix.primary
         run: pnpm lint
 
-      - name: Test on Node 20
+      - name: Test on minimum supported Node
         if: ${{ !matrix.primary }}
         run: pnpm test
 
@@ -72,6 +72,29 @@ jobs:
 
       - name: Build
         run: pnpm -r build
+
+  python:
+    name: Python ${{ matrix.python-version }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.14"]
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Set up uv and Python
+        uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
+        with:
+          version: 0.11.28
+          python-version: ${{ matrix.python-version }}
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - name: Test the standard SwarmX Python package
+        run: uv run --locked --no-default-groups python -m unittest discover -s tests/python -p '*_test.py'
 
   inspect:
     name: Inspect
@@ -92,9 +115,6 @@ jobs:
       - name: Sync Python dependencies
         run: uv sync --locked --group inspect
 
-      - name: Test the standard SwarmX Python package
-        run: uv run --locked --no-default-groups python -m unittest discover -s tests/python -p '*_test.py'
-
       - name: Test Inspect integration
         run: uv run --locked --group inspect python -m unittest discover -s evals/inspect -p '*_test.py'
 
@@ -108,14 +128,6 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-
-      - name: Set up uv and Python
-        uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
-        with:
-          version: 0.11.28
-          python-version: "3.12"
-          enable-cache: true
-          cache-dependency-glob: uv.lock
 
       - name: Set up Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -135,13 +147,44 @@ jobs:
       - name: Install Node dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Test the SwarmX Python package and private MCP servers
-        run: pnpm test:python
-
       - name: Test Rust Memory MCP module
         run: pnpm test:mem
 
       - name: Build and integrate the packaged Memory MCP module
-        run: |
-          pnpm --filter @swarmx/desktop build:mem-runtime
-          SWARMX_MEMORY_RUNTIME_MANIFEST=packages/desktop/build/mem-runtime/manifest.json pnpm vitest run packages/desktop/src/main/memory-runtime-integration.test.ts
+        run: pnpm test:integration:memory
+
+  desktop-macos:
+    name: macOS desktop security boundaries
+    runs-on: macos-15
+    timeout-minutes: 20
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22.13.0
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@008330803749db0355799c700092d9a85fd074e9 # v6.0.9
+        with:
+          version: 11.13.1
+          cache: true
+
+      - name: Install Node dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build Desktop
+        run: pnpm --filter @swarmx/desktop build
+
+      - name: Launch the built Renderer in Electron
+        run: pnpm --filter @swarmx/desktop test:smoke
+
+      - name: Test macOS process and sandbox boundaries
+        run: >-
+          pnpm vitest run
+          packages/desktop/src/main/workspace-shell.test.ts
+          packages/desktop/src/main/workspace-tools.test.ts
+          packages/desktop/src/main/terminal-host.test.ts
+          packages/swarmx/tests/launcher.test.ts

@@ -339,7 +339,7 @@ describe("LspHost", () => {
     ).rejects.toThrow(/does not declare a command/);
   });
 
-  it("V402-V404 performs Claude LSP operations with one-based positions and exact output", async () => {
+  it("performs Claude LSP operations with one-based positions and exact output", async () => {
     const root = await tempRoot();
     const sourcePath = path.join(root, "source.txt");
     await writeFile(sourcePath, "function target() {}\ntarget();\n", "utf8");
@@ -395,7 +395,7 @@ describe("LspHost", () => {
     }
   });
 
-  it("V404 executes two-step incoming and outgoing call hierarchy requests", async () => {
+  it("executes two-step incoming and outgoing call hierarchy requests", async () => {
     const root = await tempRoot();
     await writeFile(path.join(root, "source.txt"), "target();\n", "utf8");
     const serverScript = await writeFakeLspServer(root);
@@ -432,7 +432,7 @@ describe("LspHost", () => {
     }
   });
 
-  it("V403 rejects Project escapes and missing or ambiguous file-language routing", async () => {
+  it("rejects Project escapes and missing or ambiguous file-language routing", async () => {
     const root = await tempRoot();
     const outside = await tempRoot();
     await writeFile(path.join(root, "source.txt"), "inside\n", "utf8");
@@ -474,7 +474,7 @@ describe("LspHost", () => {
     ).rejects.toThrow(/No configured LSP server supports/);
   });
 
-  it("V404 cancels an in-flight LSP request and keeps the session reusable", async () => {
+  it("cancels an in-flight LSP request and keeps the session reusable", async () => {
     const root = await tempRoot();
     await writeFile(path.join(root, "source.txt"), "target();\n", "utf8");
     const serverScript = await writeFakeLspServer(root);
@@ -492,7 +492,6 @@ describe("LspHost", () => {
           query: "hang",
         }),
       );
-      await new Promise((resolve) => setTimeout(resolve, 20));
       await expect(cancelAcpRequest(requestId)).resolves.toBe(true);
       await expect(run).rejects.toBeInstanceOf(RequestCancelledError);
 

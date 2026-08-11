@@ -191,7 +191,7 @@ describe("Composer", () => {
     );
   });
 
-  it("V559 imports multiple browser files sequentially to bound renderer memory", async () => {
+  it("imports multiple browser files sequentially to bound renderer memory", async () => {
     const diagram = mediaAttachment();
     const notes = { ...mediaAttachment(), id: "notes", name: "notes.txt", kind: "text" as const };
     let resolveFirstImport: ((attachments: DesktopMediaAttachment[]) => void) | undefined;

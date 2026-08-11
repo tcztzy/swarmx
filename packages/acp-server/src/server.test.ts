@@ -39,12 +39,13 @@ describe("SwarmXAgent", () => {
   });
 
   afterEach(() => {
-    if (originalSessionsDir === undefined) process.env.SWARMX_SESSIONS_DIR = undefined;
-    else process.env.SWARMX_SESSIONS_DIR = originalSessionsDir;
+    if (originalSessionsDir === undefined) {
+      Reflect.deleteProperty(process.env, "SWARMX_SESSIONS_DIR");
+    } else process.env.SWARMX_SESSIONS_DIR = originalSessionsDir;
     rmSync(sessionsDir, { recursive: true, force: true });
   });
 
-  it("V551-V554 persists history and projects truthful cwd, resources, and MCP state", async () => {
+  it("persists history and projects truthful cwd, resources, and MCP state", async () => {
     const execute = vi.fn(async (arguments_: Record<string, unknown>) => {
       const messages = arguments_.messages as Array<{ content: string }>;
       return [
@@ -185,7 +186,7 @@ describe("SwarmXAgent", () => {
     expect(listSessionSummaries()).toHaveLength(1);
   });
 
-  it("V553 rejects relative cwd and unsupported MCP transports instead of ignoring them", async () => {
+  it("rejects relative cwd and unsupported MCP transports instead of ignoring them", async () => {
     const agent = new SwarmXAgent();
 
     await expect(agent.newSession({ cwd: "relative", mcpServers: [] })).rejects.toThrow("absolute");
@@ -540,7 +541,7 @@ describe("SwarmXAgent", () => {
     expect(JSON.stringify(events)).not.toContain(untrustedSessionId);
   });
 
-  it("V555 cancels the active prompt through the Core request signal", async () => {
+  it("cancels the active prompt through the Core request signal", async () => {
     let observedSignal: AbortSignal | undefined;
     let markStarted: (() => void) | undefined;
     const started = new Promise<void>((resolve) => {

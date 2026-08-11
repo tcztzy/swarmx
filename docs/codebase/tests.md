@@ -3,6 +3,9 @@
 Tests are executable contracts, not a second implementation. A test file with
 the same stem as a production module exercises that module's public behavior;
 the list below makes the coverage route searchable without loading every test.
+The primary coverage gate spans media/window boundaries plus audit, context
+assembly, durable task state, detached supervision, Session message projection,
+and CLI send composition. Per-file thresholds live only in `vitest.config.ts`.
 
 ## Core tests
 
@@ -19,6 +22,8 @@ the list below makes the coverage route searchable without loading every test.
 | `packages/core/tests/task-worker-process.test.ts` |
 | `packages/core/tests/task-control-service.test.ts` |
 | `packages/core/tests/task-supervisor.test.ts` |
+| `packages/core/tests/context-engine.test.ts` |
+| `packages/core/tests/context-engine-store.test.ts` |
 
 Coverage focus: schema acceptance/rejection, graph scheduling/cycles, provider
 redaction and routing, ACP/MCP cancellation, per-Project JSONL-only append-only
@@ -59,6 +64,7 @@ Exact Core test paths: `packages/core/tests/acp.test.ts`,
 `packages/core/tests/skill-evaluation.test.ts`,
 `packages/core/tests/skill-delivery.test.ts`,
 `packages/core/tests/context.test.ts`, `packages/core/tests/conversation.test.ts`,
+`packages/core/tests/context-engine.test.ts`, `packages/core/tests/context-engine-store.test.ts`,
 `packages/core/tests/dependencies.test.ts`, `packages/core/tests/desktop-settings.test.ts`,
 `packages/core/tests/edge.test.ts`, `packages/core/tests/memory-links.test.ts`, `packages/core/tests/memory.test.ts`, `packages/core/tests/extension-management.test.ts`,
 `packages/core/tests/extensions.test.ts`, `packages/core/tests/harness-management.test.ts`,
@@ -83,20 +89,24 @@ Exact Core test paths: `packages/core/tests/acp.test.ts`,
 | `packages/desktop/src/main/composer-preferences.test.ts`, `custom-agents.test.ts`, `extension-manager.test.ts`, `harness-environment.test.ts`, `library.test.ts`, `lsp-host.test.ts`, `media-faults.test.ts`, `media-preview-hash.test.ts` |
 | `packages/desktop/src/main/media.test.ts`, `model-catalog.test.ts`, `permission-review.test.ts`, `permission-service.test.ts`, `personal-memory.test.ts`, `preload.test.ts`, `provider-auth.test.ts`, `provider-error.test.ts`, `provider-key-pool.test.ts`, `provider-usage.test.ts` |
 | `packages/desktop/src/main/memory-runtime-host.test.ts`, `packages/desktop/src/main/memory-runtime-integration.test.ts`, `packages/desktop/src/main/memory-runtime-backend.test.ts` |
-| `packages/desktop/src/main/request-registry.test.ts`, `session-title.test.ts`, `settings-store.test.ts`, `side-chat-service.test.ts`, `terminal-host.test.ts`, `updater.test.ts`, `window-security.test.ts`, `workspace-shell.test.ts`, `workspace-tools.test.ts` |
+| `packages/desktop/src/main/request-registry.test.ts`, `session-title.test.ts`, `settings-store.test.ts`, `side-chat-service.test.ts`, `task-supervisor.test.ts`, `terminal-host.test.ts`, `updater.test.ts`, `window-security.test.ts`, `workspace-shell.test.ts`, `workspace-tools.test.ts` |
 
 ### Renderer
 
 | Test paths |
 | --- |
-| `packages/desktop/src/renderer/src/App.test.tsx`, `agent-interaction-dialog.test.tsx`, `agent-picker-layout.test.ts`, `app-brand.test.tsx`, `app-icon-data.test.ts`, `composer.test.tsx`, `conversation-messages.test.ts` |
+| `packages/desktop/src/renderer/src/App.test.tsx`, `agent-interaction-dialog.test.tsx`, `app-brand.test.tsx`, `app-icon-data.test.ts`, `composer.test.tsx`, `conversation-messages.test.ts` |
 | `packages/desktop/src/renderer/src/media-preview.test.tsx`, `message-attachments.test.tsx`, `message-content.test.tsx`, `model-display.test.ts`, `session-navigation.test.ts`, `settings-workspace.test.ts` |
-| `packages/desktop/src/renderer/src/styling-architecture.test.ts`, `ui-primitives.test.tsx`, `text-utils.test.ts`, `workflow-workspace.test.ts`, `workspace-panel-layout.test.ts`, `workspace-panel.test.tsx`, `harness-icon-data.test.ts` |
+| `packages/desktop/src/renderer/src/styling-architecture.test.ts`, `ui-primitives.test.tsx`, `text-utils.test.ts`, `workflow-workspace.test.ts`, `workspace-panel.test.tsx`, `harness-icon-data.test.ts` |
 
 Coverage focus: IPC boundary validation, renderer-safe data, permission and
 containment rules, provider credential isolation, terminal cancellation,
 transport-policy audit compaction, semantic terminal close reasons, workspace
-patching, media access, session navigation, and UI state transitions.
+patching, media access, detached-supervisor startup/reconnection and environment
+isolation, session navigation, UI state transitions, and a built-Electron smoke
+probe that measures the actual split-panel and Agent-picker geometry. Layout
+behavior lives in rendered interaction/smoke tests rather than source-string
+class assertions.
 
 Exact Desktop test paths: `packages/desktop/src/main/acp-session-runtime.test.ts`,
 `packages/desktop/src/main/agent-interactions.test.ts`,
@@ -128,6 +138,7 @@ Exact Desktop test paths: `packages/desktop/src/main/acp-session-runtime.test.ts
 `packages/desktop/src/main/session-title.test.ts`,
 `packages/desktop/src/main/settings-store.test.ts`,
 `packages/desktop/src/main/side-chat-service.test.ts`,
+`packages/desktop/src/main/task-supervisor.test.ts`,
 `packages/desktop/src/main/terminal-host.test.ts`,
 `packages/desktop/src/main/updater.test.ts`,
 `packages/desktop/src/main/window-security.test.ts`,
@@ -135,7 +146,6 @@ Exact Desktop test paths: `packages/desktop/src/main/acp-session-runtime.test.ts
 `packages/desktop/src/main/workspace-tools.test.ts`,
 `packages/desktop/src/renderer/src/App.test.tsx`,
 `packages/desktop/src/renderer/src/agent-interaction-dialog.test.tsx`,
-`packages/desktop/src/renderer/src/agent-picker-layout.test.ts`,
 `packages/desktop/src/renderer/src/app-brand.test.tsx`,
 `packages/desktop/src/renderer/src/app-icon-data.test.ts`,
 `packages/desktop/src/renderer/src/composer.test.tsx`,
@@ -151,24 +161,25 @@ Exact Desktop test paths: `packages/desktop/src/main/acp-session-runtime.test.ts
 `packages/desktop/src/renderer/src/text-utils.test.ts`,
 `packages/desktop/src/renderer/src/ui-primitives.test.tsx`,
 `packages/desktop/src/renderer/src/workflow-workspace.test.ts`,
-`packages/desktop/src/renderer/src/workspace-panel-layout.test.ts`,
 `packages/desktop/src/renderer/src/workspace-panel.test.tsx`.
 
 ## CLI, ACP, launcher, and eval tests
 
 | Test paths |
 | --- |
-| `packages/cli/tests/audit-command.test.ts`, `doctor.test.ts`, `eval-run.test.ts`, `send-config.test.ts`, `evolution-command.test.ts` (incl. real-chain promoted-revision resolution) |
+| `packages/cli/tests/audit-command.test.ts`, `cli-entry.test.ts`, `doctor.test.ts`, `eval-run.test.ts`, `send-config.test.ts`, `evolution-command.test.ts` (incl. real-chain promoted-revision resolution) |
 | `packages/acp-server/src/server.test.ts`, `packages/runtime/src/doctor.test.ts`, `packages/runtime/src/python-environment.test.ts`, `packages/runtime/src/python-worker-smoke.test.ts`, `packages/runtime/src/memory-runtime-environment.test.ts`, `packages/swarmx/tests/launcher.test.ts` (including exact macOS InputMethodKit diagnostic filtering and preservation of all other Electron stderr) |
 | `evals/inspect/__init__.py`, `evals/inspect/tasks.py`, `evals/inspect/tasks_test.py`, `evals/inspect/skill_eval.py`, `evals/inspect/skill_eval_test.py` |
 
 Exact CLI test paths: `packages/cli/tests/audit-command.test.ts`,
+`packages/cli/tests/cli-entry.test.ts`,
 `packages/cli/tests/doctor.test.ts`,
 `packages/cli/tests/eval-run.test.ts`, `packages/cli/tests/send-config.test.ts`,
 `packages/cli/tests/evolution-command.test.ts`.
 
-CLI coverage includes the shared `agent.run` action and its
-`cli_send`/`eval`/`repl` surface metadata, plus verified audit export. ACP
+CLI coverage includes the real Session/Harness list entrypoints, multi-turn REPL
+history, the shared `agent.run` action and its `cli_send`/`eval`/`repl` surface
+metadata, plus verified audit export. ACP
 coverage includes correlated `acp.prompt` cancellation without a duplicate
 cancel action or no-op mode events.
 
@@ -190,6 +201,8 @@ real-ZIM MCP, and standard-package paths are indexed in
 | `packages/desktop/scripts/start-electron.mjs` | Development launcher that starts Electron against the Vite renderer and applies the shared stderr filter. `proc` |
 | `packages/desktop/scripts/build-macos-artifacts.mjs` | Packages the built Desktop application into macOS artifacts. `fs` + `proc` |
 | `packages/desktop/scripts/build-mem-runtime.mjs` | Builds the locked `swarmx-mem` crate for one target, copies the executable into Desktop resources, and writes its digest/version manifest. No install-at-runtime path. `fs` + `proc` |
+| `packages/desktop/scripts/test-mem-runtime.mjs` | Cross-platform managed-Memory acceptance runner: builds the locked runtime and executes the real private-MCP integration test with its explicit manifest. `proc` |
+| `packages/desktop/scripts/test-desktop-smoke.mjs` | macOS CI acceptance runner: launches the built Electron app in an isolated home and requires real rendered CSS geometry for the main split panel and Agent picker. `proc` |
 | `scripts/publish-npm.mjs` | Release helper for npm package publication. `proc` |
 | `scripts/rebuild-icon.py` | Rebuilds packaged icon assets from the canonical icon input. `fs` |
 | `scripts/check-codebase-docs.mjs` | CI/navigation guard: scans authoritative authored source/test roots and fails if a path is absent from `docs/codebase`. `fs` |

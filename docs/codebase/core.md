@@ -52,11 +52,13 @@ An Agent remains `harnessId:modelId`.
 | `packages/core/src/memory-links.ts` | Browser-safe zod contracts and bounded double-bracket-link scanner/resolver that projects caller-owned entity Markdown into directed, non-executable knowledge edges with explicit diagnostics. `pure` |
 | `packages/core/src/memory.ts` | Memory zod schemas, async host-backend contract, graph projection, and strict `Memory` local Agent tool: bounded CRUD/search/version reads, optimistic revisions, confirmed create/update/delete/restore, and content-free audit callbacks. Persistence belongs only to the Rust Memory MCP server. `pure` |
 | `packages/core/src/memory-runtime-protocol.ts` | Strict versioned request/operation-matched response schemas for the private `swarmx-mem` MCP server, including its exact `swarmx_memory` tool identity and bounded structured-result limit. `pure` |
-| `packages/core/src/reference-library.ts` | Browser-safe zod contracts and the read-only `ReferenceLibrary` Agent tool for bounded source status, search, and plaintext article reads; unavailable paths report unsupported and no mutation operation exists. `pure` |
+| `packages/core/src/reference-library.ts` | Browser-safe zod contracts and the read-only `ReferenceLibrary` Agent tool for bounded, source-qualified ZIM/Web/Zotero status, search, and plaintext reads; Web must be explicitly selected, unavailable paths report unsupported, and no mutation operation exists. `pure` |
 | `packages/core/src/hook.ts` | Hook config plus fail-closed lifecycle dispatcher: explicit host executor, structured input/output, concurrent same-event handlers, bounded timeouts, denial, and additional-context limits. `pure` |
 | `packages/core/src/builtin-tools.ts` | Built-in tool style/revision schemas and style resolution for Claude Code, Codex, and Kimi Code contracts. `pure` |
 | `packages/core/src/actions.ts` | Action intent/confirmation/risk schemas, secret-safe payload sanitization, and explicit-confirmation checks for side effects. `pure` |
 | `packages/core/src/context.ts` | Context strategy, packet, summary checkpoint, and invocation metadata schemas/builders; controls isolated vs thread context. `pure` |
+| `packages/core/src/context-engine.ts` | Coding-agent Context Engine contracts and deterministic projections: immutable event snapshots, atomic tool units, masking, sourced task state, BM25 evidence, verification, component config, priority assembly, explicit overflow, and replay manifests. `pure` |
+| `packages/core/src/context-engine-store.ts` | Standalone append-only SQLite WAL `EventStore`, JSONL replay adapter, and digest-verified local content-addressed `ArtifactStore`; production Session/WorkItem authority remains separate. `fs` |
 | `packages/core/src/skill-variants.ts` | Skill bindings, delivery modes, lineage, evaluation, promotion, optimization request, candidate/evaluation manifests, promotion receipts, active pointer, and policy schemas. `pure` |
 | `packages/core/src/skill-evolution.ts` | Pure skill evolution state machine: strict per-kind secret-free ledger records with typed payloads, immutable candidates/evaluations, candidate status transitions, gate verdicts (quality up; safety/failure/context not down; sample count and improvement-ratio minima), canonical optimizer config digests, and replay that enforces request-anchored compare-and-swap, staged-candidate/eligible-evaluation prerequisites, and idempotency. `pure` |
 | `packages/core/src/skill-evolution-store.ts` | Append-only evolution ledger under `~/.swarmx/skill-evolution/`: strict replay, torn-tail recovery, idempotency, CAS on promotion receipts, and content-addressed blobs for candidate/evaluation content. `fs` |
@@ -128,7 +130,7 @@ An Agent remains `harnessId:modelId`.
 ## Core subpaths
 
 The manifest currently exposes root plus `rendering`, `telemetry`, `activity`,
-`dependencies`, `conversation`, `providers`, `model-capabilities`,
+`dependencies`, `conversation`, `context-engine`, `context-engine-store`, `providers`, `model-capabilities`,
 `builtin-tools`, `harness-management`, `agent-profiles`, `desktop-settings`,
 `personal-memory`, `memory-links`, `memory`, `secrets`, `actions`, `skill-variants`,
 `extension-management`, `harness`, and `project`.
@@ -136,6 +138,8 @@ The manifest currently exposes root plus `rendering`, `telemetry`, `activity`,
 filesystem persistence and its writer lock.
 The durable task modules are exposed from the Node-capable root barrel; the
 store, controller, supervisor, and process host are not browser-safe Renderer subpaths.
+The Context Engine contracts and standalone store are Node-only because they use
+cryptographic hashing and local filesystem persistence.
 The audit store is likewise Node-only and exported from the root barrel.
 Skill evolution and delivery modules are Node-capable root-barrel exports.
 When adding a public module, update the manifest and this map together.

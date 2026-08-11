@@ -307,22 +307,6 @@ describe("App user workflow", () => {
     expect(screen.getByText("# Notes")).toBeTruthy();
     expect(api.previewMediaAttachment).toHaveBeenCalledWith(attachment);
 
-    const separator = screen.getByRole("separator", { name: "Resize right panel" });
-    const body = separator.closest(".runtime__body") as HTMLElement;
-    vi.spyOn(body, "getBoundingClientRect").mockReturnValue({
-      bottom: 720,
-      height: 720,
-      left: 0,
-      right: 1000,
-      top: 0,
-      width: 1000,
-      x: 0,
-      y: 0,
-      toJSON: () => undefined,
-    });
-    fireEvent.keyDown(separator, { key: "ArrowLeft" });
-    await waitFor(() => expect(separator.getAttribute("aria-valuenow")).toBe("524"));
-
     await user.keyboard("{Escape}");
     await waitFor(() =>
       expect(screen.queryByRole("complementary", { name: "Preview notes.md" })).toBeNull(),
@@ -344,7 +328,37 @@ describe("App user workflow", () => {
     expect(resend.hasAttribute("disabled")).toBe(false);
   });
 
-  it("V461 persists a conversation permission choice for new and existing tasks", async () => {
+  it("applies keyboard resizing to the visible right-panel width", async () => {
+    const api = createDesktopApiMock();
+    await renderApp(api);
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Show right panel" }));
+
+    const separator = screen.getByRole("separator", { name: "Resize right panel" });
+    const body = separator.closest(".runtime__body") as HTMLElement;
+    vi.spyOn(body, "getBoundingClientRect").mockReturnValue({
+      bottom: 720,
+      height: 720,
+      left: 0,
+      right: 1000,
+      top: 0,
+      width: 1000,
+      x: 0,
+      y: 0,
+      toJSON: () => undefined,
+    });
+
+    fireEvent.keyDown(separator, { key: "ArrowLeft" });
+
+    await waitFor(() => {
+      expect(separator.getAttribute("aria-valuenow")).toBe("524");
+      expect(body.closest(".runtime")?.getAttribute("style")).toContain(
+        "--right-panel-width: 524px",
+      );
+    });
+  });
+
+  it("persists a conversation permission choice for new and existing tasks", async () => {
     const api = createDesktopApiMock();
     await renderApp(api);
     const user = userEvent.setup();
@@ -381,7 +395,7 @@ describe("App user workflow", () => {
     );
   });
 
-  it("V463 removes disabled General profiles from the conversation menu", async () => {
+  it("removes disabled General profiles from the conversation menu", async () => {
     const status = permissionStatusFixture();
     status.profileAvailability.auto = false;
     const api = createDesktopApiMock({
@@ -475,7 +489,7 @@ describe("App user workflow", () => {
     expect(screen.getByRole("button", { name: "Send message" })).toBeTruthy();
   });
 
-  it("V429 reloads the authoritative session when a background activation appends messages", async () => {
+  it("reloads the authoritative session when a background activation appends messages", async () => {
     let notifySession = (_event: { sessionId: string }): void => undefined;
     const api = createDesktopApiMock({
       onSessionMessages: vi.fn((listener: (event: { sessionId: string }) => void) => {
@@ -504,7 +518,7 @@ describe("App user workflow", () => {
     expect(await screen.findByText("Background build finished successfully")).toBeTruthy();
   });
 
-  it("V394 shows only Harness, Model, and Effort while routing Supply internally", async () => {
+  it("shows only Harness, Model, and Effort while routing Supply internally", async () => {
     const api = createDesktopApiMock();
     const inventory = await api.listExtensions();
     api.listExtensions.mockResolvedValue({
@@ -675,7 +689,7 @@ describe("App user workflow", () => {
     expect(api.removeManualModel).toHaveBeenCalledWith(manualModel.id);
   });
 
-  it("V282 reuses cached Provider Models across Renderer restarts without discovery", async () => {
+  it("reuses cached Provider Models across Renderer restarts without discovery", async () => {
     const api = createDesktopApiMock();
     const base = await api.listExtensions();
     const cachedModel = {
@@ -897,7 +911,7 @@ describe("App user workflow", () => {
     expect(screen.getByText(/Summary: Prefer concise answers\./)).toBeTruthy();
   });
 
-  it("V453 exposes effective layers and saves conflict-checked personal permission rules", async () => {
+  it("exposes effective layers and saves conflict-checked personal permission rules", async () => {
     const api = createDesktopApiMock();
     const user = userEvent.setup();
     await renderApp(api);
@@ -1150,7 +1164,7 @@ describe("App user workflow", () => {
     expect(screen.getByText(/DeepSeek supports native OpenAI and Anthropic APIs/)).toBeTruthy();
   });
 
-  it("V486 manages OpenCode Go keys and shows local cooldown usage", async () => {
+  it("manages OpenCode Go keys and shows local cooldown usage", async () => {
     const providerId = "swarmx.user.opencode-go";
     const backupId = "key-11111111-1111-4111-8111-111111111111";
     const keyUsage = [
@@ -1590,7 +1604,7 @@ describe("App user workflow", () => {
     });
   });
 
-  it("V281 configures Providers with stable labels and keeps the Agent Picker model-only", async () => {
+  it("configures Providers with stable labels and keeps the Agent Picker model-only", async () => {
     const api = createDesktopApiMock();
     const base = await api.listExtensions();
     const emptyCatalog = {
@@ -1769,7 +1783,7 @@ describe("App user workflow", () => {
     expect(trigger.getAttribute("data-harness-id")).toBe("swarmx");
   });
 
-  it("V204 keeps a long secondary menu separate from the primary menu", async () => {
+  it("keeps a long secondary menu separate from the primary menu", async () => {
     const api = createDesktopApiMock();
     const inventory = await api.listExtensions();
     const modelIds = [
@@ -1811,7 +1825,7 @@ describe("App user workflow", () => {
     expect(primary.nextElementSibling).toBe(secondary);
   });
 
-  it("V205 consumes current core model capabilities instead of stale build output", async () => {
+  it("consumes current core model capabilities instead of stale build output", async () => {
     const api = createDesktopApiMock();
     const inventory = await api.listExtensions();
     api.listExtensions.mockResolvedValue({
@@ -1893,7 +1907,7 @@ describe("App user workflow", () => {
     }
   });
 
-  it("V206 closes from trigger or menu focus and always restores trigger focus", async () => {
+  it("closes from trigger or menu focus and always restores trigger focus", async () => {
     const api = createDesktopApiMock();
     await renderApp(api);
     const user = userEvent.setup();
@@ -2022,7 +2036,7 @@ describe("App user workflow", () => {
     });
   });
 
-  it("V331 renders persisted Projects on the first frame without a loading transition", async () => {
+  it("renders persisted Projects on the first frame without a loading transition", async () => {
     const pendingProjects = new Promise<ProjectData[]>(() => undefined);
     const api = createDesktopApiMock({
       initialProjects: [swarmxProject],
@@ -2036,7 +2050,7 @@ describe("App user workflow", () => {
     expect(api.listProjects).not.toHaveBeenCalled();
   });
 
-  it("V519 toggles a Project from its main row with matching folder icons", async () => {
+  it("toggles a Project from its main row with matching folder icons", async () => {
     const api = createDesktopApiMock();
     await renderApp(api);
     const user = userEvent.setup();
@@ -2139,7 +2153,7 @@ describe("App user workflow", () => {
     expect(screen.getByText("No matching sessions")).toBeTruthy();
   });
 
-  it("V329 matches the per-project hover row, controls, and semantic detail card", async () => {
+  it("matches the per-project hover row, controls, and semantic detail card", async () => {
     const api = createDesktopApiMock({
       setProjectPinned: vi.fn(async (_id: string, pinned: boolean) => ({
         ...swarmxProject,
@@ -2210,7 +2224,7 @@ describe("App user workflow", () => {
     ).toBe("true");
   });
 
-  it("V330 matches each project's overflow menu and wires all five actions", async () => {
+  it("matches each project's overflow menu and wires all five actions", async () => {
     const api = createDesktopApiMock({
       setProjectPinned: vi.fn(async (_id: string, pinned: boolean) => ({
         ...swarmxProject,
@@ -2352,7 +2366,7 @@ describe("App user workflow", () => {
     expect(screen.getByRole("button", { name: "Open sidebar" })).toBeTruthy();
   });
 
-  it("V221 keeps collapsed macOS navigation clear of traffic lights", async () => {
+  it("keeps collapsed macOS navigation clear of traffic lights", async () => {
     vi.spyOn(window.navigator, "userAgent", "get").mockReturnValue(
       "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)",
     );
@@ -2604,7 +2618,7 @@ describe("App user workflow", () => {
     expect(document.querySelector('[data-harness-icon-fallback="codex"]')).not.toBeNull();
   });
 
-  it("V497 exposes Pi as a session Harness with its packaged icon", async () => {
+  it("exposes Pi as a session Harness with its packaged icon", async () => {
     const api = createDesktopApiMock();
     const inventory = await api.listExtensions();
     api.listExtensions.mockResolvedValue({
@@ -2634,7 +2648,7 @@ describe("App user workflow", () => {
     ).toMatch(/^data:image\/svg\+xml/);
   });
 
-  it("V505 exposes Kimi Code as a session Harness with its packaged icon", async () => {
+  it("exposes Kimi Code as a session Harness with its packaged icon", async () => {
     const api = createDesktopApiMock();
     const inventory = await api.listExtensions();
     api.listExtensions.mockResolvedValue({
@@ -4589,7 +4603,7 @@ describe("App user workflow", () => {
     expect(api.sendMessage).not.toHaveBeenCalled();
   });
 
-  it("V521 collapses superseded interrupted work and never leaves its tool spinning", async () => {
+  it("collapses superseded interrupted work and never leaves its tool spinning", async () => {
     const interruptedSession: SessionData = {
       ...localSession,
       title: "Interrupted task",
@@ -4672,7 +4686,7 @@ describe("App user workflow", () => {
     expect(within(firstTurn).queryByRole("button", { name: "Continue" })).toBeNull();
   });
 
-  it("V521 keeps the latest interrupted work open and continues with a new safe request", async () => {
+  it("keeps the latest interrupted work open and continues with a new safe request", async () => {
     const interruptedSession: SessionData = {
       ...localSession,
       title: "Latest interrupted task",
@@ -4750,7 +4764,7 @@ describe("App user workflow", () => {
     );
   });
 
-  it("V353/V355/V520 streams stable open work live and collapses on completion", async () => {
+  it("streams stable open work live and collapses on completion", async () => {
     const reply = deferred<{ success: boolean; messages: MessageChunk[] }>();
     const unsubscribe = vi.fn();
     const api = createDesktopApiMock({
@@ -4891,7 +4905,7 @@ describe("App user workflow", () => {
     expect(unsubscribe).toHaveBeenCalledTimes(1);
   }, 15_000);
 
-  it("V505 appends live terminal progress, auto-opens once, and collapses on completion", async () => {
+  it("appends live terminal progress, auto-opens once, and collapses on completion", async () => {
     const reply = deferred<{ success: boolean; messages: MessageChunk[] }>();
     const api = createDesktopApiMock({
       sendMessage: vi.fn(() => reply.promise),
@@ -4973,7 +4987,7 @@ describe("App user workflow", () => {
     expect(await screen.findByText("Command complete.")).toBeTruthy();
   }, 15_000);
 
-  it("V508 renders an actionable Provider notice and retries the exact prior request", async () => {
+  it("renders an actionable Provider notice and retries the exact prior request", async () => {
     const providerMessage: MessageChunk = {
       role: "system",
       kind: "message",
@@ -5031,7 +5045,7 @@ describe("App user workflow", () => {
     expect(await screen.findByText("Recovered.")).toBeTruthy();
   }, 15_000);
 
-  it("V341/V352 persists timing and renders Worked reasoning as unboxed body text", async () => {
+  it("persists timing and renders Worked reasoning as unboxed body text", async () => {
     const api = createDesktopApiMock({
       sendMessage: vi.fn(async () => ({
         success: true,
@@ -5072,7 +5086,7 @@ describe("App user workflow", () => {
     });
   });
 
-  it("V343 generates a short title after the first successful task response", async () => {
+  it("generates a short title after the first successful task response", async () => {
     const api = createDesktopApiMock({
       sendMessage: vi.fn(async () => ({
         success: true,
@@ -5095,7 +5109,7 @@ describe("App user workflow", () => {
     expect(await screen.findByRole("heading", { name: "Fix Project context" })).toBeTruthy();
   });
 
-  it("V344 opens a centered rename dialog from a local task double-click", async () => {
+  it("opens a centered rename dialog from a local task double-click", async () => {
     const api = createDesktopApiMock();
     await renderApp(api);
     const task = (await screen.findByText("Existing local run")).closest("button");
@@ -5115,7 +5129,7 @@ describe("App user workflow", () => {
     expect(screen.queryByRole("dialog", { name: "Rename task" })).toBeNull();
   });
 
-  it("V345 exposes pin, rename, and archive only in local task context menus", async () => {
+  it("exposes pin, rename, and archive only in local task context menus", async () => {
     const api = createDesktopApiMock();
     await renderApp(api);
     const localTask = (await screen.findByText("Existing local run")).closest("button");
@@ -5139,7 +5153,7 @@ describe("App user workflow", () => {
     await waitFor(() => expect(api.archiveSession).toHaveBeenCalledWith("local-1"));
   });
 
-  it("V345 disables archive while the selected local task is running", async () => {
+  it("disables archive while the selected local task is running", async () => {
     const reply = deferred<{ success: boolean; messages: MessageChunk[] }>();
     const api = createDesktopApiMock({
       sendMessage: vi.fn(() => reply.promise),

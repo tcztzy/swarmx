@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { ClaudeChildAgentHost } from "./child-agent-host.js";
 
 describe("ClaudeChildAgentHost", () => {
-  it("V417-V420 executes at the dynamic root and resumes request-scoped history", async () => {
+  it("executes at the dynamic root and resumes request-scoped history", async () => {
     let root = "/project/main";
     const execute = vi.fn().mockImplementation(async ({ messages }) => ({
       messages: [
@@ -78,7 +78,7 @@ describe("ClaudeChildAgentHost", () => {
     ).rejects.toThrow(/No child agent/i);
   });
 
-  it("V419 rejects unavailable model and specialized-agent routes", async () => {
+  it("rejects unavailable model and specialized-agent routes", async () => {
     const execute = vi.fn();
     const host = new ClaudeChildAgentHost({
       parentModel: "claude-sonnet-4-6",

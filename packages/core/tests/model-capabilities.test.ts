@@ -242,7 +242,7 @@ describe("Harness x Model matrix", () => {
     ]);
   });
 
-  it("V284 prefers the selected supply's native API over protocol conversion", () => {
+  it("prefers the selected supply's native API over protocol conversion", () => {
     const model = {
       id: "multi-api-model",
       runtimeModel: "multi-api-model",
@@ -283,7 +283,7 @@ describe("Harness x Model matrix", () => {
     expect(chatRoute[0]?.apiProtocol).toBe("openai_chat");
   });
 
-  it("V332 fails closed unless a session Harness has an explicit executable route", () => {
+  it("fails closed unless a session Harness has an explicit executable route", () => {
     for (const harnessId of ["claude_code", "codex", "pi", "kimi", "opencode", "hermes"]) {
       expect(resolveHarnessModelInventory({ harnessId, models })).toEqual([]);
     }
@@ -384,7 +384,7 @@ describe("Harness x Model matrix", () => {
     expect(resolveHarnessModelInventory({ harnessId: "openclaw", models })).toEqual([]);
   });
 
-  it("V332 resolves a fixed runtime Model id through a custom Harness adapter", () => {
+  it("resolves a fixed runtime Model id through a custom Harness adapter", () => {
     expect(
       resolveHarnessModelInventory({
         harnessId: "custom-claude",

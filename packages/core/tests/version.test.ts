@@ -13,7 +13,7 @@ const manifestUrls = [
 ];
 
 describe("release version", () => {
-  it("V518 keeps the runtime and every workspace manifest on 3.2.0", async () => {
+  it("keeps the runtime and every workspace manifest on 3.2.0", async () => {
     const versions = await Promise.all(
       manifestUrls.map(async (url) => JSON.parse(await readFile(url, "utf8")).version as unknown),
     );

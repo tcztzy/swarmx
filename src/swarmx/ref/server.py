@@ -10,14 +10,20 @@ from typing import Any
 
 from mcp.server.fastmcp import FastMCP
 
-from .service import LibzimReferenceBackend, ReferenceService
+from .service import (
+    LibzimReferenceBackend,
+    ReferenceBackend,
+    ReferenceService,
+    SearxngReferenceBackend,
+    ZoteroReferenceBackend,
+)
 
 TOOL_NAME = "swarmx_reference"
 MODULE_VERSION = version("swarmx")
 
 mcp = FastMCP(
     name="swarmx-ref",
-    instructions="Private read-only offline reference module for SwarmX.",
+    instructions="Private read-only multi-source reference module for SwarmX.",
     log_level="ERROR",
 )
 _service: ReferenceService | None = None
@@ -25,7 +31,7 @@ _service: ReferenceService | None = None
 
 @mcp.tool(name=TOOL_NAME, structured_output=True)
 def reference(request: dict[str, Any]) -> dict[str, Any]:
-    """Inspect, search, or read the explicitly configured offline ZIM source."""
+    """Inspect, search, or read explicitly configured reference sources."""
 
     if _service is None:
         raise ValueError("Reference source is unavailable.")
@@ -54,11 +60,22 @@ def main(argv: list[str] | None = None) -> int:
         print(version_json())
         return 0
     parser = argparse.ArgumentParser(prog="swarmx-ref")
-    parser.add_argument("--zim", required=True)
+    parser.add_argument("--zim")
+    parser.add_argument("--web-search-url")
+    parser.add_argument("--zotero", action="store_true")
     parser.add_argument("--stdio", action="store_true", required=True)
     parsed = parser.parse_args(arguments)
+    backends: dict[str, ReferenceBackend] = {}
+    if parsed.zim:
+        backends["zim"] = LibzimReferenceBackend(parsed.zim)
+    if parsed.web_search_url:
+        backends["web"] = SearxngReferenceBackend(parsed.web_search_url)
+    if parsed.zotero:
+        backends["zotero"] = ZoteroReferenceBackend()
+    if not backends:
+        parser.error("at least one of --zim, --web-search-url, or --zotero is required")
     global _service
-    _service = ReferenceService(LibzimReferenceBackend(parsed.zim))
+    _service = ReferenceService(backends)
     mcp.run(transport="stdio")
     return 0
 

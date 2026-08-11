@@ -37,8 +37,15 @@ async function filterElectronStderr(chunks: string[], platform: NodeJS.Platform)
   return Buffer.concat(output).toString("utf8");
 }
 
+function referencedRootScripts(workflow: string): string[] {
+  const pnpmBuiltins = new Set(["audit", "dlx", "exec", "install", "publish", "vitest"]);
+  return [...workflow.matchAll(/\bpnpm[ \t]+(?:run[ \t]+)?([a-z][\w:-]*)/giu)]
+    .map((match) => match[1])
+    .filter((name): name is string => Boolean(name) && !pnpmBuiltins.has(name));
+}
+
 describe("npm launcher cold start", () => {
-  it("V467 resolves Desktop and Electron by default and through the explicit alias", () => {
+  it("resolves Desktop and Electron by default and through the explicit alias", () => {
     const defaultLaunch = runLauncher();
     const explicitLaunch = runLauncher(["desktop", "--inspect=0"]);
 
@@ -50,7 +57,7 @@ describe("npm launcher cold start", () => {
     expect(existsSync(defaultLaunch.electronPath ?? "")).toBe(true);
   });
 
-  it("V467 keeps existing CLI arguments and strips only the explicit cli alias", () => {
+  it("keeps existing CLI arguments and strips only the explicit cli alias", () => {
     expect(runLauncher(["doctor", "--json"])).toEqual({
       mode: "cli",
       args: ["doctor", "--json"],
@@ -58,7 +65,7 @@ describe("npm launcher cold start", () => {
     expect(runLauncher(["cli", "sessions"])).toEqual({ mode: "cli", args: ["sessions"] });
   });
 
-  it("V468 and V473 assign Desktop and Electron to launcher runtime dependencies", () => {
+  it("assign Desktop and Electron to launcher runtime dependencies", () => {
     const swarmxManifest = JSON.parse(
       readFileSync(new URL("../package.json", import.meta.url), "utf8"),
     ) as { dependencies: Record<string, string> };
@@ -137,7 +144,7 @@ describe("npm launcher cold start", () => {
     expect(desktopManifest.exports["./preload"]?.import).toBe("./dist/preload/api.js");
   });
 
-  it("V469 gates dual-architecture DMG and ZIP releases on the tag version", () => {
+  it("gates dual-architecture DMG and ZIP releases on the tag version", () => {
     const workflow = readFileSync(
       new URL("../../../.github/workflows/release.yml", import.meta.url),
       "utf8",
@@ -155,7 +162,7 @@ describe("npm launcher cold start", () => {
     expect(builder).toContain("- dir");
   });
 
-  it("V470 keeps README concise and leads npm users to Desktop", () => {
+  it("keeps README concise and leads npm users to Desktop", () => {
     const readme = readFileSync(new URL("../../../README.md", import.meta.url), "utf8");
 
     expect(readme.split("\n").length).toBeLessThanOrEqual(150);
@@ -165,7 +172,7 @@ describe("npm launcher cold start", () => {
     expect(readme).toContain("docs/assets/swarmx-demo.gif");
   });
 
-  it("V474 excludes generated desktop release artifacts from Git and Biome", () => {
+  it("excludes generated desktop release artifacts from Git and Biome", () => {
     const gitignore = readFileSync(new URL("../../../.gitignore", import.meta.url), "utf8");
     const biome = JSON.parse(
       readFileSync(new URL("../../../biome.json", import.meta.url), "utf8"),
@@ -175,7 +182,7 @@ describe("npm launcher cold start", () => {
     expect(biome.files.includes).toContain("!**/packages/desktop/release");
   });
 
-  it("V475 reserves the swarmx bin name for the Desktop-first launcher", () => {
+  it("reserves the swarmx bin name for the Desktop-first launcher", () => {
     const swarmxManifest = JSON.parse(
       readFileSync(new URL("../package.json", import.meta.url), "utf8"),
     ) as { bin: Record<string, string> };
@@ -187,7 +194,7 @@ describe("npm launcher cold start", () => {
     expect(cliManifest.bin).toEqual({ "swarmx-cli": "./dist/cli.js" });
   });
 
-  it("V476 creates macOS archives with host tools after app packaging", () => {
+  it("creates macOS archives with host tools after app packaging", () => {
     const scriptUrl = new URL("../../desktop/scripts/build-macos-artifacts.mjs", import.meta.url);
     expect(existsSync(scriptUrl)).toBe(true);
 
@@ -197,7 +204,7 @@ describe("npm launcher cold start", () => {
     expect(script).toContain('"--dir"');
   });
 
-  it("V477 and V479 await Electron's checked downloader when npm skips lifecycle setup", () => {
+  it("await Electron's checked downloader when npm skips lifecycle setup", () => {
     const launcher = readFileSync(new URL("../bin/swarmx.js", import.meta.url), "utf8");
 
     expect(launcher).toContain('"@electron/get"');
@@ -206,7 +213,7 @@ describe("npm launcher cold start", () => {
     expect(launcher).toContain("https://github.com/tcztzy/swarmx/releases/latest");
   });
 
-  it("V478 repairs only a verified Electron path marker and reloads the module", () => {
+  it("repairs only a verified Electron path marker and reloads the module", () => {
     const launcher = readFileSync(new URL("../bin/swarmx.js", import.meta.url), "utf8");
 
     expect(launcher).toContain('"path.txt"');
@@ -215,7 +222,7 @@ describe("npm launcher cold start", () => {
     expect(launcher).toContain('"dist", "version"');
   });
 
-  it("V480 keeps Node alive only while Electron bootstrap promises are pending", () => {
+  it("keeps Node alive only while Electron bootstrap promises are pending", () => {
     const launcher = readFileSync(new URL("../bin/swarmx.js", import.meta.url), "utf8");
 
     expect(launcher).toContain("setInterval");
@@ -223,14 +230,14 @@ describe("npm launcher cold start", () => {
     expect(launcher).toContain("finally");
   });
 
-  it("V481 uses host ditto for reliable macOS Electron extraction", () => {
+  it("uses host ditto for reliable macOS Electron extraction", () => {
     const launcher = readFileSync(new URL("../bin/swarmx.js", import.meta.url), "utf8");
 
     expect(launcher).toContain('execFileSync("ditto"');
     expect(launcher).toContain('["-x", "-k"');
   });
 
-  it("V487 and V488 explicitly review dependency build scripts across supported pnpm", () => {
+  it("explicitly review dependency build scripts across supported pnpm", () => {
     const workspace = readFileSync(
       new URL("../../../pnpm-workspace.yaml", import.meta.url),
       "utf8",
@@ -243,7 +250,7 @@ describe("npm launcher cold start", () => {
     }
   });
 
-  it("V489 exports optional macOS signing inputs only when configured", () => {
+  it("exports optional macOS signing inputs only when configured", () => {
     const workflow = readFileSync(
       new URL("../../../.github/workflows/release.yml", import.meta.url),
       "utf8",
@@ -257,7 +264,7 @@ describe("npm launcher cold start", () => {
     expect(workflow).not.toContain("CSC_LINK: ${{ secrets.");
   });
 
-  it("V490 resolves electron-builder app directories for both macOS architectures", () => {
+  it("resolves electron-builder app directories for both macOS architectures", () => {
     const script = readFileSync(
       new URL("../../desktop/scripts/build-macos-artifacts.mjs", import.meta.url),
       "utf8",
@@ -267,7 +274,7 @@ describe("npm launcher cold start", () => {
     expect(script).toContain('x64: "mac"');
   });
 
-  it("V491 refreshes only release automation when rebuilding an existing tag", () => {
+  it("refreshes only release automation when rebuilding an existing tag", () => {
     const workflow = readFileSync(
       new URL("../../../.github/workflows/release.yml", import.meta.url),
       "utf8",
@@ -281,7 +288,7 @@ describe("npm launcher cold start", () => {
     );
   });
 
-  it("V492 publishes from an explicit repository without requiring a checkout", () => {
+  it("publishes from an explicit repository without requiring a checkout", () => {
     const workflow = readFileSync(
       new URL("../../../.github/workflows/release.yml", import.meta.url),
       "utf8",
@@ -291,7 +298,7 @@ describe("npm launcher cold start", () => {
     expect(workflow).toContain('gh release create "$RELEASE_TAG"');
   });
 
-  it("V493 verifies both macOS archive formats before upload", () => {
+  it("verifies both macOS archive formats before upload", () => {
     const workflow = readFileSync(
       new URL("../../../.github/workflows/release.yml", import.meta.url),
       "utf8",
@@ -301,7 +308,7 @@ describe("npm launcher cold start", () => {
     expect(workflow).toContain('unzip -tq "${artifact_base}.zip"');
   });
 
-  it("V500 names the pnpm release gate without invoking the reserved ci command", () => {
+  it("names the pnpm release gate without invoking the reserved ci command", () => {
     const rootManifest = JSON.parse(
       readFileSync(new URL("../../../package.json", import.meta.url), "utf8"),
     ) as { scripts: Record<string, string> };
@@ -310,12 +317,14 @@ describe("npm launcher cold start", () => {
       "utf8",
     );
 
-    expect(rootManifest.scripts.ci).toBe("pnpm run ci:node && pnpm run ci:inspect");
+    expect(rootManifest.scripts.ci).toContain("pnpm run ci:node");
+    expect(rootManifest.scripts.ci).toContain("pnpm run ci:inspect");
+    expect(rootManifest.scripts.ci).toContain("pnpm run ci:managed");
     expect(inspectReadme).toContain("pnpm run ci");
     expect(inspectReadme).not.toContain("`pnpm ci`");
   });
 
-  it("V516-V517 publishes tagged npm packages through OIDC in dependency order", () => {
+  it("publishes tagged npm packages through OIDC in dependency order", () => {
     const workflow = readFileSync(
       new URL("../../../.github/workflows/release.yml", import.meta.url),
       "utf8",
@@ -340,19 +349,19 @@ describe("npm launcher cold start", () => {
     expect(publisher).toContain("dist.integrity");
   });
 
-  it("V557 blocks release packaging and publishing on the tagged commit quality gate", () => {
+  it("blocks release packaging and publishing on the tagged commit quality gate", () => {
     const workflow = readFileSync(
       new URL("../../../.github/workflows/release.yml", import.meta.url),
       "utf8",
     );
 
     expect(workflow).toMatch(/\n {2}quality:\n/);
-    expect(workflow).toContain("run: pnpm run ci:node");
+    expect(workflow).toContain("run: pnpm run ci");
     expect(workflow).toContain("run: pnpm run audit:prod");
     expect(workflow).toMatch(/\n {2}macos:\n(?:.*\n)*? {4}needs: quality\n/);
   });
 
-  it("V562 makes coverage thresholds part of primary CI and the release quality gate", () => {
+  it("makes coverage thresholds part of primary CI and the release quality gate", () => {
     const rootManifest = JSON.parse(
       readFileSync(new URL("../../../package.json", import.meta.url), "utf8"),
     ) as { scripts: Record<string, string> };
@@ -366,9 +375,51 @@ describe("npm launcher cold start", () => {
     expect(ciWorkflow).toContain("run: pnpm test:coverage");
   });
 
-  it("V564 keeps Inspect smoke output from dirtying a verified source tree", () => {
+  it("keeps Inspect smoke output from dirtying a verified source tree", () => {
     const gitignore = readFileSync(new URL("../../../.gitignore", import.meta.url), "utf8");
 
     expect(gitignore).toContain("/logs/");
+  });
+
+  it("keeps every workflow pnpm script backed by the root manifest", () => {
+    const rootManifest = JSON.parse(
+      readFileSync(new URL("../../../package.json", import.meta.url), "utf8"),
+    ) as { scripts: Record<string, string> };
+    const workflows = ["ci.yml", "release.yml"].map((name) => ({
+      name,
+      source: readFileSync(new URL(`../../../.github/workflows/${name}`, import.meta.url), "utf8"),
+    }));
+
+    const missing = workflows.flatMap(({ name, source }) =>
+      referencedRootScripts(source)
+        .filter((script) => !(script in rootManifest.scripts))
+        .map((script) => `${name}: ${script}`),
+    );
+
+    expect(missing).toEqual([]);
+  });
+
+  it("tests the declared minimum Node version without unsupported compatibility jobs", () => {
+    const rootManifest = JSON.parse(
+      readFileSync(new URL("../../../package.json", import.meta.url), "utf8"),
+    ) as { engines: { node: string } };
+    const ciWorkflow = readFileSync(
+      new URL("../../../.github/workflows/ci.yml", import.meta.url),
+      "utf8",
+    );
+    const minimum = rootManifest.engines.node.match(/^>=(\d+)\.(\d+)\.(\d+)$/u);
+    if (!minimum) throw new Error(`Unsupported Node engine range: ${rootManifest.engines.node}`);
+    const minimumVersion = minimum.slice(1).join(".");
+    const minimumMajor = Number(minimum[1]);
+    const testedVersions = [
+      ...ciWorkflow.matchAll(/node-version:\s*["']?([0-9]+(?:\.[0-9x]+){0,2})/giu),
+    ]
+      .map((match) => match[1])
+      .filter((version): version is string => Boolean(version));
+
+    expect(testedVersions).toContain(minimumVersion);
+    expect(testedVersions.every((version) => Number(version.split(".")[0]) >= minimumMajor)).toBe(
+      true,
+    );
   });
 });

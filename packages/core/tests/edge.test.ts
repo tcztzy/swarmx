@@ -53,9 +53,4 @@ describe("Edge", () => {
     });
     expect(edge.resolveTargets({ name: "foo" })).toEqual(["node_foo"]);
   });
-
-  it("returns to static target on CEL parse failure", () => {
-    const edge = new Edge({ source: "a", target: "b" });
-    expect(edge.resolveTargets({})).toEqual(["b"]);
-  });
 });

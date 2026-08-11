@@ -16,7 +16,7 @@ afterEach(async () => {
 });
 
 describe("BuiltinToolSettingsService", () => {
-  it("V570 updates built-in tool style without replacing unrelated Settings", async () => {
+  it("updates built-in tool style without replacing unrelated Settings", async () => {
     const root = await mkdtemp(join(tmpdir(), "swarmx-builtin-tools-"));
     roots.push(root);
     const store = new DesktopSettingsStore({ path: join(root, "settings.json") });
@@ -34,7 +34,7 @@ describe("BuiltinToolSettingsService", () => {
     expect((await store.read()).extensions.enabledPluginIds).toEqual(["paper-tools"]);
   });
 
-  it("V571 resolves and preserves a Session binding before changed Settings", () => {
+  it("resolves and preserves a Session binding before changed Settings", () => {
     expect(
       resolveRunBuiltinTools({
         settings: { style: "auto" },
@@ -52,7 +52,7 @@ describe("BuiltinToolSettingsService", () => {
     ).toEqual({ style: "kimi_code", revision: 1, source: "model" });
   });
 
-  it("V571 maps only explicit first-party Provider endpoints to automatic styles", () => {
+  it("maps only explicit first-party Provider endpoints to automatic styles", () => {
     expect(preferredBuiltinToolStyleForProvider("https://api.moonshot.cn/v1", undefined)).toBe(
       "kimi_code",
     );

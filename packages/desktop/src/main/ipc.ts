@@ -41,6 +41,7 @@ import {
   createMemoryAgentTool,
   createReferenceLibraryAgentTool,
   createSession,
+  createSessionContextEngine,
   detectMediaMimeType,
   dismissProject,
   editSessionUserMessage,
@@ -910,6 +911,32 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
         ];
         let swarm: Swarm;
         const cwd = await normalizeWorkingDirectory(params.cwd);
+        const createRunContextEngine = (contextId: string, history: readonly MessageChunk[]) =>
+          createSessionContextEngine({
+            sessionId: contextId,
+            history,
+            onCompiled: (manifest) => {
+              auditStore.append({
+                category: "provider",
+                action: "context.compiled",
+                actor: { kind: "system" },
+                target: { kind: "context-manifest" },
+                requestId: params.requestId,
+                ...(params.sessionId ? { sessionId: params.sessionId } : {}),
+                metadata: {
+                  snapshotId: manifest.snapshotId,
+                  configHash: manifest.configHash,
+                  modelVersion: manifest.modelVersion,
+                  contextHash: manifest.contextHash,
+                  includedItemCount: manifest.includedItemIds.length,
+                  includedEventCount: manifest.includedEventIds.length,
+                  omittedItemCount: manifest.omittedItems.length,
+                  inputTokens: manifest.inputTokens,
+                  reservedOutputTokens: manifest.reservedOutputTokens,
+                },
+              });
+            },
+          });
 
         if (params.swarmConfig) {
           if (params.sessionId && !params.sideChatId) {
@@ -921,10 +948,17 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
             : params.swarmConfig;
           const agentCount = countPersonalMemoryAgentTargets(config);
           const personalMemorySnapshot = await personalMemoryService.snapshot();
+          const workflowHistory = params.sessionId
+            ? (loadSession(params.sessionId)?.messages ?? [])
+            : [];
           swarm = new Swarm(await protectSwarmConfigBackends(config), {
             agent: {
               acpPermissionHandler,
               localTools: privateKnowledgeTools,
+              contextEngine: createRunContextEngine(
+                params.sessionId ?? params.requestId,
+                workflowHistory,
+              ),
               ...(personalMemorySnapshot ? { personalMemory: personalMemorySnapshot } : {}),
             },
           });
@@ -1224,6 +1258,14 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
                           inventory: protectedInventory,
                           providerSecrets,
                           cwd: sessionRuntime.root,
+                          ...(compositionUsesAcp
+                            ? {}
+                            : {
+                                contextEngine: createRunContextEngine(
+                                  sessionId,
+                                  persisted.messages,
+                                ),
+                              }),
                           acpPermissionHandler,
                           localTools: [
                             ...agentMemoryTools,
@@ -1346,6 +1388,14 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
                             inventory: protectedInventory,
                             providerSecrets,
                             cwd: root,
+                            ...(compositionUsesAcp
+                              ? {}
+                              : {
+                                  contextEngine: createRunContextEngine(
+                                    `${params.sessionId ?? params.requestId}:agent:${agentId}`,
+                                    [],
+                                  ),
+                                }),
                             acpPermissionHandler,
                             localTools: [
                               ...agentMemoryTools,
@@ -1388,6 +1438,9 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
               : params.sessionId
                 ? sessionChatMessages(loadSession(params.sessionId))
                 : [];
+          const contextHistory = activeSideChat
+            ? [...activeSideChat.anchorMessages, ...activeSideChat.messages]
+            : (directSession?.messages ?? []);
           const sideChatBoundaryMessage = params.sideChatId
             ? [
                 {
@@ -1426,6 +1479,14 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
                     env: compositionEnv,
                     providerSecrets,
                     cwd,
+                    ...(compositionUsesAcp
+                      ? {}
+                      : {
+                          contextEngine: createRunContextEngine(
+                            params.sideChatId ?? params.sessionId ?? params.requestId,
+                            contextHistory,
+                          ),
+                        }),
                     acpPermissionHandler,
                     acpSessionId,
                     onAcpSessionId,

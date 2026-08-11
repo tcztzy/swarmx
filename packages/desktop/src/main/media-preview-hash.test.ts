@@ -33,7 +33,7 @@ afterEach(async () => {
 });
 
 describe("DesktopMediaService preview validation", () => {
-  it("V560 reuses one content validation for the immediate media protocol request", async () => {
+  it("reuses one content validation for the immediate media protocol request", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "swarmx-media-preview-hash-"));
     temporaryDirectories.add(root);
     const service = new DesktopMediaService(path.join(root, "media"));
@@ -50,7 +50,7 @@ describe("DesktopMediaService preview validation", () => {
     expect(streamSpies.createReadStream).toHaveBeenCalledTimes(1);
   });
 
-  it("V560 consumes no stale receipt after the managed file identity changes", async () => {
+  it("consumes no stale receipt after the managed file identity changes", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "swarmx-media-preview-hash-"));
     temporaryDirectories.add(root);
     const service = new DesktopMediaService(path.join(root, "media"));

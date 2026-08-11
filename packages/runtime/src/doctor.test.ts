@@ -7,7 +7,7 @@ import {
 } from "./harness-environment.js";
 
 describe("HarnessDoctor", () => {
-  it("V208 V217 inspects optional harness availability without creating global issues", async () => {
+  it("inspects optional harness availability without creating global issues", async () => {
     const host = fakeHost(unhealthyStatus());
     const report = await new HarnessDoctor(host).inspect();
 
@@ -17,7 +17,7 @@ describe("HarnessDoctor", () => {
     expect(host.setup).not.toHaveBeenCalled();
   });
 
-  it("V209 V218 keeps a selected missing harness out of the repair plan", async () => {
+  it("keeps a selected missing harness out of the repair plan", async () => {
     const doctor = new HarnessDoctor(fakeHost(unhealthyStatus()));
     const plan = doctor.plan(await doctor.inspect({ harnessId: "hermes" }));
 
@@ -26,7 +26,7 @@ describe("HarnessDoctor", () => {
     expect(plan.actions).toEqual([]);
   });
 
-  it("V210 refuses repair without explicit confirmation", async () => {
+  it("refuses repair without explicit confirmation", async () => {
     const host = fakeHost(unhealthyStatus());
     const result = await new HarnessDoctor(host).fix({ harnessId: "hermes", confirmed: false });
 
@@ -35,7 +35,7 @@ describe("HarnessDoctor", () => {
     expect(host.setup).not.toHaveBeenCalled();
   });
 
-  it("V210 does not repair a harness even after confirmation", async () => {
+  it("does not repair a harness even after confirmation", async () => {
     const host = fakeHost(unhealthyStatus());
 
     const result = await new HarnessDoctor(host).fix({ harnessId: "hermes", confirmed: true });
@@ -45,7 +45,7 @@ describe("HarnessDoctor", () => {
     expect(result.after.healthy).toBe(true);
   });
 
-  it("V218 does not diagnose a selected harness's protected runtime", async () => {
+  it("does not diagnose a selected harness's protected runtime", async () => {
     const report = await new HarnessDoctor(fakeHost(unhealthyStatus())).inspect({
       harnessId: "claude_code",
     });
@@ -81,7 +81,7 @@ describe("HarnessDoctor", () => {
     expect(report.repairActions).toEqual([]);
   });
 
-  it("V219 never repairs optional harnesses from an unfiltered fix", async () => {
+  it("never repairs optional harnesses from an unfiltered fix", async () => {
     const host = fakeHost(unhealthyStatus());
     const result = await new HarnessDoctor(host).fix({ confirmed: true });
 
@@ -90,7 +90,7 @@ describe("HarnessDoctor", () => {
     expect(host.setup).not.toHaveBeenCalled();
   });
 
-  it("V207 reports an unknown harness without inventing a repair", async () => {
+  it("reports an unknown harness without inventing a repair", async () => {
     const report = await new HarnessDoctor(fakeHost(healthyStatus())).inspect({
       harnessId: "missing",
     });
@@ -100,7 +100,7 @@ describe("HarnessDoctor", () => {
     expect(report.repairActions).toEqual([]);
   });
 
-  it("V312 diagnoses the Node.js baseline without treating optional Harnesses as required", async () => {
+  it("diagnoses the Node.js baseline without treating optional Harnesses as required", async () => {
     const status = healthyStatus();
     status.requirements.push({
       id: "node",
@@ -121,7 +121,7 @@ describe("HarnessDoctor", () => {
     expect(report.repairActions).toEqual([]);
   });
 
-  it("V207 keeps filtered environment readiness consistent with the report", async () => {
+  it("keeps filtered environment readiness consistent with the report", async () => {
     const report = await new HarnessDoctor(fakeHost(protectionOnlyUnhealthyStatus())).inspect({
       harnessId: "hermes",
     });
@@ -132,7 +132,7 @@ describe("HarnessDoctor", () => {
     expect(report.environment.harnesses.map((harness) => harness.harnessId)).toEqual(["hermes"]);
   });
 
-  it("V211 prefers the existing local Hermes checkout during detection", async () => {
+  it("prefers the existing local Hermes checkout during detection", async () => {
     const commands: string[] = [];
     const service = new HarnessEnvironmentService({
       env: { PATH: "/usr/bin" },

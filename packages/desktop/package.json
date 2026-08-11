@@ -50,7 +50,9 @@
     "dist:mac": "pnpm build && node scripts/build-macos-artifacts.mjs",
     "preview": "vite preview",
     "start": "node scripts/start-electron.mjs",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:smoke": "node scripts/test-desktop-smoke.mjs",
+    "test:mem-runtime": "node scripts/test-mem-runtime.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.30.0",

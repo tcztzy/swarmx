@@ -14,18 +14,36 @@ const MAX_REFERENCE_RESPONSE_BYTES = 96 * 1024;
 const ReferenceLibraryLaunchSpecSchema = z
   .object({
     pythonPath: z.string().min(1).max(4_096),
-    zimPath: z.string().min(1).max(4_096),
+    zimPath: z.string().min(1).max(4_096).optional(),
+    webSearchUrl: z.string().min(1).max(4_096).optional(),
+    zotero: z.boolean().optional(),
   })
   .strict()
   .superRefine((value, context) => {
     if (!path.isAbsolute(value.pythonPath)) {
       context.addIssue({ code: "custom", path: ["pythonPath"], message: "must be absolute" });
     }
-    if (!path.isAbsolute(value.zimPath) || path.extname(value.zimPath).toLowerCase() !== ".zim") {
+    if (
+      value.zimPath &&
+      (!path.isAbsolute(value.zimPath) || path.extname(value.zimPath).toLowerCase() !== ".zim")
+    ) {
       context.addIssue({
         code: "custom",
         path: ["zimPath"],
         message: "must be an absolute .zim path",
+      });
+    }
+    if (value.webSearchUrl && !validWebSearchUrl(value.webSearchUrl)) {
+      context.addIssue({
+        code: "custom",
+        path: ["webSearchUrl"],
+        message: "must be HTTPS or loopback HTTP without credentials, query, or fragment",
+      });
+    }
+    if (!value.zimPath && !value.webSearchUrl && value.zotero !== true) {
+      context.addIssue({
+        code: "custom",
+        message: "at least one Reference source must be configured",
       });
     }
   });
@@ -63,6 +81,8 @@ export class ReferenceLibraryHost implements ReferenceLibraryBackend {
     this.launch = ReferenceLibraryLaunchSpecSchema.parse({
       pythonPath: options.pythonPath,
       zimPath: options.zimPath,
+      webSearchUrl: options.webSearchUrl,
+      zotero: options.zotero,
     });
     this.connectModule = options.connect ?? connectReferenceLibrary;
   }
@@ -83,6 +103,14 @@ export class ReferenceLibraryHost implements ReferenceLibraryBackend {
     const result = ReferenceLibraryResultSchema.parse(decoded);
     if (result.operation !== parsedRequest.operation) {
       throw new Error("Reference Library response operation mismatch.");
+    }
+    if (
+      parsedRequest.source &&
+      (result.operation === "status"
+        ? result.sources.length !== 1 || result.sources[0]?.id !== parsedRequest.source
+        : result.source !== parsedRequest.source)
+    ) {
+      throw new Error("Reference Library response source mismatch.");
     }
     return result;
   }
@@ -123,10 +151,15 @@ export class ReferenceLibraryHost implements ReferenceLibraryBackend {
 async function connectReferenceLibrary(
   launch: ReferenceLibraryLaunchSpec,
 ): Promise<ReferenceLibraryConnection> {
+  const args = ["-I", "-B", "-u", "-m", "swarmx.ref.server"];
+  if (launch.zimPath) args.push("--zim", launch.zimPath);
+  if (launch.webSearchUrl) args.push("--web-search-url", launch.webSearchUrl);
+  if (launch.zotero) args.push("--zotero");
+  args.push("--stdio");
   const transport = new StdioClientTransport({
     command: launch.pythonPath,
-    args: ["-I", "-B", "-u", "-m", "swarmx.ref.server", "--zim", launch.zimPath, "--stdio"],
-    cwd: path.dirname(launch.zimPath),
+    args,
+    cwd: path.dirname(launch.zimPath ?? launch.pythonPath),
     env: {
       PATH: "",
       PYTHONDONTWRITEBYTECODE: "1",
@@ -157,6 +190,22 @@ async function connectReferenceLibrary(
       await Promise.allSettled([client.close(), transport.close()]);
     },
   };
+}
+
+function validWebSearchUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    const loopback = ["127.0.0.1", "localhost", "[::1]"].includes(url.hostname);
+    return (
+      !url.username &&
+      !url.password &&
+      !url.search &&
+      !url.hash &&
+      (url.protocol === "https:" || (url.protocol === "http:" && loopback))
+    );
+  } catch {
+    return false;
+  }
 }
 
 function exactStructuredContent(result: ReferenceToolCallResult): unknown {

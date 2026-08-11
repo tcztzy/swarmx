@@ -147,6 +147,8 @@ export {
   resolveContextStrategy,
   SummaryCheckpointSchema,
 } from "./context.js";
+export * from "./context-engine.js";
+export * from "./context-engine-store.js";
 export type {
   ConversationActor,
   ConversationArtifactReference,

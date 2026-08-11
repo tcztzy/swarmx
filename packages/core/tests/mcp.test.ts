@@ -53,7 +53,7 @@ describe("McpManager cancellation", () => {
     expect(manager.toolsForOpenai()).toEqual([]);
   });
 
-  it("V363 separates model text, structured output, and local disposal", async () => {
+  it("separates model text, structured output, and local disposal", async () => {
     const manager = new McpManager();
     const dispose = vi.fn(async () => undefined);
     manager.addLocalTools([
@@ -81,7 +81,7 @@ describe("McpManager cancellation", () => {
     expect(dispose).toHaveBeenCalledTimes(1);
   });
 
-  it("V380 conditionally projects paginated Claude MCP resources", async () => {
+  it("conditionally projects paginated Claude MCP resources", async () => {
     const disconnected = new McpManager();
     disconnected.addClaudeMcpResourceTools();
     expect(disconnected.toolsForOpenai()).toEqual([]);
@@ -130,7 +130,7 @@ describe("McpManager cancellation", () => {
     );
   });
 
-  it("V381 reads Claude MCP text resources with request cancellation context", async () => {
+  it("reads Claude MCP text resources with request cancellation context", async () => {
     const manager = new McpManager();
     const readResource = vi
       .fn()
@@ -168,7 +168,7 @@ describe("McpManager cancellation", () => {
     });
   });
 
-  it("V396 starts MCP connections concurrently and aborts pending work on close", async () => {
+  it("starts MCP connections concurrently and aborts pending work on close", async () => {
     const aborted: string[] = [];
     const connectServer = vi.fn(
       (name: string, _config: unknown, signal: AbortSignal) =>
@@ -195,7 +195,7 @@ describe("McpManager cancellation", () => {
     expect(manager.toolsForOpenai()).toEqual([]);
   });
 
-  it("V397 searches and activates only matching deferred MCP schemas", async () => {
+  it("searches and activates only matching deferred MCP schemas", async () => {
     const manager = new McpManager({
       connectServer: async () =>
         fakeConnection([
@@ -242,7 +242,7 @@ describe("McpManager cancellation", () => {
     ).rejects.toThrow(/1 to 20/);
   });
 
-  it("V397 reports pending MCP servers when no deferred schema matches", async () => {
+  it("reports pending MCP servers when no deferred schema matches", async () => {
     const manager = new McpManager({
       connectServer: (_name, _config, signal) =>
         new Promise<McpConnectionResult>((_resolve, reject) => {
@@ -263,7 +263,7 @@ describe("McpManager cancellation", () => {
     await manager.close();
   });
 
-  it("V399 waits for named servers and returns every Claude status bucket", async () => {
+  it("waits for named servers and returns every Claude status bucket", async () => {
     const manager = new McpManager({
       waitTimeoutMs: 10,
       connectServer: (name, _config, signal) => {
@@ -301,7 +301,7 @@ describe("McpManager cancellation", () => {
     await manager.close();
   });
 
-  it("V398 namespaces equal MCP names and dispatches only to the owning client", async () => {
+  it("namespaces equal MCP names and dispatches only to the owning client", async () => {
     const alphaCall = vi.fn().mockResolvedValue({ content: [{ type: "text", text: "alpha" }] });
     const betaCall = vi.fn().mockResolvedValue({ content: [{ type: "text", text: "beta" }] });
     const manager = new McpManager({

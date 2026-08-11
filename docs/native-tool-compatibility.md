@@ -353,13 +353,18 @@ not represented by local success stubs.
 
 ## Network boundary
 
-Web search is not represented as a local shell or fake function tool.
+Provider-hosted web search is not represented as a local shell or fake
+function tool.
 Anthropic documents [web search](https://platform.claude.com/docs/en/agents-and-tools/tool-use/web-search-tool)
 and [web fetch](https://platform.claude.com/docs/en/agents-and-tools/tool-use/web-fetch-tool)
 as server-executed tools. Codex likewise registers search through its hosted
-Responses tool path. SwarmX should expose search only after the selected
-provider and protocol advertise that hosted capability; the local Project
-shell continues to deny network access.
+Responses tool path. SwarmX exposes those native tools only after the selected
+provider and protocol advertise the hosted capability; the local Project shell
+continues to deny network access. Separately, an explicitly configured
+Reference Library may expose bounded SearXNG results through its read-only
+`ReferenceLibrary` tool. That route requires `source: "web"` for every query,
+does not grant Project shell network access, and does not fetch arbitrary result
+URLs.
 
 ## Maintenance checklist
 

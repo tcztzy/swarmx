@@ -1,13 +1,18 @@
-"""Bounded, read-only access to one offline ZIM reference archive."""
+"""Bounded, read-only access to configured objective reference sources."""
 
 from __future__ import annotations
 
+import json
+import os
 import re
+import sys
 import threading
 from html import unescape
 from html.parser import HTMLParser
 from pathlib import Path
-from typing import Any, Mapping, Protocol
+from typing import Any, Callable, Mapping, Protocol
+from urllib.parse import urlencode, urlsplit, urlunsplit
+from urllib.request import HTTPRedirectHandler, ProxyHandler, Request, build_opener
 
 MAX_QUERY_CHARS = 256
 MAX_SEARCH_RESULTS = 20
@@ -15,6 +20,13 @@ MAX_PAGE_CHARS = 32_000
 MAX_ITEM_BYTES = 2 * 1024 * 1024
 MAX_PATH_CHARS = 4_096
 MAX_METADATA_CHARS = 2_048
+MAX_NETWORK_BYTES = 256 * 1024
+MAX_ESTIMATED_MATCHES = 2_147_483_647
+NETWORK_TIMEOUT_SECONDS = 10
+ZOTERO_API_URL = "http://127.0.0.1:23119/api"
+SOURCE_IDS = frozenset({"zim", "web", "zotero"})
+
+JsonFetcher = Callable[[str], tuple[object, Mapping[str, str]]]
 
 
 class ReferenceBackend(Protocol):
@@ -28,8 +40,14 @@ class ReferenceBackend(Protocol):
 class ReferenceService:
     """Strict operation dispatcher shared by MCP and unit tests."""
 
-    def __init__(self, backend: ReferenceBackend) -> None:
-        self._backend = backend
+    def __init__(self, backends: Mapping[str, ReferenceBackend]) -> None:
+        if (
+            not backends
+            or set(backends) - SOURCE_IDS
+            or not all(isinstance(source, str) for source in backends)
+        ):
+            raise ValueError("Reference sources are invalid.")
+        self._backends = dict(backends)
 
     def handle(self, request: object) -> dict[str, Any]:
         if not isinstance(request, Mapping) or not all(
@@ -38,17 +56,54 @@ class ReferenceService:
             raise ValueError("Reference request must be an object.")
         operation = request.get("operation")
         if operation == "status":
-            _require_fields(request, {"operation"})
-            return {"operation": "status", **self._backend.status()}
+            _require_fields(request, {"operation"}, {"source"})
+            requested_source = request.get("source")
+            source_ids = (
+                [self._source_id(requested_source)]
+                if requested_source is not None
+                else list(self._backends)
+            )
+            sources = [
+                {"id": source_id, **self._backends[source_id].status()}
+                for source_id in source_ids
+            ]
+            result: dict[str, Any] = {
+                "operation": "status",
+                "sources": sources,
+            }
+            zim = next((source for source in sources if source["id"] == "zim"), None)
+            if zim is not None and isinstance(zim.get("fileSize"), int):
+                result["source"] = {
+                    key: zim[key]
+                    for key in (
+                        "fileName",
+                        "fileSize",
+                        "title",
+                        "language",
+                        "date",
+                        "description",
+                    )
+                }
+            return result
         if operation == "search":
-            _require_fields(request, {"operation", "query"}, {"limit"})
+            _require_fields(request, {"operation", "query"}, {"limit", "source"})
             query = _bounded_string(request.get("query"), "query", MAX_QUERY_CHARS)
             limit = _bounded_integer(
                 request.get("limit", 10), "limit", 1, MAX_SEARCH_RESULTS
             )
-            return {"operation": "search", **self._backend.search(query, limit)}
+            source_id = self._selected_source(request.get("source"))
+            result = self._backends[source_id].search(query, limit)
+            matches = result.get("matches")
+            if not isinstance(matches, list):
+                raise ValueError("Reference source returned invalid search results.")
+            return {
+                "operation": "search",
+                "source": source_id,
+                **result,
+                "matches": [{"source": source_id, **match} for match in matches],
+            }
         if operation == "get":
-            _require_fields(request, {"operation", "path"}, {"maxChars"})
+            _require_fields(request, {"operation", "path"}, {"maxChars", "source"})
             path = _bounded_string(request.get("path"), "path", MAX_PATH_CHARS)
             max_chars = _bounded_integer(
                 request.get("maxChars", MAX_PAGE_CHARS),
@@ -56,8 +111,27 @@ class ReferenceService:
                 1,
                 MAX_PAGE_CHARS,
             )
-            return {"operation": "get", **self._backend.get(path, max_chars)}
+            source_id = self._selected_source(request.get("source"))
+            return {
+                "operation": "get",
+                "source": source_id,
+                **self._backends[source_id].get(path, max_chars),
+            }
         raise ValueError("Reference operation must be status, search, or get.")
+
+    def _selected_source(self, value: object) -> str:
+        if value is None:
+            if "zim" not in self._backends:
+                raise ValueError("Reference source must be selected.")
+            return "zim"
+        return self._source_id(value)
+
+    def _source_id(self, value: object) -> str:
+        if not isinstance(value, str) or value not in SOURCE_IDS:
+            raise ValueError("Reference source is invalid.")
+        if value not in self._backends:
+            raise ValueError("Reference source is unavailable.")
+        return value
 
 
 class LibzimReferenceBackend:
@@ -76,7 +150,16 @@ class LibzimReferenceBackend:
         from libzim.reader import Archive
 
         try:
-            archive = Archive(str(resolved))
+            saved_stdout_fd = os.dup(1)
+            try:
+                sys.stdout.flush()
+                # libzim may emit language-index diagnostics to fd 1; MCP owns stdout.
+                os.dup2(2, 1)
+                archive = Archive(str(resolved))
+            finally:
+                sys.stdout.flush()
+                os.dup2(saved_stdout_fd, 1)
+                os.close(saved_stdout_fd)
         except Exception as error:
             raise ValueError(
                 "Reference source is not a readable ZIM archive."
@@ -88,14 +171,14 @@ class LibzimReferenceBackend:
 
     def status(self) -> dict[str, Any]:
         return {
-            "source": {
-                "fileName": self._path.name,
-                "fileSize": self._size,
-                "title": self._metadata("Title"),
-                "language": self._metadata("Language"),
-                "date": self._metadata("Date"),
-                "description": self._metadata("Description"),
-            }
+            "kind": "zim",
+            "name": self._path.name,
+            "fileName": self._path.name,
+            "fileSize": self._size,
+            "title": self._metadata("Title"),
+            "language": self._metadata("Language"),
+            "date": self._metadata("Date"),
+            "description": self._metadata("Description"),
         }
 
     def search(self, query: str, limit: int) -> dict[str, Any]:
@@ -117,7 +200,7 @@ class LibzimReferenceBackend:
         return {
             "query": query,
             "mode": mode,
-            "estimatedMatches": max(0, estimated),
+            "estimatedMatches": _bounded_estimate(estimated),
             "matches": matches,
         }
 
@@ -166,6 +249,147 @@ class LibzimReferenceBackend:
         return _bounded_output(str(value))
 
 
+class SearxngReferenceBackend:
+    """Explicit SearXNG JSON search with cached-snippet reads only."""
+
+    def __init__(self, endpoint: str, *, fetch_json: JsonFetcher | None = None) -> None:
+        self._endpoint = _validated_web_endpoint(endpoint)
+        self._fetch_json = fetch_json or _fetch_json
+        self._cache: dict[str, dict[str, str]] = {}
+        self._lock = threading.Lock()
+
+    def status(self) -> dict[str, Any]:
+        return {
+            "kind": "web",
+            "name": "Web Search",
+            "endpoint": self._endpoint,
+        }
+
+    def search(self, query: str, limit: int) -> dict[str, Any]:
+        url = _search_url(self._endpoint, query, limit)
+        with self._lock:
+            payload, _headers = self._fetch_json(url)
+            if not isinstance(payload, Mapping) or not isinstance(
+                payload.get("results"), list
+            ):
+                raise ValueError("Web Search returned an invalid response.")
+            matches: list[dict[str, str]] = []
+            cache: dict[str, dict[str, str]] = {}
+            for candidate in payload["results"]:
+                if len(matches) >= limit or not isinstance(candidate, Mapping):
+                    continue
+                result_url = _safe_result_url(candidate.get("url"))
+                title = _bounded_optional_output(candidate.get("title"))
+                if result_url is None or title is None:
+                    continue
+                snippet = (
+                    _bounded_optional_output(
+                        _normalize_text(html_to_text(str(candidate.get("content", ""))))
+                    )
+                    or ""
+                )
+                match = {
+                    "path": result_url,
+                    "title": title,
+                    "url": result_url,
+                    "snippet": snippet,
+                }
+                matches.append(match)
+                cache[result_url] = match
+            self._cache = cache
+        estimated = payload.get("number_of_results")
+        if isinstance(estimated, bool) or not isinstance(estimated, int):
+            estimated = len(matches)
+        return {
+            "query": query,
+            "mode": "web",
+            "estimatedMatches": max(len(matches), _bounded_estimate(estimated)),
+            "matches": matches,
+        }
+
+    def get(self, path: str, max_chars: int) -> dict[str, Any]:
+        with self._lock:
+            match = self._cache.get(path)
+        if match is None:
+            raise ValueError("Web Search result was not found in the bounded cache.")
+        text = _normalize_text(
+            "\n".join((match["title"], match["url"], match["snippet"]))
+        )
+        return {
+            "path": path,
+            "title": match["title"],
+            "mimeType": "text/plain",
+            "text": text[:max_chars],
+            "truncated": len(text) > max_chars,
+            "url": match["url"],
+        }
+
+
+class ZoteroReferenceBackend:
+    """Read-only bibliographic metadata from Zotero Desktop's local API."""
+
+    def __init__(self, *, fetch_json: JsonFetcher | None = None) -> None:
+        self._fetch_json = fetch_json or _fetch_json
+        self._lock = threading.Lock()
+
+    def status(self) -> dict[str, Any]:
+        return {
+            "kind": "zotero",
+            "name": "Zotero",
+            "endpoint": f"{ZOTERO_API_URL}/",
+        }
+
+    def search(self, query: str, limit: int) -> dict[str, Any]:
+        url = (
+            f"{ZOTERO_API_URL}/users/0/items/top?"
+            f"{urlencode({'q': query, 'limit': limit})}"
+        )
+        with self._lock:
+            payload, headers = self._fetch_json(url)
+        if not isinstance(payload, list):
+            raise ValueError("Zotero returned an invalid response.")
+        matches = [
+            match
+            for candidate in payload
+            if (match := _zotero_match(candidate)) is not None
+        ][:limit]
+        estimated = _integer_header(headers, "Total-Results")
+        return {
+            "query": query,
+            "mode": "zotero",
+            "estimatedMatches": max(len(matches), estimated or 0),
+            "matches": matches,
+        }
+
+    def get(self, path: str, max_chars: int) -> dict[str, Any]:
+        if re.fullmatch(r"[23456789ABCDEFGHIJKLMNPQRSTUVWXYZ]{8}", path) is None:
+            raise ValueError("Zotero item key is invalid.")
+        with self._lock:
+            payload, _headers = self._fetch_json(
+                f"{ZOTERO_API_URL}/users/0/items/{path}"
+            )
+        if not isinstance(payload, Mapping) or not isinstance(
+            payload.get("data"), Mapping
+        ):
+            raise ValueError("Zotero item was not found.")
+        data = payload["data"]
+        if data.get("itemType") in {"attachment", "note", "annotation"}:
+            raise ValueError("Zotero attachment and note content is unavailable.")
+        title = _bounded_optional_output(data.get("title")) or "Untitled Zotero item"
+        text = _zotero_item_text(data, title)
+        result: dict[str, Any] = {
+            "path": path,
+            "title": title,
+            "mimeType": "text/plain",
+            "text": text[:max_chars],
+            "truncated": len(text) > max_chars,
+        }
+        item_url = _safe_result_url(data.get("url"))
+        if item_url is not None:
+            result["url"] = item_url
+        return result
+
+
 class _TextExtractor(HTMLParser):
     def __init__(self) -> None:
         super().__init__(convert_charrefs=True)
@@ -212,6 +436,172 @@ def html_to_text(content: str) -> str:
 def _normalize_text(value: str) -> str:
     lines = [re.sub(r"[ \t\f\v]+", " ", line).strip() for line in value.splitlines()]
     return "\n".join(line for line in lines if line).strip()
+
+
+def _fetch_json(url: str) -> tuple[object, Mapping[str, str]]:
+    request = Request(
+        url,
+        headers={
+            "Accept": "application/json",
+            "User-Agent": "SwarmX Reference",
+            "Zotero-API-Version": "3",
+        },
+        method="GET",
+    )
+    try:
+        opener = build_opener(ProxyHandler({}), _NoRedirectHandler())
+        with opener.open(request, timeout=NETWORK_TIMEOUT_SECONDS) as response:
+            content = response.read(MAX_NETWORK_BYTES + 1)
+            if len(content) > MAX_NETWORK_BYTES:
+                raise ValueError("Reference network response exceeds the safe limit.")
+            payload = json.loads(content.decode("utf-8"))
+            headers = {str(key): str(value) for key, value in response.headers.items()}
+    except ValueError:
+        raise
+    except Exception as error:
+        raise ValueError("Reference network source is unavailable.") from error
+    return payload, headers
+
+
+class _NoRedirectHandler(HTTPRedirectHandler):
+    def redirect_request(self, *args: Any, **kwargs: Any) -> None:
+        del args, kwargs
+        return None
+
+
+def _validated_web_endpoint(value: object) -> str:
+    if not isinstance(value, str) or not value or len(value) > MAX_PATH_CHARS:
+        raise ValueError("Web Search endpoint is invalid.")
+    parsed = urlsplit(value)
+    hostname = (parsed.hostname or "").lower()
+    loopback = hostname in {"127.0.0.1", "localhost", "::1"}
+    if (
+        parsed.username is not None
+        or parsed.password is not None
+        or parsed.query
+        or parsed.fragment
+        or not hostname
+        or (parsed.scheme != "https" and not (parsed.scheme == "http" and loopback))
+    ):
+        raise ValueError("Web Search endpoint is invalid.")
+    return urlunsplit((parsed.scheme, parsed.netloc, parsed.path.rstrip("/"), "", ""))
+
+
+def _search_url(endpoint: str, query: str, limit: int) -> str:
+    parsed = urlsplit(endpoint)
+    path = parsed.path if parsed.path.endswith("/search") else f"{parsed.path}/search"
+    return urlunsplit(
+        (
+            parsed.scheme,
+            parsed.netloc,
+            path,
+            urlencode(
+                {
+                    "q": query,
+                    "format": "json",
+                    "categories": "general",
+                    "pageno": 1,
+                    "limit": limit,
+                }
+            ),
+            "",
+        )
+    )
+
+
+def _safe_result_url(value: object) -> str | None:
+    if not isinstance(value, str) or not value or len(value) > MAX_PATH_CHARS:
+        return None
+    parsed = urlsplit(value)
+    if (
+        parsed.scheme not in {"http", "https"}
+        or not parsed.hostname
+        or parsed.username is not None
+        or parsed.password is not None
+        or "\x00" in value
+    ):
+        return None
+    return value
+
+
+def _bounded_optional_output(value: object) -> str | None:
+    if not isinstance(value, str):
+        return None
+    normalized = _normalize_text(html_to_text(value.replace("\x00", "")))
+    return normalized[:MAX_METADATA_CHARS] or None
+
+
+def _zotero_match(value: object) -> dict[str, str] | None:
+    if not isinstance(value, Mapping) or not isinstance(value.get("data"), Mapping):
+        return None
+    data = value["data"]
+    key = value.get("key")
+    if (
+        not isinstance(key, str)
+        or re.fullmatch(r"[23456789ABCDEFGHIJKLMNPQRSTUVWXYZ]{8}", key) is None
+        or data.get("itemType") in {"attachment", "note", "annotation"}
+    ):
+        return None
+    title = _bounded_optional_output(data.get("title")) or "Untitled Zotero item"
+    result = {"path": key, "title": title}
+    snippet = _bounded_optional_output(data.get("abstractNote"))
+    item_url = _safe_result_url(data.get("url"))
+    if snippet is not None:
+        result["snippet"] = snippet
+    if item_url is not None:
+        result["url"] = item_url
+    return result
+
+
+def _zotero_item_text(data: Mapping[object, object], title: str) -> str:
+    lines = [title]
+    creators = data.get("creators")
+    creator_names: list[str] = []
+    if isinstance(creators, list):
+        for creator in creators[:50]:
+            if not isinstance(creator, Mapping):
+                continue
+            name = _bounded_optional_output(creator.get("name"))
+            if name is None:
+                name = _bounded_optional_output(
+                    " ".join(
+                        part
+                        for part in (creator.get("firstName"), creator.get("lastName"))
+                        if isinstance(part, str)
+                    )
+                )
+            if name is not None:
+                creator_names.append(name)
+    if creator_names:
+        lines.append(f"Creators: {', '.join(creator_names)}")
+    for label, field in (
+        ("Date", "date"),
+        ("Publication", "publicationTitle"),
+        ("DOI", "DOI"),
+        ("URL", "url"),
+        ("Abstract", "abstractNote"),
+    ):
+        value = _bounded_optional_output(data.get(field))
+        if value is not None:
+            lines.append(f"{label}: {value}")
+    return _normalize_text("\n".join(lines))
+
+
+def _integer_header(headers: Mapping[str, str], name: str) -> int | None:
+    value = next(
+        (value for key, value in headers.items() if key.lower() == name.lower()), None
+    )
+    if value is None:
+        return None
+    try:
+        parsed = int(value)
+    except ValueError:
+        return None
+    return _bounded_estimate(parsed)
+
+
+def _bounded_estimate(value: int) -> int:
+    return max(0, min(value, MAX_ESTIMATED_MATCHES))
 
 
 def _bounded_output(value: str) -> str:

@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import Anthropic from "@anthropic-ai/sdk";
 import OpenAI from "openai";
 import type { AcpPermissionHandler, AcpPromptInput } from "./acp.js";
@@ -8,6 +9,7 @@ import {
   RequestCancelledError,
   throwIfCurrentRequestCancelled,
 } from "./acp.js";
+import type { AgentContextEngine, CompiledContext } from "./context-engine.js";
 import {
   appendHookContext,
   dispatchHooks,
@@ -98,6 +100,8 @@ export interface AgentRuntimeOptions {
   hook?: HookRuntimeOptions;
   /** Request-scoped, read-only Personal Memory for direct SwarmX execution only. */
   personalMemory?: PersonalMemorySnapshot;
+  /** Compiles one immutable, bounded model context before a native Provider request. */
+  contextEngine?: AgentContextEngine;
 }
 
 interface AcpPromptClient {
@@ -149,6 +153,7 @@ export class Agent {
   private configuredModel?: string;
   private maxOutputTokens: number;
   private readonly skillInstructions: readonly SkillInstructionDelivery[];
+  private readonly contextEngine?: AgentContextEngine;
 
   constructor(config: AgentConfig, options: AgentRuntimeOptions = {}) {
     const parsed = AgentConfigSchema.parse(config);
@@ -206,6 +211,7 @@ export class Agent {
     this.acpSessionId = options.acpSessionId;
     this.onAcpSessionId = options.onAcpSessionId;
     this.hookRuntime = options.hook;
+    this.contextEngine = options.contextEngine;
     this.maxOutputTokens = positiveInteger(clientConfig.maxOutputTokens) ?? 8192;
 
     const configuredApiKey = stringProperty(clientConfig, "apiKey");
@@ -287,12 +293,13 @@ export class Agent {
     onUsage?: (usage: ModelTokenUsage) => void,
   ): Promise<{ messages: MessageChunk[] }> {
     return this.runWithHooks(arguments_, context, undefined, (effectiveArguments) =>
-      this.callUnchecked(effectiveArguments, onUsage),
+      this.callUnchecked(effectiveArguments, context, onUsage),
     );
   }
 
   private async callUnchecked(
     arguments_: Record<string, unknown>,
+    runtimeContext: Record<string, unknown>,
     onUsage?: (usage: ModelTokenUsage) => void,
   ): Promise<{ messages: MessageChunk[] }> {
     throwIfCurrentRequestCancelled();
@@ -304,21 +311,28 @@ export class Agent {
     }
 
     try {
+      const modelRequest = await this.compileModelRequest(arguments_, runtimeContext);
       throwIfCurrentRequestCancelled();
       await this.ensureMcpConnected();
       throwIfCurrentRequestCancelled();
 
       if (this.apiProtocol === "anthropic") {
-        return await callAnthropicMessages(this.nativeProtocolContext(onUsage), arguments_);
+        return await callAnthropicMessages(
+          this.nativeProtocolContext(onUsage, modelRequest.instructions),
+          modelRequest.arguments,
+        );
       }
       if (this.apiProtocol === "openai_responses") {
-        return await callOpenAIResponses(this.nativeProtocolContext(onUsage), arguments_);
+        return await callOpenAIResponses(
+          this.nativeProtocolContext(onUsage, modelRequest.instructions),
+          modelRequest.arguments,
+        );
       }
       if (this.apiProtocol !== "openai_chat") {
         throw new Error(`SwarmX does not natively execute ${this.apiProtocol} Models.`);
       }
 
-      const messages = await this.buildMessages(arguments_);
+      const messages = await this.buildMessages(modelRequest.arguments, modelRequest.instructions);
       const allChunks: MessageChunk[] = [];
       const maxSteps = 20;
       let steps = 0;
@@ -458,12 +472,13 @@ export class Agent {
     context: Record<string, unknown> = {},
   ): Promise<{ messages: MessageChunk[] }> {
     return this.runWithHooks(arguments_, context, onChunk, (effectiveArguments, emitChunk) =>
-      this.callStreamUnchecked(effectiveArguments, emitChunk ?? onChunk, onUsage),
+      this.callStreamUnchecked(effectiveArguments, context, emitChunk ?? onChunk, onUsage),
     );
   }
 
   private async callStreamUnchecked(
     arguments_: Record<string, unknown>,
+    runtimeContext: Record<string, unknown>,
     onChunk: (chunk: MessageChunk) => void,
     onUsage?: (usage: ModelTokenUsage) => void,
   ): Promise<{ messages: MessageChunk[] }> {
@@ -478,25 +493,30 @@ export class Agent {
     }
 
     try {
+      const modelRequest = await this.compileModelRequest(arguments_, runtimeContext);
       throwIfCurrentRequestCancelled();
       await this.ensureMcpConnected();
       throwIfCurrentRequestCancelled();
 
       if (this.apiProtocol === "anthropic") {
         return await callAnthropicMessages(
-          this.nativeProtocolContext(onUsage),
-          arguments_,
+          this.nativeProtocolContext(onUsage, modelRequest.instructions),
+          modelRequest.arguments,
           onChunk,
         );
       }
       if (this.apiProtocol === "openai_responses") {
-        return await callOpenAIResponses(this.nativeProtocolContext(onUsage), arguments_, onChunk);
+        return await callOpenAIResponses(
+          this.nativeProtocolContext(onUsage, modelRequest.instructions),
+          modelRequest.arguments,
+          onChunk,
+        );
       }
       if (this.apiProtocol !== "openai_chat") {
         throw new Error(`SwarmX does not natively execute ${this.apiProtocol} Models.`);
       }
 
-      const messages = await this.buildMessages(arguments_);
+      const messages = await this.buildMessages(modelRequest.arguments, modelRequest.instructions);
       const allChunks: MessageChunk[] = [];
       const maxSteps = 20;
       let steps = 0;
@@ -875,11 +895,14 @@ export class Agent {
     return this.mcp;
   }
 
-  private nativeProtocolContext(onUsage?: (usage: ModelTokenUsage) => void): NativeProtocolContext {
+  private nativeProtocolContext(
+    onUsage?: (usage: ModelTokenUsage) => void,
+    instructions = this.instructions,
+  ): NativeProtocolContext {
     return {
       agentName: this.name,
       model: this.requiredNativeModel(),
-      instructions: this.instructions,
+      instructions,
       parameters: this.parameters,
       maxOutputTokens: this.maxOutputTokens,
       apiMode: this.apiMode,
@@ -891,12 +914,15 @@ export class Agent {
     };
   }
 
-  private async buildMessages(arguments_: Record<string, unknown>): Promise<ChatMsg[]> {
+  private async buildMessages(
+    arguments_: Record<string, unknown>,
+    instructions = this.instructions,
+  ): Promise<ChatMsg[]> {
     const msgs: ChatMsg[] = [];
     const loadInline = createInlineMediaLoader();
 
-    if (this.instructions) {
-      msgs.push({ role: "system", content: this.instructions });
+    if (instructions) {
+      msgs.push({ role: "system", content: instructions });
     }
 
     const raw = arguments_.messages as
@@ -941,6 +967,40 @@ export class Agent {
     }
 
     return msgs;
+  }
+
+  private async compileModelRequest(
+    arguments_: Record<string, unknown>,
+    runtimeContext: Record<string, unknown>,
+  ): Promise<{
+    arguments: Record<string, unknown>;
+    instructions: string;
+    compiled?: CompiledContext;
+  }> {
+    if (!this.contextEngine) {
+      return { arguments: arguments_, instructions: this.instructions };
+    }
+    const requestId =
+      stringProperty(arguments_, "requestId") ??
+      stringProperty(runtimeContext, "requestId") ??
+      randomUUID();
+    const compiled = await this.contextEngine.compile({
+      requestId,
+      agentName: this.name,
+      modelVersion: this.requiredNativeModel(),
+      instructions: this.instructions,
+      arguments: arguments_,
+      runtimeContext,
+    });
+    await this.contextEngine.onCompiled?.(compiled.manifest);
+    const instructions = [this.instructions.trim(), compiled.context.trim()]
+      .filter(Boolean)
+      .join("\n\n---\n\n");
+    return {
+      arguments: currentTurnArguments(arguments_),
+      instructions,
+      compiled,
+    };
   }
 
   private chatReasoningEffort(): OpenAI.Chat.Completions.ChatCompletionReasoningEffort | undefined {
@@ -1129,6 +1189,20 @@ function latestUserContent(arguments_: Record<string, unknown>): string {
   }
 
   return "";
+}
+
+function currentTurnArguments(arguments_: Record<string, unknown>): Record<string, unknown> {
+  if (!Array.isArray(arguments_.messages)) return arguments_;
+  const messages = arguments_.messages as Array<{ role?: unknown }>;
+  let latestUserIndex = -1;
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    if (messages[index]?.role === "user") {
+      latestUserIndex = index;
+      break;
+    }
+  }
+  if (latestUserIndex <= 0) return arguments_;
+  return { ...arguments_, messages: messages.slice(latestUserIndex) };
 }
 
 function acpConversationHistory(arguments_: Record<string, unknown>): string {

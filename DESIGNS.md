@@ -202,10 +202,14 @@ The first modules are:
   DSPy/GEPA optimization and implements MCP sampling by forwarding only
   grant-checked `model.generate` calls to the host capability gateway.
 - `swarmx-ref`, a locked Python MCP server with the single private
-  `swarmx_reference` tool. It opens one explicit local ZIM with the official
-  `python-libzim` binding and exposes only bounded `status`, `search`, and
-  `get` operations. It strips active HTML, never downloads or mutates the ZIM,
-  and has no path-scanning or Memory authority.
+  `swarmx_reference` tool. It exposes bounded `status`, `search`, and `get`
+  operations over explicitly configured ZIM, Web Search, and Zotero sources.
+  ZIM uses the official `python-libzim` binding. Web Search uses one configured
+  SearXNG JSON endpoint, sends queries only under explicit `source: "web"`, and
+  returns cached result snippets instead of fetching arbitrary result URLs.
+  Zotero uses only the fixed unauthenticated loopback read API and excludes
+  attachments and full text. The module strips active HTML, never mutates a
+  source, and has no path-scanning or Memory authority.
 
 Python is one standard root `swarmx` distribution with a regular
 `src/swarmx/__init__.py` package. The worker and the `rsi` and `ref` private MCP
@@ -357,6 +361,27 @@ authority only.
 cannot resume worker execution and never substitute for a task-runtime
 checkpoint. Conversely, a task checkpoint is opaque executor state and does not
 replace Session history or model-context summaries.
+
+The Context Engine compiles a bounded model-visible projection from a fixed
+event snapshot. Canonical Session and WorkItem logs remain the truth. Its
+standalone EventStore uses SQLite WAL for reproducible replay, while a JSONL
+implementation remains available for fixtures and controlled comparisons. Local
+content-addressed artifacts may externalize large observations without deleting
+their source event, hash, exit status, or bounded capsule. Normalization keeps a
+tool call and its result in one indivisible unit. Deterministic masking,
+structured task state, lexical evidence, and context manifests are rebuildable
+projections and never become execution authority.
+
+The first engine uses SQLite WAL, deterministic masking, rule-derived sourced state, BM25
+retrieval, a priority-and-slot assembler, and deterministic evidence
+verification. Repository, filesystem, branch, and test freshness must be
+supplied as current observations at assembly time rather than inferred from an
+old summary. The assembler records the exact snapshot, configuration hash,
+model version, included event ids, and token estimates. Mandatory content that
+cannot fit produces `ContextOverflow`; Provider adapters must not truncate it.
+Vector retrieval, recursive summaries, static
+map-reduce, and RLM resolvers remain replaceable later implementations behind
+the same evidence and storage interfaces.
 
 ### Worker protocol and process boundary
 

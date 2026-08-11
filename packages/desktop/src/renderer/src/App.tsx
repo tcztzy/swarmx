@@ -3892,7 +3892,12 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
           sideChatPaneOpen &&
             "runtime--side-chat [&_>_.composer-dock]:[width:calc(100%_-_var(--side-chat-width))] [&_>_.panel-transition--bottom]:[width:calc(100%_-_var(--side-chat-width))] max-860:[&_>_.composer-dock]:[display:none] max-860:[&_>_.panel-transition--bottom]:[width:100%]",
         )}
-        style={{ "--side-chat-width": `${sidePaneWidth}%` } as React.CSSProperties}
+        style={
+          {
+            "--side-chat-width": `${sidePaneWidth}%`,
+            ...(rightPanelWidth === null ? {} : { "--right-panel-width": `${rightPanelWidth}px` }),
+          } as React.CSSProperties
+        }
       >
         <div
           className={cx(

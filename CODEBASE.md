@@ -97,9 +97,10 @@ swarmx launcher ───► Desktop or CLI
 - Personal Memory: one bounded user-edited record in `~/.swarmx/settings.json`;
   direct runs receive a read-only snapshot and Sessions retain only a concise
   usage receipt.
-- Reference Library: no SwarmX persistence authority; the explicit local ZIM
-  remains authoritative and is opened read-only by the `swarmx.ref` server only when both
-  its Python interpreter and archive path are configured.
+- Reference Library: no SwarmX persistence authority; configured ZIM, Web
+  Search, and Zotero sources remain authoritative and are accessed read-only by
+  `swarmx.ref`. Web queries require explicit source selection, and Zotero access
+  is confined to its fixed loopback read API without attachment/full-text reads.
 - Worker transport: versioned strict JSONL over stdio with Core-owned schemas;
   it is not ACP and does not create a Python `SwarmConfig` node.
 - Managed module transport: private MCP over stdio with verified runtime/source
@@ -125,12 +126,13 @@ swarmx launcher ───► Desktop or CLI
 | New domain field or persisted format | `packages/core/src/types.ts` or owning schema | `DESIGNS.md`, all boundary parsers, focused tests, desktop shared type |
 | New linked-Memory graph behavior | `packages/core/src/memory-links.ts` | `docs/memory.md`, focused tests, and the workflow/knowledge-edge separation in `DESIGNS.md` |
 | New Memory CRUD behavior | `packages/core/src/memory.ts` and `memory-runtime-protocol.ts` | `crates/swarmx-mem`, Git/revision/conflict tests, Desktop projection, graph projection, `docs/memory.md` |
-| New offline reference behavior | `src/swarmx/ref/service.py` and `server.py` | ZIM read/search bounds, real stdio MCP test, standard package boundary, `docs/reference-library.md` |
+| New Reference source behavior | `src/swarmx/ref/service.py` and `server.py` | source selection, ZIM/Web/Zotero bounds, real stdio MCP test, standard package boundary, `docs/reference-library.md` |
 | New Python package capability | `src/swarmx/` and root `pyproject.toml` | one locked environment, direct project dependencies, private MCP identity tests, `tests/python/package_layout_test.py` |
 | New managed feature module | owning Core zod contract | verified Runtime environment, private MCP host/client, exact tool allowlist, packaging, focused cross-process test, `DESIGNS.md` |
 | New direct model behavior | `packages/core/src/agent.ts` and `native-model.ts` | `providers.ts`, `model-capabilities.ts`, rendering, activity, tests |
 | New external harness behavior | `packages/core/src/acp.ts`, `harness.ts` | desktop harness/session runtime, runtime environment, ACP tests |
 | New durable task state or event | `packages/core/src/task-runtime.ts` | store replay, control service, worker protocol, focused runtime tests, `DESIGNS.md` |
+| New context projection, retrieval, or replay behavior | `packages/core/src/context-engine.ts` | context store, `context.ts`, focused context-engine tests, `docs/context-engine.md`, `DESIGNS.md` |
 | New task worker/backend | `packages/core/src/task-worker-protocol.ts` | process host, capability gateway, `packages/runtime` detection/plan, backend smoke test |
 | New desktop capability | shared API → preload API → Main IPC → service → renderer | `window-security.ts`, request registry, permissions, focused UI tests |
 | New workspace operation | `workspace-tools.ts` / `workspace-shell.ts` | containment, patch, cancellation, permission tests |

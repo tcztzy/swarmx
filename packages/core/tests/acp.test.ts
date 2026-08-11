@@ -12,7 +12,7 @@ import {
 const coreRoot = fileURLToPath(new URL("..", import.meta.url));
 
 describe("request-scoped cancellation", () => {
-  it("V362 applies only models advertised by the ACP session config", async () => {
+  it("applies only models advertised by the ACP session config", async () => {
     const client = new AcpClient();
     await expect(
       client.prompt({ ...agentOptions("stable-config"), model: "verified-model" }, "hello"),
@@ -59,7 +59,7 @@ describe("request-scoped cancellation", () => {
     });
   });
 
-  it("V565 reports a new ACP Session before its first prompt", async () => {
+  it("reports a new ACP Session before its first prompt", async () => {
     const events: string[] = [];
     const client = new AcpClient();
     const result = await client.prompt(
@@ -77,7 +77,7 @@ describe("request-scoped cancellation", () => {
     expect(events).toEqual(["session:test-session", "chunk:started"]);
   });
 
-  it("V565 suppresses loaded history while continuing an existing ACP Session", async () => {
+  it("suppresses loaded history while continuing an existing ACP Session", async () => {
     const client = new AcpClient();
     await expect(
       client.prompt(agentOptions("load"), "hello", undefined, "stored-session"),
@@ -139,7 +139,7 @@ describe("request-scoped cancellation", () => {
     expect(result.messages.some((chunk) => chunk.kind === "tool_progress")).toBe(false);
   });
 
-  it("V446 cancels ACP permission by default and returns only an offered handled option", async () => {
+  it("cancels ACP permission by default and returns only an offered handled option", async () => {
     const cancelled = new AcpClient();
     await expect(cancelled.prompt(agentOptions("permission"), "hello")).resolves.toMatchObject({
       messages: [expect.objectContaining({ content: "permission:cancelled" })],

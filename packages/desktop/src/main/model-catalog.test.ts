@@ -76,7 +76,7 @@ describe("ModelCatalogService", () => {
     );
   });
 
-  it("V270 ignores ambient Provider variables without explicit connections", async () => {
+  it("ignores ambient Provider variables without explicit connections", async () => {
     const paths = await catalogPaths();
     const fetch = vi.fn(async (url: string) =>
       url.includes("anthropic")
@@ -167,7 +167,7 @@ describe("ModelCatalogService", () => {
     expect(await readFile(paths.cachePath, "utf8")).not.toContain("sk-runtime-only");
   });
 
-  it("V571 records Kimi tool compatibility from an explicit Moonshot Provider", async () => {
+  it("records Kimi tool compatibility from an explicit Moonshot Provider", async () => {
     const paths = await catalogPaths();
     const inventory = createExtensionInventory([
       providerBundle("moonshot", [
@@ -198,7 +198,7 @@ describe("ModelCatalogService", () => {
     );
   });
 
-  it("V482 treats a Custom Provider as one exact base URL plus /models", async () => {
+  it("treats a Custom Provider as one exact base URL plus /models", async () => {
     const paths = await catalogPaths();
     const authStore = new MemoryProviderAuthStore();
     const fetch = vi.fn().mockResolvedValue(response({ data: [{ id: "custom-model" }] }));
@@ -414,7 +414,7 @@ describe("ModelCatalogService", () => {
     );
   });
 
-  it("V483/V484 persists an OpenCode Go key pool and exposes local per-key usage", async () => {
+  it("persists an OpenCode Go key pool and exposes local per-key usage", async () => {
     const paths = await catalogPaths();
     const authStore = new MemoryProviderAuthStore();
     const keyUsageStore = new ProviderKeyUsageStore({
@@ -586,7 +586,7 @@ describe("ModelCatalogService", () => {
     expect(settings).not.toContain("go-third");
   });
 
-  it("V332 migrates cached Anthropic supplies into explicit Claude Code routes", async () => {
+  it("migrates cached Anthropic supplies into explicit Claude Code routes", async () => {
     const paths = await catalogPaths();
     await writeFile(
       paths.cachePath,
@@ -672,7 +672,7 @@ describe("ModelCatalogService", () => {
     ).not.toContain("claude-fable-5");
   });
 
-  it("V288/V290 preserves OpenAI-compatible groups and humanizes common model ids", async () => {
+  it("preserves OpenAI-compatible groups and humanizes common model ids", async () => {
     const paths = await catalogPaths();
     const inventory = createExtensionInventory([
       providerBundle("grouped-new-api", [
@@ -730,7 +730,7 @@ describe("ModelCatalogService", () => {
     expect(humanReadableModelLabel("vendor_unmatched")).toBe("vendor_unmatched");
   });
 
-  it("V277 normalizes both official DeepSeek URL forms and keeps one shared secret", async () => {
+  it("normalizes both official DeepSeek URL forms and keeps one shared secret", async () => {
     const paths = await catalogPaths();
     const authStore = new MemoryProviderAuthStore();
     const fetch = vi.fn().mockResolvedValue(response({ data: [{ id: "deepseek-chat" }] }));
@@ -838,7 +838,7 @@ describe("ModelCatalogService", () => {
     expect(await authStore.get(providerId)).toBe("shared-deepseek-key");
   });
 
-  it("V286 normalizes a legacy persisted DeepSeek Provider before discovery", async () => {
+  it("normalizes a legacy persisted DeepSeek Provider before discovery", async () => {
     const paths = await catalogPaths();
     const authStore = new MemoryProviderAuthStore();
     const providerId = "swarmx.user.deepseek";
@@ -1022,7 +1022,7 @@ describe("ModelCatalogService", () => {
     ]);
   });
 
-  it("V282 loads the disk catalog after restart without Provider discovery", async () => {
+  it("loads the disk catalog after restart without Provider discovery", async () => {
     const paths = await catalogPaths();
     const inventory = createExtensionInventory([
       providerBundle("explicit-openai", [
@@ -1064,7 +1064,7 @@ describe("ModelCatalogService", () => {
     expect(catalog.modelCatalog.refreshedAt).toBe("2026-07-12T08:00:00.000Z");
   });
 
-  it("V287/V291/V337 routes only proven Codex subscription models to Codex", async () => {
+  it("routes only proven Codex subscription models to Codex", async () => {
     const paths = await catalogPaths();
     const inventory = createExtensionInventory([builtInExtensionBundle()]);
     const codexModelReader = vi.fn().mockResolvedValue({
@@ -1241,7 +1241,7 @@ describe("ModelCatalogService", () => {
     expect(removed.modelCatalog.manualModelIds).toEqual([]);
   });
 
-  it("V271 saves a Provider Usage API selection and removes it when reset", async () => {
+  it("saves a Provider Usage API selection and removes it when reset", async () => {
     const paths = await catalogPaths();
     const authStore = new MemoryProviderAuthStore();
     const readCredential = vi.spyOn(authStore, "get");
@@ -1345,7 +1345,7 @@ describe("ModelCatalogService", () => {
     expect(await authStore.get(providerId as string)).toBe("secret-auth-token");
   });
 
-  it("V278 stores New API account access separately and removes both credentials", async () => {
+  it("stores New API account access separately and removes both credentials", async () => {
     const paths = await catalogPaths();
     const authStore = new MemoryProviderAuthStore();
     const service = new ModelCatalogService({
@@ -1400,7 +1400,7 @@ describe("ModelCatalogService", () => {
     expect(await authStore.get(accountKey)).toBeUndefined();
   });
 
-  it("V526 replaces an unreadable Provider credential only when a new value is explicit", async () => {
+  it("replaces an unreadable Provider credential only when a new value is explicit", async () => {
     const paths = await catalogPaths();
     const authStore = new UnreadableProviderAuthStore();
     const service = new ModelCatalogService({
@@ -1463,7 +1463,7 @@ describe("ModelCatalogService", () => {
     ).rejects.toThrow(/User ID is required/);
   });
 
-  it("V280 serially rolls back primary and account credentials when settings fail", async () => {
+  it("serially rolls back primary and account credentials when settings fail", async () => {
     const paths = await catalogPaths();
     await writeFile(paths.settingsPath, JSON.stringify({ schemaVersion: 1 }), "utf8");
     const authStore = new OverlapDetectingAuthStore(async (key) => {

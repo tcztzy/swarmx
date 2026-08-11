@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   createReferenceLibraryAgentTool,
   ReferenceLibraryRequestSchema,
+  ReferenceLibraryResultSchema,
   ReferenceLibraryUnavailableError,
 } from "../src/reference-library.js";
 
@@ -16,24 +17,64 @@ describe("ReferenceLibrary", () => {
     expect(() =>
       ReferenceLibraryRequestSchema.parse({ operation: "get", path: "A", maxChars: 32_001 }),
     ).toThrow();
+    expect(
+      ReferenceLibraryRequestSchema.parse({
+        operation: "search",
+        source: "web",
+        query: "current research",
+      }),
+    ).toMatchObject({ source: "web" });
+    expect(
+      ReferenceLibraryResultSchema.parse({
+        operation: "status",
+        sources: [
+          {
+            id: "zotero",
+            kind: "zotero",
+            name: "Zotero",
+            endpoint: "http://127.0.0.1:23119/api/",
+          },
+        ],
+      }),
+    ).toMatchObject({ sources: [{ id: "zotero" }] });
   });
 
   it("returns the source-qualified backend result", async () => {
     const request = vi.fn(async () => ({
       operation: "search" as const,
+      source: "web" as const,
       query: "SwarmX",
-      mode: "full_text" as const,
+      mode: "web" as const,
       estimatedMatches: 1,
-      matches: [{ path: "A/SwarmX", title: "SwarmX" }],
+      matches: [
+        {
+          source: "web" as const,
+          path: "https://example.com/swarmx",
+          title: "SwarmX",
+          url: "https://example.com/swarmx",
+          snippet: "Reference result",
+        },
+      ],
     }));
     const tool = createReferenceLibraryAgentTool({ request });
-    const result = await tool.call({ operation: "search", query: "SwarmX", limit: 1 });
-    expect(request).toHaveBeenCalledWith({ operation: "search", query: "SwarmX", limit: 1 });
+    const result = await tool.call({
+      operation: "search",
+      source: "web",
+      query: "SwarmX",
+      limit: 1,
+    });
+    expect(request).toHaveBeenCalledWith({
+      operation: "search",
+      source: "web",
+      query: "SwarmX",
+      limit: 1,
+    });
     expect(result).toMatchObject({
       structuredContent: {
         status: "ok",
         operation: "search",
-        matches: [{ path: "A/SwarmX", title: "SwarmX" }],
+        source: "web",
+        matches: [{ source: "web", title: "SwarmX" }],
       },
     });
   });
@@ -47,5 +88,21 @@ describe("ReferenceLibrary", () => {
     await expect(tool.call({ operation: "status" })).resolves.toMatchObject({
       structuredContent: { status: "unsupported", operation: "status" },
     });
+  });
+
+  it("rejects a backend response from a different selected source", async () => {
+    const tool = createReferenceLibraryAgentTool({
+      request: async () => ({
+        operation: "search",
+        source: "zotero",
+        query: "paper",
+        mode: "zotero",
+        estimatedMatches: 0,
+        matches: [],
+      }),
+    });
+    await expect(tool.call({ operation: "search", source: "web", query: "paper" })).rejects.toThrow(
+      /source mismatch/,
+    );
   });
 });

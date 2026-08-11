@@ -8,7 +8,7 @@ import {
 } from "../src/doctor.js";
 
 describe("swarmx doctor", () => {
-  it("V212 prints a read-only human report with a stable failure exit", async () => {
+  it("prints a read-only human report with a stable failure exit", async () => {
     const report = unhealthyReport();
     const runner = fakeRunner(report);
     const io = fakeIo();
@@ -22,7 +22,7 @@ describe("swarmx doctor", () => {
     expect(runner.fix).not.toHaveBeenCalled();
   });
 
-  it("V212 supports harness-filtered JSON output", async () => {
+  it("supports harness-filtered JSON output", async () => {
     const report = { ...unhealthyReport(), harnessId: "hermes" };
     const runner = fakeRunner(report);
     const io = fakeIo();
@@ -33,7 +33,7 @@ describe("swarmx doctor", () => {
     expect(JSON.parse(io.output())).toMatchObject({ harnessId: "hermes", healthy: false });
   });
 
-  it("V210 previews repairs and refuses mutation when confirmation is declined", async () => {
+  it("previews repairs and refuses mutation when confirmation is declined", async () => {
     const runner = fakeRunner(unhealthyReport());
     const io = fakeIo(false);
 
@@ -45,7 +45,7 @@ describe("swarmx doctor", () => {
     expect(runner.fix).not.toHaveBeenCalled();
   });
 
-  it("V210 applies and reports a confirmed repair", async () => {
+  it("applies and reports a confirmed repair", async () => {
     const before = unhealthyReport();
     const after = { ...before, healthy: true, issues: [], repairActions: [] };
     const runner = fakeRunner(before, {

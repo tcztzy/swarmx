@@ -25,8 +25,9 @@ Feature guides:
 
 - [Personal Memory](personal-memory.md)
 - [Memory](memory.md)
-- [Offline Reference Library](reference-library.md)
+- [Reference Library](reference-library.md)
 - [Durable task runtime](durable-task-runtime.md)
+- [Coding-agent Context Engine](context-engine.md)
 - [Auditability](auditability.md)
 - [Extensions and Custom Agents](extensions-custom-agents.md)
 - [Skill self-improvement (evolution)](skill-evolution.md)
@@ -48,7 +49,7 @@ Feature guides:
 | Session | Canonical persisted conversation history; an observer of durable work |
 | Personal Memory surface | Bounded Settings snapshot within Memory, injected with a visible per-run receipt |
 | Memory | User-owned subjective knowledge; currently organized as revision-safe Markdown/Git pages with CRUD, search, versions, restore, and derived links |
-| Reference Library | Read-only, on-demand search and bounded plaintext reads from one explicit local offline ZIM archive |
+| Reference Library | Read-only, on-demand search and bounded plaintext reads from explicit ZIM, Web Search, and local Zotero sources |
 | WorkItem | Session-independent durable work with event-replayed runs and checkpoints |
 | Workflow | A `SwarmConfig` graph |
 | Memory graph | A bounded projection of caller-owned entity Markdown into non-executable knowledge edges |
@@ -277,7 +278,7 @@ variant, trust, and persistence details.
 
 ## Develop and validate
 
-Requires Node.js 20 or newer:
+Requires Node.js 22.13 or newer:
 
 ```shell
 corepack enable

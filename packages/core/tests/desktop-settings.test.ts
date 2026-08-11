@@ -27,7 +27,7 @@ const localeRegistry = {
 };
 
 describe("desktop settings primitives", () => {
-  it("V570 defaults and validates the built-in tool style", () => {
+  it("defaults and validates the built-in tool style", () => {
     expect(createDefaultDesktopSettings().runtime.builtinTools.style).toBe("auto");
     expect(
       parseDesktopSettingsDocument({

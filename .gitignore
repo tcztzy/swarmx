@@ -2,6 +2,9 @@
 .vscode/
 .idea/
 
+# Local Codex project configuration
+.codex/
+
 # Vagrant
 .vagrant/
 

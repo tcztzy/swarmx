@@ -15,7 +15,7 @@ afterEach(async () => {
 });
 
 describe("ProviderKeyUsageStore", () => {
-  it("V484 persists only normalized local per-key usage and cooldown state", async () => {
+  it("persists only normalized local per-key usage and cooldown state", async () => {
     const path = await usagePath();
     const store = new ProviderKeyUsageStore({
       path,
@@ -57,7 +57,7 @@ describe("ProviderKeyUsageStore", () => {
 });
 
 describe("providerQuotaExhaustion", () => {
-  it("V485 classifies explicit quota failures but not a generic rate limit", () => {
+  it("classifies explicit quota failures but not a generic rate limit", () => {
     const now = new Date("2026-07-20T08:00:00.000Z");
 
     expect(
@@ -86,7 +86,7 @@ describe("providerQuotaExhaustion", () => {
 });
 
 describe("ProviderKeyPoolRuntime", () => {
-  it("V485 switches keys after a pre-output quota error and records the successful key", async () => {
+  it("switches keys after a pre-output quota error and records the successful key", async () => {
     const store = new ProviderKeyUsageStore({
       path: await usagePath(),
       now: () => new Date("2026-07-20T08:00:00.000Z"),
@@ -128,7 +128,7 @@ describe("ProviderKeyPoolRuntime", () => {
     expect(summaries.find((entry) => entry.id === attempts[1])?.requestCount).toBe(1);
   });
 
-  it("V485 does not replay after observable output", async () => {
+  it("does not replay after observable output", async () => {
     const runtime = new ProviderKeyPoolRuntime(
       new ProviderKeyUsageStore({ path: await usagePath() }),
     );
@@ -151,7 +151,7 @@ describe("ProviderKeyPoolRuntime", () => {
     expect(run).toHaveBeenCalledTimes(1);
   });
 
-  it("V486 reports an actionable error when every key is cooling", async () => {
+  it("reports an actionable error when every key is cooling", async () => {
     const store = new ProviderKeyUsageStore({
       path: await usagePath(),
       now: () => new Date("2026-07-20T08:00:00.000Z"),

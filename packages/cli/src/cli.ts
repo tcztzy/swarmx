@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import { createInterface } from "node:readline";
 import type {
   AuditInput,
+  ChatMessage,
   SkillInstructionDelivery,
   SwarmConfig,
   SwarmRuntimeOptions,
@@ -362,6 +363,7 @@ program
       output: process.stdout,
       prompt: "> ",
     });
+    const conversation: ChatMessage[] = [];
 
     rl.prompt();
 
@@ -390,8 +392,9 @@ program
       recordAgentRunAudit("repl", "attempted", turnRequestId);
       try {
         process.stdout.write("... ");
+        const userMessage = { role: "user" as const, content: trimmed };
         const result = await swarm.execute({
-          messages: [{ role: "user", content: trimmed }],
+          messages: [...conversation, userMessage],
         });
         process.stdout.write("\r");
 
@@ -401,6 +404,13 @@ program
             process.stdout.write(`${prefix}${msg.content}\n`);
           }
         }
+        conversation.push(
+          userMessage,
+          ...result.flatMap((message): ChatMessage[] => {
+            if (message.kind !== "message" || !isCliChatRole(message.role)) return [];
+            return [{ role: message.role, content: message.content }];
+          }),
+        );
         console.log();
         recordAgentRunAudit("repl", "completed", turnRequestId);
       } catch (err) {
@@ -793,6 +803,10 @@ function buildCliAuditInput(
 
 function cliRequestId(): string {
   return `cli_${randomUUID()}`;
+}
+
+function isCliChatRole(role: string): role is ChatMessage["role"] {
+  return role === "user" || role === "assistant" || role === "system" || role === "tool";
 }
 
 program.parse();

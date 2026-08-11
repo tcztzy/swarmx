@@ -21,7 +21,7 @@ afterEach(async () => {
 });
 
 describe("Project registry", () => {
-  it("V322 registers one canonical realpath and persists its display name", async () => {
+  it("registers one canonical realpath and persists its display name", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "swarmx-project-"));
     tempRoots.push(root);
 

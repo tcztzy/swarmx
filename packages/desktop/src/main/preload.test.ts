@@ -44,7 +44,7 @@ describe("preload API", () => {
     expect(Object.isFrozen(exposedApi())).toBe(true);
   });
 
-  it("V331 exposes persisted Projects before any asynchronous IPC request", () => {
+  it("exposes persisted Projects before any asynchronous IPC request", () => {
     expect(exposedApi().initialProjects).toEqual(projectBootstrap.projects);
     expect(Object.isFrozen(exposedApi().initialProjects)).toBe(true);
     expect(Object.isFrozen(exposedApi().initialProjects[0])).toBe(true);
@@ -119,7 +119,7 @@ describe("preload API", () => {
     ]);
   });
 
-  it("V457 forwards the persisted conversation permission when creating a session", async () => {
+  it("forwards the persisted conversation permission when creating a session", async () => {
     const params = {
       agentName: "agent",
       harness: "swarmx",
@@ -133,7 +133,7 @@ describe("preload API", () => {
     expect(electron.invoke).toHaveBeenCalledWith("session:create", params);
   });
 
-  it("V353 exposes request-scoped live agent chunks through a removable subscription", () => {
+  it("exposes request-scoped live agent chunks through a removable subscription", () => {
     const listener = vi.fn();
     const unsubscribe = exposedApi().onAgentChunk(listener);
     const registration = electron.on.mock.calls.find(([channel]) => channel === "agent:chunk");
@@ -216,7 +216,7 @@ describe("preload API", () => {
     expect(electron.removeListener).toHaveBeenCalledWith("sideChat:chunk", wrapped);
   });
 
-  it("V429 exposes authoritative background session refresh events", () => {
+  it("exposes authoritative background session refresh events", () => {
     const listener = vi.fn();
     const unsubscribe = exposedApi().onSessionMessages(listener);
     const registration = electron.on.mock.calls.find(([channel]) => channel === "session:messages");
@@ -230,7 +230,7 @@ describe("preload API", () => {
     expect(electron.removeListener).toHaveBeenCalledWith("session:messages", wrapped);
   });
 
-  it("V386-V387 bridges interactive tool events and scoped resolutions", async () => {
+  it("bridges interactive tool events and scoped resolutions", async () => {
     const listener = vi.fn();
     const unsubscribe = exposedApi().onAgentInteraction(listener);
     const registration = electron.on.mock.calls.find(
@@ -645,7 +645,7 @@ describe("preload API", () => {
     expect(electron.invoke).toHaveBeenNthCalledWith(2, "composerPreferences:save", selection);
   });
 
-  it("V574 exposes narrow built-in tool Settings persistence methods", async () => {
+  it("exposes narrow built-in tool Settings persistence methods", async () => {
     electron.invoke.mockResolvedValue({ style: "kimi_code" });
 
     await exposedApi().getBuiltinToolSettings();

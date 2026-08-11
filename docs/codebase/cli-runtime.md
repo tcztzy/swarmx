@@ -17,7 +17,7 @@ second workflow or persistence model.
 | `src/swarmx/rsi/__init__.py`, `src/swarmx/rsi/contract.py`, `src/swarmx/rsi/errors.py` | RSI subpackage plus strict process-boundary request validation and module-local error contract. |
 | `src/swarmx/rsi/server.py`, `src/swarmx/rsi/client.py` | Private RSI FastMCP server and worker-side client: exact `swarmx_rsi_optimize` surface, sanitized module launch, identity/tool checks, cancellation/progress, and MCP sampling mapped to the grant-checked gateway. `proc` |
 | `src/swarmx/rsi/skill_program.py`, `src/swarmx/rsi/capability_lm.py`, `src/swarmx/rsi/optimize.py` | DSPy Skill component mapping, credential-free gateway/deterministic LM adapters, and GEPA runner with metric, proposer, config digest, and bounded report. `proc` worker |
-| `src/swarmx/ref/__init__.py`, `src/swarmx/ref/service.py`, `src/swarmx/ref/server.py` | Reference subpackage and private read-only ZIM MCP: official libzim adapter, strict status/search/get requests, serialized search, item/result bounds, and active-HTML-to-text filtering. `fs` + `proc` |
+| `src/swarmx/ref/__init__.py`, `src/swarmx/ref/service.py`, `src/swarmx/ref/server.py` | Reference subpackage and private read-only multi-source MCP: official libzim adapter, explicit SearXNG Web queries, fixed-loopback Zotero reads, strict source-qualified status/search/get requests, response bounds, and active-HTML-to-text filtering. `fs` + `net` + `proc` |
 | `tests/python/package_layout_test.py` | Single-distribution package/dependency/script boundary and absence of namespace entry points or split distributions. |
 | `tests/python/roundtrip_test.py`, `tests/python/worker_capability_test.py`, `tests/python/rsi_mcp_server_test.py` | Python round-trip, worker budget/cancel/timeout, and real stdio RSI MCP acceptance tests. |
 | `tests/python/reference_service_test.py`, `tests/python/reference_mcp_server_test.py` | Strict read-only/boundary tests plus a real generated-ZIM stdio MCP acceptance test. |
@@ -54,7 +54,7 @@ opt-in `inspect` group.
 
 | Source | Contract |
 | --- | --- |
-| `packages/cli/src/cli.ts` | Commander entrypoint for `doctor`, `send`, `eval-run`, `serve`, `audit`, `sessions`, `harnesses`, `evolution`, and REPL input; `send`/eval/REPL share content-free `agent.run` audit events distinguished by `surface`, while other commands retain semantic lifecycle actions. `proc`/`net` via Core/Runtime |
+| `packages/cli/src/cli.ts` | Commander entrypoint for `doctor`, `send`, `eval-run`, `serve`, `audit`, `sessions`, `harnesses`, `evolution`, and REPL input; the REPL replays prior user/assistant turns within that process, and `send`/eval/REPL share content-free `agent.run` audit events distinguished by `surface`, while other commands retain semantic lifecycle actions. `proc`/`net` via Core/Runtime |
 | `packages/cli/src/audit-command.ts` | Verifies and filters the canonical audit chain, formats compact human/JSON output, and writes 0600 verified JSONL exports with intent/outcome events. `fs` via Core |
 | `packages/cli/src/doctor.ts` | Interactive/noninteractive doctor runner plus stable human/JSON formatting and confirmation handling. `proc` |
 | `packages/cli/src/eval-run.ts` | Loads/validates workflow and eval arguments, executes `Swarm`, and formats deterministic eval result/error records with context-token usage; supports request-scoped `prompt_fragment` Skill delivery via `--skill-delivery` + `--skill-content-path`, and `--resolve-skill` binding to the evolved active revision. `fs` |

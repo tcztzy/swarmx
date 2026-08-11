@@ -52,7 +52,7 @@ describe("desktop main library entry", () => {
     expect(electron.handle).not.toHaveBeenCalled();
   });
 
-  it("V548 rejects privileged IPC from an untrusted renderer before dispatch", () => {
+  it("rejects privileged IPC from an untrusted renderer before dispatch", () => {
     desktopMain.registerIpcHandlers();
     const registration = electron.handle.mock.calls.find(
       ([channel]) => channel === "activity:profile",
@@ -711,7 +711,7 @@ describe("desktop main library entry", () => {
     }
   });
 
-  it("V346 resolves host coding tools from the runtime Harness adapter", () => {
+  it("resolves host coding tools from the runtime Harness adapter", () => {
     expect(
       desktopIpc.compositionRuntimeHarnessId(
         {
@@ -733,7 +733,7 @@ describe("desktop main library entry", () => {
     ).toBe("codex");
   });
 
-  it("V429 replays only persisted conversational messages into session activations", () => {
+  it("replays only persisted conversational messages into session activations", () => {
     const session = {
       messages: [
         { role: "user", content: "question", kind: "message" },
@@ -757,7 +757,7 @@ describe("desktop main library entry", () => {
     ]);
   });
 
-  it("V353/V355 scopes streamed chunks and rejects a reasoning-only terminal result", () => {
+  it("scopes streamed chunks and rejects a reasoning-only terminal result", () => {
     const send = vi.fn();
     const publish = desktopIpc.agentChunkPublisher(
       { isDestroyed: () => false, send },
@@ -798,7 +798,7 @@ describe("desktop main library entry", () => {
     });
   });
 
-  it("V521 terminalizes only orphaned tool work when a request is interrupted", () => {
+  it("terminalizes only orphaned tool work when a request is interrupted", () => {
     const messages: MessageChunk[] = [
       {
         role: "assistant",
@@ -841,7 +841,7 @@ describe("desktop main library entry", () => {
     expect(interrupted[3]?.render?.status).toBe("succeeded");
   });
 
-  it("V504 delays and coalesces terminal progress while short commands keep only their result", () => {
+  it("delays and coalesces terminal progress while short commands keep only their result", () => {
     vi.useFakeTimers();
     vi.setSystemTime(0);
     const send = vi.fn();
@@ -941,7 +941,7 @@ describe("desktop main library entry", () => {
     );
   });
 
-  it("V322 registers the canonical project only after the native folder picker confirms it", async () => {
+  it("registers the canonical project only after the native folder picker confirms it", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "swarmx-desktop-project-"));
     let projectId: string | undefined;
     try {

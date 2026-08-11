@@ -17,6 +17,9 @@
   "publishConfig": {
     "access": "public"
   },
+  "engines": {
+    "node": ">=22.13.0"
+  },
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
@@ -41,6 +44,14 @@
     "./conversation": {
       "types": "./dist/conversation.d.ts",
       "import": "./dist/conversation.js"
+    },
+    "./context-engine": {
+      "types": "./dist/context-engine.d.ts",
+      "import": "./dist/context-engine.js"
+    },
+    "./context-engine-store": {
+      "types": "./dist/context-engine-store.d.ts",
+      "import": "./dist/context-engine-store.js"
     },
     "./providers": {
       "types": "./dist/providers.d.ts",

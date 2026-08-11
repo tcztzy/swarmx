@@ -318,7 +318,7 @@ describe("Session", () => {
     expect(loaded.messages[1].createdAt).toBe(loaded.messages[0].createdAt);
   });
 
-  it("V522 appends message deltas without rewriting prior Session JSONL bytes", () => {
+  it("appends message deltas without rewriting prior Session JSONL bytes", () => {
     const session = createSession("incremental", "swarmx");
     savedIds.push(session.id);
     saveSession(session);
@@ -335,7 +335,7 @@ describe("Session", () => {
     expect(fs.existsSync(path.join(sessionsDir, `${session.id}.json`))).toBe(false);
   });
 
-  it("V522 keeps appended history when a stale Session saves metadata", () => {
+  it("keeps appended history when a stale Session saves metadata", () => {
     const stale = createSession("stale", "swarmx");
     savedIds.push(stale.id);
     saveSession(stale);
@@ -762,7 +762,7 @@ describe("Session", () => {
     }
   });
 
-  it("V524 replays a valid prefix after a torn tail but blocks another append", () => {
+  it("replays a valid prefix after a torn tail but blocks another append", () => {
     const session = createSession("torn", "swarmx");
     savedIds.push(session.id);
     session.messages.push({ role: "user", content: "safe prefix", kind: "message" });
@@ -778,7 +778,7 @@ describe("Session", () => {
     ).toThrow(/torn final record/i);
   });
 
-  it("V524 rejects newline-terminated corrupt records instead of skipping them", () => {
+  it("rejects newline-terminated corrupt records instead of skipping them", () => {
     const session = createSession("corrupt", "swarmx");
     savedIds.push(session.id);
     saveSession(session);
@@ -793,7 +793,7 @@ describe("Session", () => {
     ).toThrow(/line 2/i);
   });
 
-  it("V524 invalidates a cached Session when same-size on-disk data changes", () => {
+  it("invalidates a cached Session when same-size on-disk data changes", () => {
     const session = createSession("same-size-corruption", "swarmx");
     savedIds.push(session.id);
     saveSession(session);
@@ -809,7 +809,7 @@ describe("Session", () => {
     expect(loadSession(session.id)).toBeNull();
   });
 
-  it("V525 lists indexed Session summaries without message bodies", () => {
+  it("lists indexed Session summaries without message bodies", () => {
     const session = createSession("indexed", "swarmx");
     savedIds.push(session.id);
     session.messages.push(
@@ -834,7 +834,7 @@ describe("Session", () => {
     ).toBe(true);
   });
 
-  it("V525 reconciles same-size JSONL metadata changes from source modification time", () => {
+  it("reconciles same-size JSONL metadata changes from source modification time", () => {
     const root = fs.mkdtempSync(path.join(tmpdir(), "swarmx-session-index-mtime-"));
     const session = {
       id: "jsonl-index-mtime",

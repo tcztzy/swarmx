@@ -8,6 +8,12 @@ import {
   withAcpRequest,
 } from "../src/acp.js";
 import { Agent, HookRef } from "../src/agent.js";
+import {
+  compileContext,
+  createContextEvent,
+  createContextHistorySnapshot,
+  parseContextEngineConfig,
+} from "../src/context-engine.js";
 import type { LocalToolCallContext, McpConnectionResult } from "../src/mcp.js";
 import { localToolResult, McpManager } from "../src/mcp.js";
 import type { AgentConfig, MessageChunk } from "../src/types.js";
@@ -143,7 +149,8 @@ describe("Agent", () => {
       const agent = new Agent({ name: "test" });
       expect(agent.model).toBe("env-model");
     } finally {
-      process.env.OPENAI_MODEL = previousModel;
+      if (previousModel === undefined) Reflect.deleteProperty(process.env, "OPENAI_MODEL");
+      else process.env.OPENAI_MODEL = previousModel;
     }
   });
 
@@ -411,7 +418,7 @@ describe("Agent", () => {
     ]);
   });
 
-  it("V565 reuses a bound ACP Session and sends only the latest user turn", async () => {
+  it("reuses a bound ACP Session and sends only the latest user turn", async () => {
     const sessionIds: Array<string | undefined> = [];
     const prompts: AcpPromptInput[] = [];
     const agent = new Agent(
@@ -449,7 +456,7 @@ describe("Agent", () => {
     expect(prompts).toEqual([{ text: "new request" }]);
   });
 
-  it("V566 replaces an unavailable binding before retrying with text-only history", async () => {
+  it("replaces an unavailable binding before retrying with text-only history", async () => {
     const bindingChanges: Array<string | undefined> = [];
     const attempts: Array<{ sessionId?: string; prompt: AcpPromptInput }> = [];
     let clientCount = 0;
@@ -569,7 +576,215 @@ describe("Agent", () => {
     await expect(run).rejects.toBeInstanceOf(RequestCancelledError);
   });
 
-  it("V283/V369 executes OpenAI Responses with legacy MCP-result normalization", async () => {
+  it("compiles a fixed context snapshot before the Provider request", async () => {
+    const historicalEvent = createContextEvent({
+      id: "evt_history",
+      seq: 1,
+      sessionId: "session_context",
+      turnId: "turn_history",
+      timestamp: "2026-08-11T00:00:00.000Z",
+      kind: "assistant_message",
+      payload: "Historical repository state: tests pass.",
+      causalParents: [],
+      labels: [],
+      metadata: {},
+    });
+    const snapshot = createContextHistorySnapshot([historicalEvent]);
+    const config = parseContextEngineConfig({
+      components: {
+        eventStore: "sqlite_wal",
+        artifactStore: "local_cas",
+        normalizer: "deterministic_atomic",
+        masker: "deterministic_capsule",
+        stateProjector: "sourced_state_v1",
+        evidenceProvider: "bm25",
+        assembler: "priority_quota",
+        verifier: "deterministic",
+      },
+      assembler: {
+        inputTokenBudget: 30,
+        reservedOutputTokens: 10,
+        slotTokenBudgets: {
+          system: 10,
+          taskContract: 0,
+          state: 10,
+          recent: 10,
+          evidence: 0,
+          summary: 0,
+          capsules: 0,
+        },
+      },
+    });
+    const onCompiled = vi.fn();
+    const contextEngine = {
+      compile: vi.fn(
+        (input: {
+          requestId: string;
+          modelVersion: string;
+          runtimeContext: Record<string, unknown>;
+        }) =>
+          compileContext({
+            requestId: input.requestId,
+            snapshot,
+            config,
+            modelVersion: input.modelVersion,
+            requestedMode: "retrieval",
+            effectiveMode: "retrieval",
+            items: [
+              {
+                itemId: "historical_state",
+                slot: "state",
+                content: "Historical repository state: tests pass.",
+                tokenCount: 6,
+                priority: 1,
+                mandatory: false,
+                trust: "untrusted",
+                sourceEventIds: [historicalEvent.id],
+              },
+              {
+                itemId: "live_state",
+                slot: "state",
+                content: `Live repository state: ${String(input.runtimeContext.repoState)}`,
+                tokenCount: 6,
+                priority: 100,
+                mandatory: true,
+                trust: "trusted",
+                sourceEventIds: [],
+              },
+            ],
+          }),
+      ),
+      onCompiled,
+    };
+    const agent = new Agent(
+      {
+        name: "context_agent",
+        model: "gpt-context",
+        instructions: "Follow the task contract.",
+        client: { apiProtocol: "openai_responses" },
+      },
+      { contextEngine },
+    );
+    const create = vi.fn().mockResolvedValue({
+      id: "resp_context",
+      status: "completed",
+      error: null,
+      output: [
+        {
+          id: "msg_context",
+          type: "message",
+          role: "assistant",
+          status: "completed",
+          content: [{ type: "output_text", text: "Context applied.", annotations: [] }],
+        },
+      ],
+    });
+    Object.defineProperty(agent.client.responses, "create", { value: create });
+
+    await agent.call(
+      {
+        requestId: "request_context",
+        messages: [
+          { role: "user", content: "Old request" },
+          { role: "assistant", content: "Old answer" },
+          { role: "user", content: "Current request" },
+        ],
+      },
+      { repoState: "tests failing" },
+    );
+
+    expect(contextEngine.compile).toHaveBeenCalledWith(
+      expect.objectContaining({
+        requestId: "request_context",
+        agentName: "context_agent",
+        modelVersion: "gpt-context",
+        runtimeContext: { repoState: "tests failing" },
+      }),
+    );
+    expect(create.mock.calls[0]?.[0]?.instructions).toContain(
+      "Live repository state: tests failing",
+    );
+    expect(create.mock.calls[0]?.[0]?.instructions).not.toContain(
+      "Historical repository state: tests pass",
+    );
+    expect(JSON.stringify(create.mock.calls[0]?.[0]?.input)).not.toContain("Old request");
+    expect(JSON.stringify(create.mock.calls[0]?.[0]?.input)).toContain("Current request");
+    expect(onCompiled).toHaveBeenCalledWith(
+      expect.objectContaining({ requestId: "request_context", snapshotId: snapshot.snapshotId }),
+    );
+  });
+
+  it("rejects context overflow before MCP startup or a Provider request", async () => {
+    const snapshot = createContextHistorySnapshot([]);
+    const createMcpManager = vi.fn(() => new McpManager());
+    const agent = new Agent(
+      {
+        name: "overflow_agent",
+        model: "gpt-context",
+        client: { apiProtocol: "openai_responses" },
+      },
+      {
+        createMcpManager,
+        contextEngine: {
+          compile: ({ requestId, modelVersion }: { requestId: string; modelVersion: string }) =>
+            compileContext({
+              requestId,
+              snapshot,
+              config: parseContextEngineConfig({
+                components: {
+                  eventStore: "sqlite_wal",
+                  artifactStore: "local_cas",
+                  normalizer: "deterministic_atomic",
+                  masker: "deterministic_capsule",
+                  stateProjector: "sourced_state_v1",
+                  evidenceProvider: "bm25",
+                  assembler: "priority_quota",
+                  verifier: "deterministic",
+                },
+                assembler: {
+                  inputTokenBudget: 1,
+                  reservedOutputTokens: 1,
+                  slotTokenBudgets: {
+                    system: 1,
+                    taskContract: 0,
+                    state: 0,
+                    recent: 0,
+                    evidence: 0,
+                    summary: 0,
+                    capsules: 0,
+                  },
+                },
+              }),
+              modelVersion,
+              requestedMode: "retrieval",
+              effectiveMode: "retrieval",
+              items: [
+                {
+                  itemId: "mandatory_system",
+                  slot: "system",
+                  content: "mandatory context",
+                  tokenCount: 2,
+                  priority: 100,
+                  mandatory: true,
+                  trust: "trusted",
+                  sourceEventIds: [],
+                },
+              ],
+            }),
+        },
+      },
+    );
+    const create = vi.fn();
+    Object.defineProperty(agent.client.responses, "create", { value: create });
+
+    await expect(
+      agent.call({ requestId: "request_overflow", messages: [{ role: "user", content: "Go" }] }),
+    ).rejects.toThrow(/Mandatory system context/i);
+    expect(createMcpManager).not.toHaveBeenCalled();
+    expect(create).not.toHaveBeenCalled();
+  });
+
+  it("executes OpenAI Responses with legacy MCP-result normalization", async () => {
     const agent = new Agent({
       name: "responses_agent",
       model: "gpt-5",
@@ -669,7 +884,7 @@ describe("Agent", () => {
     );
   });
 
-  it("V339 executes host-injected Project tools through the native Responses loop", async () => {
+  it("executes host-injected Project tools through the native Responses loop", async () => {
     const readProjectFile = vi.fn().mockResolvedValue({
       path: "README.md",
       content: "# Project-aware SwarmX",
@@ -752,7 +967,7 @@ describe("Agent", () => {
     );
   });
 
-  it("V358 continues OpenAI Responses freeform custom tool calls", async () => {
+  it("continues OpenAI Responses freeform custom tool calls", async () => {
     const applyPatch = vi
       .fn()
       .mockResolvedValue({ operations: [{ type: "add", path: "new.txt" }] });
@@ -844,7 +1059,7 @@ describe("Agent", () => {
     );
   });
 
-  it("V354 recovers a streamed Project tool call omitted from response.completed", async () => {
+  it("recovers a streamed Project tool call omitted from response.completed", async () => {
     const readProjectFile = vi.fn(
       async (_input: Record<string, unknown>, context?: LocalToolCallContext) => {
         context?.onProgress?.({
@@ -1125,7 +1340,7 @@ describe("Agent", () => {
     );
   });
 
-  it("V338 streams Codex subscription Responses without a consumer callback", async () => {
+  it("streams Codex subscription Responses without a consumer callback", async () => {
     const agent = new Agent({
       name: "codex_unary_caller",
       model: "gpt-5.6-luna",
@@ -1167,7 +1382,7 @@ describe("Agent", () => {
     ).toThrow(/requires apiProtocol "openai_responses"/);
   });
 
-  it("V283 executes Anthropic Messages natively with auth-token and tool-result blocks", async () => {
+  it("executes Anthropic Messages natively with auth-token and tool-result blocks", async () => {
     const agent = new Agent({
       name: "anthropic_agent",
       model: "claude-sonnet-4-6",
@@ -1280,7 +1495,7 @@ describe("Agent", () => {
     );
   });
 
-  it("V283 streams typed OpenAI Responses events without Chat conversion", async () => {
+  it("streams typed OpenAI Responses events without Chat conversion", async () => {
     const agent = new Agent({
       name: "responses_stream_agent",
       model: "gpt-5",
@@ -1332,7 +1547,7 @@ describe("Agent", () => {
     ]);
   });
 
-  it("V283 streams Anthropic content blocks without OpenAI conversion", async () => {
+  it("streams Anthropic content blocks without OpenAI conversion", async () => {
     const agent = new Agent({
       name: "anthropic_stream_agent",
       model: "claude-sonnet-4-6",
@@ -1392,7 +1607,7 @@ describe("Agent", () => {
   });
 
   it.each(["anthropic", "openai_responses"] as const)(
-    "V400 refreshes native %s tools after ToolSearch activates a deferred schema",
+    "refreshes native %s tools after ToolSearch activates a deferred schema",
     async (apiProtocol) => {
       const agent = new Agent({
         name: `${apiProtocol}_dynamic_tools`,
@@ -1516,7 +1731,7 @@ describe("Agent", () => {
     },
   );
 
-  it("V400 refreshes OpenAI Chat tools after ToolSearch activates a deferred schema", async () => {
+  it("refreshes OpenAI Chat tools after ToolSearch activates a deferred schema", async () => {
     const agent = new Agent({
       name: "chat_dynamic_tools",
       model: "claude-sonnet-4-6",
@@ -1579,7 +1794,7 @@ describe("Agent", () => {
     expect(secondNames).toEqual(["ToolSearch", "mcp__github__list_issues"]);
   });
 
-  it("V396 does not block a Claude profile's first model request on pending MCP startup", async () => {
+  it("does not block a Claude profile's first model request on pending MCP startup", async () => {
     const connectServer = vi.fn(
       (_name: string, _config: unknown, signal: AbortSignal) =>
         new Promise<McpConnectionResult>((_resolve, reject) => {
@@ -1634,7 +1849,7 @@ describe("Agent", () => {
   });
 
   it.each(["anthropic", "openai_responses"] as const)(
-    "V283 passes request cancellation to native %s calls",
+    "passes request cancellation to native %s calls",
     async (apiProtocol) => {
       const agent = new Agent({
         name: `${apiProtocol}_cancel_agent`,

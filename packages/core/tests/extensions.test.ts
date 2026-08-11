@@ -25,7 +25,7 @@ afterEach(async () => {
 });
 
 describe("extension inventory", () => {
-  it("V250 preserves typed Provider runtime readiness metadata", () => {
+  it("preserves typed Provider runtime readiness metadata", () => {
     const inventory = createExtensionInventory([
       parseExtensionBundle({
         id: "typed-provider-readiness",
@@ -956,7 +956,7 @@ describe("extension inventory", () => {
     ).toThrow(/must resolve one Model/);
   });
 
-  it("V332 requires an explicit Model route for a session-controlled Harness", () => {
+  it("requires an explicit Model route for a session-controlled Harness", () => {
     const bundle = parseExtensionBundle({
       schemaVersion: 1,
       id: "gateway-harness",
@@ -1076,7 +1076,7 @@ describe("extension inventory", () => {
     );
   });
 
-  it("V333 keeps custom Harness identity while reusing its Software adapter", () => {
+  it("keeps custom Harness identity while reusing its Software adapter", () => {
     const customHarness = parseExtensionBundle({
       id: "custom-claude-harness",
       name: "Custom Claude Harness",

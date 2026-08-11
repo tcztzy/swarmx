@@ -22,7 +22,7 @@ implementation map, test plan, backlog, changelog, or incident log.
 | Agent | Exactly one Harness paired with one Model. Its identity is `harnessId:modelId`; Provider routing and effort do not change it. |
 | Session | The canonical, resumable conversation record, persisted as an append-only event log. It may observe a WorkItem but is not task authority. |
 | Memory | User-owned subjective durable knowledge. Personal Memory is its bounded Settings snapshot; the current linked-page organization provides explicit CRUD and revisions. An organization method is replaceable implementation, not a separate product concept. Memory is not Activity Profile data, Session history, Project context, task authority, or an executable workflow. |
-| Reference Library | An explicitly configured, read-only local objective source. It is not editable Memory, Session history, Project context, or a download service. |
+| Reference Library | Explicitly configured, read-only objective sources: a local ZIM archive, opt-in Web Search, and the local Zotero library. It is not editable Memory, Session history, Project context, or a download service. |
 | WorkItem | A durable unit of language-independent work whose runs, leases, checkpoints, artifacts, and events survive Session changes. |
 | Workflow | A `SwarmConfig` graph of agents, tools, nested swarms, and explicit edges. |
 
@@ -98,12 +98,15 @@ implementation map, test plan, backlog, changelog, or incident log.
     credential, or audit authority from MCP itself.
 16. **Subjective Memory versus objective Reference.** Memory is curated,
     user/Agent-authored subjective knowledge with CRUD and Git versions.
-    Reference Library is read-only access to one explicitly configured local
-    ZIM archive: it can report source metadata, search, and return bounded
-    plaintext article excerpts, but cannot download, create, update, delete, or
-    silently promote reference text into Memory. Active HTML is stripped before
-    model use. When it is not configured, its Agent tool is not injected and
-    SwarmX never claims that Reference was used.
+    Reference Library is read-only access to explicitly configured sources: a
+    local ZIM archive, an opt-in Web Search endpoint, and Zotero Desktop's local
+    API. It can report source metadata, search, and return bounded plaintext
+    records, but cannot download, create, update, delete, read Zotero attachment
+    content, fetch arbitrary search-result URLs, or silently promote reference
+    text into Memory. Active HTML is stripped before model use. Web queries are
+    sent only when the caller explicitly selects the Web source. When no source
+    is configured, the Agent tool is not injected and SwarmX never claims that
+    Reference was used.
 
 ## Required capabilities
 
@@ -120,6 +123,11 @@ implementation map, test plan, backlog, changelog, or incident log.
 - Recover expired leases conservatively and resume only from an execution
   checkpoint produced by the same verified environment. Context packets and
   summary checkpoints remain model-context aids, not execution checkpoints.
+- Compile bounded model context from immutable event snapshots through
+  replaceable, provenance-preserving projections. Tool calls remain atomic with
+  their results, derived historical claims cite source events, live repository
+  observations outrank historical projections, and overflow fails explicitly
+  before a Provider request instead of being silently truncated.
 - Describe external effects as at-least-once, require stable idempotency keys
   and durable outcome receipts, and preserve an `unknown` outcome when a crash
   prevents proof of completion. Never advertise exactly-once delivery.

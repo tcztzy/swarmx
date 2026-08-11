@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import base64
+import json
 import tempfile
+import threading
 import unittest
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 from libzim.writer import Creator, Hint, Item, StringProvider
@@ -44,7 +47,7 @@ class ReferenceMcpServerTest(unittest.IsolatedAsyncioTestCase):
             "ZG9iZSBJbWFnZVYWR5ccllPAAAAANQTFRFR3BMgvrS0gAAAAF0Uk5TAEDm2GYAAAAN"
             "SURBVBjTY2AYBdQEAAFQAAGn4toWAAAAAElFTkSuQmCC=="
         )
-        with Creator(str(self.zim_path)).config_indexing(True, "eng") as creator:
+        with Creator(str(self.zim_path)).config_indexing(True, "zh") as creator:
             creator.set_mainpath("home")
             creator.add_item(
                 FixtureItem(
@@ -60,7 +63,7 @@ class ReferenceMcpServerTest(unittest.IsolatedAsyncioTestCase):
                 "Name": "swarmx-ref-fixture",
                 "Publisher": "SwarmX",
                 "Title": "SwarmX Reference Fixture",
-                "Language": "eng",
+                "Language": "zho",
                 "Date": "2026-08-10",
             }.items():
                 creator.add_metadata(name, value)
@@ -82,39 +85,134 @@ class ReferenceMcpServerTest(unittest.IsolatedAsyncioTestCase):
                 "--stdio",
             ],
         )
-        async with stdio_client(server) as (reader, writer):
-            async with ClientSession(reader, writer) as session:
-                initialized = await session.initialize()
-                self.assertEqual(initialized.serverInfo.name, "swarmx-ref")
-                tools = await session.list_tools()
-                self.assertEqual(
-                    [tool.name for tool in tools.tools], ["swarmx_reference"]
-                )
-                page = await session.call_tool(
-                    "swarmx_reference",
-                    {"request": {"operation": "get", "path": "home"}},
-                )
-                self.assertFalse(page.isError)
-                self.assertEqual(page.structuredContent["operation"], "get")
-                self.assertIn("Objective source.", page.structuredContent["text"])
-                self.assertNotIn("ignored()", page.structuredContent["text"])
-                search = await session.call_tool(
-                    "swarmx_reference",
+        with self.assertNoLogs("mcp.client.stdio", level="ERROR"):
+            async with stdio_client(server) as (reader, writer):
+                async with ClientSession(reader, writer) as session:
+                    initialized = await session.initialize()
+                    self.assertEqual(initialized.serverInfo.name, "swarmx-ref")
+                    tools = await session.list_tools()
+                    self.assertEqual(
+                        [tool.name for tool in tools.tools], ["swarmx_reference"]
+                    )
+                    status = await session.call_tool(
+                        "swarmx_reference", {"request": {"operation": "status"}}
+                    )
+                    self.assertEqual(
+                        status.structuredContent["sources"][0]["id"], "zim"
+                    )
+                    self.assertEqual(
+                        status.structuredContent["source"]["fileName"], "fixture.zim"
+                    )
+                    page = await session.call_tool(
+                        "swarmx_reference",
+                        {"request": {"operation": "get", "path": "home"}},
+                    )
+                    self.assertFalse(page.isError)
+                    self.assertEqual(page.structuredContent["operation"], "get")
+                    self.assertIn("Objective source.", page.structuredContent["text"])
+                    self.assertNotIn("ignored()", page.structuredContent["text"])
+                    search = await session.call_tool(
+                        "swarmx_reference",
+                        {
+                            "request": {
+                                "operation": "search",
+                                "query": "Objective",
+                                "limit": 5,
+                            }
+                        },
+                    )
+                    self.assertFalse(search.isError)
+                    self.assertEqual(
+                        search.structuredContent["matches"][0]["path"], "home"
+                    )
+                    mutation = await session.call_tool(
+                        "swarmx_reference",
+                        {"request": {"operation": "create", "title": "Opinion"}},
+                    )
+                    self.assertTrue(mutation.isError)
+
+    async def test_exposes_explicit_web_search_without_fetching_result_url(
+        self,
+    ) -> None:
+        requested_paths: list[str] = []
+
+        class SearchHandler(BaseHTTPRequestHandler):
+            def do_GET(self) -> None:
+                requested_paths.append(self.path)
+                body = json.dumps(
                     {
-                        "request": {
-                            "operation": "search",
-                            "query": "Objective",
-                            "limit": 5,
-                        }
-                    },
-                )
-                self.assertFalse(search.isError)
-                self.assertEqual(search.structuredContent["matches"][0]["path"], "home")
-                mutation = await session.call_tool(
-                    "swarmx_reference",
-                    {"request": {"operation": "create", "title": "Opinion"}},
-                )
-                self.assertTrue(mutation.isError)
+                        "number_of_results": 1,
+                        "results": [
+                            {
+                                "url": "https://example.com/objective",
+                                "title": "Objective Web Result",
+                                "content": "A bounded search snippet.",
+                            }
+                        ],
+                    }
+                ).encode()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            def log_message(self, format: str, *args: object) -> None:
+                del format, args
+
+        search_server = ThreadingHTTPServer(("127.0.0.1", 0), SearchHandler)
+        search_thread = threading.Thread(target=search_server.serve_forever)
+        search_thread.start()
+        try:
+            host, port = search_server.server_address
+            server = StdioServerParameters(
+                command="python",
+                args=[
+                    "-I",
+                    "-B",
+                    "-u",
+                    "-m",
+                    "swarmx.ref.server",
+                    "--web-search-url",
+                    f"http://{host}:{port}",
+                    "--stdio",
+                ],
+            )
+            async with stdio_client(server) as (reader, writer):
+                async with ClientSession(reader, writer) as session:
+                    await session.initialize()
+                    searched = await session.call_tool(
+                        "swarmx_reference",
+                        {
+                            "request": {
+                                "operation": "search",
+                                "source": "web",
+                                "query": "objective",
+                                "limit": 1,
+                            }
+                        },
+                    )
+                    self.assertFalse(searched.isError)
+                    self.assertEqual(searched.structuredContent["source"], "web")
+                    cached = await session.call_tool(
+                        "swarmx_reference",
+                        {
+                            "request": {
+                                "operation": "get",
+                                "source": "web",
+                                "path": "https://example.com/objective",
+                            }
+                        },
+                    )
+                    self.assertIn(
+                        "bounded search snippet", cached.structuredContent["text"]
+                    )
+            self.assertEqual(len(requested_paths), 1)
+            self.assertIn("/search?", requested_paths[0])
+        finally:
+            search_server.shutdown()
+            search_server.server_close()
+            search_thread.join()
 
 
 if __name__ == "__main__":

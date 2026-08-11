@@ -6,8 +6,8 @@ import { AgentInteractionDialog } from "./agent-interaction-dialog.js";
 
 afterEach(cleanup);
 
-describe("V390 AgentInteractionDialog", () => {
-  it("V445-V447 returns one exact tool permission option without raw input", () => {
+describe("AgentInteractionDialog", () => {
+  it("returns one exact tool permission option without raw input", () => {
     const onResolve = vi.fn();
     render(
       <AgentInteractionDialog
@@ -87,7 +87,7 @@ describe("V390 AgentInteractionDialog", () => {
     });
   });
 
-  it("V386 collects single, multiple, and automatic Other answers", () => {
+  it("collects single, multiple, and automatic Other answers", () => {
     const onResolve = vi.fn();
     render(
       <AgentInteractionDialog
@@ -142,7 +142,7 @@ describe("V390 AgentInteractionDialog", () => {
     });
   });
 
-  it("V389 returns explicit plan approval or rejection feedback", () => {
+  it("returns explicit plan approval or rejection feedback", () => {
     const onResolve = vi.fn();
     const { rerender } = render(
       <AgentInteractionDialog

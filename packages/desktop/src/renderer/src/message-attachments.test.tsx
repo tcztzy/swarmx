@@ -8,7 +8,7 @@ import { MessageAttachments } from "./message-attachments.js";
 afterEach(cleanup);
 
 describe("MessageAttachments", () => {
-  it("V563 renders typed sizes and routes preview for each attachment kind", () => {
+  it("renders typed sizes and routes preview for each attachment kind", () => {
     const attachments = [
       attachment("image", "diagram.png", 1),
       attachment("audio", "sample.wav", 1025),
