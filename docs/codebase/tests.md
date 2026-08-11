@@ -36,7 +36,9 @@ idempotency collisions, fenced lease expiry, cancellation, retry and checkpoint
 lineage/resume (including corrupted identity/environment rejection), torn-tail
 recovery, Session-observer links, rejected human approval, protocol rejection,
 app-attached control-plane behavior, authenticated supervisor rejection, and
-execution continuing after a requesting client disconnects.
+execution continuing after a requesting client disconnects. Supervisor tests
+also require automatic redispatch after a retryable failure and after an
+approved persisted human pause, without a second client-supplied run request.
 
 Skill evolution tests cover the end-to-end closed loop with the real Python
 worker (deterministic optimizer), candidate immutability and lineage, static
@@ -107,7 +109,8 @@ credential isolation, the isolated explicit-Provider direct-Harness release path
 through native streaming and restart recovery, terminal cancellation,
 transport-policy audit compaction, semantic terminal close reasons, workspace
 patching, media access, detached-supervisor startup/reconnection and environment
-isolation, session navigation, UI state transitions, and a built-Electron smoke
+isolation, live read-only WorkItem refresh while Runtime Settings is visible,
+session navigation, UI state transitions, and a built-Electron smoke
 probe that measures the actual split-panel and Agent-picker geometry. Layout
 behavior lives in rendered interaction/smoke tests rather than source-string
 class assertions.

@@ -497,7 +497,13 @@ eligible worker. Requests cross a strict bounded JSONL socket protocol and use a
 random token stored with mode `0600`. Renderer receives only list, cancel, and
 decision IPC; worker launch specs, the token, event-store authority, and process
 creation remain in Main/Core. The supervisor reuses the sole canonical event
-store and never creates a second task format.
+store and never creates a second task format. Once it accepts a strictly
+validated run request, it retains that launch and grant recipe only in memory
+until the WorkItem reaches a terminal or blocked state. A retryable worker
+failure or an approved human pause is redispatched automatically with the same
+recipe, while the controller rechecks the attempt budget, fencing, checkpoint
+identity, and environment digest on every Run. The recipe is not persisted,
+returned to Renderer, or reconstructed after the supervisor itself exits.
 
 The local supervisor is not installed at login and does not yet provide remote
 execution, production capability gateways, or OS isolation for untrusted

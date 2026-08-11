@@ -224,6 +224,7 @@ const acpSessionDetail: SessionData = {
 
 afterEach(() => {
   cleanup();
+  vi.useRealTimers();
   vi.restoreAllMocks();
   vi.resetModules();
   Object.defineProperty(window, "swarmxAPI", {
@@ -3403,6 +3404,34 @@ describe("App user workflow", () => {
         workItemId: "awi_detached_visible",
       }),
     );
+  });
+
+  it("refreshes detached WorkItems while Runtime Settings is visible", async () => {
+    vi.useFakeTimers();
+    const api = createDesktopApiMock({
+      listTaskWorkItems: vi.fn(async () => ({
+        requestId: "task-list-live",
+        ok: true,
+        operation: "list",
+        workItems: [],
+        approvals: [],
+        activeWorkItemIds: [],
+      })),
+    });
+
+    await renderApp(api);
+    fireEvent.click(screen.getByRole("button", { name: "Open local workspace menu" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Settings" }));
+    fireEvent.click(screen.getByRole("button", { name: "Runtime" }));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(api.listTaskWorkItems).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1_000);
+    });
+    expect(api.listTaskWorkItems).toHaveBeenCalledTimes(2);
   });
 
   it("renders harnesses while versions load and refreshes only the clicked version", async () => {

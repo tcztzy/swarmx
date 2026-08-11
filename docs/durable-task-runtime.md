@@ -31,12 +31,16 @@ event-id collision, or idempotency-key collision fails closed.
 Desktop-facing host runs it inside one authenticated local supervisor process,
 so Electron can disconnect or exit without ending active work. The supervisor
 calls `recoverOnStartup()` to repair a torn tail and mark expired leases, then
-may retry eligible work within its attempt budget. A run does not become
-active or consume an attempt until its lease is durably acquired, so a crash
-after only `run_created` leaves the WorkItem safely runnable. Startup also
-repairs a crash between a retryable failure and its retry-scheduled event. The
-service does not silently start all queued work and does not install runtime
-dependencies.
+may retry eligible work within its attempt budget. After one strictly validated
+`run` request, the supervisor retains that exact launch and grant recipe in
+memory. It automatically redispatches a retryable worker failure and resumes an
+approved human pause; the next Run still has to pass the normal budget, fencing,
+checkpoint, and environment-digest checks. A run does not become active or
+consume an attempt until its lease is durably acquired, so a crash after only
+`run_created` leaves the WorkItem safely runnable. Startup also repairs a crash
+between a retryable failure and its retry-scheduled event. The service does not
+silently start unrelated queued work, persist launch recipes, reconstruct them
+after the supervisor exits, or install runtime dependencies.
 
 Desktop starts the supervisor on demand with a credential-free ambient
 environment, then disconnects after each request. The supervisor token and
@@ -44,7 +48,9 @@ socket are Main/Core-only and mode-restricted. Renderer can list current
 WorkItems and pending approvals, cancel an active run, or record an explicit
 human decision through narrow typed IPC. It cannot submit a worker program,
 launch environment, token, or arbitrary process. Main-owned services submit
-eligible launch/grant contracts directly to the supervisor.
+eligible launch/grant contracts directly to the supervisor. While Runtime
+Settings is visible, Desktop refreshes this read-only projection once per second
+so completion, failure, and human-decision states do not require manual refresh.
 
 Cancellation is also event-first: Core records `cancel_requested` before it
 signals the worker. A cooperative worker returns `canceled`; an unresponsive
@@ -148,9 +154,13 @@ dependency group.
 ## Current boundary
 
 The authenticated local supervisor lets active eligible WorkItems continue after
-Desktop closes and accepts status/cancel requests when Desktop reconnects. It is
-started on demand and is not installed as a login daemon, launchd unit, systemd
-unit, or remote service. Production capability adapters, artifact-backed
+Desktop closes, redispatches eligible retries or approved resumptions with its
+retained verified recipe, and accepts status/cancel requests when Desktop
+reconnects. It is started on demand and is not installed as a login daemon,
+launchd unit, systemd unit, or remote service. If the supervisor itself exits,
+the task state and checkpoint remain durable but a trusted host must submit a
+fresh verified run recipe before execution can resume. Production capability
+adapters, artifact-backed
 checkpoint materialization, asynchronous store isolation from Electron Main,
 automatic login/startup installation, and stronger OS-level worker sandboxing
 remain explicit roadmap work. The bundled Python operations do not read Provider

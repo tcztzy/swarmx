@@ -103,7 +103,7 @@ API. Renderer receives normalized data and renders React UI.
 | `packages/desktop/src/renderer/src/model-display.ts` | Pure model brand/order/reasoning presentation descriptors. `pure` |
 | `packages/desktop/src/renderer/src/profile-workspace.tsx` | Activity profile summary, daily heatmap, rankings, and usage presentation. `ui` |
 | `packages/desktop/src/renderer/src/provider-presentation.tsx` | Provider branding, protocol labels, and URL/provider classification. `ui` |
-| `packages/desktop/src/renderer/src/runtime-settings.tsx` | Runtime environment/doctor setup plus detached WorkItem status, cancel, and pending-decision UI. `ui` + `ipc` |
+| `packages/desktop/src/renderer/src/runtime-settings.tsx` | Runtime environment/doctor setup plus detached WorkItem status, cancel, and pending-decision UI; the owning App refreshes the read-only task projection while this surface is visible. `ui` + `ipc` |
 | `packages/desktop/src/renderer/src/session-navigation.ts` | Pure session discovery/grouping/cache/ordering/project navigation helpers. `pure` |
 | `packages/desktop/src/renderer/src/settings-workspace.tsx` | General, tabbed `USER.md` / `MEMORY.md` edit/delete, permission, Provider usage, tool-style, and custom-agent settings screens. `ui` + `ipc` |
 | `packages/desktop/src/renderer/src/stylesheet-test-utils.ts` | Test-only stylesheet loader helper. `fs` |

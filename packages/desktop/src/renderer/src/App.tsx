@@ -206,6 +206,7 @@ const PANEL_EXIT_MS = 240;
 const INTERRUPTED_CONTINUE_PROMPT =
   "Continue the previous interrupted task. Do not assume unfinished tool calls completed. Verify the current state before retrying any side-effecting action.";
 const LOCAL_FILES_LSP_ID = "swarmx.local-files";
+const TASK_RUNTIME_REFRESH_INTERVAL_MS = 1_000;
 const SKILLS_LSP_ID = "swarmx.skills";
 const DEFAULT_MENTION_SERVERS = [
   {
@@ -839,7 +840,11 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
   } = useSWR<DesktopTaskRuntimeListResult>(
     settingsSection === "runtime" ? TASK_RUNTIME_KEY : null,
     () => api.listTaskWorkItems(),
-    { revalidateOnFocus: true, revalidateOnReconnect: false },
+    {
+      refreshInterval: TASK_RUNTIME_REFRESH_INTERVAL_MS,
+      revalidateOnFocus: true,
+      revalidateOnReconnect: false,
+    },
   );
   const {
     data: extensionInventory,

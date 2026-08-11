@@ -17,8 +17,9 @@ import {
   TaskWorkItemSchema,
 } from "./task-runtime.js";
 import { TaskRuntimeStore } from "./task-runtime-store.js";
-import { TaskWorkerLaunchSpecSchema } from "./task-worker-process.js";
+import { type TaskWorkerLaunchSpec, TaskWorkerLaunchSpecSchema } from "./task-worker-process.js";
 import {
+  type TaskWorkerCapabilityGrant,
   TaskWorkerCapabilityGrantSchema,
   TaskWorkerPayloadSchema,
 } from "./task-worker-protocol.js";
@@ -213,13 +214,21 @@ export interface TaskSupervisorServerOptions {
   service?: AppAttachedTaskControlService;
 }
 
+interface RetainedRunRecipe {
+  launch: TaskWorkerLaunchSpec;
+  grants: TaskWorkerCapabilityGrant[];
+}
+
 /** Local authenticated authority whose worker runs are independent from any one Desktop client. */
 export class TaskSupervisorServer {
   readonly service: AppAttachedTaskControlService;
   readonly socketPath: string;
   private readonly token: string;
   private readonly activeRuns = new Map<string, Promise<unknown>>();
+  private readonly runRecipes = new Map<string, RetainedRunRecipe>();
+  private readonly continuationTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private server?: Server;
+  private closing = false;
 
   constructor(options: TaskSupervisorServerOptions = {}) {
     const paths = taskSupervisorPaths(options.rootDir);
@@ -235,6 +244,7 @@ export class TaskSupervisorServer {
 
   async listen(): Promise<void> {
     if (this.server) throw new Error("Task supervisor is already listening.");
+    this.closing = false;
     this.service.recoverOnStartup();
     const server = createServer((socket) => this.accept(socket));
     this.server = server;
@@ -260,6 +270,7 @@ export class TaskSupervisorServer {
   }
 
   async close(): Promise<void> {
+    this.closing = true;
     const server = this.server;
     this.server = undefined;
     if (server) {
@@ -274,6 +285,9 @@ export class TaskSupervisorServer {
         if (!isFileMissing(error)) throw error;
       }
     }
+    for (const timer of this.continuationTimers.values()) clearTimeout(timer);
+    this.continuationTimers.clear();
+    this.runRecipes.clear();
   }
 
   private accept(socket: Socket): void {
@@ -364,12 +378,9 @@ export class TaskSupervisorServer {
           `Work item "${request.workItemId}" is not runnable.`,
         );
       }
-      const active = this.service.runWorkItem(request.workItemId, {
-        launch: request.launch,
-        grants: request.grants,
-      });
-      this.activeRuns.set(request.workItemId, active);
-      void active.catch(() => undefined).finally(() => this.activeRuns.delete(request.workItemId));
+      const recipe = { launch: request.launch, grants: request.grants };
+      this.runRecipes.set(request.workItemId, recipe);
+      this.startWorkItem(request.workItemId, recipe);
       return TaskSupervisorResponseSchema.parse({
         requestId: request.requestId,
         ok: true,
@@ -390,11 +401,65 @@ export class TaskSupervisorServer {
       ...(request.response === undefined ? {} : { response: request.response }),
     });
     const approval = state.approvals[request.approvalId];
-    return workItemResponse(
+    const response = workItemResponse(
       request.requestId,
       "decide",
       state.workItems[approval?.workItemId ?? ""],
     );
+    if (approval) this.continueWorkItem(approval.workItemId);
+    return response;
+  }
+
+  private startWorkItem(workItemId: string, recipe: RetainedRunRecipe): void {
+    if (this.closing || this.activeRuns.has(workItemId)) return;
+    const attemptsBefore =
+      this.service.store.state().workItems[workItemId]?.retry.attemptsStarted ?? 0;
+    const active = this.service.runWorkItem(workItemId, recipe);
+    this.activeRuns.set(workItemId, active);
+    void active
+      .catch(() => undefined)
+      .finally(() => {
+        if (this.activeRuns.get(workItemId) !== active) return;
+        this.activeRuns.delete(workItemId);
+        const attemptsAfter =
+          this.service.store.state().workItems[workItemId]?.retry.attemptsStarted ?? 0;
+        if (attemptsAfter <= attemptsBefore) {
+          this.runRecipes.delete(workItemId);
+          return;
+        }
+        this.continueWorkItem(workItemId);
+      });
+  }
+
+  private continueWorkItem(workItemId: string): void {
+    if (this.closing || this.activeRuns.has(workItemId)) return;
+    const priorTimer = this.continuationTimers.get(workItemId);
+    if (priorTimer) {
+      clearTimeout(priorTimer);
+      this.continuationTimers.delete(workItemId);
+    }
+    const recipe = this.runRecipes.get(workItemId);
+    if (!recipe) return;
+    const workItem = this.service.store.state().workItems[workItemId];
+    if (workItem && isTaskWorkItemRunnable(workItem, new Date().toISOString())) {
+      this.startWorkItem(workItemId, recipe);
+      return;
+    }
+    if (workItem?.status === "queued" && workItem.retry.nextAttemptAt) {
+      const delay = Math.min(
+        Math.max(0, Date.parse(workItem.retry.nextAttemptAt) - Date.now()),
+        2_147_483_647,
+      );
+      const timer = setTimeout(() => {
+        this.continuationTimers.delete(workItemId);
+        this.continueWorkItem(workItemId);
+      }, delay);
+      timer.unref();
+      this.continuationTimers.set(workItemId, timer);
+      return;
+    }
+    if (workItem?.status === "needs_human") return;
+    this.runRecipes.delete(workItemId);
   }
 
   private write(socket: Socket, response: TaskSupervisorResponse): void {

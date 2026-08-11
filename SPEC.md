@@ -183,7 +183,10 @@ implementation map, test plan, backlog, changelog, or incident log.
   prevents proof of completion. Never advertise exactly-once delivery.
 - Submit, inspect, and cancel eligible WorkItems through an authenticated local
   supervisor that reuses the canonical event store, fencing, worker protocol,
-  capability grants, and recovery logic. Electron is a client, not task authority.
+  capability grants, and recovery logic. After accepting a verified run recipe,
+  the same supervisor automatically redispatches retryable failures and approved
+  human pauses within the WorkItem's attempt budget; Electron is a client, not
+  task authority.
 - Structurally import n8n workflow JSON into `SwarmConfig`, preserving topology
   and inert metadata without importing secrets or executing n8n node runtimes.
 - Run native Provider APIs and external ACP Harnesses with streaming,
