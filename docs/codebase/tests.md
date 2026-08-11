@@ -99,8 +99,9 @@ Exact Core test paths: `packages/core/tests/acp.test.ts`,
 | `packages/desktop/src/renderer/src/media-preview.test.tsx`, `message-attachments.test.tsx`, `message-content.test.tsx`, `model-display.test.ts`, `session-navigation.test.ts`, `settings-workspace.test.ts` |
 | `packages/desktop/src/renderer/src/styling-architecture.test.ts`, `ui-primitives.test.tsx`, `text-utils.test.ts`, `workflow-workspace.test.ts`, `workspace-panel.test.tsx`, `harness-icon-data.test.ts` |
 
-Coverage focus: IPC boundary validation, renderer-safe data, permission and
-containment rules, provider credential isolation, terminal cancellation,
+Coverage focus: IPC boundary validation, renderer-safe data, floating-composer
+layout and transcript clearance, permission and containment rules, provider
+credential isolation, terminal cancellation,
 transport-policy audit compaction, semantic terminal close reasons, workspace
 patching, media access, detached-supervisor startup/reconnection and environment
 isolation, session navigation, UI state transitions, and a built-Electron smoke

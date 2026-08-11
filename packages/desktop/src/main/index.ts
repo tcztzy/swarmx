@@ -165,6 +165,7 @@ async function runDesktopSmoke(window: BrowserWindow): Promise<void> {
         await wait(100);
         const runtime = document.querySelector('.runtime');
         const body = document.querySelector('.runtime__body');
+        const transcript = document.querySelector('.transcript');
         const rightPanel = document.querySelector('.panel-transition--right.is-open');
         const composer = document.querySelector('.composer-dock');
         const separator = document.querySelector('[aria-label="Resize right panel"]');
@@ -175,6 +176,8 @@ async function runDesktopSmoke(window: BrowserWindow): Promise<void> {
         const primary = document.querySelector('.agent-picker__primary');
         const secondary = document.querySelector('.agent-picker__secondary');
         const runtimeRect = runtime.getBoundingClientRect();
+        const bodyRect = body.getBoundingClientRect();
+        const composerRect = composer.getBoundingClientRect();
         const primaryRect = primary.getBoundingClientRect();
         const secondaryRect = secondary.getBoundingClientRect();
         const menuRect = menu.getBoundingClientRect();
@@ -186,7 +189,13 @@ async function runDesktopSmoke(window: BrowserWindow): Promise<void> {
           runtimeWidth: runtimeRect.width,
           bodyPaddingRight: Number.parseFloat(getComputedStyle(body).paddingRight),
           rightPanelWidth: rightPanel.getBoundingClientRect().width,
-          composerWidth: composer.getBoundingClientRect().width,
+          composerWidth: composerRect.width,
+          composerFloatsInBody:
+            composer.parentElement === body &&
+            getComputedStyle(composer).position === 'absolute' &&
+            Math.abs(composerRect.bottom - bodyRect.bottom) <= 2,
+          transcriptPaddingBottom: Number.parseFloat(getComputedStyle(transcript).paddingBottom),
+          composerHeight: composerRect.height,
           separatorCursor: getComputedStyle(separator).cursor,
           agentMenuWidth: menuRect.width,
           agentPrimaryWidth: primaryRect.width,
@@ -202,6 +211,8 @@ async function runDesktopSmoke(window: BrowserWindow): Promise<void> {
     const bodyPaddingRight = numberField(wide, "bodyPaddingRight");
     const rightPanelWidth = numberField(wide, "rightPanelWidth");
     const composerWidth = numberField(wide, "composerWidth");
+    const transcriptPaddingBottom = numberField(wide, "transcriptPaddingBottom");
+    const composerHeight = numberField(wide, "composerHeight");
     const agentMenuWidth = numberField(wide, "agentMenuWidth");
     const agentPrimaryWidth = numberField(wide, "agentPrimaryWidth");
     const checks = {
@@ -211,6 +222,8 @@ async function runDesktopSmoke(window: BrowserWindow): Promise<void> {
         Math.abs(bodyPaddingRight - runtimeWidth / 2) <= 2 &&
         Math.abs(rightPanelWidth - runtimeWidth / 2) <= 2 &&
         Math.abs(composerWidth - runtimeWidth / 2) <= 2,
+      floatingComposer:
+        wide.composerFloatsInBody === true && transcriptPaddingBottom >= composerHeight + 20,
       resizeAffordance: wide.separatorCursor === "col-resize",
       agentPrimaryOwnsFlow: Math.abs(agentMenuWidth - agentPrimaryWidth) <= 2,
       agentPanelsSeparated: wide.agentPanelsSeparated === true,

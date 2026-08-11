@@ -507,6 +507,7 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
   });
   const [pinnedSummaryOpen, setPinnedSummaryOpen] = useState(false);
   const [bottomPanelOpen, setBottomPanelOpen] = useState(false);
+  const [composerDockElement, setComposerDockElement] = useState<HTMLElement | null>(null);
   const [rightPanelOpen, setRightPanelOpen] = useState(false);
   const [previewAttachment, setPreviewAttachment] = useState<DesktopMediaAttachment | null>(null);
   const [rightPanelWidth, setRightPanelWidth] = useState<number | null>(null);
@@ -542,6 +543,10 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
   const displayedRightPanelKind = activeRightPanelKind ?? renderedRightPanelKind;
   const pinnedSummaryMounted = usePanelPresence(pinnedSummaryOpen);
   const rightPanelMounted = usePanelPresence(activeRightPanelKind !== null);
+  const activeAgentInteraction = agentInteractions[0];
+  const activeToolApproval =
+    activeAgentInteraction?.kind === "tool_approval" ? activeAgentInteraction : null;
+  const runtimeBodyRef = useRef<HTMLDivElement>(null);
   const chatRef = useRef<HTMLDivElement>(null);
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const previewReturnFocusRef = useRef<HTMLElement | null>(null);
@@ -1588,6 +1593,26 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
       behavior: sessionChanged || !messageAdded || prefersReducedMotion() ? "auto" : "smooth",
     });
   }, [currentSession?.id, messageCount]);
+
+  useLayoutEffect(() => {
+    const body = runtimeBodyRef.current;
+    if (!body) return;
+    if (!composerDockElement) {
+      body.style.removeProperty("--composer-overlay-height");
+      return;
+    }
+
+    const updateComposerHeight = () => {
+      const height = Math.max(132, Math.ceil(composerDockElement.getBoundingClientRect().height));
+      body.style.setProperty("--composer-overlay-height", `${height}px`);
+    };
+    updateComposerHeight();
+
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(updateComposerHeight);
+    observer.observe(composerDockElement);
+    return () => observer.disconnect();
+  }, [composerDockElement]);
 
   const applyNavigationEntry = useCallback((session: DiscoveredSession | null) => {
     setActiveUiContributionId(null);
@@ -3124,10 +3149,6 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
       </button>
     );
   };
-  const activeAgentInteraction = agentInteractions[0];
-  const activeToolApproval =
-    activeAgentInteraction?.kind === "tool_approval" ? activeAgentInteraction : null;
-
   return (
     <div
       className={cx(
@@ -3886,11 +3907,11 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
 
       <main
         className={cx(
-          "runtime [position:relative] [z-index:1] [grid-column:2] [grid-row:2] [min-width:0] [min-height:0] [height:100%] [overflow:hidden] [display:grid] [grid-template-rows:minmax(0,_1fr)_auto_auto] [background:rgba(7,_8,_11,_0.26)] [@media(prefers-color-scheme:light)]:[background:linear-gradient(180deg,_rgba(255,_255,_255,_0.66),_transparent_310px)]",
+          "runtime [position:relative] [z-index:1] [grid-column:2] [grid-row:2] [min-width:0] [min-height:0] [height:100%] [overflow:hidden] [display:grid] [grid-template-rows:minmax(0,_1fr)_auto] [background:rgba(7,_8,_11,_0.26)] [@media(prefers-color-scheme:light)]:[background:linear-gradient(180deg,_rgba(255,_255,_255,_0.66),_transparent_310px)]",
           rightPanelMounted &&
-            "runtime--right-panel [&_>_.composer-dock]:[width:calc(100%_-_var(--right-panel-width,_50%))] [&_>_.panel-transition--bottom]:[width:calc(100%_-_var(--right-panel-width,_50%))] max-680:[&_>_.composer-dock]:[width:100%] max-680:[&_>_.panel-transition--bottom]:[width:100%]",
+            "runtime--right-panel [&_>_.panel-transition--bottom]:[width:calc(100%_-_var(--right-panel-width,_50%))] max-680:[&_>_.panel-transition--bottom]:[width:100%]",
           sideChatPaneOpen &&
-            "runtime--side-chat [&_>_.composer-dock]:[width:calc(100%_-_var(--side-chat-width))] [&_>_.panel-transition--bottom]:[width:calc(100%_-_var(--side-chat-width))] max-860:[&_>_.composer-dock]:[display:none] max-860:[&_>_.panel-transition--bottom]:[width:100%]",
+            "runtime--side-chat [&_>_.panel-transition--bottom]:[width:calc(100%_-_var(--side-chat-width))] max-860:[&_>_.panel-transition--bottom]:[width:100%]",
         )}
         style={
           {
@@ -3900,8 +3921,9 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
         }
       >
         <div
+          ref={runtimeBodyRef}
           className={cx(
-            String.raw`runtime__body [min-width:0] [min-height:0] [overflow:hidden] [display:grid] [grid-template-columns:minmax(0,_1fr)] [&.runtime\_\_body--right-panel]:[padding-right:var(--right-panel-width,_50%)] [&.runtime\_\_body--right-panel]:[overflow:visible] [&.runtime\_\_body--right-panel]:[grid-template-columns:minmax(0,_1fr)] [&&.runtime\_\_body--side-chat]:[padding-right:var(--side-chat-width)] [&&.runtime\_\_body--side-chat]:[overflow:visible] [&&.runtime\_\_body--side-chat]:[grid-template-columns:minmax(0,_1fr)]`,
+            String.raw`runtime__body [position:relative] [min-width:0] [min-height:0] [overflow:hidden] [display:grid] [grid-template-columns:minmax(0,_1fr)] [&.runtime\_\_body--right-panel]:[padding-right:var(--right-panel-width,_50%)] [&.runtime\_\_body--right-panel]:[overflow:visible] [&.runtime\_\_body--right-panel]:[grid-template-columns:minmax(0,_1fr)] [&&.runtime\_\_body--side-chat]:[padding-right:var(--side-chat-width)] [&&.runtime\_\_body--side-chat]:[overflow:visible] [&&.runtime\_\_body--side-chat]:[grid-template-columns:minmax(0,_1fr)]`,
             rightPanelMounted && "runtime__body--right-panel max-680:[padding-right:0]",
             sideChatPaneOpen && "runtime__body--side-chat max-860:[padding-right:0]",
           )}
@@ -4133,6 +4155,9 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
                       "transcript max-860:[padding:22px_16px_28px] [width:min(100%,_960px)] [min-height:100%] [margin:0_auto] [padding:38px_30px_52px] [display:flex] [flex-direction:column] [gap:0] [&.transcript--empty]:[width:min(100%,_1120px)] [&.transcript--empty]:[padding-top:0] [&.transcript--empty]:[padding-bottom:0]",
                       emptyRun && "transcript--empty",
                     )}
+                    style={{
+                      paddingBottom: "calc(var(--composer-overlay-height, 132px) + 24px)",
+                    }}
                   >
                     {emptyRun ? (
                       <EmptyRun
@@ -4498,144 +4523,148 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
               </footer>
             </aside>
           )}
-        </div>
-
-        {!settingsSection &&
-          (activeToolApproval || (!workflowPanelOpen && !activeUiContribution)) && (
-            <footer
-              className={cx(
-                "composer-dock [padding:9px_18px_12px] [border-top:1px_solid_var(--border-subtle)] [background:linear-gradient(180deg,_rgba(7,_8,_11,_0),_rgba(7,_8,_11,_0.82)_34%),_rgba(7,_8,_11,_0.82)] [-webkit-backdrop-filter:blur(18px)] [@media(prefers-color-scheme:light)]:[background:linear-gradient(180deg,_rgba(244,_246,_249,_0),_rgba(244,_246,_249,_0.9)_34%),_rgba(244,_246,_249,_0.86)] max-860:[padding:12px_14px_14px] max-680:[padding:10px_14px]",
-                activeToolApproval && "composer-dock--approval [padding-top:12px]",
-              )}
-            >
-              {activeToolApproval ? (
-                <AgentInteractionDialog
-                  key={activeToolApproval.interactionId}
-                  interaction={activeToolApproval}
-                  resolving={resolvingInteractionId === activeToolApproval.interactionId}
-                  error={agentInteractionError}
-                  onResolve={(response) =>
-                    void resolveAgentInteraction(activeToolApproval, response)
-                  }
-                  onStop={() => void stopMessage()}
-                />
-              ) : (
-                <Composer
-                  textareaRef={composerRef}
-                  value={input}
-                  onChange={setInput}
-                  onFocus={() => {
-                    focusedComposerRef.current = "main";
-                  }}
-                  onSubmit={sendMessage}
-                  onStop={stopMessage}
-                  placeholder={
-                    acpHistoryReadOnly
-                      ? "ACP history is read-only until resume is supported"
-                      : `Message ${activeExtensionAgent?.name ?? displayHarness.label}`
-                  }
-                  disabled={runState !== "idle" || acpHistoryReadOnly}
-                  running={runState !== "idle"}
-                  sendDisabled={
-                    runState === "stopping" ||
-                    (runState === "idle" &&
-                      ((!input.trim() && attachments.length === 0) ||
-                        manualCompositionNeedsModel ||
-                        acpHistoryReadOnly))
-                  }
-                  sendTitle={
-                    acpHistoryReadOnly
-                      ? "ACP history is read-only until session resume is supported."
-                      : manualCompositionNeedsModel
-                        ? modelUnavailableDiagnostic
-                        : undefined
-                  }
-                  error={composerError}
-                  workspaceRoot={composerWorkspaceRoot}
-                  mentionServers={composerMentionServers}
-                  completeMention={api.lspComplete}
-                  selectFilesAndFolders={api.selectFilesAndFolders}
-                  selectMediaAttachments={api.selectMediaAttachments}
-                  importMediaAttachments={api.importMediaAttachments}
-                  attachments={attachments}
-                  onAttachmentsChange={setAttachments}
-                  onPreviewAttachment={openMediaPreview}
-                  onContextError={(error) => setComposerError(errorMessage(error))}
-                >
-                  <ConversationPermissionPicker
-                    open={permissionPickerOpen}
-                    mode={sessionPermissionMode}
-                    supported={sessionPermissionSupported}
-                    profileAvailability={permissionStatus?.profileAvailability}
+          {!settingsSection &&
+            (activeToolApproval || (!workflowPanelOpen && !activeUiContribution)) && (
+              <footer
+                ref={setComposerDockElement}
+                className={cx(
+                  "composer-dock [position:absolute] [right:0] [bottom:0] [left:0] [z-index:26] [padding:9px_18px_12px] [background:linear-gradient(180deg,_transparent,_rgba(7,_8,_11,_0.72))] [@media(prefers-color-scheme:light)]:[background:linear-gradient(180deg,_transparent,_rgba(244,_246,_249,_0.76))] max-860:[padding:12px_14px_14px] max-680:[padding:10px_14px]",
+                  activeToolApproval && "composer-dock--approval [padding-top:12px]",
+                  sideChatPaneOpen
+                    ? "composer-dock--side-chat [right:var(--side-chat-width)] max-860:[display:none]"
+                    : rightPanelMounted &&
+                        "composer-dock--right-panel [right:var(--right-panel-width,_50%)] max-680:[right:0]",
+                )}
+              >
+                {activeToolApproval ? (
+                  <AgentInteractionDialog
+                    key={activeToolApproval.interactionId}
+                    interaction={activeToolApproval}
+                    resolving={resolvingInteractionId === activeToolApproval.interactionId}
+                    error={agentInteractionError}
+                    onResolve={(response) =>
+                      void resolveAgentInteraction(activeToolApproval, response)
+                    }
+                    onStop={() => void stopMessage()}
+                  />
+                ) : (
+                  <Composer
+                    textareaRef={composerRef}
+                    value={input}
+                    onChange={setInput}
+                    onFocus={() => {
+                      focusedComposerRef.current = "main";
+                    }}
+                    onSubmit={sendMessage}
+                    onStop={stopMessage}
+                    placeholder={
+                      acpHistoryReadOnly
+                        ? "ACP history is read-only until resume is supported"
+                        : `Message ${activeExtensionAgent?.name ?? displayHarness.label}`
+                    }
                     disabled={runState !== "idle" || acpHistoryReadOnly}
-                    onOpenChange={(open) => {
-                      setPermissionPickerOpen(open);
-                      if (open) setAgentPickerOpen(false);
-                    }}
-                    onChange={changeSessionPermissionMode}
-                  />
-                  <AgentPicker
-                    open={agentPickerOpen}
-                    section={agentPickerSection}
-                    harnesses={availableHarnesses}
-                    selectedHarness={displayHarness}
-                    models={availableModels}
-                    selectedModel={selectedModel}
-                    efforts={availableEfforts}
-                    selectedEffort={selectedEffort}
-                    modelStatusText={modelStatusText}
-                    modelCatalog={extensionInventory?.modelCatalog}
-                    modelCatalogRefreshing={modelCatalogRefreshing}
-                    modelCatalogError={modelCatalogError}
-                    disabled={Boolean(activeWorkflowConfig || activeExtensionAgent)}
-                    label={agentPickerLabel}
-                    onOpenChange={(open) => {
-                      setAgentPickerOpen(open);
-                      if (open) setPermissionPickerOpen(false);
-                    }}
-                    onSectionChange={setAgentPickerSection}
-                    onHarnessChange={(harnessId) => {
-                      setSelectedHarness(harnessId);
-                      setSelectedExtensionAgentId(null);
-                      setSelectedModelId(null);
-                      setSelectedEffort(null);
-                      void persistComposerPreference({ harnessId });
-                    }}
-                    onModelChange={(modelOptionId) => {
-                      const model = availableModels.find(
-                        (candidate) => candidate.id === modelOptionId,
-                      );
-                      setSelectedModelId(modelOptionId);
-                      setSelectedEffort(null);
-                      if (model) {
-                        void persistComposerPreference({
-                          harnessId: selectedHarness,
-                          modelId: model.modelId,
-                          ...(model.modelSupplyId ? { modelSupplyId: model.modelSupplyId } : {}),
-                        });
-                      }
-                    }}
-                    onEffortChange={(effort) => {
-                      setSelectedEffort(effort);
-                      if (selectedModel) {
-                        void persistComposerPreference({
-                          harnessId: selectedHarness,
-                          modelId: selectedModel.modelId,
-                          ...(selectedModel.modelSupplyId
-                            ? { modelSupplyId: selectedModel.modelSupplyId }
-                            : {}),
-                          effort,
-                        });
-                      }
-                    }}
-                    onRefreshModels={refreshModelCatalog}
-                    onAddManualModel={addManualModel}
-                    onRemoveManualModel={removeManualModel}
-                  />
-                </Composer>
-              )}
-            </footer>
-          )}
+                    running={runState !== "idle"}
+                    sendDisabled={
+                      runState === "stopping" ||
+                      (runState === "idle" &&
+                        ((!input.trim() && attachments.length === 0) ||
+                          manualCompositionNeedsModel ||
+                          acpHistoryReadOnly))
+                    }
+                    sendTitle={
+                      acpHistoryReadOnly
+                        ? "ACP history is read-only until session resume is supported."
+                        : manualCompositionNeedsModel
+                          ? modelUnavailableDiagnostic
+                          : undefined
+                    }
+                    error={composerError}
+                    workspaceRoot={composerWorkspaceRoot}
+                    mentionServers={composerMentionServers}
+                    completeMention={api.lspComplete}
+                    selectFilesAndFolders={api.selectFilesAndFolders}
+                    selectMediaAttachments={api.selectMediaAttachments}
+                    importMediaAttachments={api.importMediaAttachments}
+                    attachments={attachments}
+                    onAttachmentsChange={setAttachments}
+                    onPreviewAttachment={openMediaPreview}
+                    onContextError={(error) => setComposerError(errorMessage(error))}
+                  >
+                    <ConversationPermissionPicker
+                      open={permissionPickerOpen}
+                      mode={sessionPermissionMode}
+                      supported={sessionPermissionSupported}
+                      profileAvailability={permissionStatus?.profileAvailability}
+                      disabled={runState !== "idle" || acpHistoryReadOnly}
+                      onOpenChange={(open) => {
+                        setPermissionPickerOpen(open);
+                        if (open) setAgentPickerOpen(false);
+                      }}
+                      onChange={changeSessionPermissionMode}
+                    />
+                    <AgentPicker
+                      open={agentPickerOpen}
+                      section={agentPickerSection}
+                      harnesses={availableHarnesses}
+                      selectedHarness={displayHarness}
+                      models={availableModels}
+                      selectedModel={selectedModel}
+                      efforts={availableEfforts}
+                      selectedEffort={selectedEffort}
+                      modelStatusText={modelStatusText}
+                      modelCatalog={extensionInventory?.modelCatalog}
+                      modelCatalogRefreshing={modelCatalogRefreshing}
+                      modelCatalogError={modelCatalogError}
+                      disabled={Boolean(activeWorkflowConfig || activeExtensionAgent)}
+                      label={agentPickerLabel}
+                      onOpenChange={(open) => {
+                        setAgentPickerOpen(open);
+                        if (open) setPermissionPickerOpen(false);
+                      }}
+                      onSectionChange={setAgentPickerSection}
+                      onHarnessChange={(harnessId) => {
+                        setSelectedHarness(harnessId);
+                        setSelectedExtensionAgentId(null);
+                        setSelectedModelId(null);
+                        setSelectedEffort(null);
+                        void persistComposerPreference({ harnessId });
+                      }}
+                      onModelChange={(modelOptionId) => {
+                        const model = availableModels.find(
+                          (candidate) => candidate.id === modelOptionId,
+                        );
+                        setSelectedModelId(modelOptionId);
+                        setSelectedEffort(null);
+                        if (model) {
+                          void persistComposerPreference({
+                            harnessId: selectedHarness,
+                            modelId: model.modelId,
+                            ...(model.modelSupplyId ? { modelSupplyId: model.modelSupplyId } : {}),
+                          });
+                        }
+                      }}
+                      onEffortChange={(effort) => {
+                        setSelectedEffort(effort);
+                        if (selectedModel) {
+                          void persistComposerPreference({
+                            harnessId: selectedHarness,
+                            modelId: selectedModel.modelId,
+                            ...(selectedModel.modelSupplyId
+                              ? { modelSupplyId: selectedModel.modelSupplyId }
+                              : {}),
+                            effort,
+                          });
+                        }
+                      }}
+                      onRefreshModels={refreshModelCatalog}
+                      onAddManualModel={addManualModel}
+                      onRemoveManualModel={removeManualModel}
+                    />
+                  </Composer>
+                )}
+              </footer>
+            )}
+        </div>
 
         <div
           className={cx(

@@ -82,7 +82,7 @@ API. Renderer receives normalized data and renders React UI.
 | `packages/desktop/src/renderer/App.ts` | Package-level re-export of the Renderer App entry. `pure` |
 | `packages/desktop/src/renderer/index.html` | Vite HTML shell, CSP, icon link, and `src/main.tsx` bootstrap. `ui` |
 | `packages/desktop/src/renderer/src/main.tsx` | React DOM mount and global stylesheet import. `ui` |
-| `packages/desktop/src/renderer/src/App.tsx` | Top-level application composition: navigation, conversation, composer, global Memory settings, workflow, extensions, runtime, profile, terminal, and GUI contribution registry; dead transitional panels do not remain as hidden alternatives. `ui` |
+| `packages/desktop/src/renderer/src/App.tsx` | Top-level application composition: navigation, padded conversation surface with a floating composer overlay, global Memory settings, workflow, extensions, runtime, profile, terminal, and GUI contribution registry; dead transitional panels do not remain as hidden alternatives. `ui` |
 | `packages/desktop/src/renderer/src/renderer-api.ts` | Single renderer access point for `window.swarmxAPI`. `ipc` |
 | `packages/desktop/src/renderer/src/agent-interaction-dialog.tsx` | Renders question/plan/tool approval dialogs and returns typed responses. `ui` |
 | `packages/desktop/src/renderer/src/agent-picker.tsx` | Harness/model selection options, grouping, preferred/default resolution, and composition display. `ui` |

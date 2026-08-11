@@ -2451,6 +2451,27 @@ describe("App user workflow", () => {
     expect(api.killTerminal).toHaveBeenCalledTimes(1);
   });
 
+  it("floats the composer inside the conversation surface with transcript clearance", async () => {
+    await renderApp(createDesktopApiMock());
+
+    const body = document.querySelector<HTMLElement>(".runtime__body");
+    const transcript = document.querySelector<HTMLElement>(".transcript");
+    const composer = document.querySelector<HTMLElement>(".composer-dock");
+    if (!body || !transcript || !composer) throw new Error("Conversation layout is missing");
+
+    expect(composer.parentElement).toBe(body);
+    expect(transcript.style.paddingBottom).toBe(
+      "calc(var(--composer-overlay-height, 132px) + 24px)",
+    );
+    expect(body.style.getPropertyValue("--composer-overlay-height")).toBe("132px");
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Show bottom panel" }));
+    const panel = screen.getByLabelText("Bottom panel");
+    expect(body.contains(panel)).toBe(false);
+    expect(body.compareDocumentPosition(panel) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
   it("groups routed Models by Provider and optional Provider group", async () => {
     const api = createDesktopApiMock();
     const inventory = await api.listExtensions();
