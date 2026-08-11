@@ -24,7 +24,7 @@ API. Renderer receives normalized data and renders React UI.
 | Source | Contract |
 | --- | --- |
 | `packages/desktop/src/main/index.ts` | Electron entrypoint: app lifecycle, secure window, renderer URL, media protocol, IPC registration, update timer, terminal disposal, and an isolated content-free CI smoke probe for the built Renderer. `ipc` + `proc` |
-| `packages/desktop/src/main/ipc.ts` | Main IPC router/authorization boundary; maps transport evidence to `ipc.request` plus normalized audit policy, records semantic effects, validates sender, injects Personal Memory snapshots, exposes local Memory/Reference tools only to SwarmX-owned execution, brokers explicit Agent memory mutation confirmation, exposes list/cancel/decision-only WorkItem controls, and excludes raw arguments/results from audit. `ipc` + `fs` + all privileged effects |
+| `packages/desktop/src/main/ipc.ts` | Main IPC router/authorization boundary; maps transport evidence to `ipc.request` plus normalized audit policy, records semantic effects, validates sender, injects global Memory snapshots and Session-isolated reflection reminders, exposes local Memory/Reference tools only to SwarmX-owned execution, brokers explicit Agent memory mutation confirmation, exposes list/cancel/decision-only WorkItem controls, and excludes raw arguments/results from audit. `ipc` + `fs` + all privileged effects |
 | `packages/desktop/src/main/library.ts` | Reusable Main-process public barrel; exports host services/types without starting Electron. `pure` |
 | `packages/desktop/src/main/window-security.ts` | Trusted renderer URL/IPC checks, safe external URL policy, secure WebPreferences, navigation guards. `ipc` |
 | `packages/desktop/src/main/request-registry.ts` | Request owner/context registry for cancellation, session association, and cleanup across IPC and agent runs. `pure` |
@@ -45,11 +45,11 @@ API. Renderer receives normalized data and renders React UI.
 | `packages/desktop/src/main/model-catalog.ts` | Provider/model discovery, credential-backed catalog refresh, official multi-protocol endpoint normalization for DeepSeek/OpenCode Go/OpenRouter, model-scoped DeepSeek Responses availability, model supply inventory, readiness summaries, and persisted manual models. `fs` + `net` + `secret` |
 | `packages/desktop/src/main/permission-service.ts` | Loads managed/project/personal/profile policy layers, immediately applies the undeclared-mode Auto fallback without overwriting explicit settings, resolves effective permissions, records bounded human/model approval receipts, and fails closed on malformed policy. `fs` |
 | `packages/desktop/src/main/permission-review.ts` | Tool-free LLM auto-review boundary: sends only bounded user messages plus the pending executable payload, strictly parses one-call allow/defer verdicts, and falls back to human review on any failure. `net` through an injected model call |
-| `packages/desktop/src/main/personal-memory.ts` | Settings-backed Personal Memory read/save/explicit-forget service, immutable execution snapshot boundary, and direct Agent mutation tool with mandatory confirmation plus body-free audit events. `fs` through settings |
+| `packages/desktop/src/main/personal-memory.ts` | Global `USER.md` / `MEMORY.md` service over the Memory backend, legacy settings migration, immutable execution snapshots, and bounded per-Session reflection cursor persistence; retains the legacy Personal Memory service only as a compatibility/migration surface. `fs` through Memory and settings |
 | `packages/desktop/src/main/memory-runtime-host.ts` | Private MCP-over-stdio host for `swarmx-mem`: verifies server version and exact single-tool surface, enforces structured/text consistency and response bounds, validates operation-matched Core schemas, and owns close semantics. The connection is never exposed to Renderer or Agent MCP registration. `proc` |
 | `packages/desktop/src/main/reference-library-host.ts` | Main-only private MCP host for explicitly configured `swarmx-ref` ZIM and local Zotero sources; validates launch inputs, uses a credential-free environment, verifies the exact server/tool surface, enforces structured/text consistency and bounds, and closes with the app. `proc` + `fs` + loopback `net` through module |
-| `packages/desktop/src/main/memory-runtime-backend.ts` | Implements the async Core `MemoryBackend` by mapping strict CRUD/search/version requests to private Memory MCP calls and rebuilding graph projection from the bounded snapshot. `proc` through host |
-| `packages/desktop/src/main/memory-runtime-service.ts` | Lazy app-lifecycle owner for verified Memory runtime launch. It exposes the generic Core backend and owns no fallback format or migration authority. `fs` + `proc` |
+| `packages/desktop/src/main/memory-runtime-backend.ts` | Implements the async Core entity and global Memory backends by mapping strict file/CRUD/search/version requests to private Memory MCP calls and rebuilding graph projection from the bounded snapshot. `proc` through host |
+| `packages/desktop/src/main/memory-runtime-service.ts` | Lazy app-lifecycle owner for verified Memory runtime launch. It exposes entity plus global-file Core backends and owns no fallback format or migration authority. `fs` + `proc` |
 | `packages/desktop/src/main/task-supervisor.ts` | Main-only connector/launcher for the detached Core supervisor; creates the mode-restricted token, reconnects safely, starts with a credential-free ambient environment, and never exposes launch/token authority to Renderer. `fs` + `net` + `proc` |
 | `packages/desktop/src/main/task-supervisor-entry.ts` | Bundled Node-mode supervisor process entry; owns the Core socket server independently from Electron lifecycle. `net` + `proc` |
 | `packages/desktop/src/main/provider-auth.ts` | Schema-version-2 user-editable Provider auth file store with restrictive permissions and credential lookup; plaintext never leaves Main. `fs` + `secret` |
@@ -71,9 +71,9 @@ API. Renderer receives normalized data and renders React UI.
 
 | Source | Contract |
 | --- | --- |
-| `packages/desktop/src/preload/api.ts` | Typed IPC invoke/subscribe functions, bootstrap parser, Personal Memory controls, list/cancel/decision WorkItem controls, verified audit calls, and the finite `SwarmxDesktopApi` surface. `ipc` |
+| `packages/desktop/src/preload/api.ts` | Typed IPC invoke/subscribe functions, bootstrap parser, global Memory controls, list/cancel/decision WorkItem controls, verified audit calls, and the finite `SwarmxDesktopApi` surface. `ipc` |
 | `packages/desktop/src/preload/index.ts` | Electron-only bridge bootstrap; calls `createSwarmxDesktopApi` and exposes it with `contextBridge`. `ipc` |
-| `packages/desktop/src/shared/desktop-api.ts` | Renderer-safe DTOs/events for Sessions, chunks, Personal Memory, WorkItem observation/control, media, browser, workspace, permissions, Providers, extensions, updates, audit, and all API methods. `pure` |
+| `packages/desktop/src/shared/desktop-api.ts` | Renderer-safe DTOs/events for Sessions, chunks, global Memory, WorkItem observation/control, media, browser, workspace, permissions, Providers, extensions, updates, audit, and all API methods. `pure` |
 
 ## Renderer application and feature UI
 
@@ -82,14 +82,14 @@ API. Renderer receives normalized data and renders React UI.
 | `packages/desktop/src/renderer/App.ts` | Package-level re-export of the Renderer App entry. `pure` |
 | `packages/desktop/src/renderer/index.html` | Vite HTML shell, CSP, icon link, and `src/main.tsx` bootstrap. `ui` |
 | `packages/desktop/src/renderer/src/main.tsx` | React DOM mount and global stylesheet import. `ui` |
-| `packages/desktop/src/renderer/src/App.tsx` | Top-level application composition: navigation, conversation, composer, Personal Memory settings, workflow, extensions, runtime, profile, terminal, and GUI contribution registry; dead transitional panels do not remain as hidden alternatives. `ui` |
+| `packages/desktop/src/renderer/src/App.tsx` | Top-level application composition: navigation, conversation, composer, global Memory settings, workflow, extensions, runtime, profile, terminal, and GUI contribution registry; dead transitional panels do not remain as hidden alternatives. `ui` |
 | `packages/desktop/src/renderer/src/renderer-api.ts` | Single renderer access point for `window.swarmxAPI`. `ipc` |
 | `packages/desktop/src/renderer/src/agent-interaction-dialog.tsx` | Renders question/plan/tool approval dialogs and returns typed responses. `ui` |
 | `packages/desktop/src/renderer/src/agent-picker.tsx` | Harness/model selection options, grouping, preferred/default resolution, and composition display. `ui` |
 | `packages/desktop/src/renderer/src/app-brand.tsx` | Branded app icon component. `ui` |
 | `packages/desktop/src/renderer/src/app-icon-data.ts` | Stable URL for the canonical SVG copied from Renderer `public/` by Vite. `pure` |
 | `packages/desktop/src/renderer/src/composer.tsx` | Prompt editor, send/stop controls, attachment import, and LSP/server mention completion. `ui` + `ipc` |
-| `packages/desktop/src/renderer/src/conversation-history.tsx` | Renders normalized message/render events, always-visible Personal Memory use/not-used receipts, streaming progress, tool calls, edits, forks, attachments, and copy controls. `ui` |
+| `packages/desktop/src/renderer/src/conversation-history.tsx` | Renders normalized message/render events, always-visible global/legacy Memory use receipts, streaming progress, tool calls, edits, forks, attachments, and copy controls. `ui` |
 | `packages/desktop/src/renderer/src/conversation-messages.ts` | Pure merge/key/timing helpers for streaming desktop message DTOs. `pure` |
 | `packages/desktop/src/renderer/src/doctor-panel.tsx` | Displays Harness requirements, versions, doctor issues, and setup/fix state. `ui` |
 | `packages/desktop/src/renderer/src/extension-presentation.ts` | Pure extension/agent composition labels, counts, chips, and plan status. `pure` |
@@ -105,7 +105,7 @@ API. Renderer receives normalized data and renders React UI.
 | `packages/desktop/src/renderer/src/provider-presentation.tsx` | Provider branding, protocol labels, and URL/provider classification. `ui` |
 | `packages/desktop/src/renderer/src/runtime-settings.tsx` | Runtime environment/doctor setup plus detached WorkItem status, cancel, and pending-decision UI. `ui` + `ipc` |
 | `packages/desktop/src/renderer/src/session-navigation.ts` | Pure session discovery/grouping/cache/ordering/project navigation helpers. `pure` |
-| `packages/desktop/src/renderer/src/settings-workspace.tsx` | General, Personal Memory edit/forget, permission, Provider usage, tool-style, and custom-agent settings screens. `ui` + `ipc` |
+| `packages/desktop/src/renderer/src/settings-workspace.tsx` | General, tabbed `USER.md` / `MEMORY.md` edit/delete, permission, Provider usage, tool-style, and custom-agent settings screens. `ui` + `ipc` |
 | `packages/desktop/src/renderer/src/stylesheet-test-utils.ts` | Test-only stylesheet loader helper. `fs` |
 | `packages/desktop/src/renderer/src/text-utils.ts` | Pure labels, errors, timestamps, path/project names, and slug helpers. `pure` |
 | `packages/desktop/src/renderer/src/ui-primitives.tsx` | Tailwind-backed shared `Button` and `Badge` primitives with CVA-derived semantic variants, plus plain structural class composition. `ui` |

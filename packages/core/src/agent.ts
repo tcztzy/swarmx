@@ -32,7 +32,13 @@ import {
   type NativeProtocolContext,
 } from "./native-model.js";
 import {
+  appendGlobalMemoryInstructions,
+  appendMemoryReflectionInstructions,
   appendPersonalMemoryInstructions,
+  type GlobalMemorySnapshot,
+  GlobalMemorySnapshotSchema,
+  type MemoryReflectionDecision,
+  MemoryReflectionDecisionSchema,
   type PersonalMemorySnapshot,
   PersonalMemorySnapshotSchema,
 } from "./personal-memory.js";
@@ -100,6 +106,10 @@ export interface AgentRuntimeOptions {
   hook?: HookRuntimeOptions;
   /** Request-scoped, read-only Personal Memory for direct SwarmX execution only. */
   personalMemory?: PersonalMemorySnapshot;
+  /** Request-scoped, read-only USER.md and MEMORY.md snapshot. */
+  globalMemory?: GlobalMemorySnapshot;
+  /** Session-scoped reminder to reflect after the current task. */
+  memoryReflection?: MemoryReflectionDecision;
   /** Compiles one immutable, bounded model context before a native Provider request. */
   contextEngine?: AgentContextEngine;
 }
@@ -193,12 +203,24 @@ export class Agent {
       parsed.instructions ?? "",
       this.skillInstructions,
     );
-    const personalMemory = options.personalMemory
-      ? PersonalMemorySnapshotSchema.parse(options.personalMemory)
+    const globalMemory = options.globalMemory
+      ? GlobalMemorySnapshotSchema.parse(options.globalMemory)
       : undefined;
-    this.instructions = personalMemory
-      ? appendPersonalMemoryInstructions(deliveredInstructions, personalMemory)
-      : deliveredInstructions;
+    const personalMemory =
+      !globalMemory && options.personalMemory
+        ? PersonalMemorySnapshotSchema.parse(options.personalMemory)
+        : undefined;
+    const memoryInstructions = globalMemory
+      ? appendGlobalMemoryInstructions(deliveredInstructions, globalMemory)
+      : personalMemory
+        ? appendPersonalMemoryInstructions(deliveredInstructions, personalMemory)
+        : deliveredInstructions;
+    this.instructions = options.memoryReflection
+      ? appendMemoryReflectionInstructions(
+          memoryInstructions,
+          MemoryReflectionDecisionSchema.parse(options.memoryReflection),
+        )
+      : memoryInstructions;
     this.parameters = parsed.parameters ?? {};
     this.returns = parsed.returns;
     this.mcpServers = new Map(parsed.mcpServers ? Object.entries(parsed.mcpServers) : []);

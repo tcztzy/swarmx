@@ -836,50 +836,48 @@ describe("App user workflow", () => {
     expect(screen.getByText("workspace_read_file")).toBeTruthy();
   });
 
-  it("edits and explicitly forgets bounded Personal Memory in Settings", async () => {
-    const saved = {
-      status: "saved" as const,
-      content: "Prefer concise answers.",
-      updatedAt: "2026-08-09T08:00:00.000Z",
-      characterCount: 23,
-      maxCharacters: 4_000,
-    };
+  it("edits and explicitly forgets bounded global Memory files in Settings", async () => {
+    const saved = globalMemoryFixture("Prefer concise answers.");
     const api = createDesktopApiMock({
       getPersonalMemory: vi.fn(async () => saved),
-      savePersonalMemory: vi.fn(async (input: { content: string }) => ({
+      savePersonalMemory: vi.fn(async (input: { target: "user" | "memory"; content: string }) => ({
         ...saved,
-        content: input.content,
-        characterCount: input.content.length,
+        [input.target]: {
+          ...saved[input.target],
+          content: input.content,
+          revision: saved[input.target].revision + 1,
+          updatedAt: "2026-08-09T09:00:00.000Z",
+        },
       })),
-      forgetPersonalMemory: vi.fn(async () => ({
-        status: "empty" as const,
-        maxCharacters: 4_000,
-      })),
+      forgetPersonalMemory: vi.fn(async () => globalMemoryFixture()),
     });
     const user = userEvent.setup();
     await renderApp(api);
 
     await user.click(await screen.findByRole("button", { name: "Open local workspace menu" }));
     await user.click(screen.getByRole("menuitem", { name: "Settings" }));
-    await user.click(screen.getByRole("button", { name: "Personal Memory" }));
+    await user.click(screen.getByRole("button", { name: "Global Memory" }));
 
-    const workspace = await screen.findByLabelText("Personal Memory settings");
-    const editor = within(workspace).getByRole("textbox", { name: "Personal Memory" });
+    const workspace = await screen.findByLabelText("Global Memory settings");
+    const editor = within(workspace).getByRole("textbox", { name: "USER.md" });
     expect((editor as HTMLTextAreaElement).value).toBe("Prefer concise answers.");
     expect(within(workspace).getByText("23 / 4,000 characters")).toBeTruthy();
     await user.clear(editor);
     await user.type(editor, "Prefer TypeScript examples.");
-    await user.click(within(workspace).getByRole("button", { name: "Save Memory" }));
+    await user.click(within(workspace).getByRole("button", { name: "Save USER.md" }));
     await waitFor(() =>
       expect(api.savePersonalMemory).toHaveBeenCalledWith({
+        target: "user",
         content: "Prefer TypeScript examples.",
       }),
     );
 
-    await user.click(within(workspace).getByRole("button", { name: "Forget Personal Memory" }));
+    await user.click(within(workspace).getByRole("button", { name: "Delete USER.md" }));
     expect(api.forgetPersonalMemory).not.toHaveBeenCalled();
     await user.click(within(workspace).getByRole("button", { name: "Confirm forget" }));
-    await waitFor(() => expect(api.forgetPersonalMemory).toHaveBeenCalledWith({ confirmed: true }));
+    await waitFor(() =>
+      expect(api.forgetPersonalMemory).toHaveBeenCalledWith({ target: "user", confirmed: true }),
+    );
   });
 
   it("shows the persisted Personal Memory use receipt in Session history", async () => {
@@ -5838,6 +5836,28 @@ function permissionStatusFixture() {
   };
 }
 
+function globalMemoryFixture(user: string | null = null, memory: string | null = null) {
+  const updatedAt = "2026-08-09T08:00:00.000Z";
+  return {
+    user: {
+      target: "user" as const,
+      fileName: "USER.md" as const,
+      content: user,
+      revision: user ? 1 : 0,
+      updatedAt: user ? updatedAt : null,
+    },
+    memory: {
+      target: "memory" as const,
+      fileName: "MEMORY.md" as const,
+      content: memory,
+      revision: memory ? 1 : 0,
+      updatedAt: memory ? updatedAt : null,
+    },
+    legacyUser: false,
+    maxCharacters: { user: 4_000 as const, memory: 4_000 as const },
+  };
+}
+
 function createDefaultDesktopApiMock() {
   return {
     initialProjects: [swarmxProject],
@@ -5902,18 +5922,13 @@ function createDefaultDesktopApiMock() {
     ),
     listSessions: vi.fn(async () => [localSession]),
     getActivityProfile: vi.fn(async () => activityProfileFixture()),
-    getPersonalMemory: vi.fn(async () => ({ status: "empty" as const, maxCharacters: 4_000 })),
-    savePersonalMemory: vi.fn(async (input: { content: string }) => ({
-      status: "saved" as const,
-      content: input.content,
-      updatedAt: "2026-08-09T08:00:00.000Z",
-      characterCount: input.content.length,
-      maxCharacters: 4_000,
-    })),
-    forgetPersonalMemory: vi.fn(async () => ({
-      status: "empty" as const,
-      maxCharacters: 4_000,
-    })),
+    getPersonalMemory: vi.fn(async () => globalMemoryFixture()),
+    savePersonalMemory: vi.fn(async (input: { target: "user" | "memory"; content: string }) =>
+      input.target === "user"
+        ? globalMemoryFixture(input.content)
+        : globalMemoryFixture(null, input.content),
+    ),
+    forgetPersonalMemory: vi.fn(async () => globalMemoryFixture()),
     listTaskWorkItems: vi.fn(
       async (): Promise<DesktopTaskRuntimeListResult> => ({
         requestId: "task-list-default",

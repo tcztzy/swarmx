@@ -22,6 +22,20 @@ const beta = {
   content: "",
 };
 const version = "a".repeat(40);
+const globalUser = {
+  target: "user" as const,
+  fileName: "USER.md" as const,
+  content: "Prefers concise answers.",
+  revision: 1,
+  updatedAt: "2026-08-10T01:00:00.000Z",
+};
+const globalMemory = {
+  target: "memory" as const,
+  fileName: "MEMORY.md" as const,
+  content: null,
+  revision: 0,
+  updatedAt: null,
+};
 
 describe("MemoryRuntimeBackend", () => {
   it("maps CRUD, graph, and version operations onto the private runtime protocol", async () => {
@@ -35,6 +49,11 @@ describe("MemoryRuntimeBackend", () => {
           return { pages: [page] };
         case "snapshot":
           return { generation: 4, pages: [page, beta] };
+        case "global_get":
+          return { user: globalUser, memory: globalMemory };
+        case "global_save":
+        case "global_forget":
+          return { file: input.target === "user" ? globalUser : globalMemory, version };
         case "history":
           return {
             versions: [
@@ -95,6 +114,21 @@ describe("MemoryRuntimeBackend", () => {
       generation: 4,
       edges: [{ source: "mem_alpha", target: "mem_beta", kind: "memory_link" }],
     });
+    await expect(backend.getGlobalMemory()).resolves.toMatchObject({
+      user: globalUser,
+      memory: globalMemory,
+      legacyUser: false,
+    });
+    await expect(
+      backend.saveGlobalMemory({
+        target: "user",
+        expectedRevision: 0,
+        content: globalUser.content,
+      }),
+    ).resolves.toEqual(globalUser);
+    await expect(
+      backend.forgetGlobalMemory({ target: "memory", expectedRevision: 1 }),
+    ).resolves.toEqual(globalMemory);
 
     expect(request).toHaveBeenCalledWith({
       protocolVersion: 1,

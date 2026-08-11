@@ -132,10 +132,15 @@ fn tool_schema() -> Arc<Map<String, Value>> {
             json!({
                 "type": "string",
                 "enum": [
-                    "list", "get", "search", "snapshot", "create", "update", "delete",
-                    "history", "get_version", "diff", "restore"
+                    "list", "get", "search", "snapshot", "global_get", "global_save",
+                    "global_forget", "create", "update", "delete", "history",
+                    "get_version", "diff", "restore"
                 ]
             }),
+        ),
+        (
+            "target",
+            json!({ "type": "string", "enum": ["user", "memory"] }),
         ),
         ("id", json!({ "type": "string" })),
         ("title", json!({ "type": "string" })),

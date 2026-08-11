@@ -90,8 +90,11 @@ export type {
   ResolveDesktopPermissionOptions,
 } from "./permission-service.js";
 export { PermissionService } from "./permission-service.js";
-export type { PersonalMemoryServiceLike } from "./personal-memory.js";
-export { PersonalMemoryService } from "./personal-memory.js";
+export type {
+  GlobalMemoryServiceLike,
+  PersonalMemoryServiceLike,
+} from "./personal-memory.js";
+export { GlobalMemoryService, PersonalMemoryService } from "./personal-memory.js";
 export type {
   FileProviderAuthStoreOptions,
   ProviderAuthStore,

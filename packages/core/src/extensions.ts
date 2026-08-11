@@ -17,7 +17,11 @@ import {
   normalizeModelReasoningEffort,
   resolveHarnessModelInventory,
 } from "./model-capabilities.js";
-import type { PersonalMemorySnapshot } from "./personal-memory.js";
+import type {
+  GlobalMemorySnapshot,
+  MemoryReflectionDecision,
+  PersonalMemorySnapshot,
+} from "./personal-memory.js";
 import {
   assertNoProviderOwnedModelFields,
   buildProviderRuntimeEnv,
@@ -870,6 +874,8 @@ export interface ExecuteAgentCompositionOptions {
   onUsage?: (usage: ModelTokenUsage) => void;
   hook?: HookRuntimeOptions;
   personalMemory?: PersonalMemorySnapshot;
+  globalMemory?: GlobalMemorySnapshot;
+  memoryReflection?: MemoryReflectionDecision;
   contextEngine?: AgentContextEngine;
 }
 
@@ -1551,6 +1557,8 @@ export async function executeAgentComposition(
         acpSessionId: options.acpSessionId,
         onAcpSessionId: options.onAcpSessionId,
         personalMemory: options.personalMemory,
+        globalMemory: options.globalMemory,
+        memoryReflection: options.memoryReflection,
         contextEngine: options.contextEngine,
       },
     },

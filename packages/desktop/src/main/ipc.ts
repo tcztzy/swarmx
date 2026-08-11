@@ -15,11 +15,14 @@ import type {
   DiscoveredSession,
   ExtensionInventory,
   ExternalAcpSessionBinding,
+  GlobalMemoryBackend,
+  GlobalMemorySnapshot,
   HarnessPermissionMode,
   ListGroupedSessionsOptions,
   MediaAttachment,
   MemoryAgentMutation,
   MemoryBackend,
+  MemoryReflectionDecision,
   MessageChunk,
   ModelTokenUsage,
   ProjectData,
@@ -36,7 +39,7 @@ import {
   appendMessages,
   archiveProjectSessions,
   archiveSession,
-  buildPersonalMemoryUseReceipt,
+  buildGlobalMemoryUseReceipt,
   countPersonalMemoryAgentTargets,
   createMemoryAgentTool,
   createReferenceLibraryAgentTool,
@@ -49,6 +52,7 @@ import {
   executeAgentComposition,
   forkSession,
   getHarness,
+  globalMemoryReceiptMessage,
   HarnessPermissionPolicySchema,
   importN8nWorkflow,
   listGroupedSessions,
@@ -58,7 +62,6 @@ import {
   loadExtensionInventory,
   loadSession,
   mergeModelTokenUsage,
-  personalMemoryReceiptMessage,
   RequestCancelledError,
   registerDefaultProject,
   registerProject,
@@ -120,8 +123,8 @@ import {
 import { PermissionAutoReviewer, type PermissionReviewResult } from "./permission-review.js";
 import { PermissionService, type RecordPermissionDecisionInput } from "./permission-service.js";
 import {
-  createPersonalMemoryAgentTool,
-  PersonalMemoryService,
+  GlobalMemoryService,
+  type GlobalMemoryServiceLike,
   type PersonalMemoryServiceLike,
 } from "./personal-memory.js";
 import { FileProviderAuthStore } from "./provider-auth.js";
@@ -328,7 +331,6 @@ const composerPreferences = new ComposerPreferenceService(desktopSettingsStore);
 const builtinToolSettings = new BuiltinToolSettingsService(desktopSettingsStore);
 const customAgents = new CustomAgentService(desktopSettingsStore);
 const permissionService = new PermissionService(desktopSettingsStore);
-const desktopPersonalMemory = new PersonalMemoryService(desktopSettingsStore);
 const desktopTaskSupervisor = new DesktopTaskSupervisor();
 const mediaService = new DesktopMediaService(
   process.env.NODE_ENV === "test"
@@ -350,8 +352,9 @@ export interface RegisterIpcHandlersOptions {
   auditStore?: DesktopAuditStore;
   authorizeIpcSender?: (event: RendererIpcEvent) => boolean;
   personalMemoryService?: PersonalMemoryServiceLike;
+  globalMemoryService?: GlobalMemoryServiceLike;
   taskSupervisor?: DesktopTaskSupervisorLike;
-  memoryBackend?: MemoryBackend;
+  memoryBackend?: MemoryBackend & Partial<GlobalMemoryBackend>;
   referenceLibraryBackend?: ReferenceLibraryBackend;
 }
 
@@ -483,9 +486,16 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
   const updateService = options.updateService ?? createDisabledDesktopUpdateService();
   const activityStore = options.activityStore ?? desktopActivity;
   const auditStore = options.auditStore ?? desktopAudit;
-  const personalMemoryService = options.personalMemoryService ?? desktopPersonalMemory;
   const taskSupervisor = options.taskSupervisor ?? desktopTaskSupervisor;
   const memoryBackend = options.memoryBackend ?? unavailableMemoryBackend();
+  const globalMemoryBackend = supportsGlobalMemory(memoryBackend)
+    ? memoryBackend
+    : unavailableGlobalMemoryBackend();
+  const globalMemoryService =
+    options.globalMemoryService ??
+    new GlobalMemoryService(globalMemoryBackend, desktopSettingsStore);
+  const agentMemoryBackend = memoryBackendWithGlobalMemory(memoryBackend, globalMemoryService);
+  const settingsMemoryService = options.personalMemoryService ?? globalMemoryService;
   const referenceLibraryBackend = options.referenceLibraryBackend;
   activeAuditStore = auditStore;
   const authorizeIpcSender = options.authorizeIpcSender ?? (() => false);
@@ -621,6 +631,7 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
     const tokenUsages: ModelTokenUsage[] = [];
     const usedSkillIds = new Set<string>();
     let memoryReceipt: MessageChunk | undefined;
+    let memoryReflection: MemoryReflectionDecision | undefined;
     let foregroundRuntime: ClaudeSessionRuntime | undefined;
     let activeChunkPublisher: AgentChunkPublisher | undefined;
     let activeSideChat: TransientSessionData | undefined;
@@ -669,6 +680,13 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
           params.userText,
           params.sideEditMessageIndex,
         );
+      }
+      if (params.sessionId && !params.sideChatId) {
+        memoryReflection = await globalMemoryService.reflectionDecision({
+          sessionId: params.sessionId,
+          userTurnCount: foregroundUserTurnCount(params.sessionId, params.userText),
+          userText: params.userText,
+        });
       }
       const result = await agentRequests.runForSession(desktopRequest, async () => {
         const publishChunk = agentChunkPublisher(event.sender, params.requestId, {
@@ -826,48 +844,11 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
             throw error;
           }
         };
-        const personalMemoryTool = createPersonalMemoryAgentTool(personalMemoryService, {
+        const memoryTool = createMemoryAgentTool(agentMemoryBackend, {
           confirm: async (mutation) => {
             const response = await agentInteractions.request(event.sender, params.requestId, {
               kind: "tool_approval",
-              title:
-                mutation.operation === "save" ? "Save Personal Memory" : "Forget Personal Memory",
-              toolKind: "personal_memory",
-              source: "direct",
-              summary:
-                mutation.operation === "save"
-                  ? `The Agent proposes replacing Personal Memory for future runs with:\n\n${mutation.content}`
-                  : "The Agent proposes permanently forgetting all saved Personal Memory for future runs.",
-              options: [
-                { optionId: "allow_once", name: "Confirm once", kind: "allow_once" },
-                { optionId: "reject_once", name: "Keep current Memory", kind: "reject_once" },
-              ],
-            });
-            return response.kind === "tool_approval" && response.optionId === "allow_once";
-          },
-          audit: (memoryEvent) => {
-            auditStore.append({
-              category: "system",
-              action: "personal_memory.agent_mutation",
-              actor: { kind: "agent" },
-              target: { kind: "personal-memory", id: "desktop-settings" },
-              requestId: params.requestId,
-              ...(params.sessionId ? { sessionId: params.sessionId } : {}),
-              outcome: memoryEvent.outcome,
-              metadata: {
-                operation: memoryEvent.operation,
-                ...(memoryEvent.characterCount === undefined
-                  ? {}
-                  : { characterCount: memoryEvent.characterCount }),
-              },
-            });
-          },
-        });
-        const memoryTool = createMemoryAgentTool(memoryBackend, {
-          confirm: async (mutation) => {
-            const response = await agentInteractions.request(event.sender, params.requestId, {
-              kind: "tool_approval",
-              title: `${memoryMutationLabel(mutation.operation)} Memory page`,
+              title: memoryMutationApprovalTitle(mutation.operation),
               toolKind: "memory",
               source: "direct",
               summary: memoryMutationSummary(mutation),
@@ -898,12 +879,21 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
                 ...(memoryEvent.characterCount === undefined
                   ? {}
                   : { characterCount: memoryEvent.characterCount }),
+                ...(memoryEvent.globalTarget === undefined
+                  ? {}
+                  : { globalTarget: memoryEvent.globalTarget }),
+                ...(memoryEvent.observationCount === undefined
+                  ? {}
+                  : { observationCount: memoryEvent.observationCount }),
               },
             });
           },
+          researchProvenance: {
+            sessionId: params.sessionId ?? params.requestId,
+            capturedAt: new Date().toISOString(),
+          },
         });
         const privateKnowledgeTools = [
-          personalMemoryTool,
           memoryTool,
           ...(referenceLibraryBackend
             ? [createReferenceLibraryAgentTool(referenceLibraryBackend)]
@@ -947,7 +937,8 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
             ? swarmConfigWithWorkingDirectory(params.swarmConfig, cwd)
             : params.swarmConfig;
           const agentCount = countPersonalMemoryAgentTargets(config);
-          const personalMemorySnapshot = await personalMemoryService.snapshot();
+          const globalMemoryRun = await globalMemorySnapshotForRun(globalMemoryService);
+          const globalMemorySnapshot = globalMemoryRun.snapshot;
           const workflowHistory = params.sessionId
             ? (loadSession(params.sessionId)?.messages ?? [])
             : [];
@@ -959,14 +950,16 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
                 params.sessionId ?? params.requestId,
                 workflowHistory,
               ),
-              ...(personalMemorySnapshot ? { personalMemory: personalMemorySnapshot } : {}),
+              ...(globalMemorySnapshot ? { globalMemory: globalMemorySnapshot } : {}),
+              ...(memoryReflection ? { memoryReflection } : {}),
             },
           });
-          memoryReceipt = personalMemoryReceiptMessage(
-            buildPersonalMemoryUseReceipt({
-              snapshot: personalMemorySnapshot,
+          memoryReceipt = globalMemoryReceiptMessage(
+            buildGlobalMemoryUseReceipt({
+              snapshot: globalMemorySnapshot,
               executionPath: "workflow",
               agentCount,
+              unavailable: globalMemoryRun.unavailable,
             }),
           );
           onChunk(memoryReceipt);
@@ -988,12 +981,14 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
           );
           const compositionBackend = protectedHarness?.backend;
           const compositionUsesAcp = compositionBackend?.type === "custom";
-          const personalMemorySnapshot = await personalMemoryService.snapshot();
-          memoryReceipt = personalMemoryReceiptMessage(
-            buildPersonalMemoryUseReceipt({
-              snapshot: personalMemorySnapshot,
+          const globalMemoryRun = await globalMemorySnapshotForRun(globalMemoryService);
+          const globalMemorySnapshot = globalMemoryRun.snapshot;
+          memoryReceipt = globalMemoryReceiptMessage(
+            buildGlobalMemoryUseReceipt({
+              snapshot: globalMemorySnapshot,
               executionPath: compositionUsesAcp ? "external_acp" : "direct_agent",
               agentCount: 1,
+              unavailable: globalMemoryRun.unavailable,
             }),
           );
           onChunk(memoryReceipt);
@@ -1277,9 +1272,8 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
                           ],
                           onChunk: () => observation.markOutput(),
                           onUsage: (usage) => observation.recordUsage(usage),
-                          ...(personalMemorySnapshot
-                            ? { personalMemory: personalMemorySnapshot }
-                            : {}),
+                          ...(globalMemorySnapshot ? { globalMemory: globalMemorySnapshot } : {}),
+                          ...(memoryReflection ? { memoryReflection } : {}),
                         },
                       ),
                     ),
@@ -1406,9 +1400,8 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
                               childUsages.push(usage);
                               observation.recordUsage(usage);
                             },
-                            ...(personalMemorySnapshot
-                              ? { personalMemory: personalMemorySnapshot }
-                              : {}),
+                            ...(globalMemorySnapshot ? { globalMemory: globalMemorySnapshot } : {}),
+                            ...(memoryReflection ? { memoryReflection } : {}),
                           }),
                         ),
                     );
@@ -1512,7 +1505,8 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
                       tokenUsages.push(usage);
                       observation.recordUsage(usage);
                     },
-                    ...(personalMemorySnapshot ? { personalMemory: personalMemorySnapshot } : {}),
+                    ...(globalMemorySnapshot ? { globalMemory: globalMemorySnapshot } : {}),
+                    ...(memoryReflection ? { memoryReflection } : {}),
                   },
                 ),
               ),
@@ -1550,6 +1544,16 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
       });
       const persistedMessages = timedMessages(result.messages, startedAt);
       const { sessionPersisted, sideChat } = persistOutcome(persistedMessages);
+      if (params.sessionId && !params.sideChatId) {
+        try {
+          await globalMemoryService.recordCompletedTurn({
+            sessionId: params.sessionId,
+            ...(memoryReflection?.due ? { reviewedThrough: memoryReflection.throughUserTurn } : {}),
+          });
+        } catch (error) {
+          console.warn(`Failed to persist Memory review cursor: ${errorMessage(error)}`);
+        }
+      }
       recordActivityOutcome(activityStore, {
         ...taskMetadata,
         status: "completed",
@@ -1620,14 +1624,14 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
 
   ipcMain.handle("activity:profile", () => activityStore.summary());
 
-  ipcMain.handle("personalMemory:get", () => personalMemoryService.get());
+  ipcMain.handle("personalMemory:get", () => settingsMemoryService.get());
 
   ipcMain.handle("personalMemory:save", (_event: IpcMainInvokeEvent, input: unknown) =>
-    personalMemoryService.save(input),
+    settingsMemoryService.save(input),
   );
 
   ipcMain.handle("personalMemory:forget", (_event: IpcMainInvokeEvent, input: unknown) =>
-    personalMemoryService.forget(input),
+    settingsMemoryService.forget(input),
   );
 
   ipcMain.handle("taskRuntime:list", () => taskSupervisor.request({ operation: "list" }));
@@ -3123,10 +3127,47 @@ function memoryMutationLabel(operation: MemoryAgentMutation["operation"]): strin
       ? "Update"
       : operation === "restore"
         ? "Restore"
-        : "Delete";
+        : operation === "delete"
+          ? "Delete"
+          : operation === "global_save"
+            ? "Save"
+            : operation === "global_forget"
+              ? "Forget"
+              : "Capture";
+}
+
+function memoryMutationApprovalTitle(operation: MemoryAgentMutation["operation"]): string {
+  if (operation === "global_save") return "Save global Memory";
+  if (operation === "global_forget") return "Forget global Memory";
+  if (operation === "capture_research") return "Capture research Memory";
+  return `${memoryMutationLabel(operation)} Memory page`;
 }
 
 function memoryMutationSummary(mutation: MemoryAgentMutation): string {
+  if (mutation.operation === "global_save") {
+    return [
+      `The Agent proposes replacing ${mutation.target === "user" ? "USER.md" : "MEMORY.md"} for future runs.`,
+      `Markdown (${mutation.content.length} characters):`,
+      mutation.content,
+    ].join("\n\n");
+  }
+  if (mutation.operation === "global_forget") {
+    return `The Agent proposes permanently deleting ${mutation.target === "user" ? "USER.md" : "MEMORY.md"} for future runs.`;
+  }
+  if (mutation.operation === "capture_research") {
+    return [
+      `The Agent proposes adding structured research to ${mutation.entities.length} entity page${mutation.entities.length === 1 ? "" : "s"}.`,
+      ...mutation.entities.map((entity) =>
+        [
+          `${entity.title} · ${entity.observations.length} observation${entity.observations.length === 1 ? "" : "s"}`,
+          ...entity.observations.map(
+            (observation) =>
+              `[${observation.kind}] ${observation.claim}\nWhy keep: ${observation.value}`,
+          ),
+        ].join("\n"),
+      ),
+    ].join("\n\n");
+  }
   if (mutation.operation === "delete") {
     return `The Agent proposes deleting Memory page ${mutation.id} at revision ${mutation.expectedRevision}.`;
   }
@@ -3153,7 +3194,7 @@ function memoryMutationSummary(mutation: MemoryAgentMutation): string {
   ].join("\n\n");
 }
 
-function unavailableMemoryBackend(): MemoryBackend {
+function unavailableMemoryBackend(): MemoryBackend & GlobalMemoryBackend {
   const unavailable = async (): Promise<never> => {
     throw new Error("Managed Memory runtime is unavailable on this execution path.");
   };
@@ -3169,7 +3210,71 @@ function unavailableMemoryBackend(): MemoryBackend {
     getVersion: unavailable,
     diff: unavailable,
     restore: unavailable,
+    getGlobalMemory: unavailable,
+    saveGlobalMemory: unavailable,
+    forgetGlobalMemory: unavailable,
   };
+}
+
+function memoryBackendWithGlobalMemory(
+  backend: MemoryBackend,
+  global: GlobalMemoryBackend,
+): MemoryBackend & GlobalMemoryBackend {
+  return {
+    create: (input) => backend.create(input),
+    get: (id) => backend.get(id),
+    list: () => backend.list(),
+    search: (input) => backend.search(input),
+    update: (input) => backend.update(input),
+    delete: (input) => backend.delete(input),
+    graph: () => backend.graph(),
+    history: (input) => backend.history(input),
+    getVersion: (input) => backend.getVersion(input),
+    diff: (input) => backend.diff(input),
+    restore: (input) => backend.restore(input),
+    getGlobalMemory: () => global.getGlobalMemory(),
+    saveGlobalMemory: (input) => global.saveGlobalMemory(input),
+    forgetGlobalMemory: (input) => global.forgetGlobalMemory(input),
+  };
+}
+
+function supportsGlobalMemory(
+  backend: MemoryBackend & Partial<GlobalMemoryBackend>,
+): backend is MemoryBackend & GlobalMemoryBackend {
+  return (
+    typeof backend.getGlobalMemory === "function" &&
+    typeof backend.saveGlobalMemory === "function" &&
+    typeof backend.forgetGlobalMemory === "function"
+  );
+}
+
+function unavailableGlobalMemoryBackend(): GlobalMemoryBackend {
+  const unavailable = async (): Promise<never> => {
+    throw new Error("Managed global Memory runtime is unavailable on this execution path.");
+  };
+  return {
+    getGlobalMemory: unavailable,
+    saveGlobalMemory: unavailable,
+    forgetGlobalMemory: unavailable,
+  };
+}
+
+function foregroundUserTurnCount(sessionId: string, currentUserText: string): number {
+  const messages = loadSession(sessionId)?.messages ?? [];
+  const userMessages = messages.filter((message) => message.role === "user");
+  const currentPersisted = userMessages.at(-1)?.content === currentUserText;
+  return Math.max(1, userMessages.length + (currentPersisted ? 0 : 1));
+}
+
+async function globalMemorySnapshotForRun(
+  service: GlobalMemoryServiceLike,
+): Promise<{ snapshot: GlobalMemorySnapshot | null; unavailable: boolean }> {
+  try {
+    return { snapshot: await service.snapshot(), unavailable: false };
+  } catch (error) {
+    console.warn(`Global Memory snapshot unavailable: ${errorMessage(error)}`);
+    return { snapshot: null, unavailable: true };
+  }
 }
 
 function errorMessage(error: unknown): string {

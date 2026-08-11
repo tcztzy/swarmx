@@ -376,6 +376,7 @@ describe("desktop settings primitives", () => {
     expect(createDefaultDesktopSettings()).toMatchObject({
       schemaVersion: 1,
       personalMemory: null,
+      memoryReview: { sessions: {} },
       desktop: {},
       server: {},
       ui: { theme: "system", composer: { selectionsByHarness: {} } },

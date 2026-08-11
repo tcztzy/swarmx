@@ -10,6 +10,15 @@ import {
   MemoryLinkGraphBuilder,
   normalizeMemoryEntityKey,
 } from "./memory-links.js";
+import {
+  type GlobalMemoryFile,
+  GlobalMemoryFileSchema,
+  GlobalMemorySaveInputSchema,
+  type GlobalMemoryState,
+  GlobalMemoryStateSchema,
+  type GlobalMemoryTarget,
+  GlobalMemoryTargetSchema,
+} from "./personal-memory.js";
 
 export const MEMORY_SCHEMA_VERSION = 1;
 export const MAX_MEMORY_PAGES = 2_048;
@@ -182,6 +191,51 @@ export const MemoryRestoreInputSchema = z
   })
   .strict();
 
+export const GlobalMemoryWriteInputSchema = GlobalMemorySaveInputSchema.extend({
+  expectedRevision: z.number().int().nonnegative(),
+}).strict();
+
+export const GlobalMemoryDeleteInputSchema = z
+  .object({
+    target: GlobalMemoryTargetSchema,
+    expectedRevision: z.number().int().nonnegative(),
+  })
+  .strict();
+
+export const ResearchMemorySourceSchema = z
+  .object({
+    kind: z.enum(["documentation", "readme", "source_code", "runtime", "experiment", "session"]),
+    title: z.string().trim().min(1).max(512),
+    locator: z.string().trim().min(1).max(4_096),
+  })
+  .strict();
+
+export const ResearchMemoryObservationSchema = z
+  .object({
+    kind: z.enum(["observed", "derived", "decision", "hypothesis"]),
+    claim: z.string().trim().min(1).max(2_000),
+    value: z.string().trim().min(1).max(1_000),
+    confidence: z.enum(["low", "medium", "high"]),
+    sources: z.array(ResearchMemorySourceSchema).min(1).max(12),
+  })
+  .strict();
+
+export const ResearchMemoryEntitySchema = z
+  .object({
+    title: MemoryEntityNameSchema,
+    aliases: z.array(MemoryEntityNameSchema).max(MAX_MEMORY_ENTITY_ALIASES).default([]),
+    summary: z.string().trim().min(1).max(2_000).optional(),
+    observations: z.array(ResearchMemoryObservationSchema).min(1).max(24),
+  })
+  .strict();
+
+export const ResearchMemoryCaptureSchema = z
+  .object({
+    operation: z.literal("capture_research"),
+    entities: z.array(ResearchMemoryEntitySchema).min(1).max(12),
+  })
+  .strict();
+
 export const MemoryVersionSummarySchema = z
   .object({
     version: MemoryVersionIdSchema,
@@ -209,6 +263,21 @@ export const MemoryDiffSchema = z
 export const MemoryAgentInputSchema = z
   .discriminatedUnion("operation", [
     z.object({ operation: z.literal("list") }).strict(),
+    z.object({ operation: z.literal("global_get") }).strict(),
+    z
+      .object({
+        operation: z.literal("global_save"),
+        target: GlobalMemoryTargetSchema,
+        content: GlobalMemorySaveInputSchema.shape.content,
+      })
+      .strict(),
+    z
+      .object({
+        operation: z.literal("global_forget"),
+        target: GlobalMemoryTargetSchema,
+      })
+      .strict(),
+    ResearchMemoryCaptureSchema,
     z.object({ operation: z.literal("get"), id: MemoryEntityIdSchema }).strict(),
     z
       .object({
@@ -322,6 +391,12 @@ export type MemoryHistoryInput = z.input<typeof MemoryHistoryInputSchema>;
 export type MemoryGetVersionInput = z.infer<typeof MemoryGetVersionInputSchema>;
 export type MemoryDiffInput = z.infer<typeof MemoryDiffInputSchema>;
 export type MemoryRestoreInput = z.infer<typeof MemoryRestoreInputSchema>;
+export type GlobalMemoryWriteInput = z.infer<typeof GlobalMemoryWriteInputSchema>;
+export type GlobalMemoryDeleteInput = z.infer<typeof GlobalMemoryDeleteInputSchema>;
+export type ResearchMemorySource = z.infer<typeof ResearchMemorySourceSchema>;
+export type ResearchMemoryObservation = z.infer<typeof ResearchMemoryObservationSchema>;
+export type ResearchMemoryEntity = z.infer<typeof ResearchMemoryEntitySchema>;
+export type ResearchMemoryCapture = z.infer<typeof ResearchMemoryCaptureSchema>;
 export type MemoryVersionSummary = z.infer<typeof MemoryVersionSummarySchema>;
 export type MemoryVersion = z.infer<typeof MemoryVersionSchema>;
 export type MemoryDiff = z.infer<typeof MemoryDiffSchema>;
@@ -329,6 +404,19 @@ export type MemoryGraph = z.infer<typeof MemoryGraphSchema>;
 export type MemoryAgentInput = z.infer<typeof MemoryAgentInputSchema>;
 export type MemoryAgentMutation = Extract<
   MemoryAgentInput,
+  {
+    operation:
+      | "create"
+      | "update"
+      | "delete"
+      | "restore"
+      | "global_save"
+      | "global_forget"
+      | "capture_research";
+  }
+>;
+type MemoryPageAgentMutation = Extract<
+  MemoryAgentMutation,
   { operation: "create" | "update" | "delete" | "restore" }
 >;
 
@@ -348,8 +436,15 @@ export interface MemoryBackend {
   restore(input: MemoryRestoreInput): MaybePromise<MemoryPage>;
 }
 
+export interface GlobalMemoryBackend {
+  getGlobalMemory(): MaybePromise<GlobalMemoryState>;
+  saveGlobalMemory(input: GlobalMemoryWriteInput): MaybePromise<GlobalMemoryFile>;
+  forgetGlobalMemory(input: GlobalMemoryDeleteInput): MaybePromise<GlobalMemoryFile>;
+}
+
 type MemoryAgentBackend = Omit<MemoryBackend, "history" | "getVersion" | "diff" | "restore"> &
-  Partial<Pick<MemoryBackend, "history" | "getVersion" | "diff" | "restore">>;
+  Partial<Pick<MemoryBackend, "history" | "getVersion" | "diff" | "restore">> &
+  Partial<GlobalMemoryBackend>;
 
 export function buildMemoryGraph(generation: number, pages: readonly MemoryPage[]): MemoryGraph {
   const parsedPages = pages.map((page) => MemoryPageSchema.parse(page));
@@ -394,13 +489,19 @@ export interface MemoryAgentToolAuditEvent {
   operation: MemoryAgentMutation["operation"];
   outcome: "denied" | "attempted" | "completed" | "failed";
   pageId?: string;
+  globalTarget?: GlobalMemoryTarget;
   expectedRevision?: number;
   characterCount?: number;
+  observationCount?: number;
 }
 
 export interface MemoryAgentToolOptions {
   confirm(mutation: MemoryAgentMutation): Promise<boolean>;
   audit(event: MemoryAgentToolAuditEvent): void;
+  researchProvenance?: {
+    sessionId: string;
+    capturedAt: string;
+  };
 }
 
 export function createMemoryAgentTool(
@@ -410,11 +511,21 @@ export function createMemoryAgentTool(
   return {
     name: "Memory",
     description:
-      "Read and maintain the user's durable, versioned Markdown Memory. List, get, search, graph, history, version reads, and diffs are read-only. Create, update, delete, and restore always require explicit user confirmation.",
+      "Read and maintain the user's durable, versioned Markdown Memory. USER.md stores global user preferences; MEMORY.md stores compact cross-Project experience; linked entity pages store detailed research. Reads are bounded. Every save, forget, page mutation, restore, and research capture requires explicit user confirmation.",
     inputSchema: z.toJSONSchema(MemoryAgentInputSchema) as Record<string, unknown>,
     async call(arguments_) {
       const input = MemoryAgentInputSchema.parse(arguments_);
       switch (input.operation) {
+        case "global_get": {
+          if (!store.getGlobalMemory) return globalMemoryUnavailable("global_get");
+          const globalMemory = GlobalMemoryStateSchema.parse(await store.getGlobalMemory());
+          return memoryReadResult("global_get", { globalMemory });
+        }
+        case "global_save":
+        case "global_forget":
+          return applyGlobalMemoryMutation(store, input, options);
+        case "capture_research":
+          return applyResearchMemoryCapture(store, input, options);
         case "list": {
           const pages = await store.list();
           return memoryReadResult("list", { pages });
@@ -464,11 +575,26 @@ export function createMemoryAgentTool(
 }
 
 function memoryReadResult(
-  operation: "list" | "get" | "search" | "graph" | "history" | "get_version" | "diff",
+  operation:
+    | "global_get"
+    | "list"
+    | "get"
+    | "search"
+    | "graph"
+    | "history"
+    | "get_version"
+    | "diff",
   value: object,
 ) {
   const result = { status: "ok", operation, ...value };
   return localToolResult(JSON.stringify(result), result);
+}
+
+function globalMemoryUnavailable(operation: "global_get" | "global_save" | "global_forget") {
+  return localToolResult("Global Memory files are unavailable on this execution path.", {
+    status: "unsupported",
+    operation,
+  });
 }
 
 function memoryVersioningUnavailable(operation: "history" | "get_version" | "diff") {
@@ -478,9 +604,256 @@ function memoryVersioningUnavailable(operation: "history" | "get_version" | "dif
   });
 }
 
+async function applyGlobalMemoryMutation(
+  store: MemoryAgentBackend,
+  mutation: Extract<MemoryAgentMutation, { operation: "global_save" | "global_forget" }>,
+  options: MemoryAgentToolOptions,
+) {
+  if (!store.getGlobalMemory || !store.saveGlobalMemory || !store.forgetGlobalMemory) {
+    return globalMemoryUnavailable(mutation.operation);
+  }
+  const state = GlobalMemoryStateSchema.parse(await store.getGlobalMemory());
+  const current = state[mutation.target];
+  const auditBase: Omit<MemoryAgentToolAuditEvent, "outcome"> = {
+    operation: mutation.operation,
+    globalTarget: mutation.target,
+    expectedRevision: current.revision,
+    ...(mutation.operation === "global_save" ? { characterCount: mutation.content.length } : {}),
+  };
+  let confirmed: boolean;
+  try {
+    confirmed = await options.confirm(mutation);
+  } catch (error) {
+    options.audit({ ...auditBase, outcome: "failed" });
+    throw error;
+  }
+  if (!confirmed) {
+    options.audit({ ...auditBase, outcome: "denied" });
+    return localToolResult("The user declined the global Memory change.", {
+      status: "denied",
+      operation: mutation.operation,
+      target: mutation.target,
+    });
+  }
+  options.audit({ ...auditBase, outcome: "attempted" });
+  try {
+    const file = GlobalMemoryFileSchema.parse(
+      mutation.operation === "global_save"
+        ? await store.saveGlobalMemory({
+            target: mutation.target,
+            content: mutation.content,
+            expectedRevision: current.revision,
+          })
+        : await store.forgetGlobalMemory({
+            target: mutation.target,
+            expectedRevision: current.revision,
+          }),
+    );
+    options.audit({ ...auditBase, outcome: "completed" });
+    return localToolResult(
+      `${file.fileName} ${mutation.operation === "global_save" ? "was saved" : "was forgotten"} for future runs. The active snapshot is unchanged.`,
+      {
+        status: "applied",
+        operation: mutation.operation,
+        target: mutation.target,
+        file: {
+          target: file.target,
+          fileName: file.fileName,
+          revision: file.revision,
+          updatedAt: file.updatedAt,
+          characterCount: file.content?.length ?? 0,
+        },
+      },
+    );
+  } catch (error) {
+    options.audit({ ...auditBase, outcome: "failed" });
+    throw error;
+  }
+}
+
+async function applyResearchMemoryCapture(
+  store: MemoryAgentBackend,
+  capture: ResearchMemoryCapture,
+  options: MemoryAgentToolOptions,
+) {
+  const provenance = options.researchProvenance;
+  if (!provenance) {
+    return localToolResult("Research Memory capture requires Session provenance.", {
+      status: "unsupported",
+      operation: "capture_research",
+    });
+  }
+  const sessionId = z.string().min(1).max(256).parse(provenance.sessionId);
+  const capturedAt = z.iso.datetime().parse(provenance.capturedAt);
+  const results: Array<{
+    title: string;
+    id?: string;
+    outcome: "created" | "updated" | "unchanged" | "denied";
+    observationCount: number;
+  }> = [];
+
+  for (const entity of capture.entities) {
+    const summaries = await store.list();
+    const candidateNames = new Set(
+      [entity.title, ...entity.aliases].map((name) => normalizeMemoryEntityKey(name)),
+    );
+    const matches = summaries.filter((summary) =>
+      [summary.title, ...summary.aliases].some((name) =>
+        candidateNames.has(normalizeMemoryEntityKey(name)),
+      ),
+    );
+    if (matches.length > 1) {
+      throw new Error(`Research entity ${entity.title} matches multiple Memory pages.`);
+    }
+    const current = matches[0] ? await store.get(matches[0].id) : null;
+    if (matches[0] && !current) {
+      throw new Error(`Research entity ${entity.title} changed during capture.`);
+    }
+    const rendered = appendResearchObservations(
+      current?.content ?? entity.summary ?? `Research notes for ${entity.title}.`,
+      entity.observations,
+      { sessionId, capturedAt },
+    );
+    if (rendered.added === 0) {
+      results.push({
+        title: entity.title,
+        ...(current ? { id: current.id } : {}),
+        outcome: "unchanged",
+        observationCount: 0,
+      });
+      continue;
+    }
+    const mutation: Extract<MemoryAgentMutation, { operation: "create" | "update" }> = current
+      ? {
+          operation: "update",
+          id: current.id,
+          expectedRevision: current.revision,
+          content: rendered.content,
+        }
+      : {
+          operation: "create",
+          title: entity.title,
+          aliases: entity.aliases,
+          content: rendered.content,
+        };
+    const applied = await applyMemoryAgentMutation(store, mutation, options);
+    const structured = applied.structuredContent;
+    if (
+      typeof structured === "object" &&
+      structured !== null &&
+      "status" in structured &&
+      structured.status === "denied"
+    ) {
+      results.push({
+        title: entity.title,
+        ...(current ? { id: current.id } : {}),
+        outcome: "denied",
+        observationCount: rendered.added,
+      });
+      continue;
+    }
+    const resolved = current ?? (await findExactMemoryPage(store, entity.title));
+    results.push({
+      title: entity.title,
+      ...(resolved ? { id: resolved.id } : {}),
+      outcome: current ? "updated" : "created",
+      observationCount: rendered.added,
+    });
+  }
+  return localToolResult(
+    `Research Memory capture processed ${results.length} ${results.length === 1 ? "entity" : "entities"}.`,
+    { status: "applied", operation: "capture_research", entities: results },
+  );
+}
+
+async function findExactMemoryPage(
+  store: MemoryAgentBackend,
+  title: string,
+): Promise<MemoryPage | null> {
+  const key = normalizeMemoryEntityKey(title);
+  const summary = (await store.list()).find((candidate) =>
+    [candidate.title, ...candidate.aliases].some((name) => normalizeMemoryEntityKey(name) === key),
+  );
+  return summary ? store.get(summary.id) : null;
+}
+
+function appendResearchObservations(
+  content: string,
+  observations: readonly ResearchMemoryObservation[],
+  provenance: { sessionId: string; capturedAt: string },
+): { content: string; added: number } {
+  const additions = observations.flatMap((observation) => {
+    const fingerprint = researchObservationFingerprint(observation);
+    const marker = `<!-- swarmx:research:${fingerprint} -->`;
+    if (content.includes(marker)) return [];
+    const sources = observation.sources
+      .map(
+        (source) =>
+          `- ${escapeMarkdownText(source.title)} (${source.kind}): <${singleLine(source.locator).replace(/[<>]/gu, "")}>`,
+      )
+      .join("\n");
+    return [
+      [
+        marker,
+        `### ${observation.kind} · ${provenance.capturedAt.slice(0, 10)}`,
+        "",
+        `**Kind:** ${observation.kind}`,
+        "",
+        `**Claim:** ${singleLine(observation.claim)}`,
+        "",
+        `**Why keep:** ${singleLine(observation.value)}`,
+        "",
+        `**Confidence:** ${observation.confidence}`,
+        "",
+        `**Session:** \`${singleLine(provenance.sessionId).replace(/`/gu, "")}\``,
+        "",
+        "**Sources:**",
+        sources,
+      ].join("\n"),
+    ];
+  });
+  if (additions.length === 0) return { content, added: 0 };
+  const separator = content.trimEnd().includes("## Research memory")
+    ? "\n\n"
+    : "\n\n## Research memory\n\n";
+  return {
+    content: `${content.trimEnd()}${separator}${additions.join("\n\n")}`,
+    added: additions.length,
+  };
+}
+
+function researchObservationFingerprint(observation: ResearchMemoryObservation): string {
+  const canonical = JSON.stringify({
+    kind: observation.kind,
+    claim: observation.claim.trim().replace(/\s+/gu, " "),
+    sources: observation.sources
+      .map((source) => ({
+        kind: source.kind,
+        locator: singleLine(source.locator),
+      }))
+      .sort((left, right) =>
+        `${left.kind}:${left.locator}`.localeCompare(`${right.kind}:${right.locator}`),
+      ),
+  });
+  let hash = 0xcbf29ce484222325n;
+  for (const character of canonical) {
+    hash ^= BigInt(character.codePointAt(0) ?? 0);
+    hash = BigInt.asUintN(64, hash * 0x100000001b3n);
+  }
+  return hash.toString(16).padStart(16, "0");
+}
+
+function singleLine(value: string): string {
+  return value.replace(/\s+/gu, " ").trim();
+}
+
+function escapeMarkdownText(value: string): string {
+  return singleLine(value).replace(/[[\]]/gu, "\\$&");
+}
+
 async function applyMemoryAgentMutation(
   store: MemoryAgentBackend,
-  mutation: MemoryAgentMutation,
+  mutation: MemoryPageAgentMutation,
   options: MemoryAgentToolOptions,
 ) {
   const auditBase = memoryMutationAuditBase(mutation);
@@ -541,7 +914,7 @@ function memoryVersioningUnavailableMutation(
 }
 
 function memoryMutationAuditBase(
-  mutation: MemoryAgentMutation,
+  mutation: MemoryPageAgentMutation,
 ): Omit<MemoryAgentToolAuditEvent, "outcome"> {
   return {
     operation: mutation.operation,

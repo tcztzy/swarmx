@@ -21,6 +21,41 @@ function page(index: number, content = "body") {
 }
 
 describe("Memory runtime protocol", () => {
+  it("accepts bounded global Markdown file operations", () => {
+    expect(
+      MemoryRuntimeRequestSchema.parse({
+        protocolVersion: MEMORY_RUNTIME_PROTOCOL_VERSION,
+        operation: "global_save",
+        target: "user",
+        expectedRevision: 0,
+        content: "Prefers concise answers.",
+      }),
+    ).toMatchObject({ operation: "global_save", target: "user" });
+    expect(
+      MemoryRuntimeToolResponseSchema.parse({
+        protocolVersion: MEMORY_RUNTIME_PROTOCOL_VERSION,
+        operation: "global_get",
+        ok: true,
+        result: {
+          user: {
+            target: "user",
+            fileName: "USER.md",
+            content: "Prefers concise answers.",
+            revision: 1,
+            updatedAt: "2026-08-12T08:00:00.000Z",
+          },
+          memory: {
+            target: "memory",
+            fileName: "MEMORY.md",
+            content: null,
+            revision: 0,
+            updatedAt: null,
+          },
+        },
+      }),
+    ).toMatchObject({ operation: "global_get", ok: true });
+  });
+
   it("accepts bounded CRUD and version requests", () => {
     expect(
       MemoryRuntimeRequestSchema.parse({

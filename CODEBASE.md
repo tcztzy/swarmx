@@ -73,12 +73,13 @@ swarmx launcher ───► Desktop or CLI
 
 - Persisted workflow: `SwarmConfigSchema` only; graph nodes are `agent`, `tool`,
   or nested `swarm`.
-- Memory authority: Markdown pages plus local Git history under
-  `~/.swarmx/memory/`; the search index and knowledge edges are rebuildable and
+- Memory authority: global `USER.md` / `MEMORY.md`, linked entity Markdown pages,
+  and one local Git history under `~/.swarmx/memory/`; the search index and knowledge edges are rebuildable and
   never execute as workflow edges. There is no JSON fallback or second
   persistence authority.
   SwarmX-owned Agents receive an on-demand CRUD/search/graph/version tool whose
-  mutations and restores require one-call user confirmation.
+  mutations and restores require one-call user confirmation. Research capture
+  stores typed, sourced Session provenance on entity pages.
 - Agent identity: `harnessId:modelId`; Provider routes and effort do not create
   new identities.
 - Session authority: append-only JSONL grouped by Project under
@@ -94,9 +95,12 @@ swarmx launcher ───► Desktop or CLI
   credentials, and environment snapshots are excluded.
 - Activity statistics: one aggregate `run_summary` per run in
   `~/.swarmx/activity.jsonl`; this profile data is not audit evidence.
-- Personal Memory: one bounded user-edited record in `~/.swarmx/settings.json`;
-  direct runs receive a read-only snapshot and Sessions retain only a concise
-  usage receipt.
+- Global Memory: bounded user-editable `USER.md` and `MEMORY.md` files under the
+  Memory authority; direct runs receive a read-only snapshot and Sessions retain
+  only a concise usage receipt. Reflection cursors persist in settings per
+  Session, trigger on explicit requests or ten unreviewed user turns, and never
+  aggregate raw dialogue across Sessions. The former settings-backed Personal
+  Memory record is migration input for `USER.md` only.
 - Reference Library: no SwarmX persistence authority; configured ZIM and Zotero
   sources remain authoritative and are accessed read-only by `swarmx.ref`.
   Direct Agents on exact official DeepSeek, OpenAI API, or Codex Responses

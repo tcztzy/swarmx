@@ -1,11 +1,11 @@
 # Memory
 
-SwarmX Core provides a local, bounded collection of Markdown entity pages that
-an authorized host can create, read, list, search, update, and delete. Double-bracket links
-between the current pages are projected into directed knowledge-graph edges. It
-is the currently shipped linked-page organization of Memory, alongside the
-compact Personal Memory Settings surface. Neither surface turns Memory into
-Session history, a graph database, or a workflow runtime.
+SwarmX Memory uses actual bounded `USER.md` and `MEMORY.md` global files plus a
+local collection of Markdown entity pages that an authorized host can create,
+read, list, search, update, and delete. Double-bracket links between current
+entity pages are projected into directed knowledge-graph edges. Global files and
+entity pages share one Git authority. Neither surface turns Memory into Session
+history, a graph database, or a workflow runtime.
 
 SwarmX-owned Agent execution exposes this store as one `Memory` tool. An
 Agent can list, get, search, and inspect the derived graph. It can also propose
@@ -43,7 +43,8 @@ host rebuilds the bounded graph projection from the current MCP snapshot.
 ## Persistent CRUD and versions
 
 Production Memory uses one Git-backed Markdown repository at
-`~/.swarmx/memory/`. Each page has a stable generated id, unique title and
+`~/.swarmx/memory/`. `USER.md` and `MEMORY.md` live at its root. Each entity
+page has a stable generated id, unique title and
 aliases, Markdown content, optimistic revision, and creation/update timestamps.
 The Tantivy search index and TypeScript double-bracket link graph projection are
 rebuildable and are not independent authorities. There is no JSON fallback,
@@ -152,13 +153,12 @@ result.edges[0];
 
 ## Boundaries
 
-Memory does not call an LLM, ingest sources, infer or admit claims,
+The storage engine does not call an LLM, ingest sources, infer or admit claims,
 mutate itself without explicit approval, provide vector retrieval, or render a
-graph. It also does not convert knowledge edges into
-`SwarmConfig` edges. Personal preferences still belong to Personal Memory;
-hosts retain ownership of Agent authorization, approvals, and UI. The current
-Desktop surface exposes CRUD through the Agent tool rather than a standalone
-Memory editor.
+graph. It also does not convert knowledge edges into `SwarmConfig` edges.
+`USER.md` owns personal preferences; `MEMORY.md` owns compact cross-Project
+experience; detailed research belongs to entity pages. Hosts retain ownership
+of reflection, candidate validation, Agent authorization, approvals, and UI.
 
 The Rust process is packaged and verified like a managed runtime. It never uses
 `cargo install` on an end-user machine, never inherits Provider credentials,

@@ -1,6 +1,9 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import type {
+  GlobalMemoryBackend,
+  GlobalMemoryDeleteInput,
+  GlobalMemoryWriteInput,
   MemoryBackend,
   MemoryCreateInput,
   MemoryDeleteInput,
@@ -28,7 +31,7 @@ export interface MemoryRuntimeServiceOptions {
   ) => MemoryRuntimeHost;
 }
 
-export class MemoryRuntimeService implements MemoryBackend {
+export class MemoryRuntimeService implements MemoryBackend, GlobalMemoryBackend {
   private readonly options: MemoryRuntimeServiceOptions;
   private initialized?: Promise<{ backend: MemoryRuntimeBackend; host: MemoryRuntimeHost }>;
 
@@ -78,6 +81,18 @@ export class MemoryRuntimeService implements MemoryBackend {
 
   async restore(input: MemoryRestoreInput) {
     return (await this.backend()).restore(input);
+  }
+
+  async getGlobalMemory() {
+    return (await this.backend()).getGlobalMemory();
+  }
+
+  async saveGlobalMemory(input: GlobalMemoryWriteInput) {
+    return (await this.backend()).saveGlobalMemory(input);
+  }
+
+  async forgetGlobalMemory(input: GlobalMemoryDeleteInput) {
+    return (await this.backend()).forgetGlobalMemory(input);
   }
 
   async close(): Promise<void> {

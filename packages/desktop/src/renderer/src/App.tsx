@@ -7,7 +7,7 @@ import type {
   SwarmConfig,
 } from "@swarmx/core";
 import { getHarness } from "@swarmx/core/harness";
-import type { PersonalMemoryState } from "@swarmx/core/personal-memory";
+import type { GlobalMemoryState } from "@swarmx/core/personal-memory";
 import type {
   DoctorFixResult,
   DoctorReport,
@@ -821,7 +821,7 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
     error: personalMemoryError,
     isLoading: personalMemoryLoading,
     mutate: mutatePersonalMemory,
-  } = useSWR<PersonalMemoryState>(
+  } = useSWR<GlobalMemoryState>(
     settingsSection === "memory" ? PERSONAL_MEMORY_KEY : null,
     () => api.getPersonalMemory(),
     { revalidateOnFocus: true, revalidateOnReconnect: false },
@@ -1435,7 +1435,7 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
     ? settingsSection === "general"
       ? "General"
       : settingsSection === "memory"
-        ? "Personal Memory"
+        ? "Global Memory"
         : settingsSection === "profile"
           ? "Profile"
           : "Settings"

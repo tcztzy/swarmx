@@ -5,7 +5,7 @@ import type {
   HarnessPermissionPolicyLayer,
   SessionPermissionMode,
 } from "@swarmx/core";
-import type { PersonalMemoryState } from "@swarmx/core/personal-memory";
+import type { GlobalMemoryState } from "@swarmx/core/personal-memory";
 import type { HarnessEnvironmentStatus } from "@swarmx/runtime";
 import {
   ArrowLeft,
@@ -124,7 +124,7 @@ export function SettingsSidebar({
   const normalizedQuery = query.trim().toLowerCase();
   const personalSections = [
     { id: "general" as const, label: "General", icon: Settings },
-    { id: "memory" as const, label: "Personal Memory", icon: Brain },
+    { id: "memory" as const, label: "Global Memory", icon: Brain },
     { id: "profile" as const, label: "Profile", icon: User },
   ].filter((item) => item.label.toLowerCase().includes(normalizedQuery));
   const systemSections = [
@@ -485,31 +485,33 @@ export function PersonalMemorySettings({
   onSave,
   onForget,
 }: {
-  memory?: PersonalMemoryState;
+  memory?: GlobalMemoryState;
   loading: boolean;
   error: unknown;
-  onSave: (input: { content: string }) => Promise<void>;
-  onForget: (input: { confirmed: true }) => Promise<void>;
+  onSave: (input: { target: "user" | "memory"; content: string }) => Promise<void>;
+  onForget: (input: { target: "user" | "memory"; confirmed: true }) => Promise<void>;
 }) {
+  const [target, setTarget] = useState<"user" | "memory">("user");
   const [draft, setDraft] = useState("");
   const [saving, setSaving] = useState(false);
   const [forgetting, setForgetting] = useState(false);
   const [confirmForget, setConfirmForget] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
-  const maxCharacters = memory?.maxCharacters ?? 4_000;
+  const file = memory?.[target];
+  const maxCharacters = memory?.maxCharacters[target] ?? 4_000;
 
   useEffect(() => {
-    setDraft(memory?.status === "saved" ? memory.content : "");
+    setDraft(memory?.[target].content ?? "");
     setConfirmForget(false);
     setActionError(null);
-  }, [memory]);
+  }, [memory, target]);
 
   const save = async () => {
     if (!draft.trim() || draft.length > maxCharacters || saving) return;
     setSaving(true);
     setActionError(null);
     try {
-      await onSave({ content: draft });
+      await onSave({ target, content: draft });
     } catch (saveFailure) {
       setActionError(errorMessage(saveFailure));
     } finally {
@@ -522,7 +524,7 @@ export function PersonalMemorySettings({
     setForgetting(true);
     setActionError(null);
     try {
-      await onForget({ confirmed: true });
+      await onForget({ target, confirmed: true });
       setDraft("");
       setConfirmForget(false);
     } catch (forgetFailure) {
@@ -535,20 +537,20 @@ export function PersonalMemorySettings({
   return (
     <section
       className="settings-workspace personal-memory-settings [width:100%] [height:100%] [min-width:0] [min-height:0] [overflow:hidden] [display:grid] [grid-template-rows:minmax(0,_1fr)] [color:var(--foreground)] [background:var(--background)]"
-      aria-label="Personal Memory settings"
+      aria-label="Global Memory settings"
     >
       <div className="settings-workspace__content [min-width:0] [min-height:0] [overflow-y:auto] [height:100%] [padding:64px_clamp(32px,_6vw,_84px)_64px] [background:var(--background)] max-680:[padding:28px_18px_40px]">
         <div className="[width:min(100%,_760px)] [margin:0_auto]">
           <div className="[display:flex] [align-items:flex-start] [justify-content:space-between] [gap:20px] [&_h2]:[margin:0] [&_h2]:[font-size:24px] [&_h2]:[font-weight:600] [&_h2]:[letter-spacing:-0.025em] [&_p]:[max-width:620px] [&_p]:[margin:8px_0_0] [&_p]:[color:var(--muted-foreground)] [&_p]:[font-size:12px] [&_p]:[line-height:1.55]">
             <span>
-              <h2>Personal Memory</h2>
+              <h2>Global Memory</h2>
               <p>
-                Durable facts and preferences for supported direct SwarmX runs. This is separate
-                from Profile activity, Session history, and Project context.
+                Global context stored as real, versioned USER.md and MEMORY.md files. Session
+                history and per-Session reflection windows remain separate.
               </p>
             </span>
-            <Badge tone={memory?.status === "saved" ? "success" : "neutral"}>
-              {memory?.status === "saved" ? "Saved" : "Empty"}
+            <Badge tone={memory?.user.content || memory?.memory.content ? "success" : "neutral"}>
+              {memory?.user.content || memory?.memory.content ? "Saved" : "Empty"}
             </Badge>
           </div>
 
@@ -561,10 +563,31 @@ export function PersonalMemorySettings({
             </div>
           )}
 
-          <section className="[margin-top:28px] [padding:18px] [background:var(--card)] [border:1px_solid_var(--border)] [border-radius:var(--radius-lg)] [box-shadow:var(--shadow-inset)]">
+          <div
+            className="[margin-top:24px] [display:flex] [gap:8px]"
+            role="tablist"
+            aria-label="Global Memory file"
+          >
+            {(["user", "memory"] as const).map((candidate) => (
+              <Button
+                key={candidate}
+                type="button"
+                variant={target === candidate ? "default" : "ghost"}
+                onClick={() => setTarget(candidate)}
+              >
+                {candidate === "user" ? "USER.md" : "MEMORY.md"}
+              </Button>
+            ))}
+          </div>
+
+          <section className="[margin-top:12px] [padding:18px] [background:var(--card)] [border:1px_solid_var(--border)] [border-radius:var(--radius-lg)] [box-shadow:var(--shadow-inset)]">
             <label className="[display:grid] [gap:8px]" htmlFor="personal-memory-editor">
               <span className="[display:flex] [align-items:center] [justify-content:space-between] [gap:12px] [&_strong]:[font-size:13.5px] [&_small]:[color:var(--muted-foreground)] [&_small]:[font-size:10.5px]">
-                <strong>What SwarmX should remember</strong>
+                <strong>
+                  {target === "user"
+                    ? "User preferences and durable facts"
+                    : "Cross-Project working memory"}
+                </strong>
                 <small>
                   {draft.length.toLocaleString("en-US")} / {maxCharacters.toLocaleString("en-US")}{" "}
                   characters
@@ -572,12 +595,16 @@ export function PersonalMemorySettings({
               </span>
               <textarea
                 id="personal-memory-editor"
-                aria-label="Personal Memory"
+                aria-label={target === "user" ? "USER.md" : "MEMORY.md"}
                 value={draft}
                 maxLength={maxCharacters}
                 rows={12}
                 disabled={loading || saving || forgetting}
-                placeholder="Examples: response preferences, durable working conventions, or facts that should carry across Projects."
+                placeholder={
+                  target === "user"
+                    ? "Examples: response preferences, durable personal conventions, and stable facts."
+                    : "Examples: compact cross-Project lessons and operational context. Put detailed competitor findings in entity pages."
+                }
                 className="[width:100%] [min-height:220px] [padding:12px] [resize:vertical] [color:var(--foreground)] [background:var(--background)] [border:1px_solid_var(--border)] [border-radius:var(--radius-md)] [outline:none] [font:inherit] [font-size:12px] [line-height:1.55]"
                 onChange={(event) => {
                   setDraft(event.target.value);
@@ -586,13 +613,17 @@ export function PersonalMemorySettings({
               />
             </label>
             <p className="[margin:10px_0_0] [color:var(--muted-foreground)] [font-size:10.5px] [line-height:1.5]">
-              The current snapshot is sent to the selected Provider or ACP Harness for direct and
-              Agent-bearing workflow runs. Do not store credentials here. Every run shows whether a
-              snapshot was used and how many Agents received it.
+              Stored under ~/.swarmx/memory/ and versioned with the entity Wiki in one Git
+              authority. Do not store credentials here. Changes affect future runs only.
             </p>
-            {memory?.status === "saved" && (
+            {memory?.legacyUser && target === "user" && (
+              <p className="[margin:7px_0_0] [color:var(--warning)] [font-size:10px]">
+                Showing legacy Personal Memory. Saving will migrate it into USER.md.
+              </p>
+            )}
+            {file?.updatedAt && (
               <p className="[margin:7px_0_0] [color:var(--muted-foreground)] [font-size:10px]">
-                Last updated {formatTimestamp(memory.updatedAt)}
+                Last updated {formatTimestamp(file.updatedAt)} · revision {file.revision}
               </p>
             )}
             <div className="[margin-top:18px] [display:flex] [align-items:center] [justify-content:space-between] [gap:12px] [flex-wrap:wrap]">
@@ -607,18 +638,18 @@ export function PersonalMemorySettings({
                   {saving && (
                     <Loader2 className="[animation:spin_0.9s_linear_infinite]" aria-hidden="true" />
                   )}
-                  Save Memory
+                  Save {target === "user" ? "USER.md" : "MEMORY.md"}
                 </Button>
               </div>
-              {memory?.status === "saved" && !confirmForget && (
+              {Boolean(file?.content) && !confirmForget && (
                 <Button type="button" variant="ghost" onClick={() => setConfirmForget(true)}>
-                  <Trash2 aria-hidden="true" /> Forget Personal Memory
+                  <Trash2 aria-hidden="true" /> Delete {target === "user" ? "USER.md" : "MEMORY.md"}
                 </Button>
               )}
-              {memory?.status === "saved" && confirmForget && (
+              {Boolean(file?.content) && confirmForget && (
                 <div className="[display:flex] [align-items:center] [gap:8px]">
                   <span className="[color:var(--danger)] [font-size:10.5px]">
-                    This cannot be restored from Session history.
+                    This is removed from active Memory, but remains recoverable from Git history.
                   </span>
                   <Button
                     type="button"

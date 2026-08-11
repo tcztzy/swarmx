@@ -7,6 +7,7 @@ import {
   MemoryCreateInputSchema,
   MemoryDocumentSchema,
   type MemoryPage,
+  ResearchMemoryCaptureSchema,
 } from "../src/memory.js";
 import { MAX_MEMORY_LINK_MARKERS } from "../src/memory-links.js";
 
@@ -285,5 +286,118 @@ describe("Memory Agent tool", () => {
       }),
     ).resolves.toMatchObject({ structuredContent: { status: "applied", operation: "restore" } });
     expect(JSON.stringify(audit)).not.toContain("private historical Markdown");
+  });
+
+  it("captures typed non-obvious research into exact entity pages without duplicates", async () => {
+    const { backend, pages } = memoryFixture();
+    pages.set(
+      "mem_hermes",
+      page({
+        id: "mem_hermes",
+        title: "Hermes Agent",
+        aliases: ["Hermes"],
+        content: "Existing authored context.",
+      }),
+    );
+    const confirmations: unknown[] = [];
+    const tool = createMemoryAgentTool(backend, {
+      confirm: async (mutation) => {
+        confirmations.push(mutation);
+        return true;
+      },
+      audit: () => undefined,
+      researchProvenance: {
+        sessionId: "session_research",
+        capturedAt: "2026-08-12T08:00:00.000Z",
+      },
+    });
+    if (tool.kind === "text") throw new Error("Memory must be a function tool");
+    const capture = {
+      operation: "capture_research",
+      entities: [
+        {
+          title: "Hermes Agent",
+          aliases: ["Hermes"],
+          summary: "A personal agent that learns across sessions.",
+          observations: [
+            {
+              kind: "observed",
+              claim: "The built-in memory nudge counts ten user turns within one Session.",
+              value:
+                "This lifecycle detail is easy to miss in the README and changes how short Sessions learn.",
+              confidence: "high",
+              sources: [
+                {
+                  kind: "documentation",
+                  title: "Hermes memory configuration",
+                  locator:
+                    "https://github.com/NousResearch/hermes-agent/blob/main/website/docs/user-guide/configuration.md",
+                },
+                {
+                  kind: "source_code",
+                  title: "Hermes memory implementation",
+                  locator: "src/hermes_cli/main.py#memory-nudge",
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    } as const;
+    expect(ResearchMemoryCaptureSchema.parse(capture)).toEqual(capture);
+
+    const reorderedCapture = {
+      ...capture,
+      entities: capture.entities.map((entity) => ({
+        ...entity,
+        observations: entity.observations.map((observation) => ({
+          ...observation,
+          sources: [...observation.sources].reverse(),
+        })),
+      })),
+    };
+    await expect(tool.call(reorderedCapture)).resolves.toMatchObject({
+      structuredContent: {
+        status: "applied",
+        operation: "capture_research",
+        entities: [{ id: "mem_hermes", outcome: "updated" }],
+      },
+    });
+    const updated = pages.get("mem_hermes");
+    expect(updated?.content).toContain("Existing authored context.");
+    expect(updated?.content).toContain("## Research memory");
+    expect(updated?.content).toContain("**Kind:** observed");
+    expect(updated?.content).toContain("**Session:** `session_research`");
+    expect(confirmations).toHaveLength(1);
+
+    await expect(tool.call(capture)).resolves.toMatchObject({
+      structuredContent: {
+        status: "applied",
+        entities: [{ id: "mem_hermes", outcome: "unchanged" }],
+      },
+    });
+    expect(confirmations).toHaveLength(1);
+  });
+
+  it("keeps research observations structured and source-bearing", () => {
+    expect(
+      ResearchMemoryCaptureSchema.safeParse({
+        operation: "capture_research",
+        entities: [
+          {
+            title: "OpenCode",
+            observations: [
+              {
+                kind: "derived",
+                claim: "A conclusion without evidence.",
+                value: "Worth keeping.",
+                confidence: "medium",
+                sources: [],
+              },
+            ],
+          },
+        ],
+      }).success,
+    ).toBe(false);
   });
 });

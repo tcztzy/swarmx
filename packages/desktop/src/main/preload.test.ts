@@ -84,13 +84,13 @@ describe("preload API", () => {
     const api = exposedApi();
 
     await api.getPersonalMemory();
-    await api.savePersonalMemory({ content: "Prefer concise answers." });
-    await api.forgetPersonalMemory({ confirmed: true });
+    await api.savePersonalMemory({ target: "user", content: "Prefer concise answers." });
+    await api.forgetPersonalMemory({ target: "user", confirmed: true });
 
     expect(electron.invoke.mock.calls).toEqual([
       ["personalMemory:get"],
-      ["personalMemory:save", { content: "Prefer concise answers." }],
-      ["personalMemory:forget", { confirmed: true }],
+      ["personalMemory:save", { target: "user", content: "Prefer concise answers." }],
+      ["personalMemory:forget", { target: "user", confirmed: true }],
     ]);
   });
 

@@ -35,6 +35,20 @@ describe.runIf(Boolean(manifestPath))("packaged Memory MCP integration", () => {
       });
       expect(await service.get(created.id)).toEqual(updated);
       expect(await service.search({ query: "version two", limit: 10 })).toEqual([updated]);
+      const global = await service.getGlobalMemory();
+      expect(global.user.content).toBeNull();
+      const savedUser = await service.saveGlobalMemory({
+        target: "user",
+        expectedRevision: global.user.revision,
+        content: "Prefers concise answers.",
+      });
+      expect(savedUser).toMatchObject({ fileName: "USER.md", revision: 1 });
+      await expect(
+        service.forgetGlobalMemory({
+          target: "user",
+          expectedRevision: savedUser.revision,
+        }),
+      ).resolves.toMatchObject({ content: null, revision: 2 });
 
       const history = await service.history({ id: created.id, limit: 10 });
       expect(history).toHaveLength(2);

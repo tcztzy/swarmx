@@ -30,9 +30,9 @@ import type {
   TransientSessionData,
 } from "@swarmx/core";
 import type {
-  PersonalMemoryForgetInput,
-  PersonalMemorySaveInput,
-  PersonalMemoryState,
+  GlobalMemoryForgetInput,
+  GlobalMemorySaveInput,
+  GlobalMemoryState,
 } from "@swarmx/core/personal-memory";
 import type {
   NormalizeMessageChunkOptions,
@@ -612,9 +612,9 @@ export interface SwarmxAPI {
   }): Promise<DesktopSessionData | null>;
   listSessions(): Promise<DesktopSessionSummary[]>;
   getActivityProfile(): Promise<ActivityProfileSummary>;
-  getPersonalMemory(): Promise<PersonalMemoryState>;
-  savePersonalMemory(input: PersonalMemorySaveInput): Promise<PersonalMemoryState>;
-  forgetPersonalMemory(input: PersonalMemoryForgetInput): Promise<PersonalMemoryState>;
+  getPersonalMemory(): Promise<GlobalMemoryState>;
+  savePersonalMemory(input: GlobalMemorySaveInput): Promise<GlobalMemoryState>;
+  forgetPersonalMemory(input: GlobalMemoryForgetInput): Promise<GlobalMemoryState>;
   listTaskWorkItems(): Promise<DesktopTaskRuntimeListResult>;
   cancelTaskWorkItem(input: {
     workItemId: string;

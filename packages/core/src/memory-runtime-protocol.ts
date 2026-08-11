@@ -1,5 +1,7 @@
 import { z } from "zod";
 import {
+  GlobalMemoryDeleteInputSchema,
+  GlobalMemoryWriteInputSchema,
   MAX_MEMORY_PAGES,
   MAX_MEMORY_SEARCH_RESULTS,
   MAX_MEMORY_VERSIONS,
@@ -19,6 +21,7 @@ import {
   MemoryVersionSchema,
   MemoryVersionSummarySchema,
 } from "./memory.js";
+import { GlobalMemoryFileSchema } from "./personal-memory.js";
 
 export const MEMORY_RUNTIME_PROTOCOL_VERSION = 1 as const;
 export const MEMORY_RUNTIME_SERVER_NAME = "swarmx-mem" as const;
@@ -63,6 +66,21 @@ export const MemoryRuntimeRequestSchema = z.discriminatedUnion("operation", [
     })
     .strict(),
   z.object({ ...RequestBase, operation: z.literal("snapshot") }).strict(),
+  z.object({ ...RequestBase, operation: z.literal("global_get") }).strict(),
+  z
+    .object({
+      ...RequestBase,
+      operation: z.literal("global_save"),
+      ...GlobalMemoryWriteInputSchema.shape,
+    })
+    .strict(),
+  z
+    .object({
+      ...RequestBase,
+      operation: z.literal("global_forget"),
+      ...GlobalMemoryDeleteInputSchema.shape,
+    })
+    .strict(),
   z
     .object({
       ...RequestBase,
@@ -175,6 +193,42 @@ const MemoryRuntimeSuccessResponseSchema = z.discriminatedUnion("operation", [
   z
     .object({
       ...SuccessBase,
+      operation: z.literal("global_get"),
+      result: z
+        .object({
+          user: GlobalMemoryFileSchema,
+          memory: GlobalMemoryFileSchema,
+        })
+        .strict(),
+    })
+    .strict(),
+  z
+    .object({
+      ...SuccessBase,
+      operation: z.literal("global_save"),
+      result: z
+        .object({
+          file: GlobalMemoryFileSchema,
+          version: MemoryVersionSummarySchema.shape.version,
+        })
+        .strict(),
+    })
+    .strict(),
+  z
+    .object({
+      ...SuccessBase,
+      operation: z.literal("global_forget"),
+      result: z
+        .object({
+          file: GlobalMemoryFileSchema,
+          version: MemoryVersionSummarySchema.shape.version,
+        })
+        .strict(),
+    })
+    .strict(),
+  z
+    .object({
+      ...SuccessBase,
       operation: z.literal("create"),
       result: MemoryRuntimeMutationResultSchema,
     })
@@ -243,6 +297,9 @@ const MemoryRuntimeErrorResponseSchema = z
       "get",
       "search",
       "snapshot",
+      "global_get",
+      "global_save",
+      "global_forget",
       "create",
       "update",
       "delete",

@@ -21,7 +21,7 @@ implementation map, test plan, backlog, changelog, or incident log.
 | Harness | A reproducible runtime recipe: Software, selected Skills and MCP servers, Project context, delivery capabilities, and permission policy. |
 | Agent | Exactly one Harness paired with one Model. Its identity is `harnessId:modelId`; Provider routing and effort do not change it. |
 | Session | The canonical, resumable conversation record, persisted as an append-only event log. It may observe a WorkItem but is not task authority. |
-| Memory | User-owned subjective durable knowledge. Personal Memory is its bounded Settings snapshot; the current linked-page organization provides explicit CRUD and revisions. An organization method is replaceable implementation, not a separate product concept. Memory is not Activity Profile data, Session history, Project context, task authority, or an executable workflow. |
+| Memory | User-owned subjective durable knowledge. `USER.md` and `MEMORY.md` are its bounded global snapshot; the current linked-page organization provides explicit entity CRUD and revisions. An organization method is replaceable implementation, not a separate product concept. Memory is not Activity Profile data, Session history, Project context, task authority, or an executable workflow. |
 | Reference Library | Explicitly configured, read-only objective sources: a local ZIM archive and the local Zotero library. It is not editable Memory, Session history, Project context, Web Search, or a download service. |
 | WorkItem | A durable unit of language-independent work whose runs, leases, checkpoints, artifacts, and events survive Session changes. |
 | Workflow | A `SwarmConfig` graph of agents, tools, nested swarms, and explicit edges. |
@@ -64,12 +64,16 @@ implementation map, test plan, backlog, changelog, or incident log.
     correlated, structured, secret-free audit events. Intent is durable before
     authority expands or an effect starts, and an unavailable audit authority
     fails closed at those boundaries.
-12. **Transparent bounded memory.** Personal Memory is explicitly viewable,
-    editable, and forgettable, has a strict capacity, and is injected only as a
-    read-only per-run snapshot. Direct Agents, external ACP Harness prompts, and
-    Agent-bearing workflows report the actual snapshot use; plaintext Memory is
-    never audit, trace, telemetry, or unrelated transport data. Agent-initiated
-    save or forget requests require an in-run human confirmation before effect.
+12. **Transparent bounded global memory.** `USER.md` and `MEMORY.md` are
+    explicitly viewable, editable, and forgettable, have strict independent
+    capacities, and are injected only as one read-only per-run snapshot.
+    `USER.md` contains stable user identity, preferences, and working habits;
+    `MEMORY.md` contains cross-Project environment facts, conventions,
+    decisions, and reusable experience. Direct Agents, external ACP Harness
+    prompts, and Agent-bearing workflows report the actual snapshot use;
+    plaintext Memory is never audit, trace, telemetry, or unrelated transport
+    data. Agent-initiated save or forget requests require an in-run human
+    confirmation before effect.
 13. **Independent durable execution.** Eligible WorkItems run under one
     authenticated local supervisor that owns leases and cancellation independently
     from Electron, so closing Desktop does not terminate active durable work.
@@ -114,6 +118,18 @@ implementation map, test plan, backlog, changelog, or incident log.
     Responses. Gateways, unsupported protocols, and lookalike endpoints do not
     gain hosted search. When no Reference source is configured, the Agent tool
     is not injected and SwarmX never claims that Reference was used.
+17. **Session-scoped reflective Memory.** An explicit user request to remember
+    may prompt an immediate Memory proposal. Otherwise each persisted Session
+    maintains an independent review cursor and receives a reflection reminder
+    after each ten completed foreground user-Agent turns; switching Sessions or
+    restarting Desktop preserves that Session's cursor but never combines raw
+    content from different Sessions into one reflection window. An archived or
+    sufficiently idle Session may review its remaining tail independently.
+    The reminder is attached only to that Session's normal bounded execution
+    context and does not add dialogue from any other Session. It asks the Agent
+    to emit typed, source-bearing candidates for `USER.md`, `MEMORY.md`, or exact entity-page upsert;
+    candidates do not become Memory until the configured human admission gate
+    approves the proposed write. Repeated review and retry are idempotent.
 
 ## Required capabilities
 
@@ -203,15 +219,25 @@ implementation map, test plan, backlog, changelog, or incident log.
 
 ### Desktop experience
 
-- Let the user view, edit, and explicitly forget Personal Memory in Settings.
-  Direct SwarmX runs, external ACP Harness prompts, and Agent-bearing workflows
-  receive the current bounded read-only snapshot and persist a concise
-  Session-visible usage receipt. Direct Agents may request save or forget, but
-  Main applies it only after explicit user confirmation.
+- Let the user view, edit, and explicitly forget bounded `USER.md` and
+  `MEMORY.md` global Memory in Settings. Direct SwarmX runs, external ACP
+  Harness prompts, and Agent-bearing workflows receive one frozen read-only
+  snapshot and persist a concise Session-visible usage receipt. Direct Agents
+  may request save or forget, but Main applies it only after explicit user
+  confirmation. Existing Settings-backed Personal Memory remains readable as a
+  migration source until the user first saves `USER.md`; successful migration
+  removes the obsolete Settings value.
 - Let SwarmX-owned Agents list, get, search, and inspect linked-page Memory graph data
   on demand. Agent-proposed page creation, update, or deletion must show the
   proposed change and require explicit one-call confirmation; mutation audit
   records must exclude titles, aliases, and Markdown bodies.
+- Let a SwarmX-owned Agent propose a structured research capture containing
+  entities, aliases, typed observations, source references, confidence, and why
+  each observation is costly to reconstruct from ordinary public documentation.
+  After one confirmation per proposed entity mutation, exact normalized
+  title/alias matching creates or updates the corresponding versioned Wiki page
+  without overwriting unrelated authored content or duplicating an already
+  captured observation.
 - When no compatible Model is available, replace starter task suggestions with
   an actionable readiness state. Its primary action opens Provider setup, and
   the UI must not imply that a blocked task can run.
@@ -231,6 +257,10 @@ implementation map, test plan, backlog, changelog, or incident log.
 - Stream reasoning, commentary, tool progress, and results while a task runs;
   collapse transient work after completion and retain the final answer and
   canonical trace.
+- Float the ordinary conversation composer over the bottom of the conversation
+  surface instead of allocating it a separate application-layout row. Reserve
+  matching scroll space beneath the transcript so the composer never obscures
+  the final message, while bottom and side panels remain outside that overlay.
 - Keep each user or assistant message's action row visually hidden until that
   message is hovered or contains keyboard focus. Preserve author-aligned
   placement and render every action as the same neutral, unselected control.
@@ -251,11 +281,12 @@ implementation map, test plan, backlog, changelog, or incident log.
   Models, Harnesses, Agent profiles, Extensions, Skills, actions, context,
   normalized rendering, telemetry, managed dependencies, and the generic
   durable-task runtime.
-- Persist bounded local Memory as Markdown entity pages with CRUD,
-  optimistic revision checks, title/alias/content search, and derived
-  double-bracket links. Unknown, malformed, and self references remain explicit
-  graph diagnostics; the linked Markdown organization is not a `SwarmConfig`
-  workflow or a second Memory concept.
+- Persist bounded local Memory as actual `USER.md` and `MEMORY.md` global files
+  plus Markdown entity pages with CRUD, optimistic revision checks,
+  title/alias/content search, and derived double-bracket links. All authored
+  Memory shares one local Git authority. Unknown, malformed, and self references
+  remain explicit graph diagnostics; the linked Markdown organization is not a
+  `SwarmConfig` workflow or a second Memory concept.
 - Keep browser-safe public subpaths free of Node-only imports.
 - Provide a CLI, ACP server adapter, runtime Doctor, and Desktop-first npm
   launcher without launching GUI code during package installation.
@@ -293,10 +324,11 @@ implementation map, test plan, backlog, changelog, or incident log.
   credentials are neither telemetry nor audit payloads. Canonical Session and
   task histories retain their own product data; the audit chain records only
   compact decision/effect metadata.
-- Personal Memory is user-authored context, not inferred Activity Profile data,
-  Session search, Project context, a Skill, or autonomous learning. Agents may
-  propose a bounded save or forget action, but cannot bypass human confirmation
-  or mutate the active run's frozen snapshot.
+- Global Memory is admitted durable context, not inferred Activity Profile data,
+  Session search, Project context, a Skill, or an unreviewed conversation copy.
+  Agents may explicitly or periodically propose bounded saves, forgets, and
+  entity observations, but cannot combine unrelated Session windows, bypass the
+  configured admission gate, or mutate the active run's frozen snapshot.
 - The linked-page organization does not ingest sources, call an LLM, invent missing entities,
   mutate itself without confirmation, run vector retrieval, or render an
   interactive graph. BM25 search and linked-Markdown graph analysis operate only over

@@ -27,6 +27,33 @@ const MAX_LINK_MARKERS_TOTAL: usize = 10_000;
 const MAX_SEARCH_RESULTS: usize = 50;
 const MAX_HISTORY_RESULTS: usize = 100;
 const MAX_DIFF_CHARS: usize = 128_000;
+const MAX_GLOBAL_MEMORY_CHARS: usize = 4_000;
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+enum GlobalMemoryTarget {
+    User,
+    Memory,
+}
+
+impl GlobalMemoryTarget {
+    fn file_name(self) -> &'static str {
+        match self {
+            Self::User => "USER.md",
+            Self::Memory => "MEMORY.md",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+struct GlobalMemoryFile {
+    target: GlobalMemoryTarget,
+    file_name: &'static str,
+    content: Option<String>,
+    revision: u64,
+    updated_at: Option<String>,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -100,6 +127,20 @@ enum Request {
     Snapshot {
         protocol_version: u32,
     },
+    GlobalGet {
+        protocol_version: u32,
+    },
+    GlobalSave {
+        protocol_version: u32,
+        target: GlobalMemoryTarget,
+        expected_revision: u64,
+        content: String,
+    },
+    GlobalForget {
+        protocol_version: u32,
+        target: GlobalMemoryTarget,
+        expected_revision: u64,
+    },
     Create {
         protocol_version: u32,
         title: String,
@@ -158,6 +199,15 @@ impl Request {
             | Self::Snapshot {
                 protocol_version, ..
             }
+            | Self::GlobalGet {
+                protocol_version, ..
+            }
+            | Self::GlobalSave {
+                protocol_version, ..
+            }
+            | Self::GlobalForget {
+                protocol_version, ..
+            }
             | Self::Create {
                 protocol_version, ..
             }
@@ -188,6 +238,9 @@ impl Request {
             Self::Get { .. } => "get",
             Self::Search { .. } => "search",
             Self::Snapshot { .. } => "snapshot",
+            Self::GlobalGet { .. } => "global_get",
+            Self::GlobalSave { .. } => "global_save",
+            Self::GlobalForget { .. } => "global_forget",
             Self::Create { .. } => "create",
             Self::Update { .. } => "update",
             Self::Delete { .. } => "delete",
@@ -306,6 +359,18 @@ impl MemoryService {
             Request::Get { id, .. } => self.get_result(&id),
             Request::Search { query, limit, .. } => self.search_result(&query, limit),
             Request::Snapshot { .. } => self.snapshot_result(),
+            Request::GlobalGet { .. } => self.global_get_result(),
+            Request::GlobalSave {
+                target,
+                expected_revision,
+                content,
+                ..
+            } => self.global_save_result(target, expected_revision, content),
+            Request::GlobalForget {
+                target,
+                expected_revision,
+                ..
+            } => self.global_forget_result(target, expected_revision),
             Request::Create {
                 title,
                 aliases,
@@ -359,6 +424,53 @@ impl MemoryService {
     fn snapshot_result(&self) -> std::result::Result<Value, ServiceError> {
         let pages = self.active_pages()?;
         Ok(json!({ "generation": self.generation()?, "pages": pages }))
+    }
+
+    fn global_get_result(&mut self) -> std::result::Result<Value, ServiceError> {
+        self.reconcile_global_file(GlobalMemoryTarget::User)?;
+        self.reconcile_global_file(GlobalMemoryTarget::Memory)?;
+        Ok(json!({
+            "user": self.global_file(GlobalMemoryTarget::User)?,
+            "memory": self.global_file(GlobalMemoryTarget::Memory)?
+        }))
+    }
+
+    fn global_save_result(
+        &mut self,
+        target: GlobalMemoryTarget,
+        expected_revision: u64,
+        content: String,
+    ) -> std::result::Result<Value, ServiceError> {
+        validate_global_content(&content)?;
+        self.reconcile_global_file(target)?;
+        let current = self.global_file(target)?;
+        if current.revision != expected_revision {
+            return Err(ServiceError::conflict());
+        }
+        if current.content.as_deref() == Some(content.as_str()) {
+            return Err(ServiceError::conflict());
+        }
+        self.write_global_file(target, &content)?;
+        let version = self.commit_global_file(target, "global_save")?;
+        Ok(json!({ "file": self.global_file(target)?, "version": version }))
+    }
+
+    fn global_forget_result(
+        &mut self,
+        target: GlobalMemoryTarget,
+        expected_revision: u64,
+    ) -> std::result::Result<Value, ServiceError> {
+        self.reconcile_global_file(target)?;
+        let current = self.global_file(target)?;
+        if current.revision != expected_revision {
+            return Err(ServiceError::conflict());
+        }
+        if current.content.is_none() {
+            return Err(ServiceError::not_found());
+        }
+        fs::remove_file(self.global_path(target)).map_err(|_| ServiceError::internal())?;
+        let version = self.commit_global_file(target, "global_forget")?;
+        Ok(json!({ "file": self.global_file(target)?, "version": version }))
     }
 
     fn create_result(
@@ -730,6 +842,134 @@ impl MemoryService {
         Ok(version)
     }
 
+    fn global_file(
+        &self,
+        target: GlobalMemoryTarget,
+    ) -> std::result::Result<GlobalMemoryFile, ServiceError> {
+        let content = match fs::read_to_string(self.global_path(target)) {
+            Ok(content) => {
+                validate_global_content(&content).map_err(|_| ServiceError::corrupt())?;
+                Some(content)
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+            Err(_) => return Err(ServiceError::corrupt()),
+        };
+        let (revision, last_changed_at) = self.global_history(target)?;
+        Ok(GlobalMemoryFile {
+            target,
+            file_name: target.file_name(),
+            updated_at: content.as_ref().and(last_changed_at),
+            content,
+            revision,
+        })
+    }
+
+    fn global_history(
+        &self,
+        target: GlobalMemoryTarget,
+    ) -> std::result::Result<(u64, Option<String>), ServiceError> {
+        let repo = self.repository()?;
+        let mut revwalk = repo.revwalk().map_err(|_| ServiceError::corrupt())?;
+        if revwalk.push_head().is_err() {
+            return Ok((0, None));
+        }
+        revwalk
+            .set_sorting(Sort::TIME | Sort::TOPOLOGICAL)
+            .map_err(|_| ServiceError::corrupt())?;
+        let relative = Path::new(target.file_name());
+        let mut revision = 0_u64;
+        let mut last_changed_at = None;
+        for oid in revwalk {
+            let commit = repo
+                .find_commit(oid.map_err(|_| ServiceError::corrupt())?)
+                .map_err(|_| ServiceError::corrupt())?;
+            let current = raw_page_at_commit(&repo, &commit, relative)?;
+            let parent = if commit.parent_count() > 0 {
+                raw_page_at_commit(
+                    &repo,
+                    &commit.parent(0).map_err(|_| ServiceError::corrupt())?,
+                    relative,
+                )?
+            } else {
+                None
+            };
+            if current == parent {
+                continue;
+            }
+            revision = revision.saturating_add(1);
+            if last_changed_at.is_none() {
+                last_changed_at = Some(commit_timestamp(&commit)?);
+            }
+        }
+        Ok((revision, last_changed_at))
+    }
+
+    fn reconcile_global_file(
+        &self,
+        target: GlobalMemoryTarget,
+    ) -> std::result::Result<(), ServiceError> {
+        let path = self.global_path(target);
+        let worktree = match fs::read_to_string(&path) {
+            Ok(content) => {
+                validate_global_content(&content).map_err(|_| ServiceError::corrupt())?;
+                Some(content)
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+            Err(_) => return Err(ServiceError::corrupt()),
+        };
+        let repo = self.repository()?;
+        let committed = match repo.head().and_then(|head| head.peel_to_commit()) {
+            Ok(commit) => raw_page_at_commit(&repo, &commit, Path::new(target.file_name()))?,
+            Err(_) => None,
+        };
+        if worktree != committed {
+            let version = commit_memory_path(
+                &self.root,
+                &path,
+                &format!("memory:external_edit:{}", target.file_name()),
+            )?;
+            if version.is_empty() {
+                return Err(ServiceError::internal());
+            }
+        }
+        Ok(())
+    }
+
+    fn write_global_file(
+        &self,
+        target: GlobalMemoryTarget,
+        content: &str,
+    ) -> std::result::Result<(), ServiceError> {
+        validate_global_content(content)?;
+        let destination = self.global_path(target);
+        let temporary = self.root.join(format!(
+            ".{}.{}.tmp",
+            target.file_name(),
+            Uuid::new_v4().simple()
+        ));
+        fs::write(&temporary, content).map_err(|_| ServiceError::internal())?;
+        set_file_permissions(&temporary).map_err(|_| ServiceError::internal())?;
+        fs::rename(&temporary, &destination).map_err(|_| ServiceError::internal())?;
+        set_file_permissions(&destination).map_err(|_| ServiceError::internal())?;
+        Ok(())
+    }
+
+    fn commit_global_file(
+        &self,
+        target: GlobalMemoryTarget,
+        operation: &str,
+    ) -> std::result::Result<String, ServiceError> {
+        let version = commit_memory_path(
+            &self.root,
+            &self.global_path(target),
+            &format!("memory:{operation}:{}", target.file_name()),
+        )?;
+        if version.is_empty() {
+            return Err(ServiceError::internal());
+        }
+        Ok(version)
+    }
+
     fn history(&self, id: &str, limit: usize) -> std::result::Result<Vec<Value>, ServiceError> {
         let repo = self.repository()?;
         let mut revwalk = repo.revwalk().map_err(|_| ServiceError::corrupt())?;
@@ -796,6 +1036,10 @@ impl MemoryService {
     fn page_path(&self, id: &str) -> PathBuf {
         self.pages_root.join(format!("{id}.md"))
     }
+
+    fn global_path(&self, target: GlobalMemoryTarget) -> PathBuf {
+        self.root.join(target.file_name())
+    }
 }
 
 fn success_response(operation: &str, result: Value) -> Value {
@@ -814,6 +1058,67 @@ fn error_response(operation: &str, error: ServiceError) -> Value {
         "ok": false,
         "error": { "code": error.code, "message": error.safe_message }
     })
+}
+
+fn commit_memory_path(
+    root: &Path,
+    path: &Path,
+    message: &str,
+) -> std::result::Result<String, ServiceError> {
+    let repo = Repository::open(root).map_err(|_| ServiceError::corrupt())?;
+    let signature = repo
+        .signature()
+        .or_else(|_| git2::Signature::now("swarmx-mem", "swarmx-mem@localhost"))
+        .map_err(|_| ServiceError::internal())?;
+    let relative = path
+        .strip_prefix(root)
+        .map_err(|_| ServiceError::internal())?;
+    let mut index = repo.index().map_err(|_| ServiceError::internal())?;
+    if path.is_file() {
+        index
+            .add_path(relative)
+            .map_err(|_| ServiceError::internal())?;
+    } else {
+        index
+            .remove_path(relative)
+            .map_err(|_| ServiceError::internal())?;
+    }
+    index.write().map_err(|_| ServiceError::internal())?;
+    let tree_id = index.write_tree().map_err(|_| ServiceError::internal())?;
+    let tree = repo
+        .find_tree(tree_id)
+        .map_err(|_| ServiceError::internal())?;
+    let parent = repo.head().ok().and_then(|head| head.peel_to_commit().ok());
+    if parent
+        .as_ref()
+        .is_some_and(|parent| parent.tree_id() == tree_id)
+    {
+        return Ok(String::new());
+    }
+    let parents: Vec<&git2::Commit<'_>> = parent.iter().collect();
+    repo.commit(
+        Some("HEAD"),
+        &signature,
+        &signature,
+        message,
+        &tree,
+        &parents,
+    )
+    .map(|oid| oid.to_string())
+    .map_err(|_| ServiceError::internal())
+}
+
+fn validate_global_content(content: &str) -> std::result::Result<(), ServiceError> {
+    if content.trim().is_empty()
+        || content.encode_utf16().count() > MAX_GLOBAL_MEMORY_CHARS
+        || content.chars().any(|character| {
+            let code = character as u32;
+            (code < 32 && !matches!(character, '\t' | '\n' | '\r')) || code == 127
+        })
+    {
+        return Err(ServiceError::invalid());
+    }
+    Ok(())
 }
 
 fn validate_page(page: &Page) -> std::result::Result<(), ServiceError> {
