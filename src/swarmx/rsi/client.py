@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import sys
-from datetime import timedelta
 from importlib.metadata import version
 from typing import Any, Callable
 
@@ -52,8 +51,8 @@ async def _run(
         _context: Any, params: types.CreateMessageRequestParams
     ) -> types.CreateMessageResult:
         messages: list[dict[str, str]] = []
-        if params.systemPrompt:
-            messages.append({"role": "system", "content": params.systemPrompt})
+        if params.system_prompt:
+            messages.append({"role": "system", "content": params.system_prompt})
         for message in params.messages:
             if message.content.type != "text":
                 raise RsiError("RSI sampling requested unsupported non-text content.")
@@ -65,7 +64,7 @@ async def _run(
                 "model": request.get("targetModelFingerprint"),
                 "messages": messages,
                 "temperature": params.temperature,
-                "maxTokens": params.maxTokens,
+                "maxTokens": params.max_tokens,
             },
         )
         if outcome.get("status") != "succeeded":
@@ -78,7 +77,7 @@ async def _run(
             role="assistant",
             content=types.TextContent(type="text", text=value["content"]),
             model=str(request.get("targetModelFingerprint") or "swarmx-gateway"),
-            stopReason="endTurn",
+            stop_reason="endTurn",
             _meta={"swarmxUsage": usage},
         )
 
@@ -103,12 +102,12 @@ async def _run(
             reader,
             writer,
             sampling_callback=sample,
-            read_timeout_seconds=timedelta(seconds=180),
+            read_timeout_seconds=180,
         ) as session:
             initialized = await session.initialize()
             if (
-                initialized.serverInfo.name != "swarmx-rsi"
-                or initialized.serverInfo.version != MCP_VERSION
+                initialized.server_info.name != "swarmx-rsi"
+                or initialized.server_info.version != MCP_VERSION
             ):
                 raise RsiError("Unexpected RSI MCP server identity.")
             tools = await session.list_tools()
@@ -133,10 +132,14 @@ async def _run(
                     )
                 await asyncio.sleep(0.05)
             result = await call
-            if result.isError or not isinstance(result.structuredContent, dict):
+            if (
+                not isinstance(result, types.CallToolResult)
+                or result.is_error
+                or not isinstance(result.structured_content, dict)
+            ):
                 raise RsiError("RSI MCP optimization failed.")
-            candidate = result.structuredContent.get("candidateMarkdown")
-            report = result.structuredContent.get("optimizerReport")
+            candidate = result.structured_content.get("candidateMarkdown")
+            report = result.structured_content.get("optimizerReport")
             if (
                 not isinstance(candidate, str)
                 or len(candidate.encode("utf-8")) > MAX_CANDIDATE_BYTES

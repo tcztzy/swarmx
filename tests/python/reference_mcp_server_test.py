@@ -86,7 +86,7 @@ class ReferenceMcpServerTest(unittest.IsolatedAsyncioTestCase):
             async with stdio_client(server) as (reader, writer):
                 async with ClientSession(reader, writer) as session:
                     initialized = await session.initialize()
-                    self.assertEqual(initialized.serverInfo.name, "swarmx-ref")
+                    self.assertEqual(initialized.server_info.name, "swarmx-ref")
                     tools = await session.list_tools()
                     self.assertEqual(
                         [tool.name for tool in tools.tools], ["swarmx_reference"]
@@ -95,19 +95,19 @@ class ReferenceMcpServerTest(unittest.IsolatedAsyncioTestCase):
                         "swarmx_reference", {"request": {"operation": "status"}}
                     )
                     self.assertEqual(
-                        status.structuredContent["sources"][0]["id"], "zim"
+                        status.structured_content["sources"][0]["id"], "zim"
                     )
                     self.assertEqual(
-                        status.structuredContent["source"]["fileName"], "fixture.zim"
+                        status.structured_content["source"]["fileName"], "fixture.zim"
                     )
                     page = await session.call_tool(
                         "swarmx_reference",
                         {"request": {"operation": "get", "path": "home"}},
                     )
-                    self.assertFalse(page.isError)
-                    self.assertEqual(page.structuredContent["operation"], "get")
-                    self.assertIn("Objective source.", page.structuredContent["text"])
-                    self.assertNotIn("ignored()", page.structuredContent["text"])
+                    self.assertFalse(page.is_error)
+                    self.assertEqual(page.structured_content["operation"], "get")
+                    self.assertIn("Objective source.", page.structured_content["text"])
+                    self.assertNotIn("ignored()", page.structured_content["text"])
                     search = await session.call_tool(
                         "swarmx_reference",
                         {
@@ -118,15 +118,15 @@ class ReferenceMcpServerTest(unittest.IsolatedAsyncioTestCase):
                             }
                         },
                     )
-                    self.assertFalse(search.isError)
+                    self.assertFalse(search.is_error)
                     self.assertEqual(
-                        search.structuredContent["matches"][0]["path"], "home"
+                        search.structured_content["matches"][0]["path"], "home"
                     )
                     mutation = await session.call_tool(
                         "swarmx_reference",
                         {"request": {"operation": "create", "title": "Opinion"}},
                     )
-                    self.assertTrue(mutation.isError)
+                    self.assertTrue(mutation.is_error)
 
 
 if __name__ == "__main__":

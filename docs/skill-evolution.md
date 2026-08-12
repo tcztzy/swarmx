@@ -141,10 +141,13 @@ Optimizer ids:
   the next paid call, and the host gateway re-checks remaining tokens from
   durable receipts before each dispatch. The RSI server requests model calls
   with MCP sampling; the worker's private MCP client maps each request onto the
-  same grant-checked `skill_evolution:model.generate` gateway. The CLI launch
-  digest includes the `src/swarmx/rsi` server, MCP client, and
-  optimizer sources, plus
-  the interpreter's installed `dspy` and `mcp` versions verified against the pinned
+  same grant-checked `skill_evolution:model.generate` gateway. Both processes
+  use MCP Python SDK v2. Their private stdio client explicitly initializes a
+  pre-2026 session so a single optimizer tool call can make multiple
+  server-initiated sampling requests; this legacy protocol mode is confined to
+  the private worker-to-RSI link. The CLI launch digest includes the
+  `src/swarmx/rsi` server, MCP client, and optimizer sources, plus the
+  interpreter's installed `dspy` and `mcp` versions verified against the pinned
   root project. The interpreter's environment must pass the strict locked sync
   (`uv sync --locked --check --no-default-groups`), so a launch can never
   silently run against an unverified installation. The CLI auto-discovers the

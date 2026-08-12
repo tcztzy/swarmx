@@ -13,19 +13,21 @@ from importlib.metadata import version
 from typing import Any
 
 from mcp import types
-from mcp.server.fastmcp import Context, FastMCP
+from mcp.server.mcpserver import Context, MCPServer
 
 from .contract import validate_optimization_request
 
 MODULE_VERSION = version("swarmx")
+MCP_VERSION = version("mcp")
 TOOL_NAME = "swarmx_rsi_optimize"
 MAX_ARTIFACT_CHARS = 4 * 1024 * 1024
 MAX_TOTAL_ARTIFACT_CHARS = 12 * 1024 * 1024
 MAX_CANDIDATE_BYTES = 4 * 1024 * 1024
 MAX_RESULT_BYTES = MAX_CANDIDATE_BYTES + 64 * 1024
 
-mcp = FastMCP(
+mcp = MCPServer(
     name="swarmx-rsi",
+    version=MCP_VERSION,
     instructions="Private managed RSI optimizer module for SwarmX.",
     log_level="ERROR",
 )

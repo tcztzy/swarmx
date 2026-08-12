@@ -8,7 +8,7 @@ import sys
 from importlib.metadata import version
 from typing import Any
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 
 from .service import (
     LibzimReferenceBackend,
@@ -19,9 +19,11 @@ from .service import (
 
 TOOL_NAME = "swarmx_reference"
 MODULE_VERSION = version("swarmx")
+MCP_VERSION = version("mcp")
 
-mcp = FastMCP(
+mcp = MCPServer(
     name="swarmx-ref",
+    version=MCP_VERSION,
     instructions="Private read-only multi-source reference module for SwarmX.",
     log_level="ERROR",
 )

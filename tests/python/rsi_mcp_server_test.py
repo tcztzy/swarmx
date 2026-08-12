@@ -30,7 +30,7 @@ class RsiMcpServerTest(unittest.IsolatedAsyncioTestCase):
         ) as (reader, writer):
             async with ClientSession(reader, writer) as session:
                 initialized = await session.initialize()
-                self.assertEqual(initialized.serverInfo.name, "swarmx-rsi")
+                self.assertEqual(initialized.server_info.name, "swarmx-rsi")
                 tools = await session.list_tools()
                 self.assertEqual(
                     [tool.name for tool in tools.tools], ["swarmx_rsi_optimize"]
@@ -39,9 +39,9 @@ class RsiMcpServerTest(unittest.IsolatedAsyncioTestCase):
                     "swarmx_rsi_optimize",
                     {"request": request, "artifacts": artifacts},
                 )
-                self.assertFalse(result.isError)
-                self.assertIsNotNone(result.structuredContent)
-                output = result.structuredContent or {}
+                self.assertFalse(result.is_error)
+                self.assertIsNotNone(result.structured_content)
+                output = result.structured_content or {}
                 self.assertIn("parrot", output["candidateMarkdown"])
                 self.assertEqual(
                     output["optimizerReport"]["actualOptimizer"], "dspy.gepa.v1"
@@ -62,8 +62,8 @@ class RsiMcpServerTest(unittest.IsolatedAsyncioTestCase):
                     "swarmx_rsi_optimize",
                     {"request": request, "artifacts": artifacts},
                 )
-                self.assertTrue(result.isError)
-                self.assertIsNone(result.structuredContent)
+                self.assertTrue(result.is_error)
+                self.assertIsNone(result.structured_content)
 
     async def test_artifact_content_must_match_its_granted_digest(self) -> None:
         request, artifacts = fixture()
@@ -80,8 +80,8 @@ class RsiMcpServerTest(unittest.IsolatedAsyncioTestCase):
                     "swarmx_rsi_optimize",
                     {"request": request, "artifacts": artifacts},
                 )
-                self.assertTrue(result.isError)
-                self.assertIsNone(result.structuredContent)
+                self.assertTrue(result.is_error)
+                self.assertIsNone(result.structured_content)
 
     async def test_dependency_free_optimizer_stays_in_the_worker(self) -> None:
         request, artifacts = fixture()
@@ -100,8 +100,8 @@ class RsiMcpServerTest(unittest.IsolatedAsyncioTestCase):
                     "swarmx_rsi_optimize",
                     {"request": request, "artifacts": artifacts},
                 )
-                self.assertTrue(result.isError)
-                self.assertIsNone(result.structuredContent)
+                self.assertTrue(result.is_error)
+                self.assertIsNone(result.structured_content)
 
 
 class RsiMcpClientTest(unittest.TestCase):
@@ -120,10 +120,53 @@ class RsiMcpClientTest(unittest.TestCase):
         self.assertIn("parrot", candidate)
         self.assertTrue(progress)
 
+    def test_mcp_v2_legacy_session_routes_sampling_to_the_gateway(self) -> None:
+        request, artifacts = fixture()
+        request["proposer"] = "gateway"
+        request["budget"]["maxModelCalls"] = 1
+        request["optimizer"]["configDigest"] = optimize.canonical_config_digest(request)
+        capability_client = SamplingCapabilityClient()
+
+        report, candidate = rsi_client.run_rsi_optimizer(
+            request=request,
+            artifacts=artifacts,
+            capability_client=capability_client,
+            cancel_check=lambda: False,
+            progress=lambda _message, _fraction: None,
+        )
+
+        self.assertEqual(report["proposer"], "gateway")
+        self.assertEqual(report["modelCalls"], 1)
+        self.assertEqual(report["tokens"], 1)
+        self.assertEqual(candidate, BASELINE)
+        self.assertEqual(len(capability_client.requests), 1)
+        self.assertEqual(
+            capability_client.requests[0]["model"], request["targetModelFingerprint"]
+        )
+
 
 class NoModelCapabilityClient:
     def call(self, *_args, **_kwargs):
         raise AssertionError("deterministic GEPA must not request MCP sampling")
+
+
+class SamplingCapabilityClient:
+    def __init__(self) -> None:
+        self.requests: list[dict] = []
+
+    def call(self, namespace, name, payload, timeout_ms=None):
+        if namespace != "skill_evolution" or name != "model.generate":
+            raise AssertionError("sampling must use the granted model gateway")
+        if not isinstance(payload.get("messages"), list):
+            raise AssertionError("sampling must include messages")
+        self.requests.append(payload)
+        return {
+            "status": "succeeded",
+            "value": {
+                "content": "[[ ## answer ## ]]\nwrong",
+                "usage": {"totalTokens": 1},
+            },
+        }
 
 
 def fixture() -> tuple[dict, dict[str, str]]:

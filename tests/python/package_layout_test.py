@@ -24,7 +24,7 @@ class PackageLayoutTest(unittest.TestCase):
         self.assertEqual(project["project"]["name"], "swarmx")
         self.assertEqual(
             project["project"]["dependencies"],
-            ["dspy==3.3.0", "libzim==3.12.0", "mcp==1.27.0"],
+            ["dspy==3.3.0", "libzim==3.12.0", "mcp==2.0.0"],
         )
         self.assertEqual(
             project["project"]["scripts"],
@@ -46,6 +46,7 @@ class PackageLayoutTest(unittest.TestCase):
             importlib.metadata.version("swarmx"),
             "3.2.0",
         )
+        self.assertEqual(importlib.metadata.version("mcp"), "2.0.0")
         distributions = {
             distribution.metadata["Name"]
             for distribution in importlib.metadata.distributions()
