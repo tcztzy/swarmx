@@ -18,6 +18,9 @@ runtime diagnostics.
   work only.
 - [Publication-first research strategy](publication-research-strategy.md) -
   ontology, information bounds, decisive experiments, and stop conditions.
+- [Agentic execution ontology charter](agentic-execution-ontology.md) -
+  identity rules, disjoint categories, action lifecycle, and operational
+  invariants for the research program.
 - [Repository README](https://github.com/tcztzy/swarmx/blob/main/README.md) -
   installation and source development.
 

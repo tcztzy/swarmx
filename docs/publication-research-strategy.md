@@ -21,11 +21,13 @@ Working title:
 > **State, Not Steps: Dual Information Bottlenecks in Verifiable Agent
 > Operations**
 
-The immediate next action is one definition page with three parts: a four-way
-Task distinction, a typed action lifecycle, and the `X / H / Z / M / C*`
-information model below. Then hand-check four compression twins and four
-observability twins. Do not implement the simulator until these objects and
-their identity rules are coherent.
+The definition baseline is frozen in the
+[agentic execution ontology charter](agentic-execution-ontology.md): a four-way
+Task distinction, typed action lifecycle, explicit identity and disjointness
+rules, and the `X / H / Z / M / C*` symbol boundary. The next action is to
+freeze continuation equivalence and hand-check four compression twins and four
+observability twins. Do not implement the simulator until those definitions and
+fixtures are coherent.
 
 The paper's single claim is:
 
@@ -40,6 +42,10 @@ executor replacement become experimental conditions of this general claim.
 They are not separate contributions.
 
 ## The ontological thesis
+
+The [ontology charter](agentic-execution-ontology.md) is authoritative for the
+operational terms, identity criteria, category-error matrix, and stable
+`ONT-*` invariants summarized in this section.
 
 The basic unit of agentic computation is not a message or tool call. It is a
 controlled transition in a temporally extended task, followed by evidence about

@@ -25,7 +25,7 @@ when their stated decision or artifact is recorded.
 
 ## P1: freeze the formal claim before code
 
-- [ ] Define the agentic execution system without changing SwarmX Agent
+- [x] Define the agentic execution system without changing SwarmX Agent
   identity. Distinguish latent world, observable history, belief, task contract,
   Task instance/WorkItem, Run, residual task state, normative state, action
   specification, intention, request, authorization, occurrence, effect
