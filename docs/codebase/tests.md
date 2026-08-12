@@ -13,7 +13,7 @@ and CLI send composition. Per-file thresholds live only in `vitest.config.ts`.
 | --- |
 | `packages/core/tests/acp.test.ts`, `actions.test.ts`, `activity.test.ts`, `audit.test.ts`, `agent-profiles.test.ts`, `agent.test.ts`, `builtin-tools.test.ts`, `context.test.ts` |
 | `packages/core/tests/conversation.test.ts`, `dependencies.test.ts`, `desktop-settings.test.ts`, `edge.test.ts`, `memory-links.test.ts`, `memory.test.ts`, `packages/core/tests/memory-runtime-protocol.test.ts`, `extension-management.test.ts`, `extensions.test.ts`, `harness-management.test.ts`, `harness.test.ts` |
-| `packages/core/tests/mcp.test.ts`, `media.test.ts`, `model-capabilities.test.ts`, `n8n.test.ts`, `personal-memory.test.ts`, `project.test.ts`, `providers.test.ts`, `rendering.test.ts`, `secrets.test.ts` |
+| `packages/core/tests/mcp.test.ts`, `media.test.ts`, `model-capabilities.test.ts`, `agent-guidance.test.ts`, `n8n.test.ts`, `personal-memory.test.ts`, `project.test.ts`, `providers.test.ts`, `rendering.test.ts`, `secrets.test.ts` |
 | `packages/core/tests/server.test.ts`, `session-discovery.test.ts`, `session.test.ts`, `skill-variants.test.ts`, `swarm-eval.test.ts`, `swarm.test.ts`, `telemetry.test.ts`, `version.test.ts` |
 | `packages/core/tests/skill-evolution.test.ts`, `skill-evolution-store.test.ts`, `skill-evolution-service.test.ts`, `skill-evaluation.test.ts`, `skill-delivery.test.ts` |
 | `packages/core/tests/task-runtime.test.ts` |
@@ -74,6 +74,7 @@ Exact Core test paths: `packages/core/tests/acp.test.ts`,
 `packages/core/tests/extensions.test.ts`, `packages/core/tests/harness-management.test.ts`,
 `packages/core/tests/harness.test.ts`, `packages/core/tests/mcp.test.ts`,
 `packages/core/tests/media.test.ts`, `packages/core/tests/model-capabilities.test.ts`,
+`packages/core/tests/agent-guidance.test.ts`,
 `packages/core/tests/n8n.test.ts`, `packages/core/tests/personal-memory.test.ts`,
 `packages/core/tests/project.test.ts`,
 `packages/core/tests/providers.test.ts`, `packages/core/tests/rendering.test.ts`,

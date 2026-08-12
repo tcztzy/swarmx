@@ -61,6 +61,10 @@
       "types": "./dist/model-capabilities.d.ts",
       "import": "./dist/model-capabilities.js"
     },
+    "./agent-guidance": {
+      "types": "./dist/agent-guidance.d.ts",
+      "import": "./dist/agent-guidance.js"
+    },
     "./builtin-tools": {
       "types": "./dist/builtin-tools.d.ts",
       "import": "./dist/builtin-tools.js"

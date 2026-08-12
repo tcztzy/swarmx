@@ -26,6 +26,7 @@ Feature guides:
 - [Personal Memory](personal-memory.md)
 - [Memory](memory.md)
 - [Reference Library](reference-library.md)
+- [Model, Harness, and Agent guidance](agent-guidance.md)
 - [Durable task runtime](durable-task-runtime.md)
 - [Coding-agent Context Engine](context-engine.md)
 - [Context-policy evaluation](context-evaluation.md)

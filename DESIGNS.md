@@ -102,6 +102,18 @@ pinned adapter versions, launch commands, and backends. Runtime protection and
 Renderer workflow examples consume that registry instead of copying package
 versions or commands.
 
+Task suitability is a separate passive Core catalog. `agent-guidance.ts` owns
+the browser-safe schemas, source metadata, curated records, and deterministic
+queries for Model-, Harness-, and exact Agent-targeted guidance. Capability and
+Harness registries remain the hard compatibility authorities; guidance cannot
+make an unavailable route executable. Each record cites normalized evidence,
+the exact benchmark configuration, a review date, and limitations. A benchmark
+of an upstream native Harness is marked as indirect evidence for SwarmX's ACP
+adapter and never advertised as runtime parity. Missing records are unrated.
+The catalog is product-distributed metadata, not user Memory, Activity, or an
+evaluation-results store; user-specific conclusions may be admitted to Memory
+separately, while raw local benchmark runs keep their own structured evidence.
+
 The ordinary Desktop composer exposes Harness, Model, and Effort. It does not
 ask users to select an internal Provider route. Composition preflight validates
 the resulting matrix cell and reports missing runtime, connection, Skill, MCP,

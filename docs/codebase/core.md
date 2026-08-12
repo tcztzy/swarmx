@@ -99,6 +99,7 @@ An Agent remains `harnessId:modelId`.
 | --- | --- |
 | `packages/core/src/harness.ts` | Canonical built-in Harness recipes, software/version/command metadata, backend declarations, supported APIs, model controls, environment allowlists, and runtime/model compatibility. `pure` |
 | `packages/core/src/model-capabilities.ts` | Independent Model registry, capability metadata, reasoning normalization, validated Model/ModelSupply context-window and output limits, and Harness × Model inventory resolution. `pure` |
+| `packages/core/src/agent-guidance.ts` | Browser-safe, source-dated passive task guidance for Models, Harnesses, and exact Agents; strict benchmark provenance/attribution schemas, built-in target validation, and deterministic layered queries. It never changes compatibility, selection, Memory, or evaluation state. `pure` |
 | `packages/core/src/providers.ts` | Provider profile/supply schemas, compatibility modes, secret-reference validation/redaction, runtime environment construction, and route selection. `pure` + `secret` at call boundary |
 | `packages/core/src/extensions.ts` | Passive extension manifest discovery/validation, component inventory, trust-safe normalization, agent composition/preflight, extension-provided execution metadata, optional host hook-executor forwarding, and global Memory/reflection forwarding to the selected Agent execution path. `fs` + `pure` |
 | `packages/core/src/extension-management.ts` | Explicit extension install/update/rollback/trust/enable/repair plans and state transitions; discovery remains passive. `fs` |
@@ -131,7 +132,7 @@ An Agent remains `harnessId:modelId`.
 ## Core subpaths
 
 The manifest currently exposes root plus `rendering`, `telemetry`, `activity`,
-`dependencies`, `conversation`, `context-engine`, `context-engine-store`, `providers`, `model-capabilities`,
+`dependencies`, `conversation`, `context-engine`, `context-engine-store`, `providers`, `model-capabilities`, `agent-guidance`,
 `builtin-tools`, `harness-management`, `agent-profiles`, `desktop-settings`,
 `personal-memory`, `memory-links`, `memory`, `secrets`, `actions`, `skill-variants`,
 `extension-management`, `harness`, and `project`.

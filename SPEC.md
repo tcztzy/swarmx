@@ -199,6 +199,12 @@ implementation map, test plan, backlog, changelog, or incident log.
 
 - Discover Models from explicit Provider connections, Extension metadata, and
   manual declarations, then resolve a compatible `Harness x Model` route.
+- Export source-dated task guidance for Models, Harnesses, and exact Agents as
+  passive product metadata. Keep benchmark configuration, measured target,
+  review date, and limitations visible; never let guidance override runtime
+  compatibility or silently turn upstream Harness results into SwarmX parity.
+  Missing guidance means unrated, not weak or unsupported, and product guidance
+  remains separate from user-owned Memory and local evaluation evidence.
 - Create reusable Custom Agents from Harness recipes and Models, including
   deterministic Agent/Model-specific Skill variants.
 - Run a governed Skill self-improvement loop with immutable optimizer
@@ -308,9 +314,9 @@ implementation map, test plan, backlog, changelog, or incident log.
 ### Reusable platform
 
 - Export validated TypeScript contracts for orchestration, Sessions, Providers,
-  Models, Harnesses, Agent profiles, Extensions, Skills, actions, context,
-  normalized rendering, telemetry, managed dependencies, and the generic
-  durable-task runtime.
+  Models, Harnesses, source-dated Agent guidance, Agent profiles, Extensions,
+  Skills, actions, context, normalized rendering, telemetry, managed
+  dependencies, and the generic durable-task runtime.
 - Persist bounded local Memory as actual `USER.md` and `MEMORY.md` global files
   plus Markdown entity pages with CRUD, optimistic revision checks,
   title/alias/content search, and derived double-bracket links. All authored

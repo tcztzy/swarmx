@@ -69,6 +69,7 @@ export {
 } from "./activity.js";
 export type { AgentRuntimeOptions } from "./agent.js";
 export { Agent, HookRef } from "./agent.js";
+export * from "./agent-guidance.js";
 export type {
   AgentDefinitionDocument,
   AgentDefinitionFormat,
