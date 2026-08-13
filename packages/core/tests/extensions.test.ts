@@ -7,9 +7,11 @@ import {
   createExtensionInventory,
   executeAgentComposition,
   loadExtensionInventory,
+  type McpCapability,
   parseAgentCompositionPlan,
   parseExtensionBundle,
   resolveAgentComposition,
+  resolveAgentCompositionMcpRuntime,
   resolveAgentCompositionPlan,
   resolveAgentCompositionRuntimeEnv,
   SWARMX_LOCAL_FILES_LSP_ID,
@@ -25,6 +27,497 @@ afterEach(async () => {
 });
 
 describe("extension inventory", () => {
+  it("binds a required Project MCP service to one explicit Project runtime", () => {
+    const bundle = parseExtensionBundle({
+      id: "biology",
+      name: "Biology",
+      version: "1",
+      capabilities: {
+        models: [
+          {
+            id: "research-model",
+            label: "Research Model",
+            runtimeModel: "research-model",
+            apiProtocols: ["openai_responses"],
+          },
+        ],
+        harnesses: [
+          {
+            id: "swarmx-direct",
+            label: "SwarmX Direct",
+            modelControl: "direct",
+            modelCompatibility: "declared_apis",
+            supportedModelApis: ["openai_responses"],
+            backend: { type: "swarmx" },
+          },
+        ],
+        mcpServers: [
+          {
+            id: "biology.project-registry",
+            scope: "project",
+            activation: "required",
+            server: {
+              type: "stdio",
+              command: "biology-project-service",
+              cwd: "/manifest/must-not-win",
+            },
+            projectService: {
+              serverName: "biology-project-service",
+              serverVersion: "1",
+              bootstrapTool: "project_bootstrap",
+              tools: ["project_bootstrap"],
+            },
+          },
+          {
+            id: "biology.site-policy",
+            scope: "project",
+            activation: "required",
+            server: {
+              type: "stdio",
+              command: "biology-site-policy",
+            },
+          },
+          {
+            id: "legacy-project-mcp",
+            scope: "project",
+            server: {
+              type: "stdio",
+              command: "legacy-project-server",
+              cwd: "/legacy/project",
+            },
+          },
+        ],
+        agents: [
+          {
+            id: "biology-agent",
+            name: "Biology Agent",
+            harnessId: "swarmx-direct",
+            modelId: "research-model",
+            mcpServers: ["biology.project-registry", "biology.site-policy"],
+          },
+          {
+            id: "legacy-agent",
+            name: "Legacy Agent",
+            harnessId: "swarmx-direct",
+            modelId: "research-model",
+            mcpServers: ["legacy-project-mcp"],
+          },
+        ],
+      },
+    });
+    const inventory = createExtensionInventory([bundle]);
+    const composition = { id: "biology-run", agentProfileId: "biology-agent" };
+
+    expect(resolveAgentCompositionPlan(composition, inventory)).toMatchObject({
+      status: "ready",
+      mcpServers: [
+        {
+          id: "biology.project-registry",
+          scope: "project",
+          activation: "required",
+          status: "ok",
+        },
+        {
+          id: "biology.site-policy",
+          scope: "project",
+          activation: "required",
+          status: "ok",
+        },
+      ],
+    });
+    expect(
+      resolveAgentCompositionMcpRuntime(composition, inventory, {
+        cwd: "/team/projects/project-1",
+        project: { id: "project-1", root: "/team/projects/project-1" },
+      }),
+    ).toEqual({
+      mcpServers: {
+        "biology.project-registry": {
+          type: "stdio",
+          command: "biology-project-service",
+          cwd: "/team/projects/project-1",
+        },
+        "biology.site-policy": {
+          type: "stdio",
+          command: "biology-site-policy",
+          cwd: "/team/projects/project-1",
+        },
+      },
+      requiredMcpServers: ["biology.project-registry", "biology.site-policy"],
+      projectBootstrap: {
+        capabilityId: "biology.project-registry",
+        project: { id: "project-1", root: "/team/projects/project-1" },
+        serverName: "biology-project-service",
+        serverVersion: "1",
+        bootstrapTool: "project_bootstrap",
+        tools: ["project_bootstrap"],
+      },
+    });
+    expect(() =>
+      resolveAgentCompositionMcpRuntime(composition, inventory, {
+        cwd: "/personal/scratch",
+        project: { id: "project-1", root: "/team/projects/project-1" },
+      }),
+    ).toThrow(/does not match.*Project root/i);
+    expect(
+      resolveAgentCompositionMcpRuntime(composition, inventory, {
+        cwd: "/team/projects/other/../project-1/",
+        project: { id: "project-1", root: "/team/projects/project-1" },
+      }).mcpServers["biology.project-registry"],
+    ).toMatchObject({ cwd: "/team/projects/project-1" });
+    expect(() => resolveAgentCompositionMcpRuntime(composition, inventory)).toThrow(
+      /requires an active Project/i,
+    );
+    expect(
+      resolveAgentCompositionMcpRuntime(
+        { id: "legacy-run", agentProfileId: "legacy-agent" },
+        inventory,
+      ),
+    ).toEqual({
+      mcpServers: {
+        "legacy-project-mcp": {
+          type: "stdio",
+          command: "legacy-project-server",
+          cwd: "/legacy/project",
+        },
+      },
+      requiredMcpServers: [],
+    });
+    expect(
+      resolveAgentCompositionMcpRuntime(
+        { id: "legacy-run", agentProfileId: "legacy-agent" },
+        inventory,
+        { allowUnboundProjectMcp: false },
+      ),
+    ).toEqual({ mcpServers: {}, requiredMcpServers: [] });
+  });
+
+  it("lets a host disable all Agent-facing Extension MCP", async () => {
+    const bundle = parseExtensionBundle({
+      id: "host-policy",
+      name: "Host Policy",
+      version: "1",
+      capabilities: {
+        models: [
+          {
+            id: "research-model",
+            label: "Research Model",
+            runtimeModel: "research-model",
+            apiProtocols: ["openai_responses"],
+          },
+        ],
+        harnesses: [
+          {
+            id: "swarmx-direct",
+            label: "SwarmX Direct",
+            modelControl: "direct",
+            modelCompatibility: "declared_apis",
+            supportedModelApis: ["openai_responses"],
+            backend: { type: "swarmx" },
+          },
+        ],
+        mcpServers: [
+          {
+            id: "user-auto",
+            activation: "auto",
+            server: { type: "stdio", command: "user-auto-server" },
+          },
+          {
+            id: "project-auto",
+            scope: "project",
+            activation: "auto",
+            server: { type: "stdio", command: "project-auto-server" },
+          },
+          {
+            id: "user-off",
+            activation: "off",
+            server: { type: "stdio", command: "user-off-server" },
+          },
+          {
+            id: "user-required",
+            activation: "required",
+            server: { type: "stdio", command: "user-required-server" },
+          },
+          {
+            id: "project-required",
+            scope: "project",
+            activation: "required",
+            server: { type: "stdio", command: "project-required-server" },
+          },
+        ],
+        agents: [
+          {
+            id: "auto-agent",
+            name: "Auto Agent",
+            harnessId: "swarmx-direct",
+            modelId: "research-model",
+            mcpServers: ["user-auto", "project-auto", "user-off"],
+          },
+          {
+            id: "required-agent",
+            name: "Required Agent",
+            harnessId: "swarmx-direct",
+            modelId: "research-model",
+            mcpServers: ["user-required"],
+          },
+          {
+            id: "project-required-agent",
+            name: "Project Required Agent",
+            harnessId: "swarmx-direct",
+            modelId: "research-model",
+            mcpServers: ["project-required"],
+          },
+        ],
+      },
+    });
+    const inventory = createExtensionInventory([bundle]);
+    const project = { id: "project-1", root: "/team/projects/project-1" };
+    const autoComposition = { id: "auto-run", agentProfileId: "auto-agent" };
+
+    expect(
+      resolveAgentCompositionMcpRuntime(autoComposition, inventory, {
+        cwd: project.root,
+        project,
+      }),
+    ).toEqual({
+      mcpServers: {
+        "user-auto": { type: "stdio", command: "user-auto-server" },
+        "project-auto": {
+          type: "stdio",
+          command: "project-auto-server",
+          cwd: project.root,
+        },
+      },
+      requiredMcpServers: [],
+    });
+    expect(
+      resolveAgentCompositionMcpRuntime(autoComposition, inventory, {
+        cwd: project.root,
+        project,
+        allowAgentFacingMcp: false,
+        allowUnboundProjectMcp: true,
+      }),
+    ).toEqual({ mcpServers: {}, requiredMcpServers: [] });
+    expect(() =>
+      resolveAgentCompositionMcpRuntime(
+        { id: "required-run", agentProfileId: "required-agent" },
+        inventory,
+        { allowAgentFacingMcp: false },
+      ),
+    ).toThrow(/required Agent-facing MCP server "user-required" is disabled by host policy/i);
+    expect(() =>
+      resolveAgentCompositionMcpRuntime(
+        { id: "project-required-run", agentProfileId: "project-required-agent" },
+        inventory,
+        {
+          cwd: project.root,
+          project,
+          allowAgentFacingMcp: false,
+        },
+      ),
+    ).toThrow(/required Agent-facing MCP server "project-required" is disabled by host policy/i);
+    await expect(
+      executeAgentComposition(
+        { id: "required-run", agentProfileId: "required-agent" },
+        [{ role: "user", content: "hello" }],
+        { inventory, allowAgentFacingMcp: false },
+      ),
+    ).rejects.toThrow(
+      /required Agent-facing MCP server "user-required" is disabled by host policy/i,
+    );
+  });
+
+  it("keeps legacy MCP activation best-effort and blocks invalid required services", () => {
+    const legacyCapability: McpCapability = { id: "legacy-mcp" };
+    const legacy = parseExtensionBundle({
+      id: "legacy",
+      name: "Legacy",
+      version: "1",
+      capabilities: {
+        mcpServers: [
+          {
+            id: "legacy-mcp",
+            server: { type: "stdio", command: "legacy-server" },
+          },
+        ],
+      },
+    });
+    expectTypeOf(legacyCapability).toMatchTypeOf<McpCapability>();
+    expect(legacyCapability.activation).toBeUndefined();
+    expect(legacy.capabilities.mcpServers[0]).not.toHaveProperty("activation");
+    expect(() =>
+      parseExtensionBundle({
+        id: "unsafe-project-service",
+        name: "Unsafe Project Service",
+        version: "1",
+        capabilities: {
+          mcpServers: [
+            {
+              id: "unsafe <service>",
+              scope: "project",
+              activation: "required",
+              server: { type: "stdio", command: "project-service" },
+              projectService: {
+                serverName: "project-service",
+                serverVersion: "1",
+                bootstrapTool: "project_bootstrap",
+                tools: ["project_bootstrap"],
+              },
+            },
+          ],
+        },
+      }),
+    ).toThrow(/safe Project bootstrap identifier/i);
+
+    const invalid = parseExtensionBundle({
+      id: "invalid-project-service",
+      name: "Invalid Project Service",
+      version: "1",
+      capabilities: {
+        models: [
+          {
+            id: "research-model",
+            label: "Research Model",
+            runtimeModel: "research-model",
+            apiProtocols: ["openai_responses"],
+          },
+        ],
+        harnesses: [
+          {
+            id: "swarmx-direct",
+            label: "SwarmX Direct",
+            modelControl: "direct",
+            modelCompatibility: "declared_apis",
+            supportedModelApis: ["openai_responses"],
+            backend: { type: "swarmx" },
+          },
+        ],
+        mcpServers: [
+          {
+            id: "missing-launch",
+            scope: "project",
+            activation: "required",
+            projectService: {
+              serverName: "biology-project-service",
+              serverVersion: "1",
+              bootstrapTool: "project_bootstrap",
+              tools: ["project_bootstrap"],
+            },
+          },
+        ],
+        agents: [
+          {
+            id: "biology-agent",
+            name: "Biology Agent",
+            harnessId: "swarmx-direct",
+            modelId: "research-model",
+            mcpServers: ["missing-launch"],
+          },
+        ],
+      },
+    });
+    const inventory = createExtensionInventory([invalid]);
+    const composition = { id: "biology-run", agentProfileId: "biology-agent" };
+
+    expect(resolveAgentCompositionPlan(composition, inventory)).toMatchObject({
+      status: "blocked",
+      requirements: expect.arrayContaining([
+        expect.objectContaining({
+          kind: "mcp_server",
+          id: "missing-launch",
+          status: "unavailable",
+        }),
+      ]),
+    });
+    expect(() => resolveAgentComposition(composition, inventory)).toThrow(/blocked/i);
+  });
+
+  it("does not claim required Agent-facing MCP support for an external ACP Harness", () => {
+    const bundle = parseExtensionBundle({
+      id: "external-project-service",
+      name: "External Project Service",
+      version: "1",
+      capabilities: {
+        models: [
+          {
+            id: "research-model",
+            label: "Research Model",
+            runtimeModel: "research-model",
+            apiProtocols: ["openai_responses"],
+          },
+        ],
+        harnesses: [
+          {
+            id: "external",
+            label: "External",
+            modelControl: "session",
+            modelCompatibility: "any",
+            supportedModelApis: ["openai_responses"],
+            backend: { type: "custom", program: "external-agent" },
+          },
+        ],
+        mcpServers: [
+          {
+            id: "required-project-service",
+            scope: "project",
+            activation: "required",
+            server: { type: "stdio", command: "project-service" },
+            projectService: {
+              serverName: "project-service",
+              serverVersion: "1",
+              bootstrapTool: "project_bootstrap",
+              tools: ["project_bootstrap"],
+            },
+          },
+        ],
+        agents: [
+          {
+            id: "external-agent",
+            name: "External Agent",
+            harnessId: "external",
+            modelId: "research-model",
+            mcpServers: ["required-project-service"],
+          },
+        ],
+      },
+    });
+
+    expect(
+      resolveAgentCompositionPlan(
+        { id: "external-run", agentProfileId: "external-agent" },
+        createExtensionInventory([bundle]),
+      ),
+    ).toMatchObject({
+      status: "blocked",
+      requirements: expect.arrayContaining([
+        expect.objectContaining({
+          kind: "mcp_server",
+          id: "required-project-service",
+          status: "unsupported",
+        }),
+      ]),
+    });
+
+    const externalHarness = bundle.capabilities.harnesses[0];
+    if (!externalHarness) throw new Error("External Harness fixture is missing.");
+    externalHarness.backend = { type: "claude_code" };
+    expect(
+      resolveAgentCompositionPlan(
+        { id: "external-run", agentProfileId: "external-agent" },
+        createExtensionInventory([bundle]),
+      ),
+    ).toMatchObject({
+      status: "blocked",
+      requirements: expect.arrayContaining([
+        expect.objectContaining({
+          kind: "mcp_server",
+          id: "required-project-service",
+          status: "unsupported",
+        }),
+      ]),
+    });
+  });
+
   it("preserves typed Provider runtime readiness metadata", () => {
     const inventory = createExtensionInventory([
       parseExtensionBundle({

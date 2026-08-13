@@ -125,6 +125,10 @@
       "types": "./dist/project.d.ts",
       "import": "./dist/project.js"
     },
+    "./project-bootstrap": {
+      "types": "./dist/project-bootstrap.d.ts",
+      "import": "./dist/project-bootstrap.js"
+    },
     "./task-runtime": {
       "types": "./dist/task-runtime.d.ts",
       "import": "./dist/task-runtime.js"

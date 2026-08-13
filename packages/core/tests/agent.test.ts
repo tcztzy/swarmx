@@ -7,8 +7,10 @@ import {
   RequestCancelledError,
   withAcpRequest,
 } from "../src/acp.js";
-import { Agent, HookRef } from "../src/agent.js";
+import { Agent, HookRef, REQUIRED_MCP_CONNECT_TIMEOUT_MS } from "../src/agent.js";
 import {
+  type AgentContextEngine,
+  type CompiledContext,
   compileContext,
   createContextEvent,
   createContextHistorySnapshot,
@@ -1586,9 +1588,13 @@ describe("Agent", () => {
         },
       },
     });
-    const callTool = vi
-      .fn()
-      .mockResolvedValue(localToolResult("cloudy model text", { forecast: "cloudy" }));
+    const rawMcpMarker = "raw-mcp-wire-content";
+    const callTool = vi.fn().mockResolvedValue({
+      content: "cloudy model text",
+      structuredContent: { forecast: "cloudy" },
+      isError: false,
+      rawMcpContentBlocks: [{ type: "text", text: rawMcpMarker }],
+    });
     installMockMcp(agent, callTool);
     const create = vi
       .fn()
@@ -1658,6 +1664,7 @@ describe("Agent", () => {
         },
       ]),
     );
+    expect(JSON.stringify(create.mock.calls[1]?.[0]?.messages)).not.toContain(rawMcpMarker);
     expect(callTool).toHaveBeenCalledWith(
       "weather",
       { city: "Shanghai" },
@@ -1676,6 +1683,7 @@ describe("Agent", () => {
         expect.objectContaining({ kind: "message", content: "It is cloudy." }),
       ]),
     );
+    expect(JSON.stringify(result.messages)).not.toContain(rawMcpMarker);
   });
 
   it("continues Anthropic pause_turn with the complete assistant content", async () => {
@@ -2482,6 +2490,441 @@ describe("Agent", () => {
     ).toEqual(["Bash", "ToolSearch", "WaitForMcpServers"]);
   });
 
+  it("fails before the Provider request when a required MCP server cannot connect", async () => {
+    const manager = new McpManager({
+      connectServer: async () => {
+        throw new Error("connection refused");
+      },
+    });
+    const agent = new Agent(
+      {
+        name: "required_mcp",
+        model: "gpt-required",
+        client: { apiProtocol: "openai_responses" },
+        process: { env: { OPENAI_API_KEY: "scoped-key" } },
+        mcpServers: { registry: { type: "stdio", command: "unused" } },
+      },
+      {
+        createMcpManager: () => manager,
+        requiredMcpServers: ["registry"],
+      },
+    );
+    const create = vi.fn();
+    Object.defineProperty(agent.client.responses, "create", { value: create });
+
+    await expect(
+      agent.call({ messages: [{ role: "user", content: "Start analysis" }] }),
+    ).rejects.toThrow(/Required MCP server "registry".*connection refused/i);
+    expect(create).not.toHaveBeenCalled();
+    expect(manager.toolsForNative()).toEqual([]);
+  });
+
+  it("allows required MCP services only on the direct SwarmX backend", () => {
+    expect(
+      () =>
+        new Agent(
+          {
+            name: "external_required_mcp",
+            model: "gpt-project",
+            backend: { type: "claude_code" },
+            mcpServers: { registry: { type: "stdio", command: "unused" } },
+          },
+          { requiredMcpServers: ["registry"] },
+        ),
+    ).toThrow(/direct SwarmX backend/i);
+  });
+
+  it("keeps auto MCP connection failure best-effort", async () => {
+    const manager = new McpManager({
+      connectServer: async () => {
+        throw new Error("optional service unavailable");
+      },
+    });
+    const agent = new Agent(
+      {
+        name: "auto_mcp",
+        model: "gpt-auto",
+        client: { apiProtocol: "openai_responses" },
+        process: { env: { OPENAI_API_KEY: "scoped-key" } },
+        mcpServers: { optional: { type: "stdio", command: "unused" } },
+      },
+      { createMcpManager: () => manager },
+    );
+    const create = vi.fn().mockResolvedValue(completedResponse("resp_auto", "Done."));
+    Object.defineProperty(agent.client.responses, "create", { value: create });
+
+    await expect(
+      agent.call({ messages: [{ role: "user", content: "Continue" }] }),
+    ).resolves.toMatchObject({ messages: [expect.objectContaining({ content: "Done." })] });
+    expect(create).toHaveBeenCalledTimes(1);
+  });
+
+  it("connects foreground MCP servers concurrently with bounded auto failures", async () => {
+    const manager = new McpManager();
+    let activeConnections = 0;
+    let maxActiveConnections = 0;
+    const addServer = vi.spyOn(manager, "addServer").mockImplementation(async (name) => {
+      activeConnections++;
+      maxActiveConnections = Math.max(maxActiveConnections, activeConnections);
+      await Promise.resolve();
+      activeConnections--;
+      if (name === "optional") throw new Error("connection timed out");
+    });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const agent = new Agent(
+      {
+        name: "concurrent_foreground_mcp",
+        model: "gpt-concurrent",
+        client: { apiProtocol: "openai_responses" },
+        process: { env: { OPENAI_API_KEY: "scoped-key" } },
+        mcpServers: {
+          registry: { type: "stdio", command: "unused" },
+          optional: { type: "stdio", command: "unused" },
+        },
+      },
+      {
+        createMcpManager: () => manager,
+        requiredMcpServers: ["registry"],
+      },
+    );
+    const create = vi.fn().mockResolvedValue(completedResponse("resp_concurrent", "Done."));
+    Object.defineProperty(agent.client.responses, "create", { value: create });
+
+    try {
+      await expect(
+        agent.call({ messages: [{ role: "user", content: "Continue" }] }),
+      ).resolves.toMatchObject({ messages: [expect.objectContaining({ content: "Done." })] });
+      expect(warn).toHaveBeenCalledWith(expect.stringMatching(/optional.*timed out/i));
+    } finally {
+      warn.mockRestore();
+    }
+
+    expect(maxActiveConnections).toBe(2);
+    expect(addServer).toHaveBeenCalledTimes(2);
+    for (const call of addServer.mock.calls) {
+      expect(call[3]).toEqual({ timeoutMs: REQUIRED_MCP_CONNECT_TIMEOUT_MS });
+    }
+    expect(create).toHaveBeenCalledTimes(1);
+  });
+
+  it("awaits a required MCP server for Claude tool profiles", async () => {
+    const manager = new McpManager({
+      connectServer: async () => {
+        throw new Error("required Claude service unavailable");
+      },
+    });
+    const agent = new Agent(
+      {
+        name: "claude_required_mcp",
+        model: "claude-sonnet-4-6",
+        client: { apiProtocol: "openai_responses" },
+        process: { env: { OPENAI_API_KEY: "scoped-key" } },
+        mcpServers: { registry: { type: "stdio", command: "unused" } },
+      },
+      {
+        createMcpManager: () => manager,
+        requiredMcpServers: ["registry"],
+        localTools: [
+          {
+            name: "Bash",
+            inputSchema: { type: "object" },
+            call: async () => ({ ok: true }),
+          },
+        ],
+      },
+    );
+    const create = vi.fn();
+    Object.defineProperty(agent.client.responses, "create", { value: create });
+
+    await expect(
+      agent.call({ messages: [{ role: "user", content: "Start analysis" }] }),
+    ).rejects.toThrow(/Required MCP server "registry"/i);
+    expect(create).not.toHaveBeenCalled();
+  });
+
+  it("awaits multiple required Claude MCP servers concurrently", async () => {
+    const manager = new McpManager();
+    vi.spyOn(manager, "startServer").mockImplementation(() => undefined);
+    let activeConnections = 0;
+    let maxActiveConnections = 0;
+    const addServer = vi.spyOn(manager, "addServer").mockImplementation(async () => {
+      activeConnections++;
+      maxActiveConnections = Math.max(maxActiveConnections, activeConnections);
+      await Promise.resolve();
+      activeConnections--;
+    });
+    const agent = new Agent(
+      {
+        name: "claude_concurrent_required_mcp",
+        model: "claude-sonnet-4-6",
+        client: { apiProtocol: "openai_responses" },
+        process: { env: { OPENAI_API_KEY: "scoped-key" } },
+        mcpServers: {
+          registry: { type: "stdio", command: "unused" },
+          policy: { type: "stdio", command: "unused" },
+        },
+      },
+      {
+        createMcpManager: () => manager,
+        requiredMcpServers: ["registry", "policy"],
+        localTools: [
+          {
+            name: "Bash",
+            inputSchema: { type: "object" },
+            call: async () => ({ ok: true }),
+          },
+        ],
+      },
+    );
+    const create = vi.fn().mockResolvedValue(completedResponse("resp_claude_concurrent", "Done."));
+    Object.defineProperty(agent.client.responses, "create", { value: create });
+
+    await agent.call({ messages: [{ role: "user", content: "Start analysis" }] });
+
+    expect(maxActiveConnections).toBe(2);
+    expect(addServer).toHaveBeenCalledTimes(2);
+    for (const call of addServer.mock.calls) {
+      expect(call[3]).toEqual({ timeoutMs: REQUIRED_MCP_CONNECT_TIMEOUT_MS });
+    }
+    expect(create).toHaveBeenCalledTimes(1);
+  });
+
+  it("loads one fresh bounded Project bootstrap before each Provider request", async () => {
+    let registryRevision = "registry-1";
+    const order: string[] = [];
+    const callTool = vi.fn(async () => {
+      order.push("bootstrap");
+      const snapshot = {
+        schemaVersion: 1 as const,
+        projectId: "project-1",
+        registryRevision,
+        activeRunRefs: ["run-1"],
+        openDecisionRefs: [],
+        siteProfileVersion: "team-lsf-v3",
+        storageStatus: "ready" as const,
+        quotaStatus: "constrained" as const,
+      };
+      return {
+        content: [{ type: "text", text: JSON.stringify(snapshot) }],
+        structuredContent: snapshot,
+      };
+    });
+    const receipts: Array<{ registryRevision: string }> = [];
+    const compiledContext = {
+      context: "Compiled request context.",
+      manifest: {},
+    } as unknown as CompiledContext;
+    const compile = vi.fn(() => {
+      order.push("preflight");
+      return compiledContext;
+    });
+    const finalize = vi.fn(() => {
+      order.push("finalize");
+      return compiledContext;
+    });
+    const agent = new Agent(
+      {
+        name: "project_bootstrap_agent",
+        model: "gpt-project",
+        client: { apiProtocol: "openai_responses" },
+        process: { env: { OPENAI_API_KEY: "scoped-key" } },
+        mcpServers: { registry: { type: "stdio", command: "unused" } },
+      },
+      {
+        createMcpManager: () =>
+          new McpManager({
+            connectServer: async () => {
+              order.push("connect");
+              return {
+                serverInfo: { name: "biology-project-service", version: "1" },
+                client: {
+                  callTool,
+                  close: vi.fn().mockResolvedValue(undefined),
+                } as unknown as McpConnectionResult["client"],
+                tools: [
+                  {
+                    name: "project_bootstrap",
+                    description: "Read the bounded Project bootstrap.",
+                    inputSchema: { type: "object" },
+                  },
+                ],
+                close: vi.fn().mockResolvedValue(undefined),
+              };
+            },
+          }),
+        requiredMcpServers: ["registry"],
+        projectBootstrap: {
+          capabilityId: "registry",
+          project: { id: "project-1", root: "/team/projects/project-1" },
+          serverName: "biology-project-service",
+          serverVersion: "1",
+          bootstrapTool: "project_bootstrap",
+          tools: ["project_bootstrap"],
+        },
+        onProjectBootstrap: (receipt) => {
+          receipts.push(receipt);
+        },
+        contextEngine: { compile, finalize },
+      },
+    );
+    const create = vi.fn().mockImplementation(async () => {
+      order.push("provider");
+      return completedResponse("resp_project_bootstrap", "Done.");
+    });
+    Object.defineProperty(agent.client.responses, "create", { value: create });
+
+    await agent.call({ messages: [{ role: "user", content: "Inspect the Project" }] });
+    registryRevision = "registry-2";
+    await agent.call({ messages: [{ role: "user", content: "Inspect it again" }] });
+
+    expect(callTool).toHaveBeenCalledTimes(2);
+    expect(callTool).toHaveBeenNthCalledWith(
+      1,
+      {
+        name: "project_bootstrap",
+        arguments: {
+          schemaVersion: 1,
+          projectId: "project-1",
+          projectRoot: "/team/projects/project-1",
+        },
+      },
+      undefined,
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    );
+    expect(receipts.map((receipt) => receipt.registryRevision)).toEqual([
+      "registry-1",
+      "registry-2",
+    ]);
+    expect(create.mock.calls[0]?.[0]?.instructions).toContain("registry-1");
+    expect(create.mock.calls[0]?.[0]?.instructions).not.toContain("registry-2");
+    expect(create.mock.calls[1]?.[0]?.instructions).toContain("registry-2");
+    expect(finalize.mock.calls[0]?.[0]?.instructions).toContain("registry-1");
+    expect(
+      JSON.stringify(finalize.mock.calls[0]?.[0]?.requestBudget.toolDefinitions),
+    ).not.toContain("project_bootstrap");
+    expect(order.slice(0, 5)).toEqual([
+      "preflight",
+      "connect",
+      "bootstrap",
+      "finalize",
+      "provider",
+    ]);
+  });
+
+  it("rejects a mismatched required MCP surface before the Provider request", async () => {
+    const agent = new Agent(
+      {
+        name: "project_surface_agent",
+        model: "gpt-project",
+        client: { apiProtocol: "openai_responses" },
+        process: { env: { OPENAI_API_KEY: "scoped-key" } },
+        mcpServers: { registry: { type: "stdio", command: "unused" } },
+      },
+      {
+        createMcpManager: () =>
+          new McpManager({
+            connectServer: async () => ({
+              serverInfo: { name: "unexpected-server", version: "1" },
+              client: {
+                callTool: vi.fn(),
+                close: vi.fn().mockResolvedValue(undefined),
+              } as unknown as McpConnectionResult["client"],
+              tools: [{ name: "project_bootstrap", inputSchema: { type: "object" } }],
+              close: vi.fn().mockResolvedValue(undefined),
+            }),
+          }),
+        requiredMcpServers: ["registry"],
+        projectBootstrap: {
+          capabilityId: "registry",
+          project: { id: "project-1", root: "/team/projects/project-1" },
+          serverName: "biology-project-service",
+          serverVersion: "1",
+          bootstrapTool: "project_bootstrap",
+          tools: ["project_bootstrap"],
+        },
+      },
+    );
+    const create = vi.fn();
+    Object.defineProperty(agent.client.responses, "create", { value: create });
+
+    await expect(
+      agent.call({ messages: [{ role: "user", content: "Start analysis" }] }),
+    ).rejects.toThrow(/Required MCP server "registry".*identity/i);
+    expect(create).not.toHaveBeenCalled();
+  });
+
+  it("recompiles a compile-only Context Engine with the Project bootstrap budget", async () => {
+    const snapshot = {
+      schemaVersion: 1 as const,
+      projectId: "project-1",
+      registryRevision: "registry-compile-only",
+      activeRunRefs: [],
+      openDecisionRefs: [],
+    };
+    const compile = vi.fn(
+      (input: { instructions: string; requestId: string; requestBudget?: { phase?: string } }) => ({
+        context: `compiled:${input.requestBudget?.phase ?? "unknown"}`,
+        items: [],
+        manifest: {
+          requestId: input.requestId,
+          phase: input.requestBudget?.phase ?? "unknown",
+        },
+      }),
+    ) as unknown as AgentContextEngine["compile"];
+    const onCompiled = vi.fn();
+    const agent = new Agent(
+      {
+        name: "compile_only_project_bootstrap",
+        model: "gpt-project",
+        client: { apiProtocol: "openai_responses" },
+        process: { env: { OPENAI_API_KEY: "scoped-key" } },
+        mcpServers: { registry: { type: "stdio", command: "unused" } },
+      },
+      {
+        createMcpManager: () =>
+          new McpManager({
+            connectServer: async () => ({
+              serverInfo: { name: "biology-project-service", version: "1" },
+              client: {
+                callTool: vi.fn().mockResolvedValue({
+                  content: [{ type: "text", text: JSON.stringify(snapshot) }],
+                  structuredContent: snapshot,
+                }),
+                close: vi.fn().mockResolvedValue(undefined),
+              } as unknown as McpConnectionResult["client"],
+              tools: [{ name: "project_bootstrap", inputSchema: { type: "object" } }],
+              close: vi.fn().mockResolvedValue(undefined),
+            }),
+          }),
+        requiredMcpServers: ["registry"],
+        projectBootstrap: {
+          capabilityId: "registry",
+          project: { id: "project-1", root: "/team/projects/project-1" },
+          serverName: "biology-project-service",
+          serverVersion: "1",
+          bootstrapTool: "project_bootstrap",
+          tools: ["project_bootstrap"],
+        },
+        contextEngine: { compile, onCompiled },
+      },
+    );
+    const create = vi
+      .fn()
+      .mockResolvedValue(completedResponse("resp_compile_only_project_bootstrap", "Done."));
+    Object.defineProperty(agent.client.responses, "create", { value: create });
+
+    await agent.call({ messages: [{ role: "user", content: "Inspect the Project" }] });
+
+    expect(compile).toHaveBeenCalledTimes(2);
+    expect(compile.mock.calls[0]?.[0]?.requestId).toBeTruthy();
+    expect(compile.mock.calls[1]?.[0]?.requestId).toBe(compile.mock.calls[0]?.[0]?.requestId);
+    expect(compile.mock.calls[1]?.[0]?.instructions).toContain("registry-compile-only");
+    expect(compile.mock.calls[1]?.[0]?.requestBudget?.phase).toBe("final");
+    expect(onCompiled).toHaveBeenCalledTimes(1);
+    expect(onCompiled).toHaveBeenCalledWith(expect.objectContaining({ phase: "final" }));
+    expect(create.mock.calls[0]?.[0]?.instructions).toContain("registry-compile-only");
+  });
+
   it.each(["anthropic", "openai_responses"] as const)(
     "passes request cancellation to native %s calls",
     async (apiProtocol) => {
@@ -2629,6 +3072,23 @@ function openAIResponseStream(response: unknown) {
     async *[Symbol.asyncIterator]() {
       yield { type: "response.completed", response };
     },
+  };
+}
+
+function completedResponse(id: string, text: string) {
+  return {
+    id,
+    status: "completed",
+    error: null,
+    output: [
+      {
+        id: `${id}_message`,
+        type: "message",
+        role: "assistant",
+        status: "completed",
+        content: [{ type: "output_text", text, annotations: [] }],
+      },
+    ],
   };
 }
 

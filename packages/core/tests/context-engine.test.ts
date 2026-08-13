@@ -502,6 +502,51 @@ describe("Session context adapter", () => {
     expect(onCompiled).toHaveBeenCalledWith(compiled.manifest);
   });
 
+  it("excludes persisted host receipts from Context Engine model projection", async () => {
+    const engine = createSessionContextEngine({
+      sessionId: "session_without_receipts",
+      history: [
+        { role: "user", content: "Inspect the active Project.", kind: "message" },
+        {
+          role: "system",
+          content: "stale-personal-memory-receipt",
+          kind: "message",
+          render: { source: "personal_memory_receipt" },
+        },
+        {
+          role: "system",
+          content: "stale-project-bootstrap-revision",
+          kind: "message",
+          render: { source: "project_bootstrap_receipt" },
+        },
+        {
+          role: "system",
+          content: "Current scheduled observation",
+          kind: "message",
+          render: { source: "scheduler" },
+        },
+        { role: "assistant", content: "Inspection complete.", kind: "message" },
+      ],
+    });
+
+    const compiled = await engine.compile({
+      requestId: "request_without_receipts",
+      agentName: "coding_agent",
+      modelVersion: "gpt-context",
+      instructions: "Follow repository instructions.",
+      arguments: { messages: [{ role: "user", content: "Continue." }] },
+      runtimeContext: {},
+    });
+    const projectedItems = compiled.items.map((item) => item.content).join("\n");
+
+    expect(compiled.context).toContain("Current scheduled observation");
+    expect(projectedItems).toContain("Current scheduled observation");
+    expect(compiled.context).not.toContain("stale-personal-memory-receipt");
+    expect(compiled.context).not.toContain("stale-project-bootstrap-revision");
+    expect(projectedItems).not.toContain("stale-personal-memory-receipt");
+    expect(projectedItems).not.toContain("stale-project-bootstrap-revision");
+  });
+
   it("rejects an orphan Session tool result before compiling Provider context", async () => {
     const engine = createSessionContextEngine({
       sessionId: "session_orphan",

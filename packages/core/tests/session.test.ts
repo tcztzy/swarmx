@@ -598,6 +598,40 @@ describe("Session", () => {
     expect(JSON.stringify(transient)).not.toContain("Old reply");
   });
 
+  it("keeps host receipts in a transient anchor without replaying them to the model", () => {
+    const source = createSession("side-receipts", "swarmx");
+    savedIds.push(source.id);
+    source.messages = [
+      { role: "user", content: "Parent request", kind: "message" },
+      {
+        role: "system",
+        content: "stale-project-revision",
+        kind: "message",
+        render: { source: "project_bootstrap_receipt" },
+      },
+      {
+        role: "system",
+        content: "stale-memory-summary",
+        kind: "message",
+        render: { source: "personal_memory_receipt" },
+      },
+      { role: "assistant", content: "Parent reply", kind: "message" },
+    ];
+    saveSession(source);
+    const transient = createTransientSessionFork({
+      id: source.id,
+      throughMessageIndex: 3,
+      expectedMessages: source.messages,
+    });
+    if (!transient) throw new Error("transient fork was not created");
+
+    expect(transient.anchorMessages).toHaveLength(4);
+    expect(transientSessionModelMessages(transient)).toEqual([
+      { role: "user", content: "Parent request" },
+      { role: "assistant", content: "Parent reply" },
+    ]);
+  });
+
   it("keeps multiple transient forks and their edits independently in memory", () => {
     const source = createSession("side-independent", "swarmx");
     savedIds.push(source.id);

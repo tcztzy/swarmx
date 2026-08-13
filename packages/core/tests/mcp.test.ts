@@ -37,6 +37,36 @@ describe("McpManager cancellation", () => {
     expect(callTool.mock.calls[0]?.[2]?.signal?.aborted).toBe(true);
   });
 
+  it("bounds direct host-side MCP tool calls with a timeout", async () => {
+    const manager = new McpManager();
+    const callTool = vi.fn(
+      (_params: unknown, _schema: unknown, options: { signal?: AbortSignal } | undefined) =>
+        new Promise<never>((_resolve, reject) => {
+          options?.signal?.addEventListener("abort", () => reject(options.signal?.reason), {
+            once: true,
+          });
+        }),
+    );
+    const clients = new Map([["registry", { callTool }]]);
+    Object.assign(manager as unknown as { clients: typeof clients; tools: unknown[] }, {
+      clients,
+      tools: [
+        {
+          name: "mcp__registry__project_bootstrap",
+          inputSchema: { type: "object" },
+          serverName: "registry",
+          remoteName: "project_bootstrap",
+          hostOnly: true,
+        },
+      ],
+    });
+
+    await expect(
+      manager.callServerTool("registry", "project_bootstrap", {}, { timeoutMs: 5 }),
+    ).rejects.toThrow();
+    expect(callTool.mock.calls[0]?.[2]?.signal?.aborted).toBe(true);
+  });
+
   it("closes connected clients and clears reusable state", async () => {
     const manager = new McpManager();
     const close = vi.fn(async () => undefined);
@@ -329,6 +359,166 @@ describe("McpManager cancellation", () => {
     );
     expect(betaCall).not.toHaveBeenCalled();
   });
+
+  it("verifies a required server identity and exact tool surface before publishing tools", async () => {
+    const close = vi.fn().mockResolvedValue(undefined);
+    const manager = new McpManager({
+      connectServer: async () => ({
+        serverInfo: { name: "wrong-project-service", version: "1" },
+        client: {
+          callTool: vi.fn(),
+          close,
+        } as unknown as McpConnectionResult["client"],
+        tools: [{ name: "project_bootstrap", inputSchema: { type: "object" } }],
+        close,
+      }),
+    });
+    await expect(
+      manager.addServer("registry", stdioConfig(), {
+        name: "biology-project-service",
+        version: "1",
+        tools: ["project_bootstrap"],
+      }),
+    ).rejects.toThrow(/identity/i);
+    expect(manager.toolsForNative()).toEqual([]);
+    expect(close).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects a verification contract added after tools were published", async () => {
+    const close = vi.fn().mockResolvedValue(undefined);
+    const manager = new McpManager({
+      connectServer: async () => ({
+        serverInfo: { name: "biology-project-service", version: "1" },
+        client: {
+          callTool: vi.fn(),
+          close,
+        } as unknown as McpConnectionResult["client"],
+        tools: [{ name: "project_bootstrap", inputSchema: { type: "object" } }],
+        close,
+      }),
+    });
+    await manager.addServer("registry", stdioConfig());
+    expect(manager.toolsForNative()).not.toEqual([]);
+
+    await expect(
+      manager.addServer("registry", stdioConfig(), {
+        name: "biology-project-service",
+        version: "1",
+        tools: ["project_bootstrap"],
+        hostOnlyTools: ["project_bootstrap"],
+      }),
+    ).rejects.toThrow(/different verification contract/i);
+    expect(manager.toolsForNative()).toEqual([]);
+    expect(close).toHaveBeenCalledTimes(1);
+  });
+
+  it("tracks an invalidated server close rejection until manager shutdown", async () => {
+    const closeStarted = deferred<void>();
+    let rejectClose!: (error: Error) => void;
+    const closeResult = new Promise<void>((_resolve, reject) => {
+      rejectClose = reject;
+    });
+    const close = vi.fn(() => {
+      closeStarted.resolve();
+      return closeResult;
+    });
+    const manager = new McpManager({
+      connectServer: async () => ({
+        serverInfo: { name: "biology-project-service", version: "1" },
+        client: {
+          callTool: vi.fn(),
+          close: vi.fn().mockResolvedValue(undefined),
+        } as unknown as McpConnectionResult["client"],
+        tools: [{ name: "project_bootstrap", inputSchema: { type: "object" } }],
+        close,
+      }),
+    });
+    await manager.addServer("registry", stdioConfig());
+    await expect(
+      manager.addServer("registry", stdioConfig(), {
+        name: "biology-project-service",
+        version: "1",
+        tools: ["project_bootstrap"],
+      }),
+    ).rejects.toThrow(/different verification contract/i);
+    await closeStarted.promise;
+
+    let shutdownSettled = false;
+    const shutdown = manager.close().then(() => {
+      shutdownSettled = true;
+    });
+    await Promise.resolve();
+    expect(shutdownSettled).toBe(false);
+
+    rejectClose(new Error("close failed"));
+    await expect(shutdown).resolves.toBeUndefined();
+    expect(close).toHaveBeenCalledTimes(1);
+  });
+
+  it("times out a required-style connection that never initializes", async () => {
+    const manager = new McpManager({
+      connectServer: async (_name, _config, signal) =>
+        new Promise<never>((_resolve, reject) => {
+          signal.addEventListener("abort", () => reject(signal.reason), { once: true });
+        }),
+    });
+
+    await expect(
+      manager.addServer("registry", stdioConfig(), undefined, { timeoutMs: 5 }),
+    ).rejects.toThrow(/timed out/i);
+    expect(manager.toolsForNative()).toEqual([]);
+    await expect(manager.close()).resolves.toBeUndefined();
+  });
+
+  it("calls a verified server tool directly even when Claude schemas are deferred", async () => {
+    const snapshot = { schemaVersion: 1, projectId: "project-1" };
+    const callTool = vi.fn().mockResolvedValue({
+      content: [{ type: "text", text: JSON.stringify(snapshot) }],
+      structuredContent: snapshot,
+    });
+    const manager = new McpManager({
+      connectServer: async () => ({
+        ...fakeConnection([{ name: "project_bootstrap" }], callTool),
+        serverInfo: { name: "biology-project-service", version: "1" },
+      }),
+    });
+    manager.startServer("registry", stdioConfig(), {
+      name: "biology-project-service",
+      version: "1",
+      tools: ["project_bootstrap"],
+      hostOnlyTools: ["project_bootstrap"],
+    });
+    manager.addClaudeMcpDiscoveryTools();
+    await manager.addServer("registry", stdioConfig(), {
+      name: "biology-project-service",
+      version: "1",
+      tools: ["project_bootstrap"],
+      hostOnlyTools: ["project_bootstrap"],
+    });
+
+    expect(toolNames(manager)).toEqual([]);
+    await expect(manager.callTool("mcp__registry__project_bootstrap", {})).rejects.toThrow(
+      /host-side/i,
+    );
+    await expect(
+      manager.callServerTool(
+        "registry",
+        "project_bootstrap",
+        { projectId: "project-1" },
+        { timeoutMs: 5_000 },
+      ),
+    ).resolves.toEqual({
+      content: JSON.stringify(snapshot),
+      structuredContent: snapshot,
+      isError: false,
+      rawMcpContentBlocks: [{ type: "text", text: JSON.stringify(snapshot) }],
+    });
+    expect(callTool).toHaveBeenCalledWith(
+      { name: "project_bootstrap", arguments: { projectId: "project-1" } },
+      undefined,
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    );
+  });
 });
 
 function stdioConfig() {
@@ -340,6 +530,7 @@ function fakeConnection(
   callTool = vi.fn(),
 ): McpConnectionResult {
   return {
+    serverInfo: { name: "test-server", version: "1" },
     client: {
       callTool,
       close: vi.fn().mockResolvedValue(undefined),

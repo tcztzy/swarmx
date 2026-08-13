@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   conversationJsonlLine,
   createConversationEvent,
+  modelReplayableMessages,
   parseConversationEvent,
   parseConversationJsonl,
   replayConversationEvents,
@@ -25,6 +26,33 @@ const baseSession = {
 };
 
 describe("conversation ledger primitives", () => {
+  it("keeps host receipts in history but excludes them from model replay", () => {
+    const messages = [
+      { role: "user", content: "Question", kind: "message" as const },
+      {
+        role: "system",
+        content: "Private memory receipt",
+        kind: "message" as const,
+        render: { source: "personal_memory_receipt" },
+      },
+      {
+        role: "system",
+        content: "Project bootstrap receipt",
+        kind: "message" as const,
+        render: { source: "project_bootstrap_receipt" },
+      },
+      {
+        role: "system",
+        content: "Scheduled observation",
+        kind: "message" as const,
+        render: { source: "scheduler" },
+      },
+    ];
+
+    expect(modelReplayableMessages(messages)).toEqual([messages[0], messages[3]]);
+    expect(messages).toHaveLength(4);
+  });
+
   it("creates deterministic conversation events and replays appended messages", () => {
     const created = createConversationEvent({
       sessionId: "conv_local_1",

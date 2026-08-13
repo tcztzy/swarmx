@@ -4,6 +4,7 @@ import { homedir } from "node:os";
 import * as path from "node:path";
 import { v4 as uuidv4 } from "uuid";
 import { z } from "zod";
+import { modelReplayableMessages } from "./conversation.js";
 import {
   type MessageChunk,
   MessageChunkSchema,
@@ -751,20 +752,22 @@ export function transientSessionModelMessages(
   transient: TransientSessionData,
 ): Array<{ role: "user" | "assistant" | "system"; content: string }> {
   const current = TransientSessionDataSchema.parse(transient);
-  return [...current.anchorMessages, ...current.messages].flatMap((message) => {
-    if (
-      message.kind !== "message" ||
-      (message.role !== "user" && message.role !== "assistant" && message.role !== "system")
-    ) {
-      return [];
-    }
-    const chips = transientContextChips(message);
-    const content =
-      chips.length > 0 && message.role === "user"
-        ? `${chips.map((chip) => `<side_context>\n${chip.text}\n</side_context>`).join("\n\n")}\n\n${message.content}`
-        : message.content;
-    return [{ role: message.role, content }];
-  });
+  return modelReplayableMessages([...current.anchorMessages, ...current.messages]).flatMap(
+    (message) => {
+      if (
+        message.kind !== "message" ||
+        (message.role !== "user" && message.role !== "assistant" && message.role !== "system")
+      ) {
+        return [];
+      }
+      const chips = transientContextChips(message);
+      const content =
+        chips.length > 0 && message.role === "user"
+          ? `${chips.map((chip) => `<side_context>\n${chip.text}\n</side_context>`).join("\n\n")}\n\n${message.content}`
+          : message.content;
+      return [{ role: message.role, content }];
+    },
+  );
 }
 
 export function promoteTransientSessionFork(input: PromoteTransientSessionForkInput): SessionData {

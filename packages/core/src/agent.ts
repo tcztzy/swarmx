@@ -22,7 +22,12 @@ import {
   type HookInvocation,
   type HookRuntimeOptions,
 } from "./hook.js";
-import { type LocalTool, type LocalToolProgress, McpManager } from "./mcp.js";
+import {
+  type LocalTool,
+  type LocalToolProgress,
+  McpManager,
+  type McpServerContract,
+} from "./mcp.js";
 import {
   attachmentFallbackText,
   createInlineMediaLoader,
@@ -50,6 +55,16 @@ import {
   PersonalMemorySnapshotSchema,
 } from "./personal-memory.js";
 import {
+  appendProjectBootstrapInstructions,
+  buildProjectBootstrapReceipt,
+  PROJECT_BOOTSTRAP_TIMEOUT_MS,
+  type ProjectBootstrapBinding,
+  ProjectBootstrapBindingSchema,
+  type ProjectBootstrapReceipt,
+  type ProjectBootstrapSnapshot,
+  parseProjectBootstrapResult,
+} from "./project-bootstrap.js";
+import {
   appendMessages,
   createSession,
   listSessionSummaries as listSessionsFile,
@@ -75,6 +90,7 @@ import { AgentConfigSchema, ModelTokenUsageSchema } from "./types.js";
 import { SWARMX_VERSION } from "./version.js";
 
 const CODEX_RESPONSES_BASE_URL = "https://chatgpt.com/backend-api/codex";
+export const REQUIRED_MCP_CONNECT_TIMEOUT_MS = 10_000;
 
 interface SessionInfo {
   sessionId?: string;
@@ -119,6 +135,12 @@ export interface AgentRuntimeOptions {
   memoryReflection?: MemoryReflectionDecision;
   /** Compiles one immutable, bounded model context before a native Provider request. */
   contextEngine?: AgentContextEngine;
+  /** MCP server ids whose connection failure must stop native execution. */
+  requiredMcpServers?: readonly string[];
+  /** One verified, Project-bound service that supplies the execution-attempt bootstrap. */
+  projectBootstrap?: ProjectBootstrapBinding;
+  /** Publishes the concise bootstrap receipt without exposing the snapshot or Project root. */
+  onProjectBootstrap?: (receipt: ProjectBootstrapReceipt) => void | Promise<void>;
 }
 
 interface AcpPromptClient {
@@ -174,6 +196,9 @@ export class Agent {
   private readonly providerHostedWebSearch: boolean;
   private readonly skillInstructions: readonly SkillInstructionDelivery[];
   private readonly contextEngine?: AgentContextEngine;
+  private readonly requiredMcpServers: ReadonlySet<string>;
+  private readonly projectBootstrap?: ProjectBootstrapBinding;
+  private readonly onProjectBootstrap?: AgentRuntimeOptions["onProjectBootstrap"];
 
   constructor(config: AgentConfig, options: AgentRuntimeOptions = {}) {
     const parsed = AgentConfigSchema.parse(config);
@@ -244,6 +269,39 @@ export class Agent {
     this.onAcpSessionId = options.onAcpSessionId;
     this.hookRuntime = options.hook;
     this.contextEngine = options.contextEngine;
+    this.requiredMcpServers = new Set(
+      (options.requiredMcpServers ?? []).map((name) => {
+        const normalized = name.trim();
+        if (!normalized) throw new Error("Required MCP server names must be non-empty.");
+        return normalized;
+      }),
+    );
+    for (const name of this.requiredMcpServers) {
+      if (!this.mcpServers.has(name)) {
+        throw new Error(
+          `Required MCP server "${name}" is not configured for Agent "${this.name}".`,
+        );
+      }
+    }
+    if (this.requiredMcpServers.size > 0 && this.backend.type !== "swarmx") {
+      throw new Error(
+        `Required MCP servers are unsupported for backend "${this.backend.type}"; use the direct SwarmX backend.`,
+      );
+    }
+    this.projectBootstrap = options.projectBootstrap
+      ? ProjectBootstrapBindingSchema.parse(options.projectBootstrap)
+      : undefined;
+    if (this.projectBootstrap) {
+      if (!this.requiredMcpServers.has(this.projectBootstrap.capabilityId)) {
+        throw new Error(
+          `Project bootstrap service "${this.projectBootstrap.capabilityId}" must be a required MCP server.`,
+        );
+      }
+      if (this.backend.type !== "swarmx") {
+        throw new Error(`Project bootstrap is unsupported for backend "${this.backend.type}".`);
+      }
+    }
+    this.onProjectBootstrap = options.onProjectBootstrap;
     this.maxOutputTokens = positiveInteger(clientConfig.maxOutputTokens) ?? 8192;
     this.contextWindowTokens = positiveInteger(clientConfig.contextWindowTokens);
     this.contextWindowSource = this.contextWindowTokens
@@ -356,18 +414,39 @@ export class Agent {
     }
 
     try {
-      let modelRequest = await this.compileModelRequest(arguments_, runtimeContext);
+      const contextRequestId = this.contextEngine
+        ? resolveContextRequestId(arguments_, runtimeContext)
+        : undefined;
+      let modelRequest = await this.compileModelRequest(
+        arguments_,
+        runtimeContext,
+        contextRequestId,
+      );
       throwIfCurrentRequestCancelled();
       await this.ensureMcpConnected();
       throwIfCurrentRequestCancelled();
-      if (this.contextEngine?.finalize) {
+      const projectBootstrap = await this.loadProjectBootstrap();
+      const runInstructions = projectBootstrap
+        ? appendProjectBootstrapInstructions(this.instructions, projectBootstrap)
+        : this.instructions;
+      if (this.contextEngine?.finalize || (this.contextEngine && projectBootstrap)) {
         modelRequest = await this.compileModelRequest(
           arguments_,
           runtimeContext,
+          contextRequestId,
           "final",
           this.contextToolDefinitions(),
+          runInstructions,
         );
         throwIfCurrentRequestCancelled();
+      } else if (projectBootstrap) {
+        modelRequest = {
+          ...modelRequest,
+          instructions: appendProjectBootstrapInstructions(
+            modelRequest.instructions,
+            projectBootstrap,
+          ),
+        };
       }
 
       if (this.apiProtocol === "anthropic") {
@@ -548,18 +627,39 @@ export class Agent {
     }
 
     try {
-      let modelRequest = await this.compileModelRequest(arguments_, runtimeContext);
+      const contextRequestId = this.contextEngine
+        ? resolveContextRequestId(arguments_, runtimeContext)
+        : undefined;
+      let modelRequest = await this.compileModelRequest(
+        arguments_,
+        runtimeContext,
+        contextRequestId,
+      );
       throwIfCurrentRequestCancelled();
       await this.ensureMcpConnected();
       throwIfCurrentRequestCancelled();
-      if (this.contextEngine?.finalize) {
+      const projectBootstrap = await this.loadProjectBootstrap();
+      const runInstructions = projectBootstrap
+        ? appendProjectBootstrapInstructions(this.instructions, projectBootstrap)
+        : this.instructions;
+      if (this.contextEngine?.finalize || (this.contextEngine && projectBootstrap)) {
         modelRequest = await this.compileModelRequest(
           arguments_,
           runtimeContext,
+          contextRequestId,
           "final",
           this.contextToolDefinitions(),
+          runInstructions,
         );
         throwIfCurrentRequestCancelled();
+      } else if (projectBootstrap) {
+        modelRequest = {
+          ...modelRequest,
+          instructions: appendProjectBootstrapInstructions(
+            modelRequest.instructions,
+            projectBootstrap,
+          ),
+        };
       }
 
       if (this.apiProtocol === "anthropic") {
@@ -926,24 +1026,81 @@ export class Agent {
 
   private async ensureMcpConnected(): Promise<void> {
     if (this.mcp) return;
-    this.mcp = this.createMcpManager();
-    this.mcp.addLocalTools([...this.localTools, ...(this.contextEngine?.tools ?? [])]);
+    const mcp = this.createMcpManager();
+    this.mcp = mcp;
+    mcp.addLocalTools([...this.localTools, ...(this.contextEngine?.tools ?? [])]);
     const isClaudeCodeProfile = this.localTools.some((tool) => tool.name === "Bash");
     if (isClaudeCodeProfile && this.mcpServers.size > 0) {
-      for (const [name, config] of this.mcpServers) this.mcp.startServer(name, config);
-      this.mcp.addClaudeMcpDiscoveryTools();
-      this.mcp.addClaudeMcpResourceTools();
+      for (const [name, config] of this.mcpServers) {
+        mcp.startServer(name, config, this.mcpContract(name));
+      }
+      await Promise.all(
+        [...this.requiredMcpServers].map(async (name) => {
+          const config = this.mcpServers.get(name);
+          if (!config) return;
+          try {
+            await mcp.addServer(name, config, this.mcpContract(name), {
+              timeoutMs: REQUIRED_MCP_CONNECT_TIMEOUT_MS,
+            });
+          } catch (error) {
+            throw requiredMcpError(name, error);
+          }
+        }),
+      );
+      mcp.addClaudeMcpDiscoveryTools();
+      mcp.addClaudeMcpResourceTools();
       return;
     }
-    for (const [name, config] of this.mcpServers) {
-      try {
-        await this.mcp.addServer(name, config);
-      } catch (e) {
-        console.warn(`Failed to connect MCP server ${name}: ${e}`);
-      }
-    }
+    await Promise.all(
+      [...this.mcpServers].map(async ([name, config]) => {
+        try {
+          await mcp.addServer(name, config, this.mcpContract(name), {
+            timeoutMs: REQUIRED_MCP_CONNECT_TIMEOUT_MS,
+          });
+        } catch (error) {
+          if (this.requiredMcpServers.has(name)) throw requiredMcpError(name, error);
+          console.warn(`Failed to connect MCP server ${name}: ${error}`);
+        }
+      }),
+    );
     if (isClaudeCodeProfile) {
-      this.mcp.addClaudeMcpResourceTools();
+      mcp.addClaudeMcpResourceTools();
+    }
+  }
+
+  private mcpContract(name: string): McpServerContract | undefined {
+    const binding = this.projectBootstrap;
+    if (!binding || binding.capabilityId !== name) return undefined;
+    return {
+      name: binding.serverName,
+      version: binding.serverVersion,
+      tools: binding.tools,
+      hostOnlyTools: [binding.bootstrapTool],
+    };
+  }
+
+  private async loadProjectBootstrap(): Promise<ProjectBootstrapSnapshot | undefined> {
+    const binding = this.projectBootstrap;
+    if (!binding) return undefined;
+    try {
+      const result = await this.getMcp().callServerTool(
+        binding.capabilityId,
+        binding.bootstrapTool,
+        {
+          schemaVersion: 1,
+          projectId: binding.project.id,
+          projectRoot: binding.project.root,
+        },
+        { timeoutMs: PROJECT_BOOTSTRAP_TIMEOUT_MS },
+      );
+      const snapshot = parseProjectBootstrapResult(result, binding.project.id);
+      await this.onProjectBootstrap?.(buildProjectBootstrapReceipt(binding, snapshot));
+      return snapshot;
+    } catch (error) {
+      throwIfCurrentRequestCancelled();
+      throw new Error(
+        `Required Project service "${binding.capabilityId}" bootstrap failed: ${errorMessage(error)}`,
+      );
     }
   }
 
@@ -1038,8 +1195,10 @@ export class Agent {
   private async compileModelRequest(
     arguments_: Record<string, unknown>,
     runtimeContext: Record<string, unknown>,
+    requestId?: string,
     phase: ContextCompilePhase = "preflight",
     toolDefinitions: readonly unknown[] = [],
+    baseInstructions = this.instructions,
   ): Promise<{
     arguments: Record<string, unknown>;
     instructions: string;
@@ -1048,22 +1207,19 @@ export class Agent {
     if (!this.contextEngine) {
       return { arguments: arguments_, instructions: this.instructions };
     }
-    const requestId =
-      stringProperty(arguments_, "requestId") ??
-      stringProperty(runtimeContext, "requestId") ??
-      randomUUID();
+    const resolvedRequestId = requestId ?? resolveContextRequestId(arguments_, runtimeContext);
     const compile =
       phase === "final" && this.contextEngine.finalize
         ? this.contextEngine.finalize.bind(this.contextEngine)
         : this.contextEngine.compile.bind(this.contextEngine);
     const budgetInstructions = this.providerHostedWebSearch
-      ? appendProviderHostedWebSearchInstructions(this.instructions)
-      : this.instructions;
+      ? appendProviderHostedWebSearchInstructions(baseInstructions)
+      : baseInstructions;
     const hostedWebSearchTool = this.providerHostedWebSearch
       ? providerHostedWebSearchTool(this.apiProtocol)
       : undefined;
     const compiled = await compile({
-      requestId,
+      requestId: resolvedRequestId,
       agentName: this.name,
       modelVersion: this.requiredNativeModel(),
       instructions: budgetInstructions,
@@ -1081,10 +1237,10 @@ export class Agent {
         ],
       },
     });
-    if (phase === "final" || !this.contextEngine.finalize) {
+    if (phase === "final" || (!this.contextEngine.finalize && !this.projectBootstrap)) {
       await this.contextEngine.onCompiled?.(compiled.manifest);
     }
-    const instructions = [this.instructions.trim(), compiled.context.trim()]
+    const instructions = [baseInstructions.trim(), compiled.context.trim()]
       .filter(Boolean)
       .join("\n\n---\n\n");
     return {
@@ -1448,6 +1604,21 @@ async function openAIChatUserContent(
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function resolveContextRequestId(
+  arguments_: Record<string, unknown>,
+  runtimeContext: Record<string, unknown>,
+): string {
+  return (
+    stringProperty(arguments_, "requestId") ??
+    stringProperty(runtimeContext, "requestId") ??
+    randomUUID()
+  );
+}
+
+function requiredMcpError(name: string, error: unknown): Error {
+  return new Error(`Required MCP server "${name}" is unavailable: ${errorMessage(error)}`);
 }
 
 function stringProperty(value: unknown, key: string): string | undefined {

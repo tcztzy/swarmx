@@ -2,7 +2,7 @@ import { EventEmitter } from "node:events";
 import { mkdtemp, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import type { MessageChunk, SessionData } from "@swarmx/core";
+import type { MessageChunk, ProjectBootstrapReceipt, SessionData } from "@swarmx/core";
 import {
   ActivityStore,
   AuditStore,
@@ -11,6 +11,7 @@ import {
   createSession,
   deleteSession,
   listSessions,
+  modelReplayableMessages,
   parseExtensionBundle,
   removeProject,
   saveSession,
@@ -746,6 +747,12 @@ describe("desktop main library entry", () => {
           kind: "message",
           render: { source: "personal_memory_receipt" },
         },
+        {
+          role: "system",
+          content: "Project bootstrap loaded\nRevision: registry-42",
+          kind: "message",
+          render: { source: "project_bootstrap_receipt" },
+        },
         { role: "system", content: "scheduled event", kind: "message" },
       ],
     } as SessionData;
@@ -755,6 +762,114 @@ describe("desktop main library entry", () => {
       { role: "assistant", content: "answer" },
       { role: "system", content: "scheduled event" },
     ]);
+    expect(modelReplayableMessages(session.messages).map((message) => message.content)).toEqual([
+      "question",
+      "private reasoning",
+      "answer",
+      "{}",
+      "scheduled event",
+    ]);
+  });
+
+  it("rejects a stale background runtime after its Session Project binding changes", async () => {
+    const firstRoot = await mkdtemp(path.join(tmpdir(), "swarmx-runtime-project-a-"));
+    const secondRoot = await mkdtemp(path.join(tmpdir(), "swarmx-runtime-project-b-"));
+    try {
+      await expect(
+        desktopIpc.bindPersistedSessionProject(
+          { projectId: "project-b", cwd: secondRoot },
+          "project-a",
+          firstRoot,
+        ),
+      ).rejects.toThrow("Session Project binding changed");
+      await expect(
+        desktopIpc.bindPersistedSessionProject(
+          { projectId: "project-a", cwd: secondRoot },
+          "project-a",
+          firstRoot,
+        ),
+      ).rejects.toThrow("Session Project binding changed");
+      await expect(
+        desktopIpc.bindPersistedSessionProject(
+          { projectId: "project-a", cwd: firstRoot },
+          "project-a",
+          firstRoot,
+        ),
+      ).resolves.toEqual({ id: "project-a", root: await realpath(firstRoot) });
+      await expect(
+        desktopIpc.bindPersistedSessionProject({}, undefined, firstRoot),
+      ).resolves.toBeUndefined();
+      await expect(
+        desktopIpc.bindPersistedSessionProject({ cwd: secondRoot }, undefined, firstRoot),
+      ).rejects.toThrow("Session Project binding changed");
+      await expect(
+        desktopIpc.bindPersistedSessionProject({ cwd: firstRoot }, undefined, firstRoot),
+      ).resolves.toBeUndefined();
+    } finally {
+      await rm(firstRoot, { recursive: true, force: true });
+      await rm(secondRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps child Project authority anchored while verifying the current worktree root", () => {
+    const projectRoot = path.join(tmpdir(), "swarmx-child-project");
+    const worktreeRoot = path.join(projectRoot, ".swarmx", "worktrees", "task-a");
+    const project = { id: "project-a", root: projectRoot };
+
+    const binding = desktopIpc.childProjectExecutionContext(
+      project,
+      worktreeRoot,
+      path.join(worktreeRoot, "."),
+    );
+    expect(binding).toEqual({
+      cwd: worktreeRoot,
+      project: { id: "project-a", root: projectRoot },
+    });
+    expect(binding.project).toBe(project);
+    expect(() =>
+      desktopIpc.childProjectExecutionContext(
+        { id: "project-a", root: projectRoot },
+        worktreeRoot,
+        path.join(tmpdir(), "untrusted-callback-root"),
+      ),
+    ).toThrow("host-owned WorkspaceTools root");
+    expect(() => desktopIpc.childProjectExecutionContext(undefined, process.cwd(), "")).toThrow(
+      "host-owned WorkspaceTools root",
+    );
+    expect(desktopIpc.childProjectExecutionContext(undefined, worktreeRoot, worktreeRoot)).toEqual({
+      cwd: worktreeRoot,
+    });
+  });
+
+  it("deduplicates Project bootstrap receipts within one execution scope", () => {
+    const receipt: ProjectBootstrapReceipt = {
+      schemaVersion: 1,
+      capabilityId: "biology.project-registry",
+      serverName: "biology-project-service",
+      serverVersion: "1",
+      projectId: "project-a",
+      registryRevision: "registry-42",
+      snapshotDigest: "0123456789abcdef",
+      activeRunCount: 1,
+      openDecisionCount: 2,
+    };
+    const seen = new Set<string>();
+
+    expect(
+      desktopIpc.uniqueProjectBootstrapReceiptMessage(seen, "child:agent-a", receipt),
+    ).toMatchObject({ render: { source: "project_bootstrap_receipt" } });
+    expect(
+      desktopIpc.uniqueProjectBootstrapReceiptMessage(seen, "child:agent-a", receipt),
+    ).toBeUndefined();
+    expect(
+      desktopIpc.uniqueProjectBootstrapReceiptMessage(seen, "child:agent-b", receipt),
+    ).toBeDefined();
+    expect(
+      desktopIpc.uniqueProjectBootstrapReceiptMessage(seen, "child:agent-a", {
+        ...receipt,
+        snapshotDigest: "fedcba9876543210",
+      }),
+    ).toBeDefined();
   });
 
   it("scopes streamed chunks and rejects a reasoning-only terminal result", () => {

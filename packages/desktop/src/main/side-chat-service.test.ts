@@ -147,6 +147,39 @@ describe("SideChatService", () => {
     });
   });
 
+  it("does not replay Project or Memory receipts from its parent anchor", () => {
+    const parent = createSession("agent", "swarmx");
+    savedIds.push(parent.id);
+    parent.messages = [
+      { role: "user", content: "Parent request", kind: "message" },
+      {
+        role: "system",
+        content: "Project bootstrap loaded\nRevision: stale-project-revision",
+        kind: "message",
+        render: { source: "project_bootstrap_receipt" },
+      },
+      {
+        role: "system",
+        content: "Personal Memory used\nSummary: stale memory receipt",
+        kind: "message",
+        render: { source: "personal_memory_receipt" },
+      },
+      { role: "assistant", content: "Parent reply", kind: "message" },
+    ];
+    saveSession(parent);
+    const service = new SideChatService();
+    const side = service.create({
+      parentSessionId: parent.id,
+      throughMessageIndex: 3,
+      expectedMessages: parent.messages,
+    });
+
+    expect(service.modelMessages(parent.id, side.id)).toEqual([
+      { role: "user", content: "Parent request" },
+      { role: "assistant", content: "Parent reply" },
+    ]);
+  });
+
   it("distinguishes hiding from deletion and promotes only on explicit request", () => {
     const parent = createSession("agent", "swarmx");
     savedIds.push(parent.id);

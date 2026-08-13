@@ -11,6 +11,7 @@ interface McpTool {
   isEnabled?: () => boolean;
   serverName?: string;
   remoteName?: string;
+  hostOnly?: boolean;
 }
 
 export interface LocalMcpTool extends McpTool {
@@ -55,6 +56,7 @@ export interface ToolExecutionResult {
   content: string;
   structuredContent?: unknown;
   isError: boolean;
+  rawMcpContentBlocks?: readonly unknown[];
 }
 
 const LOCAL_TOOL_RESULT = Symbol("swarmx.local-tool-result");
@@ -90,6 +92,7 @@ export type NativeLocalToolDefinition =
     };
 
 export interface McpConnectionResult {
+  serverInfo?: { name: string; version: string };
   client: Client;
   tools: Array<{
     name: string;
@@ -97,6 +100,13 @@ export interface McpConnectionResult {
     inputSchema: Record<string, unknown>;
   }>;
   close(): Promise<void>;
+}
+
+export interface McpServerContract {
+  name: string;
+  version: string;
+  tools: readonly string[];
+  hostOnlyTools?: readonly string[];
 }
 
 export interface McpManagerOptions {
@@ -115,8 +125,13 @@ interface McpServerRecord {
   state: McpServerState;
   controller: AbortController;
   task: Promise<void>;
+  settled: boolean;
   error?: unknown;
   close?: () => Promise<void>;
+  closing?: Promise<void>;
+  serverInfo?: { name: string; version: string };
+  toolNames?: string[];
+  contract?: McpServerContract;
 }
 
 const CLAUDE_MCP_WAIT_MS = 5_000;
@@ -382,10 +397,21 @@ export class McpManager {
     }
   }
 
-  startServer(name: string, config: McpServerConfig): void {
+  startServer(name: string, config: McpServerConfig, contract?: McpServerContract): void {
     if (this.closed) throw new Error("MCP manager is closed.");
-    if (this.serverRecords.has(name)) return;
     if (!name.trim()) throw new Error("MCP server name must be non-empty.");
+    const normalizedContract = normalizeMcpServerContract(contract);
+    const existing = this.serverRecords.get(name);
+    if (existing) {
+      if (!sameMcpServerContract(existing.contract, normalizedContract)) {
+        const error = new Error(
+          `MCP server ${name} was already started with a different verification contract.`,
+        );
+        this.invalidateServer(existing, error);
+        throw error;
+      }
+      return;
+    }
 
     const controller = new AbortController();
     const requestSignal = currentRequestSignal();
@@ -397,6 +423,8 @@ export class McpManager {
       state: "pending",
       controller,
       task: Promise.resolve(),
+      settled: false,
+      ...(normalizedContract ? { contract: normalizedContract } : {}),
     };
     this.serverRecords.set(name, record);
     record.task = this.connectServer(name, config, controller.signal)
@@ -406,16 +434,25 @@ export class McpManager {
             await connection.close();
             return;
           }
+          assertMcpServerContract(
+            name,
+            connection.serverInfo,
+            connection.tools,
+            normalizedContract,
+          );
           const projected = connection.tools.map((tool) => ({
             name: claudeMcpToolName(name, tool.name),
             description: tool.description,
             inputSchema: tool.inputSchema,
             serverName: name,
             remoteName: tool.name,
+            ...(normalizedContract?.hostOnlyTools?.includes(tool.name) ? { hostOnly: true } : {}),
           }));
           this.assertMcpToolNamesAvailable(projected);
           this.clients.set(name, connection.client);
           record.close = connection.close;
+          record.serverInfo = connection.serverInfo;
+          record.toolNames = connection.tools.map((tool) => tool.name);
           this.tools.push(...projected);
           record.state = "connected";
         } catch (error) {
@@ -428,21 +465,86 @@ export class McpManager {
         record.state = "failed";
       })
       .finally(() => {
+        record.settled = true;
         requestSignal?.removeEventListener("abort", abortFromRequest);
       });
   }
 
-  async addServer(name: string, config: McpServerConfig): Promise<void> {
-    this.startServer(name, config);
+  async addServer(
+    name: string,
+    config: McpServerConfig,
+    contract?: McpServerContract,
+    options: { timeoutMs?: number } = {},
+  ): Promise<void> {
+    this.startServer(name, config, contract);
     const record = this.serverRecords.get(name);
     if (!record) throw new Error(`MCP server ${name} was not started.`);
-    await record.task;
+    if (options.timeoutMs === undefined) await record.task;
+    else await this.waitForServerConnection(record, options.timeoutMs);
     throwIfCurrentRequestCancelled();
     if (record.state !== "connected") {
       throw record.error instanceof Error
         ? record.error
         : new Error(`Failed to connect MCP server ${name}.`);
     }
+    try {
+      assertMcpServerContract(
+        name,
+        record.serverInfo,
+        (record.toolNames ?? []).map((toolName) => ({ name: toolName })),
+        record.contract,
+      );
+    } catch (error) {
+      this.invalidateServer(record, error instanceof Error ? error : new Error(String(error)));
+      throw error;
+    }
+  }
+
+  private async waitForServerConnection(record: McpServerRecord, timeoutMs: number): Promise<void> {
+    if (!Number.isInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 60_000) {
+      throw new Error("MCP connection timeout must be an integer from 1 to 60000 milliseconds.");
+    }
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await Promise.race([
+        record.task,
+        new Promise<never>((_resolve, reject) => {
+          timer = setTimeout(() => {
+            const error = new Error(
+              `MCP server ${record.name} connection timed out after ${timeoutMs} milliseconds.`,
+            );
+            this.invalidateServer(record, error);
+            reject(error);
+          }, timeoutMs);
+        }),
+      ]);
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  }
+
+  private invalidateServer(record: McpServerRecord, error: Error): void {
+    record.error = error;
+    record.state = "failed";
+    record.controller.abort(error);
+    this.clients.delete(record.name);
+    const removedToolNames = this.tools
+      .filter((tool) => tool.serverName === record.name)
+      .map((tool) => tool.name);
+    this.tools = this.tools.filter((tool) => tool.serverName !== record.name);
+    for (const toolName of removedToolNames) this.activatedMcpTools.delete(toolName);
+    this.beginServerClose(record);
+  }
+
+  private beginServerClose(record: McpServerRecord): Promise<void> | undefined {
+    if (record.closing) return record.closing;
+    const close = record.close;
+    record.close = undefined;
+    if (!close) return undefined;
+    const closing = Promise.resolve().then(close);
+    record.closing = closing;
+    void closing.catch(() => undefined);
+    return closing;
   }
 
   private async searchClaudeMcpTools(input: Record<string, unknown>): Promise<LocalToolResult> {
@@ -536,7 +638,7 @@ export class McpManager {
   }
 
   private deferredMcpTools(): McpTool[] {
-    return this.tools.filter((tool) => tool.serverName !== undefined);
+    return this.tools.filter((tool) => tool.serverName !== undefined && !tool.hostOnly);
   }
 
   private pendingServerNames(): string[] {
@@ -575,6 +677,7 @@ export class McpManager {
 
   private isToolVisible(tool: McpTool): boolean {
     if (tool.isEnabled?.() === false) return false;
+    if (tool.hostOnly) return false;
     return (
       tool.serverName === undefined ||
       !this.claudeMcpDiscoveryEnabled ||
@@ -622,34 +725,37 @@ export class McpManager {
     if (!tool?.serverName || !tool.remoteName) {
       throw new Error(`Tool ${name} not found.`);
     }
+    if (tool.hostOnly) throw new Error(`Tool ${name} is reserved for host-side use.`);
     if (this.claudeMcpDiscoveryEnabled && !this.activatedMcpTools.has(name)) {
       throw new Error(`Tool ${name} is deferred. Load it with ToolSearch first.`);
     }
-    const client = this.clients.get(tool.serverName);
-    if (!client) throw new Error(`MCP server ${tool.serverName} is not connected.`);
-    try {
-      const signal = currentRequestSignal();
-      const result = await client.callTool(
-        {
-          name: tool.remoteName,
-          arguments: arguments_,
-        },
-        undefined,
-        signal ? { signal } : undefined,
-      );
-      const structuredContent =
-        "structuredContent" in result && result.structuredContent !== undefined
-          ? result.structuredContent
-          : { result: result.content };
-      return {
-        content: mcpModelContent(result.content),
-        structuredContent,
-        isError: result.isError === true,
-      };
-    } catch (error) {
-      throwIfCurrentRequestCancelled();
-      throw error;
+    return this.callRemoteTool(
+      tool.serverName,
+      tool.remoteName,
+      arguments_,
+      currentRequestSignal(),
+    );
+  }
+
+  async callServerTool(
+    serverName: string,
+    remoteName: string,
+    arguments_: Record<string, unknown>,
+    options: { timeoutMs: number },
+  ): Promise<ToolExecutionResult> {
+    const tool = this.tools.find(
+      (candidate) => candidate.serverName === serverName && candidate.remoteName === remoteName,
+    );
+    if (!tool)
+      throw new Error(`Tool ${remoteName} was not advertised by MCP server ${serverName}.`);
+    const timeoutMs = options.timeoutMs;
+    if (!Number.isInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 60_000) {
+      throw new Error("MCP server tool timeout must be an integer from 1 to 60000 milliseconds.");
     }
+    const timeoutSignal = AbortSignal.timeout(timeoutMs);
+    const requestSignal = currentRequestSignal();
+    const signal = requestSignal ? AbortSignal.any([requestSignal, timeoutSignal]) : timeoutSignal;
+    return this.callRemoteTool(serverName, remoteName, arguments_, signal);
   }
 
   toolsForOpenai(): Array<{
@@ -691,11 +797,16 @@ export class McpManager {
     this.closed = true;
     const records = [...this.serverRecords.values()];
     for (const record of records) record.controller.abort(new Error("MCP manager closed."));
-    await Promise.allSettled(records.map((record) => record.task));
-    const recordClientNames = new Set(
-      records.filter((record) => record.close).map((record) => record.name),
+    await Promise.allSettled(
+      records.filter((record) => record.settled).map((record) => record.task),
     );
-    const closes = records.flatMap((record) => (record.close ? [record.close()] : []));
+    const recordClientNames = new Set(
+      records.filter((record) => record.close || record.closing).map((record) => record.name),
+    );
+    const closes = records.flatMap((record) => {
+      const closing = record.closing ?? this.beginServerClose(record);
+      return closing ? [closing] : [];
+    });
     for (const [name, client] of this.clients) {
       if (!recordClientNames.has(name)) closes.push(client.close());
     }
@@ -711,6 +822,36 @@ export class McpManager {
       ...closes,
       ...disposers.map((dispose) => Promise.resolve().then(dispose)),
     ]);
+  }
+
+  private async callRemoteTool(
+    serverName: string,
+    remoteName: string,
+    arguments_: Record<string, unknown>,
+    signal?: AbortSignal,
+  ): Promise<ToolExecutionResult> {
+    const client = this.clients.get(serverName);
+    if (!client) throw new Error(`MCP server ${serverName} is not connected.`);
+    try {
+      const result = await client.callTool(
+        { name: remoteName, arguments: arguments_ },
+        undefined,
+        signal ? { signal } : undefined,
+      );
+      const structuredContent =
+        "structuredContent" in result && result.structuredContent !== undefined
+          ? result.structuredContent
+          : { result: result.content };
+      return {
+        content: mcpModelContent(result.content),
+        structuredContent,
+        isError: result.isError === true,
+        ...(Array.isArray(result.content) ? { rawMcpContentBlocks: [...result.content] } : {}),
+      };
+    } catch (error) {
+      throwIfCurrentRequestCancelled();
+      throw error;
+    }
   }
 }
 
@@ -749,6 +890,7 @@ async function connectMcpServer(
     const response = await client.listTools(undefined, { signal });
     if (signal.aborted) throw abortReason(signal);
     return {
+      serverInfo: client.getServerVersion(),
       client,
       tools: response.tools.map((tool) => ({
         name: tool.name,
@@ -762,6 +904,88 @@ async function connectMcpServer(
     throw error;
   } finally {
     signal.removeEventListener("abort", abortConnection);
+  }
+}
+
+function normalizeMcpServerContract(
+  contract: McpServerContract | undefined,
+): McpServerContract | undefined {
+  if (!contract) return undefined;
+  const name = requiredContractText(contract.name, "name");
+  const version = requiredContractText(contract.version, "version");
+  const tools = contract.tools.map((tool) => requiredContractText(tool, "tool")).sort();
+  const hostOnlyTools = (contract.hostOnlyTools ?? [])
+    .map((tool) => requiredContractText(tool, "host-only tool"))
+    .sort();
+  if (new Set(tools).size !== tools.length) {
+    throw new Error("MCP verification contract tool names must be unique.");
+  }
+  if (new Set(hostOnlyTools).size !== hostOnlyTools.length) {
+    throw new Error("MCP verification contract host-only tool names must be unique.");
+  }
+  const expectedTools = new Set(tools);
+  if (hostOnlyTools.some((tool) => !expectedTools.has(tool))) {
+    throw new Error("MCP verification contract host-only tools must be in its expected surface.");
+  }
+  return {
+    name,
+    version,
+    tools,
+    ...(hostOnlyTools.length > 0 ? { hostOnlyTools } : {}),
+  };
+}
+
+function sameMcpServerContract(
+  left: McpServerContract | undefined,
+  right: McpServerContract | undefined,
+): boolean {
+  if (!left || !right) return left === right;
+  return (
+    left.name === right.name &&
+    left.version === right.version &&
+    equalStrings(left.tools, right.tools) &&
+    equalStrings(left.hostOnlyTools ?? [], right.hostOnlyTools ?? [])
+  );
+}
+
+function equalStrings(left: readonly string[], right: readonly string[]): boolean {
+  return left.length === right.length && left.every((value, index) => value === right[index]);
+}
+
+function requiredContractText(value: string, field: string): string {
+  if (!value.trim() || value !== value.trim()) {
+    throw new Error(`MCP verification contract ${field} must be non-empty trimmed text.`);
+  }
+  return value;
+}
+
+function assertMcpServerContract(
+  configuredName: string,
+  serverInfo: { name: string; version: string } | undefined,
+  tools: readonly { name: string }[],
+  contract: McpServerContract | undefined,
+): void {
+  if (!contract) return;
+  if (serverInfo?.name !== contract.name || serverInfo.version !== contract.version) {
+    throw new Error(
+      `MCP server ${configuredName} identity mismatch: expected ${contract.name} ${contract.version}.`,
+    );
+  }
+  const actualTools = tools.map((tool) => tool.name).sort();
+  const expectedTools = [...contract.tools].sort();
+  const expectedToolSet = new Set(expectedTools);
+  if (contract.hostOnlyTools?.some((tool) => !expectedToolSet.has(tool))) {
+    throw new Error(
+      `MCP server ${configuredName} host-only tools must be in its expected surface.`,
+    );
+  }
+  if (
+    actualTools.length !== expectedTools.length ||
+    actualTools.some((tool, index) => tool !== expectedTools[index])
+  ) {
+    throw new Error(
+      `MCP server ${configuredName} tool surface mismatch: expected ${expectedTools.join(", ") || "no tools"}.`,
+    );
   }
 }
 

@@ -1,11 +1,10 @@
 import type { ChatMessage, MessageChunk, SessionData } from "@swarmx/core";
-import { normalizeMessageChunk } from "@swarmx/core";
+import { modelReplayableMessages, normalizeMessageChunk } from "@swarmx/core";
 import type { AgentChunkSender } from "./agent-chunk-publisher.js";
 
 export function sessionChatMessages(session: SessionData | null): ChatMessage[] {
   if (!session) return [];
-  return session.messages.flatMap((message): ChatMessage[] => {
-    if (message.render?.source === "personal_memory_receipt") return [];
+  return modelReplayableMessages(session.messages).flatMap((message): ChatMessage[] => {
     if (message.kind !== "message") return [];
     if (!isChatRole(message.role)) return [];
     return [

@@ -4,6 +4,11 @@ import { findInlineSecretFields } from "./secret-scanner.js";
 import type { MessageChunk } from "./types.js";
 import { MessageChunkSchema } from "./types.js";
 
+const NON_MODEL_REPLAY_MESSAGE_SOURCES = new Set([
+  "personal_memory_receipt",
+  "project_bootstrap_receipt",
+]);
+
 const idWithPrefix = (prefix: string) =>
   z.string().regex(new RegExp(`^${prefix}[A-Za-z0-9][A-Za-z0-9_-]*$`), `Must use ${prefix} prefix`);
 
@@ -169,6 +174,14 @@ export function parseConversationJsonl(input: string): ConversationEvent[] {
 
 export function emptyConversationReplayState(): ConversationReplayState {
   return ConversationReplayStateSchema.parse({});
+}
+
+/** Keeps host receipts in canonical history while excluding them from later model context. */
+export function modelReplayableMessages(messages: readonly MessageChunk[]): MessageChunk[] {
+  return messages.filter(
+    (message) =>
+      !message.render?.source || !NON_MODEL_REPLAY_MESSAGE_SOURCES.has(message.render.source),
+  );
 }
 
 export function replayConversationEvents(eventsInput: unknown[]): ConversationReplayState {

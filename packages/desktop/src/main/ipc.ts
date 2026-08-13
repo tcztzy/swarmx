@@ -25,6 +25,7 @@ import type {
   MemoryReflectionDecision,
   MessageChunk,
   ModelTokenUsage,
+  ProjectBootstrapReceipt,
   ProjectData,
   ReferenceLibraryBackend,
   SessionData,
@@ -62,6 +63,8 @@ import {
   loadExtensionInventory,
   loadSession,
   mergeModelTokenUsage,
+  modelReplayableMessages,
+  projectBootstrapReceiptMessage,
   RequestCancelledError,
   registerDefaultProject,
   registerProject,
@@ -631,6 +634,8 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
     const tokenUsages: ModelTokenUsage[] = [];
     const usedSkillIds = new Set<string>();
     let memoryReceipt: MessageChunk | undefined;
+    const projectBootstrapReceiptKeys = new Set<string>();
+    const projectBootstrapReceipts: MessageChunk[] = [];
     let memoryReflection: MemoryReflectionDecision | undefined;
     let foregroundRuntime: ClaudeSessionRuntime | undefined;
     let activeChunkPublisher: AgentChunkPublisher | undefined;
@@ -904,7 +909,7 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
         const createRunContextEngine = (contextId: string, history: readonly MessageChunk[]) =>
           createSessionContextEngine({
             sessionId: contextId,
-            history,
+            history: modelReplayableMessages(history),
             onCompiled: (manifest) => {
               auditStore.append({
                 category: "provider",
@@ -1066,7 +1071,16 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
             cwd && runtimeHarnessId === "swarmx" ? new WorkspaceTools(cwd) : null;
           const agentMemoryTools =
             !compositionUsesAcp && !params.sideChatId ? privateKnowledgeTools : [];
-          const directSession = params.sessionId ? loadSession(params.sessionId) : undefined;
+          const directSession =
+            params.sessionId && !params.sideChatId ? loadSession(params.sessionId) : undefined;
+          const directProjectRoot =
+            !params.sideChatId && directSession?.projectId && directSession.cwd
+              ? await normalizeWorkingDirectory(directSession.cwd)
+              : undefined;
+          const directProject =
+            directSession?.projectId && directProjectRoot
+              ? { id: directSession.projectId, root: directProjectRoot }
+              : undefined;
           const builtinToolBinding = projectTools
             ? resolveRunBuiltinTools({
                 settings: await builtinToolSettings.get(),
@@ -1224,8 +1238,17 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
               : undefined;
           if (sessionRuntime && params.sessionId) {
             const sessionId = params.sessionId;
+            const runtimeProjectId = directSession?.projectId;
             sessionRuntime.configure({
               activate: async (activation) => {
+                const boundSession = loadSession(sessionId);
+                if (!boundSession) throw new Error(`Session ${sessionId} no longer exists.`);
+                const backgroundProject = await bindPersistedSessionProject(
+                  boundSession,
+                  runtimeProjectId,
+                  sessionRuntime.root,
+                );
+                const backgroundRoot = backgroundProject?.root ?? sessionRuntime.root;
                 const activationMessage: MessageChunk = {
                   role: "system",
                   content: activation.prompt,
@@ -1237,12 +1260,13 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
                 publishSessionMessages(event.sender, sessionId);
                 const persisted = loadSession(sessionId);
                 if (!persisted) throw new Error(`Session ${sessionId} no longer exists.`);
-                const backgroundTools = new WorkspaceTools(sessionRuntime.root);
+                const backgroundTools = new WorkspaceTools(backgroundRoot);
+                const backgroundReceiptKeys = new Set<string>();
                 const backgroundToolOptions: WorkspaceAgentToolOptions = {
                   ...baseWorkspaceToolOptions,
                   reviewPermission: reviewWorkspacePermission,
                   permissionPolicy: await permissionService.resolve({
-                    cwd: sessionRuntime.root,
+                    cwd: backgroundRoot,
                     agentId: plan.agentProfileId ?? plan.agentId,
                     agentPolicy: agentPermissionPolicy,
                     agentModeDeclared: Boolean(plan.permissions?.mode),
@@ -1263,7 +1287,7 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
                           {
                             role: "system",
                             content: projectAgentContextMessage(
-                              sessionRuntime.root,
+                              backgroundRoot,
                               backgroundToolOptions,
                             ),
                           },
@@ -1272,7 +1296,8 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
                         {
                           inventory: protectedInventory,
                           providerSecrets,
-                          cwd: sessionRuntime.root,
+                          cwd: backgroundRoot,
+                          project: backgroundProject,
                           ...(compositionUsesAcp
                             ? {}
                             : {
@@ -1292,6 +1317,18 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
                           ],
                           onChunk: () => observation.markOutput(),
                           onUsage: (usage) => observation.recordUsage(usage),
+                          onProjectBootstrap: (receipt) => {
+                            const message = uniqueProjectBootstrapReceiptMessage(
+                              backgroundReceiptKeys,
+                              `${sessionId}:background:${activation.source}:${activation.jobId ?? activation.taskId ?? "unknown"}`,
+                              receipt,
+                            );
+                            if (!message) return;
+                            if (!appendMessages(sessionId, [message])) {
+                              throw new Error(`Session ${sessionId} no longer exists.`);
+                            }
+                            publishSessionMessages(event.sender, sessionId);
+                          },
                           ...(globalMemorySnapshot ? { globalMemory: globalMemorySnapshot } : {}),
                           ...(memoryReflection ? { memoryReflection } : {}),
                         },
@@ -1380,7 +1417,12 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
                       interact: interactWithPermissionReceipts,
                     }),
                   execute: async ({ agentId, root, messages: childMessages }) => {
-                    const childTools = new WorkspaceTools(root);
+                    const childBinding = childProjectExecutionContext(
+                      directProject,
+                      projectTools.root,
+                      root,
+                    );
+                    const childTools = new WorkspaceTools(childBinding.cwd);
                     const childToolOptions: WorkspaceAgentToolOptions = {
                       ...baseWorkspaceToolOptions,
                       reviewPermission: reviewWorkspacePermission,
@@ -1401,7 +1443,8 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
                           executeAgentComposition(params.agentComposition, childMessages, {
                             inventory: protectedInventory,
                             providerSecrets,
-                            cwd: root,
+                            cwd: childBinding.cwd,
+                            project: childBinding.project,
                             ...(compositionUsesAcp
                               ? {}
                               : {
@@ -1419,6 +1462,27 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
                             onUsage: (usage) => {
                               childUsages.push(usage);
                               observation.recordUsage(usage);
+                            },
+                            onProjectBootstrap: (receipt) => {
+                              if (!params.sessionId) {
+                                throw new Error(
+                                  "Child Project bootstrap requires a parent Session.",
+                                );
+                              }
+                              const receiptMessage = uniqueProjectBootstrapReceiptMessage(
+                                projectBootstrapReceiptKeys,
+                                `${params.requestId}:child:${agentId}`,
+                                receipt,
+                              );
+                              if (!receiptMessage) return;
+                              const message = {
+                                ...receiptMessage,
+                                agent: agentId,
+                              };
+                              if (!appendMessages(params.sessionId, [message])) {
+                                throw new Error(`Session ${params.sessionId} no longer exists.`);
+                              }
+                              publishSessionMessages(event.sender, params.sessionId);
                             },
                             ...(globalMemorySnapshot ? { globalMemory: globalMemorySnapshot } : {}),
                             ...(memoryReflection ? { memoryReflection } : {}),
@@ -1492,6 +1556,7 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
                     env: compositionEnv,
                     providerSecrets,
                     cwd,
+                    project: directProject,
                     ...(compositionUsesAcp
                       ? {}
                       : {
@@ -1503,7 +1568,13 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
                     acpPermissionHandler,
                     acpSessionId,
                     onAcpSessionId,
-                    ...(params.sideChatId ? { acpMode: "plan" } : {}),
+                    ...(params.sideChatId
+                      ? {
+                          acpMode: "plan",
+                          allowAgentFacingMcp: false,
+                          allowUnboundProjectMcp: false,
+                        }
+                      : {}),
                     ...(() => {
                       const localTools = [
                         ...agentMemoryTools,
@@ -1525,6 +1596,16 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
                       tokenUsages.push(usage);
                       observation.recordUsage(usage);
                     },
+                    onProjectBootstrap: (receipt) => {
+                      const message = uniqueProjectBootstrapReceiptMessage(
+                        projectBootstrapReceiptKeys,
+                        `${params.requestId}:foreground`,
+                        receipt,
+                      );
+                      if (!message) return;
+                      projectBootstrapReceipts.push(message);
+                      onChunk(message);
+                    },
                     ...(globalMemorySnapshot ? { globalMemory: globalMemorySnapshot } : {}),
                     ...(memoryReflection ? { memoryReflection } : {}),
                   },
@@ -1534,7 +1615,11 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
           assertFinalAssistantMessage(messages);
           return {
             success: true,
-            messages: [...(memoryReceipt ? [memoryReceipt] : []), ...messages],
+            messages: [
+              ...(memoryReceipt ? [memoryReceipt] : []),
+              ...projectBootstrapReceipts,
+              ...messages,
+            ],
           };
         } else if (params.agentConfig) {
           throw new Error(
@@ -2809,6 +2894,62 @@ async function normalizeWorkingDirectory(cwd?: string): Promise<string | undefin
   const info = await stat(resolved);
   if (!info.isDirectory()) throw new Error(`Working directory must be a directory: ${resolved}`);
   return realpath(resolved);
+}
+
+export async function bindPersistedSessionProject(
+  session: Pick<SessionData, "projectId" | "cwd">,
+  expectedProjectId: string | undefined,
+  expectedRoot: string,
+): Promise<{ id: string; root: string } | undefined> {
+  if (!session.projectId && !expectedProjectId && !session.cwd?.trim()) return undefined;
+  if (session.projectId !== expectedProjectId) {
+    throw new Error("Session Project binding changed after its background runtime was opened.");
+  }
+  const [root, runtimeRoot] = await Promise.all([
+    normalizeWorkingDirectory(session.cwd),
+    normalizeWorkingDirectory(expectedRoot),
+  ]);
+  if (root !== runtimeRoot) {
+    throw new Error("Session Project binding changed after its background runtime was opened.");
+  }
+  return session.projectId && root ? { id: session.projectId, root } : undefined;
+}
+
+export function childProjectExecutionContext(
+  project: { id: string; root: string } | undefined,
+  workspaceRoot: string,
+  callbackRoot: string,
+): { cwd: string; project?: { id: string; root: string } } {
+  const cwd = path.resolve(workspaceRoot);
+  if (!callbackRoot.trim() || callbackRoot.includes("\0") || path.resolve(callbackRoot) !== cwd) {
+    throw new Error("Child workspace root does not match the host-owned WorkspaceTools root.");
+  }
+  // EnterWorktree changes execution cwd, not persisted Project authority. Keeping this binding
+  // exact lets Core reject Project MCP before provider execution until dual-root proof exists.
+  return {
+    cwd,
+    ...(project ? { project } : {}),
+  };
+}
+
+export function uniqueProjectBootstrapReceiptMessage(
+  seen: Set<string>,
+  scope: string,
+  receipt: ProjectBootstrapReceipt,
+): MessageChunk | undefined {
+  const key = JSON.stringify([
+    scope,
+    receipt.capabilityId,
+    receipt.serverName,
+    receipt.serverVersion,
+    receipt.projectId,
+    receipt.registryRevision,
+    receipt.snapshotDigest,
+  ]);
+  if (seen.has(key)) return undefined;
+  const message = projectBootstrapReceiptMessage(receipt);
+  seen.add(key);
+  return message;
 }
 
 function workspaceToolsFor(cwd?: string): WorkspaceTools {

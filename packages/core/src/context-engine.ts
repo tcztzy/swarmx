@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { z } from "zod";
 import { stableJson } from "./canonical-json.js";
 import { type SummaryCheckpoint, SummaryCheckpointSchema } from "./context.js";
+import { modelReplayableMessages } from "./conversation.js";
 import type { LocalTool } from "./mcp.js";
 import { findInlineSecretFields } from "./secret-scanner.js";
 import { type MessageChunk, MessageChunkSchema } from "./types.js";
@@ -1179,7 +1180,9 @@ export function createSessionContextEngine(
   options: SessionContextEngineOptions,
 ): AgentContextEngine {
   const sessionId = z.string().min(1).parse(options.sessionId);
-  const history = (options.history ?? []).map((message) => MessageChunkSchema.parse(message));
+  const history = modelReplayableMessages(
+    (options.history ?? []).map((message) => MessageChunkSchema.parse(message)),
+  );
   const config = options.config
     ? ContextEngineConfigSchema.parse(options.config)
     : defaultSessionContextEngineConfig();

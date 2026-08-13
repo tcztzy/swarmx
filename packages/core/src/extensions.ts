@@ -7,7 +7,7 @@ import { ContextPacketModeSchema, ContextStrategySchema } from "./context.js";
 import type { AgentContextEngine } from "./context-engine.js";
 import { HARNESSES, harnessModelRuntimeEnv, harnessModelRuntimeModel } from "./harness.js";
 import type { HookRuntimeOptions } from "./hook.js";
-import type { LocalTool } from "./mcp.js";
+import type { LocalTool, McpManager } from "./mcp.js";
 import { ModelApiModeSchema, ModelApiSchema } from "./model-api.js";
 import {
   ModelSchema as IndependentModelSchema,
@@ -22,6 +22,15 @@ import type {
   MemoryReflectionDecision,
   PersonalMemorySnapshot,
 } from "./personal-memory.js";
+import {
+  type ProjectBootstrapBinding,
+  ProjectBootstrapBindingSchema,
+  ProjectBootstrapContractSchema,
+  ProjectBootstrapIdentifierSchema,
+  type ProjectBootstrapReceipt,
+  type ProjectExecutionContext,
+  ProjectExecutionContextSchema,
+} from "./project-bootstrap.js";
 import {
   assertNoProviderOwnedModelFields,
   buildProviderRuntimeEnv,
@@ -157,6 +166,8 @@ export const SkillHostCompatibilityIssueSchema = z
   .passthrough()
   .superRefine(addInlineSecretIssues);
 
+export const McpActivationSchema = z.enum(["off", "auto", "required"]);
+
 export const McpCapabilitySchema = z
   .object({
     id: z.string().min(1),
@@ -165,9 +176,42 @@ export const McpCapabilitySchema = z
     server: McpServerConfigSchema.optional(),
     provenance: z.string().optional(),
     scope: z.enum(["project", "user", "system", "server"]).optional(),
+    activation: McpActivationSchema.optional(),
+    projectService: ProjectBootstrapContractSchema.optional(),
     enabled: z.boolean().optional(),
   })
-  .passthrough();
+  .passthrough()
+  .superRefine((value, context) => {
+    if (!value.projectService) return;
+    if (!ProjectBootstrapIdentifierSchema.safeParse(value.id).success) {
+      context.addIssue({
+        code: "custom",
+        path: ["id"],
+        message: "projectService capability id must be a safe Project bootstrap identifier",
+      });
+    }
+    if (value.scope !== "project") {
+      context.addIssue({
+        code: "custom",
+        path: ["projectService"],
+        message: "projectService requires scope=project",
+      });
+    }
+    if (value.activation !== "required") {
+      context.addIssue({
+        code: "custom",
+        path: ["activation"],
+        message: "projectService requires activation=required",
+      });
+    }
+    if (value.server && value.server.type !== "stdio") {
+      context.addIssue({
+        code: "custom",
+        path: ["server"],
+        message: "projectService requires a stdio server",
+      });
+    }
+  });
 
 export const ProviderProfileSchema = z.preprocess(
   normalizeProviderProfileInput,
@@ -677,6 +721,8 @@ export const AgentCompositionCapabilityRefSchema = z
     name: z.string().min(1).optional(),
     sourcePluginId: z.string().min(1).optional(),
     status: AgentCompositionRequirementStatusSchema.default("ok"),
+    scope: z.enum(["project", "user", "system", "server"]).optional(),
+    activation: McpActivationSchema.optional(),
   })
   .passthrough()
   .superRefine(addInlineSecretIssues);
@@ -775,6 +821,7 @@ export type SkillHostCompatibilityIssueLevel = z.infer<
 >;
 export type SkillHostCompatibilityIssue = z.infer<typeof SkillHostCompatibilityIssueSchema>;
 export type SkillCapability = z.infer<typeof SkillCapabilitySchema>;
+export type McpActivation = z.infer<typeof McpActivationSchema>;
 export type McpCapability = z.infer<typeof McpCapabilitySchema>;
 export type ModelProfile = z.infer<typeof ModelProfileSchema>;
 export type ModelSupplyCapability = z.infer<typeof ModelSupplyCapabilitySchema>;
@@ -865,7 +912,11 @@ export interface ExecuteAgentCompositionOptions {
   providerSecrets?: Readonly<Record<string, string>>;
   context?: Record<string, unknown>;
   cwd?: string;
+  project?: ProjectExecutionContext;
+  allowAgentFacingMcp?: boolean;
+  allowUnboundProjectMcp?: boolean;
   localTools?: readonly LocalTool[];
+  createMcpManager?: () => McpManager;
   acpPermissionHandler?: AcpPermissionHandler;
   acpMode?: string;
   acpSessionId?: string;
@@ -877,6 +928,20 @@ export interface ExecuteAgentCompositionOptions {
   globalMemory?: GlobalMemorySnapshot;
   memoryReflection?: MemoryReflectionDecision;
   contextEngine?: AgentContextEngine;
+  onProjectBootstrap?: (receipt: ProjectBootstrapReceipt) => void | Promise<void>;
+}
+
+export interface ResolveAgentCompositionMcpRuntimeOptions {
+  cwd?: string;
+  project?: ProjectExecutionContext;
+  allowAgentFacingMcp?: boolean;
+  allowUnboundProjectMcp?: boolean;
+}
+
+export interface ResolvedAgentCompositionMcpRuntime {
+  mcpServers: Record<string, McpServerConfig>;
+  requiredMcpServers: string[];
+  projectBootstrap?: ProjectBootstrapBinding;
 }
 
 export interface ValidateSkillHostCompatibilityOptions {
@@ -1239,6 +1304,46 @@ export function resolveAgentCompositionPlan(
   for (const result of [...skillResults, ...mcpResults]) {
     requirements.push(result.requirement);
   }
+  const resolvedMcps = mcpResults.flatMap((result) => (result.item ? [result.item] : []));
+  for (const mcp of resolvedMcps) {
+    const activation = effectiveMcpActivation(mcp);
+    if (activation === "off") continue;
+    if (activation !== "required") continue;
+    if (mcp.scope === "project" && mcp.server?.type !== "stdio") {
+      requirements.push({
+        kind: "mcp_server",
+        status: mcp.server ? "unsupported" : "unavailable",
+        id: mcp.id,
+        message: mcp.server
+          ? `Project-scoped MCP server "${mcp.id}" requires a stdio launch contract.`
+          : `Project-scoped MCP server "${mcp.id}" has no launch contract.`,
+      });
+    }
+    if (!mcp.server) {
+      requirements.push({
+        kind: "mcp_server",
+        status: "unavailable",
+        id: mcp.id,
+        message: `Required MCP server "${mcp.id}" has no launch contract.`,
+      });
+    }
+    if (harness && harness.backend.type !== "swarmx") {
+      requirements.push({
+        kind: "mcp_server",
+        status: "unsupported",
+        id: mcp.id,
+        message: `Harness "${harness.id}" cannot consume required Agent-facing MCP server "${mcp.id}".`,
+      });
+    }
+  }
+  const projectServices = resolvedMcps.filter((mcp) => mcp.projectService);
+  if (projectServices.length > 1) {
+    requirements.push({
+      kind: "mcp_server",
+      status: "blocked",
+      message: `Agent composition "${composition.id}" selects more than one Project bootstrap service.`,
+    });
+  }
 
   const pluginIds = uniqueStrings([
     ...(profile?.pluginIds ?? []),
@@ -1390,7 +1495,7 @@ export function resolveAgentComposition(
   ]);
   const mcpServers = selectedMcpIds.reduce<Record<string, McpServerConfig>>((servers, id) => {
     const mcp = resolveById(inventory.mcpServers, id, "MCP server");
-    if (mcp.server) servers[id] = mcp.server;
+    if (effectiveMcpActivation(mcp) !== "off" && mcp.server) servers[id] = mcp.server;
     return servers;
   }, {});
 
@@ -1468,6 +1573,84 @@ export function resolveAgentComposition(
       },
       harness: harnessDescriptor(harness),
     },
+  };
+}
+
+export function resolveAgentCompositionMcpRuntime(
+  compositionInput: unknown,
+  inventory: ExtensionInventory,
+  options: ResolveAgentCompositionMcpRuntimeOptions = {},
+): ResolvedAgentCompositionMcpRuntime {
+  const plan = resolveAgentCompositionPlan(compositionInput, inventory);
+  assertPlanReadyForExecution(plan);
+  const composition = AgentCompositionSchema.parse(compositionInput);
+  const profile = resolveOptionalById(
+    inventory.agents,
+    composition.agentProfileId,
+    "agent profile",
+  );
+  const selectedMcpIds = uniqueStrings([
+    ...(profile?.mcpServers ?? []),
+    ...composition.mcpServers,
+    ...(composition.plugins ?? []).flatMap((plugin) => plugin.mcpServers),
+  ]);
+  const project = options.project
+    ? ProjectExecutionContextSchema.parse(options.project)
+    : undefined;
+  const mcpServers: Record<string, McpServerConfig> = {};
+  const requiredMcpServers: string[] = [];
+  let projectBootstrap: ProjectBootstrapBinding | undefined;
+
+  for (const id of selectedMcpIds) {
+    const capability = resolveById(inventory.mcpServers, id, "MCP server");
+    const activation = effectiveMcpActivation(capability);
+    if (activation === "off") continue;
+    if (options.allowAgentFacingMcp === false) {
+      if (activation === "required") {
+        throw new Error(`Required Agent-facing MCP server "${id}" is disabled by host policy.`);
+      }
+      continue;
+    }
+    if (!capability.server) continue;
+    let server = capability.server;
+    if (capability.scope === "project") {
+      if (!project) {
+        if (activation === "required") {
+          throw new Error(`Required Project MCP server "${id}" requires an active Project.`);
+        }
+        if (options.allowUnboundProjectMcp === false) continue;
+      } else if (options.cwd && path.resolve(options.cwd) !== path.resolve(project.root)) {
+        if (activation === "required") {
+          throw new Error(
+            `Agent working directory "${options.cwd}" does not match active Project root "${project.root}".`,
+          );
+        }
+        continue;
+      } else if (server.type !== "stdio") {
+        if (activation !== "required") {
+          mcpServers[id] = server;
+          continue;
+        }
+        throw new Error(`Project-scoped MCP server "${id}" requires stdio transport.`);
+      } else {
+        server = { ...server, cwd: project.root };
+      }
+    }
+    mcpServers[id] = server;
+    if (activation === "required") requiredMcpServers.push(id);
+    if (capability.projectService && project) {
+      projectBootstrap = ProjectBootstrapBindingSchema.parse({
+        capabilityId: id,
+        project,
+        ...capability.projectService,
+      });
+    }
+  }
+
+  return {
+    mcpServers,
+    requiredMcpServers,
+    ...(projectBootstrap ? { projectBootstrap } : {}),
   };
 }
 
@@ -1556,16 +1739,31 @@ export async function executeAgentComposition(
 ): Promise<MessageChunk[]> {
   const inventory = options.inventory ?? (await loadExtensionInventory(options.inventoryOptions));
   const agentConfig = resolveAgentComposition(compositionInput, inventory);
+  const mcpRuntime = resolveAgentCompositionMcpRuntime(compositionInput, inventory, {
+    cwd: options.cwd,
+    project: options.project,
+    allowAgentFacingMcp: options.allowAgentFacingMcp,
+    allowUnboundProjectMcp: options.allowUnboundProjectMcp,
+  });
+  const runtimeAgentConfig: AgentConfig = {
+    ...agentConfig,
+    mcpServers: Object.keys(mcpRuntime.mcpServers).length > 0 ? mcpRuntime.mcpServers : undefined,
+  };
   const runtimeEnv = resolveAgentCompositionRuntimeEnv(compositionInput, inventory, {
     env: options.env,
     providerSecrets: options.providerSecrets,
   });
+  const cwd = options.cwd ?? options.project?.root;
   const swarm = new Swarm(
-    singleAgentSwarmConfig(agentConfigWithRuntimeEnv(agentConfig, runtimeEnv, options.cwd)),
+    singleAgentSwarmConfig(agentConfigWithRuntimeEnv(runtimeAgentConfig, runtimeEnv, cwd)),
     {
       hook: options.hook,
       agent: {
         localTools: options.localTools,
+        createMcpManager: options.createMcpManager,
+        requiredMcpServers: mcpRuntime.requiredMcpServers,
+        projectBootstrap: mcpRuntime.projectBootstrap,
+        onProjectBootstrap: options.onProjectBootstrap,
         acpPermissionHandler: options.acpPermissionHandler,
         acpMode: options.acpMode,
         acpSessionId: options.acpSessionId,
@@ -1843,28 +2041,49 @@ function resolveForPlan<T extends { id: string; enabled?: boolean }>(
   };
 }
 
-function resolveCapabilityRefForPlan<T extends { id: string; name?: string; enabled?: boolean }>(
+function resolveCapabilityRefForPlan<
+  T extends {
+    id: string;
+    name?: string;
+    enabled?: boolean;
+    scope?: "project" | "user" | "system" | "server";
+    activation?: McpActivation;
+  },
+>(
   kind: "skill" | "mcp_server",
   id: string,
   items: T[],
   inventory: ExtensionInventory,
-): { ref: AgentCompositionCapabilityRef; requirement: AgentCompositionRequirement } {
+): {
+  item?: T;
+  ref: AgentCompositionCapabilityRef;
+  requirement: AgentCompositionRequirement;
+} {
   const label = kind === "skill" ? "skill" : "MCP server";
   const sourcePluginId = sourcePluginIdForCapability(kind, id, inventory);
   const resolution = resolveForPlan(items, id, label, kind);
   const status = resolution.requirement.status;
   return {
+    item: resolution.item,
     ref: {
       id,
       name: resolution.item?.name,
       sourcePluginId,
       status,
+      ...(kind === "mcp_server" && resolution.item?.scope ? { scope: resolution.item.scope } : {}),
+      ...(kind === "mcp_server" && resolution.item?.activation
+        ? { activation: resolution.item.activation }
+        : {}),
     },
     requirement: {
       ...resolution.requirement,
       sourcePluginId,
     },
   };
+}
+
+function effectiveMcpActivation(capability: Pick<McpCapability, "activation">): McpActivation {
+  return capability.activation ?? "auto";
 }
 
 function sourcePluginIdForCapability(

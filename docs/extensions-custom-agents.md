@@ -46,6 +46,95 @@ The desktop projects each saved recipe into the runnable Harness inventory.
 The ordinary composer therefore continues to select a Harness, Model, and
 Effort; it does not need a separate Custom Agent execution path.
 
+## Project-scoped MCP services
+
+An MCP capability may declare `activation: off | auto | required`. Omitting the
+field behaves as `auto` without materializing it in the parsed manifest. `off`
+omits the server, while `auto` keeps best-effort startup. `required` is a
+direct-Agent contract: an unavailable or
+incompatible server, or one that cannot connect within ten seconds, blocks the
+run before its primary Provider request. Required services are supported only
+by the direct SwarmX backend; external Harnesses own their native tools.
+
+A required Project service may also be the composition's single bootstrap
+authority, in which case it declares the exact MCP identity and surface. For
+example:
+
+```json
+{
+  "id": "biology.project-registry",
+  "scope": "project",
+  "activation": "required",
+  "server": {
+    "type": "stdio",
+    "command": "biology-project-service",
+    "args": ["--stdio"]
+  },
+  "projectService": {
+    "serverName": "biology-project-service",
+    "serverVersion": "1",
+    "bootstrapTool": "project_bootstrap",
+    "tools": ["project_bootstrap"]
+  }
+}
+```
+
+The host replaces the stdio working directory with the active Project root; it
+does not trust a manifest-supplied Project path or synthesize environment
+variables. Desktop resolves symlinks before binding. Other public API callers
+must supply filesystem-canonical roots; Core only normalizes lexical dot and
+trailing components when comparing `cwd` with the Project root.
+
+The bootstrap tool receives `schemaVersion`, `projectId`, and `projectRoot` and
+must finish within five seconds. It returns the same snapshot both as one JSON
+text content block and as `structuredContent`. The strict snapshot contains:
+
+- required `schemaVersion: 1`, `projectId`, `registryRevision`,
+  `activeRunRefs`, and `openDecisionRefs`;
+- at most 32 unique values in each refs array;
+- optional `siteProfileVersion`, `storageStatus`, and `quotaStatus`, where a
+  status is `ready`, `constrained`, `blocked`, or `unknown`;
+- no unknown fields. Project ids and revisions are safe identifiers of at most
+  256 characters; the Project-service capability id follows the same safe
+  grammar. Refs and site-profile versions are safe identifiers of at most 128
+  characters. Every safe identifier matches
+  `[A-Za-z0-9][A-Za-z0-9._:@/+~-]*`.
+
+The manifest's `tools` list contains 1–64 unique names and must include
+`bootstrapTool`; each service/tool/version string is at most 128 characters.
+
+Both the raw JSON text and complete canonical snapshot are limited to 8 KiB.
+Unknown fields, a different Project id, contradictory text/structured output,
+or an unexpected
+server/tool surface fails closed. The bootstrap tool is host-only and is not
+advertised to the model; other declared service tools retain ordinary MCP
+visibility. A fresh snapshot is loaded once for every direct Agent execution
+attempt. Provider credential failover starts a new attempt and reloads the
+authority; Desktop de-duplicates identical receipts for the same request and
+Agent. The Session stores a small revision/digest receipt, not the Project root
+or the referenced state, and does not replay that receipt as later model
+context.
+
+An Agent may select multiple required Project MCPs, but only one may declare
+`projectService`. Legacy and `auto` Project MCPs keep their manifest launch
+configuration when no explicit Project binding is available, unless the host
+disables that compatibility path. A host can also disable all Agent-facing
+Extension MCPs: optional services are skipped and required services fail before
+the Provider request. Desktop applies that stronger policy to read-only side
+chats.
+
+The version 1 binding requires the Agent working directory to equal the
+canonical Project root. A child Agent running inside an `EnterWorktree`
+worktree therefore cannot use a required Project MCP and fails before its
+Provider request. Supporting that combination requires a future contract that
+separately attests Project authority and a registered worktree execution root;
+path containment alone is not sufficient authority.
+
+Keep the layers separate: SwarmX owns binding and failure semantics; a biology
+Extension owns scientific entities and validation; a site Extension owns LSF,
+mount, quota, and GPU policy. Selecting a required service does not grant its
+mutation tools any additional filesystem, permission, or audit authority.
+
 ## Codex and Claude Code Agent compatibility
 
 SwarmX treats host-native Agent files as definition adapters around its

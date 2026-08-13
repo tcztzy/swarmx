@@ -133,6 +133,69 @@ selected built-in tool style changes model-facing names and schemas while all
 styles dispatch through the same containment, permission, cancellation, and
 output boundaries.
 
+### Project-scoped Extension services
+
+An Extension MCP capability declares an activation of `off`, `auto`, or
+`required`. `off` is omitted, `auto` preserves the existing best-effort MCP
+behavior, and `required` turns connection failure or the ten-second connection
+deadline into a pre-Provider error. Required services are supported only by the
+direct SwarmX backend; external Harnesses continue to own their native tools.
+For `scope: project`, Main supplies an explicit Project id and normalized root;
+Core overrides the stdio server working directory with that root and rejects a
+required binding when the Agent working directory names a different root.
+Manifest-provided environment values remain explicit and are not augmented with
+ambient Project, credential, or quota variables.
+
+One selected required Project MCP may additionally declare a Project bootstrap
+contract: expected MCP server name and version, exact remote tool names, and the
+single read-only bootstrap tool. Connection validates that surface before any
+tool is exposed. The bootstrap tool itself remains host-only and is never placed
+in the model-facing MCP tool list. After Context Engine preflight succeeds and
+required MCPs are connected, each direct Agent execution attempt calls it
+exactly once with the Project id and root. It requires matching JSON text and
+structured content, validates the returned Project id, and rejects unknown or
+oversized state before the primary Provider request. This ordering preserves
+the existing rule that impossible context fails before starting external
+services while still failing
+closed before scientific work begins.
+
+The versioned bootstrap is an immutable per-execution-attempt projection, not
+Project authority. It contains only `projectId`, `registryRevision`, bounded
+active Run and open Decision references, optional site-profile version, and
+coarse storage and quota states. Core renders it as a bounded instruction block
+and recompiles any configured Context Engine for final request budgeting.
+Session history stores only a receipt with service identity, revision, digest,
+counts, and coarse statuses. Core's shared model-replay projection excludes both
+Project-bootstrap and Memory receipts from ordinary history and Context Engine
+input while retaining them in canonical history.
+Provider credential failover starts a new execution attempt and therefore
+reloads the authority; Desktop emits an identical request/Agent/digest receipt
+at most once. A new run always reloads the service, so separate Sessions
+synchronize through the Project authority rather than through one another's
+transcripts.
+
+The service contract is deliberately domain-neutral. A biology Extension owns
+Sample, Assay, Reference, Method, Artifact, and scientific validation semantics;
+a site Extension owns LSF queues, mounts, quota, and GPU policy. SwarmX owns the
+Project binding, bounded snapshot, failure semantics, and receipt. Mutation
+tools remain ordinary Agent-facing MCP tools and do not gain host permissions,
+audit authority, or cross-Project access merely because the bootstrap service is
+required.
+
+Legacy and `auto` Project MCPs remain best-effort: without an explicit Project
+binding they retain their manifest launch configuration. A host may explicitly
+disable all Agent-facing Extension MCPs; Desktop does so for read-only side
+chats, skipping optional services and rejecting required ones before a Provider
+request. This prevents an MCP tool from bypassing the side-chat mutation
+boundary. Multiple required Project MCPs may be selected, but at most one may
+be the bootstrap authority.
+
+Version 1 requires the Agent working directory and Project root to be exactly
+the same canonical path. Entering a host-managed Git worktree changes only the
+execution directory, not persisted Project authority, so a child Agent using a
+required Project MCP fails closed until a future contract can separately attest
+an authority root and registered worktree execution root.
+
 ### External ACP Harness
 
 `AcpClient` launches an ACP-compatible subprocess, initializes it, creates or

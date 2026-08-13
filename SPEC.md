@@ -130,6 +130,17 @@ implementation map, test plan, backlog, changelog, or incident log.
     to emit typed, source-bearing candidates for `USER.md`, `MEMORY.md`, or exact entity-page upsert;
     candidates do not become Memory until the configured human admission gate
     approves the proposed write. Repeated review and retry are idempotent.
+18. **Project-scoped required services.** A direct Agent may bind required
+    Extension MCP services to the active Project root. They must connect within
+    a bounded deadline before the primary Provider request and are available
+    only to the direct SwarmX backend. At most one selected service may
+    additionally declare a contract-verified MCP identity, version, exact tool
+    surface, and strict bounded bootstrap snapshot. Each direct Agent execution
+    attempt reads that snapshot exactly once, validates its Project identity,
+    and reports only a concise version receipt to Session history. Missing
+    Project identity, root mismatch, unavailable required
+    service, or malformed bootstrap fails closed; legacy optional MCP behavior
+    and external ACP tool ownership do not change.
 
 ## Required capabilities
 
@@ -217,6 +228,11 @@ implementation map, test plan, backlog, changelog, or incident log.
 - Resolve and display composition readiness before execution. Inventory loading
   alone never executes bundled code, starts services, changes trust, or mutates
   host configuration.
+- Treat an MCP capability's `off`, `auto`, or `required` activation as runtime
+  policy rather than descriptive metadata. Project-scoped servers run with the
+  active Project root as their working directory; required Project services are
+  supported only by direct Agents and cannot silently degrade or be injected
+  into an external ACP Harness.
 - Execute configured Agent and Swarm lifecycle hooks only through an explicit
   host-owned capability executor. Matching handlers run concurrently with
   bounded timeouts and structured input/output; missing executors, malformed
@@ -307,6 +323,8 @@ implementation map, test plan, backlog, changelog, or incident log.
   video, text, and general files without storing inline binary data in Sessions.
 - Support transient read-only side chats anchored to a parent snapshot, with
   explicit promotion as the only route into normal persisted task history.
+  Direct side chats do not receive Extension MCP tools; selecting a required
+  one fails before the Provider request rather than weakening that boundary.
 - Provide dedicated Settings surfaces for Providers, permissions, Extensions,
   Custom Agents, runtime health, and updates; Doctor inspection is read-only and
   repair is separately confirmed.
