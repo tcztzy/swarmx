@@ -5,8 +5,8 @@
     "declarationMap": true,
     "emitDeclarationOnly": true,
     "noEmit": false,
-    "outDir": "dist/main",
-    "rootDir": "src/main"
+    "outDir": "dist",
+    "rootDir": "src"
   },
   "include": ["src/main/library.ts"]
 }

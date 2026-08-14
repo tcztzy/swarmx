@@ -1,5 +1,5 @@
 import { EventEmitter } from "node:events";
-import { currentRequestSignal, RequestCancelledError } from "@swarmx/core";
+import { currentRequestSignal, RequestCancelledError } from "@swarmx/core/request-scope";
 import { describe, expect, it } from "vitest";
 import { DesktopRequestRegistry } from "./request-registry.js";
 

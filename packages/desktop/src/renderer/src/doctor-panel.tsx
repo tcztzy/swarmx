@@ -13,6 +13,7 @@ import {
   Wrench,
   XCircle,
 } from "lucide-react";
+import type { DoctorHarnessVersionState, DoctorPanelMode } from "./doctor-controller.js";
 import { HarnessBrandIcon, type HarnessOption, harnessOption } from "./harness-presentation.js";
 import {
   Badge,
@@ -22,13 +23,6 @@ import {
   doctorNoticeVariants,
   rightPanelVariants,
 } from "./ui-primitives.js";
-
-export interface DoctorHarnessVersionState {
-  status: "loading" | "loaded";
-  version?: string;
-}
-
-export type DoctorPanelMode = "doctor" | "setup";
 
 export function DoctorPanel({
   mode,

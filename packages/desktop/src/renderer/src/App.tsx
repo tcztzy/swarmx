@@ -8,12 +8,7 @@ import type {
 } from "@swarmx/core";
 import { getHarness } from "@swarmx/core/harness";
 import type { GlobalMemoryState } from "@swarmx/core/personal-memory";
-import type {
-  DoctorFixResult,
-  DoctorReport,
-  HarnessEnvironmentHarnessState,
-  HarnessEnvironmentStatus,
-} from "@swarmx/runtime";
+import type { HarnessEnvironmentHarnessState, HarnessEnvironmentStatus } from "@swarmx/runtime";
 import {
   Archive,
   ArrowLeft,
@@ -91,11 +86,8 @@ import { AppBrandIcon } from "./app-brand.js";
 import { Composer } from "./composer.js";
 import { ConversationHistory, type MessageEditState } from "./conversation-history.js";
 import { mergeStreamingMessage, withRequestTiming } from "./conversation-messages.js";
-import {
-  type DoctorHarnessVersionState,
-  DoctorPanel,
-  type DoctorPanelMode,
-} from "./doctor-panel.js";
+import { parseDoctorSlashCommand, useDoctorController } from "./doctor-controller.js";
+import { DoctorPanel } from "./doctor-panel.js";
 import {
   type AgentCompositionPayload,
   extensionAgentComposition,
@@ -166,11 +158,6 @@ interface SelectedTranscriptContext {
 type FocusedComposer = "main" | "side";
 
 type ExtensionUiContributionSummary = ExtensionCapabilityInventory["uiContributions"][number];
-
-type DesktopSlashCommand =
-  | { kind: "doctor"; fix: boolean; harnessId?: string }
-  | { kind: "setup"; fix: false; harnessId?: string }
-  | { kind: "error"; message: string };
 
 export interface SwarmxDesktopProductConfig {
   name?: string;
@@ -338,58 +325,6 @@ const DEFAULT_WORKFLOW_CONFIG: SwarmConfig = {
 
 const DEFAULT_WORKFLOW_JSON = JSON.stringify(DEFAULT_WORKFLOW_CONFIG, null, 2);
 
-function parseDesktopSlashCommand(value: string): DesktopSlashCommand | null {
-  const tokens = value.trim().split(/\s+/);
-  const command = tokens.shift();
-  if (command !== "/doctor" && command !== "/setup") return null;
-
-  const kind = command === "/doctor" ? "doctor" : "setup";
-  let fix = false;
-  let harnessId: string | undefined;
-  while (tokens.length > 0) {
-    const token = tokens.shift();
-    if (!token) continue;
-    if (token === "--fix") {
-      if (kind === "setup") {
-        return { kind: "error", message: "Use /setup without --fix, then confirm repairs." };
-      }
-      fix = true;
-      continue;
-    }
-    if (token === "--harness") {
-      const value = tokens.shift();
-      if (!value || value.startsWith("-")) {
-        return { kind: "error", message: "--harness requires a harness id." };
-      }
-      if (harnessId) {
-        return { kind: "error", message: "Specify only one harness id." };
-      }
-      harnessId = value;
-      continue;
-    }
-    if (token.startsWith("--harness=")) {
-      const value = token.slice("--harness=".length);
-      if (!value) return { kind: "error", message: "--harness requires a harness id." };
-      if (harnessId) {
-        return { kind: "error", message: "Specify only one harness id." };
-      }
-      harnessId = value;
-      continue;
-    }
-    if (token.startsWith("-")) {
-      return { kind: "error", message: `Unknown ${kind} option: ${token}` };
-    }
-    if (harnessId) {
-      return { kind: "error", message: "Specify only one harness id." };
-    }
-    harnessId = token;
-  }
-
-  return kind === "doctor"
-    ? { kind, fix, ...(harnessId ? { harnessId } : {}) }
-    : { kind, fix: false, ...(harnessId ? { harnessId } : {}) };
-}
-
 function parseSideChatCommand(value: string): string | null {
   const match = value.trim().match(/^\/(?:side|btw)(?:\s+([\s\S]*))?$/i);
   return match ? (match[1]?.trim() ?? "") : null;
@@ -513,37 +448,12 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
   const [previewAttachment, setPreviewAttachment] = useState<DesktopMediaAttachment | null>(null);
   const [rightPanelWidth, setRightPanelWidth] = useState<number | null>(null);
   const [workflowPanelOpen, setWorkflowPanelOpen] = useState(false);
-  const [doctorPanelOpen, setDoctorPanelOpen] = useState(false);
-  const [doctorPanelMode, setDoctorPanelMode] = useState<DoctorPanelMode>("doctor");
-  const [doctorHarnessId, setDoctorHarnessId] = useState<string | null>(null);
-  const [doctorReport, setDoctorReport] = useState<DoctorReport | null>(null);
-  const [doctorLoading, setDoctorLoading] = useState(false);
-  const [doctorHarnessVersions, setDoctorHarnessVersions] = useState<
-    Record<string, DoctorHarnessVersionState>
-  >({});
-  const [doctorFixPending, setDoctorFixPending] = useState(false);
-  const [doctorFixRunning, setDoctorFixRunning] = useState(false);
-  const [doctorFixResult, setDoctorFixResult] = useState<DoctorFixResult | null>(null);
-  const [doctorInstallingHarnessId, setDoctorInstallingHarnessId] = useState<string | null>(null);
-  const [doctorError, setDoctorError] = useState<string | null>(null);
   const [workflowEnabled, setWorkflowEnabled] = useState(false);
   const [workflowJson, setWorkflowJson] = useState(DEFAULT_WORKFLOW_JSON);
   const [workflowImportStatus, setWorkflowImportStatus] = useState<WorkflowImportStatus | null>(
     null,
   );
-  const activeRightPanelKind = previewAttachment
-    ? "media"
-    : doctorPanelOpen
-      ? "doctor"
-      : rightPanelOpen
-        ? "tools"
-        : null;
-  const [renderedRightPanelKind, setRenderedRightPanelKind] = useState<
-    "doctor" | "tools" | "media"
-  >(activeRightPanelKind ?? "tools");
-  const displayedRightPanelKind = activeRightPanelKind ?? renderedRightPanelKind;
   const pinnedSummaryMounted = usePanelPresence(pinnedSummaryOpen);
-  const rightPanelMounted = usePanelPresence(activeRightPanelKind !== null);
   const activeAgentInteraction = agentInteractions[0];
   const activeToolApproval =
     activeAgentInteraction?.kind === "tool_approval" ? activeAgentInteraction : null;
@@ -566,7 +476,6 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
   const sidebarAccountRef = useRef<HTMLDivElement>(null);
   const navigationHistoryRef = useRef<Array<DiscoveredSession | null>>([null]);
   const navigationIndexRef = useRef(0);
-  const doctorVersionChecksStarted = useRef(false);
   const composerPreferencesRestored = useRef(false);
   const [navigationIndex, setNavigationIndex] = useState(0);
   const preloadedSessionKeys = useRef(new Set<string>());
@@ -734,27 +643,6 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
       mounted = false;
       unsubscribe();
     };
-  }, []);
-
-  useEffect(() => {
-    if (activeRightPanelKind) setRenderedRightPanelKind(activeRightPanelKind);
-  }, [activeRightPanelKind]);
-
-  const openMediaPreview = useCallback((attachment: DesktopMediaAttachment) => {
-    previewReturnFocusRef.current =
-      document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    setDoctorPanelOpen(false);
-    setRightPanelOpen(false);
-    setPreviewAttachment(attachment);
-  }, []);
-
-  const closeMediaPreview = useCallback(() => {
-    const returnTarget = previewReturnFocusRef.current;
-    setPreviewAttachment(null);
-    returnTarget?.focus();
-    window.requestAnimationFrame(() => {
-      if (document.activeElement !== returnTarget) returnTarget?.focus();
-    });
   }, []);
 
   const {
@@ -1050,6 +938,56 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
       revalidateOnReconnect: false,
     },
   );
+  const publishDoctorEnvironment = useCallback(
+    async (environment: HarnessEnvironmentStatus) => {
+      await mutateHarnessEnvironment(environment, { populateCache: true, revalidate: false });
+    },
+    [mutateHarnessEnvironment],
+  );
+  const refreshAfterDoctorRepair = useCallback(async () => {
+    await Promise.all([mutateGroupedSessions(), mutateExtensionInventory()]);
+  }, [mutateExtensionInventory, mutateGroupedSessions]);
+  const doctor = useDoctorController({
+    api,
+    harnesses: HARNESSES,
+    runtimeVisible: settingsSection === "runtime",
+    publishEnvironment: publishDoctorEnvironment,
+    refreshAfterRepair: refreshAfterDoctorRepair,
+  });
+  const activeRightPanelKind = previewAttachment
+    ? "media"
+    : doctor.panelOpen
+      ? "doctor"
+      : rightPanelOpen
+        ? "tools"
+        : null;
+  const [renderedRightPanelKind, setRenderedRightPanelKind] = useState<
+    "doctor" | "tools" | "media"
+  >(activeRightPanelKind ?? "tools");
+  const displayedRightPanelKind = activeRightPanelKind ?? renderedRightPanelKind;
+  const rightPanelMounted = usePanelPresence(activeRightPanelKind !== null);
+  useEffect(() => {
+    if (activeRightPanelKind) setRenderedRightPanelKind(activeRightPanelKind);
+  }, [activeRightPanelKind]);
+
+  const openMediaPreview = useCallback(
+    (attachment: DesktopMediaAttachment) => {
+      previewReturnFocusRef.current =
+        document.activeElement instanceof HTMLElement ? document.activeElement : null;
+      doctor.close();
+      setRightPanelOpen(false);
+      setPreviewAttachment(attachment);
+    },
+    [doctor.close],
+  );
+  const closeMediaPreview = useCallback(() => {
+    const returnTarget = previewReturnFocusRef.current;
+    setPreviewAttachment(null);
+    returnTarget?.focus();
+    window.requestAnimationFrame(() => {
+      if (document.activeElement !== returnTarget) returnTarget?.focus();
+    });
+  }, []);
 
   const availableHarnesses = useMemo<HarnessOption[]>(() => {
     if (!extensionInventory?.harnesses.length) return HARNESSES;
@@ -1619,21 +1557,24 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
     return () => observer.disconnect();
   }, [composerDockElement]);
 
-  const applyNavigationEntry = useCallback((session: DiscoveredSession | null) => {
-    setActiveUiContributionId(null);
-    setWorkflowPanelOpen(false);
-    setSettingsSection(null);
-    setDoctorPanelOpen(false);
-    setComposerError(null);
-    setMessageEdit(null);
-    if (session) {
+  const applyNavigationEntry = useCallback(
+    (session: DiscoveredSession | null) => {
+      setActiveUiContributionId(null);
+      setWorkflowPanelOpen(false);
+      setSettingsSection(null);
+      doctor.close();
+      setComposerError(null);
+      setMessageEdit(null);
+      if (session) {
+        setCurrentSession(null);
+        setSelectedDiscoveredSession(session);
+        return;
+      }
+      setSelectedDiscoveredSession(null);
       setCurrentSession(null);
-      setSelectedDiscoveredSession(session);
-      return;
-    }
-    setSelectedDiscoveredSession(null);
-    setCurrentSession(null);
-  }, []);
+    },
+    [doctor.close],
+  );
 
   const recordNavigationEntry = useCallback(
     (session: DiscoveredSession | null) => {
@@ -1899,25 +1840,31 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
     [projects, recordNavigationEntry],
   );
 
-  const selectExtensionAgentForRun = useCallback((agentId: string) => {
-    setSelectedExtensionAgentId(agentId);
-    setWorkflowEnabled(false);
-    setWorkflowPanelOpen(false);
-    setSettingsSection(null);
-    setDoctorPanelOpen(false);
-    setActiveUiContributionId(null);
-  }, []);
+  const selectExtensionAgentForRun = useCallback(
+    (agentId: string) => {
+      setSelectedExtensionAgentId(agentId);
+      setWorkflowEnabled(false);
+      setWorkflowPanelOpen(false);
+      setSettingsSection(null);
+      doctor.close();
+      setActiveUiContributionId(null);
+    },
+    [doctor.close],
+  );
 
-  const openSettings = useCallback((section: SettingsSection) => {
-    setSettingsSection(section);
-    setSettingsQuery("");
-    setSidebarOpen(true);
-    setAccountMenuOpen(false);
-    setWorkflowPanelOpen(false);
-    setDoctorPanelOpen(false);
-    setRightPanelOpen(false);
-    setActiveUiContributionId(null);
-  }, []);
+  const openSettings = useCallback(
+    (section: SettingsSection) => {
+      setSettingsSection(section);
+      setSettingsQuery("");
+      setSidebarOpen(true);
+      setAccountMenuOpen(false);
+      setWorkflowPanelOpen(false);
+      doctor.close();
+      setRightPanelOpen(false);
+      setActiveUiContributionId(null);
+    },
+    [doctor.close],
+  );
 
   const startDesktopUpdate = useCallback(async () => {
     if (desktopUpdate.phase !== "available" || !api.startUpdate) return;
@@ -1939,178 +1886,15 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
     }
   }, [desktopUpdate.phase]);
 
-  const checkDoctorHarnessVersion = useCallback(async (harnessId: string, refresh = false) => {
-    setDoctorHarnessVersions((current) => ({
-      ...current,
-      [harnessId]: {
-        status: "loading",
-        version: current[harnessId]?.version,
-      },
-    }));
-    try {
-      const result = await api.getHarnessVersion({
-        harnessId,
-        ...(refresh ? { refresh: true } : {}),
-      });
-      setDoctorHarnessVersions((current) => ({
-        ...current,
-        [harnessId]: { status: "loaded", version: result.version },
-      }));
-    } catch (error) {
-      setDoctorHarnessVersions((current) => ({
-        ...current,
-        [harnessId]: { status: "loaded", version: current[harnessId]?.version },
-      }));
-      setDoctorError(errorMessage(error));
-    }
-  }, []);
-
   const openDoctorPanel = useCallback(
-    async ({
-      mode = "doctor",
-      harnessId,
-      requestFix = false,
-    }: {
-      mode?: DoctorPanelMode;
-      harnessId?: string;
-      requestFix?: boolean;
-    } = {}) => {
-      setDoctorPanelOpen(true);
-      setDoctorPanelMode(mode);
-      setDoctorHarnessId(harnessId ?? null);
+    (options?: Parameters<typeof doctor.open>[0]) => {
       setRightPanelOpen(false);
       setWorkflowPanelOpen(false);
       setSettingsSection(null);
       setActiveUiContributionId(null);
-      setDoctorLoading(true);
-      setDoctorFixPending(false);
-      setDoctorFixResult(null);
-      setDoctorError(null);
-      if (!doctorVersionChecksStarted.current) {
-        doctorVersionChecksStarted.current = true;
-        for (const harness of HARNESSES) {
-          void checkDoctorHarnessVersion(harness.id);
-        }
-      }
-      try {
-        const report = await api.inspectDoctor(harnessId ? { harnessId } : {});
-        setDoctorReport(report);
-        setDoctorFixPending(requestFix && report.repairActions.length > 0);
-        if (!harnessId) {
-          await mutateHarnessEnvironment(report.environment, {
-            populateCache: true,
-            revalidate: false,
-          });
-        }
-      } catch (error) {
-        setDoctorError(errorMessage(error));
-      } finally {
-        setDoctorLoading(false);
-      }
+      return doctor.open(options);
     },
-    [checkDoctorHarnessVersion, mutateHarnessEnvironment],
-  );
-
-  const refreshRuntimeDoctor = useCallback(
-    async (refreshVersions = false) => {
-      setDoctorHarnessId(null);
-      setDoctorLoading(true);
-      setDoctorFixPending(false);
-      setDoctorError(null);
-      if (refreshVersions) {
-        await Promise.all(HARNESSES.map((harness) => checkDoctorHarnessVersion(harness.id, true)));
-        doctorVersionChecksStarted.current = true;
-      } else if (!doctorVersionChecksStarted.current) {
-        doctorVersionChecksStarted.current = true;
-        for (const harness of HARNESSES) {
-          void checkDoctorHarnessVersion(harness.id);
-        }
-      }
-      try {
-        const report = await api.inspectDoctor();
-        setDoctorReport(report);
-        await mutateHarnessEnvironment(report.environment, {
-          populateCache: true,
-          revalidate: false,
-        });
-      } catch (error) {
-        setDoctorError(errorMessage(error));
-      } finally {
-        setDoctorLoading(false);
-      }
-    },
-    [checkDoctorHarnessVersion, mutateHarnessEnvironment],
-  );
-
-  useEffect(() => {
-    if (settingsSection !== "runtime") return;
-    void refreshRuntimeDoctor();
-  }, [refreshRuntimeDoctor, settingsSection]);
-
-  const confirmDoctorFix = useCallback(async () => {
-    if (doctorFixRunning || !doctorReport?.repairActions.length) return;
-    setDoctorFixRunning(true);
-    setDoctorError(null);
-    try {
-      const result = await api.fixDoctor({
-        ...(doctorHarnessId ? { harnessId: doctorHarnessId } : {}),
-        confirmed: true,
-      });
-      setDoctorFixResult(result);
-      setDoctorReport(result.after);
-      setDoctorFixPending(false);
-      if (!doctorHarnessId) {
-        await mutateHarnessEnvironment(result.after.environment, {
-          populateCache: true,
-          revalidate: false,
-        });
-      }
-      await Promise.all([mutateGroupedSessions(), mutateExtensionInventory()]);
-    } catch (error) {
-      setDoctorError(errorMessage(error));
-    } finally {
-      setDoctorFixRunning(false);
-    }
-  }, [
-    doctorFixRunning,
-    doctorHarnessId,
-    doctorReport?.repairActions.length,
-    mutateExtensionInventory,
-    mutateGroupedSessions,
-    mutateHarnessEnvironment,
-  ]);
-
-  const installDoctorHarness = useCallback(
-    async (harnessId: string) => {
-      if (doctorInstallingHarnessId) return;
-      setDoctorInstallingHarnessId(harnessId);
-      setDoctorError(null);
-      try {
-        const result = await api.setupHarnessEnvironment({ harnessToolId: harnessId });
-        await mutateHarnessEnvironment(result.status, {
-          populateCache: true,
-          revalidate: false,
-        });
-        const report = await api.inspectDoctor(
-          doctorHarnessId ? { harnessId: doctorHarnessId } : {},
-        );
-        setDoctorReport(report);
-        await checkDoctorHarnessVersion(harnessId, true);
-        if (!result.success) {
-          setDoctorError(result.error ?? `Could not install ${harnessLabel(harnessId)}.`);
-        }
-      } catch (error) {
-        setDoctorError(errorMessage(error));
-      } finally {
-        setDoctorInstallingHarnessId(null);
-      }
-    },
-    [
-      checkDoctorHarnessVersion,
-      doctorHarnessId,
-      doctorInstallingHarnessId,
-      mutateHarnessEnvironment,
-    ],
+    [doctor.open],
   );
 
   const applyUpdatedLocalSession = useCallback(
@@ -2290,7 +2074,7 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
     }
     setSideChatError(null);
     setRightPanelOpen(false);
-    setDoctorPanelOpen(false);
+    doctor.close();
     try {
       const anchorParent = ((await api.loadSession(parent.id)) as SessionData | null) ?? parent;
       if (anchorParent.messages.length === 0) {
@@ -2310,7 +2094,7 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
       setSideChatError(`Could not create side chat: ${errorMessage(error)}`);
       return null;
     }
-  }, [commitSideChatState, currentSession]);
+  }, [commitSideChatState, currentSession, doctor.close]);
 
   const showSideChats = useCallback(async () => {
     const parent = currentSession;
@@ -2327,14 +2111,14 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
       return;
     }
     setRightPanelOpen(false);
-    setDoctorPanelOpen(false);
+    doctor.close();
     try {
       commitSideChatState(await api.setSideChatHidden(parent.id, false));
       window.requestAnimationFrame(() => sideComposerRef.current?.focus());
     } catch (error) {
       setSideChatError(`Could not show side chats: ${errorMessage(error)}`);
     }
-  }, [commitSideChatState, createSideChat, currentSession, sideChatState]);
+  }, [commitSideChatState, createSideChat, currentSession, doctor.close, sideChatState]);
 
   const changeSideChatDraft = useCallback(
     (draft: string) => {
@@ -2722,7 +2506,7 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
       const slashCommand =
         editingExistingMessage || requestAttachments.length > 0
           ? null
-          : parseDesktopSlashCommand(text);
+          : parseDoctorSlashCommand(text);
       if (slashCommand?.kind === "error") {
         setComposerError(slashCommand.message);
         return;
@@ -3268,8 +3052,8 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
                       closeMediaPreview();
                       return;
                     }
-                    if (doctorPanelOpen) {
-                      setDoctorPanelOpen(false);
+                    if (doctor.panelOpen) {
+                      doctor.close();
                       return;
                     }
                     if (!rightPanelOpen && sideChatPaneOpen) void hideSideChats();
@@ -3416,7 +3200,7 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
                 onClick={() => {
                   setWorkflowPanelOpen((open) => !open);
                   setSettingsSection(null);
-                  setDoctorPanelOpen(false);
+                  doctor.close();
                   setActiveUiContributionId(null);
                 }}
                 aria-pressed={workflowPanelOpen}
@@ -3447,7 +3231,7 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
                       setActiveUiContributionId(contribution.id);
                       setWorkflowPanelOpen(false);
                       setSettingsSection(null);
-                      setDoctorPanelOpen(false);
+                      doctor.close();
                     }}
                     aria-label={`Open ${contribution.name}`}
                   >
@@ -4080,19 +3864,19 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
                   environment={harnessEnvironment}
                   loading={harnessEnvironmentLoading}
                   error={harnessEnvironmentError}
-                  doctorReport={doctorReport}
-                  doctorLoading={doctorLoading}
-                  doctorError={doctorError}
-                  harnessVersions={doctorHarnessVersions}
-                  fixPending={doctorFixPending}
-                  fixRunning={doctorFixRunning}
-                  fixResult={doctorFixResult}
-                  installingHarnessId={doctorInstallingHarnessId}
+                  doctorReport={doctor.report}
+                  doctorLoading={doctor.loading}
+                  doctorError={doctor.error}
+                  harnessVersions={doctor.harnessVersions}
+                  fixPending={doctor.fixPending}
+                  fixRunning={doctor.fixRunning}
+                  fixResult={doctor.fixResult}
+                  installingHarnessId={doctor.installingHarnessId}
                   taskRuntime={taskRuntime}
                   taskRuntimeLoading={taskRuntimeLoading}
                   taskRuntimeError={taskRuntimeError}
                   onRefresh={async () => {
-                    await refreshRuntimeDoctor(true);
+                    await doctor.refreshRuntime(true);
                   }}
                   onSetupContainer={async (containerRuntimeId) => {
                     const result = await api.setupHarnessEnvironment({
@@ -4100,15 +3884,15 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
                       includeContainerRuntime: true,
                     });
                     await mutateHarnessEnvironment(result.status, false);
-                    await refreshRuntimeDoctor();
+                    await doctor.refreshRuntime();
                   }}
-                  onInstallHarness={installDoctorHarness}
+                  onInstallHarness={doctor.installHarness}
                   onRefreshHarnessVersion={(harnessId) => {
-                    void checkDoctorHarnessVersion(harnessId, true);
+                    void doctor.refreshHarnessVersion(harnessId);
                   }}
-                  onRequestFix={() => setDoctorFixPending(true)}
-                  onCancelFix={() => setDoctorFixPending(false)}
-                  onConfirmFix={() => void confirmDoctorFix()}
+                  onRequestFix={doctor.requestFix}
+                  onCancelFix={doctor.cancelFix}
+                  onConfirmFix={() => void doctor.confirmFix()}
                   onRefreshTasks={async () => {
                     await mutateTaskRuntime();
                   }}
@@ -4283,34 +4067,34 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
               />
               {displayedRightPanelKind === "doctor" ? (
                 <DoctorPanel
-                  mode={doctorPanelMode}
-                  report={doctorReport}
-                  loading={doctorLoading}
+                  mode={doctor.panelMode}
+                  report={doctor.report}
+                  loading={doctor.loading}
                   harnessOptions={
-                    doctorHarnessId
-                      ? HARNESSES.filter((harness) => harness.id === doctorHarnessId)
+                    doctor.harnessId
+                      ? HARNESSES.filter((harness) => harness.id === doctor.harnessId)
                       : HARNESSES
                   }
-                  harnessVersions={doctorHarnessVersions}
-                  error={doctorError}
-                  fixPending={doctorFixPending}
-                  fixRunning={doctorFixRunning}
-                  fixResult={doctorFixResult}
+                  harnessVersions={doctor.harnessVersions}
+                  error={doctor.error}
+                  fixPending={doctor.fixPending}
+                  fixRunning={doctor.fixRunning}
+                  fixResult={doctor.fixResult}
                   onRefresh={() =>
                     openDoctorPanel({
-                      mode: doctorPanelMode,
-                      harnessId: doctorHarnessId ?? undefined,
+                      mode: doctor.panelMode,
+                      harnessId: doctor.harnessId ?? undefined,
                     })
                   }
-                  onRequestFix={() => setDoctorFixPending(true)}
-                  onCancelFix={() => setDoctorFixPending(false)}
-                  onConfirmFix={confirmDoctorFix}
-                  installingHarnessId={doctorInstallingHarnessId}
-                  onInstallHarness={installDoctorHarness}
+                  onRequestFix={doctor.requestFix}
+                  onCancelFix={doctor.cancelFix}
+                  onConfirmFix={doctor.confirmFix}
+                  installingHarnessId={doctor.installingHarnessId}
+                  onInstallHarness={doctor.installHarness}
                   onRefreshHarnessVersion={(harnessId) => {
-                    void checkDoctorHarnessVersion(harnessId, true);
+                    void doctor.refreshHarnessVersion(harnessId);
                   }}
-                  onClose={() => setDoctorPanelOpen(false)}
+                  onClose={doctor.close}
                 />
               ) : displayedRightPanelKind === "media" && previewAttachment ? (
                 <MediaPreviewPanel

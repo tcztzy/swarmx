@@ -1,4 +1,4 @@
-import { cancelAcpRequest, withAcpRequest } from "@swarmx/core";
+import { cancelRequest, withRequestScope } from "@swarmx/core/request-scope";
 
 export interface RequestOwner {
   readonly id: number;
@@ -53,7 +53,7 @@ export class DesktopRequestRegistry {
     owner.once("destroyed", entry.onDestroyed);
 
     try {
-      return await withAcpRequest(requestId, run);
+      return await withRequestScope(requestId, run);
     } finally {
       if (this.active.get(requestId)?.token === token) this.active.delete(requestId);
       owner.removeListener("destroyed", entry.onDestroyed);
@@ -71,7 +71,7 @@ export class DesktopRequestRegistry {
   async cancel(owner: RequestOwner, requestId: string): Promise<boolean> {
     const entry = this.active.get(requestId);
     if (!entry || entry.owner !== owner) return false;
-    return cancelAcpRequest(requestId);
+    return cancelRequest(requestId);
   }
 
   async cancelAll(owner: RequestOwner): Promise<number> {
@@ -84,6 +84,6 @@ export class DesktopRequestRegistry {
 
   private async cancelEntry(requestId: string, token: symbol): Promise<boolean> {
     if (this.active.get(requestId)?.token !== token) return false;
-    return cancelAcpRequest(requestId);
+    return cancelRequest(requestId);
   }
 }

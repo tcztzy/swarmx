@@ -488,8 +488,16 @@ export function PersonalMemorySettings({
   memory?: GlobalMemoryState;
   loading: boolean;
   error: unknown;
-  onSave: (input: { target: "user" | "memory"; content: string }) => Promise<void>;
-  onForget: (input: { target: "user" | "memory"; confirmed: true }) => Promise<void>;
+  onSave: (input: {
+    target: "user" | "memory";
+    content: string;
+    expectedRevision?: number;
+  }) => Promise<void>;
+  onForget: (input: {
+    target: "user" | "memory";
+    confirmed: true;
+    expectedRevision?: number;
+  }) => Promise<void>;
 }) {
   const [target, setTarget] = useState<"user" | "memory">("user");
   const [draft, setDraft] = useState("");
@@ -511,7 +519,7 @@ export function PersonalMemorySettings({
     setSaving(true);
     setActionError(null);
     try {
-      await onSave({ target, content: draft });
+      await onSave({ target, content: draft, expectedRevision: file?.revision ?? 0 });
     } catch (saveFailure) {
       setActionError(errorMessage(saveFailure));
     } finally {
@@ -524,7 +532,7 @@ export function PersonalMemorySettings({
     setForgetting(true);
     setActionError(null);
     try {
-      await onForget({ target, confirmed: true });
+      await onForget({ target, confirmed: true, expectedRevision: file?.revision ?? 0 });
       setDraft("");
       setConfirmForget(false);
     } catch (forgetFailure) {

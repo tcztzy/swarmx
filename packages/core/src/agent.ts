@@ -2,13 +2,7 @@ import { randomUUID } from "node:crypto";
 import Anthropic from "@anthropic-ai/sdk";
 import OpenAI from "openai";
 import type { AcpPermissionHandler, AcpPromptInput } from "./acp.js";
-import {
-  AcpClient,
-  AcpSessionUnavailableError,
-  currentRequestSignal,
-  RequestCancelledError,
-  throwIfCurrentRequestCancelled,
-} from "./acp.js";
+import { AcpClient, AcpSessionUnavailableError } from "./acp.js";
 import type {
   AgentContextEngine,
   CompiledContext,
@@ -22,12 +16,8 @@ import {
   type HookInvocation,
   type HookRuntimeOptions,
 } from "./hook.js";
-import {
-  type LocalTool,
-  type LocalToolProgress,
-  McpManager,
-  type McpServerContract,
-} from "./mcp.js";
+import type { LocalTool, LocalToolProgress } from "./local-tool-contracts.js";
+import { McpManager, type McpServerContract } from "./mcp.js";
 import {
   attachmentFallbackText,
   createInlineMediaLoader,
@@ -64,6 +54,11 @@ import {
   type ProjectBootstrapSnapshot,
   parseProjectBootstrapResult,
 } from "./project-bootstrap.js";
+import {
+  currentRequestSignal,
+  RequestCancelledError,
+  throwIfCurrentRequestCancelled,
+} from "./request-scope.js";
 import {
   appendMessages,
   createSession,

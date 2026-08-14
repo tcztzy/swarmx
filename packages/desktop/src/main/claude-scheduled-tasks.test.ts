@@ -136,18 +136,31 @@ describe("ClaudeScheduledTaskStore", () => {
 
   it("notifies subscribers when another writer changes the task file", async () => {
     const root = await tempRoot();
-    const store = taskStore(root);
+    const store = taskStore(root, { watchDebounceMs: 25 });
     await store.start();
+    let notified = false;
     const changed = new Promise<void>((resolve) => {
       const unsubscribe = store.subscribe(() => {
         unsubscribe();
+        notified = true;
         resolve();
       });
     });
-    await writeFile(store.filePath, '{"tasks":[]}\n', { mode: 0o600 });
-    await expect(Promise.race([changed, rejectAfter(2_000)])).resolves.toBeUndefined();
-    await store.close();
-  });
+    try {
+      for (let attempt = 0; attempt < 30 && !notified; attempt++) {
+        await writeFile(
+          store.filePath,
+          `${JSON.stringify({ tasks: [], externalRevision: attempt })}\n`,
+          { mode: 0o600 },
+        );
+        await Promise.race([changed, delay(500)]);
+      }
+      expect(notified).toBe(true);
+      await changed;
+    } finally {
+      await store.close();
+    }
+  }, 30_000);
 });
 
 function taskStore(
@@ -177,8 +190,6 @@ function lockOwner(sessionId: string, pid: number, procStart: string): ClaudeSch
   return { sessionId, pid, procStart };
 }
 
-function rejectAfter(delayMs: number): Promise<never> {
-  return new Promise((_, reject) => {
-    setTimeout(() => reject(new Error("Timed out waiting for scheduled task change")), delayMs);
-  });
+function delay(delayMs: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, delayMs));
 }

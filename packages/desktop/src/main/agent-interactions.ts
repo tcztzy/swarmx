@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { currentRequestSignal } from "@swarmx/core";
+import { currentRequestSignal } from "@swarmx/core/request-scope";
 
 export interface ClaudeQuestionOption {
   label: string;

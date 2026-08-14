@@ -3,6 +3,9 @@ import { createHash, timingSafeEqual } from "node:crypto";
 import { mkdir, open, readFile, rename, rm } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import type { DesktopUpdatePhase, DesktopUpdateState } from "../shared/ipc-contracts/app-update.js";
+
+export type { DesktopUpdatePhase, DesktopUpdateState } from "../shared/ipc-contracts/app-update.js";
 
 const DESKTOP_PACKAGE_NAME = "@swarmx/desktop";
 const NPM_LATEST_URL = "https://registry.npmjs.org/@swarmx%2Fdesktop/latest";
@@ -10,21 +13,6 @@ const NPM_REGISTRY_HOST = "registry.npmjs.org";
 const DEFAULT_CHECK_TIMEOUT_MS = 8_000;
 const DEFAULT_DOWNLOAD_TIMEOUT_MS = 120_000;
 const DEFAULT_RESTART_DELAY_MS = 450;
-
-export type DesktopUpdatePhase =
-  | "hidden"
-  | "available"
-  | "downloading"
-  | "installing"
-  | "restarting";
-
-export interface DesktopUpdateState {
-  phase: DesktopUpdatePhase;
-  currentVersion: string;
-  latestVersion?: string;
-  progress?: number;
-  error?: string;
-}
 
 export interface DesktopUpdateServiceLike {
   getState(): DesktopUpdateState;

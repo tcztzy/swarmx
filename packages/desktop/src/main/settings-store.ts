@@ -1,11 +1,12 @@
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import {
   createDefaultDesktopSettings,
   type DesktopSettingsDocument,
   parseDesktopSettingsDocument,
 } from "@swarmx/core";
+import { writePrivateJsonFile } from "./private-json-file.js";
 
 export interface DesktopSettingsStoreLike {
   read(): Promise<DesktopSettingsDocument>;
@@ -48,7 +49,7 @@ export class DesktopSettingsStore implements DesktopSettingsStoreLike {
       try {
         const current = await this.#readCurrent();
         const next = parseDesktopSettingsDocument(await mutation(current));
-        await writeJsonAtomic(this.path, next);
+        await writePrivateJsonFile(this.path, next);
         resolveResult(next);
       } catch (error) {
         rejectResult(error);
@@ -66,13 +67,6 @@ export class DesktopSettingsStore implements DesktopSettingsStoreLike {
       throw error;
     }
   }
-}
-
-async function writeJsonAtomic(path: string, value: unknown): Promise<void> {
-  await mkdir(dirname(path), { recursive: true });
-  const temporaryPath = `${path}.${process.pid}.${Date.now()}.tmp`;
-  await writeFile(temporaryPath, `${JSON.stringify(value, null, 2)}\n`, "utf8");
-  await rename(temporaryPath, path);
 }
 
 function isMissingFileError(error: unknown): boolean {

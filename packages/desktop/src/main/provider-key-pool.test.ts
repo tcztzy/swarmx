@@ -54,6 +54,29 @@ describe("ProviderKeyUsageStore", () => {
     const persisted = await readFile(path, "utf8");
     expect(persisted).not.toMatch(/sk-|quota exceeded|Authorization/i);
   });
+
+  it("serializes concurrent usage increments", async () => {
+    const store = new ProviderKeyUsageStore({ path: await usagePath() });
+
+    await Promise.all(
+      Array.from({ length: 10 }, () =>
+        store.recordSuccess("opencode-go", "primary", {
+          inputTokens: 1,
+          outputTokens: 2,
+          reasoningTokens: 0,
+          cachedInputTokens: 0,
+          totalTokens: 3,
+          estimated: false,
+        }),
+      ),
+    );
+
+    await expect(
+      store.summaries("opencode-go", [{ id: "primary", label: "Key 1", enabled: true }]),
+    ).resolves.toEqual([
+      expect.objectContaining({ requestCount: 10, inputTokens: 10, outputTokens: 20 }),
+    ]);
+  });
 });
 
 describe("providerQuotaExhaustion", () => {

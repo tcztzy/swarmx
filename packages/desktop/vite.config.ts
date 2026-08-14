@@ -45,7 +45,7 @@ export default defineConfig(async () => ({
       preload: {
         input: `${desktopRoot}/src/preload/index.ts`,
         vite: {
-          plugins: [notBundle()],
+          plugins: [notBundle({ filter: ["electron"] })],
           build: {
             outDir: `${desktopRoot}/out/preload`,
             emptyOutDir: true,
@@ -71,7 +71,14 @@ export default defineConfig(async () => ({
     alias: {
       "@": `${desktopRoot}/src/renderer/src`,
       "@swarmx/core/harness": `${desktopRoot}/../core/src/harness.ts`,
+      "@swarmx/core/local-tool-contracts": `${desktopRoot}/../core/src/local-tool-contracts.ts`,
+      "@swarmx/core/personal-memory": `${desktopRoot}/../core/src/personal-memory.ts`,
+      "@swarmx/core/project-contracts": `${desktopRoot}/../core/src/project-contracts.ts`,
+      "@swarmx/core/project": `${desktopRoot}/../core/src/project.ts`,
       "@swarmx/core/rendering": `${desktopRoot}/../core/src/rendering.ts`,
+      "@swarmx/core/request-scope": `${desktopRoot}/../core/src/request-scope.ts`,
+      "@swarmx/core/task-runtime": `${desktopRoot}/../core/src/task-runtime.ts`,
+      "@swarmx/core/task-worker-protocol": `${desktopRoot}/../core/src/task-worker-protocol.ts`,
       "@swarmx/core/memory-runtime-protocol": `${desktopRoot}/../core/src/memory-runtime-protocol.ts`,
     },
   },

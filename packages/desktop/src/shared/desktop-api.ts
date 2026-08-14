@@ -21,7 +21,6 @@ import type {
   Model,
   ModelSupply,
   PermissionApprovalReceipt,
-  ProjectData,
   ProviderProfile,
   ResolvedHarnessPermissionPolicy,
   SessionPermissionMode,
@@ -30,16 +29,10 @@ import type {
   TransientSessionData,
 } from "@swarmx/core";
 import type {
-  GlobalMemoryForgetInput,
-  GlobalMemorySaveInput,
-  GlobalMemoryState,
-} from "@swarmx/core/personal-memory";
-import type {
   NormalizeMessageChunkOptions,
   RenderArtifactReference,
   RenderProvenance,
 } from "@swarmx/core/rendering";
-import type { TaskApproval, TaskWorkItem } from "@swarmx/core/task-runtime";
 import type {
   DoctorFixResult,
   DoctorReport,
@@ -47,48 +40,49 @@ import type {
   HarnessEnvironmentStatus,
   HarnessVersionCheck,
 } from "@swarmx/runtime";
+import type { DesktopUpdateState } from "./ipc-contracts/app-update.js";
+import type { DesktopBrowserApi } from "./ipc-contracts/browser.js";
+import type { DesktopGlobalMemoryApi } from "./ipc-contracts/global-memory.js";
+import type { DesktopProjectData as ProjectData } from "./ipc-contracts/project.js";
+import type { DesktopTaskRuntimeApi } from "./ipc-contracts/task-runtime.js";
+import type { DesktopTerminalApi } from "./ipc-contracts/terminal.js";
+import type { DesktopWorkspaceInspectionApi } from "./ipc-contracts/workspace-inspection.js";
 
-export type DesktopUpdatePhase =
-  | "hidden"
-  | "available"
-  | "downloading"
-  | "installing"
-  | "restarting";
-
-export interface DesktopUpdateState {
-  phase: DesktopUpdatePhase;
-  currentVersion: string;
-  latestVersion?: string;
-  progress?: number;
-  error?: string;
-}
-
-export interface DesktopTerminalDataEvent {
-  id: string;
-  data: string;
-}
-
-export interface DesktopTerminalExitEvent {
-  id: string;
-  exitCode: number;
-  signal?: number;
-}
-
-export interface DesktopTaskRuntimeListResult {
-  requestId: string;
-  ok: true;
-  operation: "list";
-  workItems: TaskWorkItem[];
-  approvals: TaskApproval[];
-  activeWorkItemIds: string[];
-}
-
-export interface DesktopTaskRuntimeWorkItemResult {
-  requestId: string;
-  ok: true;
-  operation: "cancel" | "decide";
-  workItem: TaskWorkItem;
-}
+export type { DesktopUpdatePhase, DesktopUpdateState } from "./ipc-contracts/app-update.js";
+export type {
+  DesktopBrowserApi,
+  DesktopBrowserBounds,
+  DesktopBrowserCreateInput,
+  DesktopBrowserState,
+} from "./ipc-contracts/browser.js";
+export type {
+  DesktopGlobalMemoryApi,
+  DesktopGlobalMemoryForgetInput,
+  DesktopGlobalMemorySaveInput,
+  DesktopGlobalMemoryState,
+} from "./ipc-contracts/global-memory.js";
+export type {
+  DesktopTaskRuntimeApi,
+  DesktopTaskRuntimeCancelInput,
+  DesktopTaskRuntimeDecisionInput,
+  DesktopTaskRuntimeListResult,
+  DesktopTaskRuntimeWorkItemResult,
+} from "./ipc-contracts/task-runtime.js";
+export type {
+  DesktopTerminalApi,
+  DesktopTerminalCreateInput,
+  DesktopTerminalCreateResult,
+  DesktopTerminalDataEvent,
+  DesktopTerminalExitEvent,
+} from "./ipc-contracts/terminal.js";
+export type {
+  DesktopWorkspaceDirectoryEntry,
+  DesktopWorkspaceDirectoryListing,
+  DesktopWorkspaceFilePreview,
+  DesktopWorkspaceInspectionApi,
+  DesktopWorkspaceReviewFile,
+  DesktopWorkspaceReviewSnapshot,
+} from "./ipc-contracts/workspace-inspection.js";
 
 export interface DesktopMessageRenderMetadata {
   artifacts?: RenderArtifactReference[];
@@ -234,67 +228,6 @@ export type DesktopAgentInteractionResponse =
   | { kind: "questions"; answers: Record<string, string> }
   | { kind: "plan_approval"; approved: boolean; feedback?: string }
   | { kind: "tool_approval"; optionId: string };
-
-export interface DesktopBrowserBounds {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-}
-
-export interface DesktopBrowserState {
-  id: string;
-  url: string;
-  title: string;
-  loading: boolean;
-  canGoBack: boolean;
-  canGoForward: boolean;
-  error?: string;
-}
-
-export interface DesktopWorkspaceReviewFile {
-  path: string;
-  previousPath?: string;
-  status: string;
-  patch: string;
-  binary: boolean;
-  additions: number;
-  deletions: number;
-  truncated: boolean;
-  error?: string;
-}
-
-export interface DesktopWorkspaceReviewSnapshot {
-  root: string;
-  branch: string | null;
-  isRepository: boolean;
-  files: DesktopWorkspaceReviewFile[];
-  truncated: boolean;
-  error?: string;
-}
-
-export interface DesktopWorkspaceDirectoryEntry {
-  name: string;
-  path: string;
-  kind: "directory" | "file" | "symlink" | "other";
-  size?: number;
-}
-
-export interface DesktopWorkspaceDirectoryListing {
-  root: string;
-  path: string;
-  entries: DesktopWorkspaceDirectoryEntry[];
-  truncated: boolean;
-}
-
-export interface DesktopWorkspaceFilePreview {
-  root: string;
-  path: string;
-  content: string;
-  size: number;
-  binary: boolean;
-  truncated: boolean;
-}
 
 export interface DesktopPermissionLayerStatus {
   id: string;
@@ -518,7 +451,12 @@ export interface DesktopSendMessageResult {
   sideChat?: DesktopSideChat;
 }
 
-export interface SwarmxAPI {
+export interface SwarmxAPI
+  extends DesktopBrowserApi,
+    DesktopGlobalMemoryApi,
+    DesktopTaskRuntimeApi,
+    DesktopTerminalApi,
+    DesktopWorkspaceInspectionApi {
   readonly initialProjects?: readonly ProjectData[];
   sendMessage(params: {
     requestId: string;
@@ -612,21 +550,6 @@ export interface SwarmxAPI {
   }): Promise<DesktopSessionData | null>;
   listSessions(): Promise<DesktopSessionSummary[]>;
   getActivityProfile(): Promise<ActivityProfileSummary>;
-  getPersonalMemory(): Promise<GlobalMemoryState>;
-  savePersonalMemory(input: GlobalMemorySaveInput): Promise<GlobalMemoryState>;
-  forgetPersonalMemory(input: GlobalMemoryForgetInput): Promise<GlobalMemoryState>;
-  listTaskWorkItems(): Promise<DesktopTaskRuntimeListResult>;
-  cancelTaskWorkItem(input: {
-    workItemId: string;
-    reason?: string;
-  }): Promise<DesktopTaskRuntimeWorkItemResult>;
-  decideTaskApproval(input: {
-    approvalId: string;
-    status: "approved" | "rejected" | "waived";
-    decidedBy: string;
-    reason?: string;
-    response?: unknown;
-  }): Promise<DesktopTaskRuntimeWorkItemResult>;
   listAuditEvents(query?: AuditQuery): Promise<AuditEvent[]>;
   verifyAuditLog(): Promise<AuditVerification>;
   exportAuditLog(
@@ -715,35 +638,6 @@ export interface SwarmxAPI {
     profileAvailability: unknown,
     context?: { cwd?: string; agentId?: string; agentPolicy?: unknown },
   ): Promise<DesktopPermissionStatus>;
-  workspaceRoot(): Promise<string>;
-  getWorkspaceReview(cwd?: string): Promise<DesktopWorkspaceReviewSnapshot>;
-  listWorkspaceDirectory(path?: string, cwd?: string): Promise<DesktopWorkspaceDirectoryListing>;
-  readWorkspaceFile(path: string, cwd?: string): Promise<DesktopWorkspaceFilePreview>;
-  createTerminal(params: {
-    id: string;
-    cwd: string;
-    cols?: number;
-    rows?: number;
-  }): Promise<{ id: string; pid: number }>;
-  writeTerminal(id: string, data: string): Promise<{ written: boolean }>;
-  resizeTerminal(id: string, cols: number, rows: number): Promise<{ resized: boolean }>;
-  killTerminal(id: string): Promise<{ killed: boolean }>;
-  onTerminalData(listener: (event: DesktopTerminalDataEvent) => void): () => void;
-  onTerminalExit(listener: (event: DesktopTerminalExitEvent) => void): () => void;
-  createBrowser(params?: {
-    id?: string;
-    url?: string;
-    bounds?: DesktopBrowserBounds;
-    visible?: boolean;
-  }): Promise<DesktopBrowserState>;
-  navigateBrowser(id: string, url: string): Promise<DesktopBrowserState>;
-  backBrowser(id: string): Promise<DesktopBrowserState>;
-  forwardBrowser(id: string): Promise<DesktopBrowserState>;
-  reloadBrowser(id: string): Promise<DesktopBrowserState>;
-  setBrowserBounds(id: string, bounds: DesktopBrowserBounds): Promise<{ updated: boolean }>;
-  setBrowserVisible(id: string, visible: boolean): Promise<{ updated: boolean }>;
-  destroyBrowser(id: string): Promise<{ destroyed: boolean }>;
-  onBrowserState(listener: (state: DesktopBrowserState) => void): () => void;
   getUpdateState?(): Promise<DesktopUpdateState>;
   startUpdate?(): Promise<DesktopUpdateState>;
   onUpdateState?(listener: (state: DesktopUpdateState) => void): () => void;

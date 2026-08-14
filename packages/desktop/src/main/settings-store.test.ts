@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -44,5 +44,6 @@ describe("DesktopSettingsStore", () => {
     expect(settings.extensions.enabledPluginIds).toEqual(["paper-tools"]);
     expect(settings.agents.map((agent) => agent.id)).toEqual(["agent-one"]);
     expect(JSON.parse(await readFile(path, "utf8"))).toMatchObject({ schemaVersion: 1 });
+    if (process.platform !== "win32") expect((await stat(path)).mode & 0o777).toBe(0o600);
   });
 });

@@ -15,8 +15,10 @@ import {
   parseExtensionBundle,
   removeProject,
   saveSession,
+  TaskWorkItemSchema,
 } from "@swarmx/core";
 import { describe, expect, it, vi } from "vitest";
+import { DesktopInvokeContractRegistry } from "../shared/ipc-contracts/index.js";
 
 const electron = vi.hoisted(() => ({
   handle: vi.fn(),
@@ -51,6 +53,235 @@ describe("desktop main library entry", () => {
     expect(desktopMain.ComposerPreferenceService).toBeTypeOf("function");
     expect(desktopMain.FileProviderAuthStore).toBeTypeOf("function");
     expect(electron.handle).not.toHaveBeenCalled();
+    const legacyChannels = new Set(Object.keys(desktopIpc.LEGACY_IPC_AUDIT_POLICIES));
+    expect(
+      Object.keys(DesktopInvokeContractRegistry).filter((channel) => legacyChannels.has(channel)),
+    ).toEqual([]);
+  });
+
+  it("registers Workspace inspection once and leaves native selection legacy", () => {
+    try {
+      const callOffset = electron.handle.mock.calls.length;
+      desktopMain.registerIpcHandlers(trustedIpc);
+      const registered = electron.handle.mock.calls.slice(callOffset).map(([channel]) => channel);
+      const inspectionChannels = [
+        "workspace:root",
+        "workspace:review",
+        "workspace:listDirectory",
+        "workspace:readFile",
+      ];
+
+      for (const channel of inspectionChannels) {
+        expect(
+          registered.filter((registeredChannel) => registeredChannel === channel),
+        ).toHaveLength(1);
+        expect(channel in desktopIpc.LEGACY_IPC_AUDIT_POLICIES).toBe(false);
+        expect(channel in DesktopInvokeContractRegistry).toBe(true);
+      }
+      expect(
+        Object.keys(desktopIpc.LEGACY_IPC_AUDIT_POLICIES).filter((channel) =>
+          channel.startsWith("workspace:"),
+        ),
+      ).toEqual(["workspace:selectFilesAndFolders"]);
+    } finally {
+      electron.handle.mockClear();
+      electron.on.mockClear();
+    }
+  });
+
+  it("registers every Browser contract exactly once and removes legacy ownership", () => {
+    try {
+      const callOffset = electron.handle.mock.calls.length;
+      desktopMain.registerIpcHandlers(trustedIpc);
+      const registered = electron.handle.mock.calls.slice(callOffset).map(([channel]) => channel);
+      const browserChannels = Object.keys(DesktopInvokeContractRegistry).filter((channel) =>
+        channel.startsWith("browser:"),
+      );
+
+      expect(browserChannels).toHaveLength(8);
+      for (const channel of browserChannels) {
+        expect(
+          registered.filter((registeredChannel) => registeredChannel === channel),
+        ).toHaveLength(1);
+        expect(channel in desktopIpc.LEGACY_IPC_AUDIT_POLICIES).toBe(false);
+      }
+      expect(
+        Object.keys(desktopIpc.LEGACY_IPC_AUDIT_POLICIES).filter((channel) =>
+          channel.startsWith("browser:"),
+        ),
+      ).toEqual([]);
+    } finally {
+      electron.handle.mockClear();
+      electron.on.mockClear();
+    }
+  });
+
+  it("attempts both Browser and Terminal cleanup when an interactive owner exits", () => {
+    const owner = Object.assign(new EventEmitter(), { id: 85 });
+    const cleanupError = new Error("Browser cleanup failed");
+    const browserCleanup = vi
+      .spyOn(desktopMain.BrowserHost.prototype, "cleanupOwner")
+      .mockImplementation(() => {
+        throw cleanupError;
+      });
+    const terminalCleanup = vi
+      .spyOn(desktopMain.TerminalHost.prototype, "cleanupOwner")
+      .mockImplementation(() => undefined);
+    const createTerminal = vi
+      .spyOn(desktopMain.TerminalHost.prototype, "create")
+      .mockImplementation((_owner, request, recordSemanticAudit) => {
+        recordSemanticAudit?.();
+        return { id: request.id ?? "cleanup-terminal", pid: 42 };
+      });
+
+    try {
+      desktopMain.registerIpcHandlers(trustedIpc);
+      const handler = electron.handle.mock.calls
+        .filter(([channel]) => channel === "terminal:create")
+        .at(-1)?.[1];
+      if (typeof handler !== "function") {
+        throw new Error("terminal create handler was not registered");
+      }
+      expect(handler({ sender: owner }, { id: "cleanup-terminal", cwd: "/workspace" })).toEqual({
+        id: "cleanup-terminal",
+        pid: 42,
+      });
+
+      expect(() => owner.emit("destroyed")).toThrow(cleanupError);
+      expect(browserCleanup).toHaveBeenCalledWith(owner.id);
+      expect(terminalCleanup).toHaveBeenCalledWith(owner.id);
+    } finally {
+      createTerminal.mockRestore();
+      terminalCleanup.mockRestore();
+      browserCleanup.mockRestore();
+      desktopMain.registerIpcHandlers(trustedIpc);
+    }
+  });
+
+  it("registers every Terminal contract exactly once and removes legacy ownership", () => {
+    try {
+      const callOffset = electron.handle.mock.calls.length;
+      desktopMain.registerIpcHandlers(trustedIpc);
+      const registered = electron.handle.mock.calls.slice(callOffset).map(([channel]) => channel);
+      const terminalChannels = Object.keys(DesktopInvokeContractRegistry).filter((channel) =>
+        channel.startsWith("terminal:"),
+      );
+
+      expect(terminalChannels).toHaveLength(4);
+      for (const channel of terminalChannels) {
+        expect(
+          registered.filter((registeredChannel) => registeredChannel === channel),
+        ).toHaveLength(1);
+        expect(channel in desktopIpc.LEGACY_IPC_AUDIT_POLICIES).toBe(false);
+      }
+      expect(
+        Object.keys(desktopIpc.LEGACY_IPC_AUDIT_POLICIES).filter((channel) =>
+          channel.startsWith("terminal:"),
+        ),
+      ).toEqual([]);
+    } finally {
+      electron.handle.mockClear();
+      electron.on.mockClear();
+    }
+  });
+
+  it("authorizes Browser requests before parsing and audits without URLs", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "swarmx-browser-ipc-boundary-"));
+    const auditStore = new AuditStore({ filePath: path.join(root, "audit.jsonl") });
+    const sender = Object.assign(new EventEmitter(), { id: 79 });
+    const navigateHandler = () =>
+      electron.handle.mock.calls.filter(([channel]) => channel === "browser:navigate").at(-1)?.[1];
+    const malformed = {
+      id: "browser-secret",
+      url: "https://private.example/token",
+      rawCredential: "secret-value",
+    };
+
+    try {
+      desktopMain.registerIpcHandlers({ auditStore, authorizeIpcSender: () => false });
+      const denied = navigateHandler();
+      if (typeof denied !== "function") throw new Error("Browser handler was not registered");
+      expect(() => denied({ sender }, malformed)).toThrow("Untrusted desktop IPC sender");
+
+      desktopMain.registerIpcHandlers({ ...trustedIpc, auditStore });
+      const trusted = navigateHandler();
+      if (typeof trusted !== "function") throw new Error("Browser handler was not registered");
+      expect(() => trusted({ sender }, malformed)).toThrow(/arguments failed validation/i);
+
+      const events = auditStore.query({ action: "ipc.request", targetId: "browser.navigate" });
+      expect(events.map((event) => event.outcome)).toEqual([
+        "attempted",
+        "denied",
+        "attempted",
+        "failed",
+      ]);
+      const serialized = JSON.stringify(events);
+      expect(serialized).not.toContain("private.example");
+      expect(serialized).not.toContain("secret-value");
+    } finally {
+      desktopMain.registerIpcHandlers(trustedIpc);
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("authorizes Workspace inspection before parsing and audits without paths", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "swarmx-workspace-ipc-boundary-"));
+    const auditStore = new AuditStore({ filePath: path.join(root, "audit.jsonl") });
+    const sender = Object.assign(new EventEmitter(), { id: 76 });
+    const readHandler = () =>
+      electron.handle.mock.calls
+        .filter(([channel]) => channel === "workspace:readFile")
+        .at(-1)?.[1];
+
+    try {
+      desktopMain.registerIpcHandlers({ auditStore, authorizeIpcSender: () => false });
+      const denied = readHandler();
+      if (typeof denied !== "function") throw new Error("Workspace handler was not registered");
+      expect(() =>
+        denied(
+          { sender },
+          { path: "secret-file.txt", cwd: "/private/workspace", rawCredential: "secret" },
+        ),
+      ).toThrow("Untrusted desktop IPC sender");
+
+      desktopMain.registerIpcHandlers({ ...trustedIpc, auditStore });
+      const trusted = readHandler();
+      if (typeof trusted !== "function") throw new Error("Workspace handler was not registered");
+      expect(() =>
+        trusted(
+          { sender },
+          { path: "secret-file.txt", cwd: "/private/workspace", rawCredential: "secret" },
+        ),
+      ).toThrow("workspace:readFile arguments failed validation");
+      const preview = await trusted({ sender }, { path: "package.json" });
+      expect(preview).toMatchObject({
+        path: "package.json",
+        content: expect.stringContaining('"name": "swarmx-monorepo"'),
+        binary: false,
+        truncated: false,
+      });
+      expect(preview).not.toHaveProperty("sha256");
+
+      const events = auditStore.query({
+        action: "ipc.request",
+        targetId: "workspace.readfile",
+      });
+      expect(events.map((event) => event.outcome)).toEqual([
+        "attempted",
+        "denied",
+        "attempted",
+        "failed",
+        "attempted",
+        "completed",
+      ]);
+      expect(JSON.stringify(events)).not.toContain("secret-file");
+      expect(JSON.stringify(events)).not.toContain("/private/workspace");
+      expect(JSON.stringify(events)).not.toContain("rawCredential");
+      expect(JSON.stringify(events)).not.toContain('"name": "swarmx-monorepo"');
+    } finally {
+      desktopMain.registerIpcHandlers(trustedIpc);
+      await rm(root, { recursive: true, force: true });
+    }
   });
 
   it("rejects privileged IPC from an untrusted renderer before dispatch", () => {
@@ -179,17 +410,13 @@ describe("desktop main library entry", () => {
     const sender = Object.assign(new EventEmitter(), { id: 74 });
 
     try {
-      expect(
-        handler({ sender }, { requestId: "req_state_123", apiKey: "sk-secret-must-not-be-copied" }),
-      ).toEqual(state);
+      expect(handler({ sender })).toEqual(state);
       expect(auditStore.query({ action: "ipc.request", targetId: "appupdate.getstate" })).toEqual(
         [],
       );
 
       fail = true;
-      expect(() =>
-        handler({ sender }, { requestId: "req_state_123", prompt: "raw prompt" }),
-      ).toThrow("raw getter failure");
+      expect(() => handler({ sender })).toThrow("raw getter failure");
       const events = auditStore.query({
         action: "ipc.request",
         targetId: "appupdate.getstate",
@@ -198,29 +425,129 @@ describe("desktop main library entry", () => {
       expect(events[0]).toMatchObject({
         outcome: "failed",
         target: { kind: "ipc-channel", id: "appupdate.getstate" },
-        requestId: "req_state_123",
-        metadata: { argumentCount: 1, errorType: "TypeError" },
+        metadata: { argumentCount: 0, errorType: "TypeError" },
       });
       expect(JSON.stringify(events)).not.toContain("raw getter failure");
-      expect(JSON.stringify(events)).not.toContain("raw prompt");
-      expect(JSON.stringify(events)).not.toContain("sk-secret");
     } finally {
       desktopMain.registerIpcHandlers(trustedIpc);
       await rm(root, { recursive: true, force: true });
     }
   });
 
-  it("persists explicit Personal Memory IPC without copying plaintext into audit", async () => {
+  it("rejects unexpected App Update arguments before calling the service", () => {
+    const state = { phase: "hidden", currentVersion: "3.2.0" } as const;
+    const getState = vi.fn(() => state);
+    desktopMain.registerIpcHandlers({
+      ...trustedIpc,
+      updateService: {
+        getState,
+        check: vi.fn(async () => state),
+        startUpdate: vi.fn(async () => state),
+        subscribe: vi.fn(() => () => undefined),
+      },
+    });
+    const handler = electron.handle.mock.calls
+      .filter(([channel]) => channel === "appUpdate:getState")
+      .at(-1)?.[1];
+    if (typeof handler !== "function") throw new Error("update state handler was not registered");
+
+    expect(() => handler({ sender: new EventEmitter() }, { apiKey: "sk-secret" })).toThrow(
+      "appUpdate:getState arguments failed validation",
+    );
+    expect(getState).not.toHaveBeenCalled();
+  });
+
+  it("audits Project intent before authorization and rejects arguments before effects", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "swarmx-project-ipc-boundary-"));
+    const auditStore = new AuditStore({ filePath: path.join(root, "audit.jsonl") });
+    electron.showOpenDialog.mockResolvedValue({ canceled: true, filePaths: [] });
+    const sender = Object.assign(new EventEmitter(), { id: 75 });
+    const projectPickerHandler = () =>
+      electron.handle.mock.calls
+        .filter(([channel]) => channel === "project:addExisting")
+        .at(-1)?.[1];
+
+    try {
+      desktopMain.registerIpcHandlers({ auditStore, authorizeIpcSender: () => false });
+      const deniedHandler = projectPickerHandler();
+      if (typeof deniedHandler !== "function")
+        throw new Error("Project handler was not registered");
+      expect(() => deniedHandler({ sender }, { rawCredential: "secret" })).toThrow(
+        "Untrusted desktop IPC sender",
+      );
+      expect(electron.showOpenDialog).not.toHaveBeenCalled();
+
+      desktopMain.registerIpcHandlers({ ...trustedIpc, auditStore });
+      const trustedHandler = projectPickerHandler();
+      if (typeof trustedHandler !== "function")
+        throw new Error("Project handler was not registered");
+      expect(() => trustedHandler({ sender }, { rawCredential: "secret" })).toThrow(
+        "project:addExisting arguments failed validation",
+      );
+      expect(electron.showOpenDialog).not.toHaveBeenCalled();
+
+      await expect(trustedHandler({ sender })).resolves.toBeNull();
+      const pickerEvents = auditStore.query({
+        action: "ipc.request",
+        targetId: "project.addexisting",
+      });
+      expect(pickerEvents.map((event) => event.outcome)).toEqual([
+        "attempted",
+        "denied",
+        "attempted",
+        "failed",
+        "attempted",
+        "completed",
+      ]);
+      expect(JSON.stringify(pickerEvents)).not.toContain("rawCredential");
+      expect(JSON.stringify(pickerEvents)).not.toContain("secret");
+    } finally {
+      desktopMain.registerIpcHandlers(trustedIpc);
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("routes Global Memory through compatibility-named IPC without auditing plaintext", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "swarmx-memory-ipc-"));
     const auditStore = new AuditStore({ filePath: path.join(root, "audit.jsonl") });
-    const settings = new desktopMain.DesktopSettingsStore({
-      path: path.join(root, "settings.json"),
+    let userContent: string | null = null;
+    let revision = 0;
+    const state = () => ({
+      user: {
+        target: "user" as const,
+        fileName: "USER.md" as const,
+        content: userContent,
+        revision,
+        updatedAt: userContent ? "2026-08-09T08:00:00.000Z" : null,
+      },
+      memory: {
+        target: "memory" as const,
+        fileName: "MEMORY.md" as const,
+        content: null,
+        revision: 0,
+        updatedAt: null,
+      },
+      legacyUser: false,
+      maxCharacters: { user: 4_000 as const, memory: 4_000 as const },
     });
-    const personalMemoryService = new desktopMain.PersonalMemoryService(
-      settings,
-      () => "2026-08-09T08:00:00.000Z",
-    );
-    desktopMain.registerIpcHandlers({ ...trustedIpc, auditStore, personalMemoryService });
+    const globalMemoryService = {
+      get: vi.fn(async () => state()),
+      save: vi.fn(async (input: { content: string }) => {
+        userContent = input.content;
+        revision += 1;
+        return state();
+      }),
+      forget: vi.fn(async () => {
+        userContent = null;
+        revision += 1;
+        return state();
+      }),
+    };
+    desktopMain.registerIpcHandlers({
+      ...trustedIpc,
+      auditStore,
+      globalMemoryService: globalMemoryService as never,
+    });
     const handler = (channel: string) =>
       electron.handle.mock.calls.filter(([registered]) => registered === channel).at(-1)?.[1];
     const getMemory = handler("personalMemory:get");
@@ -237,17 +564,20 @@ describe("desktop main library entry", () => {
 
     try {
       await expect(
-        saveMemory({ sender }, { content: "Prefer concise answers." }),
-      ).resolves.toMatchObject({ status: "saved", characterCount: 23 });
+        saveMemory(
+          { sender },
+          { target: "user", content: "Prefer concise answers.", expectedRevision: 0 },
+        ),
+      ).resolves.toMatchObject({ user: { content: "Prefer concise answers.", revision: 1 } });
       await expect(getMemory({ sender })).resolves.toMatchObject({
-        status: "saved",
-        content: "Prefer concise answers.",
+        user: { content: "Prefer concise answers.", revision: 1 },
       });
-      await expect(forgetMemory({ sender }, { confirmed: false })).rejects.toThrow();
-      await expect(forgetMemory({ sender }, { confirmed: true })).resolves.toEqual({
-        status: "empty",
-        maxCharacters: 4_000,
-      });
+      expect(() =>
+        forgetMemory({ sender }, { target: "user", confirmed: false, expectedRevision: 1 }),
+      ).toThrow();
+      await expect(
+        forgetMemory({ sender }, { target: "user", confirmed: true, expectedRevision: 1 }),
+      ).resolves.toMatchObject({ user: { content: null, revision: 2 } });
 
       const events = auditStore.query({ action: "ipc.request" });
       expect(events.map((event) => event.target?.id)).toEqual(
@@ -261,10 +591,17 @@ describe("desktop main library entry", () => {
   });
 
   it("exposes strict WorkItem observation and control without Renderer launch authority", async () => {
+    const workItem = TaskWorkItemSchema.parse({
+      id: "awi_detached",
+      status: "queued",
+      executor: { backend: "test", operation: "test.echo" },
+      createdAt: "2026-08-13T00:00:00.000Z",
+      updatedAt: "2026-08-13T00:00:00.000Z",
+    });
     const request = vi.fn(async (command: { operation: string }) => {
       if (command.operation === "list") {
         return {
-          requestId: "task-runtime-list",
+          requestId: "00000000-0000-4000-8000-000000000001",
           ok: true as const,
           operation: "list" as const,
           workItems: [],
@@ -273,10 +610,10 @@ describe("desktop main library entry", () => {
         };
       }
       return {
-        requestId: "task-runtime-control",
+        requestId: "00000000-0000-4000-8000-000000000002",
         ok: true as const,
         operation: command.operation as "cancel" | "decide",
-        workItem: {},
+        workItem,
       };
     });
     desktopMain.registerIpcHandlers({
@@ -297,6 +634,36 @@ describe("desktop main library entry", () => {
     }
     const sender = Object.assign(new EventEmitter(), { id: 81 });
 
+    const overriddenCommands = [
+      { operation: "list" },
+      { operation: "ping" },
+      {
+        operation: "create",
+        workItem: {
+          id: "awi_injected",
+          backend: "test",
+          operation: "test.echo",
+          input: {},
+        },
+      },
+      {
+        operation: "run",
+        workItemId: "awi_detached",
+        launch: {
+          backendId: "test",
+          program: "/bin/sh",
+          args: [],
+          cwd: "/tmp",
+          env: {},
+          environmentDigest: `sha256:${"a".repeat(64)}`,
+        },
+        grants: [],
+      },
+    ];
+    for (const command of overriddenCommands) {
+      expect(() => cancel({ sender }, command)).toThrow(/arguments failed validation/i);
+    }
+    expect(request).not.toHaveBeenCalled();
     await expect(list({ sender })).resolves.toMatchObject({ operation: "list" });
     await expect(cancel({ sender }, { workItemId: "awi_detached" })).resolves.toMatchObject({
       operation: "cancel",
@@ -407,8 +774,98 @@ describe("desktop main library entry", () => {
       expect(dispatchFailures[0]).toMatchObject({
         outcome: "failed",
         target: { kind: "ipc-channel", id: "terminal.create" },
-        metadata: { argumentCount: 0, errorType: "TypeError" },
+        metadata: { argumentCount: 0, errorType: "Error" },
       });
+    } finally {
+      desktopMain.registerIpcHandlers(trustedIpc);
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("records a Terminal result-boundary failure after the semantic receipt is set", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "swarmx-ipc-semantic-boundary-"));
+    const auditStore = new AuditStore({ filePath: path.join(root, "events.jsonl") });
+    const sender = Object.assign(new EventEmitter(), { id: 84 });
+    const createSpy = vi
+      .spyOn(desktopMain.TerminalHost.prototype, "create")
+      .mockImplementation((_owner, request, recordSemanticAudit) => {
+        recordSemanticAudit?.();
+        return { id: request.id ?? "boundary-terminal", pid: Number.NaN };
+      });
+
+    try {
+      desktopMain.registerIpcHandlers({ ...trustedIpc, auditStore });
+      const handler = electron.handle.mock.calls
+        .filter(([channel]) => channel === "terminal:create")
+        .at(-1)?.[1];
+      if (typeof handler !== "function") {
+        throw new Error("terminal create handler was not registered");
+      }
+
+      expect(() => handler({ sender }, { id: "boundary-terminal", cwd: "/workspace" })).toThrow(
+        /terminal:create result failed validation/i,
+      );
+
+      expect(auditStore.query({ action: "ipc.request", targetId: "terminal.create" })).toEqual([
+        expect.objectContaining({
+          outcome: "failed",
+          actor: { kind: "user", id: "renderer:84" },
+          target: { kind: "ipc-channel", id: "terminal.create" },
+          metadata: expect.objectContaining({ argumentCount: 1, errorType: "Error" }),
+        }),
+      ]);
+    } finally {
+      sender.emit("destroyed");
+      createSpy.mockRestore();
+      desktopMain.registerIpcHandlers(trustedIpc);
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("isolates semantic audit receipts across reentrant dispatches", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "swarmx-ipc-semantic-reentrant-"));
+    const auditStore = new AuditStore({ filePath: path.join(root, "events.jsonl") });
+    const outerSender = Object.assign(new EventEmitter(), { id: 82 });
+    const nestedSender = Object.assign(new EventEmitter(), { id: 83 });
+    let killHandler: ((event: unknown, params: unknown) => unknown) | undefined;
+    let nested = false;
+
+    try {
+      desktopMain.registerIpcHandlers({
+        auditStore,
+        authorizeIpcSender: (event) => {
+          if (event.sender.id === outerSender.id && !nested) {
+            nested = true;
+            killHandler?.({ sender: nestedSender }, { id: "nested-missing-terminal" });
+          }
+          return true;
+        },
+      });
+      killHandler = electron.handle.mock.calls
+        .filter(([channel]) => channel === "terminal:kill")
+        .at(-1)?.[1];
+      const interactionHandler = electron.handle.mock.calls
+        .filter(([channel]) => channel === "agent:resolveInteraction")
+        .at(-1)?.[1];
+      if (typeof killHandler !== "function" || typeof interactionHandler !== "function") {
+        throw new Error("semantic-only handlers were not registered");
+      }
+
+      expect(() => interactionHandler({ sender: outerSender }, undefined)).toThrow();
+      expect(
+        auditStore.query({ action: "ipc.request", targetId: "agent.resolveinteraction" }),
+      ).toEqual([
+        expect.objectContaining({
+          outcome: "failed",
+          actor: { kind: "user", id: "renderer:82" },
+        }),
+      ]);
+      expect(
+        auditStore.query({ action: "terminal.close", targetId: "nested-missing-terminal" }),
+      ).toEqual([
+        expect.objectContaining({ outcome: "attempted" }),
+        expect.objectContaining({ outcome: "denied" }),
+      ]);
     } finally {
       desktopMain.registerIpcHandlers(trustedIpc);
       await rm(root, { recursive: true, force: true });
@@ -1152,6 +1609,8 @@ describe("desktop main library entry", () => {
     expect(updateService.startUpdate).toHaveBeenCalledTimes(1);
     publish?.(restarting);
     expect(broadcastUpdateState).toHaveBeenCalledWith(restarting);
+    expect(() => publish?.({ ...restarting, progress: 101 })).toThrow();
+    expect(broadcastUpdateState).toHaveBeenCalledTimes(1);
   });
 
   it("blocks extension agents whose runtime secret is unavailable", () => {

@@ -3,11 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PERSONAL_MEMORY_MAX_CHARACTERS } from "@swarmx/core";
 import { afterEach, describe, expect, it } from "vitest";
-import {
-  createPersonalMemoryAgentTool,
-  GlobalMemoryService,
-  PersonalMemoryService,
-} from "./personal-memory.js";
+import { createPersonalMemoryAgentTool, PersonalMemoryService } from "./personal-memory.js";
 import { DesktopSettingsStore } from "./settings-store.js";
 
 const roots: string[] = [];
@@ -131,85 +127,3 @@ describe("PersonalMemoryService", () => {
     expect(JSON.stringify(audit)).not.toContain("Never persist without the owner.");
   });
 });
-
-describe("GlobalMemoryService", () => {
-  it("migrates legacy Personal Memory into USER.md and keeps review cursors per Session", async () => {
-    const root = await mkdtemp(join(tmpdir(), "swarmx-global-memory-"));
-    roots.push(root);
-    const store = new DesktopSettingsStore({ path: join(root, "settings.json") });
-    await store.update((settings) => ({
-      ...settings,
-      personalMemory: {
-        content: "Prefer concise answers.",
-        updatedAt: "2026-08-09T08:00:00.000Z",
-      },
-    }));
-    const files: Record<"user" | "memory", ReturnType<typeof globalFile>> = {
-      user: globalFile("user", null, 0),
-      memory: globalFile("memory", null, 0),
-    };
-    const backend = {
-      getGlobalMemory: async () => ({
-        ...files,
-        legacyUser: false,
-        maxCharacters: { user: 4_000 as const, memory: 4_000 as const },
-      }),
-      saveGlobalMemory: async (input: {
-        target: "user" | "memory";
-        content: string;
-        expectedRevision: number;
-      }) => {
-        const file = globalFile(input.target, input.content, input.expectedRevision + 1);
-        files[input.target] = file;
-        return file;
-      },
-      forgetGlobalMemory: async (input: {
-        target: "user" | "memory";
-        expectedRevision: number;
-      }) => {
-        const file = globalFile(input.target, null, input.expectedRevision + 1);
-        files[input.target] = file;
-        return file;
-      },
-    };
-    const service = new GlobalMemoryService(backend, store, () => "2026-08-10T08:00:00.000Z");
-
-    await expect(service.get()).resolves.toMatchObject({
-      user: { fileName: "USER.md", content: "Prefer concise answers." },
-      memory: { fileName: "MEMORY.md", content: null },
-      legacyUser: true,
-    });
-    await service.save({ target: "user", content: "Prefer evidence first." });
-    expect((await store.read()).personalMemory).toBeNull();
-    await expect(service.snapshot()).resolves.toMatchObject({
-      user: { content: "Prefer evidence first." },
-    });
-
-    await service.recordCompletedTurn({ sessionId: "session-a" });
-    await service.recordCompletedTurn({ sessionId: "session-b", reviewedThrough: 9 });
-    await expect(
-      service.reflectionDecision({
-        sessionId: "session-a",
-        userTurnCount: 10,
-        userText: "continue",
-      }),
-    ).resolves.toMatchObject({ due: true, reason: "interval", fromUserTurn: 1 });
-    await expect(
-      service.reflectionDecision({
-        sessionId: "session-b",
-        userTurnCount: 10,
-        userText: "continue",
-      }),
-    ).resolves.toMatchObject({ due: false, unreviewedUserTurns: 1 });
-  });
-});
-
-function globalFile(target: "user" | "memory", content: string | null, revision: number) {
-  return {
-    target,
-    fileName: target === "user" ? ("USER.md" as const) : ("MEMORY.md" as const),
-    content,
-    revision,
-    updatedAt: content ? "2026-08-10T08:00:00.000Z" : null,
-  };
-}

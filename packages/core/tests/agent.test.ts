@@ -16,8 +16,8 @@ import {
   createContextHistorySnapshot,
   parseContextEngineConfig,
 } from "../src/context-engine.js";
-import type { LocalToolCallContext, McpConnectionResult } from "../src/mcp.js";
-import { localToolResult, McpManager } from "../src/mcp.js";
+import { type LocalToolCallContext, localToolResult } from "../src/local-tool-contracts.js";
+import { type McpConnectionResult, McpManager } from "../src/mcp.js";
 import type { AgentConfig, MessageChunk } from "../src/types.js";
 
 describe("Agent", () => {

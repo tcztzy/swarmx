@@ -1,4 +1,3 @@
-import type { ProjectData } from "@swarmx/core";
 import type {
   DesktopAgentChunkEvent,
   DesktopAgentInteractionEvent,
@@ -12,21 +11,53 @@ import type {
   DesktopUpdateState,
   SwarmxAPI,
 } from "../shared/desktop-api.js";
+import { DesktopUpdateStateSchema } from "../shared/ipc-contracts/app-update.js";
+import { BrowserEventContracts } from "../shared/ipc-contracts/browser.js";
+import {
+  type DesktopProjectData,
+  ProjectInvokeContracts,
+} from "../shared/ipc-contracts/project.js";
+import { TerminalEventContracts } from "../shared/ipc-contracts/terminal.js";
 
 export type {
   DesktopAgentChunkEvent,
   DesktopAgentInteractionEvent,
   DesktopAgentInteractionResponse,
+  DesktopAgentQuestion,
+  DesktopAgentQuestionOption,
+  DesktopBrowserApi,
   DesktopBrowserBounds,
+  DesktopBrowserCreateInput,
   DesktopBrowserState,
+  DesktopGlobalMemoryApi,
+  DesktopGlobalMemoryForgetInput,
+  DesktopGlobalMemorySaveInput,
+  DesktopGlobalMemoryState,
   DesktopSessionMessagesEvent,
   DesktopSideChatChunkEvent,
+  DesktopTaskRuntimeApi,
+  DesktopTaskRuntimeCancelInput,
+  DesktopTaskRuntimeDecisionInput,
+  DesktopTaskRuntimeListResult,
+  DesktopTaskRuntimeWorkItemResult,
+  DesktopTerminalApi,
+  DesktopTerminalCreateInput,
+  DesktopTerminalCreateResult,
   DesktopTerminalDataEvent,
   DesktopTerminalExitEvent,
   DesktopUpdatePhase,
   DesktopUpdateState,
   SwarmxAPI,
 } from "../shared/desktop-api.js";
+export type { DesktopProjectData } from "../shared/ipc-contracts/project.js";
+export type {
+  DesktopWorkspaceDirectoryEntry,
+  DesktopWorkspaceDirectoryListing,
+  DesktopWorkspaceFilePreview,
+  DesktopWorkspaceInspectionApi,
+  DesktopWorkspaceReviewFile,
+  DesktopWorkspaceReviewSnapshot,
+} from "../shared/ipc-contracts/workspace-inspection.js";
 
 export type DesktopIpcInvoke = <T>(channel: string, ...args: unknown[]) => Promise<T>;
 export type DesktopIpcSubscribe = (
@@ -35,16 +66,15 @@ export type DesktopIpcSubscribe = (
 ) => () => void;
 
 export type DesktopAgentMessageChunk = DesktopMessageChunk;
-export type DesktopProjectData = ProjectData;
 
 export interface DesktopBootstrapData {
   initialProjects?: readonly DesktopProjectData[];
 }
 
 export function parseDesktopBootstrapData(value: unknown): DesktopBootstrapData {
-  if (!isRecord(value) || !Array.isArray(value.initialProjects)) return {};
-  const initialProjects = value.initialProjects.filter(isDesktopProjectData);
-  return initialProjects.length === value.initialProjects.length ? { initialProjects } : {};
+  if (!isRecord(value)) return {};
+  const parsed = ProjectInvokeContracts["project:list"].result.safeParse(value.initialProjects);
+  return parsed.success ? { initialProjects: parsed.data } : {};
 }
 
 /**
@@ -240,10 +270,14 @@ export function createSwarmxDesktopApi(
     killTerminal: (id: string) => invoke("terminal:kill", { id }),
 
     onTerminalData: (listener: (event: DesktopTerminalDataEvent) => void) =>
-      subscribe("terminal:data", (value) => listener(value as DesktopTerminalDataEvent)),
+      subscribe("terminal:data", (value) =>
+        listener(TerminalEventContracts["terminal:data"].payload.parse(value)),
+      ),
 
     onTerminalExit: (listener: (event: DesktopTerminalExitEvent) => void) =>
-      subscribe("terminal:exit", (value) => listener(value as DesktopTerminalExitEvent)),
+      subscribe("terminal:exit", (value) =>
+        listener(TerminalEventContracts["terminal:exit"].payload.parse(value)),
+      ),
 
     createBrowser: (params = {}) => invoke("browser:create", params),
 
@@ -264,14 +298,16 @@ export function createSwarmxDesktopApi(
     destroyBrowser: (id: string) => invoke("browser:destroy", { id }),
 
     onBrowserState: (listener: (state: DesktopBrowserState) => void) =>
-      subscribe("browser:state", (value) => listener(value as DesktopBrowserState)),
+      subscribe("browser:state", (value) =>
+        listener(BrowserEventContracts["browser:state"].payload.parse(value)),
+      ),
 
     getUpdateState: () => invoke("appUpdate:getState"),
 
     startUpdate: () => invoke("appUpdate:install"),
 
     onUpdateState: (listener: (state: DesktopUpdateState) => void) =>
-      subscribe("appUpdate:state", (value) => listener(value as DesktopUpdateState)),
+      subscribe("appUpdate:state", (value) => listener(DesktopUpdateStateSchema.parse(value))),
 
     selectFilesAndFolders: () => invoke("workspace:selectFilesAndFolders"),
 
@@ -321,22 +357,6 @@ export function createSwarmxDesktopApi(
     loadImageDataUrl: (source: string) => invoke("asset:imageDataUrl", source),
   };
   return Object.freeze(api);
-}
-
-function isDesktopProjectData(value: unknown): value is DesktopProjectData {
-  return (
-    isRecord(value) &&
-    typeof value.id === "string" &&
-    value.id.length > 0 &&
-    typeof value.name === "string" &&
-    value.name.length > 0 &&
-    typeof value.cwd === "string" &&
-    value.cwd.length > 0 &&
-    typeof value.pinned === "boolean" &&
-    typeof value.createdAt === "string" &&
-    typeof value.updatedAt === "string" &&
-    (value.removedAt === undefined || typeof value.removedAt === "string")
-  );
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

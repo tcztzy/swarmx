@@ -347,6 +347,7 @@ describe("npm launcher cold start", () => {
     expect(publisher).toContain('"packages/swarmx"');
     expect(publisher).toContain("workspace:");
     expect(publisher).toContain("dist.integrity");
+    expect(publisher).toContain("packed test artifact");
   });
 
   it("blocks release packaging and publishing on the tagged commit quality gate", () => {

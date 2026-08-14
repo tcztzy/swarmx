@@ -69,6 +69,10 @@
       "types": "./dist/builtin-tools.d.ts",
       "import": "./dist/builtin-tools.js"
     },
+    "./local-tool-contracts": {
+      "types": "./dist/local-tool-contracts.d.ts",
+      "import": "./dist/local-tool-contracts.js"
+    },
     "./harness": {
       "types": "./dist/harness.d.ts",
       "import": "./dist/harness.js"
@@ -113,6 +117,10 @@
       "types": "./dist/actions.d.ts",
       "import": "./dist/actions.js"
     },
+    "./request-scope": {
+      "types": "./dist/request-scope.d.ts",
+      "import": "./dist/request-scope.js"
+    },
     "./skill-variants": {
       "types": "./dist/skill-variants.d.ts",
       "import": "./dist/skill-variants.js"
@@ -124,6 +132,10 @@
     "./project": {
       "types": "./dist/project.d.ts",
       "import": "./dist/project.js"
+    },
+    "./project-contracts": {
+      "types": "./dist/project-contracts.d.ts",
+      "import": "./dist/project-contracts.js"
     },
     "./project-bootstrap": {
       "types": "./dist/project-bootstrap.d.ts",

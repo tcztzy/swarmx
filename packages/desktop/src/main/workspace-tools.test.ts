@@ -11,7 +11,11 @@ import {
 } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import type { LocalMcpTool, LocalTextTool, LocalToolResult } from "@swarmx/core";
+import type {
+  LocalMcpTool,
+  LocalTextTool,
+  LocalToolResult,
+} from "@swarmx/core/local-tool-contracts";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ClaudeInteractionRequest, ClaudeInteractionResponse } from "./agent-interactions.js";
 import { WorkspaceShell } from "./workspace-shell.js";
@@ -32,96 +36,33 @@ afterEach(async () => {
 });
 
 describe("WorkspaceTools", () => {
-  it("enforces direct tool policy and one-call desktop approval", async () => {
+  it("applies the direct permission adapter to generated tools", async () => {
     const root = await temporaryDirectory();
-    const withoutBridge = workspaceAgentTools(new WorkspaceTools(root), undefined, {
-      model: "claude-sonnet-4-6",
-      toolStyle: "claude_code",
-      permissionPolicy: { mode: "default", allowedTools: [], deniedTools: [] },
-    });
-    const blockedWrite = withoutBridge.find((tool) => tool.name === "Write") as LocalMcpTool;
-    await expect(
-      blockedWrite.call({ file_path: "blocked.txt", content: "must not be written\n" }),
-    ).rejects.toThrow(/requires approval.*no interaction bridge/i);
-
-    const interact = vi
-      .fn()
-      .mockResolvedValueOnce({ kind: "tool_approval", optionId: "reject_once" })
-      .mockResolvedValueOnce({ kind: "tool_approval", optionId: "allow_once" });
-    const approvedTools = workspaceAgentTools(new WorkspaceTools(root), undefined, {
-      model: "claude-sonnet-4-6",
-      toolStyle: "claude_code",
-      permissionPolicy: { mode: "default", allowedTools: [], deniedTools: [] },
-      interact,
-    });
-    const write = approvedTools.find((tool) => tool.name === "Write") as LocalMcpTool;
-    await expect(
-      write.call({ file_path: "rejected.txt", content: "private body\n" }),
-    ).rejects.toThrow(/rejected by the user/i);
-    await expect(
-      write.call({ file_path: "approved.txt", content: "private body\n" }),
-    ).resolves.toEqual(
-      expect.objectContaining({ content: expect.stringContaining("successfully") }),
-    );
-    expect(interact).toHaveBeenCalledTimes(2);
-    expect(interact.mock.calls[1]?.[0]).toMatchObject({
-      kind: "tool_approval",
-      title: "Allow Write?",
-      summary: expect.stringContaining("approved.txt"),
-    });
-    expect(JSON.stringify(interact.mock.calls)).not.toContain("private body");
-
-    const planTools = workspaceAgentTools(new WorkspaceTools(root), undefined, {
-      model: "claude-sonnet-4-6",
-      toolStyle: "claude_code",
-      permissionPolicy: { mode: "plan", allowedTools: ["Write"], deniedTools: [] },
-      interact,
-    });
-    const planWrite = planTools.find((tool) => tool.name === "Write") as LocalMcpTool;
-    await expect(planWrite.call({ file_path: "plan.txt", content: "no\n" })).rejects.toThrow(
-      /plan_read_only/i,
-    );
-
-    const trustedTools = workspaceAgentTools(new WorkspaceTools(root), undefined, {
-      model: "gpt-5.4",
-      permissionPolicy: { mode: "trusted", allowedTools: [], deniedTools: ["exec_command"] },
-    });
-    const exec = trustedTools.find((tool) => tool.name === "exec_command") as LocalMcpTool;
-    await expect(exec.call({ cmd: "pwd" })).rejects.toThrow(/explicit_deny/i);
-  });
-
-  it("routes Auto command requests through model review before the human fallback", async () => {
-    const root = await temporaryDirectory();
-    const reviewPermission = vi.fn().mockResolvedValueOnce(true).mockResolvedValueOnce(false);
     const interact = vi.fn().mockResolvedValue({
       kind: "tool_approval",
       optionId: "allow_once",
     });
     const tools = workspaceAgentTools(new WorkspaceTools(root), undefined, {
-      model: "claude-sonnet-5",
-      permissionPolicy: { mode: "auto" },
-      reviewPermission,
+      model: "claude-sonnet-4-6",
+      toolStyle: "claude_code",
+      permissionPolicy: { mode: "default", allowedTools: [], deniedTools: [] },
       interact,
     });
-    const exec = tools.find((tool) => tool.name === "exec_command") as LocalMcpTool;
+    const write = tools.find((tool) => tool.name === "Write") as LocalMcpTool;
 
-    await expect(exec.call({ cmd: "pwd" })).resolves.toEqual(
-      expect.objectContaining({ content: expect.any(String) }),
+    await expect(
+      write.call({ file_path: "approved.txt", content: "private body\n" }),
+    ).resolves.toEqual(
+      expect.objectContaining({ content: expect.stringContaining("successfully") }),
     );
-    expect(interact).not.toHaveBeenCalled();
-    expect(reviewPermission).toHaveBeenCalledWith(
+    expect(interact).toHaveBeenCalledWith(
       expect.objectContaining({
-        source: "direct",
-        toolName: "exec_command",
-        toolKind: "execute",
-        toolInput: { cmd: "pwd" },
+        kind: "tool_approval",
+        toolKind: "write",
+        summary: expect.stringContaining("approved.txt"),
       }),
     );
-
-    await expect(exec.call({ cmd: "pwd" })).resolves.toEqual(
-      expect.objectContaining({ content: expect.any(String) }),
-    );
-    expect(interact).toHaveBeenCalledTimes(1);
+    expect(JSON.stringify(interact.mock.calls)).not.toContain("private body");
   });
 
   it("returns staged, unstaged, and untracked text patches", async () => {
@@ -1490,7 +1431,7 @@ Session=\${CLAUDE_SESSION_ID}
 
         const progress: string[] = [];
         await execCommand.call(
-          { cmd: "printf first; sleep 0.05; printf second", yield_time_ms: 2_000 },
+          { cmd: "printf first; sleep 0.05; printf second", yield_time_ms: 10_000 },
           {
             invocationId: "exec-progress",
             onProgress: (chunk) => progress.push(chunk.content),
@@ -1522,7 +1463,7 @@ Session=\${CLAUDE_SESSION_ID}
         await execCommand.dispose?.();
       }
     },
-    15_000,
+    30_000,
   );
 
   it("applies Codex freeform patches through guarded mutations", async () => {

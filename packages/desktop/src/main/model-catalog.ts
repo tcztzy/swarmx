@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import {
   AgentProfileSchema,
   type DesktopSettingsDocument,
@@ -20,6 +20,7 @@ import {
 } from "@swarmx/core";
 import { preferredBuiltinToolStyleForProvider } from "./builtin-tool-settings.js";
 import type { CodexAccessTokenProvider } from "./codex-auth.js";
+import { writePrivateJsonFile } from "./private-json-file.js";
 import type { ProviderAuthStore } from "./provider-auth.js";
 import {
   newApiAccountCredentialKey,
@@ -334,7 +335,7 @@ export class ModelCatalogService {
         providers.some((provider) => provider.id === entry.providerProfileId),
       ),
     };
-    await writeJsonAtomic(this.cachePath, cache);
+    await writePrivateJsonFile(this.cachePath, cache);
     return await this.mergeInventory(
       inventory,
       settings,
@@ -878,7 +879,7 @@ export class ModelCatalogService {
   }
 
   private writeCache(cache: ModelCatalogCacheDocument): Promise<void> {
-    return writeJsonAtomic(this.cachePath, cache);
+    return writePrivateJsonFile(this.cachePath, cache);
   }
 
   private async resolveSecret(
@@ -1889,13 +1890,6 @@ async function readJsonIfPresent(path: string): Promise<unknown | undefined> {
     if (isNodeError(error, "ENOENT")) return undefined;
     throw error;
   }
-}
-
-async function writeJsonAtomic(path: string, value: unknown): Promise<void> {
-  await mkdir(dirname(path), { recursive: true });
-  const temporaryPath = `${path}.tmp-${process.pid}-${Date.now()}`;
-  await writeFile(temporaryPath, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600 });
-  await rename(temporaryPath, path);
 }
 
 function asRecord(input: unknown, label: string): Record<string, unknown> {

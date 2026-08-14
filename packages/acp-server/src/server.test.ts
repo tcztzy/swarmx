@@ -3,10 +3,10 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import {
   type AuditInput,
-  currentRequestSignal,
   listSessionSummaries,
   loadSession as loadCoreSession,
 } from "@swarmx/core";
+import { currentRequestSignal } from "@swarmx/core/request-scope";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SwarmXAgent } from "./server.js";
 

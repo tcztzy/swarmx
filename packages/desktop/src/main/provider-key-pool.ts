@@ -1,8 +1,9 @@
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import type { ModelTokenUsage } from "@swarmx/core";
 import { z } from "zod";
+import { writePrivateJsonFile } from "./private-json-file.js";
 
 const DEFAULT_COOLDOWN_MS = 5 * 60 * 60 * 1_000;
 const MAX_PROVIDER_COOLDOWN_MS = 30 * 24 * 60 * 60 * 1_000;
@@ -168,7 +169,7 @@ export class ProviderKeyUsageStore {
     const operation = this.mutations.then(async () => {
       const document = await this.read();
       mutator(document);
-      await writeJsonAtomic(this.path, ProviderKeyUsageDocumentSchema.parse(document));
+      await writePrivateJsonFile(this.path, ProviderKeyUsageDocumentSchema.parse(document));
     });
     this.mutations = operation.catch(() => undefined);
     return operation;
@@ -397,13 +398,6 @@ function numberValue(value: unknown): number[] {
 
 function providerKeyStateId(providerId: string, keyId: string): string {
   return `${encodeURIComponent(providerId)}/${encodeURIComponent(keyId)}`;
-}
-
-async function writeJsonAtomic(path: string, value: unknown): Promise<void> {
-  await mkdir(dirname(path), { recursive: true });
-  const temporaryPath = `${path}.tmp-${process.pid}-${Date.now()}`;
-  await writeFile(temporaryPath, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600 });
-  await rename(temporaryPath, path);
 }
 
 function isNodeError(error: unknown, code: string): boolean {

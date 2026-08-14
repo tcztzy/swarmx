@@ -128,6 +128,13 @@ and request-scoped environment remain explicit. Native execution preserves
 streaming, cancellation, tool continuation, and Provider-specific message
 shapes instead of normalizing every request through a compatibility bridge.
 
+Provider-independent local tool contracts live in a browser-safe leaf module;
+MCP and native Provider adapters consume that contract instead of owning it.
+Request cancellation is a separate Node execution scope. ACP, MCP, native
+Providers, and host tools consume its `AbortSignal`, while process-owning
+adapters register bounded cancellation and cleanup participants. The scope does
+not depend on any protocol adapter.
+
 Desktop may inject host-owned Project tools into a direct SwarmX task. The
 selected built-in tool style changes model-facing names and schemas while all
 styles dispatch through the same containment, permission, cancellation, and
@@ -618,6 +625,98 @@ individual UI method. Desktop IPC therefore uses the single transport action
 `ipc.request` and identifies the normalized channel as target
 `{ kind: "ipc-channel", id }`. Each channel has one explicit emission policy:
 
+Renderer transport contracts are browser-safe and composed by feature into one
+logical registry. A migrated invoke contract owns its argument tuple, result
+schema, and audit policy; Main authorizes and audits first, then parses arguments
+before the service effect and parses sync or async results before returning.
+Main-to-Renderer events are likewise parsed before publication. During the
+incremental migration, unconverted channels remain explicitly legacy and may
+not also appear in the contract registry.
+
+Project transport is one complete feature slice rather than eight unrelated
+handlers. Its browser-safe contract owns all eight invoke tuples and results;
+the Main feature router receives only the audited registrar and a Project
+service. The service alone owns folder dialogs, canonical Project registry
+operations, reveal, and the running-Session gate for task archival. Project
+transport types derive from the browser-safe Core Project contract, never the
+Node registry implementation. The synchronous bootstrap projection and the
+asynchronous Project list share that service, so both register the default
+workspace before returning the canonical list.
+
+Workspace inspection is a separate read-only feature slice covering the
+workspace root, Git review, one-level directory listing, and bounded text-file
+preview. Its browser-safe contract owns those four invoke boundaries, while the
+Main feature router alone resolves the requested working directory and adapts
+`WorkspaceTools` host results to the narrower Renderer projection. In
+particular, the contract enforces a bounded aggregate Git-patch payload and the
+host-only read digest is not exposed through IPC. Native file and folder
+selection remains a distinct authority-expanding capability and is not part of
+this inspection slice merely because it shares the `workspace:` channel
+prefix.
+
+Embedded Browser transport is one feature slice with eight invoke contracts and
+one owner-scoped state event. The browser-safe contract owns bounded Renderer
+DTOs and audit policy, while the Main feature router adapts the owner-scoped
+`BrowserHost` service without owning Electron registration authority. Invoke
+results and Host-published state events share one explicit bounded projection;
+Preload parses the event again before it reaches Renderer code. The composition
+root retains the single Browser/Terminal owner-destruction listener, so neither
+feature can bypass the other's cleanup; it attempts both Host cleanups even when
+the first one fails, then reports the first failure. URL normalization, sandboxing,
+permission denial, navigation policy, persistent partition semantics, and view
+lifecycle remain Host responsibilities.
+
+Global Memory transport keeps the established `personalMemory:*` channel and
+Preload method names as user-facing compatibility surfaces, but its only runtime
+shape is the current strict `USER.md` / `MEMORY.md` state and target-aware
+save/forget inputs. Task Runtime transport is a separate browser-safe slice with
+exactly list, cancel, and human-decision invokes. Main alone constructs those
+Supervisor commands; launch specifications, authentication tokens, sockets, and
+create/run authority never enter the shared contract or Renderer bridge. Human
+decision responses pass an iterative encoded-size, depth, node-count, and cycle
+preflight before the recursive worker-payload schema reaches Main services.
+
+Interactive Terminal transport is one feature slice with four invoke contracts
+and two owner-scoped events. Its browser-safe contract owns the Renderer request,
+receipt, data, and exit DTOs, while the Main feature router delegates only to the
+owner-scoped `TerminalHost`. Main validates Host-published events before sending
+them and Preload validates them again before notifying Renderer listeners. The
+transport contract preserves Host-owned normalization and semantic rejection:
+blank working directories, oversized writes, duplicate identifiers, and
+non-finite dimensions reach the Host so its fail-closed semantic audit remains
+the single record of the attempted effect.
+
+Terminal creation acquires the PTY and its event subscriptions as one resource
+unit. If subscription setup fails after spawn, the Host releases every resource
+already acquired before reporting the original create failure; cleanup failures
+remain visible through a fixed, secret-free diagnostic and never replace the
+setup error. A partially created PTY never enters the live owner registry. Once
+a Terminal is live, natural exit and explicit owner/app cleanup remove it from
+the registry and attempt every subscription/process release even if semantic
+audit or one release step fails. Bulk cleanup continues across every matching
+Terminal, then reports the first failure after no further resource can be
+released.
+
+Both Renderer terminal surfaces share one lifecycle hook for xterm setup,
+subscriptions, resize deduplication, buffered input, restart, and cleanup. The
+visual panels retain their own markup and themes. Pending creation is distinct
+from a live PTY: unmount or React StrictMode generation changes invalidate the
+old continuation, and any PTY that resolves afterward is killed exactly once
+instead of becoming an ownerless process. Each controller instance is bound to
+one working directory, restart is serialized through its live-process kill, and
+a failed buffered write keeps the already-created PTY tracked for explicit
+retry or cleanup. Async create/write continuations recheck both generation and
+visibility before mutating the current terminal or moving focus.
+
+Each audited IPC dispatch owns an explicit semantic-audit receipt. A feature
+router passes that receipt only to the Host operation for the current request,
+and the Host marks it only after the current operation's terminal outcome is
+persisted successfully. Background terminal
+exits, owner cleanup, app disposal, and concurrent semantic requests therefore
+cannot suppress another request's transport failure. This replaces
+process-global semantic counters and keeps validation/authorization failures
+visible without duplicating successful Host actions.
+
 | Policy | Use | Events |
 | --- | --- | --- |
 | `intent_outcome` | Privileged or mutating requests | Durable intent before authorization/effect, then terminal outcome |
@@ -642,14 +741,22 @@ token totals, and aggregate tool/Skill counts. It does not store per-tool or
 per-Skill timeline events and cannot substitute for the verified audit chain or
 canonical Session history.
 
-## Personal Memory
+## Global Memory
 
-Personal Memory is a single user-edited record in
-`~/.swarmx/settings.json`, separate from Activity Profile, Session history,
-Project context, Agent profiles, Skills, and WorkItems. Its schema rejects empty
-writes, control characters, unknown IPC fields, and content beyond 4,000
-characters. Forget is a dedicated confirmed mutation that removes the record;
-deleting or archiving a Session never changes Memory.
+Global Memory is the pair of bounded, versioned `USER.md` and `MEMORY.md` files
+in the Git-backed Memory authority. `USER.md` owns durable user preferences and
+facts; `MEMORY.md` owns compact cross-Project experience. The old
+`settings.json` Personal Memory record is read only as a migration overlay and
+is removed after a successful `USER.md` save; it is never a second writable
+authority. Settings writes and explicit forgets carry the revision observed by
+Renderer, so a concurrent Obsidian or host edit produces a conflict instead of
+being overwritten.
+
+Desktop Main keeps this authority in a dedicated Global Memory service that
+alone composes the Memory backend with the legacy overlay and reflection
+cursors. The old settings-backed Personal Memory module remains only for
+compatibility and migration; IPC and new Main callers do not route authoritative
+`USER.md` / `MEMORY.md` behavior through it.
 
 Main reads one immutable snapshot for each Agent-bearing run. Core serializes
 that snapshot into a dedicated read-only instruction block before native
@@ -659,20 +766,19 @@ tool-only workflow reports no consumer. The snapshot can be sent to the selected
 Provider or Harness as required model input, but is never copied into audit,
 Activity, trace, telemetry, hook input, or unrelated tool transport.
 
-Direct Agents receive a host-owned `PersonalMemory` mutation tool. Its strict
-input can propose `save` or `forget`; Main always asks the owning Renderer for a
-one-call confirmation and writes a secret-free audit intent before applying the
-settings mutation. Denial and lost Renderer ownership fail closed. The active
-Agent keeps its frozen starting snapshot, so a confirmed edit affects only later
-runs. ACP Harnesses keep their native tool surface and do not receive this tool.
+SwarmX-owned direct Agents receive the host-owned `Memory` tool. Reads may inspect
+global files and entity pages; every save, forget, create, update, restore, or
+delete proposal requires one-call confirmation through the owning Renderer.
+Denial and lost Renderer ownership fail closed. The active Agent keeps its
+frozen starting snapshot, so a confirmed edit affects only later runs. External
+ACP Harnesses keep their native tool surface and do not receive this tool.
 
 Each attempted Agent Composition run publishes and persists a concise Session
-message stating `used` or `not used`, the Settings source, and either a bounded
-preview plus snapshot size/update time or a reason such as empty Memory or an
-execution path. This receipt is deliberately excluded when
-Session messages are rebuilt for subsequent model calls, so it remains UI
-provenance rather than a second context source. Full Memory remains inspectable
-only through the dedicated Settings IPC surface.
+message stating whether Global Memory was used, its bounded source/size summary,
+or why it was unavailable. This receipt is excluded when Session messages are
+rebuilt for subsequent model calls, so it remains UI provenance rather than a
+second context source. Full file bodies remain inspectable only through the
+dedicated Settings surface and requesting Memory operations.
 
 ## Sessions and Projects
 
@@ -745,6 +851,17 @@ authority.
 Renderer-facing data is normalized and sanitized in Main or browser-safe Core
 modules before display.
 
+Runtime discovery, diagnosis, repair planning, and setup effects remain owned
+by `@swarmx/runtime` and Main. Renderer uses one Doctor feature controller for
+both the slash-command/right-panel entry point and Runtime Settings. The
+controller owns only transient report, version, install, and confirmation
+state; it invokes the finite Preload methods, keeps scoped Harness reports out
+of the global environment cache, and lets the latest request own visible state.
+`/doctor` and `/setup` only inspect and open the review surface; `--fix`
+requests confirmation and never performs a repair itself. A setup or fix effect
+starts only from an explicit UI action, and fix always sends
+`confirmed: true`.
+
 ## Project tools and permissions
 
 Direct Project tools share one safety boundary:
@@ -773,6 +890,15 @@ strict JSON boundary and can select only an offered `allow_once` option. Any
 other verdict, unavailable reviewer route, timeout, malformed response, or
 unsupported option falls back to the ordinary human prompt. The static policy
 and platform sandbox remain authoritative regardless of the model verdict.
+
+The direct-tool permission adapter is a separate boundary from filesystem,
+shell, LSP, browser, and task implementations. It wraps both structured and
+text tools immediately before invocation, defaults unknown tools to execute
+access, and never calls the underlying tool until policy or one-call approval
+succeeds. Automatic review receives the original pending input, while the human
+prompt receives only a bounded allowlisted summary: command and patch bodies are
+replaced with fixed descriptions and never cross the Renderer interaction
+bridge.
 
 An automatic decision is persisted and audited as model-made before the tool
 effect begins. Receipts contain only bounded provenance such as source, tool,
@@ -972,6 +1098,12 @@ carries no credentials.
 Desktop settings use a queued atomic store so narrow section updates do not
 overwrite unrelated state. Zod schemas validate persisted documents and IPC
 updates.
+
+Main-only JSON stores share one mechanical private-file writer that emits the
+same two-space JSON plus trailing newline, creates exclusive temporary files,
+fsyncs file and directory metadata, atomically replaces the target, and fixes
+file permissions to `0600`. The helper owns no schema, read/modify/write queue,
+locking, or conflict policy; those remain explicit in each domain store.
 
 Settings contain secret references only. The dedicated Provider auth document
 may contain plaintext credentials so users can inspect and edit it directly.

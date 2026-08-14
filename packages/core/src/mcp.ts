@@ -1,6 +1,15 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { currentRequestSignal, throwIfCurrentRequestCancelled } from "./acp.js";
+import {
+  isLocalToolResult,
+  type LocalMcpTool,
+  type LocalTextTool,
+  type LocalTool,
+  type LocalToolCallContext,
+  type LocalToolResult,
+  localToolResult,
+} from "./local-tool-contracts.js";
+import { currentRequestSignal, throwIfCurrentRequestCancelled } from "./request-scope.js";
 import type { McpServerConfig } from "./types.js";
 import { SWARMX_VERSION } from "./version.js";
 
@@ -14,65 +23,11 @@ interface McpTool {
   hostOnly?: boolean;
 }
 
-export interface LocalMcpTool extends McpTool {
-  kind?: "function";
-  dispose?: () => Promise<void> | void;
-  call(arguments_: Record<string, unknown>, context?: LocalToolCallContext): Promise<unknown>;
-}
-
-export interface LocalTextTool {
-  kind: "text";
-  name: string;
-  description?: string;
-  isEnabled?: () => boolean;
-  dispose?: () => Promise<void> | void;
-  format?: {
-    type: "grammar";
-    syntax: "lark" | "regex";
-    definition: string;
-  };
-  call(input: string, context?: LocalToolCallContext): Promise<unknown>;
-}
-
-export type LocalTool = LocalMcpTool | LocalTextTool;
-
-export interface LocalToolProgress {
-  content: string;
-  structuredContent?: unknown;
-}
-
-export interface LocalToolCallContext {
-  invocationId?: string;
-  onProgress?: (progress: LocalToolProgress) => void;
-}
-
-export interface LocalToolResult {
-  content: string;
-  structuredContent?: unknown;
-  isError?: boolean;
-}
-
 export interface ToolExecutionResult {
   content: string;
   structuredContent?: unknown;
   isError: boolean;
   rawMcpContentBlocks?: readonly unknown[];
-}
-
-const LOCAL_TOOL_RESULT = Symbol("swarmx.local-tool-result");
-
-/** Separates model-facing tool text from client-facing structured output. */
-export function localToolResult(
-  content: string,
-  structuredContent?: unknown,
-  options: { isError?: boolean } = {},
-): LocalToolResult {
-  return {
-    [LOCAL_TOOL_RESULT]: true,
-    content,
-    ...(structuredContent === undefined ? {} : { structuredContent }),
-    ...(options.isError === undefined ? {} : { isError: options.isError }),
-  } as LocalToolResult;
 }
 
 export type NativeLocalToolDefinition =
@@ -1136,16 +1091,6 @@ function executionResult(result: unknown): ToolExecutionResult {
   }
   const structuredContent = recordResult(result);
   return { content: JSON.stringify(structuredContent), structuredContent, isError: false };
-}
-
-function isLocalToolResult(result: unknown): result is LocalToolResult {
-  return (
-    result !== null &&
-    typeof result === "object" &&
-    !Array.isArray(result) &&
-    (result as Record<PropertyKey, unknown>)[LOCAL_TOOL_RESULT] === true &&
-    typeof (result as { content?: unknown }).content === "string"
-  );
 }
 
 function recordResult(result: unknown): Record<string, unknown> {

@@ -8,7 +8,8 @@ import type {
 import { CircleCheck, Download, Loader2, RefreshCw, Wrench, XCircle } from "lucide-react";
 import { useState } from "react";
 import type { DesktopTaskRuntimeListResult } from "../../shared/desktop-api.js";
-import { type DoctorHarnessVersionState, requirementStatusLabel } from "./doctor-panel.js";
+import type { DoctorHarnessVersionState } from "./doctor-controller.js";
+import { requirementStatusLabel } from "./doctor-panel.js";
 import { HarnessBrandIcon, harnessOption } from "./harness-presentation.js";
 import { errorMessage, formatTimestamp } from "./text-utils.js";
 import { Badge, Button, badgeVariants, cx, doctorNoticeVariants } from "./ui-primitives.js";

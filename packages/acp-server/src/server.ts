@@ -40,16 +40,14 @@ import type {
 import {
   AuditStore,
   appendMessages,
-  cancelAcpRequest,
   createSession,
   listSessionSummaries as listSessionsFile,
   loadSession as loadSessionFile,
-  RequestCancelledError,
   SWARMX_VERSION,
   Swarm,
   saveSession,
-  withAcpRequest,
 } from "@swarmx/core";
+import { cancelRequest, RequestCancelledError, withRequestScope } from "@swarmx/core/request-scope";
 
 interface SessionState {
   cwd: string;
@@ -341,7 +339,7 @@ export class SwarmXAgent implements AcpAgent {
 
     this.activePromptRequestIds.set(request.sessionId, requestId);
     try {
-      await withAcpRequest(acpRequestId(request.sessionId), async () => {
+      await withRequestScope(acpRequestId(request.sessionId), async () => {
         appendSessionMessages(request.sessionId, [
           { role: "user", kind: "message", content: userText },
         ]);
@@ -456,7 +454,7 @@ export class SwarmXAgent implements AcpAgent {
 
     let cancelled: boolean;
     try {
-      cancelled = await cancelAcpRequest(acpRequestId(params.sessionId));
+      cancelled = await cancelRequest(acpRequestId(params.sessionId));
     } catch (error) {
       this.recordAudit({
         category: "session",

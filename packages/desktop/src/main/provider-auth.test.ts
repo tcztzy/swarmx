@@ -60,6 +60,25 @@ describe("FileProviderAuthStore", () => {
     expect(await store.get(secondaryKey)).toBe("sk-secondary");
   });
 
+  it("serializes concurrent mutations without losing Provider credentials", async () => {
+    const path = await authPath();
+    const store = new FileProviderAuthStore({ path });
+
+    await Promise.all([
+      store.set("provider-one", "one-token"),
+      store.set("provider-two", "two-token"),
+    ]);
+    await Promise.all([store.delete("provider-one"), store.set("provider-three", "three-token")]);
+
+    expect(JSON.parse(await readFile(path, "utf8"))).toEqual({
+      schemaVersion: 2,
+      entries: {
+        "provider-two": "two-token",
+        "provider-three": "three-token",
+      },
+    });
+  });
+
   it("reads credentials edited directly in the auth file", async () => {
     const path = await authPath();
     await writeFile(

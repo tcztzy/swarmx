@@ -1,5 +1,3 @@
-import { FitAddon } from "@xterm/addon-fit";
-import { Terminal as XtermTerminal } from "@xterm/xterm";
 import {
   ArrowLeft,
   ArrowRight,
@@ -20,19 +18,21 @@ import {
   Terminal as TerminalIcon,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type {
+  DesktopBrowserBounds,
+  DesktopBrowserState,
+  DesktopWorkspaceDirectoryEntry,
+  DesktopWorkspaceDirectoryListing,
+  DesktopWorkspaceFilePreview,
+  DesktopWorkspaceReviewFile,
+  DesktopWorkspaceReviewSnapshot,
+  SwarmxAPI,
+} from "../../shared/desktop-api.js";
+import { TERMINAL_STATUS_CLASS, useTerminalController } from "./terminal-controller.js";
 import { errorMessage } from "./text-utils.js";
 import { cx, rightPanelVariants } from "./ui-primitives.js";
 
-type TerminalStatus = "idle" | "starting" | "running" | "exited" | "error";
 type ReviewStatusTone = "added" | "deleted" | "renamed" | "modified";
-
-const TERMINAL_STATUS_CLASS = {
-  idle: "is-idle",
-  starting: "is-starting",
-  running: "is-running",
-  exited: "is-exited",
-  error: "is-error",
-} satisfies Record<TerminalStatus, string>;
 
 const REVIEW_STATUS_CLASS = {
   added: "is-added",
@@ -56,97 +56,35 @@ const REVIEW_LINE_CLASS = {
 
 export type WorkspaceTool = "review" | "terminal" | "browser" | "files";
 
-export interface WorkspaceReviewFile {
-  path: string;
-  status: string;
-  patch: string;
-  binary: boolean;
-  additions: number;
-  deletions: number;
-  truncated: boolean;
-}
+export type WorkspaceReviewFile = DesktopWorkspaceReviewFile;
+export type WorkspaceReviewSnapshot = DesktopWorkspaceReviewSnapshot;
+export type WorkspaceDirectoryEntry = DesktopWorkspaceDirectoryEntry;
+export type WorkspaceDirectoryListing = DesktopWorkspaceDirectoryListing;
+export type WorkspaceFilePreview = DesktopWorkspaceFilePreview;
+export type BrowserBounds = DesktopBrowserBounds;
+export type BrowserState = DesktopBrowserState;
 
-export interface WorkspaceReviewSnapshot {
-  root: string;
-  branch?: string | null;
-  isRepository: boolean;
-  files: WorkspaceReviewFile[];
-  truncated: boolean;
-  error?: string;
-}
-
-export interface WorkspaceDirectoryEntry {
-  name: string;
-  path: string;
-  kind: "directory" | "file" | "symlink" | "other";
-  size?: number;
-}
-
-export interface WorkspaceDirectoryListing {
-  root: string;
-  path: string;
-  entries: WorkspaceDirectoryEntry[];
-  truncated: boolean;
-}
-
-export interface WorkspaceFilePreview {
-  root: string;
-  path: string;
-  content: string;
-  size: number;
-  binary: boolean;
-  truncated: boolean;
-}
-
-export interface BrowserBounds {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-}
-
-export interface BrowserState {
-  id: string;
-  url: string;
-  title: string;
-  loading: boolean;
-  canGoBack: boolean;
-  canGoForward: boolean;
-  error?: string;
-}
-
-export interface WorkspacePanelApi {
-  getWorkspaceReview(cwd?: string): Promise<WorkspaceReviewSnapshot>;
-  listWorkspaceDirectory(path?: string, cwd?: string): Promise<WorkspaceDirectoryListing>;
-  readWorkspaceFile(path: string, cwd?: string): Promise<WorkspaceFilePreview>;
-  createTerminal(params: {
-    id: string;
-    cwd: string;
-    cols?: number;
-    rows?: number;
-  }): Promise<{ id: string; pid: number }>;
-  writeTerminal(id: string, data: string): Promise<{ written: boolean }>;
-  resizeTerminal(id: string, cols: number, rows: number): Promise<{ resized: boolean }>;
-  killTerminal(id: string): Promise<{ killed: boolean }>;
-  onTerminalData(listener: (event: { id: string; data: string }) => void): () => void;
-  onTerminalExit(
-    listener: (event: { id: string; exitCode: number; signal?: number }) => void,
-  ): () => void;
-  createBrowser(params?: {
-    id?: string;
-    url?: string;
-    bounds?: BrowserBounds;
-    visible?: boolean;
-  }): Promise<BrowserState>;
-  navigateBrowser(id: string, url: string): Promise<BrowserState>;
-  backBrowser(id: string): Promise<BrowserState>;
-  forwardBrowser(id: string): Promise<BrowserState>;
-  reloadBrowser(id: string): Promise<BrowserState>;
-  setBrowserBounds(id: string, bounds: BrowserBounds): Promise<{ updated: boolean }>;
-  setBrowserVisible(id: string, visible: boolean): Promise<{ updated: boolean }>;
-  destroyBrowser(id: string): Promise<{ destroyed: boolean }>;
-  onBrowserState(listener: (state: BrowserState) => void): () => void;
-}
+export type WorkspacePanelApi = Pick<
+  SwarmxAPI,
+  | "getWorkspaceReview"
+  | "listWorkspaceDirectory"
+  | "readWorkspaceFile"
+  | "createTerminal"
+  | "writeTerminal"
+  | "resizeTerminal"
+  | "killTerminal"
+  | "onTerminalData"
+  | "onTerminalExit"
+  | "createBrowser"
+  | "navigateBrowser"
+  | "backBrowser"
+  | "forwardBrowser"
+  | "reloadBrowser"
+  | "setBrowserBounds"
+  | "setBrowserVisible"
+  | "destroyBrowser"
+  | "onBrowserState"
+>;
 
 const TOOL_DEFINITIONS: Array<{
   id: WorkspaceTool;
@@ -262,7 +200,7 @@ export function WorkspacePanel({
               className="workspace-panel__view [min-width:0] [min-height:0] [height:100%]"
               hidden={activeTool !== "terminal"}
             >
-              <TerminalTool api={api} cwd={cwd} active={activeTool === "terminal"} />
+              <TerminalTool key={cwd} api={api} cwd={cwd} active={activeTool === "terminal"} />
             </div>
           )}
           {visitedTools.has("browser") && (
@@ -591,140 +529,12 @@ function TerminalTool({
   cwd: string;
   active: boolean;
 }) {
-  const terminalElementRef = useRef<HTMLDivElement>(null);
-  const terminalRef = useRef<XtermTerminal | null>(null);
-  const fitAddonRef = useRef<FitAddon | null>(null);
-  const terminalIdRef = useRef<string | null>(null);
-  const startingRef = useRef(false);
-  const readyRef = useRef(false);
-  const activeRef = useRef(active);
-  const pendingInputRef = useRef("");
-  const fitRef = useRef<() => void>(() => undefined);
-  const [status, setStatus] = useState<TerminalStatus>("idle");
-
-  const startTerminal = useCallback(async () => {
-    const terminal = terminalRef.current;
-    const fitAddon = fitAddonRef.current;
-    if (!terminal || !fitAddon || terminalIdRef.current || startingRef.current) return;
-    startingRef.current = true;
-    setStatus("starting");
-    fitAddon.fit();
-    const id = requestId("terminal");
-    terminalIdRef.current = id;
-    try {
-      await api.createTerminal({ id, cwd, cols: terminal.cols, rows: terminal.rows });
-      readyRef.current = true;
-      setStatus("running");
-      if (pendingInputRef.current) {
-        const input = pendingInputRef.current;
-        pendingInputRef.current = "";
-        await api.writeTerminal(id, input);
-      }
-      terminal.focus();
-    } catch (reason) {
-      if (terminalIdRef.current === id) terminalIdRef.current = null;
-      readyRef.current = false;
-      setStatus("error");
-      terminal.writeln(`\r\nUnable to start terminal: ${plainText(errorMessage(reason))}`);
-    } finally {
-      startingRef.current = false;
-    }
-  }, [api, cwd]);
-
-  const newTerminal = useCallback(async () => {
-    const id = terminalIdRef.current;
-    terminalIdRef.current = null;
-    readyRef.current = false;
-    pendingInputRef.current = "";
-    if (id) await api.killTerminal(id);
-    terminalRef.current?.reset();
-    setStatus("idle");
-    await startTerminal();
-  }, [api, startTerminal]);
-
-  useEffect(() => {
-    const element = terminalElementRef.current;
-    if (!element) return;
-    const terminal = new XtermTerminal({
-      cursorBlink: true,
-      cursorStyle: "bar",
-      fontFamily:
-        '"SFMono-Regular", "SF Mono", "Cascadia Code", Consolas, "Liberation Mono", Menlo, monospace',
-      fontSize: 12.5,
-      lineHeight: 1.25,
-      minimumContrastRatio: 4.5,
-      screenReaderMode: true,
-      scrollback: 5_000,
-      theme: terminalTheme(),
-    });
-    const fitAddon = new FitAddon();
-    terminal.loadAddon(fitAddon);
-    terminal.open(element);
-    terminalRef.current = terminal;
-    fitAddonRef.current = fitAddon;
-
-    let lastDimensions = "";
-    const fit = () => {
-      if (!activeRef.current || element.offsetWidth === 0 || element.offsetHeight === 0) return;
-      fitAddon.fit();
-      const dimensions = `${terminal.cols}:${terminal.rows}`;
-      if (lastDimensions === dimensions) return;
-      lastDimensions = dimensions;
-      const id = terminalIdRef.current;
-      if (id) void api.resizeTerminal(id, terminal.cols, terminal.rows);
-    };
-    fitRef.current = fit;
-    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(fit);
-    observer?.observe(element);
-    const input = terminal.onData((data) => {
-      const id = terminalIdRef.current;
-      if (!id || !readyRef.current) {
-        pendingInputRef.current += data;
-        return;
-      }
-      void api.writeTerminal(id, data);
-    });
-    const removeData = api.onTerminalData((event) => {
-      if (event.id === terminalIdRef.current) terminal.write(event.data);
-    });
-    const removeExit = api.onTerminalExit((event) => {
-      if (event.id !== terminalIdRef.current) return;
-      terminalIdRef.current = null;
-      readyRef.current = false;
-      setStatus("exited");
-      terminal.writeln(`\r\n[Process exited with code ${event.exitCode}]`);
-    });
-    const media = window.matchMedia?.("(prefers-color-scheme: light)");
-    const updateTheme = () => {
-      terminal.options.theme = terminalTheme();
-    };
-    media?.addEventListener("change", updateTheme);
-    return () => {
-      const id = terminalIdRef.current;
-      terminalIdRef.current = null;
-      readyRef.current = false;
-      if (id) void api.killTerminal(id);
-      observer?.disconnect();
-      input.dispose();
-      removeData();
-      removeExit();
-      media?.removeEventListener("change", updateTheme);
-      terminal.dispose();
-      terminalRef.current = null;
-      fitAddonRef.current = null;
-      fitRef.current = () => undefined;
-    };
-  }, [api]);
-
-  useEffect(() => {
-    activeRef.current = active;
-    if (!active) return;
-    const frame = window.requestAnimationFrame(() => {
-      fitRef.current();
-      void startTerminal();
-    });
-    return () => window.cancelAnimationFrame(frame);
-  }, [active, startTerminal]);
+  const { viewportRef, status, startNewTerminal } = useTerminalController({
+    api,
+    active,
+    cwd,
+    getTheme: terminalTheme,
+  });
 
   return (
     <section
@@ -746,14 +556,14 @@ function TerminalTool({
         </span>
         <IconButton
           label="New terminal"
-          onClick={() => void newTerminal()}
+          onClick={() => void startNewTerminal()}
           disabled={status === "starting"}
         >
           <Plus aria-hidden="true" />
         </IconButton>
       </div>
       <div
-        ref={terminalElementRef}
+        ref={viewportRef}
         className="terminal-tool__viewport [min-width:0] [min-height:0] [overflow:hidden] [padding:10px_12px] [background:var(--background)]"
         aria-label="Right panel terminal"
       />
@@ -1185,13 +995,6 @@ function terminalTheme() {
       };
 }
 
-function requestId(prefix: string): string {
-  return (
-    globalThis.crypto?.randomUUID?.() ??
-    `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2)}`
-  );
-}
-
 function parentPath(path: string): string {
   const parts = path.split("/").filter(Boolean);
   parts.pop();
@@ -1212,13 +1015,4 @@ function formatBytes(bytes: number): string {
   if (bytes < 1_024) return `${bytes} B`;
   if (bytes < 1_048_576) return `${Math.round(bytes / 1_024)} KB`;
   return `${(bytes / 1_048_576).toFixed(1)} MB`;
-}
-
-function plainText(value: string): string {
-  return Array.from(value, (character) => {
-    const codePoint = character.codePointAt(0) ?? 0;
-    return codePoint <= 31 || (codePoint >= 127 && codePoint <= 159) ? " " : character;
-  })
-    .join("")
-    .trim();
 }

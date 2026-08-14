@@ -13,7 +13,7 @@ and CLI send composition. Per-file thresholds live only in `vitest.config.ts`.
 | --- |
 | `packages/core/tests/acp.test.ts`, `actions.test.ts`, `activity.test.ts`, `audit.test.ts`, `agent-profiles.test.ts`, `agent.test.ts`, `builtin-tools.test.ts`, `context.test.ts` |
 | `packages/core/tests/conversation.test.ts`, `dependencies.test.ts`, `desktop-settings.test.ts`, `edge.test.ts`, `memory-links.test.ts`, `memory.test.ts`, `packages/core/tests/memory-runtime-protocol.test.ts`, `extension-management.test.ts`, `extensions.test.ts`, `harness-management.test.ts`, `harness.test.ts` |
-| `packages/core/tests/mcp.test.ts`, `media.test.ts`, `model-capabilities.test.ts`, `agent-guidance.test.ts`, `n8n.test.ts`, `personal-memory.test.ts`, `project-bootstrap.test.ts`, `project.test.ts`, `providers.test.ts`, `rendering.test.ts`, `secrets.test.ts` |
+| `packages/core/tests/local-tool-contracts.test.ts`, `mcp.test.ts`, `media.test.ts`, `model-capabilities.test.ts`, `agent-guidance.test.ts`, `n8n.test.ts`, `package-boundaries.test.ts`, `personal-memory.test.ts`, `project-bootstrap.test.ts`, `project-contracts.test.ts`, `project.test.ts`, `providers.test.ts`, `rendering.test.ts`, `request-scope.test.ts`, `secrets.test.ts` |
 | `packages/core/tests/server.test.ts`, `session-discovery.test.ts`, `session.test.ts`, `skill-variants.test.ts`, `swarm-eval.test.ts`, `swarm.test.ts`, `telemetry.test.ts`, `version.test.ts` |
 | `packages/core/tests/skill-evolution.test.ts`, `skill-evolution-store.test.ts`, `skill-evolution-service.test.ts`, `skill-evaluation.test.ts`, `skill-delivery.test.ts` |
 | `packages/core/tests/task-runtime.test.ts` |
@@ -73,12 +73,16 @@ Exact Core test paths: `packages/core/tests/acp.test.ts`,
 `packages/core/tests/edge.test.ts`, `packages/core/tests/memory-links.test.ts`, `packages/core/tests/memory.test.ts`, `packages/core/tests/extension-management.test.ts`,
 `packages/core/tests/extensions.test.ts`, `packages/core/tests/harness-management.test.ts`,
 `packages/core/tests/harness.test.ts`, `packages/core/tests/mcp.test.ts`,
+`packages/core/tests/local-tool-contracts.test.ts`,
 `packages/core/tests/media.test.ts`, `packages/core/tests/model-capabilities.test.ts`,
 `packages/core/tests/agent-guidance.test.ts`,
 `packages/core/tests/n8n.test.ts`, `packages/core/tests/personal-memory.test.ts`,
+`packages/core/tests/package-boundaries.test.ts`,
 `packages/core/tests/project-bootstrap.test.ts`,
+`packages/core/tests/project-contracts.test.ts`,
 `packages/core/tests/project.test.ts`,
 `packages/core/tests/providers.test.ts`, `packages/core/tests/rendering.test.ts`,
+`packages/core/tests/request-scope.test.ts`,
 `packages/core/tests/secrets.test.ts`, `packages/core/tests/server.test.ts`,
 `packages/core/tests/session-discovery.test.ts`, `packages/core/tests/session.test.ts`,
 `packages/core/tests/skill-variants.test.ts`, `packages/core/tests/swarm-eval.test.ts`,
@@ -92,18 +96,19 @@ Exact Core test paths: `packages/core/tests/acp.test.ts`,
 | Test paths |
 | --- |
 | `packages/desktop/src/main/acp-session-runtime.test.ts`, `agent-interactions.test.ts`, `browser-host.test.ts`, `builtin-tool-settings.test.ts`, `child-agent-host.test.ts`, `claude-scheduled-tasks.test.ts`, `claude-session-runtime.test.ts`, `codex-auth.test.ts`, `direct-harness-release.e2e.test.ts` |
-| `packages/desktop/src/main/composer-preferences.test.ts`, `custom-agents.test.ts`, `extension-manager.test.ts`, `harness-environment.test.ts`, `library.test.ts`, `lsp-host.test.ts`, `media-faults.test.ts`, `media-preview-hash.test.ts` |
-| `packages/desktop/src/main/media.test.ts`, `model-catalog.test.ts`, `permission-review.test.ts`, `permission-service.test.ts`, `personal-memory.test.ts`, `preload.test.ts`, `provider-auth.test.ts`, `provider-error.test.ts`, `provider-key-pool.test.ts`, `provider-usage.test.ts` |
+| `packages/desktop/src/main/composer-preferences.test.ts`, `custom-agents.test.ts`, `extension-manager.test.ts`, `harness-environment.test.ts`, `ipc-router.test.ts`, `library.test.ts`, `lsp-host.test.ts`, `media-faults.test.ts`, `media-preview-hash.test.ts` |
+| `packages/desktop/src/main/media.test.ts`, `model-catalog.test.ts`, `permission-review.test.ts`, `permission-service.test.ts`, `global-memory-service.test.ts`, `personal-memory.test.ts`, `preload.test.ts`, `private-json-file.test.ts`, `provider-auth.test.ts`, `provider-error.test.ts`, `provider-key-pool.test.ts`, `provider-usage.test.ts` |
 | `packages/desktop/src/main/memory-runtime-host.test.ts`, `packages/desktop/src/main/memory-runtime-integration.test.ts`, `packages/desktop/src/main/memory-runtime-backend.test.ts` |
-| `packages/desktop/src/main/request-registry.test.ts`, `session-title.test.ts`, `settings-store.test.ts`, `side-chat-service.test.ts`, `task-supervisor.test.ts`, `terminal-host.test.ts`, `updater.test.ts`, `window-security.test.ts`, `workspace-shell.test.ts`, `workspace-tools.test.ts` |
+| `packages/desktop/src/main/browser-ipc.test.ts`, `global-memory-ipc.test.ts`, `project-ipc.test.ts`, `project-service.test.ts`, `request-registry.test.ts`, `session-title.test.ts`, `settings-store.test.ts`, `side-chat-service.test.ts`, `task-runtime-ipc.test.ts`, `task-supervisor.test.ts`, `terminal-host.test.ts`, `terminal-ipc.test.ts`, `updater.test.ts`, `window-security.test.ts`, `workspace-inspection-ipc.test.ts`, `workspace-shell.test.ts`, `workspace-tool-permissions.test.ts`, `workspace-tools.test.ts` |
+| `packages/desktop/src/shared/ipc-contracts/app-update.test.ts`, `browser.test.ts`, `global-memory.test.ts`, `project.test.ts`, `task-runtime.test.ts`, `terminal.test.ts`, `workspace-inspection.test.ts` |
 
 ### Renderer
 
 | Test paths |
 | --- |
-| `packages/desktop/src/renderer/src/App.test.tsx`, `agent-interaction-dialog.test.tsx`, `app-brand.test.tsx`, `app-icon-data.test.ts`, `composer.test.tsx`, `conversation-messages.test.ts` |
+| `packages/desktop/src/renderer/src/App.test.tsx`, `agent-interaction-dialog.test.tsx`, `app-brand.test.tsx`, `app-icon-data.test.ts`, `composer.test.tsx`, `conversation-messages.test.ts`, `doctor-controller.test.tsx` |
 | `packages/desktop/src/renderer/src/media-preview.test.tsx`, `message-attachments.test.tsx`, `message-content.test.tsx`, `model-display.test.ts`, `session-navigation.test.ts`, `settings-workspace.test.ts` |
-| `packages/desktop/src/renderer/src/styling-architecture.test.ts`, `ui-primitives.test.tsx`, `text-utils.test.ts`, `workflow-workspace.test.ts`, `workspace-panel.test.tsx`, `harness-icon-data.test.ts` |
+| `packages/desktop/src/renderer/src/styling-architecture.test.ts`, `terminal-controller.test.tsx`, `ui-primitives.test.tsx`, `text-utils.test.ts`, `workflow-workspace.test.ts`, `workspace-panel.test.tsx`, `harness-icon-data.test.ts` |
 
 Coverage focus: IPC boundary validation, renderer-safe data, floating-composer
 layout and transcript clearance, permission and containment rules, provider
@@ -120,6 +125,8 @@ class assertions.
 Exact Desktop test paths: `packages/desktop/src/main/acp-session-runtime.test.ts`,
 `packages/desktop/src/main/agent-interactions.test.ts`,
 `packages/desktop/src/main/browser-host.test.ts`,
+`packages/desktop/src/main/browser-ipc.test.ts`,
+`packages/desktop/src/main/global-memory-ipc.test.ts`,
 `packages/desktop/src/main/builtin-tool-settings.test.ts`,
 `packages/desktop/src/main/child-agent-host.test.ts`,
 `packages/desktop/src/main/claude-scheduled-tasks.test.ts`,
@@ -130,6 +137,7 @@ Exact Desktop test paths: `packages/desktop/src/main/acp-session-runtime.test.ts
 `packages/desktop/src/main/custom-agents.test.ts`,
 `packages/desktop/src/main/extension-manager.test.ts`,
 `packages/desktop/src/main/harness-environment.test.ts`,
+`packages/desktop/src/main/ipc-router.test.ts`,
 `packages/desktop/src/main/library.test.ts`,
 `packages/desktop/src/main/lsp-host.test.ts`,
 `packages/desktop/src/main/media-faults.test.ts`,
@@ -138,8 +146,12 @@ Exact Desktop test paths: `packages/desktop/src/main/acp-session-runtime.test.ts
 `packages/desktop/src/main/model-catalog.test.ts`,
 `packages/desktop/src/main/permission-review.test.ts`,
 `packages/desktop/src/main/permission-service.test.ts`,
+`packages/desktop/src/main/global-memory-service.test.ts`,
 `packages/desktop/src/main/personal-memory.test.ts`,
 `packages/desktop/src/main/preload.test.ts`,
+`packages/desktop/src/main/private-json-file.test.ts`,
+`packages/desktop/src/main/project-ipc.test.ts`,
+`packages/desktop/src/main/project-service.test.ts`,
 `packages/desktop/src/main/provider-auth.test.ts`,
 `packages/desktop/src/main/provider-error.test.ts`,
 `packages/desktop/src/main/provider-key-pool.test.ts`,
@@ -149,17 +161,29 @@ Exact Desktop test paths: `packages/desktop/src/main/acp-session-runtime.test.ts
 `packages/desktop/src/main/settings-store.test.ts`,
 `packages/desktop/src/main/side-chat-service.test.ts`,
 `packages/desktop/src/main/task-supervisor.test.ts`,
+`packages/desktop/src/main/task-runtime-ipc.test.ts`,
 `packages/desktop/src/main/terminal-host.test.ts`,
+`packages/desktop/src/main/terminal-ipc.test.ts`,
 `packages/desktop/src/main/updater.test.ts`,
 `packages/desktop/src/main/window-security.test.ts`,
+`packages/desktop/src/main/workspace-inspection-ipc.test.ts`,
 `packages/desktop/src/main/workspace-shell.test.ts`,
+`packages/desktop/src/main/workspace-tool-permissions.test.ts`,
 `packages/desktop/src/main/workspace-tools.test.ts`,
+`packages/desktop/src/shared/ipc-contracts/app-update.test.ts`,
+`packages/desktop/src/shared/ipc-contracts/browser.test.ts`,
+`packages/desktop/src/shared/ipc-contracts/global-memory.test.ts`,
+`packages/desktop/src/shared/ipc-contracts/project.test.ts`,
+`packages/desktop/src/shared/ipc-contracts/task-runtime.test.ts`,
+`packages/desktop/src/shared/ipc-contracts/terminal.test.ts`,
+`packages/desktop/src/shared/ipc-contracts/workspace-inspection.test.ts`,
 `packages/desktop/src/renderer/src/App.test.tsx`,
 `packages/desktop/src/renderer/src/agent-interaction-dialog.test.tsx`,
 `packages/desktop/src/renderer/src/app-brand.test.tsx`,
 `packages/desktop/src/renderer/src/app-icon-data.test.ts`,
 `packages/desktop/src/renderer/src/composer.test.tsx`,
 `packages/desktop/src/renderer/src/conversation-messages.test.ts`,
+`packages/desktop/src/renderer/src/doctor-controller.test.tsx`,
 `packages/desktop/src/renderer/src/harness-icon-data.test.ts`,
 `packages/desktop/src/renderer/src/media-preview.test.tsx`,
 `packages/desktop/src/renderer/src/message-attachments.test.tsx`,
@@ -168,6 +192,7 @@ Exact Desktop test paths: `packages/desktop/src/main/acp-session-runtime.test.ts
 `packages/desktop/src/renderer/src/session-navigation.test.ts`,
 `packages/desktop/src/renderer/src/settings-workspace.test.ts`,
 `packages/desktop/src/renderer/src/styling-architecture.test.ts`,
+`packages/desktop/src/renderer/src/terminal-controller.test.tsx`,
 `packages/desktop/src/renderer/src/text-utils.test.ts`,
 `packages/desktop/src/renderer/src/ui-primitives.test.tsx`,
 `packages/desktop/src/renderer/src/workflow-workspace.test.ts`,
@@ -215,7 +240,7 @@ real-ZIM MCP, and standard-package paths are indexed in
 | `packages/desktop/scripts/build-mem-runtime.mjs` | Builds the locked `swarmx-mem` crate for one target, copies the executable into Desktop resources, and writes its digest/version manifest. No install-at-runtime path. `fs` + `proc` |
 | `packages/desktop/scripts/test-mem-runtime.mjs` | Cross-platform managed-Memory acceptance runner: builds the locked runtime and executes the real private-MCP integration test with its explicit manifest. `proc` |
 | `packages/desktop/scripts/test-desktop-smoke.mjs` | macOS CI acceptance runner: launches the built Electron app in an isolated home and requires real rendered CSS geometry for the main split panel and Agent picker. `proc` |
-| `scripts/publish-npm.mjs` | Release helper for npm package publication. `proc` |
+| `scripts/publish-npm.mjs` | Release helper for npm package publication: packs in dependency order, rejects unresolved internal ranges and test artifacts, verifies integrity, and publishes through the registry. `proc` |
 | `scripts/rebuild-icon.py` | Rebuilds packaged icon assets from the canonical icon input. `fs` |
 | `scripts/check-codebase-docs.mjs` | CI/navigation guard: scans authoritative authored source/test roots and fails if a path is absent from `docs/codebase`. `fs` |
 | `evals/inspect/tasks.py` | Inspect evaluation task definitions and adapter entrypoints. `proc` through evaluator |

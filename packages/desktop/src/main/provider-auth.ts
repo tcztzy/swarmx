@@ -1,6 +1,7 @@
-import { mkdir, readFile, rename, stat, writeFile } from "node:fs/promises";
+import { readFile, stat } from "node:fs/promises";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
+import { writePrivateJsonFile } from "./private-json-file.js";
 
 export interface ProviderAuthStore {
   has?(key: string): Promise<boolean>;
@@ -38,17 +39,20 @@ interface ProviderAuthDocument {
 
 export class FileProviderAuthStore implements ProviderAuthStore {
   private readonly path: string;
+  #mutations: Promise<void> = Promise.resolve();
 
   constructor(options: FileProviderAuthStoreOptions = {}) {
     this.path = options.path ?? join(homedir(), ".swarmx", "provider-auth.json");
   }
 
   async has(key: string): Promise<boolean> {
+    await this.#mutations;
     const entry = (await this.read()).entries[normalizeKey(key)];
     return typeof entry === "string" && entry.length > 0;
   }
 
   async get(key: string): Promise<string | undefined> {
+    await this.#mutations;
     const normalizedKey = normalizeKey(key);
     const entry = (await this.read()).entries[normalizedKey];
     if (!entry) return undefined;
@@ -58,26 +62,23 @@ export class FileProviderAuthStore implements ProviderAuthStore {
   async set(key: string, value: string): Promise<void> {
     const normalizedKey = normalizeKey(key);
     if (!value) throw new Error("Provider credential value is required.");
-    const document = await this.read();
-    await writeJsonAtomic(this.path, {
-      schemaVersion: 2,
-      entries: {
-        ...document.entries,
-        [normalizedKey]: value,
-      },
+    await this.#update((document) => {
+      document.entries[normalizedKey] = value;
+      return document;
     });
   }
 
   async delete(key: string): Promise<void> {
     const normalizedKey = normalizeKey(key);
-    const document = await this.read();
-    if (!(normalizedKey in document.entries)) return;
-    const entries = { ...document.entries };
-    delete entries[normalizedKey];
-    await writeJsonAtomic(this.path, { schemaVersion: 2, entries });
+    await this.#update((document) => {
+      if (!(normalizedKey in document.entries)) return undefined;
+      delete document.entries[normalizedKey];
+      return document;
+    });
   }
 
   async fileMode(): Promise<number | undefined> {
+    await this.#mutations;
     try {
       return (await stat(this.path)).mode & 0o777;
     } catch (error) {
@@ -106,19 +107,23 @@ export class FileProviderAuthStore implements ProviderAuthStore {
     }
     return { schemaVersion: 2, entries };
   }
+
+  #update(
+    mutation: (document: ProviderAuthDocument) => ProviderAuthDocument | undefined,
+  ): Promise<void> {
+    const operation = this.#mutations.then(async () => {
+      const document = mutation(await this.read());
+      if (document) await writePrivateJsonFile(this.path, document);
+    });
+    this.#mutations = operation.catch(() => undefined);
+    return operation;
+  }
 }
 
 function normalizeKey(key: string): string {
   const normalized = key.trim();
   if (!normalized) throw new Error("Provider credential key is required.");
   return normalized;
-}
-
-async function writeJsonAtomic(path: string, value: unknown): Promise<void> {
-  await mkdir(dirname(path), { recursive: true });
-  const temporaryPath = `${path}.tmp-${process.pid}-${Date.now()}`;
-  await writeFile(temporaryPath, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600 });
-  await rename(temporaryPath, path);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

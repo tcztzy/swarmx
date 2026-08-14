@@ -123,9 +123,10 @@ swarmx launcher ───► Desktop or CLI
   `~/.swarmx/projects.json`.
 - Provider auth exception: `~/.swarmx/provider-auth.json`, schema version 2,
   plaintext credentials with restrictive permissions; Main only.
-- Renderer transport: types in `packages/desktop/src/shared/desktop-api.ts`,
-  bridge implementation in `packages/desktop/src/preload/api.ts`, handlers in
-  `packages/desktop/src/main/ipc.ts`.
+- Renderer transport: feature contracts in
+  `packages/desktop/src/shared/ipc-contracts/` compose behind the compatibility
+  facade in `shared/desktop-api.ts`; bridge implementation is in
+  `preload/api.ts`, and audited Main routing composes in `main/ipc.ts`.
 
 ## Common change routes
 

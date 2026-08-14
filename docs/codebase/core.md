@@ -11,8 +11,10 @@ consumers use the package subpaths declared in `packages/core/package.json`.
    schedules each node within a bounded execution.
 3. `agent.ts` runs one configured agent; direct model requests use
    `native-model.ts`, while external harnesses use `acp.ts`.
-4. `mcp.ts` and `tool.ts` provide MCP-backed tools; `edge.ts` and `hook.ts`
-   control graph transitions and lifecycle callbacks.
+4. `local-tool-contracts.ts` defines Provider-independent local tools;
+   `mcp.ts` and `tool.ts` adapt them to MCP-backed execution, while
+   `request-scope.ts` supplies protocol-neutral cancellation. `edge.ts` and
+   `hook.ts` control graph transitions and lifecycle callbacks.
 5. `rendering.ts`, `conversation.ts`, `activity.ts`, and `telemetry.ts` derive
    bounded output/metrics without replacing canonical Session history;
    Activity persists one aggregate `run_summary` per run and is not audit.
@@ -43,12 +45,14 @@ An Agent remains `harnessId:modelId`.
 
 | Source | Contract |
 | --- | --- |
-| `packages/core/src/types.ts` | Zod schemas/types for MCP servers, hooks, backends, agents, tools, edges, `SwarmConfig`, messages, media, Sessions, and Projects; central persistence boundary. `pure` |
+| `packages/core/src/types.ts` | Zod schemas/types for MCP servers, hooks, backends, agents, tools, edges, `SwarmConfig`, messages, media, and Sessions; central persistence boundary. `pure` |
 | `packages/core/src/project-bootstrap.ts` | Browser-safe strict contract for one bounded immutable per-execution-attempt Project service snapshot, exact Project matching, deterministic instruction projection, and content-free revision/digest receipts. `pure` |
+| `packages/core/src/project-contracts.ts` | Browser-safe canonical Project record schema/type shared by persistence and Desktop transport; it has no filesystem or registry authority. `pure` |
 | `packages/core/src/model-api.ts` | Allowed provider API and request-mode literals (`anthropic`, OpenAI chat/responses, Ollama; standard/Codex responses). `pure` |
 | `packages/core/src/version.ts` | Single `SWARMX_VERSION` constant consumed by manifests, ACP, diagnostics, and telemetry. `pure` |
 | `packages/core/src/canonical-json.ts` | Internal deterministic JSON serialization and stable non-cryptographic hashing shared by ids, digests, and canonical records. `pure` |
 | `packages/core/src/secret-scanner.ts` | Internal recursive sensitive-field classifier shared by secret-free metadata boundaries; allows explicit references/redaction and path-scoped vault exceptions. `pure` |
+| `packages/core/src/local-tool-contracts.ts` | Browser-safe, Provider-independent local function/text tool contracts, progress/result envelopes, and branded model-facing result helper. It has no adapter or runtime dependency. `pure` |
 | `packages/core/src/edge.ts` | `Edge` graph object and CEL condition evaluation used by `Swarm`. `pure` |
 | `packages/core/src/memory-links.ts` | Browser-safe zod contracts and bounded double-bracket-link scanner/resolver that projects caller-owned entity Markdown into directed, non-executable knowledge edges with explicit diagnostics. `pure` |
 | `packages/core/src/memory.ts` | Memory zod schemas, async host-backend contract, graph projection, and strict `Memory` local Agent tool: bounded global-file and entity CRUD/search/version reads, optimistic revisions, confirmed mutations, and typed source-bearing research capture with Session provenance. Persistence belongs only to the Rust Memory MCP server. `pure` |
@@ -85,8 +89,9 @@ An Agent remains `harnessId:modelId`.
 | --- | --- |
 | `packages/core/src/agent.ts` | `Agent` runtime: direct native model or external ACP backend, hooks, optional and fail-closed required MCP/tools (including one contract-verified Project bootstrap service and Context Engine read-only tools), cancellation, streaming chunks, enforced output-token limits, two-phase context compilation with final tool-schema/bootstrap accounting, request-scoped runtime environment, strict official DeepSeek/OpenAI/Codex hosted-search endpoint detection with an explicit opt-out, and per-run global Memory plus Session-scoped reflection instruction assembly. `net`/`proc` through adapters |
 | `packages/core/src/native-model.ts` | Native Anthropic/OpenAI/Ollama request construction, enforced Provider output limits, streaming, tool continuation, token usage, request environment handling, and opt-in Responses/DeepSeek-Anthropic hosted Web Search with opaque-state replay plus visible tool lifecycle chunks. `net` + `secret` |
-| `packages/core/src/acp.ts` | ACP client lifecycle, subprocess/session negotiation, prompt/update decoding, permission callbacks, request cancellation, and request-local abort scope. `net` + `proc` |
-| `packages/core/src/mcp.ts` | MCP client/server lifecycle, identity/version/exact-tool-surface verification when required, model-facing and direct host-side tool calls, raw content-block preservation for strict host verification, resource discovery, local tool contracts, content normalization, timeouts, and cancellation. `net`/`proc` |
+| `packages/core/src/request-scope.ts` | Node-only, protocol-neutral AsyncLocalStorage request scope with exclusive ids, cooperative `AbortSignal`, idempotent external cancellation, and registered adapter cleanup participants. It imports no ACP/MCP implementation. `node` |
+| `packages/core/src/acp.ts` | ACP client lifecycle, subprocess/session negotiation, prompt/update decoding, permission callbacks, and protocol/process cancellation registered into the shared request scope. Legacy ACP-named cancellation functions remain compatibility aliases. `net` + `proc` |
+| `packages/core/src/mcp.ts` | MCP client/server lifecycle, identity/version/exact-tool-surface verification when required, model-facing and direct host-side tool calls, raw content-block preservation for strict host verification, resource discovery, content normalization, timeouts, and cancellation. `net`/`proc` |
 | `packages/core/src/tool.ts` | Validated named MCP tool wrapper; creates a manager, calls the tool, normalizes structured content, and closes servers. `net` |
 | `packages/core/src/swarm.ts` | `Swarm` workflow runtime: parse/materialize config, detect cycles, evaluate edges, wait for predecessors, bound steps, and collect ordered chunks/metrics. `net`/`proc` via nodes |
 | `packages/core/src/conversation.ts` | Message construction, model-message conversion, the shared browser-safe host-receipt exclusion used by Session and Context Engine model replay, tool/progress filtering, and bounded conversation normalization. `pure` |
@@ -114,7 +119,7 @@ An Agent remains `harnessId:modelId`.
 | --- | --- |
 | `packages/core/src/session.ts` | Claude Code-style per-Project JSONL-only Session authority under `~/.swarmx/projects/`, projectless `__recents__`, rebuildable per-directory indexes, cross-Project lookup, locking, summaries, edits/forks/promotion, receipt-free transient model projection, and write-time relocation of the prior flat JSONL layout. `fs` |
 | `packages/core/src/session-discovery.ts` | Discover/group/load external ACP Sessions and convert them to Core Session data without claiming ownership. `fs`/`proc` through ACP |
-| `packages/core/src/project.ts` | Project bookmark registry and normalization under `~/.swarmx/projects.json`; list/rename/pin/dismiss/remove. `fs` |
+| `packages/core/src/project.ts` | Node-only canonical Project registry under `~/.swarmx/projects.json`: realpath identity, default registration, pin/rename/dismiss/remove, sorting, and restrictive atomic persistence. It consumes the browser-safe Project record contract. `fs` |
 | `packages/core/src/desktop-settings.ts` | Shared Desktop settings schemas/defaults, including per-Session Memory reflection cursors, legacy Personal Memory migration input, and secret-free metadata sections. `pure` |
 | `packages/core/src/personal-memory.ts` | Strict bounded global `USER.md` / `MEMORY.md` file, snapshot, migration, receipt, and per-Session reflection schemas; native/ACP instruction assembly; explicit/ten-turn/idle-tail decisions; nested workflow Agent counting; and legacy Personal Memory compatibility. `pure` |
 | `packages/core/src/secrets.ts` | Secret-reference and local vault document schemas, file-mode checks, redaction, and safe parsing; no renderer exposure. `fs` + `secret` |
@@ -132,15 +137,18 @@ An Agent remains `harnessId:modelId`.
 
 ## Core subpaths
 
-The manifest currently exposes root plus `rendering`, `telemetry`, `activity`,
-`dependencies`, `conversation`, `context-engine`, `context-engine-store`, `providers`, `model-capabilities`, `agent-guidance`,
-`builtin-tools`, `harness-management`, `agent-profiles`, `desktop-settings`,
-`personal-memory`, `memory-links`, `memory`, `secrets`, `actions`, `skill-variants`,
-`extension-management`, `harness`, and `project`.
-`memory-links` is browser-safe; `memory` is Node-only because it owns local
-filesystem persistence and its writer lock.
-The durable task modules are exposed from the Node-capable root barrel; the
-store, controller, supervisor, and process host are not browser-safe Renderer subpaths.
+The manifest is authoritative and exposes root plus focused public subpaths for
+rendering, telemetry, activity, dependencies, conversation, Context, Provider,
+Harness, Agent profile/guidance, Desktop settings, Memory/Reference, security,
+actions, Skills, extension management, Projects, and durable task contracts.
+`local-tool-contracts`, `memory-links`, `memory`, `memory-runtime-protocol`,
+`reference-library`, `project-contracts`, `project-bootstrap`, `task-runtime`, and
+`task-worker-protocol` are browser-safe. `request-scope` is explicitly Node-only
+because it uses AsyncLocalStorage. Memory persistence remains exclusively in the
+Rust Memory process; `memory.ts` owns only schemas, backend contracts, and the
+projected Agent tool.
+The task store, controller, supervisor, and process host remain available only
+from the Node-capable root barrel, not browser-safe Renderer subpaths.
 The Context Engine contracts and standalone store are Node-only because they use
 cryptographic hashing and local filesystem persistence.
 The context-evaluation runner is exported from the Node-capable root barrel; it

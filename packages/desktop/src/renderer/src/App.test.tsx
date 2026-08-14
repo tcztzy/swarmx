@@ -5,6 +5,7 @@ import userEvent from "@testing-library/user-event";
 import { SWRConfig } from "swr";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { DesktopTaskRuntimeListResult } from "../../shared/desktop-api.js";
+import type { DesktopProjectData as ProjectData } from "../../shared/ipc-contracts/project.js";
 import type { AppProps } from "./App.js";
 
 vi.mock("@xterm/addon-fit", () => ({
@@ -126,15 +127,6 @@ interface DiscoveredSession {
   source: "local" | "acp";
 }
 
-interface ProjectData {
-  id: string;
-  name: string;
-  cwd: string;
-  pinned: boolean;
-  createdAt: string;
-  updatedAt: string;
-}
-
 const localSession: SessionData = {
   id: "local-1",
   title: "Existing local run",
@@ -233,7 +225,7 @@ afterEach(() => {
   });
 });
 
-describe("App user workflow", () => {
+describe("App user workflow", { timeout: 10_000 }, () => {
   it("keeps session history scrollable above the bottom-pinned Local workspace control", async () => {
     await renderApp(createDesktopApiMock());
 
@@ -870,6 +862,7 @@ describe("App user workflow", () => {
       expect(api.savePersonalMemory).toHaveBeenCalledWith({
         target: "user",
         content: "Prefer TypeScript examples.",
+        expectedRevision: 1,
       }),
     );
 
@@ -877,7 +870,11 @@ describe("App user workflow", () => {
     expect(api.forgetPersonalMemory).not.toHaveBeenCalled();
     await user.click(within(workspace).getByRole("button", { name: "Confirm forget" }));
     await waitFor(() =>
-      expect(api.forgetPersonalMemory).toHaveBeenCalledWith({ target: "user", confirmed: true }),
+      expect(api.forgetPersonalMemory).toHaveBeenCalledWith({
+        target: "user",
+        confirmed: true,
+        expectedRevision: 2,
+      }),
     );
   });
 

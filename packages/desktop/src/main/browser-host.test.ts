@@ -10,6 +10,7 @@ import {
   type BrowserWindowHost,
   MAX_BROWSER_COORDINATE,
   MAX_BROWSER_DIMENSION,
+  normalizeBrowserBounds,
   normalizeBrowserUrl,
 } from "./browser-host.js";
 
@@ -41,6 +42,17 @@ describe("normalizeBrowserUrl", () => {
 
 describe("BrowserHost", () => {
   beforeEach(() => vi.clearAllMocks());
+
+  it("uses safe bounds defaults for non-finite coordinates", () => {
+    expect(
+      normalizeBrowserBounds({
+        x: Number.NaN,
+        y: Number.POSITIVE_INFINITY,
+        width: Number.NEGATIVE_INFINITY,
+        height: Number.NaN,
+      }),
+    ).toEqual({ x: 0, y: 0, width: 1, height: 1 });
+  });
 
   it("creates an isolated sandboxed view, denies permissions and popups, and clamps bounds", () => {
     const harness = createHarness();
@@ -180,9 +192,152 @@ describe("BrowserHost", () => {
     expect(first.host.destroy(otherOwner.id, secondState.id)).toBe(true);
     expect(secondView.webContents.close).toHaveBeenCalledWith({ waitForBeforeUnload: false });
   });
+
+  it("rejects invalid owners, windows, duplicate ids, and cleans failed view attachment", () => {
+    const invalidPartition = createHarness();
+    expect(() => new BrowserHost(invalidPartition.factory, " ")).toThrow(
+      "Browser partition is required",
+    );
+
+    const destroyedOwner = createHarness();
+    expect(() =>
+      destroyedOwner.host.create({ id: 11, send: vi.fn(), isDestroyed: () => true }),
+    ).toThrow("Browser owner is no longer available");
+
+    const destroyedWindow = createHarness();
+    destroyedWindow.window.isDestroyed.mockReturnValue(true);
+    expect(() => destroyedWindow.host.create(fakeOwner(12))).toThrow(
+      "Browser owner window is no longer available",
+    );
+
+    const duplicate = createHarness();
+    duplicate.host.create(fakeOwner(13), { id: "same-id" });
+    expect(() => duplicate.host.create(fakeOwner(14), { id: " same-id " })).toThrow(
+      "Browser id is already active",
+    );
+
+    const failedAttach = createHarness();
+    failedAttach.window.contentView.addChildView.mockImplementationOnce(() => {
+      throw new Error("view attachment failed");
+    });
+    expect(() => failedAttach.host.create(fakeOwner(15))).toThrow("view attachment failed");
+    expect(failedAttach.contents.close).toHaveBeenCalledWith({ waitForBeforeUnload: false });
+  });
+
+  it("updates owned view geometry and visibility and disposes every active view", async () => {
+    const harness = createHarness(["first", "second"]);
+    const firstOwner = fakeOwner(16);
+    const secondOwner = fakeOwner(17);
+    const first = harness.host.create(firstOwner);
+    const second = harness.host.create(secondOwner);
+
+    expect(
+      harness.host.setBounds(firstOwner.id, first.id, { x: 1.8, y: 2.2, width: 300, height: 200 }),
+    ).toBe(true);
+    expect(harness.view.setBounds).toHaveBeenLastCalledWith({
+      x: 1,
+      y: 2,
+      width: 300,
+      height: 200,
+    });
+    expect(harness.host.setVisible(firstOwner.id, first.id, false)).toBe(true);
+    expect(harness.view.setVisible).toHaveBeenLastCalledWith(false);
+    await expect(harness.host.navigate(99, first.id, "https://example.com")).resolves.toBeNull();
+
+    harness.host.dispose();
+    expect(harness.host.getState(firstOwner.id, first.id)).toBeNull();
+    expect(harness.host.getState(secondOwner.id, second.id)).toBeNull();
+    expect(harness.contents.close).toHaveBeenCalledOnce();
+    expect(harness.views[1].webContents.close).toHaveBeenCalledOnce();
+  });
+
+  it("guards webviews and redirects and publishes bounded lifecycle failures", () => {
+    const harness = createHarness();
+    const owner = fakeOwner(18);
+    const created = harness.host.create(owner);
+    const webviewEvent = { preventDefault: vi.fn() };
+    harness.contents.emit("will-attach-webview", webviewEvent);
+    expect(webviewEvent.preventDefault).toHaveBeenCalledOnce();
+
+    const navigationEvent = { preventDefault: vi.fn() };
+    harness.contents.emit("will-navigate", navigationEvent, "file:///private/secret");
+    expect(navigationEvent.preventDefault).toHaveBeenCalledOnce();
+    expect(owner.send).toHaveBeenLastCalledWith(
+      "browser:state",
+      expect.objectContaining({ loading: false, error: expect.stringContaining("only HTTP") }),
+    );
+    harness.contents.emit("will-redirect", { url: "https://example.com/next" });
+
+    harness.contents.emit("did-start-loading");
+    expect(owner.send).toHaveBeenLastCalledWith(
+      "browser:state",
+      expect.objectContaining({ loading: true }),
+    );
+    const eventCount = owner.send.mock.calls.length;
+    harness.contents.emit("did-navigate-in-page", {}, "https://example.com/frame", false);
+    expect(owner.send).toHaveBeenCalledTimes(eventCount);
+    harness.contents.emit("did-navigate-in-page", {}, "https://example.com/page", true);
+    expect(owner.send).toHaveBeenLastCalledWith(
+      "browser:state",
+      expect.objectContaining({ url: "https://example.com/page" }),
+    );
+
+    harness.contents.emit("did-fail-load", {}, -3, "aborted", "", true);
+    expect(owner.send).not.toHaveBeenLastCalledWith(
+      "browser:state",
+      expect.objectContaining({ error: "aborted" }),
+    );
+    harness.contents.emit("did-fail-load", {}, -105, "", "https://missing.example/", true);
+    expect(owner.send).toHaveBeenLastCalledWith(
+      "browser:state",
+      expect.objectContaining({
+        url: "https://missing.example/",
+        loading: false,
+        error: "Page failed to load.",
+      }),
+    );
+    harness.contents.emit("render-process-gone", {}, { reason: "crashed" });
+    expect(owner.send).toHaveBeenLastCalledWith(
+      "browser:state",
+      expect.objectContaining({ error: "Browser renderer exited: crashed." }),
+    );
+
+    harness.contents.close();
+    expect(harness.host.getState(owner.id, created.id)).toBeNull();
+    expect(harness.window.contentView.removeChildView).toHaveBeenCalledWith(harness.view);
+  });
+
+  it("projects state before publication while tolerating an owner send race", () => {
+    const projector = vi.fn((state) => ({ ...state, title: "Projected title" }));
+    const harness = createHarness(["browser-1"], projector);
+    const owner = fakeOwner(5);
+    owner.send.mockImplementation(() => {
+      throw new Error("renderer disappeared");
+    });
+
+    expect(() => harness.host.create(owner)).not.toThrow();
+    expect(projector).toHaveBeenCalledWith(expect.objectContaining({ id: "browser-1", title: "" }));
+    expect(owner.send).toHaveBeenCalledWith(
+      "browser:state",
+      expect.objectContaining({ id: "browser-1", title: "Projected title" }),
+    );
+  });
+
+  it("does not hide state projection contract failures as renderer send races", () => {
+    const harness = createHarness(["browser-1"], () => {
+      throw new Error("invalid Browser state projection");
+    });
+    const owner = fakeOwner(6);
+
+    expect(() => harness.host.create(owner)).toThrow("invalid Browser state projection");
+    expect(owner.send).not.toHaveBeenCalled();
+  });
 });
 
-function createHarness(ids: string[] = ["browser-1"]) {
+function createHarness(
+  ids: string[] = ["browser-1"],
+  projectState?: ConstructorParameters<typeof BrowserHost>[3],
+) {
   const views = ids.map(() => new FakeView());
   const window = new FakeWindow();
   const factory = {
@@ -194,7 +349,12 @@ function createHarness(ids: string[] = ["browser-1"]) {
     windowForOwner: vi.fn(() => window),
   } satisfies BrowserViewFactory;
   let nextId = 0;
-  const host = new BrowserHost(factory, "persist:browser-test", () => ids[nextId++] ?? "extra");
+  const host = new BrowserHost(
+    factory,
+    "persist:browser-test",
+    () => ids[nextId++] ?? "extra",
+    projectState,
+  );
   return {
     host,
     factory,
@@ -206,8 +366,12 @@ function createHarness(ids: string[] = ["browser-1"]) {
   };
 }
 
-function fakeOwner(id: number): BrowserOwner & { send: ReturnType<typeof vi.fn> } {
-  return { id, send: vi.fn(), isDestroyed: () => false };
+function fakeOwner(id: number) {
+  return {
+    id,
+    send: vi.fn<(channel: string, value: unknown) => void>(),
+    isDestroyed: () => false,
+  } satisfies BrowserOwner;
 }
 
 class FakeWindow implements BrowserWindowHost {

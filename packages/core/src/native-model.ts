@@ -21,13 +21,8 @@ import type {
   ResponseReasoningItem,
   Tool as ResponseTool,
 } from "openai/resources/responses/responses";
-import { currentRequestSignal, throwIfCurrentRequestCancelled } from "./acp.js";
-import type {
-  LocalToolCallContext,
-  LocalToolProgress,
-  NativeLocalToolDefinition,
-  ToolExecutionResult,
-} from "./mcp.js";
+import type { LocalToolCallContext, LocalToolProgress } from "./local-tool-contracts.js";
+import type { NativeLocalToolDefinition, ToolExecutionResult } from "./mcp.js";
 import {
   attachmentFallbackText,
   createInlineMediaLoader,
@@ -35,6 +30,7 @@ import {
   validateMediaAttachments,
 } from "./media.js";
 import type { ModelApi, ModelApiMode } from "./model-api.js";
+import { currentRequestSignal, throwIfCurrentRequestCancelled } from "./request-scope.js";
 import type { MediaAttachment, MessageChunk, ModelTokenUsage } from "./types.js";
 import { ModelTokenUsageSchema } from "./types.js";
 

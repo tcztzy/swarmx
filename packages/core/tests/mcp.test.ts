@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { cancelAcpRequest, RequestCancelledError, withAcpRequest } from "../src/acp.js";
-import type { McpConnectionResult } from "../src/mcp.js";
-import { localToolResult, McpManager } from "../src/mcp.js";
+import { localToolResult } from "../src/local-tool-contracts.js";
+import { type McpConnectionResult, McpManager } from "../src/mcp.js";
 
 describe("McpManager cancellation", () => {
   it("passes the active request signal to an in-flight MCP tool call", async () => {

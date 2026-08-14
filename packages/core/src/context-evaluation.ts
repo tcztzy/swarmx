@@ -14,7 +14,7 @@ import {
   createContextEngineProfileConfig,
   createSessionContextEngine,
 } from "./context-engine.js";
-import { type LocalTool, localToolResult } from "./mcp.js";
+import { type LocalTool, localToolResult } from "./local-tool-contracts.js";
 import { isForbiddenSecretKey } from "./secret-scanner.js";
 import {
   type AgentConfig,

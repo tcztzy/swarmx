@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { type LocalTool, localToolResult } from "./mcp.js";
+import { type LocalTool, localToolResult } from "./local-tool-contracts.js";
 import {
   MAX_MEMORY_ENTITY_ALIASES,
   MAX_MEMORY_LINK_MARKERS as MAX_MEMORY_PAGE_LINK_MARKERS,

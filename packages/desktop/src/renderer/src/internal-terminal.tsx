@@ -1,20 +1,8 @@
-import { FitAddon } from "@xterm/addon-fit";
-import { Terminal as XtermTerminal } from "@xterm/xterm";
 import { Plus, Terminal as TerminalIcon, X } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "./renderer-api.js";
-import { errorMessage, projectName } from "./text-utils.js";
+import { TERMINAL_STATUS_CLASS, useTerminalController } from "./terminal-controller.js";
+import { projectName } from "./text-utils.js";
 import { Button, cx } from "./ui-primitives.js";
-
-type TerminalStatus = "idle" | "starting" | "running" | "exited" | "error";
-
-const TERMINAL_STATUS_CLASS = {
-  idle: "is-idle",
-  starting: "is-starting",
-  running: "is-running",
-  exited: "is-exited",
-  error: "is-error",
-} satisfies Record<TerminalStatus, string>;
 
 export function RuntimeBottomPanel({
   active,
@@ -25,158 +13,12 @@ export function RuntimeBottomPanel({
   cwd: string;
   onClose: () => void;
 }) {
-  const terminalElementRef = useRef<HTMLDivElement>(null);
-  const terminalRef = useRef<XtermTerminal | null>(null);
-  const fitAddonRef = useRef<FitAddon | null>(null);
-  const terminalIdRef = useRef<string | null>(null);
-  const startingRef = useRef(false);
-  const readyRef = useRef(false);
-  const activeRef = useRef(active);
-  const disposedRef = useRef(false);
-  const pendingInputRef = useRef("");
-  const fitAndResizeRef = useRef<() => void>(() => undefined);
-  const [status, setStatus] = useState<TerminalStatus>("idle");
-
-  const startTerminal = useCallback(async () => {
-    const terminal = terminalRef.current;
-    const fitAddon = fitAddonRef.current;
-    if (!terminal || !fitAddon || startingRef.current || terminalIdRef.current) return;
-
-    startingRef.current = true;
-    readyRef.current = false;
-    setStatus("starting");
-    fitAddon.fit();
-    const id = terminalRequestId();
-    terminalIdRef.current = id;
-
-    try {
-      await api.createTerminal({ id, cwd, cols: terminal.cols, rows: terminal.rows });
-      if (disposedRef.current || terminalIdRef.current !== id) {
-        await api.killTerminal(id);
-        return;
-      }
-      readyRef.current = true;
-      setStatus("running");
-      if (pendingInputRef.current) {
-        const pendingInput = pendingInputRef.current;
-        pendingInputRef.current = "";
-        await api.writeTerminal(id, pendingInput);
-      }
-      terminal.focus();
-    } catch (error) {
-      if (terminalIdRef.current === id) terminalIdRef.current = null;
-      pendingInputRef.current = "";
-      setStatus("error");
-      terminal.writeln(`\r\nUnable to start terminal: ${plainTerminalError(errorMessage(error))}`);
-    } finally {
-      startingRef.current = false;
-    }
-  }, [cwd]);
-
-  const newTerminal = useCallback(async () => {
-    const currentId = terminalIdRef.current;
-    terminalIdRef.current = null;
-    readyRef.current = false;
-    pendingInputRef.current = "";
-    if (currentId) await api.killTerminal(currentId);
-    terminalRef.current?.reset();
-    setStatus("idle");
-    await startTerminal();
-  }, [startTerminal]);
-
-  useEffect(() => {
-    disposedRef.current = false;
-    const element = terminalElementRef.current;
-    if (!element) return;
-
-    const terminal = new XtermTerminal({
-      allowTransparency: false,
-      cursorBlink: true,
-      cursorStyle: "bar",
-      fontFamily:
-        '"SFMono-Regular", "SF Mono", "Cascadia Code", Consolas, "Liberation Mono", Menlo, monospace',
-      fontSize: 12.5,
-      lineHeight: 1.25,
-      minimumContrastRatio: 4.5,
-      screenReaderMode: true,
-      scrollback: 5_000,
-      theme: internalTerminalTheme(),
-    });
-    const fitAddon = new FitAddon();
-    terminal.loadAddon(fitAddon);
-    terminal.open(element);
-    terminalRef.current = terminal;
-    fitAddonRef.current = fitAddon;
-
-    let lastDimensions = "";
-    const fitAndResize = () => {
-      if (!activeRef.current || !element.offsetWidth || !element.offsetHeight) return;
-      fitAddon.fit();
-      const dimensions = `${terminal.cols}:${terminal.rows}`;
-      if (dimensions === lastDimensions) return;
-      lastDimensions = dimensions;
-      const id = terminalIdRef.current;
-      if (id) void api.resizeTerminal(id, terminal.cols, terminal.rows);
-    };
-    fitAndResizeRef.current = fitAndResize;
-
-    const terminalInput = terminal.onData((data) => {
-      const id = terminalIdRef.current;
-      if (!id || !readyRef.current) {
-        pendingInputRef.current += data;
-        return;
-      }
-      void api.writeTerminal(id, data);
-    });
-    const removeDataListener = api.onTerminalData((event) => {
-      if (event.id === terminalIdRef.current) terminal.write(event.data);
-    });
-    const removeExitListener = api.onTerminalExit((event) => {
-      if (event.id !== terminalIdRef.current) return;
-      terminalIdRef.current = null;
-      readyRef.current = false;
-      setStatus("exited");
-      terminal.writeln(`\r\n[Process exited with code ${event.exitCode}]`);
-    });
-    const media =
-      typeof window.matchMedia === "function"
-        ? window.matchMedia("(prefers-color-scheme: light)")
-        : null;
-    const updateTheme = () => {
-      terminal.options.theme = internalTerminalTheme();
-    };
-    media?.addEventListener("change", updateTheme);
-    const resizeObserver =
-      typeof ResizeObserver === "undefined" ? null : new ResizeObserver(fitAndResize);
-    resizeObserver?.observe(element);
-
-    return () => {
-      disposedRef.current = true;
-      const id = terminalIdRef.current;
-      terminalIdRef.current = null;
-      readyRef.current = false;
-      if (id) void api.killTerminal(id);
-      resizeObserver?.disconnect();
-      media?.removeEventListener("change", updateTheme);
-      terminalInput.dispose();
-      removeDataListener();
-      removeExitListener();
-      terminal.dispose();
-      terminalRef.current = null;
-      fitAddonRef.current = null;
-      fitAndResizeRef.current = () => undefined;
-    };
-  }, []);
-
-  useEffect(() => {
-    activeRef.current = active;
-    if (!active) return;
-    const frame = window.requestAnimationFrame(() => {
-      fitAndResizeRef.current();
-      void startTerminal();
-    });
-    return () => window.cancelAnimationFrame(frame);
-  }, [active, startTerminal]);
+  const { viewportRef, status, startNewTerminal } = useTerminalController({
+    api,
+    active,
+    cwd,
+    getTheme: internalTerminalTheme,
+  });
 
   return (
     <section
@@ -208,7 +50,7 @@ export function RuntimeBottomPanel({
           <Button
             variant="ghost"
             size="icon"
-            onClick={() => void newTerminal()}
+            onClick={() => void startNewTerminal()}
             disabled={status === "starting"}
             title="New terminal"
             aria-label="New terminal"
@@ -227,7 +69,7 @@ export function RuntimeBottomPanel({
         </Button>
       </div>
       <div
-        ref={terminalElementRef}
+        ref={viewportRef}
         className="terminal-panel__viewport [min-width:0] [min-height:0] [overflow:hidden] [padding:9px_12px_10px] [background:#0b0d12] [@media(prefers-color-scheme:light)]:[background:#ffffff]"
         aria-label="Internal terminal"
       />
@@ -239,23 +81,6 @@ export function RuntimeBottomPanel({
       </span>
     </section>
   );
-}
-
-function terminalRequestId(): string {
-  return (
-    globalThis.crypto?.randomUUID?.() ??
-    `terminal-${Date.now()}-${Math.random().toString(36).slice(2)}`
-  );
-}
-
-function plainTerminalError(message: string): string {
-  return [...message]
-    .map((character) => {
-      const code = character.charCodeAt(0);
-      return code < 32 || (code >= 127 && code <= 159) ? " " : character;
-    })
-    .join("")
-    .trim();
 }
 
 function internalTerminalTheme() {

@@ -68,6 +68,7 @@ export interface TerminalAuditEvent {
 }
 
 export type TerminalAuditCallback = (event: Readonly<TerminalAuditEvent>) => void;
+export type TerminalSemanticAuditMarker = () => void;
 
 interface TerminalSession {
   owner: TerminalOwner;
@@ -86,16 +87,22 @@ export class TerminalHost {
     private readonly audit?: TerminalAuditCallback,
   ) {}
 
-  create(owner: TerminalOwner, request: CreateTerminalRequest): { id: string; pid: number } {
+  create(
+    owner: TerminalOwner,
+    request: CreateTerminalRequest,
+    recordSemanticAudit?: TerminalSemanticAuditMarker,
+  ): { id: string; pid: number } {
     const cwd = request.cwd.trim();
     const id = request.id?.trim() || randomUUID();
     const cols = terminalDimension(request.cols, DEFAULT_COLUMNS, MAX_COLUMNS);
     const rows = terminalDimension(request.rows, DEFAULT_ROWS, MAX_ROWS);
     const auditContext = { terminalId: id, ownerId: owner.id, cols, rows };
+    const recordAudit = (event: TerminalAuditEvent): void =>
+      this.#recordAudit(event, recordSemanticAudit);
 
-    this.#recordAudit({ operation: "create", phase: "attempt", ...auditContext });
+    recordAudit({ operation: "create", phase: "attempt", ...auditContext });
     if (!cwd) {
-      this.#recordAudit({
+      recordAudit({
         operation: "create",
         phase: "outcome",
         outcome: "rejected",
@@ -105,7 +112,7 @@ export class TerminalHost {
       throw new Error("Terminal working directory is required.");
     }
     if (this.#sessions.has(id)) {
-      this.#recordAudit({
+      recordAudit({
         operation: "create",
         phase: "outcome",
         outcome: "rejected",
@@ -115,9 +122,9 @@ export class TerminalHost {
       throw new Error("Terminal id is already active.");
     }
 
-    let terminalProcess: IPty;
-    let dataSubscription: IDisposable;
-    let exitSubscription: IDisposable;
+    let terminalProcess: IPty | undefined;
+    let dataSubscription: IDisposable | undefined;
+    let exitSubscription: IDisposable | undefined;
     try {
       const { file, args } = terminalShell(this.platform, this.env);
       if (this.factory === pty) ensurePtySpawnHelperExecutable(this.platform);
@@ -141,21 +148,26 @@ export class TerminalHost {
       exitSubscription = terminalProcess.onExit(({ exitCode, signal }) => {
         const session = this.#sessions.get(id);
         if (!session) return;
-        this.#recordAudit({
-          operation: "exit",
-          phase: "outcome",
-          terminalId: id,
-          ownerId: session.owner.id,
-          outcome: exitCode === 0 && !signal ? "succeeded" : "failed",
-          exitCode,
-          signal: signal ?? null,
-        });
+        const failures: unknown[] = [];
+        captureFailure(failures, () =>
+          this.#recordAudit({
+            operation: "exit",
+            phase: "outcome",
+            terminalId: id,
+            ownerId: session.owner.id,
+            outcome: exitCode === 0 && !signal ? "succeeded" : "failed",
+            exitCode,
+            signal: signal ?? null,
+          }),
+        );
         this.#sessions.delete(id);
-        session.dataSubscription.dispose();
-        session.exitSubscription.dispose();
+        failures.push(...releaseTerminalResources(session, false));
         if (!session.owner.isDestroyed?.()) {
-          session.owner.send("terminal:exit", { id, exitCode, signal });
+          captureFailure(failures, () =>
+            session.owner.send("terminal:exit", { id, exitCode, signal }),
+          );
         }
+        if (failures.length > 0) throw failures[0];
       });
       this.#sessions.set(id, {
         owner,
@@ -164,7 +176,8 @@ export class TerminalHost {
         exitSubscription,
       });
     } catch (error) {
-      this.#recordAudit({
+      releaseIncompleteTerminal({ terminalProcess, dataSubscription, exitSubscription });
+      recordAudit({
         operation: "create",
         phase: "outcome",
         outcome: "failed",
@@ -173,24 +186,41 @@ export class TerminalHost {
       });
       throw error;
     }
-    this.#recordAudit({
-      operation: "create",
-      phase: "outcome",
-      outcome: "succeeded",
-      pid: terminalProcess.pid,
-      ...auditContext,
-    });
+    if (!terminalProcess) throw new Error("Terminal process setup did not complete.");
+    try {
+      recordAudit({
+        operation: "create",
+        phase: "outcome",
+        outcome: "succeeded",
+        pid: terminalProcess.pid,
+        ...auditContext,
+      });
+    } catch (error) {
+      const session = this.#sessions.get(id);
+      if (session?.process === terminalProcess) {
+        this.#sessions.delete(id);
+        releaseIncompleteTerminal({ terminalProcess, dataSubscription, exitSubscription });
+      }
+      throw error;
+    }
     return { id, pid: terminalProcess.pid };
   }
 
-  write(ownerId: number, id: string, data: string): boolean {
+  write(
+    ownerId: number,
+    id: string,
+    data: string,
+    recordSemanticAudit?: TerminalSemanticAuditMarker,
+  ): boolean {
     const byteCount = Buffer.byteLength(data, "utf8");
     const auditContext = { terminalId: id, ownerId, byteCount };
-    this.#recordAudit({ operation: "write", phase: "attempt", ...auditContext });
+    const recordAudit = (event: TerminalAuditEvent): void =>
+      this.#recordAudit(event, recordSemanticAudit);
+    recordAudit({ operation: "write", phase: "attempt", ...auditContext });
 
     const session = this.#ownedSession(ownerId, id);
     if (!session) {
-      this.#recordAudit({
+      recordAudit({
         operation: "write",
         phase: "outcome",
         outcome: "rejected",
@@ -200,7 +230,7 @@ export class TerminalHost {
       return false;
     }
     if (data.length > MAX_INPUT_LENGTH) {
-      this.#recordAudit({
+      recordAudit({
         operation: "write",
         phase: "outcome",
         outcome: "rejected",
@@ -212,7 +242,7 @@ export class TerminalHost {
     try {
       session.process.write(data);
     } catch (error) {
-      this.#recordAudit({
+      recordAudit({
         operation: "write",
         phase: "outcome",
         outcome: "failed",
@@ -221,7 +251,7 @@ export class TerminalHost {
       });
       throw error;
     }
-    this.#recordAudit({
+    recordAudit({
       operation: "write",
       phase: "outcome",
       outcome: "succeeded",
@@ -230,7 +260,13 @@ export class TerminalHost {
     return true;
   }
 
-  resize(ownerId: number, id: string, cols: number, rows: number): boolean {
+  resize(
+    ownerId: number,
+    id: string,
+    cols: number,
+    rows: number,
+    recordSemanticAudit?: TerminalSemanticAuditMarker,
+  ): boolean {
     const resizedCols = terminalDimension(cols, DEFAULT_COLUMNS, MAX_COLUMNS);
     const resizedRows = terminalDimension(rows, DEFAULT_ROWS, MAX_ROWS);
     const auditContext = {
@@ -239,11 +275,13 @@ export class TerminalHost {
       cols: resizedCols,
       rows: resizedRows,
     };
-    this.#recordAudit({ operation: "resize", phase: "attempt", ...auditContext });
+    const recordAudit = (event: TerminalAuditEvent): void =>
+      this.#recordAudit(event, recordSemanticAudit);
+    recordAudit({ operation: "resize", phase: "attempt", ...auditContext });
 
     const session = this.#ownedSession(ownerId, id);
     if (!session) {
-      this.#recordAudit({
+      recordAudit({
         operation: "resize",
         phase: "outcome",
         outcome: "rejected",
@@ -255,7 +293,7 @@ export class TerminalHost {
     try {
       session.process.resize(resizedCols, resizedRows);
     } catch (error) {
-      this.#recordAudit({
+      recordAudit({
         operation: "resize",
         phase: "outcome",
         outcome: "failed",
@@ -264,7 +302,7 @@ export class TerminalHost {
       });
       throw error;
     }
-    this.#recordAudit({
+    recordAudit({
       operation: "resize",
       phase: "outcome",
       outcome: "succeeded",
@@ -273,12 +311,14 @@ export class TerminalHost {
     return true;
   }
 
-  kill(ownerId: number, id: string): boolean {
+  kill(ownerId: number, id: string, recordSemanticAudit?: TerminalSemanticAuditMarker): boolean {
     const session = this.#ownedSession(ownerId, id);
     if (!session) {
       const auditContext = { terminalId: id, ownerId, closeReason: "user_kill" as const };
-      this.#recordAudit({ operation: "close", phase: "attempt", ...auditContext });
-      this.#recordAudit({
+      const recordAudit = (event: TerminalAuditEvent): void =>
+        this.#recordAudit(event, recordSemanticAudit);
+      recordAudit({ operation: "close", phase: "attempt", ...auditContext });
+      recordAudit({
         operation: "close",
         phase: "outcome",
         outcome: "rejected",
@@ -287,18 +327,16 @@ export class TerminalHost {
       });
       return false;
     }
-    this.#close("user_kill", id, session);
+    this.#close("user_kill", id, session, recordSemanticAudit);
     return true;
   }
 
   cleanupOwner(ownerId: number): void {
-    for (const [id, session] of this.#sessions) {
-      if (session.owner.id === ownerId) this.#close("owner_cleanup", id, session);
-    }
+    this.#closeMatching("owner_cleanup", (session) => session.owner.id === ownerId);
   }
 
   dispose(): void {
-    for (const [id, session] of this.#sessions) this.#close("app_dispose", id, session);
+    this.#closeMatching("app_dispose", () => true);
   }
 
   #ownedSession(ownerId: number, id: string): TerminalSession | undefined {
@@ -306,25 +344,42 @@ export class TerminalHost {
     return session?.owner.id === ownerId ? session : undefined;
   }
 
-  #close(closeReason: TerminalAuditCloseReason, id: string, session: TerminalSession): void {
+  #closeMatching(
+    closeReason: TerminalAuditCloseReason,
+    matches: (session: TerminalSession) => boolean,
+  ): void {
+    const failures: unknown[] = [];
+    for (const [id, session] of [...this.#sessions]) {
+      if (matches(session)) {
+        captureFailure(failures, () => this.#close(closeReason, id, session));
+      }
+    }
+    if (failures.length > 0) throw failures[0];
+  }
+
+  #close(
+    closeReason: TerminalAuditCloseReason,
+    id: string,
+    session: TerminalSession,
+    recordSemanticAudit?: TerminalSemanticAuditMarker,
+  ): void {
     const auditContext = { terminalId: id, ownerId: session.owner.id, closeReason };
-    this.#recordAudit({ operation: "close", phase: "attempt", ...auditContext });
-    try {
-      this.#sessions.delete(id);
-      session.dataSubscription.dispose();
-      session.exitSubscription.dispose();
-      session.process.kill();
-    } catch (error) {
-      this.#recordAudit({
+    const recordAudit = (event: TerminalAuditEvent): void =>
+      this.#recordAudit(event, recordSemanticAudit);
+    recordAudit({ operation: "close", phase: "attempt", ...auditContext });
+    this.#sessions.delete(id);
+    const failures = releaseTerminalResources(session, true);
+    if (failures.length > 0) {
+      recordAudit({
         operation: "close",
         phase: "outcome",
         outcome: "failed",
         reason: "operation_failed",
         ...auditContext,
       });
-      throw error;
+      throw failures[0];
     }
-    this.#recordAudit({
+    recordAudit({
       operation: "close",
       phase: "outcome",
       outcome: "succeeded",
@@ -332,8 +387,56 @@ export class TerminalHost {
     });
   }
 
-  #recordAudit(event: TerminalAuditEvent): void {
-    this.audit?.(event);
+  #recordAudit(event: TerminalAuditEvent, recordSemanticAudit?: TerminalSemanticAuditMarker): void {
+    if (!this.audit) return;
+    this.audit(event);
+    if (event.phase === "outcome") recordSemanticAudit?.();
+  }
+}
+
+function releaseIncompleteTerminal(resources: {
+  terminalProcess?: IPty;
+  dataSubscription?: IDisposable;
+  exitSubscription?: IDisposable;
+}): void {
+  if (
+    releaseTerminalResources(
+      {
+        process: resources.terminalProcess,
+        dataSubscription: resources.dataSubscription,
+        exitSubscription: resources.exitSubscription,
+      },
+      true,
+    ).length > 0
+  ) {
+    console.warn("Failed to fully release a partially created Terminal process.");
+  }
+}
+
+function releaseTerminalResources(
+  resources: {
+    process?: IPty;
+    dataSubscription?: IDisposable;
+    exitSubscription?: IDisposable;
+  },
+  killProcess: boolean,
+): unknown[] {
+  const failures: unknown[] = [];
+  for (const subscription of [resources.exitSubscription, resources.dataSubscription]) {
+    if (!subscription) continue;
+    captureFailure(failures, () => subscription.dispose());
+  }
+  if (killProcess && resources.process) {
+    captureFailure(failures, () => resources.process?.kill());
+  }
+  return failures;
+}
+
+function captureFailure(failures: unknown[], action: () => void): void {
+  try {
+    action();
+  } catch (error) {
+    failures.push(error);
   }
 }
 

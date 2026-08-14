@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { type LocalTool, localToolResult } from "./mcp.js";
+import { type LocalTool, localToolResult } from "./local-tool-contracts.js";
 
 export const MAX_REFERENCE_QUERY_CHARS = 256;
 export const MAX_REFERENCE_SEARCH_RESULTS = 20;

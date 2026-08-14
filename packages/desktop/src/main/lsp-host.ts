@@ -4,13 +4,13 @@ import { readdir, readFile, realpath, stat } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import {
-  currentRequestSignal,
   type ExtensionInventory,
   type LspCapability,
   type SkillCapability,
   SWARMX_LOCAL_FILES_LSP_ID,
   SWARMX_SKILLS_LSP_ID,
 } from "@swarmx/core";
+import { currentRequestSignal } from "@swarmx/core/request-scope";
 import {
   CancellationTokenSource,
   createMessageConnection,

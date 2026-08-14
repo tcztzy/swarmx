@@ -11,11 +11,8 @@ export {
   AcpClient,
   AcpSessionUnavailableError,
   cancelAcpRequest,
-  currentRequestSignal,
   findSessionConfigSelect,
   findSessionConfigValue,
-  RequestCancelledError,
-  throwIfCurrentRequestCancelled,
   withAcpRequest,
 } from "./acp.js";
 export type {
@@ -474,9 +471,10 @@ export type {
   LocalToolCallContext,
   LocalToolProgress,
   LocalToolResult,
-  ToolExecutionResult,
-} from "./mcp.js";
-export { localToolResult, McpManager } from "./mcp.js";
+} from "./local-tool-contracts.js";
+export { localToolResult } from "./local-tool-contracts.js";
+export type { ToolExecutionResult } from "./mcp.js";
+export { McpManager } from "./mcp.js";
 export type {
   AcpPromptContentInput,
   InlineMediaLoader,
@@ -624,6 +622,18 @@ export {
   RenderProvenanceSchema,
   sanitizeRenderPayload,
 } from "./rendering.js";
+export type {
+  RequestParticipant,
+  RequestParticipantRegistration,
+} from "./request-scope.js";
+export {
+  cancelRequest,
+  currentRequestSignal,
+  RequestCancelledError,
+  registerCurrentRequestParticipant,
+  throwIfCurrentRequestCancelled,
+  withRequestScope,
+} from "./request-scope.js";
 export type {
   SecretFileModeStatus,
   SecretPurpose,

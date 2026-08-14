@@ -56,6 +56,8 @@ Desktop IPC channels use one explicit policy:
 
 This keeps denied and failed boundaries reconstructable while removing routine
 getter noise and duplicate terminal transport records.
+Persisting only a semantic intent/attempt never suppresses the transport failure;
+the current operation needs a successfully persisted semantic terminal outcome.
 
 ## Activity summaries
 

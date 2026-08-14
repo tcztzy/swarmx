@@ -7,7 +7,8 @@ import { ContextPacketModeSchema, ContextStrategySchema } from "./context.js";
 import type { AgentContextEngine } from "./context-engine.js";
 import { HARNESSES, harnessModelRuntimeEnv, harnessModelRuntimeModel } from "./harness.js";
 import type { HookRuntimeOptions } from "./hook.js";
-import type { LocalTool, McpManager } from "./mcp.js";
+import type { LocalTool } from "./local-tool-contracts.js";
+import type { McpManager } from "./mcp.js";
 import { ModelApiModeSchema, ModelApiSchema } from "./model-api.js";
 import {
   ModelSchema as IndependentModelSchema,

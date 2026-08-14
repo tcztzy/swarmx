@@ -1,5 +1,5 @@
 import { EventEmitter } from "node:events";
-import { cancelAcpRequest, withAcpRequest } from "@swarmx/core";
+import { cancelRequest, withRequestScope } from "@swarmx/core/request-scope";
 import { describe, expect, it, vi } from "vitest";
 import { AgentInteractionBroker, type AgentInteractionOwner } from "./agent-interactions.js";
 
@@ -114,7 +114,7 @@ describe("AgentInteractionBroker", () => {
     const broker = new AgentInteractionBroker();
     const owner = new FakeOwner(1);
     const requestId = "cancel-interaction";
-    const running = withAcpRequest(requestId, () =>
+    const running = withRequestScope(requestId, () =>
       broker.request(owner, requestId, {
         kind: "plan_approval",
         plan: "# Plan",
@@ -123,7 +123,7 @@ describe("AgentInteractionBroker", () => {
     );
     await vi.waitFor(() => expect(owner.send).toHaveBeenCalledOnce());
 
-    await expect(cancelAcpRequest(requestId)).resolves.toBe(true);
+    await expect(cancelRequest(requestId)).resolves.toBe(true);
     await expect(running).rejects.toThrow(/cancelled/i);
     expect(broker.size).toBe(0);
     expect(owner.listenerCount("destroyed")).toBe(0);

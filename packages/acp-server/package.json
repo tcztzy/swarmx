@@ -21,7 +21,7 @@
     "swarmx-acp-server": "./dist/cli.js"
   },
   "scripts": {
-    "build": "tsc",
+    "build": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\" && tsc",
     "dev": "tsc --watch",
     "test": "vitest run"
   },

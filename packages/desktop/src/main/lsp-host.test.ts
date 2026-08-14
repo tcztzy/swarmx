@@ -3,14 +3,12 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import {
   builtInExtensionBundle,
-  cancelAcpRequest,
   createExtensionInventory,
   parseExtensionBundle,
-  RequestCancelledError,
   SWARMX_LOCAL_FILES_LSP_ID,
   SWARMX_SKILLS_LSP_ID,
-  withAcpRequest,
 } from "@swarmx/core";
+import { cancelRequest, RequestCancelledError, withRequestScope } from "@swarmx/core/request-scope";
 import { afterEach, describe, expect, it } from "vitest";
 import { LspHost } from "./lsp-host.js";
 
@@ -483,7 +481,7 @@ describe("LspHost", () => {
     const requestId = "claude-lsp-cancel";
 
     try {
-      const run = withAcpRequest(requestId, () =>
+      const run = withRequestScope(requestId, () =>
         host.operate(inventory, root, {
           operation: "workspaceSymbol",
           filePath: "source.txt",
@@ -492,7 +490,7 @@ describe("LspHost", () => {
           query: "hang",
         }),
       );
-      await expect(cancelAcpRequest(requestId)).resolves.toBe(true);
+      await expect(cancelRequest(requestId)).resolves.toBe(true);
       await expect(run).rejects.toBeInstanceOf(RequestCancelledError);
 
       await expect(

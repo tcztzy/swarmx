@@ -1,4 +1,4 @@
-import { chmod, mkdir, readFile, realpath, stat, writeFile } from "node:fs/promises";
+import { chmod, readFile, realpath, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -26,7 +26,6 @@ import type {
   MessageChunk,
   ModelTokenUsage,
   ProjectBootstrapReceipt,
-  ProjectData,
   ReferenceLibraryBackend,
   SessionData,
   SessionPermissionMode,
@@ -38,7 +37,6 @@ import {
   ActivityStore,
   AuditStore,
   appendMessages,
-  archiveProjectSessions,
   archiveSession,
   buildGlobalMemoryUseReceipt,
   countPersonalMemoryAgentTargets,
@@ -47,7 +45,6 @@ import {
   createSession,
   createSessionContextEngine,
   detectMediaMimeType,
-  dismissProject,
   editSessionUserMessage,
   estimateModelTokenUsage,
   executeAgentComposition,
@@ -57,7 +54,6 @@ import {
   HarnessPermissionPolicySchema,
   importN8nWorkflow,
   listGroupedSessions,
-  listProjects,
   listSessionSummaries,
   loadDiscoveredSession,
   loadExtensionInventory,
@@ -65,19 +61,14 @@ import {
   mergeModelTokenUsage,
   modelReplayableMessages,
   projectBootstrapReceiptMessage,
-  RequestCancelledError,
-  registerDefaultProject,
-  registerProject,
-  renameProject,
   resolveAgentCompositionPlan,
   Swarm,
   saveSession,
-  setProjectPinned,
   setSessionPinned,
-  TaskSupervisorCommandSchema,
   updateSessionTitle,
   validateMediaAttachments,
 } from "@swarmx/core";
+import { RequestCancelledError } from "@swarmx/core/request-scope";
 import {
   containerHostBridgeUrl,
   HarnessDoctor,
@@ -86,6 +77,9 @@ import {
   type HarnessEnvironmentStatus,
 } from "@swarmx/runtime";
 import { dialog, ipcMain as electronIpcMain, type IpcMainInvokeEvent, shell } from "electron";
+import type { DesktopUpdateState } from "../shared/ipc-contracts/app-update.js";
+import type { DesktopIpcAuditPolicy } from "../shared/ipc-contracts/base.js";
+import { DesktopInvokeContractRegistry } from "../shared/ipc-contracts/index.js";
 import {
   createEphemeralCodexHome,
   createExternalAcpSessionBinding,
@@ -104,7 +98,8 @@ import {
   AgentInteractionBroker,
   type DesktopAgentInteractionResolution,
 } from "./agent-interactions.js";
-import { type BrowserBounds, BrowserHost } from "./browser-host.js";
+import { registerAppUpdateIpc, validatedAppUpdateState } from "./app-update-ipc.js";
+import { createDesktopBrowserHost, registerBrowserIpc } from "./browser-ipc.js";
 import { BuiltinToolSettingsService, resolveRunBuiltinTools } from "./builtin-tool-settings.js";
 import { ClaudeChildAgentHost } from "./child-agent-host.js";
 import {
@@ -115,6 +110,15 @@ import { CodexAccessTokenResolver } from "./codex-auth.js";
 import { ComposerPreferenceService } from "./composer-preferences.js";
 import { CustomAgentService } from "./custom-agents.js";
 import { DesktopExtensionManager } from "./extension-manager.js";
+import { registerGlobalMemoryIpc } from "./global-memory-ipc.js";
+import { GlobalMemoryService, type GlobalMemoryServiceLike } from "./global-memory-service.js";
+import {
+  createDesktopIpcRegistrar,
+  createSemanticAuditReceipt,
+  type DesktopAuthorizedIpcHandler,
+  DesktopIpcBoundaryError,
+  type SemanticAuditReceipt,
+} from "./ipc-router.js";
 import { type LspCompletionRequest, LspHost, type LspStopRequest } from "./lsp-host.js";
 import { DesktopMediaService } from "./media.js";
 import {
@@ -125,11 +129,8 @@ import {
 } from "./model-catalog.js";
 import { PermissionAutoReviewer, type PermissionReviewResult } from "./permission-review.js";
 import { PermissionService, type RecordPermissionDecisionInput } from "./permission-service.js";
-import {
-  GlobalMemoryService,
-  type GlobalMemoryServiceLike,
-  type PersonalMemoryServiceLike,
-} from "./personal-memory.js";
+import { registerProjectIpc } from "./project-ipc.js";
+import { ProjectService } from "./project-service.js";
 import { FileProviderAuthStore } from "./provider-auth.js";
 import { providerErrorMessage } from "./provider-error.js";
 import {
@@ -159,18 +160,17 @@ import {
 } from "./session-title.js";
 import { DesktopSettingsStore } from "./settings-store.js";
 import { SideChatService } from "./side-chat-service.js";
+import { registerTaskRuntimeIpc } from "./task-runtime-ipc.js";
 import { DesktopTaskSupervisor, type DesktopTaskSupervisorLike } from "./task-supervisor.js";
 import { type TerminalAuditEvent, TerminalHost } from "./terminal-host.js";
-import {
-  createDisabledDesktopUpdateService,
-  type DesktopUpdateServiceLike,
-  type DesktopUpdateState,
-} from "./updater.js";
+import { registerTerminalIpc } from "./terminal-ipc.js";
+import { createDisabledDesktopUpdateService, type DesktopUpdateServiceLike } from "./updater.js";
 import type { RendererIpcEvent } from "./window-security.js";
+import { registerWorkspaceInspectionIpc } from "./workspace-inspection-ipc.js";
+import type { WorkspacePermissionReviewRequest } from "./workspace-tool-permissions.js";
 import {
   projectAgentContextMessage,
   type WorkspaceAgentToolOptions,
-  type WorkspacePermissionReviewRequest,
   WorkspaceTools,
   workspaceAgentTools,
   workspaceToolProfile,
@@ -187,18 +187,12 @@ export {
 const MAX_INLINE_IMAGE_BYTES = 25 * 1024 * 1024;
 const SENSITIVE_PERMISSION_LABEL_PATTERN =
   /(api[_ -]?key|access[_ -]?token|password|passwd|bearer\s+[a-z0-9]|secret\s*[=:]|private[_ -]?key)/i;
-type IpcAuditPolicy = "intent_outcome" | "failure_only" | "semantic_only";
-const IPC_AUDIT_POLICIES = {
+type IpcAuditPolicy = DesktopIpcAuditPolicy;
+export const LEGACY_IPC_AUDIT_POLICIES = {
   "bootstrap:get": "intent_outcome",
   "agent:send": "intent_outcome",
   "sideChat:send": "intent_outcome",
   "activity:profile": "failure_only",
-  "personalMemory:get": "failure_only",
-  "personalMemory:save": "intent_outcome",
-  "personalMemory:forget": "intent_outcome",
-  "taskRuntime:list": "failure_only",
-  "taskRuntime:cancel": "intent_outcome",
-  "taskRuntime:decide": "intent_outcome",
   "agent:cancel": "intent_outcome",
   "sideChat:list": "intent_outcome",
   "sideChat:create": "intent_outcome",
@@ -215,14 +209,6 @@ const IPC_AUDIT_POLICIES = {
   "session:save": "intent_outcome",
   "session:load": "intent_outcome",
   "session:list": "intent_outcome",
-  "project:list": "intent_outcome",
-  "project:addExisting": "intent_outcome",
-  "project:createScratch": "intent_outcome",
-  "project:setPinned": "intent_outcome",
-  "project:rename": "intent_outcome",
-  "project:reveal": "intent_outcome",
-  "project:archiveTasks": "intent_outcome",
-  "project:remove": "intent_outcome",
   "session:listGrouped": "intent_outcome",
   "session:loadDiscovered": "intent_outcome",
   "session:archive": "intent_outcome",
@@ -250,24 +236,6 @@ const IPC_AUDIT_POLICIES = {
   "permission:status": "intent_outcome",
   "permission:savePersonal": "intent_outcome",
   "permission:saveProfiles": "intent_outcome",
-  "workspace:root": "intent_outcome",
-  "workspace:review": "intent_outcome",
-  "workspace:listDirectory": "intent_outcome",
-  "workspace:readFile": "intent_outcome",
-  "terminal:create": "semantic_only",
-  "terminal:write": "semantic_only",
-  "terminal:resize": "semantic_only",
-  "terminal:kill": "semantic_only",
-  "browser:create": "intent_outcome",
-  "browser:navigate": "intent_outcome",
-  "browser:back": "intent_outcome",
-  "browser:forward": "intent_outcome",
-  "browser:reload": "intent_outcome",
-  "browser:setBounds": "failure_only",
-  "browser:setVisible": "failure_only",
-  "browser:destroy": "intent_outcome",
-  "appUpdate:getState": "failure_only",
-  "appUpdate:install": "intent_outcome",
   "workspace:selectFilesAndFolders": "intent_outcome",
   "media:select": "intent_outcome",
   "media:import": "intent_outcome",
@@ -297,7 +265,7 @@ const agentRequests = new DesktopRequestRegistry();
 const sideChats = new SideChatService();
 const agentInteractions = new AgentInteractionBroker();
 const claudeSessionRuntimes = new ClaudeSessionRuntimeRegistry();
-const browserHost = new BrowserHost();
+const browserHost = createDesktopBrowserHost();
 const desktopAudit = new AuditStore(
   process.env.NODE_ENV === "test"
     ? {
@@ -308,7 +276,6 @@ const desktopAudit = new AuditStore(
 type DesktopAuditStore = Pick<AuditStore, "append" | "query" | "exportJsonl" | "verify">;
 type PreparedAuditInput = AuditInput & { metadata: Record<string, unknown> };
 let activeAuditStore: DesktopAuditStore = desktopAudit;
-let semanticAuditCount = 0;
 const terminalHost = new TerminalHost(undefined, undefined, undefined, recordTerminalAudit);
 const interactiveOwnerIds = new Set<number>();
 const desktopWorkspaceRoot = process.env.INIT_CWD || process.cwd();
@@ -354,7 +321,6 @@ export interface RegisterIpcHandlersOptions {
   activityStore?: ActivityStore;
   auditStore?: DesktopAuditStore;
   authorizeIpcSender?: (event: RendererIpcEvent) => boolean;
-  personalMemoryService?: PersonalMemoryServiceLike;
   globalMemoryService?: GlobalMemoryServiceLike;
   taskSupervisor?: DesktopTaskSupervisorLike;
   memoryBackend?: MemoryBackend & Partial<GlobalMemoryBackend>;
@@ -498,16 +464,15 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
     options.globalMemoryService ??
     new GlobalMemoryService(globalMemoryBackend, desktopSettingsStore);
   const agentMemoryBackend = memoryBackendWithGlobalMemory(memoryBackend, globalMemoryService);
-  const settingsMemoryService = options.personalMemoryService ?? globalMemoryService;
   const referenceLibraryBackend = options.referenceLibraryBackend;
   activeAuditStore = auditStore;
   const authorizeIpcSender = options.authorizeIpcSender ?? (() => false);
   const assertAuthorized = (event: RendererIpcEvent): void => {
     if (!authorizeIpcSender(event)) throw new Error("Untrusted desktop IPC sender.");
   };
-  const handle: typeof electronIpcMain.handle = (channel, listener) => {
+  const registerAudited = (channel: string, listener: DesktopAuthorizedIpcHandler): void => {
     if (channel.startsWith("audit:")) {
-      return electronIpcMain.handle(channel, (event, ...args) => {
+      electronIpcMain.handle(channel, (event, ...args) => {
         try {
           assertAuthorized(event);
         } catch (error) {
@@ -518,13 +483,14 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
           });
           throw error;
         }
-        return listener(event, ...args);
+        return listener(event, createSemanticAuditReceipt(), ...args);
       });
+      return;
     }
     const auditPolicy = requiredIpcAuditPolicy(channel);
-    return electronIpcMain.handle(channel, (event, ...args) => {
+    electronIpcMain.handle(channel, (event, ...args) => {
       const startedAt = Date.now();
-      const semanticAuditBaseline = semanticAuditCount;
+      const receipt = createSemanticAuditReceipt();
       const audit = ipcAuditInput(channel, event, args);
       if (auditPolicy === "intent_outcome") {
         auditStore.append({ ...audit, outcome: "attempted" });
@@ -541,7 +507,7 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
       }
 
       try {
-        const result = listener(event, ...args);
+        const result = listener(event, receipt, ...args);
         if (isPromiseLike(result)) {
           return Promise.resolve(result).then(
             (value) => {
@@ -556,7 +522,7 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
               return value;
             },
             (error: unknown) => {
-              if (recordsDispatchFailure(auditPolicy, semanticAuditBaseline)) {
+              if (recordsDispatchFailure(auditPolicy, receipt, error)) {
                 auditStore.append({
                   ...audit,
                   outcome: error instanceof RequestCancelledError ? "cancelled" : "failed",
@@ -581,7 +547,7 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
         }
         return result;
       } catch (error) {
-        if (recordsDispatchFailure(auditPolicy, semanticAuditBaseline)) {
+        if (recordsDispatchFailure(auditPolicy, receipt, error)) {
           auditStore.append({
             ...audit,
             outcome: error instanceof RequestCancelledError ? "cancelled" : "failed",
@@ -596,7 +562,21 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
       }
     });
   };
+  const handle: typeof electronIpcMain.handle = (channel, listener) =>
+    registerAudited(channel, (event, _receipt, ...args) => listener(event, ...args));
   const ipcMain = { handle };
+  const contractRegistrar = createDesktopIpcRegistrar({
+    registerAuthorized: registerAudited,
+    auditPolicy: requiredIpcAuditPolicy,
+  });
+  const projectService = new ProjectService({
+    workspaceRoot: desktopWorkspaceRoot,
+    isSessionRunning: (sessionId) =>
+      agentRequests.isSessionActive(sessionId) ||
+      claudeSessionRuntimes.isRunning(sessionId) ||
+      sideChats.isParentRunning(sessionId),
+    clearSideChats: (parentSessionId) => sideChats.clearParent(parentSessionId),
+  });
   const bootstrapAuditPolicy = requiredIpcAuditPolicy("bootstrap:get");
   electronIpcMain.on("bootstrap:get", (event) => {
     const startedAt = Date.now();
@@ -606,7 +586,7 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
     }
     try {
       assertAuthorized(event);
-      event.returnValue = listProjects();
+      event.returnValue = projectService.list();
       if (recordsResolvedIpcOutcome(bootstrapAuditPolicy, "completed")) {
         auditStore.append({
           ...audit,
@@ -627,7 +607,22 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
       throw error;
     }
   });
-  if (options.broadcastUpdateState) updateService.subscribe(options.broadcastUpdateState);
+  if (options.broadcastUpdateState) {
+    updateService.subscribe((state) =>
+      options.broadcastUpdateState?.(validatedAppUpdateState(state)),
+    );
+  }
+  registerAppUpdateIpc(contractRegistrar, updateService);
+  registerGlobalMemoryIpc(contractRegistrar, globalMemoryService);
+  registerProjectIpc(contractRegistrar, projectService);
+  registerTaskRuntimeIpc(contractRegistrar, taskSupervisor);
+  registerWorkspaceInspectionIpc(contractRegistrar, {
+    workspaceRoot: desktopWorkspaceRoot,
+    normalizeWorkingDirectory,
+    toolsFor: workspaceToolsFor,
+  });
+  registerBrowserIpc(contractRegistrar, browserHost, ensureInteractiveOwner);
+  registerTerminalIpc(contractRegistrar, terminalHost, ensureInteractiveOwner);
   const handleAgentSend = async (event: IpcMainInvokeEvent, params: DesktopAgentSendParams) => {
     const startedAt = Date.now();
     const observedMessages: MessageChunk[] = [];
@@ -1729,36 +1724,6 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
 
   ipcMain.handle("activity:profile", () => activityStore.summary());
 
-  ipcMain.handle("personalMemory:get", () => settingsMemoryService.get());
-
-  ipcMain.handle("personalMemory:save", (_event: IpcMainInvokeEvent, input: unknown) =>
-    settingsMemoryService.save(input),
-  );
-
-  ipcMain.handle("personalMemory:forget", (_event: IpcMainInvokeEvent, input: unknown) =>
-    settingsMemoryService.forget(input),
-  );
-
-  ipcMain.handle("taskRuntime:list", () => taskSupervisor.request({ operation: "list" }));
-
-  ipcMain.handle("taskRuntime:cancel", (_event: IpcMainInvokeEvent, input: unknown) =>
-    taskSupervisor.request(
-      TaskSupervisorCommandSchema.parse({
-        operation: "cancel",
-        ...(isRecord(input) ? input : {}),
-      }),
-    ),
-  );
-
-  ipcMain.handle("taskRuntime:decide", (_event: IpcMainInvokeEvent, input: unknown) =>
-    taskSupervisor.request(
-      TaskSupervisorCommandSchema.parse({
-        operation: "decide",
-        ...(isRecord(input) ? input : {}),
-      }),
-    ),
-  );
-
   ipcMain.handle("audit:list", (_event: IpcMainInvokeEvent, query?: AuditQuery) =>
     auditStore.query(query ?? {}),
   );
@@ -1957,96 +1922,6 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
   });
 
   ipcMain.handle("session:list", (): SessionSummary[] => listSessionSummaries());
-
-  ipcMain.handle("project:list", (): ProjectData[] => {
-    registerDefaultProject(desktopWorkspaceRoot);
-    return listProjects();
-  });
-
-  ipcMain.handle("project:addExisting", async (): Promise<ProjectData | null> => {
-    const result = await dialog.showOpenDialog({
-      title: "Use an existing project folder",
-      buttonLabel: "Use folder",
-      defaultPath: desktopWorkspaceRoot,
-      properties: ["openDirectory", "createDirectory"],
-    });
-    const cwd = result.filePaths[0];
-    return result.canceled || !cwd ? null : registerProject(cwd);
-  });
-
-  ipcMain.handle("project:createScratch", async (): Promise<ProjectData | null> => {
-    const result = await dialog.showSaveDialog({
-      title: "Create a new project",
-      buttonLabel: "Create project",
-      defaultPath: path.join(path.dirname(desktopWorkspaceRoot), "untitled-project"),
-      nameFieldLabel: "Project name",
-      properties: ["createDirectory"],
-    });
-    if (result.canceled || !result.filePath) return null;
-    await mkdir(result.filePath);
-    return registerProject(result.filePath);
-  });
-
-  ipcMain.handle(
-    "project:setPinned",
-    (_event: IpcMainInvokeEvent, params: { id: string; pinned: boolean }): ProjectData => {
-      const project = setProjectPinned(params.id, params.pinned);
-      if (!project) throw new Error(`Unknown project: ${params.id}`);
-      return project;
-    },
-  );
-
-  ipcMain.handle(
-    "project:rename",
-    (_event: IpcMainInvokeEvent, params: { id: string; name: string }): ProjectData => {
-      const project = renameProject(params.id, params.name);
-      if (!project) throw new Error(`Unknown project: ${params.id}`);
-      return project;
-    },
-  );
-
-  ipcMain.handle(
-    "project:reveal",
-    (_event: IpcMainInvokeEvent, params: { id: string }): boolean => {
-      const project = listProjects().find((candidate) => candidate.id === params.id);
-      if (!project) return false;
-      shell.showItemInFolder(project.cwd);
-      return true;
-    },
-  );
-
-  ipcMain.handle(
-    "project:archiveTasks",
-    (_event: IpcMainInvokeEvent, params: { id: string }): number => {
-      const project = listProjects().find((candidate) => candidate.id === params.id);
-      if (!project) throw new Error(`Unknown project: ${params.id}`);
-      const runningSession = listSessionSummaries().find(
-        (session) =>
-          (session.projectId === project.id ||
-            (session.cwd && path.resolve(session.cwd) === path.resolve(project.cwd))) &&
-          (agentRequests.isSessionActive(session.id) ||
-            claudeSessionRuntimes.isRunning(session.id) ||
-            sideChats.isParentRunning(session.id)),
-      );
-      if (runningSession) {
-        throw new Error("Stop all running tasks in this project before archiving them.");
-      }
-      const parentIds = listSessionSummaries()
-        .filter(
-          (session) =>
-            session.projectId === project.id ||
-            (session.cwd && path.resolve(session.cwd) === path.resolve(project.cwd)),
-        )
-        .map((session) => session.id);
-      const archived = archiveProjectSessions({ projectId: project.id, cwd: project.cwd });
-      for (const parentId of parentIds) sideChats.clearParent(parentId);
-      return archived;
-    },
-  );
-
-  ipcMain.handle("project:remove", (_event: IpcMainInvokeEvent, params: { id: string }): boolean =>
-    dismissProject(params.id),
-  );
 
   ipcMain.handle(
     "session:listGrouped",
@@ -2345,140 +2220,6 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
     },
   );
 
-  ipcMain.handle("workspace:root", () => desktopWorkspaceRoot);
-
-  ipcMain.handle(
-    "workspace:review",
-    async (_event: IpcMainInvokeEvent, params?: { cwd?: string }) =>
-      workspaceToolsFor(await normalizeWorkingDirectory(params?.cwd)).review(),
-  );
-
-  ipcMain.handle(
-    "workspace:listDirectory",
-    async (_event: IpcMainInvokeEvent, params?: { path?: string; cwd?: string }) => {
-      const tools = workspaceToolsFor(await normalizeWorkingDirectory(params?.cwd));
-      return {
-        root: tools.root,
-        ...(await tools.listDirectory(params?.path ?? "")),
-      };
-    },
-  );
-
-  ipcMain.handle(
-    "workspace:readFile",
-    async (_event: IpcMainInvokeEvent, params: { path: string; cwd?: string }) => {
-      const tools = workspaceToolsFor(await normalizeWorkingDirectory(params.cwd));
-      return {
-        root: tools.root,
-        binary: false,
-        ...(await tools.readFile(params.path)),
-      };
-    },
-  );
-
-  ipcMain.handle(
-    "terminal:create",
-    (
-      event: IpcMainInvokeEvent,
-      params: { id?: string; cwd: string; cols?: number; rows?: number },
-    ) => {
-      const owner = event.sender;
-      const created = terminalHost.create(owner, params);
-      if (!interactiveOwnerIds.has(owner.id)) {
-        interactiveOwnerIds.add(owner.id);
-        owner.once("destroyed", () => {
-          interactiveOwnerIds.delete(owner.id);
-          browserHost.cleanupOwner(owner.id);
-          terminalHost.cleanupOwner(owner.id);
-        });
-      }
-      return created;
-    },
-  );
-
-  ipcMain.handle(
-    "terminal:write",
-    (event: IpcMainInvokeEvent, params: { id: string; data: string }) => ({
-      written: terminalHost.write(event.sender.id, params.id, params.data),
-    }),
-  );
-
-  ipcMain.handle(
-    "terminal:resize",
-    (event: IpcMainInvokeEvent, params: { id: string; cols: number; rows: number }) => ({
-      resized: terminalHost.resize(event.sender.id, params.id, params.cols, params.rows),
-    }),
-  );
-
-  ipcMain.handle("terminal:kill", (event: IpcMainInvokeEvent, params: { id: string }) => ({
-    killed: terminalHost.kill(event.sender.id, params.id),
-  }));
-
-  ipcMain.handle(
-    "browser:create",
-    (
-      event: IpcMainInvokeEvent,
-      params?: { id?: string; url?: string; bounds?: BrowserBounds; visible?: boolean },
-    ) => {
-      const owner = event.sender;
-      if (!interactiveOwnerIds.has(owner.id)) {
-        interactiveOwnerIds.add(owner.id);
-        owner.once("destroyed", () => {
-          interactiveOwnerIds.delete(owner.id);
-          browserHost.cleanupOwner(owner.id);
-          terminalHost.cleanupOwner(owner.id);
-        });
-      }
-      return browserHost.create(owner, params);
-    },
-  );
-
-  ipcMain.handle(
-    "browser:navigate",
-    async (event: IpcMainInvokeEvent, params: { id: string; url: string }) => {
-      const state = await browserHost.navigate(event.sender.id, params.id, params.url);
-      if (!state) throw new Error("Browser view is not available.");
-      return state;
-    },
-  );
-
-  ipcMain.handle("browser:back", (event: IpcMainInvokeEvent, params: { id: string }) => {
-    browserHost.back(event.sender.id, params.id);
-    return requiredBrowserState(event.sender.id, params.id);
-  });
-
-  ipcMain.handle("browser:forward", (event: IpcMainInvokeEvent, params: { id: string }) => {
-    browserHost.forward(event.sender.id, params.id);
-    return requiredBrowserState(event.sender.id, params.id);
-  });
-
-  ipcMain.handle("browser:reload", (event: IpcMainInvokeEvent, params: { id: string }) => {
-    browserHost.reload(event.sender.id, params.id);
-    return requiredBrowserState(event.sender.id, params.id);
-  });
-
-  ipcMain.handle(
-    "browser:setBounds",
-    (event: IpcMainInvokeEvent, params: { id: string; bounds: BrowserBounds }) => ({
-      updated: browserHost.setBounds(event.sender.id, params.id, params.bounds),
-    }),
-  );
-
-  ipcMain.handle(
-    "browser:setVisible",
-    (event: IpcMainInvokeEvent, params: { id: string; visible: boolean }) => ({
-      updated: browserHost.setVisible(event.sender.id, params.id, params.visible),
-    }),
-  );
-
-  ipcMain.handle("browser:destroy", (event: IpcMainInvokeEvent, params: { id: string }) => ({
-    destroyed: browserHost.destroy(event.sender.id, params.id),
-  }));
-
-  ipcMain.handle("appUpdate:getState", () => updateService.getState());
-
-  ipcMain.handle("appUpdate:install", () => updateService.startUpdate());
-
   ipcMain.handle("workspace:selectFilesAndFolders", async () => {
     const result = await dialog.showOpenDialog({
       title: "Add files and folders",
@@ -2638,19 +2379,41 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
 export function disposeDesktopTerminals(): void {
   void claudeSessionRuntimes.close();
   sideChats.clear();
-  browserHost.dispose();
-  terminalHost.dispose();
-  interactiveOwnerIds.clear();
+  runCleanupActions([
+    () => browserHost.dispose(),
+    () => terminalHost.dispose(),
+    () => interactiveOwnerIds.clear(),
+  ]);
 }
 
 export function resolveDesktopMediaProtocolUrl(url: string): Promise<string> {
   return mediaService.resolveProtocolUrl(url);
 }
 
-function requiredBrowserState(ownerId: number, id: string) {
-  const state = browserHost.getState(ownerId, id);
-  if (!state) throw new Error("Browser view is not available.");
-  return state;
+function ensureInteractiveOwner(owner: IpcMainInvokeEvent["sender"]): void {
+  if (interactiveOwnerIds.has(owner.id)) return;
+  interactiveOwnerIds.add(owner.id);
+  owner.once("destroyed", () => {
+    interactiveOwnerIds.delete(owner.id);
+    runCleanupActions([
+      () => browserHost.cleanupOwner(owner.id),
+      () => terminalHost.cleanupOwner(owner.id),
+    ]);
+  });
+}
+
+function runCleanupActions(actions: ReadonlyArray<() => void>): void {
+  let firstFailure: unknown;
+  let failed = false;
+  for (const action of actions) {
+    try {
+      action();
+    } catch (error) {
+      if (!failed) firstFailure = error;
+      failed = true;
+    }
+  }
+  if (failed) throw firstFailure;
 }
 
 export function sessionDiscoveryHarnessIds(
@@ -3159,7 +2922,14 @@ function ipcAuditInput(
 }
 
 function requiredIpcAuditPolicy(channel: string): IpcAuditPolicy {
-  const policy = (IPC_AUDIT_POLICIES as Readonly<Record<string, IpcAuditPolicy>>)[channel];
+  const contract = DesktopInvokeContractRegistry[channel];
+  const legacyPolicy = (LEGACY_IPC_AUDIT_POLICIES as Readonly<Record<string, IpcAuditPolicy>>)[
+    channel
+  ];
+  if (contract && legacyPolicy) {
+    throw new Error(`Desktop IPC channel ${channel} is both contracted and legacy.`);
+  }
+  const policy = contract?.audit ?? legacyPolicy;
   if (!policy) throw new Error(`Desktop IPC channel ${channel} has no audit policy.`);
   return policy;
 }
@@ -3177,8 +2947,16 @@ function recordsResolvedIpcOutcome(
   return policy === "intent_outcome" || (policy === "failure_only" && outcome !== "completed");
 }
 
-function recordsDispatchFailure(policy: IpcAuditPolicy, semanticAuditBaseline: number): boolean {
-  return policy !== "semantic_only" || semanticAuditCount === semanticAuditBaseline;
+function recordsDispatchFailure(
+  policy: IpcAuditPolicy,
+  receipt: SemanticAuditReceipt,
+  error: unknown,
+): boolean {
+  return (
+    error instanceof DesktopIpcBoundaryError ||
+    policy !== "semantic_only" ||
+    !receipt.semanticAuditRecorded
+  );
 }
 
 function recordTerminalAudit(event: Readonly<TerminalAuditEvent>): void {
@@ -3207,7 +2985,6 @@ function recordTerminalAudit(event: Readonly<TerminalAuditEvent>): void {
       ...(event.closeReason === undefined ? {} : { closeReason: event.closeReason }),
     },
   });
-  semanticAuditCount += 1;
 }
 
 function recordToolChunkAudit(

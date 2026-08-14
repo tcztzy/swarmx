@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, readFile, rm, symlink } from "node:fs/promises";
 import { createServer } from "node:http";
 import os from "node:os";
 import path from "node:path";
-import { cancelAcpRequest, RequestCancelledError, withAcpRequest } from "@swarmx/core";
+import { cancelRequest, RequestCancelledError, withRequestScope } from "@swarmx/core/request-scope";
 import { afterEach, describe, expect, it } from "vitest";
 import { WorkspaceShell, workspaceShellAgentTool } from "./workspace-shell.js";
 
@@ -152,20 +152,20 @@ describe("WorkspaceShell", () => {
       expect(timedOut.timedOut).toBe(true);
 
       const requestId = `workspace-shell-${Date.now()}`;
-      const running = withAcpRequest(requestId, () =>
+      const running = withRequestScope(requestId, () =>
         new WorkspaceShell(root, { timeoutMs: 5_000 }).run("sleep 5"),
       );
-      await expect(cancelAcpRequest(requestId)).resolves.toBe(true);
+      await expect(cancelRequest(requestId)).resolves.toBe(true);
       await expect(running).rejects.toBeInstanceOf(RequestCancelledError);
 
       const fallbackRequestId = `workspace-shell-fallback-${Date.now()}`;
-      const fallback = withAcpRequest(fallbackRequestId, () =>
+      const fallback = withRequestScope(fallbackRequestId, () =>
         new WorkspaceShell(root, { backgroundTimeoutMs: 5_000 }).runWithBackgroundFallback(
           "sleep 5",
           5_000,
         ),
       );
-      await expect(cancelAcpRequest(fallbackRequestId)).resolves.toBe(true);
+      await expect(cancelRequest(fallbackRequestId)).resolves.toBe(true);
       await expect(fallback).rejects.toBeInstanceOf(RequestCancelledError);
     },
   );

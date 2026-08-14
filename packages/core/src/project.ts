@@ -3,18 +3,10 @@ import { homedir } from "node:os";
 import * as path from "node:path";
 import { v4 as uuidv4 } from "uuid";
 import { z } from "zod";
+import { type ProjectData, ProjectDataSchema } from "./project-contracts.js";
 
-export const ProjectDataSchema = z.object({
-  id: z.string().min(1),
-  name: z.string().min(1),
-  cwd: z.string().min(1),
-  pinned: z.boolean().default(false),
-  createdAt: z.string(),
-  updatedAt: z.string(),
-  removedAt: z.string().optional(),
-});
-
-export type ProjectData = z.infer<typeof ProjectDataSchema>;
+export type { ProjectData };
+export { ProjectDataSchema };
 
 const PROJECTS_DIR = path.join(homedir(), ".swarmx");
 const PROJECTS_FILE = path.join(PROJECTS_DIR, "projects.json");

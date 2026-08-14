@@ -2,8 +2,8 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "types": ["node"],
-    "outDir": "./out/main",
-    "rootDir": "./src/main"
+    "outDir": "./out",
+    "rootDir": "./src"
   },
   "include": ["src/main", "src/preload"]
 }

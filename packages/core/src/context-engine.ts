@@ -3,7 +3,7 @@ import { z } from "zod";
 import { stableJson } from "./canonical-json.js";
 import { type SummaryCheckpoint, SummaryCheckpointSchema } from "./context.js";
 import { modelReplayableMessages } from "./conversation.js";
-import type { LocalTool } from "./mcp.js";
+import type { LocalTool } from "./local-tool-contracts.js";
 import { findInlineSecretFields } from "./secret-scanner.js";
 import { type MessageChunk, MessageChunkSchema } from "./types.js";
 

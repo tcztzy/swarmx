@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { createSwarmxDesktopApi } from "../preload/api.js";
+import { createSwarmxDesktopApi, parseDesktopBootstrapData } from "../preload/api.js";
+import type { SwarmxAPI } from "../shared/desktop-api.js";
 
 const electron = vi.hoisted(() => ({
   exposeInMainWorld: vi.fn(),
@@ -52,6 +53,26 @@ describe("preload API", () => {
     expect(electron.sendSync).toHaveBeenCalledWith("bootstrap:get");
   });
 
+  it("rejects malformed bootstrap Projects through the canonical transport schema", () => {
+    expect(parseDesktopBootstrapData({ initialProjects: projectBootstrap.projects })).toEqual({
+      initialProjects: projectBootstrap.projects,
+    });
+    expect(
+      parseDesktopBootstrapData({
+        initialProjects: [
+          Object.fromEntries(
+            Object.entries(projectBootstrap.projects[0]).filter(([key]) => key !== "pinned"),
+          ),
+        ],
+      }),
+    ).toEqual({});
+    expect(
+      parseDesktopBootstrapData({
+        initialProjects: [{ ...projectBootstrap.projects[0], rawCredential: "secret" }],
+      }),
+    ).toEqual({});
+  });
+
   it("forwards stable request IDs without renderer mutation", async () => {
     electron.invoke.mockResolvedValue({ success: true, messages: [] });
     const params = {
@@ -84,13 +105,20 @@ describe("preload API", () => {
     const api = exposedApi();
 
     await api.getPersonalMemory();
-    await api.savePersonalMemory({ target: "user", content: "Prefer concise answers." });
-    await api.forgetPersonalMemory({ target: "user", confirmed: true });
+    await api.savePersonalMemory({
+      target: "user",
+      content: "Prefer concise answers.",
+      expectedRevision: 2,
+    });
+    await api.forgetPersonalMemory({ target: "user", confirmed: true, expectedRevision: 2 });
 
     expect(electron.invoke.mock.calls).toEqual([
       ["personalMemory:get"],
-      ["personalMemory:save", { target: "user", content: "Prefer concise answers." }],
-      ["personalMemory:forget", { target: "user", confirmed: true }],
+      [
+        "personalMemory:save",
+        { target: "user", content: "Prefer concise answers.", expectedRevision: 2 },
+      ],
+      ["personalMemory:forget", { target: "user", confirmed: true, expectedRevision: 2 }],
     ]);
   });
 
@@ -149,6 +177,24 @@ describe("preload API", () => {
 
     unsubscribe();
     expect(electron.removeListener).toHaveBeenCalledWith("agent:chunk", wrapped);
+  });
+
+  it("validates App Update events before exposing them to Renderer listeners", () => {
+    const listener = vi.fn();
+    const unsubscribe = exposedApi().onUpdateState?.(listener);
+    const registration = electron.on.mock.calls.find(([channel]) => channel === "appUpdate:state");
+    const wrapped = registration?.[1];
+
+    wrapped?.({}, { phase: "available", currentVersion: "3.2.0", latestVersion: "3.3.0" });
+    expect(listener).toHaveBeenCalledWith({
+      phase: "available",
+      currentVersion: "3.2.0",
+      latestVersion: "3.3.0",
+    });
+    expect(() => wrapped?.({}, { phase: "forged", currentVersion: "3.2.0" })).toThrow();
+    expect(listener).toHaveBeenCalledTimes(1);
+
+    unsubscribe?.();
   });
 
   it("keeps transient side-chat sends, streams, and lifecycle operations on dedicated channels", async () => {
@@ -356,6 +402,18 @@ describe("preload API", () => {
     expect(electron.invoke).toHaveBeenCalledWith("workspace:root");
   });
 
+  it("normalizes omitted Workspace inspection arguments in Preload", async () => {
+    await exposedApi().getWorkspaceReview();
+    await exposedApi().listWorkspaceDirectory();
+    await exposedApi().readWorkspaceFile("README.md");
+
+    expect(electron.invoke.mock.calls).toEqual([
+      ["workspace:review", {}],
+      ["workspace:listDirectory", { path: "" }],
+      ["workspace:readFile", { path: "README.md" }],
+    ]);
+  });
+
   it("bridges media import and preview through typed isolated IPC calls", async () => {
     const attachment = {
       id: "notes",
@@ -456,9 +514,24 @@ describe("preload API", () => {
     expect(listener).toHaveBeenCalledWith({ id: "term-1", data: "output" });
     dispose();
     expect(electron.removeListener).toHaveBeenCalledWith("terminal:data", wrapped);
+
+    const exitListener = vi.fn();
+    const disposeExit = exposedApi().onTerminalExit(exitListener);
+    const wrappedExit = electron.on.mock.calls.at(-1)?.[1];
+    if (typeof wrappedExit !== "function")
+      throw new Error("terminal exit listener was not registered");
+    wrappedExit({}, { id: "term-1", exitCode: 0, signal: 1 });
+    expect(exitListener).toHaveBeenCalledWith({ id: "term-1", exitCode: 0, signal: 1 });
+
+    expect(() => wrapped({}, { id: "term-1", data: "output", cwd: "/secret" })).toThrow();
+    expect(() => wrappedExit({}, { id: "term-1", exitCode: Number.POSITIVE_INFINITY })).toThrow();
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect(exitListener).toHaveBeenCalledTimes(1);
+    disposeExit();
+    expect(electron.removeListener).toHaveBeenCalledWith("terminal:exit", wrappedExit);
   });
 
-  it("bridges workspace inspection and sandboxed browser controls", async () => {
+  it("bridges workspace inspection and every sandboxed browser control", async () => {
     const browserState = {
       id: "browser-1",
       url: "https://example.com/",
@@ -472,8 +545,11 @@ describe("preload API", () => {
     await exposedApi().getWorkspaceReview("/workspace/project-1");
     await exposedApi().listWorkspaceDirectory("src", "/workspace/project-1");
     await exposedApi().readWorkspaceFile("src/App.tsx", "/workspace/project-1");
-    await exposedApi().createBrowser({ url: "https://example.com" });
+    await exposedApi().createBrowser();
     await exposedApi().navigateBrowser("browser-1", "https://openai.com");
+    await exposedApi().backBrowser("browser-1");
+    await exposedApi().forwardBrowser("browser-1");
+    await exposedApi().reloadBrowser("browser-1");
     await exposedApi().setBrowserBounds("browser-1", { x: 600, y: 54, width: 600, height: 746 });
     await exposedApi().setBrowserVisible("browser-1", false);
     await exposedApi().destroyBrowser("browser-1");
@@ -489,16 +565,24 @@ describe("preload API", () => {
       path: "src/App.tsx",
       cwd: "/workspace/project-1",
     });
-    expect(electron.invoke).toHaveBeenNthCalledWith(4, "browser:create", {
-      url: "https://example.com",
-    });
+    expect(electron.invoke).toHaveBeenNthCalledWith(4, "browser:create", {});
     expect(electron.invoke).toHaveBeenNthCalledWith(5, "browser:navigate", {
       id: "browser-1",
       url: "https://openai.com",
     });
-    expect(electron.invoke).toHaveBeenNthCalledWith(6, "browser:setBounds", {
+    expect(electron.invoke).toHaveBeenNthCalledWith(6, "browser:back", { id: "browser-1" });
+    expect(electron.invoke).toHaveBeenNthCalledWith(7, "browser:forward", { id: "browser-1" });
+    expect(electron.invoke).toHaveBeenNthCalledWith(8, "browser:reload", { id: "browser-1" });
+    expect(electron.invoke).toHaveBeenNthCalledWith(9, "browser:setBounds", {
       id: "browser-1",
       bounds: { x: 600, y: 54, width: 600, height: 746 },
+    });
+    expect(electron.invoke).toHaveBeenNthCalledWith(10, "browser:setVisible", {
+      id: "browser-1",
+      visible: false,
+    });
+    expect(electron.invoke).toHaveBeenNthCalledWith(11, "browser:destroy", {
+      id: "browser-1",
     });
 
     const listener = vi.fn();
@@ -507,6 +591,8 @@ describe("preload API", () => {
     if (typeof wrapped !== "function") throw new Error("browser listener was not registered");
     wrapped({}, browserState);
     expect(listener).toHaveBeenCalledWith(browserState);
+    expect(() => wrapped({}, { ...browserState, rawCredential: "secret" })).toThrow();
+    expect(listener).toHaveBeenCalledTimes(1);
     dispose();
     expect(electron.removeListener).toHaveBeenCalledWith("browser:state", wrapped);
   });
@@ -682,111 +768,8 @@ describe("preload API", () => {
   });
 });
 
-function exposedApi(): {
-  readonly initialProjects: ReadonlyArray<{
-    id: string;
-    name: string;
-    cwd: string;
-    pinned: boolean;
-    createdAt: string;
-    updatedAt: string;
-  }>;
-  sendMessage(params: { requestId: string; harnessId: string; userText: string }): Promise<unknown>;
-  cancelMessage(requestId: string): Promise<unknown>;
-  renameSession(id: string, title: string): Promise<unknown>;
-  setSessionPinned(id: string, pinned: boolean): Promise<unknown>;
-  generateSessionTitle(id: string, userText: string): Promise<unknown>;
-  archiveSession(id: string): Promise<unknown>;
-  workspaceRoot(): Promise<unknown>;
-  listProjects(): Promise<unknown>;
-  getActivityProfile(): Promise<unknown>;
-  addExistingProject(): Promise<unknown>;
-  createScratchProject(): Promise<unknown>;
-  getWorkspaceReview(cwd?: string): Promise<unknown>;
-  listWorkspaceDirectory(path?: string, cwd?: string): Promise<unknown>;
-  readWorkspaceFile(path: string, cwd?: string): Promise<unknown>;
-  createTerminal(params: {
-    id?: string;
-    cwd: string;
-    cols?: number;
-    rows?: number;
-  }): Promise<unknown>;
-  writeTerminal(id: string, data: string): Promise<unknown>;
-  resizeTerminal(id: string, cols: number, rows: number): Promise<unknown>;
-  killTerminal(id: string): Promise<unknown>;
-  onTerminalData(listener: (event: unknown) => void): () => void;
-  createBrowser(params?: { url?: string }): Promise<unknown>;
-  navigateBrowser(id: string, url: string): Promise<unknown>;
-  setBrowserBounds(
-    id: string,
-    bounds: { x: number; y: number; width: number; height: number },
-  ): Promise<unknown>;
-  setBrowserVisible(id: string, visible: boolean): Promise<unknown>;
-  destroyBrowser(id: string): Promise<unknown>;
-  onBrowserState(listener: (state: unknown) => void): () => void;
-  getUpdateState(): Promise<unknown>;
-  startUpdate(): Promise<unknown>;
-  onUpdateState(listener: (state: unknown) => void): () => void;
-  selectFilesAndFolders(): Promise<unknown>;
-  getHarnessVersion(params: { harnessId: string; refresh?: boolean }): Promise<unknown>;
-  inspectDoctor(params?: { harnessId?: string }): Promise<unknown>;
-  fixDoctor(params: { harnessId?: string; confirmed: boolean }): Promise<unknown>;
-  refreshModelCatalog(): Promise<unknown>;
-  addManualModel(input: {
-    id: string;
-    runtimeModel?: string;
-    apiProtocol: "anthropic" | "openai_chat" | "openai_responses" | "ollama";
-  }): Promise<unknown>;
-  removeManualModel(modelId: string): Promise<unknown>;
-  saveProvider(input: {
-    id?: string;
-    label: string;
-    kind: "anthropic" | "openai_chat" | "openai_responses" | "ollama";
-    baseUrl: string;
-    authMode: "api_key" | "auth_token";
-    usageAdapter?: "new_api";
-    secret?: string;
-    accountAccessToken?: string;
-    accountUserId?: string;
-    clearAccountAccess?: boolean;
-    additionalApiKeys?: Array<{ label?: string; value: string }>;
-    removeApiKeyIds?: string[];
-  }): Promise<unknown>;
-  removeProvider(providerId: string): Promise<unknown>;
-  resetProviderKey(providerId: string, keyId: string): Promise<unknown>;
-  refreshProviderUsage(target?: {
-    source: "provider" | "tool_account";
-    sourceId: string;
-  }): Promise<unknown>;
-  listCustomAgents(): Promise<unknown>;
-  saveCustomAgent(input: unknown): Promise<unknown>;
-  removeCustomAgent(id: string): Promise<unknown>;
-  getComposerPreferences(): Promise<unknown>;
-  saveComposerPreference(input: {
-    harnessId: string;
-    modelId?: string;
-    modelSupplyId?: string;
-    effort?: string;
-  }): Promise<unknown>;
-  getBuiltinToolSettings(): Promise<unknown>;
-  saveBuiltinToolSettings(input: {
-    style: "auto" | "claude_code" | "codex" | "kimi_code";
-  }): Promise<unknown>;
-  getPermissionStatus(params?: {
-    cwd?: string;
-    agentId?: string;
-    agentPolicy?: unknown;
-  }): Promise<unknown>;
-  savePersonalPermissionPolicy(
-    policy: unknown,
-    context?: { cwd?: string; agentId?: string; agentPolicy?: unknown },
-  ): Promise<unknown>;
-  savePermissionProfileAvailability(
-    profileAvailability: unknown,
-    context?: { cwd?: string; agentId?: string; agentPolicy?: unknown },
-  ): Promise<unknown>;
-} {
+function exposedApi(): SwarmxAPI {
   const call = electron.exposeInMainWorld.mock.calls[0];
   if (!call) throw new Error("Preload API was not exposed.");
-  return call[1];
+  return call[1] as SwarmxAPI;
 }

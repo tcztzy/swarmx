@@ -2,6 +2,7 @@ import type {
   DesktopSessionData as SessionData,
   DesktopSessionSummary as SessionSummary,
 } from "../../shared/desktop-api.js";
+import type { DesktopProjectData } from "../../shared/ipc-contracts/project.js";
 import { HARNESSES } from "./harness-presentation.js";
 import { errorMessage, projectName } from "./text-utils.js";
 
@@ -27,14 +28,7 @@ export interface SessionGroup {
   sessions: DiscoveredSession[];
 }
 
-export interface ProjectData {
-  id: string;
-  name: string;
-  cwd: string;
-  pinned: boolean;
-  createdAt: string;
-  updatedAt: string;
-}
+export type ProjectData = DesktopProjectData;
 
 export interface ProjectSessionGroup extends SessionGroup {
   project?: ProjectData;

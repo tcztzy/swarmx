@@ -47,6 +47,8 @@ export type { SaveCustomAgentOptions } from "./custom-agents.js";
 export { CustomAgentService } from "./custom-agents.js";
 export type { ExtensionManagementState } from "./extension-manager.js";
 export { DesktopExtensionManager } from "./extension-manager.js";
+export type { GlobalMemoryServiceLike } from "./global-memory-service.js";
+export { GlobalMemoryService } from "./global-memory-service.js";
 export {
   assertFinalAssistantMessage,
   disposeDesktopTerminals,
@@ -90,11 +92,8 @@ export type {
   ResolveDesktopPermissionOptions,
 } from "./permission-service.js";
 export { PermissionService } from "./permission-service.js";
-export type {
-  GlobalMemoryServiceLike,
-  PersonalMemoryServiceLike,
-} from "./personal-memory.js";
-export { GlobalMemoryService, PersonalMemoryService } from "./personal-memory.js";
+export type { PersonalMemoryServiceLike } from "./personal-memory.js";
+export { PersonalMemoryService } from "./personal-memory.js";
 export type {
   FileProviderAuthStoreOptions,
   ProviderAuthStore,

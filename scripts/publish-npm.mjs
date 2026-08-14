@@ -100,11 +100,21 @@ function packReleasePackage(releasePackage, version, packRoot) {
     );
   }
   verifyPackedDependencies(packedManifest, version);
+  verifyPackedContents(filename, releasePackage.name);
   return {
     ...releasePackage,
     filename,
     integrity: fileIntegrity(filename),
   };
+}
+
+function verifyPackedContents(filename, packageName) {
+  const testArtifact = run("tar", ["-tf", filename])
+    .split("\n")
+    .find((entry) => /(?:^|\/)[^/]+\.(?:test|spec)\.[^/]+$/.test(entry));
+  if (testArtifact) {
+    throw new Error(`${packageName} packed test artifact ${testArtifact}.`);
+  }
 }
 
 function verifyPackedDependencies(manifest, version) {

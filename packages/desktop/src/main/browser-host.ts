@@ -1,5 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { BrowserWindow, type WebContents, WebContentsView, type WebPreferences } from "electron";
+import type {
+  DesktopBrowserBounds,
+  DesktopBrowserCreateInput,
+  DesktopBrowserState,
+} from "../shared/ipc-contracts/browser.js";
 
 export const DEFAULT_BROWSER_PARTITION = "persist:swarmx-browser";
 export const DEFAULT_BROWSER_SEARCH_URL = "https://www.google.com/search?q=";
@@ -8,22 +13,8 @@ export const MAX_BROWSER_DIMENSION = 16_384;
 
 const BLOCKED_NAVIGATION_ERROR = "Navigation blocked: only HTTP and HTTPS URLs are allowed.";
 
-export interface BrowserBounds {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-}
-
-export interface BrowserState {
-  id: string;
-  url: string;
-  title: string;
-  loading: boolean;
-  canGoBack: boolean;
-  canGoForward: boolean;
-  error?: string;
-}
+export type BrowserBounds = DesktopBrowserBounds;
+export type BrowserState = DesktopBrowserState;
 
 export interface BrowserOwner {
   id: number;
@@ -31,12 +22,8 @@ export interface BrowserOwner {
   send(channel: string, value: unknown): void;
 }
 
-export interface CreateBrowserRequest {
-  id?: string;
-  url?: string;
-  bounds?: BrowserBounds;
-  visible?: boolean;
-}
+export type CreateBrowserRequest = DesktopBrowserCreateInput;
+export type BrowserStateProjector = (state: BrowserState) => BrowserState;
 
 export interface BrowserPermissionSession {
   setPermissionCheckHandler(handler: ((...args: unknown[]) => boolean) | null): void;
@@ -126,6 +113,7 @@ export class BrowserHost {
     private readonly factory: BrowserViewFactory = electronBrowserViewFactory,
     private readonly partition = DEFAULT_BROWSER_PARTITION,
     private readonly idFactory: () => string = randomUUID,
+    private readonly projectState: BrowserStateProjector = copyBrowserState,
   ) {
     if (!partition.trim()) throw new Error("Browser partition is required.");
   }
@@ -385,8 +373,9 @@ export class BrowserHost {
 
   #emit(entry: BrowserEntry): void {
     if (entry.owner.isDestroyed?.()) return;
+    const state = this.projectState(copyBrowserState(entry.state));
     try {
-      entry.owner.send("browser:state", copyBrowserState(entry.state));
+      entry.owner.send("browser:state", state);
     } catch {
       // The renderer can disappear between isDestroyed() and send().
     }

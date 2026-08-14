@@ -84,6 +84,29 @@ describe("TerminalHost", () => {
     expect(host.write(2, other.id, "still alive")).toBe(true);
   });
 
+  it("continues owner cleanup after one Terminal release fails", () => {
+    const first = new FakePty();
+    const second = new FakePty();
+    const cleanupError = new Error("first Terminal cleanup failed");
+    first.kill.mockImplementation(() => {
+      throw cleanupError;
+    });
+    const factory = {
+      spawn: vi.fn().mockReturnValueOnce(first).mockReturnValueOnce(second),
+    } satisfies TerminalProcessFactory;
+    const host = new TerminalHost(factory, "linux", { SHELL: "/bin/bash" });
+    const owner = fakeOwner(5);
+    host.create(owner, { id: "first-terminal", cwd: "/workspace/a" });
+    host.create(owner, { id: "second-terminal", cwd: "/workspace/b" });
+
+    expect(() => host.cleanupOwner(owner.id)).toThrow(cleanupError);
+
+    expect(first.kill).toHaveBeenCalledOnce();
+    expect(second.kill).toHaveBeenCalledOnce();
+    expect(host.kill(owner.id, "first-terminal")).toBe(false);
+    expect(host.kill(owner.id, "second-terminal")).toBe(false);
+  });
+
   it("audits terminal operations before their side effects and correlates owner and terminal", () => {
     const process = new FakePty();
     const events: TerminalAuditEvent[] = [];
@@ -153,6 +176,146 @@ describe("TerminalHost", () => {
         }),
       ]),
     );
+  });
+
+  it("marks only the invoke operation after its semantic audit sink succeeds", () => {
+    const process = new FakePty();
+    const events: TerminalAuditEvent[] = [];
+    const recordSemanticAudit = vi.fn();
+    const host = new TerminalHost(
+      fakeFactory(process),
+      "darwin",
+      { SHELL: "/bin/zsh" },
+      collectAudit(events),
+    );
+
+    const { id } = host.create(
+      fakeOwner(18),
+      { id: "terminal-18", cwd: "/workspace" },
+      recordSemanticAudit,
+    );
+    expect(recordSemanticAudit).toHaveBeenCalledOnce();
+
+    const markedAfterCreate = recordSemanticAudit.mock.calls.length;
+    process.emitExit({ exitCode: 0 });
+    expect(recordSemanticAudit).toHaveBeenCalledTimes(markedAfterCreate);
+    expect(events.at(-1)).toMatchObject({ operation: "exit", outcome: "succeeded" });
+
+    const blockedMarker = vi.fn();
+    const blockedHost = new TerminalHost(
+      fakeFactory(new FakePty()),
+      "darwin",
+      { SHELL: "/bin/zsh" },
+      () => {
+        throw new Error("audit unavailable");
+      },
+    );
+    expect(() =>
+      blockedHost.create(fakeOwner(19), { id: `${id}-blocked`, cwd: "/workspace" }, blockedMarker),
+    ).toThrow("audit unavailable");
+    expect(blockedMarker).not.toHaveBeenCalled();
+
+    const failedOutcomeMarker = vi.fn();
+    const failedOutcomeHost = new TerminalHost(
+      fakeFactory(new FakePty()),
+      "darwin",
+      { SHELL: "/bin/zsh" },
+      (event) => {
+        if (event.phase === "outcome") throw new Error("outcome audit unavailable");
+      },
+    );
+    expect(() =>
+      failedOutcomeHost.create(
+        fakeOwner(20),
+        { id: "invalid-outcome", cwd: "" },
+        failedOutcomeMarker,
+      ),
+    ).toThrow("outcome audit unavailable");
+    expect(failedOutcomeMarker).not.toHaveBeenCalled();
+  });
+
+  it("releases a spawned PTY when event subscription setup fails", () => {
+    const brokenProcess = new FakePty();
+    const healthyProcess = new FakePty();
+    const dataSubscription = { dispose: vi.fn() };
+    const setupError = new Error("exit subscription unavailable");
+    vi.spyOn(brokenProcess, "onData").mockReturnValue(dataSubscription);
+    vi.spyOn(brokenProcess, "onExit").mockImplementation(() => {
+      throw setupError;
+    });
+    const factory = {
+      spawn: vi.fn().mockReturnValueOnce(brokenProcess).mockReturnValueOnce(healthyProcess),
+    } satisfies TerminalProcessFactory;
+    const events: TerminalAuditEvent[] = [];
+    const marker = vi.fn();
+    const owner = fakeOwner(20);
+    const host = new TerminalHost(factory, "darwin", { SHELL: "/bin/zsh" }, collectAudit(events));
+
+    expect(() => host.create(owner, { id: "partial-terminal", cwd: "/workspace" }, marker)).toThrow(
+      setupError,
+    );
+    expect(dataSubscription.dispose).toHaveBeenCalledOnce();
+    expect(brokenProcess.kill).toHaveBeenCalledOnce();
+    expect(owner.send).not.toHaveBeenCalled();
+    expect(marker).toHaveBeenCalledOnce();
+    expect(events).toEqual([
+      expect.objectContaining({ operation: "create", phase: "attempt" }),
+      expect.objectContaining({
+        operation: "create",
+        phase: "outcome",
+        outcome: "failed",
+        reason: "create_failed",
+      }),
+    ]);
+
+    expect(host.create(owner, { id: "partial-terminal", cwd: "/workspace" })).toMatchObject({
+      id: "partial-terminal",
+      pid: 42,
+    });
+  });
+
+  it("preserves the setup error while attempting every failed-create cleanup", () => {
+    const process = new FakePty();
+    const setupError = new Error("secret setup failure");
+    const dataSubscription = {
+      dispose: vi.fn(() => {
+        throw new Error("secret dispose failure");
+      }),
+    };
+    vi.spyOn(process, "onData").mockReturnValue(dataSubscription);
+    vi.spyOn(process, "onExit").mockImplementation(() => {
+      throw setupError;
+    });
+    process.kill.mockImplementation(() => {
+      throw new Error("secret kill failure");
+    });
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const events: TerminalAuditEvent[] = [];
+    const host = new TerminalHost(
+      fakeFactory(process),
+      "darwin",
+      { SHELL: "/bin/zsh" },
+      collectAudit(events),
+    );
+
+    try {
+      expect(() =>
+        host.create(fakeOwner(21), { id: "secret-terminal-id", cwd: "/secret/cwd" }),
+      ).toThrow(setupError);
+      expect(dataSubscription.dispose).toHaveBeenCalledOnce();
+      expect(process.kill).toHaveBeenCalledOnce();
+      expect(warning).toHaveBeenCalledWith(
+        "Failed to fully release a partially created Terminal process.",
+      );
+      expect(JSON.stringify(warning.mock.calls)).not.toContain("secret");
+      expect(events.at(-1)).toMatchObject({
+        operation: "create",
+        outcome: "failed",
+        reason: "create_failed",
+      });
+    } finally {
+      warning.mockRestore();
+    }
   });
 
   it("audits cleanup and dispose outcomes for each affected terminal", () => {
@@ -398,6 +561,108 @@ describe("TerminalHost", () => {
     expect(process.write).toHaveBeenCalledWith("pwd\r");
   });
 
+  it("releases a created PTY when its success outcome audit cannot commit", () => {
+    const failed = new FakePty();
+    const healthy = new FakePty();
+    const factory = {
+      spawn: vi.fn().mockReturnValueOnce(failed).mockReturnValueOnce(healthy),
+    } satisfies TerminalProcessFactory;
+    let failCreateOutcome = true;
+    const host = new TerminalHost(factory, "darwin", { SHELL: "/bin/zsh" }, (event) => {
+      if (failCreateOutcome && event.operation === "create" && event.phase === "outcome") {
+        throw new Error("create outcome audit failed");
+      }
+    });
+
+    expect(() => host.create(fakeOwner(24), { id: "terminal-24", cwd: "/workspace" })).toThrow(
+      "create outcome audit failed",
+    );
+    expect(failed.kill).toHaveBeenCalledOnce();
+
+    failCreateOutcome = false;
+    expect(host.create(fakeOwner(24), { id: "terminal-24", cwd: "/workspace" })).toMatchObject({
+      id: "terminal-24",
+      pid: 42,
+    });
+  });
+
+  it("releases every resource when an explicit close step fails", () => {
+    const process = new FakePty();
+    const dataError = new Error("data subscription cleanup failed");
+    const dataSubscription = {
+      dispose: vi.fn(() => {
+        throw dataError;
+      }),
+    };
+    const exitSubscription = { dispose: vi.fn() };
+    vi.spyOn(process, "onData").mockReturnValue(dataSubscription);
+    vi.spyOn(process, "onExit").mockReturnValue(exitSubscription);
+    const events: TerminalAuditEvent[] = [];
+    const host = new TerminalHost(
+      fakeFactory(process),
+      "darwin",
+      { SHELL: "/bin/zsh" },
+      collectAudit(events),
+    );
+    const owner = fakeOwner(25);
+    host.create(owner, { id: "terminal-25", cwd: "/workspace" });
+    events.length = 0;
+
+    expect(() => host.kill(owner.id, "terminal-25")).toThrow(dataError);
+
+    expect(dataSubscription.dispose).toHaveBeenCalledOnce();
+    expect(exitSubscription.dispose).toHaveBeenCalledOnce();
+    expect(process.kill).toHaveBeenCalledOnce();
+    expect(events).toEqual([
+      expect.objectContaining({ operation: "close", phase: "attempt" }),
+      expect.objectContaining({
+        operation: "close",
+        phase: "outcome",
+        outcome: "failed",
+        reason: "operation_failed",
+      }),
+    ]);
+    expect(host.kill(owner.id, "terminal-25")).toBe(false);
+  });
+
+  it("releases a naturally exited Terminal even when its audit outcome fails", () => {
+    const exited = new FakePty();
+    const replacement = new FakePty();
+    const dataSubscription = { dispose: vi.fn() };
+    const exitSubscription = { dispose: vi.fn() };
+    let exitListener: ((event: { exitCode: number; signal?: number }) => void) | undefined;
+    vi.spyOn(exited, "onData").mockReturnValue(dataSubscription);
+    vi.spyOn(exited, "onExit").mockImplementation((listener) => {
+      exitListener = listener;
+      return exitSubscription;
+    });
+    const factory = {
+      spawn: vi.fn().mockReturnValueOnce(exited).mockReturnValueOnce(replacement),
+    } satisfies TerminalProcessFactory;
+    const exitAuditError = new Error("exit audit unavailable");
+    let failExitAudit = true;
+    const host = new TerminalHost(factory, "darwin", { SHELL: "/bin/zsh" }, (event) => {
+      if (failExitAudit && event.operation === "exit") throw exitAuditError;
+    });
+    const owner = fakeOwner(26);
+    host.create(owner, { id: "terminal-26", cwd: "/workspace" });
+
+    expect(() => exitListener?.({ exitCode: 1, signal: 15 })).toThrow(exitAuditError);
+
+    expect(dataSubscription.dispose).toHaveBeenCalledOnce();
+    expect(exitSubscription.dispose).toHaveBeenCalledOnce();
+    expect(owner.send).toHaveBeenCalledWith("terminal:exit", {
+      id: "terminal-26",
+      exitCode: 1,
+      signal: 15,
+    });
+    failExitAudit = false;
+    expect(host.create(owner, { id: "terminal-26", cwd: "/workspace" })).toMatchObject({
+      id: "terminal-26",
+      pid: 42,
+    });
+  });
+
   it("records a sanitized failed outcome when a PTY side effect throws", () => {
     const process = new FakePty();
     const events: TerminalAuditEvent[] = [];
@@ -446,8 +711,12 @@ function fakeFactory(process: IPty) {
   return { spawn: vi.fn(() => process) } satisfies TerminalProcessFactory;
 }
 
-function fakeOwner(id: number): TerminalOwner & { send: ReturnType<typeof vi.fn> } {
-  return { id, send: vi.fn(), isDestroyed: () => false };
+function fakeOwner(id: number) {
+  return {
+    id,
+    send: vi.fn<(channel: string, value: unknown) => void>(),
+    isDestroyed: () => false,
+  } satisfies TerminalOwner;
 }
 
 class FakePty implements IPty {
