@@ -121,6 +121,11 @@ export interface MessageChunk {
   toolName?: string;
 }
 
+interface AcpPermissionRequests {
+  active: boolean;
+  pending: Set<Promise<RequestPermissionResponse>>;
+}
+
 export class AcpClient {
   private child: ChildProcess | null = null;
   private connection: ClientSideConnection | null = null;
@@ -150,6 +155,7 @@ export class AcpClient {
   ): Promise<{
     connection: ClientSideConnection;
     acp: typeof import("@agentclientprotocol/sdk");
+    permissionRequests: AcpPermissionRequests;
   }> {
     this.beginOperation();
     const acp = await loadAcp();
@@ -182,21 +188,31 @@ export class AcpClient {
     }
 
     const transport = acp.ndJsonStream(Writable.toWeb(child.stdin), Readable.toWeb(child.stdout));
+    const permissionRequests: AcpPermissionRequests = { active: false, pending: new Set() };
 
     const clientStubs: Client = {
       async requestPermission(
         request: RequestPermissionRequest,
       ): Promise<RequestPermissionResponse> {
-        if (!opts.requestPermission) return { outcome: { outcome: "cancelled" } };
-        const response = await opts.requestPermission(request);
-        const outcome = response.outcome;
-        if (
-          outcome.outcome === "selected" &&
-          !request.options.some((option) => option.optionId === outcome.optionId)
-        ) {
+        const requestPermission = opts.requestPermission;
+        if (!requestPermission || !permissionRequests.active) {
           return { outcome: { outcome: "cancelled" } };
         }
-        return response;
+        const pending = Promise.resolve().then(() => requestPermission(request));
+        permissionRequests.pending.add(pending);
+        try {
+          const response = await pending;
+          const outcome = response.outcome;
+          if (
+            outcome.outcome === "selected" &&
+            !request.options.some((option) => option.optionId === outcome.optionId)
+          ) {
+            return { outcome: { outcome: "cancelled" } };
+          }
+          return response;
+        } finally {
+          permissionRequests.pending.delete(pending);
+        }
       },
       async sessionUpdate(notification: SessionNotification): Promise<void> {
         onSessionUpdate(notification.update);
@@ -206,7 +222,7 @@ export class AcpClient {
     const connection = new acp.ClientSideConnection(() => clientStubs, transport);
     this.connection = connection;
 
-    return { connection, acp };
+    return { connection, acp, permissionRequests };
   }
 
   async prompt(
@@ -218,9 +234,10 @@ export class AcpClient {
   ): Promise<AcpPromptResult> {
     const chunks: MessageChunk[] = [];
     let promptUpdatesActive = false;
+    let permissionRequests: AcpPermissionRequests | undefined;
 
     try {
-      const { connection, acp } = await this.spawnAndConnect(opts, (update) => {
+      const connected = await this.spawnAndConnect(opts, (update) => {
         if (!promptUpdatesActive) return;
         const msg = sessionUpdateToChunk(update);
         if (msg) {
@@ -228,6 +245,8 @@ export class AcpClient {
           onChunk?.(msg);
         }
       });
+      const { connection, acp } = connected;
+      permissionRequests = connected.permissionRequests;
 
       const initialized = await connection.initialize({
         protocolVersion: acp.PROTOCOL_VERSION,
@@ -308,9 +327,20 @@ export class AcpClient {
       };
 
       promptUpdatesActive = true;
+      permissionRequests.active = true;
       this.promptActive = true;
       const promptResp = await connection.prompt(promptReq);
+      promptUpdatesActive = false;
+      permissionRequests.active = false;
       this.promptActive = false;
+      const unsettledPermissionRequests = [...permissionRequests.pending];
+      if (unsettledPermissionRequests.length > 0) {
+        await Promise.allSettled(unsettledPermissionRequests);
+        this.throwIfCancelled();
+        throw new Error(
+          `ACP prompt returned a terminal response with ${unsettledPermissionRequests.length} permission request(s) still unsettled.`,
+        );
+      }
 
       return {
         sessionId: sid,
@@ -323,6 +353,8 @@ export class AcpClient {
       }
       throw error;
     } finally {
+      promptUpdatesActive = false;
+      if (permissionRequests) permissionRequests.active = false;
       this.promptActive = false;
       this.kill();
     }

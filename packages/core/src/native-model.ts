@@ -36,6 +36,13 @@ import { ModelTokenUsageSchema } from "./types.js";
 
 const MAX_TOOL_STEPS = 20;
 const MAX_PROVIDER_WEB_SEARCH_USES = 5;
+
+export function providerStepLimitError(agentName: string): Error {
+  return new Error(
+    `Agent "${agentName}" did not settle within ${MAX_TOOL_STEPS} Provider steps; continuation work remains.`,
+  );
+}
+
 export const PROVIDER_HOSTED_WEB_SEARCH_INSTRUCTIONS = [
   "Web Search routing:",
   "Use provider-hosted web_search when current Web information is needed.",
@@ -100,6 +107,7 @@ export async function callOpenAIResponses(
     ? appendProviderHostedWebSearchInstructions(context.instructions)
     : context.instructions;
   const allChunks: MessageChunk[] = [];
+  let settled = false;
 
   for (let step = 0; step < MAX_TOOL_STEPS; step++) {
     throwIfCurrentRequestCancelled();
@@ -140,7 +148,10 @@ export async function callOpenAIResponses(
 
     const toolCalls = response.output.filter(isResponseToolCall);
     if (toolCalls.length === 0) {
-      if (stepChunks.some(isFinalAssistantChunk)) break;
+      if (stepChunks.some(isFinalAssistantChunk)) {
+        settled = true;
+        break;
+      }
       input.push(...responseReplayItems(response.output, context.apiMode));
       continue;
     }
@@ -183,6 +194,9 @@ export async function callOpenAIResponses(
     input.push(...responseReplayItems(response.output, context.apiMode), ...outputs);
   }
 
+  throwIfCurrentRequestCancelled();
+  if (!settled) throw providerStepLimitError(context.agentName);
+
   return { messages: allChunks };
 }
 
@@ -202,6 +216,7 @@ export async function callAnthropicMessages(
   const messages = built.messages;
   const outputConfig = anthropicOutputConfig(context.parameters);
   const allChunks: MessageChunk[] = [];
+  let settled = false;
 
   for (let step = 0; step < MAX_TOOL_STEPS; step++) {
     throwIfCurrentRequestCancelled();
@@ -234,7 +249,10 @@ export async function callAnthropicMessages(
       continue;
     }
     const toolCalls = response.content.filter(isAnthropicToolUse);
-    if (toolCalls.length === 0) break;
+    if (toolCalls.length === 0) {
+      settled = true;
+      break;
+    }
 
     messages.push({
       role: "assistant",
@@ -279,6 +297,9 @@ export async function callAnthropicMessages(
     }
     messages.push({ role: "user", content: results });
   }
+
+  throwIfCurrentRequestCancelled();
+  if (!settled) throw providerStepLimitError(context.agentName);
 
   return { messages: allChunks };
 }

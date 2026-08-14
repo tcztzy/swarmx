@@ -335,6 +335,35 @@ describe("Session", () => {
     expect(fs.existsSync(path.join(sessionsDir, `${session.id}.json`))).toBe(false);
   });
 
+  it("persists the foreground request id on its replayable message batch", () => {
+    const session = createSession("causal", "swarmx");
+    savedIds.push(session.id);
+    saveSession(session);
+
+    expect(
+      appendMessages(session.id, [{ role: "assistant", content: "settled", kind: "message" }], {
+        requestId: "request-settled-1",
+      }),
+    ).toBe(true);
+
+    const records = fs
+      .readFileSync(sessionJsonlPath(sessionsDir, session.id), "utf8")
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line) as Record<string, unknown>);
+    expect(records.at(-1)).toMatchObject({
+      schemaVersion: 1,
+      type: "messages_appended",
+      requestId: "request-settled-1",
+    });
+    expect(loadSession(session.id)?.messages.at(-1)?.content).toBe("settled");
+    expect(() =>
+      appendMessages(session.id, [{ role: "assistant", content: "late", kind: "message" }], {
+        requestId: " ",
+      }),
+    ).toThrow();
+  });
+
   it("keeps appended history when a stale Session saves metadata", () => {
     const stale = createSession("stale", "swarmx");
     savedIds.push(stale.id);

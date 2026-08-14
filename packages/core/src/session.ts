@@ -24,6 +24,7 @@ const SESSION_INDEX_FILE = "sessions-index.json";
 const LEGACY_SESSION_INDEX_FILE = "sessions.index.jsonl";
 const SESSION_LOCK_TIMEOUT_MS = 5_000;
 const SESSION_LOCK_STALE_MS = 30_000;
+const SessionRequestIdSchema = z.string().trim().min(1).max(256);
 
 type SessionMetadata = Omit<SessionData, "messages">;
 
@@ -39,6 +40,7 @@ interface MessagesAppendedEvent {
   type: "messages_appended";
   timestamp: string;
   messages: MessageChunk[];
+  requestId?: string;
 }
 
 interface MessagesReplacedEvent {
@@ -66,6 +68,10 @@ type SessionEvent =
 
 export interface SessionSummary extends SessionMetadata {
   messageCount: number;
+}
+
+export interface AppendMessagesOptions {
+  requestId?: string;
 }
 
 interface SessionIndexEntry {
@@ -480,7 +486,13 @@ export function setSessionPinned(id: string, pinned: boolean): SessionData | nul
   return session;
 }
 
-export function appendMessages(id: string, messages: MessageChunk[]): boolean {
+export function appendMessages(
+  id: string,
+  messages: MessageChunk[],
+  options: AppendMessagesOptions = {},
+): boolean {
+  const requestId =
+    options.requestId === undefined ? undefined : SessionRequestIdSchema.parse(options.requestId);
   return (
     withSessionLog(id, (current, paths, sessionsDir) => {
       const now = new Date().toISOString();
@@ -497,7 +509,7 @@ export function appendMessages(id: string, messages: MessageChunk[]): boolean {
       });
       const event =
         parsedMessages.length > 0
-          ? messagesAppendedEvent(parsedMessages, now)
+          ? messagesAppendedEvent(parsedMessages, now, requestId)
           : sessionUpdatedEvent(next, now);
       appendSessionEvents(paths.jsonl, [event]);
       cacheSession(paths.jsonl, next);
@@ -1004,11 +1016,16 @@ function parseSessionEvent(input: unknown): SessionEvent {
         replacedMessageCount: record.replacedMessageCount as number,
       };
     }
+    const requestId =
+      record.type === "messages_appended" && record.requestId !== undefined
+        ? SessionRequestIdSchema.parse(record.requestId)
+        : undefined;
     return {
       schemaVersion: SESSION_SCHEMA_VERSION,
       type: record.type,
       timestamp: record.timestamp,
       messages,
+      ...(requestId ? { requestId } : {}),
     };
   }
   if (record.type === "session_updated") {
@@ -1061,12 +1078,17 @@ function replaySessionEvents(events: SessionEvent[], filePath: string): SessionD
   return session;
 }
 
-function messagesAppendedEvent(messages: MessageChunk[], timestamp: string): MessagesAppendedEvent {
+function messagesAppendedEvent(
+  messages: MessageChunk[],
+  timestamp: string,
+  requestId?: string,
+): MessagesAppendedEvent {
   return {
     schemaVersion: SESSION_SCHEMA_VERSION,
     type: "messages_appended",
     timestamp,
     messages,
+    ...(requestId ? { requestId } : {}),
   };
 }
 

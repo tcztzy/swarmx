@@ -666,6 +666,7 @@ export {
 } from "./secrets.js";
 export { createServer } from "./server.js";
 export type {
+  AppendMessagesOptions,
   CreateTransientSessionForkInput,
   EditSessionUserMessageInput,
   ForkSessionInput,

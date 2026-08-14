@@ -32,6 +32,7 @@ import {
   callOpenAIResponses,
   type NativeProtocolContext,
   providerHostedWebSearchTool,
+  providerStepLimitError,
 } from "./native-model.js";
 import {
   appendGlobalMemoryInstructions,
@@ -464,6 +465,7 @@ export class Agent {
       const allChunks: MessageChunk[] = [];
       const maxSteps = 20;
       let steps = 0;
+      let settled = false;
 
       while (steps < maxSteps) {
         steps++;
@@ -583,11 +585,13 @@ export class Agent {
           if (assistantMsg.content) {
             messages.push({ role: "assistant", content: assistantMsg.content });
           }
+          settled = true;
           break;
         }
       }
 
       throwIfCurrentRequestCancelled();
+      if (!settled) throw providerStepLimitError(this.name);
       return { messages: allChunks };
     } finally {
       await this.closeMcp();
@@ -679,6 +683,7 @@ export class Agent {
       const allChunks: MessageChunk[] = [];
       const maxSteps = 20;
       let steps = 0;
+      let settled = false;
 
       while (steps < maxSteps) {
         steps++;
@@ -861,11 +866,13 @@ export class Agent {
           }
         } else {
           if (content) messages.push({ role: "assistant", content });
+          settled = true;
           break;
         }
       }
 
       throwIfCurrentRequestCancelled();
+      if (!settled) throw providerStepLimitError(this.name);
       return { messages: allChunks };
     } finally {
       await this.closeMcp();

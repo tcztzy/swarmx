@@ -141,6 +141,16 @@ implementation map, test plan, backlog, changelog, or incident log.
     Project identity, root mismatch, unavailable required
     service, or malformed bootstrap fails closed; legacy optional MCP behavior
     and external ACP tool ownership do not change.
+19. **Settled foreground completion.** A foreground Agent or `SwarmConfig`
+    request reports success only after its Provider or external ACP prompt has
+    reached a terminal response, every admitted host-side tool, approval, child
+    Agent, and lifecycle hook has settled, and no scheduled workflow node remains.
+    A bounded step limit reached while continuation work is owed is failure, not
+    completion. The completion barrier closes live output before the finalized
+    ordered message batch is appended to the canonical Session with its request
+    id; updates arriving after that barrier are ignored and cannot reopen the
+    turn. Scheduled activations and durable WorkItems retain their separate
+    execution authority and are never implicit foreground obligations.
 
 ## Required capabilities
 

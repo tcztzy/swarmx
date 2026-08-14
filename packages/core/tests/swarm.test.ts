@@ -178,6 +178,30 @@ describe("Swarm", () => {
     ]);
   });
 
+  it("fails when the workflow step bound leaves a scheduled node unsettled", async () => {
+    const names = Array.from({ length: 101 }, (_, index) => `agent_${index}`);
+    const nodes = Object.fromEntries(
+      names.map((name) => [
+        name,
+        { kind: "agent" as const, agent: { name, backend: { type: "echo" as const } } },
+      ]),
+    );
+    const edges = names.slice(1).map((target, index) => ({
+      source: names[index] as string,
+      target,
+    }));
+    const swarm = new Swarm({
+      name: "bounded_swarm",
+      root: names[0] as string,
+      nodes,
+      edges,
+    });
+
+    await expect(
+      swarm.execute({ messages: [{ role: "user", content: "continue" }] }),
+    ).rejects.toThrow(/did not settle within 100 workflow steps/i);
+  });
+
   it("swarm node name access", () => {
     const node = new SwarmNode({
       kind: "agent",

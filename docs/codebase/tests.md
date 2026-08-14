@@ -27,7 +27,8 @@ and CLI send composition. Per-file thresholds live only in `vitest.config.ts`.
 | `packages/core/tests/context-engine-store.test.ts` |
 
 Coverage focus: schema acceptance/rejection, graph scheduling/cycles, provider
-redaction and routing, ACP/MCP cancellation, per-Project JSONL-only append-only
+redaction and routing, ACP/MCP cancellation, Provider/workflow continuation
+settlement, post-terminal ACP update rejection, per-Project JSONL-only append-only
 persistence and recovery, capability composition, rendering sanitization, and
 deterministic workflow evaluation. Activity tests enforce one aggregate `run_summary` per
 run; audit tests enforce secret-free hash-chain replay and recovery. Durable

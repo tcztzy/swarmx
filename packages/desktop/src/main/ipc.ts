@@ -634,6 +634,7 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
     let memoryReflection: MemoryReflectionDecision | undefined;
     let foregroundRuntime: ClaudeSessionRuntime | undefined;
     let activeChunkPublisher: AgentChunkPublisher | undefined;
+    let foregroundChunksActive = false;
     let activeSideChat: TransientSessionData | undefined;
     let ephemeralCodexHome: Awaited<ReturnType<typeof createEphemeralCodexHome>> | undefined;
     const taskMetadata = {
@@ -654,7 +655,9 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
     };
     const persistOutcome = (messages: MessageChunk[]) => ({
       sessionPersisted:
-        params.sessionId && !params.sideChatId ? appendMessages(params.sessionId, messages) : false,
+        params.sessionId && !params.sideChatId
+          ? appendMessages(params.sessionId, messages, { requestId: params.requestId })
+          : false,
       sideChat:
         params.sideChatId && params.sessionId && activeSideChat
           ? sideChats.finishRun(params.sessionId, params.sideChatId, params.requestId, messages, {
@@ -662,6 +665,12 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
             })
           : undefined,
     });
+    const closeForegroundTurn = (): void => {
+      foregroundChunksActive = false;
+      activeChunkPublisher?.close();
+      activeChunkPublisher = undefined;
+      agentInteractions.cancelRequest(event.sender, params.requestId);
+    };
     try {
       if (params.sessionId && loadSession(params.sessionId)?.archivedAt) {
         throw new Error(`Session "${params.sessionId}" is archived.`);
@@ -701,7 +710,9 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
             : {}),
         });
         activeChunkPublisher = publishChunk;
+        foregroundChunksActive = true;
         const onChunk = (chunk: MessageChunk) => {
+          if (!foregroundChunksActive) return;
           recordToolChunkAudit(auditStore, chunk, params);
           if (chunk.kind !== "tool_progress") observedMessages.push(chunk);
           publishChunk(chunk);
@@ -1607,6 +1618,7 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
                 ),
               ),
           );
+          closeForegroundTurn();
           assertFinalAssistantMessage(messages);
           return {
             success: true,
@@ -1636,12 +1648,14 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
           onChunk,
           (usage) => tokenUsages.push(usage),
         );
+        closeForegroundTurn();
 
         return {
           success: true,
           messages: [...(memoryReceipt ? [memoryReceipt] : []), ...result],
         };
       });
+      closeForegroundTurn();
       const persistedMessages = timedMessages(result.messages, startedAt);
       const { sessionPersisted, sideChat } = persistOutcome(persistedMessages);
       if (params.sessionId && !params.sideChatId) {
@@ -1665,6 +1679,7 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
       });
       return { ...result, messages: persistedMessages, sessionPersisted, sideChat };
     } catch (err) {
+      closeForegroundTurn();
       if (err instanceof RequestCancelledError) {
         const canceledMessages = interruptedMessages(observedMessages, startedAt);
         const { sessionPersisted, sideChat } = persistOutcome(canceledMessages);
@@ -1713,7 +1728,7 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
         sideChat,
       };
     } finally {
-      activeChunkPublisher?.close();
+      closeForegroundTurn();
       foregroundRuntime?.endForeground();
       await ephemeralCodexHome?.cleanup();
     }

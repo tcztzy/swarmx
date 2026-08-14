@@ -77,6 +77,46 @@ describe("request-scoped cancellation", () => {
     expect(events).toEqual(["session:test-session", "chunk:started"]);
   });
 
+  it("ignores ACP updates that arrive after the terminal prompt response", async () => {
+    const chunks: string[] = [];
+    const client = new AcpClient();
+
+    const result = await client.prompt(
+      agentOptions("late-update"),
+      "hello",
+      undefined,
+      undefined,
+      (chunk) => chunks.push(chunk.content),
+    );
+    expect(result.messages.map((message) => message.content)).toEqual(["settled"]);
+
+    await new Promise((resolve) => setTimeout(resolve, 75));
+
+    expect(chunks).toEqual(["settled"]);
+  });
+
+  it("rejects an ACP terminal response that overtakes a pending permission", async () => {
+    const permissionStarted = deferred<void>();
+    const permission = deferred<{ outcome: { outcome: "cancelled" } }>();
+    const client = new AcpClient();
+    const prompt = client.prompt(
+      {
+        ...agentOptions("unsettled-permission"),
+        requestPermission: async () => {
+          permissionStarted.resolve();
+          return permission.promise;
+        },
+      },
+      "hello",
+    );
+    const assertion = expect(prompt).rejects.toThrow(/terminal.*permission.*unsettled/i);
+
+    await permissionStarted.promise;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    permission.resolve({ outcome: { outcome: "cancelled" } });
+    await assertion;
+  });
+
   it("suppresses loaded history while continuing an existing ACP Session", async () => {
     const client = new AcpClient();
     await expect(
@@ -328,6 +368,8 @@ type AgentMode =
   | "session-mode"
   | "tools"
   | "permission"
+  | "late-update"
+  | "unsettled-permission"
   | "load";
 
 function agentOptions(mode: AgentMode) {
@@ -344,7 +386,9 @@ function agentScript(mode: AgentMode): string {
     import { spawn } from "node:child_process";
     import { Readable, Writable } from "node:stream";
 
-    if (${JSON.stringify(mode)} === "ignore") process.on("SIGTERM", () => {});
+    if (["ignore", "late-update"].includes(${JSON.stringify(mode)})) {
+      process.on("SIGTERM", () => {});
+    }
 
     let finishPrompt;
     let selectedModel = "default-model";
@@ -445,6 +489,39 @@ function agentScript(mode: AgentMode): string {
         return {};
       },
       async prompt() {
+        if (${JSON.stringify(mode)} === "unsettled-permission") {
+          void connection.requestPermission({
+            sessionId: "test-session",
+            toolCall: {
+              toolCallId: "call_unsettled_permission_1",
+              title: "Late approval",
+              kind: "execute",
+              rawInput: { command: "false" },
+            },
+            options: [{ optionId: "reject-once", name: "Reject", kind: "reject_once" }],
+          }).catch(() => {});
+          await new Promise((resolve) => setTimeout(resolve, 10));
+          return { stopReason: "end_turn" };
+        }
+        if (${JSON.stringify(mode)} === "late-update") {
+          await connection.sessionUpdate({
+            sessionId: "test-session",
+            update: {
+              sessionUpdate: "agent_message_chunk",
+              content: { type: "text", text: "settled" },
+            },
+          });
+          setTimeout(() => {
+            void connection.sessionUpdate({
+              sessionId: "test-session",
+              update: {
+                sessionUpdate: "agent_message_chunk",
+                content: { type: "text", text: "late" },
+              },
+            }).catch(() => {});
+          }, 25);
+          return { stopReason: "end_turn" };
+        }
         if (${JSON.stringify(mode)} === "permission") {
           const response = await connection.requestPermission({
             sessionId: "test-session",

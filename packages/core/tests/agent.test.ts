@@ -2971,6 +2971,151 @@ describe("Agent", () => {
     },
   );
 
+  it.each(["openai_chat", "openai_responses", "anthropic"] as const)(
+    "fails native %s completion when continuation work still owes another Provider step",
+    async (apiProtocol) => {
+      const localTools = [
+        {
+          name: "loop",
+          description: "Always request another step",
+          inputSchema: { type: "object" },
+          call: async () => localToolResult("continue", { continue: true }),
+        },
+      ];
+      const agent =
+        apiProtocol === "anthropic"
+          ? new Agent(
+              {
+                name: "anthropic_unsettled",
+                model: "claude-sonnet-4-6",
+                client: { apiProtocol },
+                process: { env: { ANTHROPIC_API_KEY: "scoped-key" } },
+              },
+              { localTools },
+            )
+          : new Agent(
+              {
+                name: `${apiProtocol}_unsettled`,
+                model: "test-model",
+                client: { apiProtocol, apiKey: "scoped-key" },
+              },
+              { localTools },
+            );
+      let invocation = 0;
+      const create = vi.fn(async () => {
+        invocation += 1;
+        if (apiProtocol === "anthropic") {
+          return {
+            id: `msg_${invocation}`,
+            type: "message",
+            role: "assistant",
+            model: "claude-sonnet-4-6",
+            stop_reason: "pause_turn",
+            stop_sequence: null,
+            usage: {},
+            content: [{ type: "text", text: "continuing" }],
+          };
+        }
+        if (apiProtocol === "openai_responses") {
+          return {
+            id: `resp_${invocation}`,
+            status: "completed",
+            error: null,
+            output: [
+              {
+                id: `fc_${invocation}`,
+                type: "function_call",
+                call_id: `call_${invocation}`,
+                name: "loop",
+                arguments: "{}",
+                status: "completed",
+              },
+            ],
+          };
+        }
+        return {
+          choices: [
+            {
+              message: {
+                role: "assistant",
+                content: null,
+                tool_calls: [
+                  {
+                    id: `call_${invocation}`,
+                    type: "function",
+                    function: { name: "loop", arguments: "{}" },
+                  },
+                ],
+              },
+            },
+          ],
+        };
+      });
+      if (apiProtocol === "anthropic") {
+        Object.defineProperty(agent.anthropicClient.messages, "create", { value: create });
+      } else if (apiProtocol === "openai_responses") {
+        Object.defineProperty(agent.client.responses, "create", { value: create });
+      } else {
+        Object.defineProperty(agent.client.chat.completions, "create", { value: create });
+      }
+
+      await expect(
+        agent.call({ messages: [{ role: "user", content: "keep going" }] }),
+      ).rejects.toThrow(/did not settle within 20 Provider steps/i);
+      expect(create).toHaveBeenCalledTimes(20);
+    },
+  );
+
+  it("fails streamed OpenAI Chat completion when tool work remains at the step bound", async () => {
+    const agent = new Agent(
+      {
+        name: "streamed_chat_unsettled",
+        model: "test-model",
+        client: { apiProtocol: "openai_chat", apiKey: "scoped-key" },
+      },
+      {
+        localTools: [
+          {
+            name: "loop",
+            description: "Always request another step",
+            inputSchema: { type: "object" },
+            call: async () => localToolResult("continue", { continue: true }),
+          },
+        ],
+      },
+    );
+    let invocation = 0;
+    const create = vi.fn(async () => {
+      invocation += 1;
+      const invocationId = `call_${invocation}`;
+      return {
+        async *[Symbol.asyncIterator]() {
+          yield {
+            choices: [
+              {
+                delta: {
+                  tool_calls: [
+                    {
+                      index: 0,
+                      id: invocationId,
+                      function: { name: "loop", arguments: "{}" },
+                    },
+                  ],
+                },
+              },
+            ],
+          };
+        },
+      };
+    });
+    Object.defineProperty(agent.client.chat.completions, "create", { value: create });
+
+    await expect(
+      agent.callStream({ messages: [{ role: "user", content: "keep going" }] }, () => {}),
+    ).rejects.toThrow(/did not settle within 20 Provider steps/i);
+    expect(create).toHaveBeenCalledTimes(20);
+  });
+
   it("preserves provider reasoning content across tool-call continuation", async () => {
     const agent = new Agent({
       name: "deepseek_agent",

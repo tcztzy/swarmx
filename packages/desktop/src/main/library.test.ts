@@ -1370,6 +1370,26 @@ describe("desktop main library entry", () => {
     });
   });
 
+  it("permanently rejects live chunks after the completion barrier closes", () => {
+    const send = vi.fn();
+    const publish = desktopIpc.agentChunkPublisher(
+      { isDestroyed: () => false, send },
+      "request-settled",
+    );
+    const settled = { role: "assistant", kind: "message" as const, content: "settled" };
+
+    publish(settled);
+    publish.close();
+    publish({ ...settled, content: "late" });
+    publish.close();
+
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(send).toHaveBeenCalledWith("agent:chunk", {
+      requestId: "request-settled",
+      chunk: settled,
+    });
+  });
+
   it("terminalizes only orphaned tool work when a request is interrupted", () => {
     const messages: MessageChunk[] = [
       {

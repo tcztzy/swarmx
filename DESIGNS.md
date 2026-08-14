@@ -223,6 +223,46 @@ native and are described honestly in runtime diagnostics.
 the conversation authority. Advertised cwd, resources, MCP support, history,
 and cancellation must match implemented behavior.
 
+### Foreground completion barrier
+
+A foreground request is one host-owned turn. On a native Provider path, each
+Provider response plus any tool results that it requests is one execution step.
+An external ACP Harness may perform its own internal steps, but SwarmX treats the
+terminal response to the one ACP prompt as that ownership boundary. These terms
+describe runtime ordering only; they add neither a persisted workflow format nor
+a second Session authority.
+
+Native tool calls, host permission decisions, child-Agent calls, and lifecycle
+hooks are admitted synchronous obligations. Their promises must settle before
+the next Provider step or foreground completion. Child Agents return through
+the parent tool call and have no independent late-report channel. Tool lifecycle
+chunks use `invocationId`; the foreground request uses `requestId` for live IPC,
+cancellation, activity/audit correlation, and the final `messages_appended`
+Session event. A `Swarm` node becomes an obligation when it enters the scheduler
+queue and remains one until that node settles.
+
+Success crosses the completion barrier only when the selected execution adapter
+has returned a terminal result, all admitted synchronous obligations have
+settled, and the workflow queue is empty. Exhausting a Provider continuation or
+workflow step bound with work still owed fails explicitly. Cancellation and
+failure may terminalize observed tool presentation state, but do not satisfy the
+success barrier.
+
+At the barrier, Main stops accepting foreground chunks, closes the live chunk
+publisher, then appends the finalized ordered batch to the canonical append-only
+Session JSONL before reporting completion. The optional request id on that batch
+is additive to schema version 1, so existing logs remain replayable. An ACP
+`session/update`, local-tool progress callback, or other event arriving after the
+adapter's terminal result is dropped; it cannot mutate the finalized batch,
+append a follow-up turn, or reopen the completed request.
+
+Background Session activations, scheduled tasks, and durable WorkItems are
+separate executions with explicit ownership and terminal records. They are not
+hidden obligations of a foreground request. This design deliberately does not
+add a generic Inbox or make every subsystem a plugin: the existing synchronous
+boundaries remain the smallest enforceable settlement model, while the durable
+task runtime keeps its stronger lease, receipt, replay, and post-terminal rules.
+
 ## Workflow engine
 
 `SwarmConfigSchema` is the only workflow schema. A workflow contains:
@@ -238,8 +278,10 @@ conditional cycles that require an escape condition.
 
 Execution starts at `root`, evaluates outgoing edges after each node, waits for
 declared predecessors, schedules a node at most once, and enforces a step bound.
-Execution output is an ordered collection of normalized message chunks. Eval
-execution additionally records deterministic step metadata and metrics.
+Reaching that bound with a scheduled node still queued fails the foreground
+completion barrier. Execution output is an ordered collection of normalized
+message chunks. Eval execution additionally records deterministic step metadata
+and metrics.
 
 Lifecycle hooks preserve the existing `onStart`, `onChunk`, `onHandoff`, and
 `onEnd` configuration shape. A hook target is resolved only by an explicitly

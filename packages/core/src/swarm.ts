@@ -341,6 +341,11 @@ export class Swarm {
       }
       steps++;
     }
+    if (queue.length > 0) {
+      throw new Error(
+        `Swarm "${this.name}" did not settle within ${MAX_STEPS} workflow steps; ${queue.length} scheduled node(s) remain.`,
+      );
+    }
     return newMessages;
   }
 

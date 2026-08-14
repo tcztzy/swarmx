@@ -40,6 +40,7 @@ export function agentChunkPublisher(
 ): AgentChunkPublisher {
   const progress = new Map<string, PendingTerminalProgress>();
   const startedAt = new Map<string, number>();
+  let closed = false;
   const send = (chunk: MessageChunk): void => {
     if (!sender.isDestroyed()) {
       sender.send(options.channel ?? "agent:chunk", {
@@ -87,6 +88,7 @@ export function agentChunkPublisher(
   };
 
   const publish = ((chunk: MessageChunk) => {
+    if (closed) return;
     const invocationId = chunk.render?.invocationId;
     if (chunk.kind === "tool_call" && invocationId) {
       startedAt.set(invocationId, Date.now());
@@ -136,6 +138,8 @@ export function agentChunkPublisher(
   }) as AgentChunkPublisher;
 
   publish.close = () => {
+    if (closed) return;
+    closed = true;
     for (const [invocationId, pending] of progress) {
       if (Date.now() - pending.startedAt >= TERMINAL_PROGRESS_DELAY_MS) flush(invocationId);
       discard(invocationId);
