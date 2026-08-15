@@ -85,6 +85,10 @@ describe("eval-run skill delivery binding", () => {
 });
 
 describe("eval-run helpers", () => {
+  it("preserves the empty Swarm runtime options shape", async () => {
+    await expect(evalSwarmOptions({})).resolves.toEqual({});
+  });
+
   it("builds chat arguments from a message", () => {
     expect(buildEvalArguments("hello", {})).toEqual({
       messages: [{ role: "user", content: "hello" }],
@@ -175,7 +179,7 @@ describe("eval-run helpers", () => {
     });
   });
 
-  it("runs one sample with a strict ablation profile and returns its activation receipt", async () => {
+  it("rejects ablation profiles for the echo backend", async () => {
     const dir = mkdtempSync(join(tmpdir(), "swarmx-ablation-eval-run-"));
     const configPath = join(dir, "swarm.json");
     const profilePath = join(dir, "profile.json");
@@ -206,31 +210,12 @@ describe("eval-run helpers", () => {
       }),
     );
 
-    const result = await runEval("deterministic answer", {
-      config: configPath,
-      ablationProfile: profilePath,
-    });
-
-    expect(result.error).toBeNull();
-    expect(result.ablation).toMatchObject({
-      schemaVersion: 1,
-      profileId: "all_baseline",
-      variants: {
-        context_engine: "baseline",
-        memory: "baseline",
-        skill_evolution: "baseline",
-      },
-      activations: [
-        {
-          topology: {
-            swarmPath: ["echo_eval"],
-            nodeId: "echo_agent",
-            rootNodeId: "echo_agent",
-            agentName: "echo_agent",
-          },
-        },
-      ],
-    });
+    await expect(
+      runEval("deterministic answer", {
+        config: configPath,
+        ablationProfile: profilePath,
+      }),
+    ).rejects.toThrow(/requires the direct SwarmX backend/);
   });
 
   it("strictly loads complete ablation profiles", () => {

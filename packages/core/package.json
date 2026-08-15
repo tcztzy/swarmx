@@ -73,10 +73,6 @@
       "types": "./dist/builtin-tools.d.ts",
       "import": "./dist/builtin-tools.js"
     },
-    "./builtin-harness": {
-      "types": "./dist/builtin-harness.d.ts",
-      "import": "./dist/builtin-harness.js"
-    },
     "./service-registry": {
       "types": "./dist/service-registry.d.ts",
       "import": "./dist/service-registry.js"

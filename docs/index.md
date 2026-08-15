@@ -37,7 +37,6 @@ Feature guides:
 - [Context-policy evaluation](context-evaluation.md)
 - [Auditability](auditability.md)
 - [Extensions and Custom Agents](extensions-custom-agents.md)
-- [Built-in Harness plugins](builtin-harness.md)
 - [Built-in service ablation](ablation-evaluation.md)
 - [Skill self-improvement (evolution)](skill-evolution.md)
 - [Multimedia attachments](multimedia.md)

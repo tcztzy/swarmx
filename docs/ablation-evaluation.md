@@ -1,7 +1,7 @@
 # Built-in service ablation
 
-SwarmX can run a single `eval-run` sample with an explicit `AblationProfile` to
-measure the contribution of three built-in Agent services:
+SwarmX can run a single direct-backend `eval-run` sample with an explicit
+`AblationProfile` to measure the contribution of three built-in Agent services:
 
 | Seam | `production` | `baseline` |
 | --- | --- | --- |
@@ -51,6 +51,8 @@ metrics and task scorer results across profiles; `eval-run` does not promote a
 winner or reinterpret one sample as statistically conclusive.
 
 Resolution is fail-closed. Duplicate providers or a profile naming any missing
-variant stops Agent construction before MCP startup or a Provider request. An
-explicit ablation profile is rejected for external ACP Harnesses because their
-internal services and loops remain outside SwarmX authority.
+variant stops Agent construction before MCP startup or a Provider request. A
+custom registry without an explicit profile is rejected so activations cannot
+lose their run identity. Explicit ablation is supported only by the direct
+`swarmx` backend; echo and external ACP Harnesses do not execute these services
+and therefore cannot emit an activation receipt.

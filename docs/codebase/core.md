@@ -9,9 +9,8 @@ consumers use the package subpaths declared in `packages/core/package.json`.
 1. `types.ts` validates a `SwarmConfig` and message/config primitives.
 2. `swarm.ts` materializes nodes and edges, rejects unconditional cycles, and
    schedules each node within a bounded execution.
-3. `agent.ts` runs one configured agent; direct model requests pass through the
-   ordered, reversible `builtin-harness.ts` plugin kernel into `native-model.ts`,
-   while external harnesses use `acp.ts` without that kernel.
+3. `agent.ts` runs one configured agent; direct model requests use
+   `native-model.ts`, while external harnesses use `acp.ts`.
 4. `local-tool-contracts.ts` defines Provider-independent local tools;
    `mcp.ts` and `tool.ts` adapt them to MCP-backed execution, while
    `request-scope.ts` supplies protocol-neutral cancellation. `edge.ts` and
@@ -88,9 +87,8 @@ An Agent remains `harnessId:modelId`.
 
 | Source | Contract |
 | --- | --- |
-| `packages/core/src/agent.ts` | `Agent` runtime: direct native model or external ACP backend; explicit built-in service variant resolution before prompt/tool assembly; ordered direct-Harness middleware; hooks; optional and fail-closed required MCP/tools (including Project bootstrap, Context Engine, and Memory-owned tools); cancellation, streaming, Provider limits, two-phase context compilation, request-scoped runtime environment, hosted-search endpoint detection, and Memory/reflection instruction assembly. `net`/`proc` through adapters |
-| `packages/core/src/builtin-harness.ts` | Ordered, reversible plugin kernel for the direct `swarmx` Harness: scoped prompt sections and local tools plus exactly-once waterfall Agent-loop middleware. Duplicate identities fail closed; external ACP Harnesses and the workflow/meta-Harness never enter this seam. `pure` |
-| `packages/core/src/service-registry.ts` | Browser-safe built-in Agent service ablation contracts and registry: strict complete `AblationProfile`, deterministic Swarm/Agent topology, typed Context Engine/Memory/Skill-delivery variants, shipped `production`/`baseline` providers, duplicate/missing activation rejection, and content-free activation/eval receipts. External ACP Harnesses never resolve these seams. `pure` |
+| `packages/core/src/agent.ts` | `Agent` runtime: direct native model or external ACP backend; explicit built-in service variant resolution before prompt/tool assembly; hooks; optional and fail-closed required MCP/tools (including Project bootstrap, Context Engine, and Memory-owned tools); cancellation, streaming, Provider limits, two-phase context compilation, request-scoped runtime environment, hosted-search endpoint detection, and Memory/reflection instruction assembly. `net`/`proc` through adapters |
+| `packages/core/src/service-registry.ts` | Browser-safe, evaluation-only built-in Agent service ablation contracts and registry: strict complete `AblationProfile`, deterministic Swarm/Agent topology, typed Context Engine/Memory/Skill-delivery variants, shipped `production`/`baseline` providers, duplicate/missing activation rejection, and content-free activation/eval receipts. Echo and external ACP Harnesses never resolve these seams. `pure` |
 | `packages/core/src/native-model.ts` | Native Anthropic/OpenAI/Ollama request construction, enforced Provider output and continuation-step limits, streaming, fail-closed tool/pause continuation settlement, token usage, request environment handling, and opt-in Responses/DeepSeek-Anthropic hosted Web Search with opaque-state replay plus visible tool lifecycle chunks. `net` + `secret` |
 | `packages/core/src/request-scope.ts` | Node-only, protocol-neutral AsyncLocalStorage request scope with exclusive ids, cooperative `AbortSignal`, idempotent external cancellation, and registered adapter cleanup participants. It imports no ACP/MCP implementation. `node` |
 | `packages/core/src/acp.ts` | ACP client lifecycle, subprocess/session negotiation, prompt/update decoding only until the terminal prompt response, tracked permission callbacks that a terminal response may not overtake, and protocol/process cancellation registered into the shared request scope. Legacy ACP-named cancellation functions remain compatibility aliases. `net` + `proc` |

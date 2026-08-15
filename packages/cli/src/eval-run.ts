@@ -188,19 +188,15 @@ export async function evalSwarmOptions(
       const agentDeliveries = deliveries[node.agent.name];
       if (agentDeliveries?.length) perAgent[node.agent.name] = agentDeliveries;
     }
-    return {
-      agent: {
-        ...ablation,
-        ...(Object.keys(perAgent).length > 0 ? { skillInstructionsByAgent: perAgent } : {}),
-      },
-    };
-  }
-  return {
-    agent: {
+    return withAgentOptions({
       ...ablation,
-      ...(explicit?.agent ?? {}),
-    },
-  };
+      ...(Object.keys(perAgent).length > 0 ? { skillInstructionsByAgent: perAgent } : {}),
+    });
+  }
+  return withAgentOptions({
+    ...ablation,
+    ...(explicit?.agent ?? {}),
+  });
 }
 
 export function parseSkillBinding(value: string): { skillId: string; variantId: string } {
@@ -379,6 +375,10 @@ function ablationRuntimeOptions(
       ? { globalMemory: loadGlobalMemorySnapshot(options.memorySnapshot) }
       : {}),
   };
+}
+
+function withAgentOptions(agent: NonNullable<SwarmRuntimeOptions["agent"]>): SwarmRuntimeOptions {
+  return Object.keys(agent).length > 0 ? { agent } : {};
 }
 
 function reserveContextJsonl(path: string): ContextJsonlReservation {

@@ -98,7 +98,6 @@ export {
   serializeAgentDefinitionMarkdown,
 } from "./agent-profiles.js";
 export * from "./audit.js";
-export * from "./builtin-harness.js";
 export type {
   BuiltinToolStyle,
   BuiltinToolStylePreference,

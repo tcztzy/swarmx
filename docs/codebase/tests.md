@@ -11,7 +11,7 @@ and CLI send composition. Per-file thresholds live only in `vitest.config.ts`.
 
 | Test paths |
 | --- |
-| `packages/core/tests/acp.test.ts`, `actions.test.ts`, `activity.test.ts`, `audit.test.ts`, `agent-profiles.test.ts`, `agent.test.ts`, `builtin-harness.test.ts`, `builtin-tools.test.ts`, `context.test.ts`, `service-registry.test.ts` |
+| `packages/core/tests/acp.test.ts`, `actions.test.ts`, `activity.test.ts`, `audit.test.ts`, `agent-profiles.test.ts`, `agent.test.ts`, `builtin-tools.test.ts`, `context.test.ts`, `service-registry.test.ts` |
 | `packages/core/tests/conversation.test.ts`, `dependencies.test.ts`, `desktop-settings.test.ts`, `edge.test.ts`, `memory-links.test.ts`, `memory.test.ts`, `packages/core/tests/memory-runtime-protocol.test.ts`, `extension-composition.test.ts`, `extension-management.test.ts`, `extensions.test.ts`, `harness-management.test.ts`, `harness.test.ts` |
 | `packages/core/tests/local-tool-contracts.test.ts`, `mcp.test.ts`, `media.test.ts`, `model-capabilities.test.ts`, `agent-guidance.test.ts`, `n8n.test.ts`, `package-boundaries.test.ts`, `personal-memory.test.ts`, `project-bootstrap.test.ts`, `project-contracts.test.ts`, `project.test.ts`, `providers.test.ts`, `rendering.test.ts`, `request-scope.test.ts`, `secrets.test.ts` |
 | `packages/core/tests/server.test.ts`, `session-discovery.test.ts`, `session.test.ts`, `session-timeline.test.ts`, `skill-variants.test.ts`, `swarm-eval.test.ts`, `swarm.test.ts`, `telemetry.test.ts`, `version.test.ts` |
@@ -55,7 +55,6 @@ Exact Core test paths: `packages/core/tests/acp.test.ts`,
 `packages/core/tests/actions.test.ts`, `packages/core/tests/activity.test.ts`,
 `packages/core/tests/audit.test.ts`,
 `packages/core/tests/agent-profiles.test.ts`, `packages/core/tests/agent.test.ts`,
-`packages/core/tests/builtin-harness.test.ts`,
 `packages/core/tests/builtin-tools.test.ts`,
 `packages/core/tests/service-registry.test.ts`,
 `packages/core/tests/task-runtime.test.ts`,

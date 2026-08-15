@@ -160,33 +160,19 @@ and request-scoped environment remain explicit. Native execution preserves
 streaming, cancellation, tool continuation, and Provider-specific message
 shapes instead of normalizing every request through a compatibility bridge.
 
-The built-in `swarmx` Harness is composed through a small ordered plugin kernel.
-Plugins may contribute bounded prompt sections, local tools, or Agent-loop
-middleware. Registrations are scoped to the mounting plugin and are removed
-together when it unloads; duplicate plugin, contribution, middleware, or tool
-identities fail before execution. Loop middleware is a waterfall: it may
-delegate exactly once, reject a turn, or replace the default loop. The default
-loop remains the existing native Provider path, and canonical Session history
-continues to be derived from its emitted chunks rather than from plugin-private
-state. This kernel is an execution seam for the built-in Harness only. It does
-not wrap, inject tools into, or otherwise reinterpret an external ACP Harness,
-and it is not the meta-Harness/workflow scheduler.
-It is a loop-level extension point, not ablation infrastructure: whole-service
-variants, topology-aware resolution, and evaluation identity belong to the
-separate built-in service registry.
-
-The built-in service registry resolves exactly three evaluation seams before a
-direct Agent can run: Context Engine, Memory projection/tools, and evolved
-Skill delivery. Every seam selects one named variant through a strict
+The evaluation-only built-in service registry resolves exactly three seams
+before a direct SwarmX Agent can run: Context Engine, Memory projection/tools,
+and evolved Skill delivery. Every seam selects one named variant through a strict
 `AblationProfile`; the shipped `production` variant preserves the supplied
 service and the shipped `baseline` variant removes it. Variant resolution
 receives deterministic Swarm/Agent topology rather than consulting ambient
 registration order. Startup asserts that every selected `(seam, variant)` is
 registered and returns one content-free activation receipt. Missing or duplicate
-entries fail before MCP startup or a Provider request. External ACP Harnesses do
-not enter this registry. Evaluation may select an explicit profile and records
-its profile, variants, and activated topology alongside ordinary metrics; the
-registry never persists a new workflow format or promotes a variant.
+entries fail before MCP startup or a Provider request. Echo and external ACP
+Harnesses do not enter this registry. Evaluation may select an explicit profile
+and records its profile, variants, and activated topology alongside ordinary
+metrics; the registry never persists a new workflow format or promotes a
+variant.
 
 Provider-independent local tool contracts live in a browser-safe leaf module;
 MCP and native Provider adapters consume that contract instead of owning it.
