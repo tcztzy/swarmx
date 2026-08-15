@@ -830,6 +830,41 @@ describe("named harness and paper profiles", () => {
     });
   });
 
+  it("uses and binds a request-scoped summary prompt override", async () => {
+    const summaryPromptOverride =
+      "Preserve exact constraints, completed effects, failed actions, and the single next safe action.";
+    let observedPrompt = "";
+    const engine = createSessionContextEngine({
+      sessionId: "session_summary_prompt_override",
+      history: [...longHistory(), { role: "user", content: "What remains?", kind: "message" }],
+      config: createContextEngineProfileConfig({ profile: "reasonix" }),
+      summaryPromptOverride,
+      summaryProvider: {
+        summarize: async (request) => {
+          observedPrompt = request.prompt;
+          return { summary: "Bound candidate summary." };
+        },
+      },
+    });
+
+    const compiled = await engine.finalize?.(finalInput("reasonix"));
+    const baseline = await createSessionContextEngine({
+      sessionId: "session_summary_prompt_override",
+      history: [...longHistory(), { role: "user", content: "What remains?", kind: "message" }],
+      config: createContextEngineProfileConfig({ profile: "reasonix" }),
+      summaryProvider: { summarize: async () => ({ summary: "Bound candidate summary." }) },
+    }).finalize?.(finalInput("reasonix"));
+
+    expect(observedPrompt).toBe(summaryPromptOverride);
+    expect(compiled?.checkpoint?.compressionPromptBytes).toBeGreaterThan(
+      Buffer.byteLength(summaryPromptOverride),
+    );
+    expect(compiled?.checkpoint?.compressionPromptSha256).toMatch(/^[a-f0-9]{64}$/u);
+    expect(compiled?.checkpoint?.compressionPromptSha256).not.toBe(
+      baseline?.checkpoint?.compressionPromptSha256,
+    );
+  });
+
   it("keeps profile-specific topology for Codex, ReSum, and Reasonix", async () => {
     const summaryProvider: ContextSummaryProvider = {
       summarize: async (request) => ({ summary: `summary:${request.profile}` }),

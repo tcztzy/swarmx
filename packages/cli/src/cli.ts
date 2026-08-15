@@ -40,6 +40,7 @@ import {
   runEvolutionStatus,
 } from "./evolution-command.js";
 import { createSendSwarmConfig } from "./send-config.js";
+import { runSessionTimelineCommand } from "./session-timeline-command.js";
 
 const program = new Command();
 const cliAudit = new AuditStore();
@@ -318,8 +319,23 @@ program
 
 const sessionsCommand = program
   .command("sessions")
-  .description("List local sessions")
+  .description("List local sessions or inspect a causal timeline")
   .allowExcessArguments(false);
+
+sessionsCommand
+  .command("timeline <session-id>")
+  .description("Show a safe, rebuildable causal timeline for one Session")
+  .option("--json", "Print the strict diagnostic projection as JSON", false)
+  .action((sessionId: string, options: { json?: boolean }) => {
+    try {
+      const result = runSessionTimelineCommand(sessionId, options, cliAudit);
+      process.stdout.write(result.output);
+      if (result.exitCode !== 0) process.exitCode = result.exitCode;
+    } catch (error) {
+      console.error("Error:", error instanceof Error ? error.message : error);
+      process.exitCode = 1;
+    }
+  });
 
 sessionsCommand.action(() => {
   const sessions = listSessionSummaries();

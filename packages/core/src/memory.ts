@@ -20,6 +20,33 @@ import {
   GlobalMemoryTargetSchema,
 } from "./personal-memory.js";
 
+function containsSecretMaterial(value: string): boolean {
+  if (
+    /-----BEGIN (?:RSA )?PRIVATE KEY-----|authorization\s*:\s*bearer\s+\S+|\b(?:sk|rk|pk|ghp|gho|ghu|ghs|github_pat|xoxb|xoxp)-[A-Za-z0-9_-]{4,}\b|[a-z][a-z0-9+.-]*:\/\/[^\s/:@]+:[^\s/@]+@/iu.test(
+      value,
+    )
+  ) {
+    return true;
+  }
+  return value.split(/\r?\n/u).some((line) => {
+    const match = line.match(
+      /^\s*(api[_ -]?key|access[_ -]?token|auth[_ -]?token|client[_ -]?secret|password|private[_ -]?key|refresh[_ -]?token|secret)\s*[:=]\s*(.+)$/iu,
+    );
+    if (!match) return false;
+    const candidate = (match[2] ?? "").trim().toLocaleLowerCase("en-US");
+    return (
+      candidate.length > 0 &&
+      !["[redacted]", "<redacted>", "redacted", "none", "null", "unset"].includes(candidate) &&
+      !candidate.startsWith("${")
+    );
+  });
+}
+
+const MemorySafeEntityNameSchema = MemoryEntityNameSchema.refine(
+  (value) => !containsSecretMaterial(value),
+  "Memory names cannot contain credentials",
+);
+
 export const MEMORY_SCHEMA_VERSION = 1;
 export const MAX_MEMORY_PAGES = 2_048;
 export const MAX_MEMORY_PAGE_CHARS = 64_000;
@@ -29,16 +56,44 @@ export const MAX_MEMORY_SEARCH_RESULTS = 50;
 export const MAX_MEMORY_VERSIONS = 100;
 export const MAX_MEMORY_DIFF_CHARS = 128_000;
 const TimestampSchema = z.string().datetime({ offset: true });
+export const MemoryPageKindSchema = z.enum([
+  "project",
+  "person",
+  "organization",
+  "technology",
+  "decision",
+  "concept",
+  "note",
+]);
+const MemoryPageSummaryTextSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(2_000)
+  .refine((value) => !containsSecretMaterial(value), "Memory summaries cannot contain credentials");
+const MemoryPageSourceSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(4_096)
+  .refine((value) => !/\p{Cc}/u.test(value), "Memory sources cannot contain control characters")
+  .refine((value) => !containsSecretMaterial(value), "Memory sources cannot contain credentials");
 const MemoryContentSchema = z
   .string()
   .max(MAX_MEMORY_PAGE_CHARS)
-  .refine((value) => !value.includes("\0"), "Memory content cannot contain NUL bytes");
+  .refine((value) => !value.includes("\0"), "Memory content cannot contain NUL bytes")
+  .refine((value) => !containsSecretMaterial(value), "Memory content cannot contain credentials");
 
 export const MemoryPageSchema = z
   .object({
     id: MemoryEntityIdSchema,
-    title: MemoryEntityNameSchema,
-    aliases: z.array(MemoryEntityNameSchema).max(MAX_MEMORY_ENTITY_ALIASES),
+    title: MemorySafeEntityNameSchema,
+    aliases: z.array(MemorySafeEntityNameSchema).max(MAX_MEMORY_ENTITY_ALIASES),
+    kind: MemoryPageKindSchema.optional(),
+    summary: MemoryPageSummaryTextSchema.optional(),
+    sources: z.array(MemoryPageSourceSchema).max(32).optional(),
+    scope: MemorySafeEntityNameSchema.optional(),
+    disambiguation: MemorySafeEntityNameSchema.optional(),
     content: MemoryContentSchema,
     revision: z.number().int().positive(),
     createdAt: TimestampSchema,
@@ -47,6 +102,17 @@ export const MemoryPageSchema = z
   .strict();
 
 export const MemoryPageSummarySchema = MemoryPageSchema.omit({ content: true });
+
+export const MemorySearchHitSchema = z
+  .object({
+    title: MemorySafeEntityNameSchema,
+    summary: MemoryPageSummaryTextSchema.optional(),
+    kind: MemoryPageKindSchema,
+    sources: z.array(MemoryPageSourceSchema).max(32),
+    relatedPages: z.array(MemorySafeEntityNameSchema).max(MAX_MEMORY_PAGES),
+    id: MemoryEntityIdSchema,
+  })
+  .strict();
 
 export const MemoryDocumentSchema = z
   .object({
@@ -120,8 +186,12 @@ export const MemoryDocumentSchema = z
 
 export const MemoryCreateInputSchema = z
   .object({
-    title: MemoryEntityNameSchema,
-    aliases: z.array(MemoryEntityNameSchema).max(MAX_MEMORY_ENTITY_ALIASES).optional(),
+    title: MemorySafeEntityNameSchema,
+    aliases: z.array(MemorySafeEntityNameSchema).max(MAX_MEMORY_ENTITY_ALIASES).optional(),
+    kind: MemoryPageKindSchema.optional(),
+    summary: MemoryPageSummaryTextSchema.optional(),
+    sources: z.array(MemoryPageSourceSchema).max(32).optional(),
+    scope: MemorySafeEntityNameSchema.optional(),
     content: MemoryContentSchema,
   })
   .strict();
@@ -130,14 +200,24 @@ export const MemoryUpdateInputSchema = z
   .object({
     id: MemoryEntityIdSchema,
     expectedRevision: z.number().int().positive(),
-    title: MemoryEntityNameSchema.optional(),
-    aliases: z.array(MemoryEntityNameSchema).max(MAX_MEMORY_ENTITY_ALIASES).optional(),
+    title: MemorySafeEntityNameSchema.optional(),
+    aliases: z.array(MemorySafeEntityNameSchema).max(MAX_MEMORY_ENTITY_ALIASES).optional(),
+    kind: MemoryPageKindSchema.optional(),
+    summary: MemoryPageSummaryTextSchema.optional(),
+    sources: z.array(MemoryPageSourceSchema).max(32).optional(),
+    scope: MemorySafeEntityNameSchema.optional(),
     content: MemoryContentSchema.optional(),
   })
   .strict()
   .refine(
     (input) =>
-      input.title !== undefined || input.aliases !== undefined || input.content !== undefined,
+      input.title !== undefined ||
+      input.aliases !== undefined ||
+      input.kind !== undefined ||
+      input.summary !== undefined ||
+      input.sources !== undefined ||
+      input.scope !== undefined ||
+      input.content !== undefined,
     { message: "Memory update must change at least one field" },
   );
 
@@ -222,8 +302,8 @@ export const ResearchMemoryObservationSchema = z
 
 export const ResearchMemoryEntitySchema = z
   .object({
-    title: MemoryEntityNameSchema,
-    aliases: z.array(MemoryEntityNameSchema).max(MAX_MEMORY_ENTITY_ALIASES).default([]),
+    title: MemorySafeEntityNameSchema,
+    aliases: z.array(MemorySafeEntityNameSchema).max(MAX_MEMORY_ENTITY_ALIASES).default([]),
     summary: z.string().trim().min(1).max(2_000).optional(),
     observations: z.array(ResearchMemoryObservationSchema).min(1).max(24),
   })
@@ -290,8 +370,12 @@ export const MemoryAgentInputSchema = z
     z
       .object({
         operation: z.literal("create"),
-        title: MemoryEntityNameSchema,
-        aliases: z.array(MemoryEntityNameSchema).max(MAX_MEMORY_ENTITY_ALIASES).optional(),
+        title: MemorySafeEntityNameSchema,
+        aliases: z.array(MemorySafeEntityNameSchema).max(MAX_MEMORY_ENTITY_ALIASES).optional(),
+        kind: MemoryPageKindSchema.optional(),
+        summary: MemoryPageSummaryTextSchema.optional(),
+        sources: z.array(MemoryPageSourceSchema).max(32).optional(),
+        scope: MemorySafeEntityNameSchema.optional(),
         content: MemoryContentSchema,
       })
       .strict(),
@@ -300,8 +384,12 @@ export const MemoryAgentInputSchema = z
         operation: z.literal("update"),
         id: MemoryEntityIdSchema,
         expectedRevision: z.number().int().positive(),
-        title: MemoryEntityNameSchema.optional(),
-        aliases: z.array(MemoryEntityNameSchema).max(MAX_MEMORY_ENTITY_ALIASES).optional(),
+        title: MemorySafeEntityNameSchema.optional(),
+        aliases: z.array(MemorySafeEntityNameSchema).max(MAX_MEMORY_ENTITY_ALIASES).optional(),
+        kind: MemoryPageKindSchema.optional(),
+        summary: MemoryPageSummaryTextSchema.optional(),
+        sources: z.array(MemoryPageSourceSchema).max(32).optional(),
+        scope: MemorySafeEntityNameSchema.optional(),
         content: MemoryContentSchema.optional(),
       })
       .strict(),
@@ -348,6 +436,10 @@ export const MemoryAgentInputSchema = z
       input.operation === "update" &&
       input.title === undefined &&
       input.aliases === undefined &&
+      input.kind === undefined &&
+      input.summary === undefined &&
+      input.sources === undefined &&
+      input.scope === undefined &&
       input.content === undefined
     ) {
       context.addIssue({
@@ -381,7 +473,9 @@ export const MemoryGraphSchema = z
   .strict();
 
 export type MemoryPage = z.infer<typeof MemoryPageSchema>;
+export type MemoryPageKind = z.infer<typeof MemoryPageKindSchema>;
 export type MemoryPageSummary = z.infer<typeof MemoryPageSummarySchema>;
+export type MemorySearchHit = z.infer<typeof MemorySearchHitSchema>;
 export type MemoryDocument = z.infer<typeof MemoryDocumentSchema>;
 export type MemoryCreateInput = z.infer<typeof MemoryCreateInputSchema>;
 export type MemoryUpdateInput = z.infer<typeof MemoryUpdateInputSchema>;

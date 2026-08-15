@@ -137,6 +137,7 @@ export const AuditInputSchema = z
     sessionId: AuditIdentifierSchema.optional(),
     taskId: AuditIdentifierSchema.optional(),
     requestId: AuditIdentifierSchema.optional(),
+    activationId: AuditIdentifierSchema.optional(),
     metadata: z.preprocess(sanitizeAuditMetadata, AuditMetadataSchema).default({}),
   })
   .strict();
@@ -157,6 +158,7 @@ export const AuditEventSchema = z
     sessionId: AuditIdentifierSchema.optional(),
     taskId: AuditIdentifierSchema.optional(),
     requestId: AuditIdentifierSchema.optional(),
+    activationId: AuditIdentifierSchema.optional(),
     metadata: AuditMetadataSchema,
     previousHash: Sha256Schema,
     eventHash: Sha256Schema,
@@ -173,6 +175,7 @@ export const AuditQuerySchema = z
     sessionId: AuditIdentifierSchema.optional(),
     taskId: AuditIdentifierSchema.optional(),
     requestId: AuditIdentifierSchema.optional(),
+    activationId: AuditIdentifierSchema.optional(),
     from: z.string().datetime({ offset: true }).optional(),
     to: z.string().datetime({ offset: true }).optional(),
     limit: z.number().int().min(1).max(10_000).optional(),
@@ -358,6 +361,7 @@ export class AuditStore {
         ...(parsedInput.sessionId ? { sessionId: parsedInput.sessionId } : {}),
         ...(parsedInput.taskId ? { taskId: parsedInput.taskId } : {}),
         ...(parsedInput.requestId ? { requestId: parsedInput.requestId } : {}),
+        ...(parsedInput.activationId ? { activationId: parsedInput.activationId } : {}),
         metadata: sanitizeAuditMetadata(parsedInput.metadata) as Record<string, AuditMetadataValue>,
         previousHash: previous?.eventHash ?? GENESIS_HASH,
       };
@@ -380,6 +384,24 @@ export class AuditStore {
       const events = filterAuditEvents(this.readVerifiedLog().events, query);
       return events.slice(0, query.limit ?? 100).map((event) => AuditEventSchema.parse(event));
     });
+  }
+
+  /**
+   * Reads a verified audit slice without creating directories, locks, files, or
+   * checkpoints. Diagnostic projections use this path so inspection stays pure.
+   */
+  queryReadOnly(queryInput: AuditQuery = {}): AuditEvent[] {
+    const query = AuditQuerySchema.parse(queryInput);
+    if (!fs.existsSync(this.filePath)) return [];
+    for (const filePath of [this.filePath, this.checkpointPath]) {
+      if (!fs.existsSync(filePath)) continue;
+      const stat = fs.lstatSync(filePath);
+      if (!stat.isFile() || stat.isSymbolicLink()) {
+        throw new Error(`Audit storage path must be a regular file: ${filePath}`);
+      }
+    }
+    const events = filterAuditEvents(this.readVerifiedLog().events, query);
+    return events.slice(0, query.limit ?? 100).map((event) => AuditEventSchema.parse(event));
   }
 
   exportJsonl(queryInput: AuditQuery = {}): string {
@@ -955,6 +977,7 @@ function filterAuditEvents(
     if (query.sessionId && event.sessionId !== query.sessionId) return false;
     if (query.taskId && event.taskId !== query.taskId) return false;
     if (query.requestId && event.requestId !== query.requestId) return false;
+    if (query.activationId && event.activationId !== query.activationId) return false;
     if (query.from && event.timestamp < query.from) return false;
     if (query.to && event.timestamp > query.to) return false;
     return true;

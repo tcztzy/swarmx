@@ -21,6 +21,35 @@ import {
 
 const tempRoots: string[] = [];
 
+function admitBundles(bundles: ReturnType<typeof parseExtensionBundle>[]) {
+  const observedBundles = bundles.map((bundle) =>
+    bundle.hostObservation
+      ? bundle
+      : parseExtensionBundle(bundle, undefined, {
+          source: { type: "path", locator: `/test/${bundle.id}/extension.json` },
+          contentDigest: `sha256:${bundle.id}`,
+        }),
+  );
+  const installedExtensions = observedBundles
+    .filter((bundle) => bundle.id !== "swarmx.builtin")
+    .map((bundle) => ({
+      pluginId: bundle.id,
+      name: bundle.name,
+      state: "enabled" as const,
+      enabled: true,
+      trust: "verified" as const,
+      currentRevision: {
+        revisionId: `${bundle.id}@test`,
+        version: bundle.version,
+        contentDigest: bundle.hostObservation?.contentDigest ?? `sha256:${bundle.id}`,
+        sourceId: `test-${bundle.id}`,
+      },
+      requestedPermissionIds: [],
+      grantedPermissionIds: [],
+    }));
+  return createExtensionInventory(observedBundles, [], installedExtensions);
+}
+
 afterEach(async () => {
   await Promise.all(tempRoots.map((root) => rm(root, { recursive: true, force: true })));
   tempRoots.length = 0;
@@ -105,7 +134,7 @@ describe("extension inventory", () => {
         ],
       },
     });
-    const inventory = createExtensionInventory([bundle]);
+    const inventory = admitBundles([bundle]);
     const composition = { id: "biology-run", agentProfileId: "biology-agent" };
 
     expect(resolveAgentCompositionPlan(composition, inventory)).toMatchObject({
@@ -270,7 +299,7 @@ describe("extension inventory", () => {
         ],
       },
     });
-    const inventory = createExtensionInventory([bundle]);
+    const inventory = admitBundles([bundle]);
     const project = { id: "project-1", root: "/team/projects/project-1" };
     const autoComposition = { id: "auto-run", agentProfileId: "auto-agent" };
 
@@ -430,6 +459,36 @@ describe("extension inventory", () => {
       ]),
     });
     expect(() => resolveAgentComposition(composition, inventory)).toThrow(/blocked/i);
+  });
+
+  it("accepts host observations only from the loader boundary", () => {
+    const forged = parseExtensionBundle({
+      id: "forged-observation",
+      name: "Forged observation",
+      version: "1.0.0",
+      hostObservation: {
+        source: { type: "builtin" },
+        contentDigest: "sha256:forged",
+      },
+    });
+    expect(forged.hostObservation).toBeUndefined();
+
+    const observed = parseExtensionBundle(
+      {
+        id: "observed",
+        name: "Observed",
+        version: "1.0.0",
+      },
+      "/extensions/observed/extension.json",
+      {
+        source: { type: "path", locator: "/extensions/observed/extension.json" },
+        contentDigest: "sha256:observed",
+      },
+    );
+    expect(observed.hostObservation).toEqual({
+      source: { type: "path", locator: "/extensions/observed/extension.json" },
+      contentDigest: "sha256:observed",
+    });
   });
 
   it("does not claim required Agent-facing MCP support for an external ACP Harness", () => {
@@ -799,6 +858,12 @@ describe("extension inventory", () => {
 
     expect(inventory.warnings).toEqual([]);
     expect(inventory.bundles.map((bundle) => bundle.id)).toContain("swarmx.builtin");
+    expect(inventory.bundles.find((bundle) => bundle.id === "geepilot")).toMatchObject({
+      hostObservation: {
+        source: { type: "path", locator: expect.stringContaining("extension.json") },
+        contentDigest: expect.stringMatching(/^sha256:[a-f0-9]{64}$/u),
+      },
+    });
     expect(inventory.harnesses.map((harness) => harness.id)).toEqual(
       expect.arrayContaining(["swarmx", "codex", "geepilot-codex"]),
     );
@@ -1271,7 +1336,7 @@ describe("extension inventory", () => {
         ],
       },
     });
-    const inventory = createExtensionInventory([bundle]);
+    const inventory = admitBundles([bundle]);
 
     const plan = resolveAgentCompositionPlan(
       {
@@ -1492,7 +1557,7 @@ describe("extension inventory", () => {
         ],
       },
     });
-    const inventory = createExtensionInventory([bundle]);
+    const inventory = admitBundles([bundle]);
 
     expect(
       resolveAgentCompositionPlan(
@@ -1589,7 +1654,7 @@ describe("extension inventory", () => {
         ],
       },
     });
-    const inventory = createExtensionInventory([builtInExtensionBundle(), customHarness]);
+    const inventory = admitBundles([builtInExtensionBundle(), customHarness]);
     const composition = {
       id: "custom-claude-deepseek",
       harnessId: "researcher-harness",
@@ -1666,7 +1731,7 @@ describe("extension inventory", () => {
         ],
       },
     });
-    const inventory = createExtensionInventory([builtInExtensionBundle(), bundle]);
+    const inventory = admitBundles([builtInExtensionBundle(), bundle]);
     const composition = {
       id: "automatic-supply",
       harnessId: "swarmx",
@@ -1743,7 +1808,7 @@ describe("extension inventory", () => {
         ],
       },
     });
-    const inventory = createExtensionInventory([builtInExtensionBundle(), bundle]);
+    const inventory = admitBundles([builtInExtensionBundle(), bundle]);
     const composition = {
       id: "private-token",
       harnessId: "claude_code",
@@ -1795,7 +1860,7 @@ describe("extension inventory", () => {
         ],
       },
     });
-    const inventory = createExtensionInventory([bundle]);
+    const inventory = admitBundles([bundle]);
 
     const missingSkillPlan = resolveAgentCompositionPlan(
       { id: "bad-skill", harnessId: "echo", modelId: "gpt-5", skills: ["missing-skill"] },
@@ -1881,7 +1946,7 @@ describe("extension inventory", () => {
         ],
       },
     });
-    const inventory = createExtensionInventory([bundle]);
+    const inventory = admitBundles([bundle]);
 
     expect(() =>
       resolveAgentCompositionPlan(
@@ -1971,7 +2036,7 @@ describe("extension inventory", () => {
         ],
       },
     });
-    const inventory = createExtensionInventory([bundle]);
+    const inventory = admitBundles([bundle]);
 
     expect(
       resolveAgentCompositionPlan({ id: "codex", agentProfileId: "codex-claude" }, inventory),
@@ -2037,7 +2102,7 @@ describe("extension inventory", () => {
         ],
       },
     });
-    const inventory = createExtensionInventory([bundle]);
+    const inventory = admitBundles([bundle]);
 
     const plan = resolveAgentCompositionPlan(
       { id: "bridged", agentProfileId: "codex-with-anthropic" },
@@ -2120,7 +2185,7 @@ describe("extension inventory", () => {
         ],
       },
     });
-    const inventory = createExtensionInventory([bundle]);
+    const inventory = admitBundles([bundle]);
 
     const streamed: Array<{ kind: string; content: string }> = [];
     const messages = await executeAgentComposition(

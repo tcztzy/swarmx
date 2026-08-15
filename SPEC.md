@@ -32,7 +32,17 @@ implementation map, test plan, backlog, changelog, or incident log.
    Imports, editors, previews, CLI calls, and Desktop execution converge on it.
 2. **Explicit composition.** Model, Provider, Harness, Agent, Extension, and
    Project remain separate concepts. The ordinary composer asks for Harness,
-   Model, and Effort; trusted runtime code resolves supply details.
+   Model, and Effort; trusted runtime code resolves supply details. Before any
+   Extension code or service can start, one read-only deterministic preflight
+   resolves the selected capability graph, ownership, dependencies, conflicts,
+   phases, order constraints, trust, and permission grants. A blocked or
+   ambiguous graph never falls back to discovery or registration order.
+   `SWARMX_EXTENSION_PATHS` and `SWARMX_EXTENSION_ROOTS` are discovery-only.
+   Host-observed source and content digest outrank manifest claims; manifest
+   `local`, `verified`, or `builtin` claims cannot raise effective trust. A
+   non-built-in executable bundle requires an installed, enabled host record,
+   persisted trust, matching observed content digest, and all required grants.
+   Declarative metadata may remain visible without executable authority.
 3. **Host-owned tools.** Direct SwarmX tasks may receive bounded Project tools.
    External ACP Harnesses retain their native tools and permission systems and
    never receive a duplicate SwarmX tool surface.
@@ -49,7 +59,11 @@ implementation map, test plan, backlog, changelog, or incident log.
    store and remains outside metadata, Renderer data, and logs.
 7. **Explicit side effects.** Discovery and planning are read-only. Installation,
    repair, trust changes, permission grants, destructive actions, and external
-   writes require an explicit action and the appropriate confirmation.
+   writes require an explicit action and the appropriate confirmation. A
+   configuration merge may reduce authority, but it cannot expand Extension
+   trust or granted permissions; first expansion requires a durable audit intent
+   before the confirmed change is applied. Local-source trust elevation also
+   requires explicit confirmation and audit intent before persistence.
 8. **Honest capabilities.** SwarmX advertises only behavior it implements.
    Unsupported host tools, media transports, provider features, and ACP
    capabilities fail clearly instead of silently degrading to different
@@ -83,9 +97,22 @@ implementation map, test plan, backlog, changelog, or incident log.
     revision; success is reported only after the Markdown write, Git commit,
     and search-index refresh complete. Markdown plus Git is the current Memory
     authority, while search indexes and knowledge edges remain rebuildable
-    projections. SwarmX-owned Agents receive bounded on-demand reads
-    and may mutate only after one-call user confirmation; external ACP Harnesses
-    do not receive the local tool.
+    projections. The Memory repository is also a human-owned, Obsidian-compatible
+    vault: active pages use readable recursive Markdown paths derived from their
+    titles, while stable generated ids live only in frontmatter and API results
+    and survive file moves. Direct human page creation, editing, moving, and
+    deletion are reconciled into the same bounded revisions and Git history
+    before the next operation. Existing id-named pages migrate in place without
+    changing their identity or semantic revision. SwarmX-owned Agents receive
+    bounded on-demand reads and may mutate only after one-call user confirmation;
+    external ACP Harnesses do not receive the local tool. Every accepted
+    multi-file Memory mutation is one crash-recoverable transaction: a
+    short-lived durable WAL records the before-image and intended Git commit
+    before any working-tree path changes, Git HEAD advances with a
+    compare-and-swap publication, and startup resolves only the exact before
+    or intended state. An unknown HEAD, journal, or file state fails closed and
+    retains the WAL; search and generated views are projections and never
+    become a second content authority.
 15. **Verified module runtimes.** Language-native feature modules run
     as SwarmX-managed, version-pinned MCP servers over private stdio. Runtime
     inspection is read-only, launch revalidates code or executable digests,
@@ -151,6 +178,22 @@ implementation map, test plan, backlog, changelog, or incident log.
     id; updates arriving after that barrier are ignored and cannot reopen the
     turn. Scheduled activations and durable WorkItems retain their separate
     execution authority and are never implicit foreground obligations.
+    Session-backed foreground requests also append a durable `started` receipt
+    with a normalized request digest before execution and a matching `settled`
+    receipt with the terminal outcome before IPC success is returned. Reusing
+    `(sessionId, requestId)` with the same digest replays the persisted result;
+    an unresolved `started` receipt, or a different digest, fails closed rather
+    than retrying execution. Session-less requests and transient side chats
+    remain explicitly non-durable.
+20. **Derived causal diagnostics.** A Session timeline is a deterministic,
+    content-free projection of canonical Session JSONL plus correlated compact
+    audit evidence when available. It assigns conservative Turn, Step,
+    correlation, causation, ordering, retry, late-event, and settlement views
+    without rewriting Session history or becoming an execution/completion
+    authority. Durable background activation identifiers create separate
+    system-origin Turns and never modify the foreground Turn or its
+    completion obligations. Missing legacy fields remain unknown or
+    deterministically derived; they are never invented as successful effects.
 
 ## Required capabilities
 
@@ -192,7 +235,19 @@ implementation map, test plan, backlog, changelog, or incident log.
   receives the same immutable history and a fresh clone of the same simulated
   environment; seeded execution order changes only arm order. Score observable
   final state, exact retained constraints, recovery, repeated/blocked actions,
-  safety, strategy failures, Provider failures, tokens, cost, and latency.
+  prohibited attempts, uncontained safety violations, strategy failures,
+  Provider failures, tokens, cost, and request-to-completion time. Repetition
+  seeds measure stochastic stability but do not increase the independent task
+  family count; confirmation intervals resample declared task families.
+- Evaluate learned summary-prompt candidates only as suite-bound experimental
+  arms against the same named summary profile. Keep profile selection, context
+  budgets, history, Agent, and simulator fixed so the prompt is the only changed
+  variable; bind every candidate by digest, keep raw candidate text out of run
+  records, and never promote an evaluation result into a production default.
+- Distinguish the selected source-profile configuration hash from the effective
+  request-scoped configuration hash in every Context manifest. Evaluation arm
+  identity binds the source hash; Provider-window budgeting remains visible in
+  the effective hash and must not create a false arm mismatch.
 - Keep context-evaluation artifacts content-free: store source/config/output
   hashes, action ids and statuses, manifests, metrics, and score evidence, never
   raw prompts, histories, model responses, tool output, credentials, or state
@@ -238,6 +293,24 @@ implementation map, test plan, backlog, changelog, or incident log.
 - Resolve and display composition readiness before execution. Inventory loading
   alone never executes bundled code, starts services, changes trust, or mutates
   host configuration.
+- Let each Extension declare or deterministically derive a versioned capability
+  node with `provides`, `requires`, `conflicts`, requested permissions, phase,
+  optional `before`/`after` constraints, source, integrity, and trust. Preflight
+  rejects missing or cyclic dependencies, duplicate ownership and tool names,
+  conflicting Providers, illegal phases, unresolved order, protected-kernel
+  replacement, untrusted executable authority, and missing grants. Its preview
+  explains load reasons, requested authority, order, and every blocking issue.
+- Identify executable authority across custom Harnesses, stdio MCP, LSP, Hook,
+  Command, Software command, and connector entrypoint declarations. `lsp:complete`
+  and Agent-facing LSP operations use the same Desktop installed-state preflight;
+  LSP child processes receive a host whitelist environment without Provider
+  secrets.
+- Persist Extension source, immutable revision integrity, effective trust,
+  requested permission ids, and granted permission ids independently. Installing
+  or discovering a package grants nothing by itself. Revocation disables the
+  Extension and removes its grants; updates may preserve or reduce existing
+  authority but cannot raise it. Extension-supplied data cannot change approval,
+  credential, audit, Session, execution, or its own trust policy.
 - Treat an MCP capability's `off`, `auto`, or `required` activation as runtime
   policy rather than descriptive metadata. Project-scoped servers run with the
   active Project root as their working directory; required Project services are
@@ -257,6 +330,14 @@ implementation map, test plan, backlog, changelog, or incident log.
   through bounded host tools with containment, stale-read protection,
   cancellation, output limits, and a fail-closed platform sandbox where
   supported.
+- Give every executable boundary an explicit `native_allowed` or
+  `protected_required` OS-sandbox strategy. `protected_required` definitions are
+  host-registered only and pin an image digest, command, environment allowlist,
+  mount permissions, network policy, CPU, memory, and temporary-space limits.
+  Project files are the only default host mount, network access is denied by
+  default, and an unavailable protected runtime fails closed rather than
+  falling back to native execution. Runtime and Doctor reports show the
+  selected strategy and actual native/protected mode honestly.
 - Project direct tools as `auto`, Claude Code, Codex, or Kimi Code contracts
   while dispatching through the same safety boundary. The resolved style is
   fixed for a persisted Session.
@@ -338,6 +419,12 @@ implementation map, test plan, backlog, changelog, or incident log.
 - Provide dedicated Settings surfaces for Providers, permissions, Extensions,
   Custom Agents, runtime health, and updates; Doctor inspection is read-only and
   repair is separately confirmed.
+- Present first-use readiness as an ordered path from runtime detection through
+  Harness/Provider discovery, authentication, writable Project selection, and a
+  first safe task. Doctor classifies checks as healthy, warning, blocking,
+  automatically repairable, or requiring a user decision; every issue states
+  symptom, cause, impact, next action, and the exact idempotent repair preview.
+  Offline operation remains valid when the selected path needs no network.
 
 ### Reusable platform
 
@@ -351,9 +438,20 @@ implementation map, test plan, backlog, changelog, or incident log.
   Memory shares one local Git authority. Unknown, malformed, and self references
   remain explicit graph diagnostics; the linked Markdown organization is not a
   `SwarmConfig` workflow or a second Memory concept.
+- Publish Memory mutations through one root single-writer WAL transaction with
+  durable before-images, a Git commit prepared without moving HEAD, a CAS HEAD
+  advance, durable path application, index refresh, and WAL cleanup. Recovery
+  runs before migration, reconciliation, or search initialization; it rolls
+  back only to the recorded base or rolls forward only to the recorded commit,
+  and preserves an unknown state without overwriting external edits.
 - Keep browser-safe public subpaths free of Node-only imports.
 - Provide a CLI, ACP server adapter, runtime Doctor, and Desktop-first npm
   launcher without launching GUI code during package installation.
+- Rebuild a concise causal Session timeline from append-only Session JSONL and
+  optional correlated audit events. CLI and UI projections expose identifiers,
+  safe summaries, order, outcomes, late/duplicate diagnostics, and unsettled
+  work only; prompts, responses, source, tool arguments/results, terminal output,
+  credentials, and environment snapshots never enter the timeline.
 - Discover the product Python worker, `uv`, a compatible uv-managed Python, and
   the one locked `swarmx` environment without mutation. Runtime dependencies
   for the worker, RSI, and Reference subpackages are normal project
@@ -384,6 +482,10 @@ implementation map, test plan, backlog, changelog, or incident log.
   outside this local service contract.
 - Extension manifests are declarative metadata, not executable UI or script
   delivery. Executable UI components must be registered by the embedding host.
+- Session authority, identity, approvals, credentials, audit, permission policy,
+  composition enforcement, and execution/completion invariants remain trusted
+  kernel responsibilities. Extensions may request bounded capabilities but do
+  not turn those kernel concepts into plugins or replace them.
 - Raw conversations, prompts, responses, source files, terminal output, and
   credentials are neither telemetry nor audit payloads. Canonical Session and
   task histories retain their own product data; the audit chain records only

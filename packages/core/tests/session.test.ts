@@ -7,6 +7,7 @@ import {
   appendTransientSessionMessages,
   archiveProjectSessions,
   archiveSession,
+  beginSessionRequest,
   createSession,
   createTransientSessionFork,
   deleteSession,
@@ -17,8 +18,10 @@ import {
   listSessions,
   loadSession,
   promoteTransientSessionFork,
+  readSessionTimelineSource,
   saveSession,
   setSessionPinned,
+  settleSessionRequest,
   transientSessionModelMessages,
   updateSessionTitle,
 } from "../src/session.js";
@@ -362,6 +365,140 @@ describe("Session", () => {
         requestId: " ",
       }),
     ).toThrow();
+  });
+
+  it("durably records request start and settles it without duplicate execution", () => {
+    const session = createSession("request-receipt", "swarmx");
+    savedIds.push(session.id);
+    saveSession(session);
+    const requestId = "request-receipt-1";
+    const requestDigest = "sha256:request-receipt-1";
+
+    expect(
+      beginSessionRequest({
+        id: session.id,
+        requestId,
+        requestDigest,
+        userMessage: { role: "user", content: " durable request ", kind: "message" },
+      }),
+    ).toMatchObject({ status: "started" });
+
+    expect(
+      beginSessionRequest({
+        id: session.id,
+        requestId,
+        requestDigest,
+        userMessage: { role: "user", content: "duplicate", kind: "message" },
+      }),
+    ).toEqual({ status: "unknown" });
+    expect(
+      beginSessionRequest({
+        id: session.id,
+        requestId,
+        requestDigest: "sha256:conflict",
+        userMessage: { role: "user", content: "conflict", kind: "message" },
+      }),
+    ).toEqual({ status: "conflict" });
+
+    const settled = settleSessionRequest({
+      id: session.id,
+      requestId,
+      requestDigest,
+      outcome: "completed",
+      messages: [{ role: "assistant", content: "done", kind: "message" }],
+    });
+    expect(settled?.messages.map((message) => message.content)).toEqual([
+      "durable request",
+      "done",
+    ]);
+
+    const replayed = beginSessionRequest({
+      id: session.id,
+      requestId,
+      requestDigest,
+      userMessage: { role: "user", content: "must not execute", kind: "message" },
+    });
+    expect(replayed).toMatchObject({
+      status: "settled",
+      outcome: "completed",
+      messages: [{ role: "assistant", content: "done" }],
+    });
+
+    const records = fs
+      .readFileSync(sessionJsonlPath(sessionsDir, session.id), "utf8")
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line) as Record<string, unknown>);
+    expect(records.filter((record) => record.requestId === requestId)).toEqual([
+      expect.objectContaining({
+        type: "messages_appended",
+        requestDigest,
+        requestState: "started",
+      }),
+      expect.objectContaining({
+        type: "messages_appended",
+        requestDigest,
+        requestState: "settled",
+        requestOutcome: "completed",
+      }),
+    ]);
+  });
+
+  it("reads causal projection records without modifying Session storage", () => {
+    const session = createSession("timeline-source", "swarmx", undefined, {
+      projectId: "project-timeline",
+    });
+    savedIds.push(session.id);
+    saveSession(session);
+    appendMessages(session.id, [{ role: "user", content: "private request", kind: "message" }], {
+      requestId: "request-timeline",
+    });
+    const before = filesUnder(sessionsDir).map((filePath) => ({
+      filePath,
+      bytes: fs.readFileSync(filePath),
+      mtimeMs: fs.statSync(filePath).mtimeMs,
+    }));
+
+    expect(readSessionTimelineSource(session.id)).toMatchObject({
+      sessionId: session.id,
+      projectId: "project-timeline",
+      tornTail: false,
+      records: expect.arrayContaining([
+        expect.objectContaining({ type: "session_created", sequence: 1 }),
+        expect.objectContaining({
+          type: "messages_appended",
+          requestId: "request-timeline",
+        }),
+      ]),
+    });
+    expect(
+      filesUnder(sessionsDir).map((filePath) => ({
+        filePath,
+        bytes: fs.readFileSync(filePath),
+        mtimeMs: fs.statSync(filePath).mtimeMs,
+      })),
+    ).toEqual(before);
+  });
+
+  it("persists activation identity on background Session observer records", () => {
+    const session = createSession("activation-observer", "swarmx");
+    savedIds.push(session.id);
+    saveSession(session);
+
+    expect(
+      appendMessages(session.id, [{ role: "system", content: "background", kind: "message" }], {
+        activationId: "activation-1",
+      }),
+    ).toBe(true);
+
+    expect(readSessionTimelineSource(session.id)?.records).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: "messages_appended",
+          activationId: "activation-1",
+        }),
+      ]),
+    );
   });
 
   it("keeps appended history when a stale Session saves metadata", () => {

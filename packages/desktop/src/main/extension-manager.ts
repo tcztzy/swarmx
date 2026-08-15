@@ -4,6 +4,7 @@ import { join } from "node:path";
 import {
   type ExtensionActionReceipt,
   ExtensionActionRequestSchema,
+  type ExtensionAuthorityAudit,
   type ExtensionCandidate,
   ExtensionLifecycleManager,
   ExtensionMarketplaceCatalogSchema,
@@ -36,15 +37,18 @@ export class DesktopExtensionManager {
   readonly #settings: DesktopSettingsStoreLike;
   readonly #now: () => string;
   readonly #loadCatalog: MarketplaceCatalogLoader;
+  readonly #audit?: ExtensionAuthorityAudit;
 
   constructor(
     settings: DesktopSettingsStoreLike,
     now = () => new Date().toISOString(),
     loadCatalog: MarketplaceCatalogLoader = loadMarketplaceCatalog,
+    audit?: ExtensionAuthorityAudit,
   ) {
     this.#settings = settings;
     this.#now = now;
     this.#loadCatalog = loadCatalog;
+    this.#audit = audit;
   }
 
   async state(): Promise<ExtensionManagementState> {
@@ -59,21 +63,65 @@ export class DesktopExtensionManager {
   }
 
   async saveSource(input: unknown): Promise<ExtensionManagementState> {
-    const source = ExtensionMarketplaceSourceSchema.parse(input);
-    await this.#settings.update((settings) => ({
-      ...settings,
-      extensions: {
-        ...settings.extensions,
-        marketplaceSources: [
-          ...settings.extensions.marketplaceSources.filter((item) => item.id !== source.id),
-          source,
-        ],
-        trustedSourceIds:
-          source.trust === "verified" || source.trust === "builtin"
-            ? unique([...settings.extensions.trustedSourceIds, source.id])
-            : settings.extensions.trustedSourceIds.filter((id) => id !== source.id),
-      },
-    }));
+    if (!isRecord(input)) throw new Error("Extension source input must be an object.");
+    const { confirmed, ...sourceInput } = input;
+    const source = ExtensionMarketplaceSourceSchema.parse(sourceInput);
+    await this.#settings.update((settings) => {
+      const before = settings.extensions.marketplaceSources.find((item) => item.id === source.id);
+      if (source.trust === "builtin" && before?.trust !== "builtin") {
+        throw new Error("Built-in source trust is kernel-owned and cannot be granted by settings.");
+      }
+      if (before?.readOnly) {
+        throw new Error(`Extension source "${source.id}" is read-only.`);
+      }
+      const authorityChange = sourceTrustChange(before?.trust, source.trust);
+      if (authorityChange === "expand" && confirmed !== true) {
+        throw new Error("Trusting an Extension source requires explicit confirmation.");
+      }
+      const auditEvent =
+        authorityChange === "none"
+          ? undefined
+          : {
+              action: authorityChange === "expand" ? ("trust" as const) : ("revoke_trust" as const),
+              pluginId: `source:${source.id}`,
+              authorityChange,
+              permissionIds: [],
+            };
+      if (auditEvent?.authorityChange === "expand" && !this.#audit) {
+        throw new Error("Extension authority expansion requires an audit intent writer.");
+      }
+      if (auditEvent) this.#audit?.({ ...auditEvent, phase: "attempted" });
+      const installed = settings.extensions.installed.map((extension) =>
+        extension.currentRevision?.sourceId === source.id && source.trust === "untrusted"
+          ? {
+              ...extension,
+              trust: "untrusted" as const,
+              enabled: false,
+              state: "disabled" as const,
+              grantedPermissionIds: [],
+            }
+          : extension,
+      );
+      const next = {
+        ...settings,
+        extensions: {
+          ...settings.extensions,
+          marketplaceSources: [
+            ...settings.extensions.marketplaceSources.filter((item) => item.id !== source.id),
+            source,
+          ],
+          installed,
+          enabledPluginIds: installed.filter((item) => item.enabled).map((item) => item.pluginId),
+          disabledPluginIds: installed.filter((item) => !item.enabled).map((item) => item.pluginId),
+          trustedSourceIds:
+            source.trust === "verified" || source.trust === "builtin"
+              ? unique([...settings.extensions.trustedSourceIds, source.id])
+              : settings.extensions.trustedSourceIds.filter((id) => id !== source.id),
+        },
+      };
+      if (auditEvent) this.#audit?.({ ...auditEvent, phase: "completed" });
+      return next;
+    });
     return this.state();
   }
 
@@ -147,7 +195,11 @@ export class DesktopExtensionManager {
     const request = ExtensionActionRequestSchema.parse(input);
     let receipt!: ExtensionActionReceipt;
     await this.#settings.update((settings) => {
-      const manager = new ExtensionLifecycleManager(settings.extensions.installed, this.#now);
+      const manager = new ExtensionLifecycleManager(
+        settings.extensions.installed,
+        this.#now,
+        this.#audit,
+      );
       receipt = manager.apply(request);
       if (receipt.status !== "applied") return settings;
       const enabledPluginIds = manager
@@ -185,6 +237,21 @@ export class DesktopExtensionManager {
     }));
     return this.state();
   }
+}
+
+function sourceTrustChange(
+  current: ExtensionMarketplaceSource["trust"] | undefined,
+  target: ExtensionMarketplaceSource["trust"],
+): "none" | "reduce" | "expand" {
+  const rank = { untrusted: 0, local: 1, verified: 2, builtin: 3 } as const;
+  const currentRank = current === undefined ? rank.untrusted : rank[current];
+  if (rank[target] > currentRank) return "expand";
+  if (rank[target] < currentRank) return "reduce";
+  return "none";
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 export async function loadMarketplaceCatalog(

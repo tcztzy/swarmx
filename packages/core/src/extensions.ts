@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { readdir, readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
@@ -5,6 +6,13 @@ import type { AcpPermissionHandler } from "./acp.js";
 import { AgentDefinitionSourceSchema } from "./agent-profiles.js";
 import { ContextPacketModeSchema, ContextStrategySchema } from "./context.js";
 import type { AgentContextEngine } from "./context-engine.js";
+import {
+  ExtensionCompositionDeclarationSchema,
+  ExtensionCompositionPreflightSchema,
+  ExtensionHostObservationSchema,
+  preflightExtensionComposition,
+} from "./extension-composition.js";
+import type { InstalledExtension } from "./extension-management.js";
 import { HARNESSES, harnessModelRuntimeEnv, harnessModelRuntimeModel } from "./harness.js";
 import type { HookRuntimeOptions } from "./hook.js";
 import type { LocalTool } from "./local-tool-contracts.js";
@@ -612,6 +620,9 @@ export const ExtensionBundleSchema = z
     enabled: z.boolean().optional(),
     readOnly: z.boolean().optional(),
     source: ExtensionSourceSchema.optional(),
+    integrity: z.string().trim().min(1).max(256).optional(),
+    hostObservation: ExtensionHostObservationSchema.optional(),
+    composition: ExtensionCompositionDeclarationSchema.prefault({}),
     capabilities: z
       .object({
         software: z.array(SoftwareCapabilitySchema).default([]),
@@ -807,6 +818,7 @@ export const AgentCompositionPlanSchema = z
     context: AgentCompositionContextSummarySchema.optional(),
     permissions: AgentCompositionPermissionSummarySchema.optional(),
     visual: AgentCompositionVisualSummarySchema.optional(),
+    extensionPreflight: ExtensionCompositionPreflightSchema.optional(),
     requirements: z.array(AgentCompositionRequirementSchema).default([]),
   })
   .passthrough()
@@ -872,6 +884,7 @@ export interface ExtensionLoadWarning {
 
 export interface ExtensionInventory {
   bundles: ExtensionBundle[];
+  installedExtensions?: InstalledExtension[];
   software: SoftwareCapability[];
   skills: SkillCapability[];
   mcpServers: McpCapability[];
@@ -951,21 +964,33 @@ export interface ValidateSkillHostCompatibilityOptions {
   requireDotSlashLocalPathsForHosts?: MarketplaceHost[];
 }
 
-export function parseExtensionBundle(input: unknown, sourcePath?: string): ExtensionBundle {
+export function parseExtensionBundle(
+  input: unknown,
+  sourcePath?: string,
+  hostObservation?: unknown,
+): ExtensionBundle {
   assertNoInlineSecrets(input);
   const bundle = ExtensionBundleSchema.parse(input);
-  if (sourcePath && !bundle.source) {
-    return { ...bundle, source: { type: "path", path: sourcePath } };
-  }
-  return bundle;
+  const { hostObservation: _manifestObservation, ...withoutManifestObservation } = bundle;
+  const normalized =
+    sourcePath && !bundle.source
+      ? { ...withoutManifestObservation, source: { type: "path" as const, path: sourcePath } }
+      : withoutManifestObservation;
+  if (hostObservation === undefined) return normalized;
+  return ExtensionBundleSchema.parse({
+    ...normalized,
+    hostObservation: ExtensionHostObservationSchema.parse(hostObservation),
+  });
 }
 
 export function createExtensionInventory(
   bundles: ExtensionBundle[],
   warnings: ExtensionLoadWarning[] = [],
+  installedExtensions: InstalledExtension[] = [],
 ): ExtensionInventory {
   return {
     bundles,
+    installedExtensions,
     software: bundles.flatMap((bundle) => bundle.capabilities.software),
     skills: bundles.flatMap((bundle) => bundle.capabilities.skills),
     mcpServers: bundles.flatMap((bundle) => bundle.capabilities.mcpServers),
@@ -1132,7 +1157,12 @@ export async function loadExtensionInventory(
     for (const manifestPath of await discoverExtensionManifestPaths(root, warnings)) {
       try {
         const text = await readFile(manifestPath, "utf8");
-        bundles.push(parseExtensionBundle(JSON.parse(text), manifestPath));
+        bundles.push(
+          parseExtensionBundle(JSON.parse(text), manifestPath, {
+            source: { type: "path", locator: path.resolve(manifestPath) },
+            contentDigest: `sha256:${createHash("sha256").update(text, "utf8").digest("hex")}`,
+          }),
+        );
       } catch (error) {
         warnings.push({
           source: manifestPath,
@@ -1361,6 +1391,35 @@ export function resolveAgentCompositionPlan(
     requirements.push(pluginRequirementForPlan(pluginId, inventory));
   }
 
+  const selectedExtensionIds = uniqueStrings([
+    ...pluginIds.flatMap((pluginId) => extensionBundleIdsForPlugin(pluginId, inventory)),
+    ...extensionBundleIdsForCapability("agents", profile?.id, inventory),
+    ...extensionBundleIdsForCapability("harnesses", harness?.id, inventory),
+    ...extensionBundleIdsForCapability("models", model?.id, inventory),
+    ...extensionBundleIdsForCapability("modelSupplies", supply?.id, inventory),
+    ...extensionBundleIdsForCapability("providers", provider?.id, inventory),
+    ...skillResults.flatMap((result) =>
+      extensionBundleIdsForCapability("skills", result.item?.id, inventory),
+    ),
+    ...mcpResults.flatMap((result) =>
+      extensionBundleIdsForCapability("mcpServers", result.item?.id, inventory),
+    ),
+  ]);
+  const extensionPreflight = preflightExtensionComposition({
+    bundles: inventory.bundles,
+    selectedExtensionIds,
+    installedExtensions: inventory.installedExtensions ?? [],
+  });
+  for (const issue of extensionPreflight.issues) {
+    if (issue.severity !== "error") continue;
+    requirements.push({
+      kind: "plugin",
+      status: "blocked",
+      id: issue.extensionId,
+      message: issue.message,
+    });
+  }
+
   const context = contextSummaryForPlan(composition, profile, requirements);
   const permissions = permissionSummaryForPlan(composition, profile, selectedMcpIds);
   if (permissions) {
@@ -1418,6 +1477,7 @@ export function resolveAgentCompositionPlan(
     context,
     permissions,
     visual,
+    extensionPreflight,
     requirements,
   });
 }
@@ -1808,6 +1868,13 @@ export function builtInExtensionBundle(): ExtensionBundle {
     trust: "builtin",
     readOnly: true,
     source: { type: "builtin" },
+    hostObservation: {
+      source: { type: "builtin" },
+      contentDigest: `sha256:${createHash("sha256")
+        .update(`swarmx.builtin:${SWARMX_VERSION}`, "utf8")
+        .digest("hex")}`,
+    },
+    composition: ExtensionCompositionDeclarationSchema.parse({}),
     capabilities: {
       software: [],
       skills: [],
@@ -2096,6 +2163,39 @@ function sourcePluginIdForCapability(
   return inventory.bundles.find((bundle) =>
     bundle.capabilities[capabilityKey].some((item) => item.id === id),
   )?.id;
+}
+
+function extensionBundleIdsForCapability(
+  capabilityKey:
+    | "agents"
+    | "harnesses"
+    | "models"
+    | "modelSupplies"
+    | "providers"
+    | "skills"
+    | "mcpServers",
+  id: string | undefined,
+  inventory: ExtensionInventory,
+): string[] {
+  if (!id) return [];
+  return inventory.bundles
+    .filter((bundle) => bundle.capabilities[capabilityKey].some((item) => item.id === id))
+    .map((bundle) => bundle.id);
+}
+
+function extensionBundleIdsForPlugin(pluginId: string, inventory: ExtensionInventory): string[] {
+  const direct = inventory.bundles
+    .filter((bundle) => bundle.id === pluginId)
+    .map((bundle) => bundle.id);
+  const mapped = inventory.pluginCatalog
+    .filter((entry) => entry.id === pluginId && entry.bundleId)
+    .flatMap((entry) => {
+      const bundleId = entry.bundleId;
+      return bundleId && inventory.bundles.some((bundle) => bundle.id === bundleId)
+        ? [bundleId]
+        : [];
+    });
+  return uniqueStrings([...direct, ...mapped]);
 }
 
 function pluginRequirementForPlan(

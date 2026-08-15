@@ -121,6 +121,13 @@ handler still return ACP `cancelled`. The desktop prompt carries only bounded
 title/kind/summary data and never ACP raw input/output, patch bodies, file
 contents, or credentials.
 
+OS isolation is a separate host policy. `native_allowed` permits a native
+Harness only when its other admission checks pass; `protected_required` selects
+only a host-registered, digest-pinned protected profile with fixed command,
+environment, mount, network, and resource limits. Project visibility is the
+default mount, network is denied, and an unavailable protected runtime blocks
+the request instead of changing the policy to native.
+
 ### Layered governance and desktop UX
 
 Direct SwarmX policy resolves four durable sources plus an optional conversation

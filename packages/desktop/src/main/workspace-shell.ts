@@ -6,6 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import type { LocalMcpTool } from "@swarmx/core/local-tool-contracts";
 import { currentRequestSignal } from "@swarmx/core/request-scope";
+import type { SandboxStrategy } from "@swarmx/runtime";
 import type { IDisposable, IPty } from "node-pty";
 import * as pty from "node-pty";
 import { ensurePtySpawnHelperExecutable } from "./pty-runtime.js";
@@ -44,6 +45,7 @@ export interface WorkspaceShellOptions {
   sandboxExecutable?: string;
   shellExecutable?: string;
   platform?: NodeJS.Platform;
+  sandboxStrategy?: SandboxStrategy;
 }
 
 export interface WorkspaceShellRunOptions {
@@ -118,6 +120,7 @@ interface ResolvedWorkspaceShellOptions {
   sandboxExecutable: string;
   shellExecutable: string;
   platform: NodeJS.Platform;
+  sandboxStrategy: SandboxStrategy;
 }
 
 interface ManagedShellSession {
@@ -354,6 +357,11 @@ export class WorkspaceShell {
   ): Promise<ManagedShellSession> {
     if (this.#closed) throw new Error("Workspace shell is closed.");
     validateCommand(command);
+    if (this.#options.sandboxStrategy === "protected_required") {
+      throw new Error(
+        "Protected OS sandbox execution is unavailable for the Project shell; refusing native fallback.",
+      );
+    }
     if (this.#options.platform !== "darwin") {
       throw new Error(
         `Sandboxed workspace shell is unavailable on ${this.#options.platform}; refusing unrestricted execution.`,
@@ -762,6 +770,7 @@ function resolveOptions(options: WorkspaceShellOptions): ResolvedWorkspaceShellO
     sandboxExecutable: options.sandboxExecutable ?? "/usr/bin/sandbox-exec",
     shellExecutable: options.shellExecutable ?? "/bin/zsh",
     platform: options.platform ?? process.platform,
+    sandboxStrategy: options.sandboxStrategy ?? "native_allowed",
   };
 }
 

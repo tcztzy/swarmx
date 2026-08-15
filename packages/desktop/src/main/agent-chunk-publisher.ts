@@ -19,6 +19,18 @@ export interface AgentChunkPublisher {
 export interface AgentChunkPublisherOptions {
   channel?: string;
   context?: Record<string, unknown>;
+  sessionId?: string;
+  adapter?: string;
+  onLateChunk?: (observation: LateChunkObservation) => void;
+}
+
+export interface LateChunkObservation {
+  requestId: string;
+  sessionId?: string;
+  adapter: string;
+  chunkKind: MessageChunk["kind"];
+  boundary: "closed";
+  observationCount: 1;
 }
 
 interface PendingTerminalProgress {
@@ -88,7 +100,17 @@ export function agentChunkPublisher(
   };
 
   const publish = ((chunk: MessageChunk) => {
-    if (closed) return;
+    if (closed) {
+      options.onLateChunk?.({
+        requestId,
+        ...(options.sessionId ? { sessionId: options.sessionId } : {}),
+        adapter: options.adapter ?? "unknown",
+        chunkKind: chunk.kind,
+        boundary: "closed",
+        observationCount: 1,
+      });
+      return;
+    }
     const invocationId = chunk.render?.invocationId;
     if (chunk.kind === "tool_call" && invocationId) {
       startedAt.set(invocationId, Date.now());

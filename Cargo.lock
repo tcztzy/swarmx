@@ -3135,6 +3135,7 @@ dependencies = [
  "anyhow",
  "chrono",
  "git2",
+ "libc",
  "llm-wiki-engine",
  "rmcp",
  "serde",

@@ -45,6 +45,10 @@
       "types": "./dist/conversation.d.ts",
       "import": "./dist/conversation.js"
     },
+    "./session-timeline": {
+      "types": "./dist/session-timeline.d.ts",
+      "import": "./dist/session-timeline.js"
+    },
     "./context-engine": {
       "types": "./dist/context-engine.d.ts",
       "import": "./dist/context-engine.js"
@@ -128,6 +132,10 @@
     "./extension-management": {
       "types": "./dist/extension-management.d.ts",
       "import": "./dist/extension-management.js"
+    },
+    "./extension-composition": {
+      "types": "./dist/extension-composition.d.ts",
+      "import": "./dist/extension-composition.js"
     },
     "./project": {
       "types": "./dist/project.d.ts",

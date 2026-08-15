@@ -134,38 +134,46 @@ describe("HarnessEnvironmentService", () => {
         selectedRuntimeId: "apple_container",
       }),
     );
+    expect(status.sandbox).toEqual(
+      expect.objectContaining({
+        strategy: "protected_required",
+        mode: "protected",
+        ready: true,
+        profileIds: expect.arrayContaining(["claude_code", "codex"]),
+      }),
+    );
     expect(status.harnesses).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ harnessId: "swarmx", status: "ready", version: "3.2.0" }),
         expect.objectContaining({ harnessId: "codex", status: "ready", version: "0.69.0" }),
         expect.objectContaining({
           harnessId: "pi",
-          status: "ready",
+          status: "unsupported",
           version: "0.80.10",
-          executionMode: "native",
-          protectionRequired: false,
-          note: expect.stringContaining("owned by Pi"),
+          executionMode: "protected",
+          protectionRequired: true,
+          note: expect.stringContaining("No host-registered protected sandbox profile"),
         }),
         expect.objectContaining({
           harnessId: "kimi",
-          status: "ready",
+          status: "unsupported",
           version: "1.2.3",
-          executionMode: "native",
-          protectionRequired: false,
-          note: expect.stringContaining("owned by Kimi Code"),
+          executionMode: "protected",
+          protectionRequired: true,
+          note: expect.stringContaining("No host-registered protected sandbox profile"),
         }),
         expect.objectContaining({
           harnessId: "opencode",
-          status: "needs_setup",
-          executionMode: "native",
-          protectionRequired: false,
+          status: "unsupported",
+          executionMode: "protected",
+          protectionRequired: true,
         }),
         expect.objectContaining({
           harnessId: "openclaw",
-          status: "ready",
+          status: "unsupported",
           version: "2026.6.11",
-          executionMode: "native",
-          protectionRequired: false,
+          executionMode: "protected",
+          protectionRequired: true,
         }),
       ]),
     );
@@ -497,7 +505,7 @@ describe("HarnessEnvironmentService", () => {
     });
     const service = new HarnessEnvironmentService({
       env: { PATH: "/usr/bin" },
-      protectionMode: "protected",
+      protectionMode: "native",
       platform: "darwin",
       arch: "arm64",
       macosVersion: "26.5.2",
@@ -587,7 +595,10 @@ describe("HarnessEnvironmentService", () => {
           "run",
           "--rm",
           "-i",
-          "node:22-slim",
+          "--network",
+          "none",
+          "--read-only",
+          "node:22-slim@sha256:253da19867dd03e2f817f433d7782adefd2a2bac8729fcd4ebc6770665167a24",
           "npx",
           "--yes",
           "@agentclientprotocol/codex-acp@1.1.2",
@@ -609,6 +620,13 @@ describe("HarnessEnvironmentService", () => {
         "CLAUDE_CODE_SUBAGENT_MODEL",
         "CLAUDE_CODE_EFFORT_LEVEL",
         "YALLM_DEFAULT_PROVIDER",
+      ]),
+    );
+    expect(result.backend?.type === "custom" ? result.backend.args : []).toEqual(
+      expect.arrayContaining([
+        "type=tmpfs,target=/tmp,size=1024M,mode=1777",
+        "--no-dns",
+        "--mount",
       ]),
     );
   });
@@ -650,7 +668,10 @@ describe("HarnessEnvironmentService", () => {
 
       expect(result.success).toBe(true);
       expect(args).toEqual(
-        expect.arrayContaining([`${authPath}:/tmp/auth.json:ro`, "CODEX_HOME=/tmp"]),
+        expect.arrayContaining([
+          `type=bind,source=${authPath},target=/tmp/auth.json,readonly`,
+          "CODEX_HOME=/tmp",
+        ]),
       );
       expect(args).not.toContain("CODEX_ACCESS_TOKEN");
       expect(args.join(" ")).not.toContain("must-not-forward");
@@ -700,5 +721,25 @@ describe("HarnessEnvironmentService", () => {
     expect(result.success).toBe(false);
     expect(result.mode).toBe("protected");
     expect(result.error).toMatch(/Apple Container/);
+  });
+
+  it("fails closed for an unprofiled custom harness in protected mode", async () => {
+    const service = new HarnessEnvironmentService({
+      env: { PATH: "/usr/bin" },
+      sandboxStrategy: "protected_required",
+    });
+
+    const backend = {
+      type: "custom" as const,
+      program: "opencode",
+      args: ["acp"],
+    };
+    const result = await service.protectedBackendForHarness("opencode", backend);
+
+    expect(result).toEqual({
+      success: false,
+      mode: "protected",
+      error: 'No host-registered protected sandbox profile exists for "opencode".',
+    });
   });
 });

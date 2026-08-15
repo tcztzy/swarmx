@@ -140,4 +140,244 @@ describe("Extension lifecycle management", () => {
       }),
     ).toThrow(/secret/i);
   });
+
+  it("requires confirmation and trusted state for permission expansion", () => {
+    const installed = {
+      pluginId: "paper-tools",
+      name: "Paper tools",
+      state: "enabled" as const,
+      enabled: true,
+      trust: "verified" as const,
+      currentRevision: revision1,
+      requestedPermissionIds: ["project:read", "project:write"],
+      grantedPermissionIds: ["project:read"],
+    };
+
+    expect(
+      planExtensionAction(
+        {
+          action: "grant_permissions",
+          pluginId: "paper-tools",
+          permissionIds: ["project:read", "project:write"],
+        },
+        installed,
+      ),
+    ).toMatchObject({ allowed: false, requiresConfirmation: true, authorityChange: "expand" });
+    expect(
+      planExtensionAction(
+        {
+          action: "grant_permissions",
+          pluginId: "paper-tools",
+          permissionIds: ["project:read", "project:write"],
+          confirmed: true,
+        },
+        installed,
+      ),
+    ).toMatchObject({ allowed: true, authorityChange: "expand" });
+    expect(
+      planExtensionAction(
+        {
+          action: "grant_permissions",
+          pluginId: "paper-tools",
+          permissionIds: ["project:write"],
+          confirmed: true,
+        },
+        { ...installed, trust: "untrusted" },
+      ),
+    ).toMatchObject({ allowed: false, reason: expect.stringMatching(/trusted/i) });
+  });
+
+  it("applies permission reduction without expansion confirmation", () => {
+    const manager = new ExtensionLifecycleManager([
+      {
+        pluginId: "paper-tools",
+        name: "Paper tools",
+        state: "enabled",
+        enabled: true,
+        trust: "verified",
+        currentRevision: revision1,
+        requestedPermissionIds: ["project:read", "project:write"],
+        grantedPermissionIds: ["project:read", "project:write"],
+      },
+    ]);
+
+    expect(
+      manager.apply({
+        action: "grant_permissions",
+        pluginId: "paper-tools",
+        permissionIds: ["project:read"],
+      }),
+    ).toMatchObject({
+      status: "applied",
+      after: { grantedPermissionIds: ["project:read"] },
+    });
+  });
+
+  it("revokes trust, disables execution, and clears grants", () => {
+    const manager = new ExtensionLifecycleManager([
+      {
+        pluginId: "paper-tools",
+        name: "Paper tools",
+        state: "enabled",
+        enabled: true,
+        trust: "verified",
+        currentRevision: revision1,
+        requestedPermissionIds: ["project:read"],
+        grantedPermissionIds: ["project:read"],
+      },
+    ]);
+
+    expect(
+      manager.apply({ action: "revoke_trust", pluginId: "paper-tools", confirmed: true }),
+    ).toMatchObject({
+      status: "applied",
+      after: { trust: "untrusted", enabled: false, grantedPermissionIds: [] },
+    });
+  });
+
+  it("never lets candidate metadata silently raise trust or permissions", () => {
+    const manager = new ExtensionLifecycleManager([
+      {
+        pluginId: "paper-tools",
+        name: "Paper tools",
+        state: "enabled",
+        enabled: true,
+        trust: "local",
+        currentRevision: revision1,
+        requestedPermissionIds: ["project:read"],
+        grantedPermissionIds: ["project:read"],
+      },
+    ]);
+
+    const receipt = manager.apply({
+      action: "update",
+      pluginId: "paper-tools",
+      candidate: {
+        ...candidate,
+        trust: "verified",
+        requestedPermissionIds: ["project:read", "project:write"],
+      },
+      confirmed: true,
+    });
+    expect(receipt.after).toMatchObject({
+      trust: "local",
+      requestedPermissionIds: ["project:read", "project:write"],
+      grantedPermissionIds: ["project:read"],
+    });
+  });
+
+  it("fails closed before authority expansion when audit intent cannot be written", () => {
+    const audit = () => {
+      throw new Error("audit unavailable");
+    };
+    const manager = new ExtensionLifecycleManager(
+      [
+        {
+          pluginId: "paper-tools",
+          name: "Paper tools",
+          state: "enabled",
+          enabled: true,
+          trust: "verified",
+          currentRevision: revision1,
+          requestedPermissionIds: ["project:read"],
+          grantedPermissionIds: [],
+        },
+      ],
+      () => "2026-07-14T10:00:00.000Z",
+      audit,
+    );
+
+    expect(() =>
+      manager.apply({
+        action: "grant_permissions",
+        pluginId: "paper-tools",
+        permissionIds: ["project:read"],
+        confirmed: true,
+      }),
+    ).toThrow("audit unavailable");
+    expect(manager.list()[0]?.grantedPermissionIds).toEqual([]);
+  });
+
+  it("fails closed when authority expansion has no audit intent writer", () => {
+    const manager = new ExtensionLifecycleManager([
+      {
+        pluginId: "paper-tools",
+        name: "Paper tools",
+        state: "enabled",
+        enabled: true,
+        trust: "verified",
+        currentRevision: revision1,
+        requestedPermissionIds: ["project:read"],
+        grantedPermissionIds: [],
+      },
+    ]);
+
+    expect(() =>
+      manager.apply({
+        action: "grant_permissions",
+        pluginId: "paper-tools",
+        permissionIds: ["project:read"],
+        confirmed: true,
+      }),
+    ).toThrow(/audit intent/i);
+    expect(manager.list()[0]?.grantedPermissionIds).toEqual([]);
+  });
+
+  it("rejects Extension-authored trust and credential-policy changes", () => {
+    expect(
+      planExtensionAction(
+        {
+          action: "trust",
+          pluginId: "paper-tools",
+          actor: "extension",
+          confirmed: true,
+        },
+        {
+          pluginId: "paper-tools",
+          name: "Paper tools",
+          state: "disabled",
+          enabled: false,
+          trust: "untrusted",
+          currentRevision: revision1,
+        },
+      ),
+    ).toMatchObject({ allowed: false, reason: expect.stringMatching(/Extension/i) });
+    expect(() =>
+      planExtensionAction({
+        action: "grant_permissions",
+        pluginId: "paper-tools",
+        confirmed: true,
+        approvalPolicy: "allow_all",
+      }),
+    ).toThrow(/secret|unrecognized|policy/i);
+  });
+
+  it("keeps built-in trust kernel-owned", () => {
+    expect(
+      planExtensionAction({
+        action: "install",
+        pluginId: "forged-builtin",
+        confirmed: true,
+        candidate: {
+          ...candidate,
+          pluginId: "forged-builtin",
+          trust: "builtin",
+          revision: { ...candidate.revision, revisionId: "forged@1" },
+        },
+      }),
+    ).toMatchObject({ allowed: false, reason: expect.stringMatching(/kernel-owned/i) });
+    expect(
+      planExtensionAction(
+        { action: "trust", pluginId: "builtin", confirmed: true },
+        {
+          pluginId: "builtin",
+          name: "Built in",
+          state: "enabled",
+          enabled: true,
+          trust: "builtin",
+          currentRevision: revision1,
+        },
+      ),
+    ).toMatchObject({ allowed: false, reason: expect.stringMatching(/kernel-owned/i) });
+  });
 });

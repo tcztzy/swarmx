@@ -1372,9 +1372,15 @@ describe("desktop main library entry", () => {
 
   it("permanently rejects live chunks after the completion barrier closes", () => {
     const send = vi.fn();
+    const late = vi.fn();
     const publish = desktopIpc.agentChunkPublisher(
       { isDestroyed: () => false, send },
       "request-settled",
+      {
+        sessionId: "session-settled",
+        adapter: "swarmx",
+        onLateChunk: late,
+      },
     );
     const settled = { role: "assistant", kind: "message" as const, content: "settled" };
 
@@ -1387,6 +1393,14 @@ describe("desktop main library entry", () => {
     expect(send).toHaveBeenCalledWith("agent:chunk", {
       requestId: "request-settled",
       chunk: settled,
+    });
+    expect(late).toHaveBeenCalledWith({
+      requestId: "request-settled",
+      sessionId: "session-settled",
+      adapter: "swarmx",
+      chunkKind: "message",
+      boundary: "closed",
+      observationCount: 1,
     });
   });
 

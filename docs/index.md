@@ -26,6 +26,8 @@ runtime diagnostics.
 
 Feature guides:
 
+- [First run and Doctor](first-run-and-doctor.md)
+- [Session causal timeline](session-timeline.md)
 - [Personal Memory](personal-memory.md)
 - [Memory](memory.md)
 - [Reference Library](reference-library.md)
@@ -86,11 +88,14 @@ application failure; all other Electron standard-error output remains visible.
 
 In Desktop:
 
-1. Open **Local workspace -> Settings -> Providers**.
-2. Add an explicit Provider connection.
-3. Refresh its Model catalog.
-4. Choose a Harness and Model in the composer.
-5. Add a Project when the task needs local files or coding tools.
+1. Open **Runtime** and inspect the local baseline; optional Harnesses do not
+   block the direct default.
+2. Open **Local workspace -> Settings -> Providers** and add one explicit
+   connection when the selected Model needs it.
+3. Refresh its Model catalog, then choose a Harness and Model in the composer.
+4. Add a writable Project when the task needs local files or coding tools.
+5. Start with a read-only question; Doctor provides an actionable blocker if
+   the selected route is not ready.
 
 Desktop stores Provider credentials as plaintext in the editable
 `~/.swarmx/provider-auth.json` file. The file is written with restrictive
@@ -111,6 +116,7 @@ swarmx doctor
 swarmx harnesses
 swarmx send "Explain this repository" --model <runtime-model-id>
 swarmx sessions
+swarmx sessions timeline <session-id>
 swarmx serve --port 8000
 ```
 
@@ -252,7 +258,9 @@ rollback, repair, and other side effects use separate explicit actions.
 
 A Custom Agent resolves to exactly one Harness and one Model. Composition
 preflight reports missing runtime, Provider, Model, Skill, MCP, context, or
-permission requirements before execution.
+permission requirements before execution. It also resolves the selected
+Extension capability graph, load reasons, conflicts, deterministic order,
+source/trust/integrity, protected-kernel claims, and explicit permission grants.
 
 See [Extensions and Custom Agents](extensions-custom-agents.md) for manifest,
 variant, trust, and persistence details.

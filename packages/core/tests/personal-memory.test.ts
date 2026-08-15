@@ -10,6 +10,7 @@ import {
   createGlobalMemorySnapshot,
   createPersonalMemorySnapshot,
   GLOBAL_MEMORY_MAX_CHARACTERS,
+  GlobalMemorySaveInputSchema,
   MemoryReviewStateSchema,
   memoryReflectionDecision,
   PERSONAL_MEMORY_MAX_CHARACTERS,
@@ -109,6 +110,21 @@ describe("Global Memory", () => {
       user: { target: "user", fileName: "USER.md", content: "Legacy preference.", revision: 0 },
       source: "memory_files_with_legacy_user",
     });
+  });
+
+  it("rejects credentials before they enter USER.md or MEMORY.md", () => {
+    expect(
+      GlobalMemorySaveInputSchema.safeParse({
+        target: "memory",
+        content: "password = live-secret-value",
+      }).success,
+    ).toBe(false);
+    expect(
+      GlobalMemorySaveInputSchema.safeParse({
+        target: "user",
+        content: "Reference https://user:password@example.test/private",
+      }).success,
+    ).toBe(false);
   });
 
   it("keeps ten-turn review cursors isolated by Session across restarts", () => {

@@ -25,6 +25,38 @@ afterEach(() => {
 });
 
 describe("AuditStore", () => {
+  it("queries verified audit evidence without creating or modifying storage", () => {
+    const missing = auditFixture();
+    const missingStore = new AuditStore({ filePath: missing.filePath });
+    fs.rmSync(missing.directory, { recursive: true, force: true });
+    expect(missingStore.queryReadOnly({ sessionId: "session-1" })).toEqual([]);
+    expect(fs.existsSync(missing.directory)).toBe(false);
+
+    const fixture = auditFixture();
+    const store = new AuditStore({ filePath: fixture.filePath });
+    store.append({
+      category: "session",
+      action: "session.observed",
+      sessionId: "session-1",
+    });
+    const before = [fixture.filePath, store.checkpointPath].map((filePath) => ({
+      filePath,
+      bytes: fs.readFileSync(filePath),
+      mtimeMs: fs.statSync(filePath).mtimeMs,
+    }));
+
+    expect(store.queryReadOnly({ sessionId: "session-1" })).toMatchObject([
+      { category: "session", action: "session.observed" },
+    ]);
+    expect(
+      [fixture.filePath, store.checkpointPath].map((filePath) => ({
+        filePath,
+        bytes: fs.readFileSync(filePath),
+        mtimeMs: fs.statSync(filePath).mtimeMs,
+      })),
+    ).toEqual(before);
+  });
+
   it("appends, reopens, verifies, queries, and exports a strict hash chain", () => {
     const fixture = auditFixture();
     let now = new Date("2026-08-05T10:00:00.000Z");

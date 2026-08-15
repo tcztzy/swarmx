@@ -269,6 +269,7 @@ export interface WorkspaceAgentToolOptions extends WorkspaceToolPermissionOption
 }
 
 export interface ClaudeSessionActivation {
+  activationId: string;
   source: "monitor" | "cron";
   prompt: string;
   taskId?: string;

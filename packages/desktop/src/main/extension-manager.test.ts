@@ -34,6 +34,7 @@ describe("DesktopExtensionManager", () => {
           },
         ],
       }),
+      () => undefined,
     );
     await manager.saveSource({
       id: "official",
@@ -41,6 +42,7 @@ describe("DesktopExtensionManager", () => {
       kind: "remote_catalog",
       location: "https://plugins.swarmx.dev/catalog.json",
       trust: "verified",
+      confirmed: true,
     });
     await manager.refreshSource("official");
     const result = await manager.applyAction({
@@ -112,5 +114,105 @@ describe("DesktopExtensionManager", () => {
         revision: { sourceId: "local-catalog", version: "1.1.0" },
       },
     ]);
+  });
+
+  it("persists permission expansion only after secret-free authority audit events", async () => {
+    const root = await mkdtemp(join(tmpdir(), "swarmx-extension-authority-"));
+    roots.push(root);
+    const events: unknown[] = [];
+    const manager = new DesktopExtensionManager(
+      new DesktopSettingsStore({ path: join(root, "settings.json") }),
+      () => "2026-07-14T10:00:00.000Z",
+      undefined,
+      (event) => events.push(event),
+    );
+    await manager.applyAction({
+      action: "install",
+      pluginId: "paper-tools",
+      confirmed: true,
+      candidate: {
+        pluginId: "paper-tools",
+        name: "Paper tools",
+        trust: "verified",
+        requestedPermissionIds: ["project:read"],
+        revision: {
+          revisionId: "paper-tools@1.0.0",
+          version: "1.0.0",
+          contentDigest: "sha256:paper-tools-1",
+          sourceId: "official",
+        },
+      },
+    });
+    const result = await manager.applyAction({
+      action: "grant_permissions",
+      pluginId: "paper-tools",
+      permissionIds: ["project:read"],
+      confirmed: true,
+    });
+
+    expect(result.state.installed[0]?.grantedPermissionIds).toEqual(["project:read"]);
+    expect(events).toEqual([
+      expect.objectContaining({ phase: "attempted", authorityChange: "expand" }),
+      expect.objectContaining({ phase: "completed", authorityChange: "expand" }),
+    ]);
+  });
+
+  it("rejects silent source trust expansion", async () => {
+    const root = await mkdtemp(join(tmpdir(), "swarmx-extension-source-trust-"));
+    roots.push(root);
+    const manager = new DesktopExtensionManager(
+      new DesktopSettingsStore({ path: join(root, "settings.json") }),
+    );
+
+    await expect(
+      manager.saveSource({
+        id: "community",
+        name: "Community",
+        kind: "remote_catalog",
+        location: "https://example.test/catalog.json",
+        trust: "verified",
+      }),
+    ).rejects.toThrow(/confirmation/i);
+    expect((await manager.state()).sources).toEqual([]);
+  });
+
+  it("fails closed when a confirmed local source cannot write an audit intent", async () => {
+    const root = await mkdtemp(join(tmpdir(), "swarmx-extension-source-audit-"));
+    roots.push(root);
+    const manager = new DesktopExtensionManager(
+      new DesktopSettingsStore({ path: join(root, "settings.json") }),
+    );
+
+    await expect(
+      manager.saveSource({
+        id: "local-tools",
+        name: "Local tools",
+        kind: "local_path",
+        location: root,
+        trust: "local",
+        confirmed: true,
+      }),
+    ).rejects.toThrow(/audit intent/i);
+    expect((await manager.state()).sources).toEqual([]);
+  });
+
+  it("rejects settings-authored built-in source trust", async () => {
+    const root = await mkdtemp(join(tmpdir(), "swarmx-extension-builtin-trust-"));
+    roots.push(root);
+    const manager = new DesktopExtensionManager(
+      new DesktopSettingsStore({ path: join(root, "settings.json") }),
+    );
+
+    await expect(
+      manager.saveSource({
+        id: "forged-builtin",
+        name: "Forged built-in",
+        kind: "local_path",
+        location: root,
+        trust: "builtin",
+        confirmed: true,
+      }),
+    ).rejects.toThrow(/kernel-owned/i);
+    expect((await manager.state()).sources).toEqual([]);
   });
 });

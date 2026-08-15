@@ -12,9 +12,9 @@ and CLI send composition. Per-file thresholds live only in `vitest.config.ts`.
 | Test paths |
 | --- |
 | `packages/core/tests/acp.test.ts`, `actions.test.ts`, `activity.test.ts`, `audit.test.ts`, `agent-profiles.test.ts`, `agent.test.ts`, `builtin-tools.test.ts`, `context.test.ts` |
-| `packages/core/tests/conversation.test.ts`, `dependencies.test.ts`, `desktop-settings.test.ts`, `edge.test.ts`, `memory-links.test.ts`, `memory.test.ts`, `packages/core/tests/memory-runtime-protocol.test.ts`, `extension-management.test.ts`, `extensions.test.ts`, `harness-management.test.ts`, `harness.test.ts` |
+| `packages/core/tests/conversation.test.ts`, `dependencies.test.ts`, `desktop-settings.test.ts`, `edge.test.ts`, `memory-links.test.ts`, `memory.test.ts`, `packages/core/tests/memory-runtime-protocol.test.ts`, `extension-composition.test.ts`, `extension-management.test.ts`, `extensions.test.ts`, `harness-management.test.ts`, `harness.test.ts` |
 | `packages/core/tests/local-tool-contracts.test.ts`, `mcp.test.ts`, `media.test.ts`, `model-capabilities.test.ts`, `agent-guidance.test.ts`, `n8n.test.ts`, `package-boundaries.test.ts`, `personal-memory.test.ts`, `project-bootstrap.test.ts`, `project-contracts.test.ts`, `project.test.ts`, `providers.test.ts`, `rendering.test.ts`, `request-scope.test.ts`, `secrets.test.ts` |
-| `packages/core/tests/server.test.ts`, `session-discovery.test.ts`, `session.test.ts`, `skill-variants.test.ts`, `swarm-eval.test.ts`, `swarm.test.ts`, `telemetry.test.ts`, `version.test.ts` |
+| `packages/core/tests/server.test.ts`, `session-discovery.test.ts`, `session.test.ts`, `session-timeline.test.ts`, `skill-variants.test.ts`, `swarm-eval.test.ts`, `swarm.test.ts`, `telemetry.test.ts`, `version.test.ts` |
 | `packages/core/tests/skill-evolution.test.ts`, `skill-evolution-store.test.ts`, `skill-evolution-service.test.ts`, `skill-evaluation.test.ts`, `skill-delivery.test.ts` |
 | `packages/core/tests/task-runtime.test.ts` |
 | `packages/core/tests/task-runtime-store.test.ts` |
@@ -71,7 +71,7 @@ Exact Core test paths: `packages/core/tests/acp.test.ts`,
 `packages/core/tests/context-engine.test.ts`, `packages/core/tests/context-evaluation.test.ts`,
 `packages/core/tests/context-engine-store.test.ts`,
 `packages/core/tests/dependencies.test.ts`, `packages/core/tests/desktop-settings.test.ts`,
-`packages/core/tests/edge.test.ts`, `packages/core/tests/memory-links.test.ts`, `packages/core/tests/memory.test.ts`, `packages/core/tests/extension-management.test.ts`,
+`packages/core/tests/edge.test.ts`, `packages/core/tests/memory-links.test.ts`, `packages/core/tests/memory.test.ts`, `packages/core/tests/extension-composition.test.ts`, `packages/core/tests/extension-management.test.ts`,
 `packages/core/tests/extensions.test.ts`, `packages/core/tests/harness-management.test.ts`,
 `packages/core/tests/harness.test.ts`, `packages/core/tests/mcp.test.ts`,
 `packages/core/tests/local-tool-contracts.test.ts`,
@@ -85,7 +85,7 @@ Exact Core test paths: `packages/core/tests/acp.test.ts`,
 `packages/core/tests/providers.test.ts`, `packages/core/tests/rendering.test.ts`,
 `packages/core/tests/request-scope.test.ts`,
 `packages/core/tests/secrets.test.ts`, `packages/core/tests/server.test.ts`,
-`packages/core/tests/session-discovery.test.ts`, `packages/core/tests/session.test.ts`,
+`packages/core/tests/session-discovery.test.ts`, `packages/core/tests/session.test.ts`, `packages/core/tests/session-timeline.test.ts`,
 `packages/core/tests/skill-variants.test.ts`, `packages/core/tests/swarm-eval.test.ts`,
 `packages/core/tests/swarm.test.ts`, `packages/core/tests/telemetry.test.ts`,
 `packages/core/tests/version.test.ts`.
@@ -97,7 +97,7 @@ Exact Core test paths: `packages/core/tests/acp.test.ts`,
 | Test paths |
 | --- |
 | `packages/desktop/src/main/acp-session-runtime.test.ts`, `agent-interactions.test.ts`, `browser-host.test.ts`, `builtin-tool-settings.test.ts`, `child-agent-host.test.ts`, `claude-scheduled-tasks.test.ts`, `claude-session-runtime.test.ts`, `codex-auth.test.ts`, `direct-harness-release.e2e.test.ts` |
-| `packages/desktop/src/main/composer-preferences.test.ts`, `custom-agents.test.ts`, `extension-manager.test.ts`, `harness-environment.test.ts`, `ipc-router.test.ts`, `library.test.ts`, `lsp-host.test.ts`, `media-faults.test.ts`, `media-preview-hash.test.ts` |
+| `packages/desktop/src/main/agent-chunk-publisher.test.ts`, `composer-preferences.test.ts`, `custom-agents.test.ts`, `extension-manager.test.ts`, `harness-environment.test.ts`, `ipc-router.test.ts`, `library.test.ts`, `lsp-host.test.ts`, `media-faults.test.ts`, `media-preview-hash.test.ts` |
 | `packages/desktop/src/main/media.test.ts`, `model-catalog.test.ts`, `permission-review.test.ts`, `permission-service.test.ts`, `global-memory-service.test.ts`, `personal-memory.test.ts`, `preload.test.ts`, `private-json-file.test.ts`, `provider-auth.test.ts`, `provider-error.test.ts`, `provider-key-pool.test.ts`, `provider-usage.test.ts` |
 | `packages/desktop/src/main/memory-runtime-host.test.ts`, `packages/desktop/src/main/memory-runtime-integration.test.ts`, `packages/desktop/src/main/memory-runtime-backend.test.ts` |
 | `packages/desktop/src/main/browser-ipc.test.ts`, `global-memory-ipc.test.ts`, `project-ipc.test.ts`, `project-service.test.ts`, `request-registry.test.ts`, `session-title.test.ts`, `settings-store.test.ts`, `side-chat-service.test.ts`, `task-runtime-ipc.test.ts`, `task-supervisor.test.ts`, `terminal-host.test.ts`, `terminal-ipc.test.ts`, `updater.test.ts`, `window-security.test.ts`, `workspace-inspection-ipc.test.ts`, `workspace-shell.test.ts`, `workspace-tool-permissions.test.ts`, `workspace-tools.test.ts` |
@@ -124,6 +124,7 @@ behavior lives in rendered interaction/smoke tests rather than source-string
 class assertions.
 
 Exact Desktop test paths: `packages/desktop/src/main/acp-session-runtime.test.ts`,
+`packages/desktop/src/main/agent-chunk-publisher.test.ts`,
 `packages/desktop/src/main/agent-interactions.test.ts`,
 `packages/desktop/src/main/browser-host.test.ts`,
 `packages/desktop/src/main/browser-ipc.test.ts`,
@@ -203,14 +204,15 @@ Exact Desktop test paths: `packages/desktop/src/main/acp-session-runtime.test.ts
 
 | Test paths |
 | --- |
-| `packages/cli/tests/audit-command.test.ts`, `cli-entry.test.ts`, `doctor.test.ts`, `eval-run.test.ts`, `send-config.test.ts`, `evolution-command.test.ts` (incl. real-chain promoted-revision resolution) |
-| `packages/acp-server/src/server.test.ts`, `packages/runtime/src/doctor.test.ts`, `packages/runtime/src/python-environment.test.ts`, `packages/runtime/src/python-worker-smoke.test.ts`, `packages/runtime/src/memory-runtime-environment.test.ts`, `packages/swarmx/tests/launcher.test.ts` (including exact macOS InputMethodKit diagnostic filtering and preservation of all other Electron stderr) |
+| `packages/cli/tests/audit-command.test.ts`, `cli-entry.test.ts`, `doctor.test.ts`, `eval-run.test.ts`, `send-config.test.ts`, `session-timeline-command.test.ts`, `evolution-command.test.ts` (incl. real-chain promoted-revision resolution) |
+| `packages/acp-server/src/server.test.ts`, `packages/runtime/src/doctor.test.ts`, `packages/runtime/src/sandbox-policy.test.ts`, `packages/runtime/src/python-environment.test.ts`, `packages/runtime/src/python-worker-smoke.test.ts`, `packages/runtime/src/memory-runtime-environment.test.ts`, `packages/swarmx/tests/launcher.test.ts` (including exact macOS InputMethodKit diagnostic filtering and preservation of all other Electron stderr) |
 | `evals/inspect/__init__.py`, `evals/inspect/tasks.py`, `evals/inspect/tasks_test.py`, `evals/inspect/skill_eval.py`, `evals/inspect/skill_eval_test.py` |
 
 Exact CLI test paths: `packages/cli/tests/audit-command.test.ts`,
 `packages/cli/tests/cli-entry.test.ts`,
 `packages/cli/tests/doctor.test.ts`,
 `packages/cli/tests/eval-run.test.ts`, `packages/cli/tests/send-config.test.ts`,
+`packages/cli/tests/session-timeline-command.test.ts`,
 `packages/cli/tests/evolution-command.test.ts`.
 
 CLI coverage includes the real Session/Harness list entrypoints, multi-turn REPL
@@ -222,6 +224,7 @@ coverage includes correlated `acp.prompt` cancellation without a duplicate
 cancel action or no-op mode events.
 
 Exact Runtime test paths: `packages/runtime/src/doctor.test.ts`,
+`packages/runtime/src/sandbox-policy.test.ts`,
 `packages/runtime/src/python-environment.test.ts`, and
 `packages/runtime/src/python-worker-smoke.test.ts`.
 

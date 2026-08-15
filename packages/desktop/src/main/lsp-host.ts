@@ -6,6 +6,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import {
   type ExtensionInventory,
   type LspCapability,
+  preflightExtensionComposition,
   type SkillCapability,
   SWARMX_LOCAL_FILES_LSP_ID,
   SWARMX_SKILLS_LSP_ID,
@@ -29,6 +30,24 @@ const LSP_DOCUMENT_LIMIT_BYTES = 4 * 1024 * 1024;
 const FILE_COMPLETION_ITEM_KIND = 17;
 const FOLDER_COMPLETION_ITEM_KIND = 19;
 const SKILL_COMPLETION_ITEM_KIND = 18;
+const LSP_ENVIRONMENT_KEYS = [
+  "PATH",
+  "HOME",
+  "USER",
+  "LOGNAME",
+  "SHELL",
+  "TMPDIR",
+  "TMP",
+  "TEMP",
+  "LANG",
+  "LC_ALL",
+  "LC_CTYPE",
+  "LC_MESSAGES",
+  "SystemRoot",
+  "WINDIR",
+  "ComSpec",
+  "PATHEXT",
+] as const;
 
 export interface LspTextPosition {
   line: number;
@@ -99,7 +118,9 @@ export class LspHost {
   private readonly sessions = new Map<string, LspSession>();
 
   supportsClaudeOperations(inventory: ExtensionInventory): boolean {
-    return inventory.lspServers.some(isCommandBackedLspServer);
+    return inventory.lspServers.some(
+      (server) => isCommandBackedLspServer(server) && isLspServerAdmitted(inventory, server),
+    );
   }
 
   async complete(
@@ -109,6 +130,7 @@ export class LspHost {
     validateCompletionRequest(request);
     const workspaceRoot = await normalizeWorkspaceRoot(request.workspaceRoot);
     const server = resolveLspServer(inventory, request.serverId);
+    assertLspServerAdmitted(inventory, server);
     if (server.id === SWARMX_LOCAL_FILES_LSP_ID) {
       const result = await completeLocalFiles(workspaceRoot, request);
       return { serverId: server.id, status: "ok", result };
@@ -135,6 +157,7 @@ export class LspHost {
     const root = await normalizeWorkspaceRoot(workspaceRoot);
     const file = await readContainedLspFile(root, request.filePath);
     const server = resolveLspServerForFile(inventory, file.path);
+    assertLspServerAdmitted(inventory, server);
     const key = sessionKey(server.id, root);
     const existing = this.sessions.get(key);
     const session = existing?.isAlive() ? existing : this.startSession(server, root, key);
@@ -176,7 +199,7 @@ export class LspHost {
     const command = resolveLspCommand(server, workspaceRoot);
     const child = spawn(command.program, command.args, {
       cwd: command.cwd,
-      env: process.env,
+      env: lspEnvironment(process.env),
       stdio: ["pipe", "pipe", "pipe"],
     });
     const connection = new LspRpcConnection(server.id, child);
@@ -569,6 +592,51 @@ function resolveLspServer(inventory: ExtensionInventory, serverId: string): LspC
   if (matches.length === 0) throw new Error(`Unknown LSP server "${id}".`);
   if (matches.length > 1) throw new Error(`Ambiguous LSP server "${id}".`);
   return matches[0];
+}
+
+function assertLspServerAdmitted(inventory: ExtensionInventory, server: LspCapability): void {
+  const bundleIds = owningBundleIds(inventory, server);
+  if (bundleIds.length === 0) {
+    throw new Error(`LSP server "${server.id}" has no host-owned Extension inventory record.`);
+  }
+  const preflight = preflightExtensionComposition({
+    bundles: inventory.bundles,
+    selectedExtensionIds: bundleIds,
+    installedExtensions: inventory.installedExtensions ?? [],
+  });
+  if (preflight.status === "ready") return;
+  const issues = preflight.issues
+    .filter((issue) => issue.severity === "error")
+    .map((issue) => issue.message)
+    .join(" ");
+  throw new Error(`LSP server "${server.id}" is blocked by Extension preflight. ${issues}`);
+}
+
+function isLspServerAdmitted(inventory: ExtensionInventory, server: LspCapability): boolean {
+  try {
+    assertLspServerAdmitted(inventory, server);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function owningBundleIds(inventory: ExtensionInventory, server: LspCapability): string[] {
+  return inventory.bundles
+    .filter((bundle) =>
+      bundle.capabilities.lspServers.some((candidate) => candidate.id === server.id),
+    )
+    .map((bundle) => bundle.id)
+    .sort((left, right) => left.localeCompare(right));
+}
+
+function lspEnvironment(parent: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const environment: NodeJS.ProcessEnv = {};
+  for (const key of LSP_ENVIRONMENT_KEYS) {
+    const value = parent[key];
+    if (value !== undefined) environment[key] = value;
+  }
+  return environment;
 }
 
 function resolveLspCommand(server: LspCapability, workspaceRoot: string): LspCommand {

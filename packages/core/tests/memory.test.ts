@@ -122,6 +122,38 @@ describe("Memory contracts", () => {
     ).toBe(false);
   });
 
+  it("accepts small human Wiki metadata and rejects credential-bearing page bodies", () => {
+    expect(
+      MemoryCreateInputSchema.parse({
+        title: "Mercury",
+        kind: "organization",
+        summary: "A project organization.",
+        sources: ["https://example.test/mercury"],
+        scope: "Project Atlas",
+        content: "Verified facts and [[Related Concept]].",
+      }),
+    ).toMatchObject({ kind: "organization", scope: "Project Atlas" });
+    expect(
+      MemoryCreateInputSchema.safeParse({
+        title: "Credentials",
+        content: "api_key = live-secret-value",
+      }).success,
+    ).toBe(false);
+    expect(
+      MemoryCreateInputSchema.safeParse({
+        title: "Unsafe source",
+        sources: ["https://user:password@example.test/reference"],
+        content: "Ordinary note.",
+      }).success,
+    ).toBe(false);
+    expect(
+      MemoryCreateInputSchema.safeParse({
+        title: "sk-live-token",
+        content: "Ordinary note.",
+      }).success,
+    ).toBe(false);
+  });
+
   it("derives memory_link edges without turning the organization into product identity", () => {
     const graph = buildMemoryGraph(2, [
       page({ id: "mem_target", title: "Hermes Agent", aliases: ["Hermes"] }),

@@ -182,6 +182,16 @@ describe("WorkspaceShell", () => {
     }
   });
 
+  it("does not downgrade a protected-required Project shell to native execution", async () => {
+    const root = await temporaryDirectory();
+    await expect(
+      new WorkspaceShell(root, {
+        platform: "darwin",
+        sandboxStrategy: "protected_required",
+      }).run("pwd"),
+    ).rejects.toThrow(/Protected OS sandbox.*native fallback/i);
+  });
+
   it("validates the local tool boundary", async () => {
     const root = await temporaryDirectory();
     const tool = workspaceShellAgentTool(new WorkspaceShell(root, { platform: "linux" }));

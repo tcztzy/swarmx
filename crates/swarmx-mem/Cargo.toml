@@ -10,6 +10,7 @@ publish = false
 anyhow = "1"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 git2 = { version = "0.21", default-features = false, features = ["vendored-libgit2"] }
+libc = "0.2"
 llm-wiki-engine = "=0.5.4"
 rmcp = { version = "=2.2.0", features = ["server", "transport-io"] }
 serde = { version = "1", features = ["derive"] }

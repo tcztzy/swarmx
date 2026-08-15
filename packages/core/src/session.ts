@@ -5,6 +5,7 @@ import * as path from "node:path";
 import { v4 as uuidv4 } from "uuid";
 import { z } from "zod";
 import { modelReplayableMessages } from "./conversation.js";
+import { type SessionTimelineSource, SessionTimelineSourceSchema } from "./session-timeline.js";
 import {
   type MessageChunk,
   MessageChunkSchema,
@@ -25,6 +26,21 @@ const LEGACY_SESSION_INDEX_FILE = "sessions.index.jsonl";
 const SESSION_LOCK_TIMEOUT_MS = 5_000;
 const SESSION_LOCK_STALE_MS = 30_000;
 const SessionRequestIdSchema = z.string().trim().min(1).max(256);
+const SessionActivationIdSchema = z.string().trim().min(1).max(256);
+const SessionRequestDigestSchema = z.string().trim().min(1).max(256);
+const SessionRequestStateSchema = z.enum(["started", "settled"]);
+const SessionRequestOutcomeSchema = z.enum(["completed", "canceled", "failed"]);
+
+export type SessionRequestState = z.infer<typeof SessionRequestStateSchema>;
+export type SessionRequestOutcome = z.infer<typeof SessionRequestOutcomeSchema>;
+
+interface SessionRequestReceiptFields {
+  activationId?: string;
+  requestId?: string;
+  requestDigest?: string;
+  requestState?: SessionRequestState;
+  requestOutcome?: SessionRequestOutcome;
+}
 
 type SessionMetadata = Omit<SessionData, "messages">;
 
@@ -40,7 +56,11 @@ interface MessagesAppendedEvent {
   type: "messages_appended";
   timestamp: string;
   messages: MessageChunk[];
+  activationId?: string;
   requestId?: string;
+  requestDigest?: string;
+  requestState?: SessionRequestState;
+  requestOutcome?: SessionRequestOutcome;
 }
 
 interface MessagesReplacedEvent {
@@ -48,9 +68,14 @@ interface MessagesReplacedEvent {
   type: "messages_replaced";
   timestamp: string;
   messages: MessageChunk[];
+  activationId?: string;
   reason?: "edit_last_user_message";
   replacedFromIndex?: number;
   replacedMessageCount?: number;
+  requestId?: string;
+  requestDigest?: string;
+  requestState?: SessionRequestState;
+  requestOutcome?: SessionRequestOutcome;
 }
 
 interface SessionUpdatedEvent {
@@ -71,7 +96,39 @@ export interface SessionSummary extends SessionMetadata {
 }
 
 export interface AppendMessagesOptions {
+  activationId?: string;
   requestId?: string;
+  requestDigest?: string;
+  requestState?: SessionRequestState;
+  requestOutcome?: SessionRequestOutcome;
+}
+
+export interface BeginSessionRequestInput {
+  id: string;
+  requestId: string;
+  requestDigest: string;
+  userMessage: MessageChunk;
+  editMessageIndex?: number;
+  expectedMessages?: readonly MessageChunk[];
+}
+
+export type BeginSessionRequestResult =
+  | { status: "started"; session: SessionData }
+  | {
+      status: "settled";
+      session: SessionData;
+      messages: MessageChunk[];
+      outcome: SessionRequestOutcome;
+    }
+  | { status: "unknown" }
+  | { status: "conflict" };
+
+export interface SettleSessionRequestInput {
+  id: string;
+  requestId: string;
+  requestDigest: string;
+  messages: MessageChunk[];
+  outcome: SessionRequestOutcome;
 }
 
 interface SessionIndexEntry {
@@ -280,6 +337,49 @@ function saveSessionLocked(
 
 export function loadSession(id: string): SessionData | null {
   return loadSessionFromRoots(id, configuredSessionRoots());
+}
+
+/**
+ * Reads the canonical JSONL records needed for causal diagnostics without
+ * writing an index, repairing a tail, or changing Session state.
+ */
+export function readSessionTimelineSource(id: string): SessionTimelineSource | null {
+  const source = findSessionSource(id, configuredSessionRoots());
+  if (!source) return null;
+  const parsed = parseJsonlFile(source.path, parseSessionEvent);
+  const session = replaySessionEvents(parsed.records, source.path);
+  assertSessionMatchesFile(session, source.path);
+  return SessionTimelineSourceSchema.parse({
+    sessionId: session.id,
+    projectId: session.projectId,
+    tornTail: parsed.tornTail,
+    records: parsed.records.map((event, index) => ({
+      sequence: index + 1,
+      type: event.type,
+      timestamp: event.timestamp,
+      ...(event.type === "messages_appended" || event.type === "messages_replaced"
+        ? {
+            ...(event.activationId ? { activationId: event.activationId } : {}),
+            ...(event.requestId ? { requestId: event.requestId } : {}),
+            ...(event.requestDigest ? { requestDigest: event.requestDigest } : {}),
+            ...(event.requestState ? { requestState: event.requestState } : {}),
+            ...(event.requestOutcome ? { requestOutcome: event.requestOutcome } : {}),
+          }
+        : {}),
+      ...(event.type === "session_created"
+        ? { messages: event.session.messages }
+        : event.type === "messages_appended" || event.type === "messages_replaced"
+          ? { messages: event.messages }
+          : { messages: [] }),
+      ...(event.type === "messages_replaced"
+        ? {
+            reason: event.reason,
+            replacedFromIndex: event.replacedFromIndex,
+            replacedMessageCount: event.replacedMessageCount,
+          }
+        : {}),
+    })),
+  });
 }
 
 export interface ListSessionsOptions {
@@ -491,6 +591,10 @@ export function appendMessages(
   messages: MessageChunk[],
   options: AppendMessagesOptions = {},
 ): boolean {
+  const activationId =
+    options.activationId === undefined
+      ? undefined
+      : SessionActivationIdSchema.parse(options.activationId);
   const requestId =
     options.requestId === undefined ? undefined : SessionRequestIdSchema.parse(options.requestId);
   return (
@@ -509,7 +613,13 @@ export function appendMessages(
       });
       const event =
         parsedMessages.length > 0
-          ? messagesAppendedEvent(parsedMessages, now, requestId)
+          ? messagesAppendedEvent(parsedMessages, now, {
+              activationId,
+              requestId,
+              requestDigest: options.requestDigest,
+              requestState: options.requestState,
+              requestOutcome: options.requestOutcome,
+            })
           : sessionUpdatedEvent(next, now);
       appendSessionEvents(paths.jsonl, [event]);
       cacheSession(paths.jsonl, next);
@@ -517,6 +627,130 @@ export function appendMessages(
       return true;
     }) ?? false
   );
+}
+
+export function beginSessionRequest(
+  input: BeginSessionRequestInput,
+): BeginSessionRequestResult | null {
+  const requestId = SessionRequestIdSchema.parse(input.requestId);
+  const requestDigest = SessionRequestDigestSchema.parse(input.requestDigest);
+  return withSessionLog(input.id, (current, paths, sessionsDir) => {
+    const receipt = latestSessionRequestReceipt(paths.jsonl, requestId);
+    if (receipt) {
+      if (receipt.requestDigest !== requestDigest) return { status: "conflict" };
+      if (receipt.requestState === "settled" && receipt.requestOutcome) {
+        return {
+          status: "settled",
+          session: current,
+          messages: receipt.messages,
+          outcome: receipt.requestOutcome,
+        };
+      }
+      return { status: "unknown" };
+    }
+
+    const now = new Date().toISOString();
+    const userMessage = MessageChunkSchema.parse({
+      ...input.userMessage,
+      role: "user",
+      kind: "message",
+      content: input.userMessage.content.trim(),
+      createdAt: input.userMessage.createdAt ?? now,
+    });
+    let next: SessionData;
+    let events: SessionEvent[];
+    if (input.editMessageIndex !== undefined) {
+      const expectedMessages = (input.expectedMessages ?? []).map((message) =>
+        MessageChunkSchema.parse(message),
+      );
+      if (!sameValue(current.messages, expectedMessages)) {
+        throw new Error("Session history changed before the request could be started.");
+      }
+      if (
+        !Number.isInteger(input.editMessageIndex) ||
+        input.editMessageIndex < 0 ||
+        input.editMessageIndex >= current.messages.length
+      ) {
+        throw new Error("Edited message index is outside the current Session history.");
+      }
+      const replaced = current.messages[input.editMessageIndex];
+      if (replaced?.role !== "user" || replaced.kind !== "message") {
+        throw new Error("Only user messages can be edited.");
+      }
+      if (input.editMessageIndex !== lastUserMessageIndex(current.messages)) {
+        throw new Error("Only the latest user message can be edited.");
+      }
+      next = SessionDataSchema.parse({
+        ...current,
+        externalAcpSession: undefined,
+        messages: [...current.messages.slice(0, input.editMessageIndex), userMessage],
+        updatedAt: now,
+      });
+      events = [
+        sessionUpdatedEvent(next, now),
+        messagesReplacedEvent(next.messages, now, {
+          reason: "edit_last_user_message",
+          replacedFromIndex: input.editMessageIndex,
+          replacedMessageCount: current.messages.length - input.editMessageIndex,
+          requestId,
+          requestDigest,
+          requestState: "started",
+        }),
+      ];
+    } else {
+      next = SessionDataSchema.parse({
+        ...current,
+        messages: [...current.messages, userMessage],
+        updatedAt: now,
+      });
+      events = [
+        messagesAppendedEvent([userMessage], now, {
+          requestId,
+          requestDigest,
+          requestState: "started",
+        }),
+      ];
+    }
+    appendSessionEvents(paths.jsonl, events);
+    cacheSession(paths.jsonl, next);
+    indexSession(next, paths.jsonl, sessionsDir);
+    return { status: "started", session: next };
+  });
+}
+
+export function settleSessionRequest(input: SettleSessionRequestInput): SessionData | null {
+  const requestId = SessionRequestIdSchema.parse(input.requestId);
+  const requestDigest = SessionRequestDigestSchema.parse(input.requestDigest);
+  const outcome = SessionRequestOutcomeSchema.parse(input.outcome);
+  return withSessionLog(input.id, (current, paths, sessionsDir) => {
+    const receipt = latestSessionRequestReceipt(paths.jsonl, requestId);
+    if (!receipt || receipt.requestDigest !== requestDigest) {
+      throw new Error("Session request receipt does not match the settling request.");
+    }
+    if (receipt.requestState === "settled") return current;
+    const now = new Date().toISOString();
+    const parsedMessages = input.messages.map((message) =>
+      MessageChunkSchema.parse({
+        ...message,
+        createdAt: message.createdAt ?? now,
+      }),
+    );
+    const next = SessionDataSchema.parse({
+      ...current,
+      messages: [...current.messages, ...parsedMessages],
+      updatedAt: now,
+    });
+    const event = messagesAppendedEvent(parsedMessages, now, {
+      requestId,
+      requestDigest,
+      requestState: "settled",
+      requestOutcome: outcome,
+    });
+    appendSessionEvents(paths.jsonl, [event]);
+    cacheSession(paths.jsonl, next);
+    indexSession(next, paths.jsonl, sessionsDir);
+    return next;
+  });
 }
 
 function withSessionLog<T>(
@@ -994,6 +1228,7 @@ function parseSessionEvent(input: unknown): SessionEvent {
   if (record.type === "messages_appended" || record.type === "messages_replaced") {
     if (!Array.isArray(record.messages)) throw new Error(`${record.type} requires messages.`);
     const messages = record.messages.map((message) => MessageChunkSchema.parse(message));
+    const receipt = parseSessionRequestReceipt(record);
     if (record.type === "messages_replaced" && record.reason !== undefined) {
       if (record.reason !== "edit_last_user_message") {
         throw new Error(`Unknown messages_replaced reason: ${String(record.reason)}`);
@@ -1014,6 +1249,7 @@ function parseSessionEvent(input: unknown): SessionEvent {
         reason: record.reason,
         replacedFromIndex: record.replacedFromIndex as number,
         replacedMessageCount: record.replacedMessageCount as number,
+        ...receipt,
       };
     }
     const requestId =
@@ -1026,6 +1262,7 @@ function parseSessionEvent(input: unknown): SessionEvent {
       timestamp: record.timestamp,
       messages,
       ...(requestId ? { requestId } : {}),
+      ...receipt,
     };
   }
   if (record.type === "session_updated") {
@@ -1038,6 +1275,73 @@ function parseSessionEvent(input: unknown): SessionEvent {
     };
   }
   throw new Error(`Unknown Session event type: ${String(record.type)}`);
+}
+
+function parseSessionRequestReceipt(record: Record<string, unknown>): SessionRequestReceiptFields {
+  const activationId =
+    record.activationId === undefined
+      ? undefined
+      : SessionActivationIdSchema.parse(record.activationId);
+  const requestId =
+    record.requestId === undefined ? undefined : SessionRequestIdSchema.parse(record.requestId);
+  const requestDigest =
+    record.requestDigest === undefined
+      ? undefined
+      : SessionRequestDigestSchema.parse(record.requestDigest);
+  const requestState =
+    record.requestState === undefined
+      ? undefined
+      : SessionRequestStateSchema.parse(record.requestState);
+  const requestOutcome =
+    record.requestOutcome === undefined
+      ? undefined
+      : SessionRequestOutcomeSchema.parse(record.requestOutcome);
+  if (requestState === "settled" && requestOutcome === undefined) {
+    throw new Error("Settled Session request receipts require an outcome.");
+  }
+  if (requestOutcome !== undefined && requestState !== "settled") {
+    throw new Error("Session request outcomes require a settled receipt.");
+  }
+  if ((requestState !== undefined || requestOutcome !== undefined) && !requestId) {
+    throw new Error("Session request receipts require a requestId.");
+  }
+  return {
+    ...(activationId ? { activationId } : {}),
+    ...(requestId ? { requestId } : {}),
+    ...(requestDigest ? { requestDigest } : {}),
+    ...(requestState ? { requestState } : {}),
+    ...(requestOutcome ? { requestOutcome } : {}),
+  };
+}
+
+interface SessionRequestReceipt {
+  requestDigest?: string;
+  requestState?: SessionRequestState;
+  requestOutcome?: SessionRequestOutcome;
+  messages: MessageChunk[];
+}
+
+function latestSessionRequestReceipt(
+  filePath: string,
+  requestId: string,
+): SessionRequestReceipt | null {
+  const parsed = parseJsonlFile(filePath, parseSessionEvent);
+  let latest: SessionRequestReceipt | null = null;
+  for (const event of parsed.records) {
+    if (
+      (event.type !== "messages_appended" && event.type !== "messages_replaced") ||
+      event.requestId !== requestId
+    ) {
+      continue;
+    }
+    latest = {
+      requestDigest: event.requestDigest,
+      requestState: event.requestState,
+      requestOutcome: event.requestOutcome,
+      messages: event.messages,
+    };
+  }
+  return latest;
 }
 
 function replaySessionEvents(events: SessionEvent[], filePath: string): SessionData {
@@ -1081,14 +1385,18 @@ function replaySessionEvents(events: SessionEvent[], filePath: string): SessionD
 function messagesAppendedEvent(
   messages: MessageChunk[],
   timestamp: string,
-  requestId?: string,
+  receipt: SessionRequestReceiptFields = {},
 ): MessagesAppendedEvent {
   return {
     schemaVersion: SESSION_SCHEMA_VERSION,
     type: "messages_appended",
     timestamp,
     messages,
-    ...(requestId ? { requestId } : {}),
+    ...(receipt.activationId ? { activationId: receipt.activationId } : {}),
+    ...(receipt.requestId ? { requestId: receipt.requestId } : {}),
+    ...(receipt.requestDigest ? { requestDigest: receipt.requestDigest } : {}),
+    ...(receipt.requestState ? { requestState: receipt.requestState } : {}),
+    ...(receipt.requestOutcome ? { requestOutcome: receipt.requestOutcome } : {}),
   };
 }
 
@@ -1098,13 +1406,15 @@ function messagesReplacedEvent(
   replacement: Pick<
     MessagesReplacedEvent,
     "reason" | "replacedFromIndex" | "replacedMessageCount"
-  > = {},
+  > &
+    SessionRequestReceiptFields = {},
 ): MessagesReplacedEvent {
   return {
     schemaVersion: SESSION_SCHEMA_VERSION,
     type: "messages_replaced",
     timestamp,
     messages,
+    ...(replacement.activationId ? { activationId: replacement.activationId } : {}),
     ...replacement,
   };
 }

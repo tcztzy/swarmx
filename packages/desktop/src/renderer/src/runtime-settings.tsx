@@ -266,7 +266,12 @@ export function RuntimeSettings({
                                 key={action.id}
                                 className="doctor-action [min-width:0] [padding:8px_0] [border-top:1px_solid_var(--border-subtle)] [display:flex] [align-items:flex-start] [gap:8px] [&_>_span]:[min-width:0] [&_>_span]:[flex:1_1_auto] [&_>_span]:[color:var(--foreground)] [&_>_span]:[font-size:11px] [&_>_span]:[line-height:1.4] [&_>_span]:[overflow-wrap:anywhere]"
                               >
-                                <span>{action.label}</span>
+                                <span>
+                                  {action.label}
+                                  {(action.changes ?? []).map((change) => (
+                                    <span key={change}> · {change}</span>
+                                  ))}
+                                </span>
                                 <Badge tone={action.risk === "admin" ? "danger" : "neutral"}>
                                   {action.risk}
                                 </Badge>
@@ -319,10 +324,13 @@ export function RuntimeSettings({
                             <XCircle aria-hidden="true" />
                             <div>
                               <strong>{issue.targetId ?? issue.scope}</strong>
-                              <span>{issue.message}</span>
+                              <span>{issue.symptom ?? issue.message}</span>
+                              {issue.cause && <span>Cause: {issue.cause}</span>}
+                              {issue.impact && <span>Impact: {issue.impact}</span>}
+                              {issue.nextAction && <span>Next: {issue.nextAction}</span>}
                             </div>
                             <Badge tone={issue.severity === "error" ? "danger" : "neutral"}>
-                              {issue.severity}
+                              {issue.classification ?? issue.severity}
                             </Badge>
                           </li>
                         ))}
@@ -467,6 +475,12 @@ export function RuntimeSettings({
                       Apple Container is preferred for protected local harness execution on
                       supported macOS hosts.
                     </p>
+                    {environment?.sandbox && (
+                      <p>
+                        OS sandbox: {environment.sandbox.strategy} · {environment.sandbox.mode} ·{" "}
+                        {environment.sandbox.ready ? "ready" : "blocked"}
+                      </p>
+                    )}
                   </div>
                   <ul className="runtime-settings__list [margin:12px_0_0] [padding:0] [overflow:hidden] [background:var(--card)] [border:1px_solid_var(--border-subtle)] [border-radius:var(--radius-lg)] [list-style:none] [box-shadow:var(--shadow-inset)] [&_li]:[min-width:0] [&_li]:[min-height:62px] [&_li]:[padding:11px_14px] [&_li]:[display:grid] [&_li]:[align-items:center] [&_li]:[gap:10px] [&_li]:[border-bottom:1px_solid_var(--border-subtle)] [&_li]:[grid-template-columns:28px_minmax(150px,_1.2fr)_minmax(90px,_0.65fr)_minmax(130px,_1fr)_auto] max-860:[&_li]:[grid-template-columns:28px_minmax(130px,_1fr)_auto] max-680:[&_li]:[grid-template-columns:28px_minmax(0,_1fr)_auto]">
                     {(environment?.containerRuntimes ?? []).map((runtime) => (

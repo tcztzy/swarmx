@@ -17,6 +17,9 @@ describe("swarmx doctor", () => {
 
     expect(exitCode).toBe(1);
     expect(io.output()).toContain("SwarmX Doctor");
+    expect(io.output()).toContain("Cause: The CLI is absent.");
+    expect(io.output()).toContain("Impact: Selected tasks cannot start.");
+    expect(io.output()).toContain("Next: Review and confirm the repair.");
     expect(io.output()).toContain("Run `swarmx doctor --fix`");
     expect(runner.inspect).toHaveBeenCalledWith({});
     expect(runner.fix).not.toHaveBeenCalled();
@@ -129,22 +132,45 @@ function unhealthyReport(): DoctorReport {
     label: "Set up Hermes",
     risk: "install" as const,
     request: { harnessId: "hermes" },
+    changes: ["Install or repair Hermes Agent CLI."],
+    idempotent: true as const,
   };
   return {
     checkedAt: "2026-07-11T00:00:00.000Z",
     healthy: false,
-    summary: { readyHarnesses: 0, totalHarnesses: 1, issueCount: 1, fixableCount: 1 },
+    status: "blocking",
+    summary: {
+      readyHarnesses: 0,
+      totalHarnesses: 1,
+      issueCount: 1,
+      warningCount: 0,
+      blockingCount: 1,
+      decisionCount: 0,
+      fixableCount: 1,
+    },
     issues: [
       {
         id: "requirement:hermes",
         severity: "error",
+        classification: "repairable",
         scope: "requirement",
         targetId: "hermes",
+        symptom: "Hermes is missing.",
+        cause: "The CLI is absent.",
+        impact: "Selected tasks cannot start.",
+        nextAction: "Review and confirm the repair.",
         message: "Hermes is missing.",
         repairActionId: action.id,
       },
     ],
     repairActions: [action],
+    firstRun: {
+      availableHarnessIds: [],
+      provider: "unknown",
+      project: "unknown",
+      network: "unknown",
+      nextStep: "Review and confirm the repair.",
+    },
     environment: {
       checkedAt: "2026-07-11T00:00:00.000Z",
       path: "/usr/bin",

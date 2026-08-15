@@ -2551,6 +2551,7 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
       stopRequested.current = false;
       let sessionForError = currentSession;
       let pendingSession: SessionData | null = null;
+      let originalSessionForEdit: SessionData | null = null;
       let streamedMessages: MessageChunk[] = [];
       let requestStartedAt: string | null = null;
       let unsubscribeAgentChunks: () => void = () => undefined;
@@ -2586,25 +2587,25 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
         }
 
         let updatedMessages: MessageChunk[];
+        let expectedMessagesForRequest: MessageChunk[] | undefined;
         if (editingExistingMessage) {
-          const editedSession = (await api.editSessionUserMessage({
-            id: session.id,
-            messageIndex: editMessageIndex,
-            expectedMessages: editExpectedMessages ?? session.messages,
+          originalSessionForEdit = session;
+          expectedMessagesForRequest = editExpectedMessages ?? session.messages;
+          const editedMessage = {
+            ...session.messages[editMessageIndex],
             content: text,
-          })) as SessionData;
-          session = editedSession;
-          sessionForError = editedSession;
-          pendingSession = editedSession;
-          updatedMessages = editedSession.messages;
-          requestAttachments = editedSession.messages[editMessageIndex]?.attachments ?? [];
-          setVisibleSession(editedSession);
+          } satisfies MessageChunk;
+          updatedMessages = [...session.messages.slice(0, editMessageIndex), editedMessage];
+          session = { ...session, externalAcpSession: undefined, messages: updatedMessages };
+          sessionForError = session;
+          pendingSession = session;
+          requestAttachments = editedMessage.attachments ?? [];
+          setVisibleSession(session);
           setMessageEdit(null);
         } else {
           updatedMessages = [...session.messages, userChunk];
           pendingSession = { ...session, messages: updatedMessages };
           setVisibleSession(pendingSession);
-          await api.saveSession(pendingSession);
         }
         if (stoppedBeforeDispatch()) return;
 
@@ -2613,6 +2614,8 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
           sessionId?: string;
           harnessId: string;
           userText: string;
+          editMessageIndex?: number;
+          editExpectedMessages?: MessageChunk[];
           agentComposition?: AgentCompositionPayload;
           swarmConfig?: SwarmConfig;
           cwd?: string;
@@ -2622,6 +2625,12 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
           sessionId: session.id,
           harnessId: activeExtensionAgent?.harnessId ?? selectedHarness,
           userText: text,
+          ...(editingExistingMessage
+            ? {
+                editMessageIndex,
+                editExpectedMessages: expectedMessagesForRequest,
+              }
+            : {}),
           ...(requestAttachments.length > 0 ? { attachments: requestAttachments } : {}),
           ...(session.cwd || composerWorkspaceRoot
             ? { cwd: session.cwd || composerWorkspaceRoot }
@@ -2670,7 +2679,6 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
           const localUpdated = { ...session, messages: [...updatedMessages, ...responseMessages] };
           const persisted = result.sessionPersisted ? await api.loadSession(session.id) : null;
           const updated = persisted ?? localUpdated;
-          if (!persisted) await api.saveSession(updated);
           setVisibleSession(updated);
           requestAutomaticSessionTitle(
             updated,
@@ -2683,9 +2691,19 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
           const localUpdated = { ...session, messages: [...updatedMessages, ...canceledMessages] };
           const persisted = result.sessionPersisted ? await api.loadSession(session.id) : null;
           const updated = persisted ?? localUpdated;
-          if (!persisted) await api.saveSession(updated);
           setVisibleSession(updated);
         } else if (result.error) {
+          if (editingExistingMessage) {
+            const editErrorSession = originalSessionForEdit ?? sessionForError;
+            if (editErrorSession) setVisibleSession(editErrorSession);
+            setMessageEdit({
+              messageIndex: editMessageIndex,
+              draft: text,
+              error: result.error,
+              expectedMessages: expectedMessagesForRequest ?? session.messages,
+            });
+            return;
+          }
           const workMessages = requestStartedAt
             ? withRequestTiming(streamedMessages, requestStartedAt, requestEndedAt)
             : streamedMessages;
@@ -2705,22 +2723,24 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
           };
           const persisted = result.sessionPersisted ? await api.loadSession(session.id) : null;
           const updated = persisted ?? localUpdated;
-          if (!persisted) await api.saveSession(updated);
           setVisibleSession(updated);
         }
 
         await mutateLocalSessions();
       } catch (error) {
         if (activeRequestId.current !== requestId) return;
-        const message = `Error: ${errorMessage(error)}`;
-        if (editingExistingMessage && !pendingSession) {
-          setMessageEdit((current) =>
-            current?.messageIndex === editMessageIndex
-              ? { ...current, error: `Could not edit message: ${errorMessage(error)}` }
-              : current,
-          );
+        if (editingExistingMessage) {
+          const editErrorSession = originalSessionForEdit ?? sessionForError;
+          if (editErrorSession) setVisibleSession(editErrorSession);
+          setMessageEdit({
+            messageIndex: editMessageIndex,
+            draft: text,
+            error: `Could not edit message: ${errorMessage(error)}`,
+            expectedMessages: editExpectedMessages ?? originalSessionForEdit?.messages ?? [],
+          });
           return;
         }
+        const message = `Error: ${errorMessage(error)}`;
         setComposerError(message);
         const session = pendingSession ?? sessionForError;
         if (session) {
@@ -2737,11 +2757,6 @@ export function App({ product, uiComponentRegistry = {} }: AppProps = {}) {
             ],
           };
           setVisibleSession(updated);
-          try {
-            await api.saveSession(updated);
-          } catch {
-            // The visible error remains available even if persistence IPC also failed.
-          }
         }
       } finally {
         unsubscribeAgentChunks();

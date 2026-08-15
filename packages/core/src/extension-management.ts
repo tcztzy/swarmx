@@ -21,8 +21,14 @@ export const ExtensionActionKindSchema = z.enum([
   "enable",
   "disable",
   "trust",
+  "revoke_trust",
+  "grant_permissions",
   "rollback",
 ]);
+
+const ExtensionPermissionIdSchema = z.string().trim().min(1).max(160);
+export const ExtensionActionActorSchema = z.enum(["user", "system", "extension"]);
+export const ExtensionAuthorityChangeSchema = z.enum(["none", "reduce", "expand"]);
 
 export const ExtensionMarketplaceSourceSchema = z
   .object({
@@ -70,6 +76,7 @@ export const ExtensionCandidateSchema = z
     trust: ExtensionTrustSchema,
     revision: ExtensionRevisionSchema,
     description: z.string().optional(),
+    requestedPermissionIds: z.array(ExtensionPermissionIdSchema).default([]),
   })
   .passthrough()
   .superRefine(addSecretIssues);
@@ -100,6 +107,8 @@ export const InstalledExtensionSchema = z
     state: ExtensionInstallStateSchema,
     enabled: z.boolean(),
     trust: ExtensionTrustSchema,
+    requestedPermissionIds: z.array(ExtensionPermissionIdSchema).default([]),
+    grantedPermissionIds: z.array(ExtensionPermissionIdSchema).default([]),
     currentRevision: ExtensionRevisionSchema.optional(),
     previousRevisions: z.array(ExtensionRevisionSchema).default([]),
     pinnedRevisionId: z.string().min(1).optional(),
@@ -116,6 +125,16 @@ export const InstalledExtensionSchema = z
         message: "An installed Extension must retain its immutable current revision.",
       });
     }
+    const requested = new Set(extension.requestedPermissionIds);
+    for (const permissionId of extension.grantedPermissionIds) {
+      if (!requested.has(permissionId)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["grantedPermissionIds"],
+          message: `Granted Extension permission "${permissionId}" is not requested by the installed revision.`,
+        });
+      }
+    }
   });
 
 export const ExtensionActionRequestSchema = z
@@ -124,9 +143,22 @@ export const ExtensionActionRequestSchema = z
     pluginId: z.string().min(1),
     candidate: ExtensionCandidateSchema.optional(),
     confirmed: z.boolean().default(false),
+    permissionIds: z.array(ExtensionPermissionIdSchema).default([]),
+    actor: ExtensionActionActorSchema.default("user"),
   })
   .passthrough()
-  .superRefine(addSecretIssues);
+  .superRefine((request, ctx) => {
+    addSecretIssues(request, ctx);
+    for (const key of Object.keys(request)) {
+      if (isKernelAuthorityField(key)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: [key],
+          message: `Extension actions cannot modify protected kernel policy field "${key}".`,
+        });
+      }
+    }
+  });
 
 export const ExtensionActionPlanSchema = z
   .object({
@@ -137,6 +169,8 @@ export const ExtensionActionPlanSchema = z
     requiresConfirmation: z.boolean(),
     confirmed: z.boolean(),
     reason: z.string().min(1),
+    authorityChange: ExtensionAuthorityChangeSchema.default("none"),
+    targetPermissionIds: z.array(ExtensionPermissionIdSchema).default([]),
     before: InstalledExtensionSchema.optional(),
     targetRevision: ExtensionRevisionSchema.optional(),
   })
@@ -165,6 +199,18 @@ export type InstalledExtension = z.infer<typeof InstalledExtensionSchema>;
 export type ExtensionActionRequest = z.infer<typeof ExtensionActionRequestSchema>;
 export type ExtensionActionPlan = z.infer<typeof ExtensionActionPlanSchema>;
 export type ExtensionActionReceipt = z.infer<typeof ExtensionActionReceiptSchema>;
+export type ExtensionActionActor = z.infer<typeof ExtensionActionActorSchema>;
+export type ExtensionAuthorityChange = z.infer<typeof ExtensionAuthorityChangeSchema>;
+
+export interface ExtensionAuthorityAuditEvent {
+  phase: "attempted" | "completed";
+  action: "trust" | "revoke_trust" | "grant_permissions";
+  pluginId: string;
+  authorityChange: "reduce" | "expand";
+  permissionIds: string[];
+}
+
+export type ExtensionAuthorityAudit = (event: ExtensionAuthorityAuditEvent) => void;
 
 export function planExtensionAction(
   requestInput: unknown,
@@ -172,10 +218,18 @@ export function planExtensionAction(
 ): ExtensionActionPlan {
   const request = ExtensionActionRequestSchema.parse(requestInput);
   const installed = installedInput ? InstalledExtensionSchema.parse(installedInput) : undefined;
-  const requiresConfirmation = ["install", "update", "uninstall", "trust", "rollback"].includes(
-    request.action,
-  );
-  const actionId = `${request.action}:${request.pluginId}:${request.candidate?.revision.revisionId ?? installed?.currentRevision?.revisionId ?? "none"}`;
+  const targetPermissionIds = uniquePermissionIds(request.permissionIds);
+  const currentPermissionIds = installed?.grantedPermissionIds ?? [];
+  const authorityChange = permissionAuthorityChange(currentPermissionIds, targetPermissionIds);
+  const trustChange = trustAuthorityChange(request.action, installed?.trust);
+  const requiresConfirmation =
+    ["install", "update", "uninstall", "trust", "revoke_trust", "rollback"].includes(
+      request.action,
+    ) ||
+    (request.action === "grant_permissions" && authorityChange === "expand");
+  const actionId = `${request.action}:${request.pluginId}:${
+    request.candidate?.revision.revisionId ?? installed?.currentRevision?.revisionId ?? "none"
+  }:${targetPermissionIds.join(",") || "none"}`;
   const reject = (reason: string) =>
     ExtensionActionPlanSchema.parse({
       actionId,
@@ -185,6 +239,13 @@ export function planExtensionAction(
       requiresConfirmation,
       confirmed: request.confirmed,
       reason,
+      authorityChange:
+        request.action === "trust" || request.action === "revoke_trust"
+          ? trustChange
+          : request.action === "grant_permissions"
+            ? authorityChange
+            : "none",
+      targetPermissionIds,
       before: installed,
       targetRevision: request.candidate?.revision,
     });
@@ -192,13 +253,31 @@ export function planExtensionAction(
   if (request.candidate && request.candidate.pluginId !== request.pluginId) {
     return reject("The candidate does not belong to the requested Extension.");
   }
+  if (request.candidate?.trust === "builtin" && request.actor !== "system") {
+    return reject("Built-in trust is kernel-owned and cannot be claimed by an Extension package.");
+  }
+  if (
+    request.actor === "extension" &&
+    ["trust", "revoke_trust", "grant_permissions"].includes(request.action)
+  ) {
+    return reject("An Extension cannot change its own trust or kernel-owned authority.");
+  }
   if (request.action === "install" && (!request.candidate || installed)) {
     return reject(
       installed ? "The Extension is already installed." : "Install requires a candidate.",
     );
   }
   if (
-    ["update", "uninstall", "enable", "disable", "trust", "rollback"].includes(request.action) &&
+    [
+      "update",
+      "uninstall",
+      "enable",
+      "disable",
+      "trust",
+      "revoke_trust",
+      "grant_permissions",
+      "rollback",
+    ].includes(request.action) &&
     !installed
   ) {
     return reject("The Extension is not installed.");
@@ -213,6 +292,25 @@ export function planExtensionAction(
   }
   if (request.action === "uninstall" && installed?.trust === "builtin") {
     return reject("Built-in Extensions cannot be uninstalled.");
+  }
+  if (request.action === "trust" && installed?.trust === "builtin") {
+    return reject("Built-in Extension trust is kernel-owned and cannot be changed.");
+  }
+  if (request.action === "revoke_trust" && installed?.trust === "builtin") {
+    return reject("Built-in Extensions cannot have kernel trust revoked.");
+  }
+  if (request.action === "enable" && installed?.trust === "untrusted") {
+    return reject("An untrusted Extension cannot be enabled.");
+  }
+  if (request.action === "grant_permissions") {
+    if (installed?.trust === "untrusted" && targetPermissionIds.length > 0) {
+      return reject("Permissions can only be granted to a trusted Extension.");
+    }
+    const requested = new Set(installed?.requestedPermissionIds ?? []);
+    const undeclared = targetPermissionIds.filter((permissionId) => !requested.has(permissionId));
+    if (undeclared.length > 0) {
+      return reject(`The installed revision did not request: ${undeclared.join(", ")}.`);
+    }
   }
   if (request.action === "rollback" && installed?.previousRevisions.length === 0) {
     return reject("No previous immutable revision is available for rollback.");
@@ -229,6 +327,13 @@ export function planExtensionAction(
     requiresConfirmation,
     confirmed: request.confirmed,
     reason: "Extension action is ready to apply.",
+    authorityChange:
+      request.action === "trust" || request.action === "revoke_trust"
+        ? trustChange
+        : request.action === "grant_permissions"
+          ? authorityChange
+          : "none",
+    targetPermissionIds,
     before: installed,
     targetRevision:
       request.action === "rollback"
@@ -240,13 +345,19 @@ export function planExtensionAction(
 export class ExtensionLifecycleManager {
   readonly #installed = new Map<string, InstalledExtension>();
   readonly #now: () => string;
+  readonly #audit?: ExtensionAuthorityAudit;
 
-  constructor(installed: unknown[] = [], now: () => string = () => new Date().toISOString()) {
+  constructor(
+    installed: unknown[] = [],
+    now: () => string = () => new Date().toISOString(),
+    audit?: ExtensionAuthorityAudit,
+  ) {
     for (const item of installed) {
       const parsed = InstalledExtensionSchema.parse(item);
       this.#installed.set(parsed.pluginId, parsed);
     }
     this.#now = now;
+    this.#audit = audit;
   }
 
   list(): InstalledExtension[] {
@@ -273,7 +384,13 @@ export class ExtensionLifecycleManager {
       });
     }
 
+    const auditEvent = authorityAuditEvent(plan);
+    if (auditEvent?.authorityChange === "expand" && !this.#audit) {
+      throw new Error("Extension authority expansion requires an audit intent writer.");
+    }
+    if (auditEvent) this.#audit?.({ ...auditEvent, phase: "attempted" });
     const after = this.#applyPlan(plan, request);
+    if (auditEvent) this.#audit?.({ ...auditEvent, phase: "completed" });
     if (after) this.#installed.set(after.pluginId, after);
     else this.#installed.delete(plan.pluginId);
     return ExtensionActionReceiptSchema.parse({
@@ -304,6 +421,8 @@ export class ExtensionLifecycleManager {
         state: "enabled",
         enabled: true,
         trust: candidate.trust,
+        requestedPermissionIds: uniquePermissionIds(candidate.requestedPermissionIds),
+        grantedPermissionIds: [],
         currentRevision: candidate.revision,
         previousRevisions: [],
         installedAt: now,
@@ -325,13 +444,42 @@ export class ExtensionLifecycleManager {
     if (plan.action === "trust") {
       return InstalledExtensionSchema.parse({ ...before, trust: "verified", updatedAt: now });
     }
+    if (plan.action === "revoke_trust") {
+      return InstalledExtensionSchema.parse({
+        ...before,
+        trust: "untrusted",
+        enabled: false,
+        state: "disabled",
+        grantedPermissionIds: [],
+        updatedAt: now,
+      });
+    }
+    if (plan.action === "grant_permissions") {
+      return InstalledExtensionSchema.parse({
+        ...before,
+        grantedPermissionIds: plan.targetPermissionIds,
+        updatedAt: now,
+      });
+    }
     if (plan.action === "update") {
       const candidate = request.candidate;
       if (!candidate) throw new Error("An allowed update plan must include a candidate.");
+      const requestedPermissionIds = uniquePermissionIds(candidate.requestedPermissionIds);
+      const trust = lowerExtensionTrust(before.trust, candidate.trust);
+      const grantedPermissionIds =
+        trust === "untrusted"
+          ? []
+          : before.grantedPermissionIds.filter((permissionId) =>
+              requestedPermissionIds.includes(permissionId),
+            );
+      const enabled = trust === "untrusted" ? false : before.enabled;
       return InstalledExtensionSchema.parse({
         ...before,
-        state: before.enabled ? "enabled" : "disabled",
-        trust: candidate.trust,
+        state: enabled ? "enabled" : "disabled",
+        enabled,
+        trust,
+        requestedPermissionIds,
+        grantedPermissionIds,
         currentRevision: candidate.revision,
         previousRevisions: before.currentRevision
           ? [...before.previousRevisions, before.currentRevision]
@@ -362,6 +510,74 @@ function isSafeRemoteLocation(location: string): boolean {
   } catch {
     return false;
   }
+}
+
+function uniquePermissionIds(permissionIds: readonly string[]): string[] {
+  return [
+    ...new Set(permissionIds.map((permissionId) => permissionId.trim()).filter(Boolean)),
+  ].sort((left, right) => left.localeCompare(right));
+}
+
+function permissionAuthorityChange(
+  currentInput: readonly string[],
+  targetInput: readonly string[],
+): "none" | "reduce" | "expand" {
+  const current = new Set(currentInput);
+  const target = new Set(targetInput);
+  if ([...target].some((permissionId) => !current.has(permissionId))) return "expand";
+  if ([...current].some((permissionId) => !target.has(permissionId))) return "reduce";
+  return "none";
+}
+
+function lowerExtensionTrust(
+  current: z.infer<typeof ExtensionTrustSchema>,
+  candidate: z.infer<typeof ExtensionTrustSchema>,
+): z.infer<typeof ExtensionTrustSchema> {
+  const rank = { untrusted: 0, local: 1, verified: 2, builtin: 3 } as const;
+  return rank[current] <= rank[candidate] ? current : candidate;
+}
+
+function authorityAuditEvent(
+  plan: ExtensionActionPlan,
+): Omit<ExtensionAuthorityAuditEvent, "phase"> | undefined {
+  if (plan.authorityChange === "none") return undefined;
+  if (
+    plan.action !== "trust" &&
+    plan.action !== "revoke_trust" &&
+    plan.action !== "grant_permissions"
+  ) {
+    return undefined;
+  }
+  return {
+    action: plan.action,
+    pluginId: plan.pluginId,
+    authorityChange: plan.authorityChange,
+    permissionIds: plan.targetPermissionIds,
+  };
+}
+
+function trustAuthorityChange(
+  action: z.infer<typeof ExtensionActionKindSchema>,
+  current: z.infer<typeof ExtensionTrustSchema> | undefined,
+): "none" | "reduce" | "expand" {
+  if (action === "trust") {
+    return current === "verified" || current === "builtin" ? "none" : "expand";
+  }
+  if (action === "revoke_trust") return current === "untrusted" ? "none" : "reduce";
+  return "none";
+}
+
+function isKernelAuthorityField(key: string): boolean {
+  const normalized = key.replace(/[-_]/gu, "").toLowerCase();
+  return [
+    "approvalpolicy",
+    "auditpolicy",
+    "credentialpolicy",
+    "credentialstore",
+    "permissionpolicy",
+    "trustpolicy",
+    "truststate",
+  ].includes(normalized);
 }
 
 function addSecretIssues(value: unknown, ctx: z.RefinementCtx): void {

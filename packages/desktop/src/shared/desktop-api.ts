@@ -448,6 +448,7 @@ export interface DesktopSendMessageResult {
   canceled?: boolean;
   requestId?: string;
   sessionPersisted?: boolean;
+  replayed?: boolean;
   sideChat?: DesktopSideChat;
 }
 
@@ -463,6 +464,8 @@ export interface SwarmxAPI
     sessionId?: string;
     harnessId: string;
     userText: string;
+    editMessageIndex?: number;
+    editExpectedMessages?: DesktopMessageChunk[];
     attachments?: DesktopMediaAttachment[];
     agentComposition?: unknown;
     swarmConfig?: unknown;

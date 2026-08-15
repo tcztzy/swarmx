@@ -122,6 +122,22 @@ Parallel and LCM leaf work is token-balanced into the arm's declared one-to-four
 ordinary blocks; LCM may spend one additional parent-merge call. The schema cap
 keeps a single oversized history from fanning out into unbounded Provider calls.
 
+`createSessionContextEngine` also accepts a bounded, request-scoped
+`summaryPromptOverride` for controlled evaluation. It changes the prompt carried
+by every profile summary request and therefore the prompt digest recorded by the
+resulting checkpoint, but it does not change the named profile configuration or
+persist a new profile. Production callers leave it unset. Context-evaluation
+candidate arms are the only built-in caller: they load the candidate from the
+validated suite, bind its digest in the arm receipt, and keep the raw prompt out
+of content-free results.
+
+Each manifest keeps `sourceConfigHash` for the selected named profile and
+explicit experiment parameters, plus `configHash` for the effective
+request-scoped configuration after real Provider-window budgeting. These hashes
+are intentionally different when the Agent's declared context window is smaller
+than the factory fallback. Evaluation binds arms to `sourceConfigHash` and still
+records the effective hash for replay and overflow diagnosis.
+
 LCM installs `context_search` and `context_read` as ordinary read-only local
 tools. Search returns verified event/hash/range citations; read returns an exact
 bounded character range from the immutable compile snapshot. Their schemas are
@@ -178,7 +194,7 @@ The newest work also changes how these profiles should be evaluated. TRACE's
 reports that compression can weaken even recent interactions and increase
 blocked or repeated actions; the RSI loop should therefore fork from the same
 environment state at each compaction boundary and score task continuation,
-repetition, blocked effects, reliability across seeds, tokens, latency, and
+repetition, blocked effects, reliability across seeds, tokens, request-to-completion time, and
 cost—not summary similarity alone. [SRLM](https://arxiv.org/abs/2603.15653)
 finds that recursive program selection and uncertainty signals matter, and that
 RLM recursion can hurt when the input already fits the model window. This

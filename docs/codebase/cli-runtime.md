@@ -8,8 +8,9 @@ second workflow or persistence model.
 
 | Source | Contract |
 | --- | --- |
+| `packages/runtime/src/sandbox-policy.ts` | Host-owned zod-validated `native_allowed` / `protected_required` strategy and immutable protected-profile registry; protected resolution never falls back to native. `pure` |
 | `packages/runtime/src/harness-environment.ts` | Detects Harness executables/versions, container runtimes, protection modes, and setup requirements; explicit host callbacks perform installation/setup. `fs` + `proc` |
-| `packages/runtime/src/doctor.ts` | `HarnessDoctor` converts environment status into inspect reports, risk-labelled repair plans, and explicit fix results. Discovery is read-only; repair is opt-in. `proc` through host |
+| `packages/runtime/src/doctor.ts` | `HarnessDoctor` converts runtime plus host-supplied Provider/Project/offline readiness into deterministic `ok`/warning/blocking/repairable/decision findings with symptom/cause/impact/next-action fields, curated first-run guidance, idempotent change previews, and explicit fix results. Inspection and planning are read-only; repair is opt-in. `proc` through host |
 | `packages/runtime/src/python-environment.ts` | Read-only product-worker asset, `uv`, uv-managed Python, and digest-addressed locked-environment inspection; computes the environment digest (including opt-in module sources) and returns an asynchronously reverified direct-Python launch with a hash-checked source snapshot, or an explicit install/repair plan. Status checks are offline/no-download and never mutate during task execution. `fs` + `proc` |
 | `packages/runtime/src/memory-runtime-environment.ts` | Zod-validated packaged Memory runtime manifest, read-only executable/digest/version inspection, explicit repair planning, launch-time revalidation, and secret-minimal launch spec for the private Rust MCP server. Never installs or compiles on an operation path. `fs` + `proc` |
 | `src/swarmx/__init__.py` | Regular package marker and installed `swarmx` distribution version. Python does not use a PEP 420 namespace or feature-distribution discovery. `pure` |
@@ -21,7 +22,8 @@ second workflow or persistence model.
 | `tests/python/package_layout_test.py` | Single-distribution package/dependency/script boundary and absence of namespace entry points or split distributions. |
 | `tests/python/roundtrip_test.py`, `tests/python/worker_capability_test.py`, `tests/python/rsi_mcp_server_test.py` | Python round-trip, worker budget/cancel/timeout, and real stdio RSI MCP acceptance tests. |
 | `tests/python/reference_service_test.py`, `tests/python/reference_mcp_server_test.py` | Strict read-only/boundary tests plus a real generated-ZIM stdio MCP acceptance test. |
-| `packages/runtime/src/index.ts` | Runtime public barrel for Doctor, Harness, and Python worker-environment APIs. `pure` |
+| `packages/runtime/src/index.ts` | Runtime public barrel for Doctor, Harness, sandbox policy, and Python worker-environment APIs. `pure` |
+| `packages/runtime/src/sandbox-policy.test.ts` | Protected-profile validation, immutable host registration, native/protected resolution, and fail-closed fallback tests. `pure` |
 | `packages/runtime/src/doctor.test.ts` | Contract tests for inspection, plan risk, and explicit repair behavior. |
 | `packages/runtime/src/python-environment.test.ts` | Contract tests for read-only/no-download discovery, digest stability, environment readiness, forged/stale-status rejection, hash-snapshotted sanitized launch specs, and explicit setup/repair plans. |
 | `packages/runtime/src/python-worker-smoke.test.ts` | End-to-end smoke contract between the Core app-attached controller and reference Python worker, including progress/checkpoint completion, partial and final-checkpoint resume, cancellation, and persisted human-decision resume. |
@@ -40,9 +42,16 @@ and `reference_mcp_server_test.py`.
 The root Cargo workspace discovers `crates/*`; `crates/swarmx-mem/` is the
 private Rust Memory MCP module. Its manifest and root `Cargo.lock` pin the build graph;
 `crates/swarmx-mem/src/main.rs` exposes only `swarmx_memory`;
-`crates/swarmx-mem/src/lib.rs` owns bounded Markdown/Git/BM25 CRUD and version
-semantics; `crates/swarmx-mem/tests/memory_service.rs` covers
-persistence, conflicts, history/diff/restore, bounds, and restart recovery.
+`crates/swarmx-mem/src/lib.rs` owns the human-readable recursive Markdown vault,
+stable frontmatter identity/aliases/kinds/sources, portable natural filenames,
+index/disambiguation/backlink views, atomic inbound-link rename, external-edit
+reconciliation, idempotent legacy filename migration, crash-recoverable
+single-writer WAL transactions, durable Git publication, secret rejection,
+Git/BM25 CRUD, and version semantics;
+`crates/swarmx-mem/tests/memory_service.rs` covers persistence, Unicode and
+portable names, same-title disambiguation, aliases/backlinks/views, human edits
+and moves, migration, failed-transaction rollback, conflicts,
+history/diff/restore, bounds, and restart recovery.
 
 The root `pyproject.toml` owns the one installable, regular `swarmx` package.
 DSPy, MCP, and libzim are direct project dependencies in the same lock and
@@ -54,9 +63,10 @@ opt-in `inspect` group.
 
 | Source | Contract |
 | --- | --- |
-| `packages/cli/src/cli.ts` | Commander entrypoint for `doctor`, `send`, `eval-run`, `serve`, `audit`, `sessions`, `harnesses`, `evolution`, and REPL input; the REPL replays prior user/assistant turns within that process, and `send`/eval/REPL share content-free `agent.run` audit events distinguished by `surface`, while other commands retain semantic lifecycle actions. `proc`/`net` via Core/Runtime |
+| `packages/cli/src/cli.ts` | Commander entrypoint for `doctor`, `send`, `eval-run`, `serve`, `audit`, `sessions`/`sessions timeline`, `harnesses`, `evolution`, and REPL input; the REPL replays prior user/assistant turns within that process, and `send`/eval/REPL share content-free `agent.run` audit events distinguished by `surface`, while other commands retain semantic lifecycle actions. `proc`/`net` via Core/Runtime |
 | `packages/cli/src/audit-command.ts` | Verifies and filters the canonical audit chain, formats compact human/JSON output, and writes 0600 verified JSONL exports with intent/outcome events. `fs` via Core |
-| `packages/cli/src/doctor.ts` | Interactive/noninteractive doctor runner plus stable human/JSON formatting and confirmation handling. `proc` |
+| `packages/cli/src/doctor.ts` | Interactive/noninteractive Doctor runner plus stable human/JSON formatting for classification and symptom/cause/impact/next-action/change previews, with explicit confirmation handling. `proc` |
+| `packages/cli/src/session-timeline-command.ts` | Read-only `sessions timeline` adapter: loads canonical Session records and verified audit evidence, calls the Core causal projector, and formats concise safe human or strict JSON output. `fs` through Core readers |
 | `packages/cli/src/eval-run.ts` | Loads/validates workflow and eval arguments, executes single-sample `Swarm` evals, or runs strict `--context-suite` profile/model/seed matrices; context mode exclusively reserves a 0600 JSONL path before model calls, emits content-free run records plus report/error output, and rejects mixing with single-sample/Skill options. Single-sample mode retains request-scoped `prompt_fragment` delivery and active-revision resolution. `fs` + injected model calls |
 | `packages/cli/src/evolution-command.ts` | Thin CLI adapters for the skill evolution loop: digest over worker/project/lockfile/RSI sources/Python and exact DSPy/MCP versions; optimization WorkItem + RSI MCP/gateway wiring; evaluation, status, human decisions, rollback, and active-revision delivery resolution. Business rules stay in Core. `fs` + `proc` via Core |
 | `packages/cli/src/send-config.ts` | Builds a canonical one-agent `SwarmConfig` from CLI model/harness options. `pure` |

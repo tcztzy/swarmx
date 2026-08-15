@@ -414,7 +414,6 @@ describe("App user workflow", { timeout: 10_000 }, () => {
       modelSupplies: [],
     });
     await renderApp(api);
-    const user = userEvent.setup();
 
     const send = await screen.findByRole("button", { name: "Send message" });
     fireEvent.change(screen.getByRole("textbox"), {
@@ -4117,16 +4116,13 @@ describe("App user workflow", { timeout: 10_000 }, () => {
     await user.click(screen.getByRole("button", { name: "Save & resend" }));
 
     await waitFor(() => {
-      expect(editSessionUserMessage).toHaveBeenCalledWith({
-        id: editableSession.id,
-        messageIndex: 2,
-        expectedMessages: editableSession.messages,
-        content: "Revised request",
-      });
+      expect(editSessionUserMessage).not.toHaveBeenCalled();
       expect(api.sendMessage).toHaveBeenCalledWith(
         expect.objectContaining({
           sessionId: editableSession.id,
           userText: "Revised request",
+          editMessageIndex: 2,
+          editExpectedMessages: editableSession.messages,
         }),
       );
     });
@@ -4626,7 +4622,7 @@ describe("App user workflow", { timeout: 10_000 }, () => {
         errors: [],
       })),
       loadDiscoveredSession: vi.fn(async () => editableSession),
-      editSessionUserMessage: vi.fn(async () => {
+      sendMessage: vi.fn(async () => {
         throw new Error("Session history changed before the message edit could be saved.");
       }),
     });
@@ -4645,7 +4641,12 @@ describe("App user workflow", { timeout: 10_000 }, () => {
       (screen.getByRole("textbox", { name: "Edit message" }) as HTMLTextAreaElement).value,
     ).toBe("Revised request");
     expect(screen.getByText("Original reply")).toBeTruthy();
-    expect(api.sendMessage).not.toHaveBeenCalled();
+    expect(api.sendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        editMessageIndex: 0,
+        userText: "Revised request",
+      }),
+    );
   });
 
   it("collapses superseded interrupted work and never leaves its tool spinning", async () => {
@@ -5091,9 +5092,29 @@ describe("App user workflow", { timeout: 10_000 }, () => {
   }, 15_000);
 
   it("persists timing and renders Worked reasoning as unboxed body text", async () => {
+    const persistedSession: SessionData = {
+      ...localSession,
+      id: "created-1",
+      messages: [
+        { role: "user", kind: "message", content: "Inspect this Project" },
+        {
+          role: "assistant",
+          kind: "thinking",
+          agent: "swarmx_gpt_5_6_luna",
+          content: "Reading the **active Project**",
+          render: {
+            startedAt: "2026-08-14T12:00:00.000Z",
+            endedAt: "2026-08-14T12:00:01.000Z",
+            durationMs: 1_000,
+          },
+        },
+        { role: "assistant", kind: "message", content: "Project inspected." },
+      ],
+    };
     const api = createDesktopApiMock({
       sendMessage: vi.fn(async () => ({
         success: true,
+        sessionPersisted: true,
         messages: [
           {
             role: "assistant",
@@ -5104,6 +5125,7 @@ describe("App user workflow", { timeout: 10_000 }, () => {
           { role: "assistant", kind: "message", content: "Project inspected." },
         ],
       })),
+      loadSession: vi.fn(async () => persistedSession),
     });
     const user = userEvent.setup();
     await renderApp(api);
@@ -5122,8 +5144,8 @@ describe("App user workflow", { timeout: 10_000 }, () => {
     expect(screen.queryByText("Reasoning")).toBeNull();
     expect(screen.queryByText("thought")).toBeNull();
     expect(screen.queryByText("swarmx_gpt_5_6_luna")).toBeNull();
-    const saved = api.saveSession.mock.calls.at(-1)?.[0] as SessionData;
-    const timed = saved.messages.find((message) => message.kind === "thinking");
+    expect(api.loadSession).toHaveBeenCalledWith("created-1");
+    const timed = persistedSession.messages.find((message) => message.kind === "thinking");
     expect(timed?.render).toMatchObject({
       startedAt: expect.any(String),
       endedAt: expect.any(String),

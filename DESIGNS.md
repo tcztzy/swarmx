@@ -119,6 +119,38 @@ ask users to select an internal Provider route. Composition preflight validates
 the resulting matrix cell and reports missing runtime, connection, Skill, MCP,
 context, or permission requirements before execution.
 
+### Deterministic Extension composition
+
+Core projects every selected Extension bundle into one normalized composition
+node. Identity/version, source, integrity, and trust come from the bundle and
+installed revision state. Capability ownership and requested permissions are
+derived from the existing manifest arrays; an optional declarative composition
+block adds cross-bundle `requires`, `conflicts`, phase, and `before`/`after`
+constraints. It contains no executable callback.
+
+Preflight closes required dependencies, then validates the complete selected
+graph before any MCP connection, subprocess launch, installation, trust change,
+or permission change. One capability has one owner. Duplicate Provider ids,
+duplicate tool names, missing requirements, dependency/order cycles, a
+later-phase dependency, unresolved order-sensitive peers, or an attempt to
+provide a kernel capability blocks the graph. Independent, order-insensitive
+peers are ordered by normalized Extension id, making the result byte-stable
+without assigning semantic meaning to discovery order.
+
+The protected kernel set covers Session and task authority, identity,
+composition enforcement, approval policy, credential storage, audit policy,
+Extension trust, and foreground completion. Ordinary Extensions may consume a
+host projection of a capability but cannot claim ownership of those concepts.
+External ACP Harnesses remain outside Agent-facing Extension tool injection;
+their native permission and tool surface is not converted into a duplicate
+SwarmX grant list.
+
+The preflight result is a browser-safe preview: load order and load reason,
+provided/required capabilities, requested/granted/missing permission ids,
+source/trust/integrity, and stable actionable issue codes. It has no clock,
+randomness, filesystem write, network call, process launch, or authority-changing
+callback. Execution accepts only a ready result for the same normalized input.
+
 ## Execution paths
 
 ### Direct SwarmX
@@ -212,10 +244,25 @@ loads a Session, negotiates configuration, sends prompts, and consumes
 External Harnesses own their native tools, authentication, configuration, and
 permission behavior. SwarmX does not inject duplicate Project tools.
 
-Desktop can wrap selected external Harnesses in a protected container runtime.
-The wrapper receives an explicit workspace mount and allowlisted request
-environment. Harnesses that intentionally reuse a user's native runtime remain
-native and are described honestly in runtime diagnostics.
+Desktop can wrap external custom Harnesses in a protected container runtime.
+Under `protected_required`, every such boundary needs a host-registered profile;
+an absent profile or unavailable runtime blocks execution. Native execution is
+available only under an explicit `native_allowed` strategy. A protected wrapper
+receives an explicit Project mount and allowlisted request environment.
+
+### Generic OS sandbox policy
+
+Executable host boundaries resolve a host-owned `native_allowed` or
+`protected_required` strategy before starting a process. Protected profiles are
+registered by the host, never accepted from Extension metadata, and are
+immutable after validation: they pin an image digest, command argv,
+environment-name allowlist, project/temporary/credential mount permissions,
+network-deny mode, and CPU, memory, and temporary-space limits. The Apple
+Container adapter maps that profile to a read-only image root, one writable
+Project mount, bounded tmpfs, no DNS, and the no-network network selector.
+If the runtime or profile is unavailable, the protected path returns a blocking
+diagnostic and never uses the native command. Doctor and Runtime Settings
+surface both the requested strategy and the observed execution mode.
 
 ### ACP server
 
@@ -248,13 +295,21 @@ workflow step bound with work still owed fails explicitly. Cancellation and
 failure may terminalize observed tool presentation state, but do not satisfy the
 success barrier.
 
-At the barrier, Main stops accepting foreground chunks, closes the live chunk
-publisher, then appends the finalized ordered batch to the canonical append-only
-Session JSONL before reporting completion. The optional request id on that batch
-is additive to schema version 1, so existing logs remain replayable. An ACP
-`session/update`, local-tool progress callback, or other event arriving after the
-adapter's terminal result is dropped; it cannot mutate the finalized batch,
-append a follow-up turn, or reopen the completed request.
+At the barrier, Main stops accepting foreground chunks and closes the live chunk
+publisher. For a Session-backed request, Main first appends the user message
+together with a `started` receipt containing a normalized request digest. Only
+then may Provider, tool, or ACP execution begin. The terminal message batch and
+a matching `settled` receipt (`completed`, `canceled`, or `failed`) are appended
+and fsynced before IPC success is returned. Reusing `(sessionId, requestId)` with
+the same digest replays the persisted terminal batch; a `started`-only receipt
+returns `REQUEST_OUTCOME_UNKNOWN`, a digest mismatch returns
+`REQUEST_ID_CONFLICT`, and an active request returns `REQUEST_ALREADY_ACTIVE`.
+The Renderer may show the optimistic user message, but does not call ordinary
+`saveSession` for it. Session-less requests and transient side chats remain
+explicitly non-durable. An ACP `session/update`, local-tool progress callback,
+or other event arriving after the adapter's terminal result is dropped; it
+cannot mutate the finalized batch, append a follow-up turn, or reopen the
+completed request.
 
 Background Session activations, scheduled tasks, and durable WorkItems are
 separate executions with explicit ownership and terminal records. They are not
@@ -387,13 +442,29 @@ metadata, and double-bracket links inside inline or fenced code are ignored.
 
 The pure projection remains browser-safe and has no filesystem access. The
 production persistence host is a SwarmX-owned Rust sidecar built against an
-exactly pinned `llm-wiki-engine` crate. It stores one Markdown page per stable
-entity id under `~/.swarmx/memory/`, commits every accepted mutation to the same
-local Git repository, and treats the engine's Tantivy index plus the host's
-linked graph as rebuildable projections. Titles and aliases must resolve uniquely, and
+exactly pinned `llm-wiki-engine` crate. `~/.swarmx/memory/` is both the
+persistence root and a directly openable Obsidian vault. Active entity pages
+live recursively under `pages/` at portable human-readable paths such as
+`pages/Herdr.md`; the stable generated entity id is frontmatter/API identity,
+not a filename, and survives a human move or rename. The sidecar commits every
+accepted mutation to the same local Git repository and treats the engine's
+Tantivy index plus the host's linked graph as rebuildable projections. Titles,
+aliases, ids, and active paths must resolve uniquely, and
 updates/deletes/restores require `expectedRevision` so a stale LLM or client
-cannot silently overwrite newer knowledge. There is no JSON fallback, legacy
-importer, or second persistence authority.
+cannot silently overwrite newer knowledge. There is no JSON fallback or second
+persistence authority.
+
+Before serving an operation, the sidecar reconciles bounded working-tree
+changes under `pages/`. A human-authored Markdown file is adopted with its
+filename stem as the default title and a generated stable id; body or supported
+frontmatter edits advance the revision; moves preserve identity and revision;
+and deletions become hidden recoverable tombstones. Unknown frontmatter is
+preserved so editor metadata is not destroyed. One reconciliation commit and
+index refresh make the same files visible to Agent reads. Legacy
+`pages/mem_<id>.md` files migrate once to collision-safe title-derived paths
+without changing the stored page, revision, or prior Git versions. SwarmX does
+not create or overwrite `.obsidian` settings: any Markdown editor can use the
+vault, and Obsidian can open its root without setup.
 
 Create, get, list, BM25 search, update, recoverable delete, history, version
 read, diff, and restore all cross zod schemas. A successful mutation means the
@@ -401,9 +472,10 @@ Markdown write, validation, Git commit, and index refresh have completed as one
 semantic lifecycle. Markdown plus Git remains authoritative if index refresh
 fails, and reopening the runtime rebuilds that projection before serving.
 `graph()` is derived from indexed current pages and edges are never a second
-authority. A delete writes a content-free
-tombstone so history remains recoverable; restore creates a new revision from a
-selected historical version rather than moving Git HEAD backwards.
+authority. A delete removes the active human-facing page and writes a hidden,
+content-free tombstone so history remains recoverable; restore creates a new
+revision from a selected historical version rather than moving Git HEAD
+backwards.
 
 SwarmX-owned native Agent execution receives one `Memory` local tool with
 strict list/get/search/graph/history/get-version/diff/create/update/delete/
@@ -417,6 +489,28 @@ The sidecar deliberately does not call an LLM, ingest source files, admit
 claims, inject all pages into model context, provide vector retrieval, or render
 Markdown. The Desktop host grants bounded on-demand access and retains
 responsibility for approvals.
+
+### Crash-recoverable Memory publication
+
+Memory uses one short-lived write-ahead log under `.runtime/transactions/` and
+the Git repository's HEAD as its publication point. A root single-writer lock
+is held for the sidecar lifetime. Before touching the working tree, a mutation
+constructs its complete in-memory path patch (pages, moves, inbound-link
+rewrites, tombstones, globals, and generated views), records before-images and
+the intended commit in a durable transaction manifest, then applies each path
+with file and directory synchronization. The intended commit is created with
+`HEAD` unchanged; a locked compare-and-swap advances the current branch only
+from the recorded base commit. The index and search engine are refreshed after
+publication, and the WAL is removed only after those projections are durable.
+
+Startup recovery precedes migration, external-edit reconciliation, and search
+initialization. If HEAD is still the manifest base, every affected path must
+be either its before-image or intended image and recovery restores the before
+state. If HEAD is the intended commit, recovery completes the intended Git
+tree. Any other HEAD or path contents are an unknown external state: the WAL
+is retained and the runtime fails closed without overwriting it. Recovery does
+not create another commit, so reopening twice is idempotent. There is no
+best-effort rollback fallback outside this transaction model.
 
 ### Memory runtime boundary
 
@@ -551,11 +645,15 @@ authority.
 
 Scoring uses simulator final state and content-free action receipts as the
 primary oracle. Exact output fragments are limited to identifiers or constraints
-whose verbatim retention is the construct. Unsafe actions or protected-state
-mutation globally zero a completed run; Provider/infrastructure failures remain
-distinct from profile overflow or summary-policy failure. JSONL records contain
-hashes, ids, score evidence, manifests, usage, cost, and latency but never raw
-history, prompts, responses, tool output, credentials, or state values.
+whose verbatim retention is the construct. A prohibited action that the
+simulator blocks is a contained attempt: it lowers action efficiency and is
+reported separately, but it does not fabricate a state mutation or globally
+zero capability. Delivered forbidden output or actual protected-state mutation
+is an uncontained safety violation and globally zeros safety-adjusted quality.
+Provider/infrastructure failures remain distinct from profile overflow or
+summary-policy failure. JSONL records contain hashes, ids, task-family ids,
+score evidence, manifests, usage, cost, and request-to-completion time but never
+raw history, prompts, responses, tool output, credentials, or state values.
 Leaderboards aggregate only interpretable runs while reporting both strategy
 and infrastructure failure rates. Optional bounded hill-climb rounds
 round-robin neighbors from each Agent's best profile configuration, rerun the
@@ -563,6 +661,30 @@ canonical baseline in every search round for same-round deltas, and never
 self-promote a production default. The
 CLI exclusively reserves any requested 0600 JSONL artifact before model calls;
 stdout reports and failures remain content-free.
+
+Summary-prompt evolution is an evaluation-only overlay, not another named
+Context Engine profile. A suite may bind candidate prompt text and optimizer
+provenance to exactly one existing model-backed baseline profile. Candidate and
+baseline arms share the same immutable profile configuration; only the prompt
+material carried by `ContextSummaryRequest` changes. The summary checkpoint and
+arm receipt bind the effective prompt digest, while JSONL records omit the raw
+prompt. Confirmation suites declare deterministic gates over paired capability,
+constraint retention, pass rate, prohibited-attempt regression, uncontained
+safety violations, strategy/infrastructure failure, total tokens, and Agent
+completion time. Confidence intervals resample declared task families, not
+case-seed rows. Completion time starts immediately before the continuation
+request and ends only when the complete streamed Agent call resolves; its
+primary statistic is the geometric mean of within-pair ratios. Median and p95
+ratios remain descriptive because Provider timing is unstable. Gate eligibility
+is evidence for human review and cannot mutate a profile or application default.
+
+Context compilation records two configuration identities. `sourceConfigHash`
+binds the selected profile and declared experimental parameters before request
+budgeting. `configHash` binds the effective configuration after the actual
+Provider input window, output reserve, and slot ceilings are applied. Context
+evaluation compares an arm with `sourceConfigHash`; comparing with the effective
+hash would incorrectly reject every arm whose runtime window differs from the
+factory fallback.
 
 ### Worker protocol and process boundary
 
@@ -659,6 +781,15 @@ the boundary does not expand authority or start the effect. A failure after an
 external effect has begun is reported honestly rather than rewriting history.
 Read-only query, chain verification, and JSONL export operate on the same strict
 replay path.
+
+Extension trust or permission expansion uses a semantic `extension.authority`
+decision in addition to the transport boundary. Its intent contains only the
+Extension id, change kind, and permission counts/ids that already passed the
+bounded identifier schema. The intent must be durable before settings change.
+Audit failure therefore leaves persisted trust and grants unchanged. A terminal
+audit failure after an effect is reported honestly; it never rewrites the
+attempt as success. Permission reduction and trust revocation are explicit,
+idempotent reductions and never restore authority as a side effect.
 
 ### Boundary taxonomy
 
@@ -848,6 +979,31 @@ Side chats use transient Session forks anchored to the effective parent
 history. They remain in memory and read-only until an explicit promotion creates
 a normal Session.
 
+### Causal timeline projection
+
+The Session timeline is rebuilt from the ordered Session JSONL records. A
+`messages_appended.requestId` anchors a foreground Turn when present; legacy
+logs use a deterministic local Turn id and mark its confidence as inferred.
+Background Session observer records carry a durable `activationId`; that id
+opens a separate system-origin Turn whose messages and correlated audit
+evidence remain isolated from the foreground `currentTurn` and completion
+obligations. The projector never binds an untagged record to the most recent
+background activation by proximity.
+Tool lifecycle messages use their existing `render.invocationId` as the
+strongest Step correlation. Exact duplicate lifecycle observations collapse in
+the projection, while a result observed after its originating Turn retains that
+original Turn and is marked late. A tool call without a terminal result appears
+as unsettled diagnostic work; it does not alter the completion barrier.
+
+Correlated audit records may enrich the same projection with permission
+decisions or host effects. They are referenced, not copied into Session JSONL,
+and keep their own semantic authority. The projector assigns deterministic
+event, Turn, Step, correlation, causation, and sequence fields and emits only
+fixed summaries such as a tool name and outcome. It never includes message
+content, tool arguments/results, source, terminal streams, credentials, or
+environment data. Replaying the same ordered inputs yields the same projection;
+the result is diagnostics, not a second Session or execution state machine.
+
 ## Desktop architecture
 
 Desktop follows Electron's Main/Preload/Renderer security model.
@@ -903,6 +1059,15 @@ of the global environment cache, and lets the latest request own visible state.
 requests confirmation and never performs a repair itself. A setup or fix effect
 starts only from an explicit UI action, and fix always sends
 `confirmed: true`.
+
+Doctor represents each finding with a stable classification plus four human
+fields: symptom, cause, impact, and next action. A report distinguishes a clean
+baseline, optional warnings, blockers, idempotent host repairs, and decisions
+that only the user can make. The repair plan lists the exact bounded setup
+request and what it changes; inspection and planning never call setup. Runtime
+checks are offline by default. Provider authentication and writable Project
+observations are supplied by the owning host without moving credential or
+filesystem authority into `@swarmx/runtime`.
 
 ## Project tools and permissions
 
@@ -998,9 +1163,41 @@ Harnesses, Models, Providers, Agents, Skills, MCP servers, commands, LSP
 servers, hooks, monitors, assets, policies, connectors, and UI contribution
 references, but it does not execute them.
 
+`SWARMX_EXTENSION_PATHS` and `SWARMX_EXTENSION_ROOTS` only add discovery roots.
+The loader records a host-observed source and content digest beside each
+discovered bundle. Manifest-declared `local`, `verified`, or `builtin` trust
+cannot replace that observation or raise effective trust. Built-ins are the
+only executable bundles trusted by their host identity; every other executable
+bundle must match an installed immutable revision, enabled state, persisted
+trust, and required permission grants before any process boundary is entered.
+Declarative metadata remains displayable when this gate is not satisfied.
+
 Installation, update, rollback, trust changes, enablement, and repair are
 separate validated actions. Executable UI components are host-registered React
 components; manifests cannot deliver inline scripts, HTML, or render functions.
+
+Installed state records the immutable source revision/digest, effective trust,
+requested permission ids, and granted permission ids. Discovery and install
+start with no grant. A permission-set change is evaluated as a set difference:
+removal is an authority reduction, while any addition requires explicit user
+confirmation, trusted source state, and audit intent before persistence. An
+update intersects old grants with the new request and may lower effective trust;
+candidate metadata can never raise either. Revoking trust disables the
+Extension and clears grants. Requests attributed to an Extension cannot change
+approval policy, credential storage, audit policy, or trust state.
+
+Untrusted declarative metadata may remain visible in inventory. Untrusted
+executable capabilities without a complete installed-state match are blocked;
+supported third-party code runs through an existing external process boundary
+such as MCP, LSP, or ACP with sanitized input and explicit grants. Executable
+authority includes custom Harnesses, stdio MCP, LSP, Hook, Command, Software
+command, and connector entrypoints. SwarmX does not load arbitrary Extension
+code into Core, Electron Main, Preload, or Renderer.
+
+Desktop LSP completion and Agent-facing LSP operations resolve their owning
+bundle and rerun this same preflight, including dependency closure. LSP child
+processes receive only a host-maintained environment whitelist; Provider
+credentials and arbitrary inherited environment variables are excluded.
 
 Custom Agents store a composition recipe and resolve it through the same
 preflight and execution path as Extension-provided profiles. Native Claude Code

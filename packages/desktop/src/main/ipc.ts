@@ -1,4 +1,6 @@
-import { chmod, readFile, realpath, stat, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { constants } from "node:fs";
+import { access, chmod, readFile, realpath, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -12,7 +14,9 @@ import type {
   AuditInput,
   AuditQuery,
   AuditVerification,
+  BeginSessionRequestResult,
   DiscoveredSession,
+  ExtensionAuthorityAuditEvent,
   ExtensionInventory,
   ExternalAcpSessionBinding,
   GlobalMemoryBackend,
@@ -38,6 +42,7 @@ import {
   AuditStore,
   appendMessages,
   archiveSession,
+  beginSessionRequest,
   buildGlobalMemoryUseReceipt,
   countPersonalMemoryAgentTargets,
   createMemoryAgentTool,
@@ -65,6 +70,8 @@ import {
   Swarm,
   saveSession,
   setSessionPinned,
+  settleSessionRequest,
+  stableJson,
   updateSessionTitle,
   validateMediaAttachments,
 } from "@swarmx/core";
@@ -169,6 +176,7 @@ import type { RendererIpcEvent } from "./window-security.js";
 import { registerWorkspaceInspectionIpc } from "./workspace-inspection-ipc.js";
 import type { WorkspacePermissionReviewRequest } from "./workspace-tool-permissions.js";
 import {
+  type ClaudeSessionActivation,
   projectAgentContextMessage,
   type WorkspaceAgentToolOptions,
   WorkspaceTools,
@@ -307,7 +315,12 @@ const mediaService = new DesktopMediaService(
     ? path.join(tmpdir(), `swarmx-media-test-${process.pid}`)
     : undefined,
 );
-const extensionManager = new DesktopExtensionManager(desktopSettingsStore);
+const extensionManager = new DesktopExtensionManager(
+  desktopSettingsStore,
+  undefined,
+  undefined,
+  recordExtensionAuthorityAudit,
+);
 const providerUsage = new ProviderUsageService({ authStore: providerAuthStore });
 const desktopActivity = new ActivityStore(
   process.env.NODE_ENV === "test"
@@ -333,12 +346,43 @@ interface DesktopAgentSendParams {
   sideChatId?: string;
   sideChatVisible?: boolean;
   sideEditMessageIndex?: number;
+  editMessageIndex?: number;
+  editExpectedMessages?: MessageChunk[];
   harnessId: string;
   userText: string;
+  attachments?: MediaAttachment[];
   agentConfig?: AgentConfig;
   agentComposition?: AgentComposition;
   swarmConfig?: SwarmConfig;
   cwd?: string;
+}
+
+class SessionRequestError extends Error {
+  constructor(
+    readonly code: "REQUEST_OUTCOME_UNKNOWN" | "REQUEST_ID_CONFLICT" | "REQUEST_ALREADY_ACTIVE",
+  ) {
+    super(code);
+    this.name = "SessionRequestError";
+  }
+}
+
+function requestDigest(params: DesktopAgentSendParams): string {
+  const normalized = {
+    sessionId: params.sessionId,
+    sideChatId: params.sideChatId,
+    sideChatVisible: params.sideChatVisible,
+    sideEditMessageIndex: params.sideEditMessageIndex,
+    editMessageIndex: params.editMessageIndex,
+    editExpectedMessages: params.editExpectedMessages,
+    harnessId: params.harnessId,
+    userText: params.userText.trim(),
+    attachments: params.attachments,
+    agentConfig: params.agentConfig,
+    agentComposition: params.agentComposition,
+    swarmConfig: params.swarmConfig,
+    cwd: params.cwd ? path.resolve(params.cwd) : undefined,
+  };
+  return `sha256:${createHash("sha256").update(stableJson(normalized), "utf8").digest("hex")}`;
 }
 
 async function executeWithProviderRuntime<T>(
@@ -438,17 +482,70 @@ function appendActivity(store: ActivityStore, input: ActivityEventInput): void {
 }
 
 async function loadDesktopExtensionInventory(): Promise<ExtensionInventory> {
-  const [inventory, nativeAgents] = await Promise.all([
+  const [inventory, nativeAgents, settings] = await Promise.all([
     loadExtensionInventory(),
     customAgents.discoverNative({ workspaceRoot: desktopWorkspaceRoot }),
+    desktopSettingsStore.read(),
   ]);
   const declaredIds = new Set(inventory.agents.map((agent) => agent.id));
   const discovered = nativeAgents.agents.filter((agent) => !declaredIds.has(agent.id));
   return {
     ...inventory,
+    installedExtensions: settings.extensions.installed,
     agents: [...inventory.agents, ...discovered],
     warnings: [...inventory.warnings, ...nativeAgents.warnings],
   };
+}
+
+async function desktopDoctorReadiness(harnessId?: string) {
+  const settings = await desktopSettingsStore.read();
+  const selectedHarnessId = harnessId ?? settings.ui.composer.lastHarnessId;
+  const provider = await providerReadiness(selectedHarnessId, settings.providers);
+  let project: "ready" | "missing" | "not_writable";
+  try {
+    const workspace = await stat(desktopWorkspaceRoot);
+    if (!workspace.isDirectory()) {
+      project = "missing";
+    } else {
+      await access(desktopWorkspaceRoot, constants.W_OK);
+      project = "ready";
+    }
+  } catch (error) {
+    project = isErrorCode(error, "ENOENT") ? "missing" : "not_writable";
+  }
+  return { provider, project, network: "not_required" as const };
+}
+
+async function providerReadiness(
+  harnessId: string | undefined,
+  providers: Awaited<ReturnType<DesktopSettingsStore["read"]>>["providers"],
+): Promise<"ready" | "missing" | "invalid_reference" | "not_required"> {
+  if (harnessId && harnessId !== "swarmx" && harnessId !== "swarmx-direct") {
+    return "not_required";
+  }
+  if (providers.length === 0) return "missing";
+  let promptReference = false;
+  for (const provider of providers) {
+    const reference = provider.secretRef;
+    if (!reference) return "ready";
+    if (reference.source === "prompt") {
+      promptReference = true;
+      continue;
+    }
+    if (reference.source === "env" && process.env[reference.key]) return "ready";
+    if (reference.source === "local_auth_file") {
+      try {
+        if (await providerAuthStore.has(reference.key)) return "ready";
+      } catch {
+        return "invalid_reference";
+      }
+    }
+  }
+  return promptReference ? "missing" : "invalid_reference";
+}
+
+function isErrorCode(error: unknown, code: string): boolean {
+  return error instanceof Error && "code" in error && error.code === code;
 }
 
 export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): void {
@@ -637,6 +734,9 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
     let foregroundChunksActive = false;
     let activeSideChat: TransientSessionData | undefined;
     let ephemeralCodexHome: Awaited<ReturnType<typeof createEphemeralCodexHome>> | undefined;
+    const durableRequestDigest = requestDigest(params);
+    let durableRequestStarted = false;
+    let durableRequestSettled = false;
     const taskMetadata = {
       taskId: params.requestId,
       sessionId: params.sessionId,
@@ -653,18 +753,39 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
           ? { sessionId: params.sessionId }
           : {}),
     };
-    const persistOutcome = (messages: MessageChunk[]) => ({
-      sessionPersisted:
-        params.sessionId && !params.sideChatId
-          ? appendMessages(params.sessionId, messages, { requestId: params.requestId })
-          : false,
-      sideChat:
-        params.sideChatId && params.sessionId && activeSideChat
-          ? sideChats.finishRun(params.sessionId, params.sideChatId, params.requestId, messages, {
-              unread: params.sideChatVisible === false,
-            })
-          : undefined,
-    });
+    const persistOutcome = (
+      messages: MessageChunk[],
+      outcome: "completed" | "canceled" | "failed",
+    ) => {
+      let sessionPersisted = false;
+      if (params.sessionId && !params.sideChatId && durableRequestStarted) {
+        if (!durableRequestSettled) {
+          const settled = settleSessionRequest({
+            id: params.sessionId,
+            requestId: params.requestId,
+            requestDigest: durableRequestDigest,
+            messages,
+            outcome,
+          });
+          if (!settled) {
+            throw new Error(
+              `Session "${params.sessionId}" disappeared while settling the request.`,
+            );
+          }
+          durableRequestSettled = true;
+        }
+        sessionPersisted = true;
+      }
+      return {
+        sessionPersisted,
+        sideChat:
+          params.sideChatId && params.sessionId && activeSideChat
+            ? sideChats.finishRun(params.sessionId, params.sideChatId, params.requestId, messages, {
+                unread: params.sideChatVisible === false,
+              })
+            : undefined,
+      };
+    };
     const closeForegroundTurn = (): void => {
       foregroundChunksActive = false;
       activeChunkPublisher?.close();
@@ -674,6 +795,55 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
     try {
       if (params.sessionId && loadSession(params.sessionId)?.archivedAt) {
         throw new Error(`Session "${params.sessionId}" is archived.`);
+      }
+      if (params.sessionId && !params.sideChatId) {
+        if (agentRequests.isActive(params.requestId)) {
+          throw new SessionRequestError("REQUEST_ALREADY_ACTIVE");
+        }
+        const begun: BeginSessionRequestResult | null = beginSessionRequest({
+          id: params.sessionId,
+          requestId: params.requestId,
+          requestDigest: durableRequestDigest,
+          userMessage: {
+            role: "user",
+            kind: "message",
+            content: params.userText.trim(),
+            ...(params.attachments?.length ? { attachments: params.attachments } : {}),
+          },
+          ...(params.editMessageIndex === undefined
+            ? {}
+            : {
+                editMessageIndex: params.editMessageIndex,
+                expectedMessages: params.editExpectedMessages ?? [],
+              }),
+        });
+        if (!begun) throw new Error(`Session "${params.sessionId}" no longer exists.`);
+        if (begun.status === "conflict") {
+          throw new SessionRequestError("REQUEST_ID_CONFLICT");
+        }
+        if (begun.status === "unknown") {
+          throw new SessionRequestError("REQUEST_OUTCOME_UNKNOWN");
+        }
+        if (begun.status === "settled") {
+          const replayedError =
+            begun.outcome === "failed"
+              ? (begun.messages
+                  .slice()
+                  .reverse()
+                  .find((message: MessageChunk) => message.role === "system")?.content ??
+                "The request previously failed.")
+              : undefined;
+          return {
+            success: begun.outcome === "completed",
+            ...(begun.outcome === "canceled" ? { canceled: true } : {}),
+            ...(replayedError ? { error: replayedError } : {}),
+            requestId: params.requestId,
+            messages: begun.messages,
+            sessionPersisted: true,
+            replayed: true,
+          };
+        }
+        durableRequestStarted = true;
       }
       if (params.sideChatId) {
         if (!params.sessionId) throw new Error("Side chat sends require a parent Session.");
@@ -699,6 +869,9 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
       }
       const result = await agentRequests.runForSession(desktopRequest, async () => {
         const publishChunk = agentChunkPublisher(event.sender, params.requestId, {
+          ...(params.sessionId ? { sessionId: params.sessionId } : {}),
+          adapter: params.harnessId,
+          onLateChunk: (observation) => recordLateChunkAudit(auditStore, observation),
           ...(params.sideChatId
             ? {
                 channel: "sideChat:chunk",
@@ -927,6 +1100,9 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
                 metadata: {
                   snapshotId: manifest.snapshotId,
                   configHash: manifest.configHash,
+                  ...(manifest.sourceConfigHash
+                    ? { sourceConfigHash: manifest.sourceConfigHash }
+                    : {}),
                   modelVersion: manifest.modelVersion,
                   contextHash: manifest.contextHash,
                   compilePhase: manifest.compilePhase,
@@ -973,7 +1149,7 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
           const workflowHistory = params.sessionId
             ? (loadSession(params.sessionId)?.messages ?? [])
             : [];
-          swarm = new Swarm(await protectSwarmConfigBackends(config), {
+          swarm = new Swarm(await protectSwarmConfigBackends(config, cwd), {
             agent: {
               acpPermissionHandler,
               localTools: privateKnowledgeTools,
@@ -1004,7 +1180,11 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
           const providerRuntime = plan.modelSupplyId
             ? await modelCatalog.runtimeCredentialsForSupply(inventory, plan.modelSupplyId)
             : undefined;
-          const protectedInventory = await protectCompositionHarness(inventory, plan.harnessId);
+          const protectedInventory = await protectCompositionHarness(
+            inventory,
+            plan.harnessId,
+            cwd,
+          );
           let executionInventory = protectedInventory;
           const runtimeHarnessId = compositionRuntimeHarnessId(inventory, plan);
           const protectedHarness = protectedInventory.harnesses.find(
@@ -1247,6 +1427,7 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
             const runtimeProjectId = directSession?.projectId;
             sessionRuntime.configure({
               activate: async (activation) => {
+                recordSessionActivationAudit(auditStore, activation, sessionId, "started");
                 const boundSession = loadSession(sessionId);
                 if (!boundSession) throw new Error(`Session ${sessionId} no longer exists.`);
                 const backgroundProject = await bindPersistedSessionProject(
@@ -1260,7 +1441,11 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
                   content: activation.prompt,
                   kind: "message",
                 };
-                if (!appendMessages(sessionId, [activationMessage])) {
+                if (
+                  !appendMessages(sessionId, [activationMessage], {
+                    activationId: activation.activationId,
+                  })
+                ) {
                   throw new Error(`Session ${sessionId} no longer exists.`);
                 }
                 publishSessionMessages(event.sender, sessionId);
@@ -1330,9 +1515,19 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
                               receipt,
                             );
                             if (!message) return;
-                            if (!appendMessages(sessionId, [message])) {
+                            if (
+                              !appendMessages(sessionId, [message], {
+                                activationId: activation.activationId,
+                              })
+                            ) {
                               throw new Error(`Session ${sessionId} no longer exists.`);
                             }
+                            recordSessionActivationAudit(
+                              auditStore,
+                              activation,
+                              sessionId,
+                              "bootstrap",
+                            );
                             publishSessionMessages(event.sender, sessionId);
                           },
                           ...(globalMemorySnapshot ? { globalMemory: globalMemorySnapshot } : {}),
@@ -1342,18 +1537,26 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
                     ),
                 );
                 assertFinalAssistantMessage(messages);
-                if (!appendMessages(sessionId, messages)) {
+                if (
+                  !appendMessages(sessionId, messages, { activationId: activation.activationId })
+                ) {
                   throw new Error(`Session ${sessionId} no longer exists.`);
                 }
+                recordSessionActivationAudit(auditStore, activation, sessionId, "result");
                 publishSessionMessages(event.sender, sessionId);
               },
-              onActivationError: (_activation, error) => {
+              onActivationError: (activation, error) => {
+                recordSessionActivationAudit(auditStore, activation, sessionId, "failure", error);
                 const message: MessageChunk = {
                   role: "system",
                   content: `Background activation failed: ${errorMessage(error)}`,
                   kind: "message",
                 };
-                if (appendMessages(sessionId, [message])) {
+                if (
+                  appendMessages(sessionId, [message], {
+                    activationId: activation.activationId,
+                  })
+                ) {
                   publishSessionMessages(event.sender, sessionId);
                 }
               },
@@ -1657,7 +1860,7 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
       });
       closeForegroundTurn();
       const persistedMessages = timedMessages(result.messages, startedAt);
-      const { sessionPersisted, sideChat } = persistOutcome(persistedMessages);
+      const { sessionPersisted, sideChat } = persistOutcome(persistedMessages, "completed");
       if (params.sessionId && !params.sideChatId) {
         try {
           await globalMemoryService.recordCompletedTurn({
@@ -1680,9 +1883,16 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
       return { ...result, messages: persistedMessages, sessionPersisted, sideChat };
     } catch (err) {
       closeForegroundTurn();
+      if (err instanceof SessionRequestError) {
+        return {
+          success: false,
+          requestId: params.requestId,
+          error: err.code,
+        };
+      }
       if (err instanceof RequestCancelledError) {
         const canceledMessages = interruptedMessages(observedMessages, startedAt);
-        const { sessionPersisted, sideChat } = persistOutcome(canceledMessages);
+        const { sessionPersisted, sideChat } = persistOutcome(canceledMessages, "canceled");
         recordActivityOutcome(activityStore, {
           ...taskMetadata,
           status: "canceled",
@@ -1710,7 +1920,7 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
           kind: "message" as const,
         } satisfies MessageChunk);
       const failedMessages = [...timedMessages(observedMessages, startedAt), terminalMessage];
-      const { sessionPersisted, sideChat } = persistOutcome(failedMessages);
+      const { sessionPersisted, sideChat } = persistOutcome(failedMessages, "failed");
       recordActivityOutcome(activityStore, {
         ...taskMetadata,
         status: "failed",
@@ -2356,14 +2566,22 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
       harnessEnvironment.harnessVersion(params.harnessId, params.refresh ?? false),
   );
 
-  ipcMain.handle("doctor:inspect", (_event: IpcMainInvokeEvent, params?: { harnessId?: string }) =>
-    harnessDoctor.inspect(params ?? {}),
+  ipcMain.handle(
+    "doctor:inspect",
+    async (_event: IpcMainInvokeEvent, params?: { harnessId?: string }) =>
+      harnessDoctor.inspect({
+        ...(params?.harnessId ? { harnessId: params.harnessId } : {}),
+        readiness: await desktopDoctorReadiness(params?.harnessId),
+      }),
   );
 
   ipcMain.handle(
     "doctor:fix",
-    (_event: IpcMainInvokeEvent, params: { harnessId?: string; confirmed: boolean }) =>
-      harnessDoctor.fix(params),
+    async (_event: IpcMainInvokeEvent, params: { harnessId?: string; confirmed: boolean }) =>
+      harnessDoctor.fix({
+        ...params,
+        readiness: await desktopDoctorReadiness(params.harnessId),
+      }),
   );
 
   ipcMain.handle(
@@ -2375,7 +2593,7 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
   ipcMain.handle(
     "lsp:complete",
     async (_event: IpcMainInvokeEvent, params: LspCompletionRequest) => {
-      const inventory = await loadExtensionInventory();
+      const inventory = await loadDesktopExtensionInventory();
       return lspHost.complete(inventory, params);
     },
   );
@@ -2608,9 +2826,10 @@ export function assertCompositionSupplyReady(
 async function protectedBackendForHarness(
   harnessId: string,
   backend: AgentBackend,
+  workspaceDir?: string,
 ): Promise<AgentBackend> {
   const result = await harnessEnvironment.protectedBackendForHarness(harnessId, backend, {
-    workspaceDir: process.cwd(),
+    workspaceDir: workspaceDir ?? process.cwd(),
   });
   if (!result.success || !result.backend) {
     throw new Error(result.error ?? "Protected harness runtime is not ready.");
@@ -2621,12 +2840,17 @@ async function protectedBackendForHarness(
 async function protectCompositionHarness(
   inventory: ExtensionInventory,
   harnessId: string | undefined,
+  workspaceDir?: string,
 ): Promise<ExtensionInventory> {
   if (!harnessId) return inventory;
   const matches = inventory.harnesses.filter((harness) => harness.id === harnessId);
   if (matches.length !== 1) return inventory;
   const runtimeHarnessId = matches[0].runtimeHarnessId ?? harnessId;
-  const protectedBackend = await protectedBackendForHarness(runtimeHarnessId, matches[0].backend);
+  const protectedBackend = await protectedBackendForHarness(
+    runtimeHarnessId,
+    matches[0].backend,
+    workspaceDir,
+  );
   const protectedInventory = {
     ...inventory,
     harnesses: inventory.harnesses.map((harness) =>
@@ -2659,10 +2883,17 @@ export function containerizeCompositionSupplyRoutes(
   };
 }
 
-async function protectSwarmConfigBackends(config: SwarmConfig): Promise<SwarmConfig> {
+async function protectSwarmConfigBackends(
+  config: SwarmConfig,
+  workspaceDir?: string,
+): Promise<SwarmConfig> {
   return transformSwarmConfigAgentBackends(config, async (backend) => {
     const harnessId = harnessEnvironment.guessProtectedHarnessId(backend);
-    return harnessId ? protectedBackendForHarness(harnessId, backend) : backend;
+    return protectedBackendForHarness(
+      harnessId ?? (backend.type === "custom" ? "unregistered-custom" : "native"),
+      backend,
+      workspaceDir,
+    );
   });
 }
 
@@ -3002,6 +3233,23 @@ function recordTerminalAudit(event: Readonly<TerminalAuditEvent>): void {
   });
 }
 
+function recordExtensionAuthorityAudit(event: ExtensionAuthorityAuditEvent): void {
+  activeAuditStore.append({
+    category: "extension",
+    action: "extension.authority",
+    outcome: event.phase,
+    actor: { kind: "user" },
+    target: { kind: "extension" },
+    metadata: {
+      pluginId: event.pluginId,
+      actionKind: event.action,
+      authorityChange: event.authorityChange,
+      permissionCount: event.permissionIds.length,
+      permissionIds: event.permissionIds.slice(0, 16),
+    },
+  });
+}
+
 function recordToolChunkAudit(
   auditStore: DesktopAuditStore,
   chunk: MessageChunk,
@@ -3027,6 +3275,65 @@ function recordToolChunkAudit(
     ...(safeAuditToken(params.requestId) ? { requestId: params.requestId } : {}),
     ...(safeAuditToken(params.sessionId) ? { sessionId: params.sessionId } : {}),
     metadata: { ...(invocationId ? { invocationId } : {}) },
+  });
+}
+
+function recordSessionActivationAudit(
+  auditStore: DesktopAuditStore,
+  activation: ClaudeSessionActivation,
+  sessionId: string,
+  phase: "started" | "bootstrap" | "result" | "failure",
+  error?: unknown,
+): void {
+  const activationId = safeAuditToken(activation.activationId);
+  if (!activationId) return;
+  auditStore.append({
+    category: "session",
+    action: `session.activation.${phase}`,
+    outcome: phase === "started" ? "attempted" : phase === "failure" ? "failed" : "completed",
+    actor: { kind: "system" },
+    target: { kind: "activation", id: activationId },
+    sessionId,
+    activationId,
+    metadata: {
+      activationId,
+      source: activation.source,
+      ...(activation.jobId ? { jobId: activation.jobId } : {}),
+      ...(activation.taskId ? { taskId: activation.taskId } : {}),
+      ...(error ? { errorType: errorName(error) } : {}),
+    },
+  });
+}
+
+function recordLateChunkAudit(
+  auditStore: DesktopAuditStore,
+  observation: {
+    requestId: string;
+    sessionId?: string;
+    adapter: string;
+    chunkKind: MessageChunk["kind"];
+    boundary: "closed";
+    observationCount: number;
+  },
+): void {
+  const requestId = safeAuditToken(observation.requestId);
+  const sessionId = safeAuditToken(observation.sessionId);
+  const adapter = safeAuditToken(observation.adapter) ?? "unknown";
+  const chunkKind = safeAuditToken(observation.chunkKind) ?? "unknown";
+  auditStore.append({
+    category: "session",
+    action: "session.late_chunk_observed",
+    outcome: "completed",
+    actor: { kind: "system" },
+    target: { kind: "session-output-boundary" },
+    ...(requestId ? { requestId } : {}),
+    ...(sessionId ? { sessionId } : {}),
+    metadata: {
+      adapter,
+      chunkKind,
+      boundary: observation.boundary,
+      observationCount: observation.observationCount,
+    },
   });
 }
 

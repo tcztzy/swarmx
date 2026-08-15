@@ -9,6 +9,7 @@ import { type MessageChunk, MessageChunkSchema } from "./types.js";
 
 const EVENT_ID_PATTERN = /^evt_[A-Za-z0-9][A-Za-z0-9_-]*$/u;
 const SHA256_PATTERN = /^sha256:[a-f0-9]{64}$/u;
+const MAX_SUMMARY_PROMPT_BYTES = 16 * 1024;
 
 export const ContextEventKindSchema = z.enum([
   "user_message",
@@ -1040,6 +1041,7 @@ interface ContextRequestAccounting {
   contextWindowSource: ContextWindowSource;
   pressureThresholdTokens: number;
   fixedInputTokens: number;
+  sourceConfigHash?: string;
   summaryMode?: ContextSummaryMode;
   summaryCalls?: number;
   summaryInputTokens?: number;
@@ -1064,6 +1066,7 @@ export interface ContextManifest {
   requestId: string;
   snapshotId: string;
   configHash: string;
+  sourceConfigHash?: string;
   modelVersion: string;
   requestedMode: EvidenceStrategy;
   effectiveMode: EvidenceStrategy;
@@ -1168,6 +1171,7 @@ export interface SessionContextEngineOptions {
   config?: ContextEngineConfig;
   preserveRecentAtomicUnits?: number;
   summaryProvider?: ContextSummaryProvider;
+  summaryPromptOverride?: string;
   onCompiled?(manifest: ContextManifest): void | Promise<void>;
 }
 
@@ -1186,6 +1190,10 @@ export function createSessionContextEngine(
   const config = options.config
     ? ContextEngineConfigSchema.parse(options.config)
     : defaultSessionContextEngineConfig();
+  const summaryPromptOverride = parseSummaryPromptOverride(options.summaryPromptOverride);
+  if (summaryPromptOverride && config.policy.checkpoint !== "profile_summary_v1") {
+    throw new Error("summaryPromptOverride requires a model-backed summary profile.");
+  }
   let latestSnapshot = createContextHistorySnapshot([]);
   const compile = (input: AgentContextEngineCompileInput) =>
     compileSessionContext({
@@ -1197,6 +1205,7 @@ export function createSessionContextEngine(
       preserveRecentAtomicUnits:
         options.preserveRecentAtomicUnits ?? config.policy.preserveRecentAtomicUnits,
       ...(options.summaryProvider ? { summaryProvider: options.summaryProvider } : {}),
+      ...(summaryPromptOverride ? { summaryPromptOverride } : {}),
       onSnapshot: (snapshot) => {
         latestSnapshot = snapshot;
       },
@@ -1220,6 +1229,7 @@ interface CompileSessionContextOptions {
   configIsExplicit: boolean;
   preserveRecentAtomicUnits: number;
   summaryProvider?: ContextSummaryProvider;
+  summaryPromptOverride?: string;
   onSnapshot(snapshot: ContextHistorySnapshot): void;
 }
 
@@ -1348,6 +1358,7 @@ async function compileSessionContext(
         contextWindowSource,
         pressureThresholdTokens,
         fixedInputTokens,
+        sourceConfigHash: contextEngineConfigHash(config),
       },
     });
   }
@@ -1368,6 +1379,9 @@ async function compileSessionContext(
       fixedInputTokens,
       reservedOutputTokens: parsedRequestBudget.reservedOutputTokens,
       ...(options.summaryProvider ? { summaryProvider: options.summaryProvider } : {}),
+      ...(options.summaryPromptOverride
+        ? { summaryPromptOverride: options.summaryPromptOverride }
+        : {}),
     });
   }
 
@@ -1425,6 +1439,7 @@ async function compileSessionContext(
         contextWindowSource,
         pressureThresholdTokens,
         fixedInputTokens,
+        sourceConfigHash: contextEngineConfigHash(config),
       },
     });
   }
@@ -1503,6 +1518,7 @@ async function compileSessionContext(
       contextWindowSource,
       pressureThresholdTokens,
       fixedInputTokens,
+      sourceConfigHash: contextEngineConfigHash(config),
       summaryMode: checkpoint ? "deterministic" : "none",
       summaryCalls: 0,
       summaryInputTokens: 0,
@@ -1528,6 +1544,7 @@ interface CompileNamedProfileContextOptions {
   fixedInputTokens: number;
   reservedOutputTokens: number;
   summaryProvider?: ContextSummaryProvider;
+  summaryPromptOverride?: string;
 }
 
 type ProfileRenderStyle = "default" | "opencode";
@@ -1594,6 +1611,9 @@ async function compileNamedProfileContext(
     contextWindowTokens: options.contextWindowTokens,
     summaryFailureMode: options.config.policy.summaryFailureMode,
     ...(options.summaryProvider ? { summaryProvider: options.summaryProvider } : {}),
+    ...(options.summaryPromptOverride
+      ? { summaryPromptOverride: options.summaryPromptOverride }
+      : {}),
   });
   const pinnedItems = plan.pinnedUnits.map((unit, index): ContextItem => {
     const content = renderProfileUnit(unit, plan.renderStyle);
@@ -1673,6 +1693,7 @@ async function compileNamedProfileContext(
       contextWindowSource: options.contextWindowSource,
       pressureThresholdTokens: options.pressureThresholdTokens,
       fixedInputTokens: options.fixedInputTokens,
+      sourceConfigHash: contextEngineConfigHash(options.config),
       summaryMode: summary.mode,
       summaryCalls: summary.calls,
       summaryInputTokens: summary.inputTokens,
@@ -1816,6 +1837,7 @@ async function compileProfileSummary(options: {
   contextWindowTokens: number;
   summaryFailureMode: ContextSummaryFailureMode;
   summaryProvider?: ContextSummaryProvider;
+  summaryPromptOverride?: string;
 }): Promise<ProfileSummaryCompilation> {
   const finalPhase = options.input.requestBudget?.phase === "final";
   const deterministic = (mode: "deterministic" | "deterministic_fallback", issue?: string) => {
@@ -1864,6 +1886,9 @@ async function compileProfileSummary(options: {
       blockIndex: index,
       blockCount: options.plan.foldGroups.length,
       level: 0,
+      ...(options.summaryPromptOverride
+        ? { summaryPromptOverride: options.summaryPromptOverride }
+        : {}),
     }),
   );
   let attemptedCalls = leafRequests.length;
@@ -1980,8 +2005,9 @@ function createProfileSummaryRequest(options: {
   blockIndex: number;
   blockCount: number;
   level: number;
+  summaryPromptOverride?: string;
 }): ContextSummaryRequest {
-  const prompt = profileSummaryPrompt(options.profile);
+  const prompt = options.summaryPromptOverride ?? profileSummaryPrompt(options.profile);
   const rawTranscript = options.units
     .map((unit) =>
       options.profile === "hermes"
@@ -2005,6 +2031,16 @@ function createProfileSummaryRequest(options: {
     blockCount: options.blockCount,
     level: options.level,
   };
+}
+
+function parseSummaryPromptOverride(input: string | undefined): string | undefined {
+  if (input === undefined) return undefined;
+  const prompt = z.string().min(1).parse(input);
+  if (!prompt.trim()) throw new Error("summaryPromptOverride cannot be blank.");
+  if (Buffer.byteLength(prompt, "utf8") > MAX_SUMMARY_PROMPT_BYTES) {
+    throw new Error(`summaryPromptOverride cannot exceed ${MAX_SUMMARY_PROMPT_BYTES} bytes.`);
+  }
+  return prompt;
 }
 
 function createProfileSummaryCheckpoint(options: {
@@ -2788,6 +2824,7 @@ export function compileContext(input: CompileContextInput): CompiledContext {
       requestId: input.requestId,
       snapshotId: snapshot.snapshotId,
       configHash: contextEngineConfigHash(config),
+      sourceConfigHash: requestAccounting.sourceConfigHash ?? contextEngineConfigHash(config),
       modelVersion: input.modelVersion,
       requestedMode: EvidenceStrategySchema.parse(input.requestedMode),
       effectiveMode: EvidenceStrategySchema.parse(input.effectiveMode),

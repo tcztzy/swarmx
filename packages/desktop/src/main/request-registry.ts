@@ -68,6 +68,10 @@ export class DesktopRequestRegistry {
     return [...this.active.values()].some((entry) => entry.sessionId === sessionId);
   }
 
+  isActive(requestId: string): boolean {
+    return this.active.has(requestId);
+  }
+
   async cancel(owner: RequestOwner, requestId: string): Promise<boolean> {
     const entry = this.active.get(requestId);
     if (!entry || entry.owner !== owner) return false;

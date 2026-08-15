@@ -17,13 +17,17 @@ describe("HarnessDoctor", () => {
     expect(host.setup).not.toHaveBeenCalled();
   });
 
-  it("keeps a selected missing harness out of the repair plan", async () => {
+  it("plans an idempotent repair for a selected installable Harness", async () => {
     const doctor = new HarnessDoctor(fakeHost(unhealthyStatus()));
     const plan = doctor.plan(await doctor.inspect({ harnessId: "hermes" }));
 
-    expect(plan.requiresConfirmation).toBe(false);
+    expect(plan.requiresConfirmation).toBe(true);
     expect(plan.requiresAdmin).toBe(false);
-    expect(plan.actions).toEqual([]);
+    expect(plan.idempotent).toBe(true);
+    expect(plan.actions).toEqual([
+      expect.objectContaining({ id: "harness:hermes", risk: "install", idempotent: true }),
+    ]);
+    expect(plan.changes).toContain("Install or repair Hermes Agent CLI.");
   });
 
   it("refuses repair without explicit confirmation", async () => {
@@ -35,27 +39,37 @@ describe("HarnessDoctor", () => {
     expect(host.setup).not.toHaveBeenCalled();
   });
 
-  it("does not repair a harness even after confirmation", async () => {
+  it("repairs a selected Harness only after confirmation", async () => {
     const host = fakeHost(unhealthyStatus());
 
     const result = await new HarnessDoctor(host).fix({ harnessId: "hermes", confirmed: true });
 
-    expect(result.executed).toBe(false);
-    expect(host.setup).not.toHaveBeenCalled();
-    expect(result.after.healthy).toBe(true);
+    expect(result.executed).toBe(true);
+    expect(host.setup).toHaveBeenCalledWith({
+      harnessId: "hermes",
+      requirementIds: ["hermes"],
+    });
+    expect(result.after.healthy).toBe(false);
   });
 
-  it("does not diagnose a selected harness's protected runtime", async () => {
+  it("diagnoses and previews a selected Harness's protected runtime", async () => {
     const report = await new HarnessDoctor(fakeHost(unhealthyStatus())).inspect({
       harnessId: "claude_code",
     });
 
-    expect(report.healthy).toBe(true);
-    expect(report.issues).toEqual([]);
-    expect(report.repairActions).toEqual([]);
+    expect(report.healthy).toBe(false);
+    expect(report.issues).toEqual([
+      expect.objectContaining({ classification: "repairable", scope: "protection" }),
+    ]);
+    expect(report.repairActions).toEqual([
+      expect.objectContaining({
+        risk: "admin",
+        changes: expect.arrayContaining([expect.stringMatching(/Apple Container/)]),
+      }),
+    ]);
   });
 
-  it("does not diagnose a selected missing OpenClaw CLI", async () => {
+  it("diagnoses a selected missing OpenClaw CLI without running it", async () => {
     const status = healthyStatus();
     status.requirements.push({
       id: "openclaw",
@@ -76,9 +90,13 @@ describe("HarnessDoctor", () => {
 
     const report = await new HarnessDoctor(fakeHost(status)).inspect({ harnessId: "openclaw" });
 
-    expect(report.healthy).toBe(true);
-    expect(report.issues).toEqual([]);
-    expect(report.repairActions).toEqual([]);
+    expect(report.healthy).toBe(false);
+    expect(report.issues).toEqual([
+      expect.objectContaining({ classification: "repairable", targetId: "openclaw" }),
+    ]);
+    expect(report.repairActions).toEqual([
+      expect.objectContaining({ request: { harnessId: "openclaw", requirementIds: ["openclaw"] } }),
+    ]);
   });
 
   it("never repairs optional harnesses from an unfiltered fix", async () => {
@@ -130,6 +148,75 @@ describe("HarnessDoctor", () => {
     expect(report.environment.ready).toBe(true);
     expect(report.environment.setupAvailable).toBe(false);
     expect(report.environment.harnesses.map((harness) => harness.harnessId)).toEqual(["hermes"]);
+  });
+
+  it("explains fresh Provider, Project, and offline readiness without mutating", async () => {
+    const host = fakeHost(healthyStatus());
+    const report = await new HarnessDoctor(host).inspect({
+      readiness: { provider: "missing", project: "missing", network: "offline" },
+    });
+
+    expect(report.status).toBe("blocking");
+    expect(report.issues).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ scope: "provider", classification: "decision" }),
+        expect.objectContaining({ scope: "project", classification: "decision" }),
+        expect.objectContaining({ scope: "network", classification: "warning" }),
+      ]),
+    );
+    expect(report.issues[0]).toMatchObject({
+      symptom: expect.any(String),
+      cause: expect.any(String),
+      impact: expect.any(String),
+      nextAction: expect.any(String),
+    });
+    expect(host.setup).not.toHaveBeenCalled();
+  });
+
+  it("blocks invalid auth references and unwritable Projects", async () => {
+    const report = await new HarnessDoctor(fakeHost(healthyStatus())).inspect({
+      readiness: {
+        provider: "invalid_reference",
+        project: "not_writable",
+        network: "not_required",
+      },
+    });
+
+    expect(report.issues.map((entry) => entry.id)).toEqual(
+      expect.arrayContaining(["doctor:provider:invalid-reference", "doctor:project:not-writable"]),
+    );
+    expect(report.repairActions).toEqual([]);
+  });
+
+  it("chooses one deterministic default when multiple Harnesses are ready", async () => {
+    const report = await new HarnessDoctor(fakeHost(healthyStatus())).inspect();
+
+    expect(report.firstRun).toMatchObject({
+      availableHarnessIds: ["claude_code", "hermes"],
+      recommendedHarnessId: "claude_code",
+    });
+  });
+
+  it("is stable after an idempotent repair succeeds", async () => {
+    let status = unhealthyStatus();
+    const setup = vi.fn(async () => {
+      status = healthyStatus();
+      return setupResult(status);
+    });
+    const host = {
+      status: vi.fn(async () => status),
+      setup,
+    } satisfies HarnessEnvironmentDoctorHost;
+    const doctor = new HarnessDoctor(host);
+
+    const first = await doctor.fix({ harnessId: "hermes", confirmed: true });
+    const second = await doctor.fix({ harnessId: "hermes", confirmed: true });
+
+    expect(first.executed).toBe(true);
+    expect(first.after.healthy).toBe(true);
+    expect(second.executed).toBe(false);
+    expect(second.after.repairActions).toEqual([]);
+    expect(setup).toHaveBeenCalledTimes(1);
   });
 
   it("prefers the existing local Hermes checkout during detection", async () => {
@@ -204,6 +291,13 @@ function healthyStatus(): HarnessEnvironmentStatus {
       ready: true,
       requiredHarnessIds: ["claude_code"],
       selectedRuntimeId: "apple_container",
+    },
+    sandbox: {
+      strategy: "protected_required",
+      mode: "protected",
+      ready: true,
+      profileIds: ["claude_code"],
+      runtimeId: "apple_container",
     },
     requirements: [
       {

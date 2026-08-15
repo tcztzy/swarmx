@@ -37,6 +37,18 @@ describe("Core package boundaries", () => {
     );
   });
 
+  it("keeps the derived Session timeline browser-safe and separate from Session storage", () => {
+    expect(importsFrom("session-timeline.ts").map((entry) => entry.module)).toEqual([
+      "zod",
+      "./canonical-json.js",
+      "./types.js",
+    ]);
+    expect(coreExports()["./session-timeline"]).toEqual({
+      types: "./dist/session-timeline.d.ts",
+      import: "./dist/session-timeline.js",
+    });
+  });
+
   it("prevents domain modules from depending on MCP or ACP adapters for shared contracts", () => {
     for (const file of [
       "memory.ts",

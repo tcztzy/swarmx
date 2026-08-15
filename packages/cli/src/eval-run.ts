@@ -123,7 +123,7 @@ export function formatContextEvaluationReport(
 export function formatContextEvaluationError(error: unknown, pretty = false): string {
   return `${JSON.stringify(
     {
-      schemaVersion: 1,
+      schemaVersion: 2,
       recordType: "context_evaluation_error",
       failure: classifyContextEvaluationError(error),
     },

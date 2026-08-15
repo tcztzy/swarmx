@@ -275,6 +275,62 @@ describe("ClaudeSessionRuntime", () => {
     await rm(root, { recursive: true, force: true });
   });
 
+  it("keeps one activation id when durable cron refresh fails after enqueue", async () => {
+    vi.useFakeTimers();
+    const now = new Date(2026, 6, 17, 12, 0, 30).getTime();
+    vi.setSystemTime(now);
+    const task = {
+      id: "feed0004",
+      cron: "* * * * *",
+      prompt: "refresh after firing",
+      createdAt: new Date(2026, 6, 17, 12, 0, 0).getTime(),
+      recurring: true as const,
+      createdBySessionId: "session-1",
+      createdByPid: 101,
+      createdByProcStart: "start-101",
+    };
+    let failNextRead = false;
+    const read = vi.fn(async () => {
+      if (failNextRead) {
+        failNextRead = false;
+        throw new Error("refresh failed");
+      }
+      return [task];
+    });
+    const store = {
+      start: vi.fn(async () => undefined),
+      subscribe: vi.fn(() => () => undefined),
+      acquireLock: vi.fn(async () => false),
+      read,
+      markFired: vi.fn(async () => true),
+      releaseLock: vi.fn(async () => undefined),
+      close: vi.fn(async () => undefined),
+    } as unknown as ClaudeScheduledTaskStore;
+    const activate = vi.fn(async () => undefined);
+    const activationErrors: Array<{ activationId: string }> = [];
+    const runtime = new ClaudeSessionRuntime("/tmp/project", {
+      shell: fakeShell(),
+      scheduledTasks: store,
+      owner: { sessionId: "session-1", pid: 101, procStart: "start-101" },
+      isSessionActive: () => true,
+      lockRetryMs: 60_000,
+    });
+    runtime.configure({
+      activate,
+      onActivationError: (activation) => activationErrors.push(activation),
+    });
+    await runtime.start();
+    failNextRead = true;
+
+    await vi.advanceTimersByTimeAsync(30_000);
+    await runtime.flushActivations();
+
+    expect(activate).toHaveBeenCalledOnce();
+    expect(activationErrors).toHaveLength(1);
+    expect(activationErrors[0]?.activationId).toBe(activate.mock.calls[0]?.[0].activationId);
+    await runtime.close();
+  });
+
   it("lets a live creator fire once without duplicate lock-owner execution", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date(2026, 6, 17, 12, 0, 30));

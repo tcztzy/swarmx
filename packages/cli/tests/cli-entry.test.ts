@@ -46,6 +46,58 @@ describe("CLI entry surfaces", () => {
     for (const [id, harness] of Object.entries(HARNESSES)) {
       expect(lines).toContain(`${id}: ${harness.label}`);
     }
+  }, 30_000);
+
+  it("routes sessions timeline to the safe causal projector", async () => {
+    const writes: string[] = [];
+    vi.spyOn(process.stdout, "write").mockImplementation((value) => {
+      writes.push(String(value));
+      return true;
+    });
+    vi.doMock("@swarmx/core", async (importOriginal) => {
+      const actual = await importOriginal<typeof import("@swarmx/core")>();
+      return {
+        ...actual,
+        AuditStore: class {
+          append(input: AuditInput): AuditInput {
+            return input;
+          }
+
+          queryReadOnly(): [] {
+            return [];
+          }
+        },
+        readSessionTimelineSource: () => ({
+          sessionId: "session-1",
+          projectId: "project-1",
+          tornTail: false,
+          records: [
+            {
+              sequence: 1,
+              type: "session_created",
+              timestamp: "2026-08-14T00:00:00.000Z",
+              messages: [],
+            },
+            {
+              sequence: 2,
+              type: "messages_appended",
+              timestamp: "2026-08-14T00:00:01.000Z",
+              requestId: "request-1",
+              messages: [{ role: "user", kind: "message", content: "private prompt" }],
+            },
+          ],
+        }),
+      };
+    });
+
+    await runCli("sessions", "timeline", "session-1", "--json");
+
+    expect(JSON.parse(writes.join(""))).toMatchObject({
+      authority: "derived_diagnostic_projection",
+      sessionId: "session-1",
+      turns: [{ correlationId: "request-1" }],
+    });
+    expect(writes.join("")).not.toContain("private prompt");
   });
 
   it("replays prior user and assistant turns on each REPL request", async () => {
@@ -115,14 +167,15 @@ describe("CLI entry surfaces", () => {
     const runContextEvaluation = vi.fn().mockResolvedValue({
       records: [],
       report: {
-        schemaVersion: 1,
-        suiteId: "cli_entry_context_v1",
+        schemaVersion: 2,
+        suiteId: "cli_entry_context_v2",
         suiteHash: `sha256:${"a".repeat(64)}`,
-        scorerVersion: "context_eval_scorer_v1",
+        scorerVersion: "context_eval_scorer_v2",
         completedRounds: 1,
         totalRuns: 0,
         leaderboard: [],
         nextCandidates: [],
+        candidateComparisons: [],
         completedAt: "2026-08-12T00:00:00.000Z",
       },
     });
@@ -144,11 +197,11 @@ describe("CLI entry surfaces", () => {
 
     expect(runContextEvaluation).toHaveBeenCalledWith(
       expect.objectContaining({
-        suite: expect.objectContaining({ suiteId: "cli_entry_context_v1" }),
+        suite: expect.objectContaining({ suiteId: "cli_entry_context_v2" }),
       }),
     );
     expect(JSON.parse(writes.join(""))).toMatchObject({
-      suiteId: "cli_entry_context_v1",
+      suiteId: "cli_entry_context_v2",
       totalRuns: 0,
     });
   });
@@ -169,8 +222,8 @@ function noOpAuditStore(): new () => { append(input: AuditInput): AuditInput } {
 
 function contextSuiteInput(): unknown {
   return {
-    schemaVersion: 1,
-    suiteId: "cli_entry_context_v1",
+    schemaVersion: 2,
+    suiteId: "cli_entry_context_v2",
     description: "Commander routing smoke suite.",
     provenance: {
       collectedAt: "2026-08-12",
@@ -215,6 +268,7 @@ function contextSuiteInput(): unknown {
           requiredActionIds: ["complete"],
         },
         provenance: {
+          familyId: "case_a",
           source: "repository-authored",
           collectedAt: "2026-08-12",
           split: "development",

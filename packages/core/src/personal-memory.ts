@@ -11,12 +11,35 @@ export const MEMORY_REFLECTION_IDLE_MS = 24 * 60 * 60 * 1_000;
 export const GlobalMemoryTargetSchema = z.enum(["user", "memory"]);
 export type GlobalMemoryTarget = z.infer<typeof GlobalMemoryTargetSchema>;
 
+function containsGlobalMemorySecret(value: string): boolean {
+  return (
+    /-----BEGIN (?:RSA )?PRIVATE KEY-----|authorization\s*:\s*bearer\s+\S+|\b(?:sk|rk|pk|ghp|gho|ghu|ghs|github_pat|xoxb|xoxp)[-_][A-Za-z0-9_-]{4,}\b|[a-z][a-z0-9+.-]*:\/\/[^\s/:@]+:[^\s/@]+@/iu.test(
+      value,
+    ) ||
+    value.split(/\r?\n/u).some((line) => {
+      const match = line.match(
+        /^\s*(api[_ -]?key|access[_ -]?token|auth[_ -]?token|client[_ -]?secret|password|private[_ -]?key|refresh[_ -]?token|secret)\s*[:=]\s*(.+)$/iu,
+      );
+      const candidate = (match?.[2] ?? "").trim().toLocaleLowerCase("en-US");
+      return (
+        candidate.length > 0 &&
+        !["[redacted]", "<redacted>", "redacted", "none", "null", "unset"].includes(candidate) &&
+        !candidate.startsWith("${")
+      );
+    })
+  );
+}
+
 const GlobalMemoryContentSchema = z
   .string()
   .refine((content) => content.trim().length > 0, "Global Memory cannot be blank.")
   .refine(
     (content) => !hasUnsupportedControlCharacter(content),
     "Global Memory contains unsupported control characters.",
+  )
+  .refine(
+    (content) => !containsGlobalMemorySecret(content),
+    "Global Memory cannot contain credentials.",
   );
 
 export const GlobalMemoryFileSchema = z

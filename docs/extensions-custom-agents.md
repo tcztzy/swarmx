@@ -33,6 +33,71 @@ The conversation list has no permanent Doctor status card. `/doctor`,
 diagnostic APIs, while Runtime owns the normal Doctor UI. Repair remains
 explicitly confirmed.
 
+## Deterministic composition preview
+
+Selecting an Agent first creates a read-only Extension composition preview. It
+normalizes each selected bundle to its identity and version, source and
+integrity, trust, provided/required/conflicting capabilities, requested
+permission ids, phase, and optional ordering constraints. Required capabilities
+pull in their unique owning bundle; every preview row explains whether the
+bundle was selected directly or loaded as a dependency.
+
+Preflight blocks before any server or executable starts when it finds:
+
+- a missing or cyclic dependency;
+- duplicate capability ownership, Provider ids, or model-facing tool names;
+- an explicit conflict;
+- a dependency on a later runtime phase;
+- an order-sensitive tie without a `before` or `after` relation;
+- a claim to Session, task, identity, approval, credential, audit, trust, or
+  completion-kernel ownership;
+- an untrusted executable bundle or a required permission that has not been
+  granted.
+
+Independent order-insensitive bundles are sorted by normalized Extension id, so
+the same input produces the same preview and load order on every run. Preview
+does not install, repair, connect, execute, update settings, change trust, or
+grant permissions. External ACP Harnesses keep ownership of native tools and
+permissions; preflight does not manufacture duplicate SwarmX grants for them.
+
+The optional manifest block is declarative:
+
+```json
+{
+  "composition": {
+    "phase": "runtime",
+    "requires": ["mcp:project.registry"],
+    "conflicts": ["provider:legacy-gateway"],
+    "after": ["project-foundation"],
+    "orderSensitive": true
+  }
+}
+```
+
+`provides` is normally derived from existing capability arrays. A manifest may
+declare additional passive capability names or exact model-facing tool names,
+but cannot use that field to replace a protected kernel capability.
+
+## Executable admission and host observations
+
+`SWARMX_EXTENSION_PATHS` and `SWARMX_EXTENSION_ROOTS` are discovery inputs, not
+trust grants. The host records the observed source and content digest while
+loading a manifest. A manifest's `local`, `verified`, or `builtin` value cannot
+raise effective trust. Non-built-in executable bundles require a matching
+installed immutable revision, enabled state, persisted host trust, and every
+required permission grant. Declarative metadata may remain visible when the
+bundle is not executable-ready.
+
+Executable capabilities include custom Harnesses, stdio MCP, LSP, Hook,
+Command, Software command, and connector entrypoints. Required dependencies are
+checked transitively, so an otherwise approved bundle is blocked when its
+executable dependency is not admitted.
+
+Desktop `lsp:complete`, Claude LSP operations, and future LSP process starts use
+the same composition preflight and installed state. LSP processes receive a
+small host whitelist environment; Provider keys and unrelated inherited
+environment variables are never passed through.
+
 ## Harness recipe and revision identity
 
 `HarnessRecipeSchema` records the Software id/version, `off | auto | required`
@@ -231,6 +296,16 @@ the previous immutable revision. Rollback selects a retained revision; a pinned
 Extension remains pinned to the rollback target and cannot update until it is
 unpinned. Built-in/read-only components cannot be removed.
 
+Installation and authority are separate. Installed state records requested and
+granted permission ids; installation grants none. Adding any grant requires a
+confirmed user action and a durable `extension.authority` audit intent. Removing
+grants is an idempotent reduction and needs no authority-expansion confirmation.
+Revoking trust disables the Extension and clears its grants. An update
+intersects old grants with the new requested set and can lower trust, but
+candidate metadata cannot silently raise either. An action attributed to an
+Extension cannot modify approval policy, credential storage, audit policy, or
+its own trust state.
+
 The desktop manager refreshes credential-free HTTPS catalogs with redirects
 disabled, a bounded response size, and a timeout; local sources read a bounded
 `catalog.json`. Valid candidates are rebound to the selected source id, assigned
@@ -261,3 +336,6 @@ revisions, and evolution policy share one queued atomic settings store at
 `~/.swarmx/settings.json`. Section updates merge against the latest document so
 concurrent Provider and Extension writes do not erase one another. Zod validates
 every IPC boundary and recursively rejects inline secret-shaped fields.
+Installed Extension records contain only source/revision ids and digests, trust
+decisions, and bounded permission ids. Credentials, prompts, source code, and
+process output are never Extension settings or composition-preview payloads.

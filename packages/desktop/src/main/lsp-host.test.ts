@@ -230,23 +230,7 @@ describe("LspHost", () => {
   it("starts a declared stdio LSP server and returns completions", async () => {
     const root = await tempRoot();
     const serverScript = await writeFakeLspServer(root);
-    const inventory = createExtensionInventory([
-      parseExtensionBundle({
-        schemaVersion: 1,
-        id: "test",
-        name: "Test",
-        version: "1.0.0",
-        capabilities: {
-          lspServers: [
-            {
-              id: "test-lsp",
-              command: [process.execPath, serverScript],
-              languages: ["plaintext"],
-            },
-          ],
-        },
-      }),
-    ]);
+    const inventory = lspInventory(serverScript, "test-lsp", ["plaintext"]);
     const host = new LspHost();
 
     try {
@@ -274,24 +258,7 @@ describe("LspHost", () => {
   it("supports command string plus args and languageIds metadata", async () => {
     const root = await tempRoot();
     const serverScript = await writeFakeLspServer(root);
-    const inventory = createExtensionInventory([
-      parseExtensionBundle({
-        schemaVersion: 1,
-        id: "test",
-        name: "Test",
-        version: "1.0.0",
-        capabilities: {
-          lspServers: [
-            {
-              id: "geepilot-reference-lsp",
-              command: process.execPath,
-              args: [serverScript],
-              languageIds: ["markdown"],
-            },
-          ],
-        },
-      }),
-    ]);
+    const inventory = lspInventory(serverScript, "geepilot-reference-lsp", ["markdown"]);
     const host = new LspHost();
 
     try {
@@ -335,6 +302,65 @@ describe("LspHost", () => {
         position: { line: 0, character: 0 },
       }),
     ).rejects.toThrow(/does not declare a command/);
+  });
+
+  it("rejects an executable LSP before spawning when its bundle is not installed", async () => {
+    const root = await tempRoot();
+    const serverScript = await writeFakeLspServer(root);
+    const inventory = createExtensionInventory([
+      parseExtensionBundle({
+        schemaVersion: 1,
+        id: "uninstalled-lsp-bundle",
+        name: "Uninstalled LSP",
+        version: "1.0.0",
+        trust: "builtin",
+        capabilities: {
+          lspServers: [
+            {
+              id: "uninstalled-lsp",
+              command: [process.execPath, serverScript],
+              languages: ["plaintext"],
+            },
+          ],
+        },
+      }),
+    ]);
+    const host = new LspHost();
+
+    await expect(
+      host.complete(inventory, {
+        serverId: "uninstalled-lsp",
+        workspaceRoot: root,
+        text: "Use $",
+        position: { line: 0, character: 5 },
+      }),
+    ).rejects.toThrow(/installed|admission|executable/i);
+  });
+
+  it("does not inherit Provider secrets into an admitted LSP process", async () => {
+    const root = await tempRoot();
+    const serverScript = await writeFakeLspServer(root);
+    const inventory = lspInventory(serverScript, "environment-lsp", ["plaintext"]);
+    const host = new LspHost();
+    const previous = process.env.SWARMX_PROVIDER_SECRET;
+    process.env.SWARMX_PROVIDER_SECRET = "provider-secret";
+
+    try {
+      const response = await host.complete(inventory, {
+        serverId: "environment-lsp",
+        workspaceRoot: root,
+        text: "env",
+        position: { line: 0, character: 3 },
+      });
+
+      expect(completionItems(response.result)).toEqual([
+        expect.objectContaining({ detail: "plaintext:env:clean" }),
+      ]);
+    } finally {
+      if (previous === undefined) delete process.env.SWARMX_PROVIDER_SECRET;
+      else process.env.SWARMX_PROVIDER_SECRET = previous;
+      await host.stop({ serverId: "environment-lsp", workspaceRoot: root });
+    }
   });
 
   it("performs Claude LSP operations with one-based positions and exact output", async () => {
@@ -438,12 +464,17 @@ describe("LspHost", () => {
     await symlink(path.join(outside, "outside.txt"), path.join(root, "escape.txt"));
     const serverScript = await writeFakeLspServer(root);
     const one = lspInventory(serverScript, "one", ["plaintext"]);
-    const ambiguous = createExtensionInventory([
-      ...lspBundles(serverScript, [
-        ["one", ["plaintext"]],
-        ["two", ["plaintext"]],
-      ]),
+    const ambiguousBundles = lspBundles(serverScript, [
+      ["one", ["plaintext"]],
+      ["two", ["plaintext"]],
     ]);
+    const ambiguous = createExtensionInventory(
+      ambiguousBundles,
+      [],
+      ambiguousBundles.map((bundle) =>
+        admittedExtension(bundle.id, bundle.hostObservation?.contentDigest ?? ""),
+      ),
+    );
     const host = new LspHost();
 
     await expect(
@@ -509,21 +540,53 @@ describe("LspHost", () => {
 });
 
 function lspInventory(serverScript: string, id: string, languages: string[]) {
-  return createExtensionInventory([...lspBundles(serverScript, [[id, languages]])]);
+  const bundles = lspBundles(serverScript, [[id, languages]]);
+  return createExtensionInventory(
+    bundles,
+    [],
+    bundles.map((bundle) =>
+      admittedExtension(bundle.id, bundle.hostObservation?.contentDigest ?? ""),
+    ),
+  );
 }
 
 function lspBundles(serverScript: string, entries: Array<[string, string[]]>) {
   return entries.map(([id, languages]) =>
-    parseExtensionBundle({
-      schemaVersion: 1,
-      id: `test-${id}`,
-      name: id,
-      version: "1.0.0",
-      capabilities: {
-        lspServers: [{ id, command: [process.execPath, serverScript], languages }],
+    parseExtensionBundle(
+      {
+        schemaVersion: 1,
+        id: `test-${id}`,
+        name: id,
+        version: "1.0.0",
+        capabilities: {
+          lspServers: [{ id, command: [process.execPath, serverScript], languages }],
+        },
       },
-    }),
+      undefined,
+      {
+        source: { type: "path", locator: `test-${id}/extension.json` },
+        contentDigest: `sha256:${id}`,
+      },
+    ),
   );
+}
+
+function admittedExtension(pluginId: string, contentDigest: string) {
+  return {
+    pluginId,
+    name: pluginId,
+    state: "enabled" as const,
+    enabled: true,
+    trust: "verified" as const,
+    currentRevision: {
+      revisionId: `${pluginId}@1`,
+      version: "1.0.0",
+      contentDigest,
+      sourceId: "test-source",
+    },
+    requestedPermissionIds: [],
+    grantedPermissionIds: [],
+  };
 }
 
 async function tempRoot(): Promise<string> {
@@ -634,6 +697,9 @@ function handleMessage(message) {
   if (message.method === "textDocument/completion") {
     const uri = message.params.textDocument.uri;
     const document = documents.get(uri) ?? { languageId: "plaintext", text: "" };
+    const environmentStatus = document.text === "env"
+      ? (process.env.SWARMX_PROVIDER_SECRET ? "leaked" : "clean")
+      : "";
     send({
       jsonrpc: "2.0",
       id: message.id,
@@ -643,7 +709,7 @@ function handleMessage(message) {
           {
             label: "$memory",
             kind: 6,
-            detail: document.languageId + ":" + document.text
+            detail: document.languageId + ":" + document.text + (environmentStatus ? ":" + environmentStatus : "")
           }
         ]
       }

@@ -195,8 +195,8 @@ describe("eval-run context suite", () => {
     writeFileSync(suitePath, JSON.stringify(contextSuiteInput()));
 
     expect(loadContextEvaluationSuite(suitePath)).toMatchObject({
-      schemaVersion: 1,
-      suiteId: "cli_context_smoke_v1",
+      schemaVersion: 2,
+      suiteId: "cli_context_smoke_v2",
     });
 
     writeFileSync(suitePath, JSON.stringify({ ...contextSuiteInput(), unknownField: true }));
@@ -223,7 +223,7 @@ describe("eval-run context suite", () => {
         continuation: contextUsage("test-model", 100, 20),
         summary: contextUsage("summary-model", 0, 0),
       },
-      latencyMs: 12,
+      completionTimeMs: 12,
       costUsd: 0.00012,
     }));
 
@@ -241,11 +241,11 @@ describe("eval-run context suite", () => {
     expect(jsonl).not.toContain("TOKEN-CLI");
     expect(JSON.parse(jsonl.trim())).toMatchObject({
       recordType: "context_evaluation_run",
-      suiteId: "cli_context_smoke_v1",
+      suiteId: "cli_context_smoke_v2",
     });
     expect(statSync(jsonlPath).mode & 0o777).toBe(0o600);
     expect(JSON.parse(formatContextEvaluationReport(result.report, true))).toMatchObject({
-      suiteId: "cli_context_smoke_v1",
+      suiteId: "cli_context_smoke_v2",
       totalRuns: 1,
     });
 
@@ -285,8 +285,8 @@ describe("eval-run context suite", () => {
 
 function contextSuiteInput(): unknown {
   return {
-    schemaVersion: 1,
-    suiteId: "cli_context_smoke_v1",
+    schemaVersion: 2,
+    suiteId: "cli_context_smoke_v2",
     description: "CLI context evaluation smoke suite.",
     provenance: {
       collectedAt: "2026-08-12",
@@ -345,6 +345,7 @@ function contextSuiteInput(): unknown {
           maxRepeatedActions: 0,
         },
         provenance: {
+          familyId: "durable_constraint",
           source: "repository-authored",
           collectedAt: "2026-08-12",
           split: "development",

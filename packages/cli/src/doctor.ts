@@ -64,7 +64,7 @@ export async function runDoctorCommand(
 export function formatDoctorReport(report: DoctorReport, plan?: DoctorRepairPlan): string {
   const lines = [
     "SwarmX Doctor",
-    `Status: ${report.healthy ? "healthy" : "attention needed"}`,
+    `Status: ${report.status ?? (report.healthy ? "ok" : "blocking")}`,
     `Harnesses: ${report.summary.readyHarnesses}/${report.summary.totalHarnesses} ready`,
   ];
   if (report.harnessId) lines.push(`Filter: ${report.harnessId}`);
@@ -74,7 +74,13 @@ export function formatDoctorReport(report: DoctorReport, plan?: DoctorRepairPlan
   } else {
     lines.push("", "Issues:");
     for (const issue of report.issues) {
-      lines.push(`  ${issue.severity.toUpperCase()} [${issue.id}] ${issue.message}`);
+      lines.push(
+        `  ${(issue.classification ?? issue.severity).toUpperCase()} [${issue.id}]`,
+        `    Symptom: ${issue.symptom ?? issue.message}`,
+        ...(issue.cause ? [`    Cause: ${issue.cause}`] : []),
+        ...(issue.impact ? [`    Impact: ${issue.impact}`] : []),
+        ...(issue.nextAction ? [`    Next: ${issue.nextAction}`] : []),
+      );
     }
   }
 
@@ -83,9 +89,11 @@ export function formatDoctorReport(report: DoctorReport, plan?: DoctorRepairPlan
     lines.push("", "Repair plan:");
     actions.forEach((action, index) => {
       lines.push(`  ${index + 1}. [${action.risk}] ${action.label}`);
+      for (const change of action.changes ?? []) lines.push(`     - ${change}`);
     });
     if (!plan) lines.push("", "Run `swarmx doctor --fix` to review and apply repairs.");
   }
+  if (report.firstRun?.nextStep) lines.push("", `Next step: ${report.firstRun.nextStep}`);
   return `${lines.join("\n")}\n`;
 }
 

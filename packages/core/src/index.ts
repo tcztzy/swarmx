@@ -113,6 +113,7 @@ export {
   resolveBuiltinToolStyle,
   SessionBuiltinToolBindingSchema,
 } from "./builtin-tools.js";
+export { stableHash, stableJson } from "./canonical-json.js";
 export type {
   AgentInvocationContextMetadata,
   BuildContextPacketOptions,
@@ -269,9 +270,33 @@ export {
 } from "./desktop-settings.js";
 export { Edge } from "./edge.js";
 export type {
+  ExtensionCompositionDeclaration,
+  ExtensionCompositionIssue,
+  ExtensionCompositionPreflight,
+  ExtensionCompositionPreview,
+  ExtensionHostObservation,
+  ExtensionRunPhase,
+} from "./extension-composition.js";
+export {
+  ExtensionCompositionDeclarationSchema,
+  ExtensionCompositionIssueCodeSchema,
+  ExtensionCompositionIssueSchema,
+  ExtensionCompositionPreflightInputSchema,
+  ExtensionCompositionPreflightSchema,
+  ExtensionCompositionPreviewSchema,
+  ExtensionHostObservationSchema,
+  ExtensionRunPhaseSchema,
+  PROTECTED_EXTENSION_CAPABILITIES,
+  preflightExtensionComposition,
+} from "./extension-composition.js";
+export type {
+  ExtensionActionActor,
   ExtensionActionPlan,
   ExtensionActionReceipt,
   ExtensionActionRequest,
+  ExtensionAuthorityAudit,
+  ExtensionAuthorityAuditEvent,
+  ExtensionAuthorityChange,
   ExtensionCandidate,
   ExtensionMarketplaceCatalog,
   ExtensionMarketplaceSource,
@@ -279,10 +304,12 @@ export type {
   InstalledExtension,
 } from "./extension-management.js";
 export {
+  ExtensionActionActorSchema,
   ExtensionActionKindSchema,
   ExtensionActionPlanSchema,
   ExtensionActionReceiptSchema,
   ExtensionActionRequestSchema,
+  ExtensionAuthorityChangeSchema,
   ExtensionCandidateSchema,
   ExtensionInstallStateSchema,
   ExtensionLifecycleManager,
@@ -667,17 +694,23 @@ export {
 export { createServer } from "./server.js";
 export type {
   AppendMessagesOptions,
+  BeginSessionRequestInput,
+  BeginSessionRequestResult,
   CreateTransientSessionForkInput,
   EditSessionUserMessageInput,
   ForkSessionInput,
   PromoteTransientSessionForkInput,
+  SessionRequestOutcome,
+  SessionRequestState,
   SessionSummary,
+  SettleSessionRequestInput,
 } from "./session.js";
 export {
   appendMessages,
   appendTransientSessionMessages,
   archiveProjectSessions,
   archiveSession,
+  beginSessionRequest,
   createSession,
   createTransientSessionFork,
   deleteSession,
@@ -688,8 +721,10 @@ export {
   listSessions,
   loadSession,
   promoteTransientSessionFork,
+  readSessionTimelineSource,
   saveSession,
   setSessionPinned,
+  settleSessionRequest,
   transientSessionModelMessages,
   updateSessionTitle,
 } from "./session.js";
@@ -709,6 +744,7 @@ export {
   listGroupedSessions,
   loadDiscoveredSession,
 } from "./session-discovery.js";
+export * from "./session-timeline.js";
 export * from "./skill-delivery.js";
 export * from "./skill-evaluation.js";
 export * from "./skill-evolution.js";

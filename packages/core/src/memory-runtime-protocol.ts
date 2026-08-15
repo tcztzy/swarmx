@@ -16,6 +16,7 @@ import {
   MemoryPageSchema,
   MemoryPageSummarySchema,
   MemoryRestoreInputSchema,
+  MemorySearchHitSchema,
   MemorySearchInputSchema,
   MemoryUpdateInputSchema,
   MemoryVersionSchema,
@@ -97,7 +98,13 @@ export const MemoryRuntimeRequestSchema = z.discriminatedUnion("operation", [
     .strict()
     .refine(
       (input) =>
-        input.title !== undefined || input.aliases !== undefined || input.content !== undefined,
+        input.title !== undefined ||
+        input.aliases !== undefined ||
+        input.kind !== undefined ||
+        input.summary !== undefined ||
+        input.sources !== undefined ||
+        input.scope !== undefined ||
+        input.content !== undefined,
       { message: "Memory update must change at least one field" },
     ),
   z
@@ -174,7 +181,10 @@ const MemoryRuntimeSuccessResponseSchema = z.discriminatedUnion("operation", [
       ...SuccessBase,
       operation: z.literal("search"),
       result: z
-        .object({ pages: z.array(MemoryPageSchema).max(MAX_MEMORY_SEARCH_RESULTS) })
+        .object({
+          pages: z.array(MemoryPageSchema).max(MAX_MEMORY_SEARCH_RESULTS),
+          results: z.array(MemorySearchHitSchema).max(MAX_MEMORY_SEARCH_RESULTS).optional(),
+        })
         .strict(),
     })
     .strict(),

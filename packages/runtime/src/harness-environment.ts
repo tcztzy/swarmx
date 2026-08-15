@@ -4,14 +4,18 @@ import { access, stat } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { type AgentBackend, HARNESSES, SWARMX_VERSION } from "@swarmx/core";
+import {
+  type ProtectedSandboxProfile,
+  ProtectedSandboxRegistry,
+  type SandboxMode,
+  type SandboxStrategy,
+} from "./sandbox-policy.js";
 
 const VERSION_TIMEOUT_MS = 8_000;
 const INSTALL_TIMEOUT_MS = 15 * 60_000;
 const CONTAINER_SETUP_TIMEOUT_MS = 20 * 60_000;
 const CONTAINER_SERVICE_TIMEOUT_MS = 2 * 60_000;
 const OUTPUT_LIMIT = 64 * 1024;
-const DEFAULT_CONTAINER_CPUS = "2";
-const DEFAULT_CONTAINER_MEMORY = "4G";
 
 export type HarnessRequirementStatus = "ready" | "missing" | "unsupported" | "failed";
 export type HarnessEnvironmentHarnessState = "ready" | "needs_setup" | "unsupported";
@@ -23,6 +27,16 @@ export type ContainerRuntimeStatus =
   | "service_stopped"
   | "failed";
 export type HarnessProtectionMode = "protected" | "native";
+
+export interface HarnessSandboxStatus {
+  strategy: SandboxStrategy;
+  mode: SandboxMode;
+  ready: boolean;
+  profileIds: string[];
+  selectedProfileId?: string;
+  runtimeId?: ContainerRuntimeId;
+  note?: string;
+}
 
 export interface HarnessRuntimeRequirement {
   id: string;
@@ -81,6 +95,7 @@ export interface HarnessEnvironmentStatus {
   setupAvailable: boolean;
   containerRuntimes: HarnessContainerRuntime[];
   protection: HarnessProtectionSummary;
+  sandbox: HarnessSandboxStatus;
   requirements: HarnessRuntimeRequirement[];
   harnesses: HarnessEnvironmentHarness[];
 }
@@ -141,8 +156,14 @@ interface ContainerRuntimeDefinition {
 }
 
 interface ProtectedHarnessDefinition {
+  id: string;
   image: string;
+  imageDigest: string;
   command: string[];
+  environmentAllowlist: string[];
+  mounts: ProtectedSandboxProfile["mounts"];
+  network: "none";
+  resources: ProtectedSandboxProfile["resources"];
   note?: string;
 }
 
@@ -159,6 +180,8 @@ export interface HarnessEnvironmentHost {
   arch?: string;
   macosVersion?: string;
   protectionMode?: HarnessProtectionMode;
+  sandboxStrategy?: SandboxStrategy;
+  protectedSandboxProfiles?: readonly ProtectedSandboxProfile[];
   homeDir?: string;
   now?: () => Date;
   findExecutable?: (
@@ -316,19 +339,6 @@ const CONTAINER_RUNTIMES: ContainerRuntimeDefinition[] = [
   },
 ];
 
-const PROTECTED_HARNESS_DEFINITIONS: Record<string, ProtectedHarnessDefinition> = {
-  claude_code: protectedHarnessDefinition("claude_code"),
-  codex: protectedHarnessDefinition("codex"),
-};
-
-function protectedHarnessDefinition(harnessId: string): ProtectedHarnessDefinition {
-  const backend = HARNESSES[harnessId]?.backend;
-  if (backend?.type !== "custom") {
-    throw new Error(`Protected Harness "${harnessId}" requires a custom backend.`);
-  }
-  return { image: "node:22-slim", command: [backend.program, ...(backend.args ?? [])] };
-}
-
 const CONTAINER_ENV_KEYS = [
   "ANTHROPIC_API_KEY",
   "ANTHROPIC_AUTH_TOKEN",
@@ -357,6 +367,32 @@ const CONTAINER_ENV_KEYS = [
   "TERM",
 ];
 
+const PROTECTED_HARNESS_DEFINITIONS: Record<string, ProtectedHarnessDefinition> = {
+  claude_code: protectedHarnessDefinition("claude_code"),
+  codex: protectedHarnessDefinition("codex"),
+};
+
+function protectedHarnessDefinition(harnessId: string): ProtectedHarnessDefinition {
+  const backend = HARNESSES[harnessId]?.backend;
+  if (backend?.type !== "custom") {
+    throw new Error(`Protected Harness "${harnessId}" requires a custom backend.`);
+  }
+  return {
+    id: harnessId,
+    image: "node:22-slim",
+    imageDigest: "sha256:253da19867dd03e2f817f433d7782adefd2a2bac8729fcd4ebc6770665167a24",
+    command: [backend.program, ...(backend.args ?? [])],
+    environmentAllowlist: [...CONTAINER_ENV_KEYS],
+    mounts: [
+      { source: "project", access: "rw" },
+      { source: "temporary", access: "rw" },
+      { source: "credential", access: "ro" },
+    ],
+    network: "none",
+    resources: { cpu: 2, memoryMiB: 4_096, temporaryMiB: 1_024 },
+  };
+}
+
 export function configureDesktopHarnessEnvironment(
   env: NodeJS.ProcessEnv = process.env,
   homeDir: string = os.homedir(),
@@ -371,7 +407,8 @@ export class HarnessEnvironmentService {
   private readonly platform: NodeJS.Platform;
   private readonly arch: string;
   private readonly macosVersion?: string;
-  private readonly protectionMode: HarnessProtectionMode;
+  private readonly sandboxStrategy: SandboxStrategy;
+  private readonly protectedSandboxRegistry: ProtectedSandboxRegistry;
   private readonly homeDir: string;
   private readonly now: () => Date;
   private readonly findExecutable: NonNullable<HarnessEnvironmentHost["findExecutable"]>;
@@ -385,9 +422,16 @@ export class HarnessEnvironmentService {
     this.platform = host.platform ?? process.platform;
     this.arch = host.arch ?? os.arch();
     this.macosVersion = host.macosVersion;
-    this.protectionMode =
-      host.protectionMode ??
-      (this.env.SWARMX_HARNESS_PROTECTION === "native" ? "native" : "protected");
+    this.sandboxStrategy =
+      host.sandboxStrategy ??
+      (host.protectionMode === "native" ||
+      this.env.SWARMX_SANDBOX_STRATEGY === "native_allowed" ||
+      this.env.SWARMX_HARNESS_PROTECTION === "native"
+        ? "native_allowed"
+        : "protected_required");
+    this.protectedSandboxRegistry = new ProtectedSandboxRegistry(
+      host.protectedSandboxProfiles ?? Object.values(PROTECTED_HARNESS_DEFINITIONS),
+    );
     this.homeDir = host.homeDir ?? os.homedir();
     this.now = host.now ?? (() => new Date());
     this.findExecutable = host.findExecutable ?? findExecutableOnPath;
@@ -403,7 +447,8 @@ export class HarnessEnvironmentService {
       this.detectContainerRuntimes(envPath),
       this.detectHarnessVersions(envPath),
     ]);
-    const protection = this.protectionSummary(containerRuntimes);
+    const sandbox = this.sandboxStatus(containerRuntimes);
+    const protection = this.protectionSummary(sandbox);
     const nodeRuntime = requirements.find((requirement) => requirement.id === "node");
     const harnesses = Object.entries(HARNESSES).map(([harnessId, harness]) => {
       const requirementIds = HARNESS_REQUIREMENTS[harnessId] ?? [];
@@ -411,13 +456,20 @@ export class HarnessEnvironmentService {
         requirementIds.includes(requirement.id),
       );
       const command = HARNESS_VERSION_COMMANDS[harnessId] ?? harnessId;
-      const protectionRequired = this.harnessRequiresProtection(harnessId);
-      const executionMode =
-        this.protectionMode === "protected" && protectionRequired ? "protected" : "native";
+      const protectionRequired =
+        this.sandboxStrategy === "protected_required" && this.harnessRequiresProtection(harnessId);
+      const executionMode = protectionRequired ? "protected" : "native";
       if (executionMode === "protected") {
-        const definition = PROTECTED_HARNESS_DEFINITIONS[harnessId];
+        const definition = this.protectedSandboxRegistry.get(harnessId);
+        const resolution = this.protectedSandboxRegistry.resolve({
+          strategy: this.sandboxStrategy,
+          profileId: harnessId,
+          runtimeReady: protection.ready,
+          runtimeId: protection.selectedRuntimeId,
+          note: protection.note,
+        });
         const unsupported = !definition || containerRuntimes.some((runtime) => !runtime.supported);
-        const ready = Boolean(definition && protection.ready);
+        const ready = Boolean(definition && resolution.ready);
         return {
           harnessId,
           harnessLabel: harness.label,
@@ -432,7 +484,9 @@ export class HarnessEnvironmentService {
           containerRuntimeId: protection.selectedRuntimeId,
           note: ready
             ? "Protected by container runtime."
-            : (definition?.note ?? protection.note ?? "Container runtime setup required."),
+            : definition
+              ? (protection.note ?? "Container runtime setup required.")
+              : `No host-registered protected sandbox profile exists for "${harnessId}".`,
         } satisfies HarnessEnvironmentHarness;
       }
 
@@ -477,6 +531,7 @@ export class HarnessEnvironmentService {
       setupAvailable: Boolean(nodeRuntime?.status !== "ready" && nodeRuntime?.installable),
       containerRuntimes,
       protection,
+      sandbox,
       requirements,
       harnesses,
     };
@@ -504,25 +559,43 @@ export class HarnessEnvironmentService {
     backend: AgentBackend,
     options: { workspaceDir?: string } = {},
   ): Promise<ProtectedHarnessBackendResult> {
-    if (backend.type !== "custom" || !this.harnessRequiresProtection(harnessId)) {
+    if (backend.type !== "custom") {
       return { success: true, backend, mode: "native" };
     }
 
-    if (this.protectionMode !== "protected") {
+    if (this.sandboxStrategy !== "protected_required") {
       return { success: true, backend, mode: "native" };
+    }
+
+    if (!this.protectedSandboxRegistry.get(harnessId)) {
+      return {
+        success: false,
+        mode: "protected",
+        error: `No host-registered protected sandbox profile exists for "${harnessId}".`,
+      };
     }
 
     const status = await this.status();
-    if (!status.protection.ready || !status.protection.selectedRuntimeId) {
+    const resolution = this.protectedSandboxRegistry.resolve({
+      strategy: this.sandboxStrategy,
+      profileId: harnessId,
+      runtimeReady: status.protection.ready,
+      ...(status.protection.selectedRuntimeId
+        ? { runtimeId: status.protection.selectedRuntimeId }
+        : {}),
+      ...(status.protection.note ? { note: status.protection.note } : {}),
+    });
+    if (!resolution.ready || !resolution.profile || !status.protection.selectedRuntimeId) {
       return {
         success: false,
         mode: "protected",
         runtimeId: status.protection.selectedRuntimeId,
-        error: status.protection.note ?? "Protected harness runtime is not ready.",
+        error:
+          resolution.note ?? status.protection.note ?? "Protected harness runtime is not ready.",
       };
     }
 
-    const definition = PROTECTED_HARNESS_DEFINITIONS[harnessId];
+    const definition = resolution.profile;
     if (!definition) {
       return {
         success: false,
@@ -532,7 +605,7 @@ export class HarnessEnvironmentService {
       };
     }
 
-    const credentialArgs = await this.protectedCredentialArgs(harnessId);
+    const credentialArgs = await this.protectedCredentialArgs(harnessId, resolution.profile);
     return {
       success: true,
       backend: this.containerWrappedBackend(
@@ -660,7 +733,7 @@ export class HarnessEnvironmentService {
 
     if (request.harnessId) {
       if (
-        this.protectionMode === "protected" &&
+        this.sandboxStrategy === "protected_required" &&
         this.harnessRequiresProtection(request.harnessId)
       ) {
         return [];
@@ -794,11 +867,35 @@ export class HarnessEnvironmentService {
     return firstLine(result.stdout) ?? "";
   }
 
-  private protectionSummary(
-    containerRuntimes: HarnessContainerRuntime[],
-  ): HarnessProtectionSummary {
-    const requiredHarnessIds = Object.keys(PROTECTED_HARNESS_DEFINITIONS);
-    if (this.protectionMode !== "protected") {
+  private sandboxStatus(containerRuntimes: HarnessContainerRuntime[]): HarnessSandboxStatus {
+    const appleContainer = containerRuntimes.find((runtime) => runtime.id === "apple_container");
+    const resolution = this.protectedSandboxRegistry.resolve({
+      strategy: this.sandboxStrategy,
+      runtimeReady: appleContainer?.status === "ready",
+      ...(appleContainer?.supported ? { runtimeId: appleContainer.id } : {}),
+      ...(appleContainer?.note ? { note: appleContainer.note } : {}),
+    });
+    return {
+      strategy: resolution.strategy,
+      mode: resolution.mode,
+      ready: resolution.ready,
+      profileIds: this.protectedSandboxRegistry.ids(),
+      ...(resolution.profileId ? { selectedProfileId: resolution.profileId } : {}),
+      ...(resolution.runtimeId ? { runtimeId: resolution.runtimeId as ContainerRuntimeId } : {}),
+      ...(resolution.note ? { note: resolution.note } : {}),
+    };
+  }
+
+  private protectionSummary(sandbox: HarnessSandboxStatus): HarnessProtectionSummary {
+    const requiredHarnessIds = [
+      ...new Set([
+        ...Object.entries(HARNESSES)
+          .filter(([, harness]) => harness.backend.type === "custom")
+          .map(([harnessId]) => harnessId),
+        ...this.protectedSandboxRegistry.ids(),
+      ]),
+    ].sort();
+    if (sandbox.strategy === "native_allowed") {
       return {
         mode: "native",
         ready: true,
@@ -807,33 +904,29 @@ export class HarnessEnvironmentService {
       };
     }
 
-    const appleContainer = containerRuntimes.find((runtime) => runtime.id === "apple_container");
-    if (appleContainer?.status === "ready") {
-      return {
-        mode: "protected",
-        ready: true,
-        requiredHarnessIds,
-        selectedRuntimeId: "apple_container",
-        note: "Protected harness execution uses Apple Container.",
-      };
-    }
-
     return {
-      mode: "protected",
-      ready: false,
+      mode: sandbox.mode,
+      ready: sandbox.ready,
       requiredHarnessIds,
-      selectedRuntimeId: appleContainer?.supported ? "apple_container" : undefined,
-      note:
-        appleContainer?.note ??
-        "Protected harness execution requires Apple Container setup on this Mac.",
+      ...(sandbox.runtimeId ? { selectedRuntimeId: sandbox.runtimeId } : {}),
+      note: sandbox.ready
+        ? "Protected harness execution uses Apple Container."
+        : (sandbox.note ??
+          "Protected harness execution requires Apple Container setup on this Mac."),
     };
   }
 
   private shouldSetupContainerRuntime(request: HarnessEnvironmentSetupRequest): boolean {
-    if (this.protectionMode !== "protected") return false;
+    if (this.sandboxStrategy !== "protected_required") return false;
     if (request.harnessToolId) return false;
     if (request.containerRuntimeId || request.includeContainerRuntime) return true;
-    if (request.harnessId && this.harnessRequiresProtection(request.harnessId)) return true;
+    if (
+      request.harnessId &&
+      this.harnessRequiresProtection(request.harnessId) &&
+      this.protectedSandboxRegistry.get(request.harnessId)
+    ) {
+      return true;
+    }
     return false;
   }
 
@@ -905,11 +998,19 @@ export class HarnessEnvironmentService {
   }
 
   private harnessRequiresProtection(harnessId: string): boolean {
-    return Boolean(PROTECTED_HARNESS_DEFINITIONS[harnessId]);
+    return (
+      HARNESSES[harnessId]?.backend.type === "custom" ||
+      Boolean(this.protectedSandboxRegistry.get(harnessId))
+    );
   }
 
-  private async protectedCredentialArgs(harnessId: string): Promise<string[]> {
+  private async protectedCredentialArgs(
+    harnessId: string,
+    profile: ProtectedSandboxProfile,
+  ): Promise<string[]> {
     if (harnessId !== "codex") return [];
+    const credentialMount = profile.mounts.find((mount) => mount.source === "credential");
+    if (credentialMount?.access !== "ro") return [];
     const authPath = this.codexAuthPath();
     try {
       const metadata = await stat(authPath);
@@ -919,7 +1020,12 @@ export class HarnessEnvironmentService {
     } catch {
       return [];
     }
-    return ["--volume", `${authPath}:/tmp/auth.json:ro`, "--env", "CODEX_HOME=/tmp"];
+    return [
+      "--mount",
+      `type=bind,source=${authPath},target=/tmp/auth.json,readonly`,
+      "--env",
+      "CODEX_HOME=/tmp",
+    ];
   }
 
   private codexAuthPath(): string {
@@ -935,7 +1041,7 @@ export class HarnessEnvironmentService {
   }
 
   private containerWrappedBackend(
-    definition: ProtectedHarnessDefinition,
+    definition: ProtectedSandboxProfile,
     workspaceDir: string,
     credentialArgs: string[] = [],
   ): AgentBackend {
@@ -950,21 +1056,25 @@ export class HarnessEnvironmentService {
         "--init",
         "--progress",
         "none",
+        "--network",
+        "none",
+        "--no-dns",
+        "--read-only",
         "--cpus",
-        DEFAULT_CONTAINER_CPUS,
+        String(definition.resources.cpu),
         "--memory",
-        DEFAULT_CONTAINER_MEMORY,
+        `${definition.resources.memoryMiB}M`,
         "--platform",
         "linux/arm64",
         "--workdir",
         workspace,
         "--mount",
         `type=bind,source=${workspace},target=${workspace}`,
-        "--tmpfs",
-        "/tmp",
+        "--mount",
+        `type=tmpfs,target=/tmp,size=${definition.resources.temporaryMiB}M,mode=1777`,
         ...credentialArgs,
-        ...containerEnvArgs(),
-        definition.image,
+        ...containerEnvArgs(definition.environmentAllowlist),
+        `${definition.image}@${definition.imageDigest}`,
         ...definition.command,
       ],
     };
@@ -1178,7 +1288,7 @@ function shellCommand(
   };
 }
 
-function containerEnvArgs(): string[] {
+function containerEnvArgs(environmentAllowlist: readonly string[]): string[] {
   return [
     "--env",
     "HOME=/tmp/swarmx-home",
@@ -1186,7 +1296,7 @@ function containerEnvArgs(): string[] {
     "XDG_CACHE_HOME=/tmp/swarmx-cache",
     "--env",
     "PATH=/usr/local/bin:/usr/bin:/bin:/tmp/swarmx-home/.local/bin",
-    ...CONTAINER_ENV_KEYS.flatMap((key) => ["--env", key]),
+    ...environmentAllowlist.flatMap((key) => ["--env", key]),
   ];
 }
 

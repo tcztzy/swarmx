@@ -76,6 +76,19 @@ describe("Memory runtime protocol", () => {
         version: "a".repeat(40),
       }),
     ).toMatchObject({ operation: "restore", version: "a".repeat(40) });
+
+    expect(
+      MemoryRuntimeRequestSchema.parse({
+        protocolVersion: MEMORY_RUNTIME_PROTOCOL_VERSION,
+        operation: "create",
+        title: "Mercury",
+        kind: "technology",
+        summary: "A protocol.",
+        sources: ["https://example.test/protocol"],
+        scope: "Project Orion",
+        content: "Protocol note.",
+      }),
+    ).toMatchObject({ operation: "create", kind: "technology" });
   });
 
   it("rejects unknown operations, extra fields, oversized input, and invalid commits", () => {
@@ -120,6 +133,26 @@ describe("Memory runtime protocol", () => {
       }),
     ).toMatchObject({ ok: true, operation: "list" });
 
+    expect(
+      MemoryRuntimeToolResponseSchema.parse({
+        protocolVersion: MEMORY_RUNTIME_PROTOCOL_VERSION,
+        operation: "search",
+        ok: true,
+        result: {
+          pages: [page(1)],
+          results: [
+            {
+              title: "Page 1",
+              summary: "Human summary.",
+              kind: "note",
+              sources: [],
+              relatedPages: ["Page 2"],
+              id: "mem_page_1",
+            },
+          ],
+        },
+      }),
+    ).toMatchObject({ result: { results: [{ title: "Page 1" }] } });
     expect(
       MemoryRuntimeToolResponseSchema.safeParse({
         protocolVersion: MEMORY_RUNTIME_PROTOCOL_VERSION,

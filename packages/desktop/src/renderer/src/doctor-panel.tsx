@@ -79,6 +79,7 @@ export function DoctorPanel({
   );
   const requirements = report?.environment.requirements ?? [];
   const containerRuntimes = report?.environment.containerRuntimes ?? [];
+  const sandbox = report?.environment.sandbox;
   const setupLogs = fixResult?.setupResults.flatMap((result) => result.log) ?? [];
   const title = mode === "setup" ? "Setup" : "Doctor";
   const panelHealthy = Boolean(report && issues.length === 0);
@@ -194,7 +195,12 @@ export function DoctorPanel({
                     key={action.id}
                     className="doctor-action [min-width:0] [padding:8px_0] [border-top:1px_solid_var(--border-subtle)] [display:flex] [align-items:flex-start] [gap:8px] [&_>_span]:[min-width:0] [&_>_span]:[flex:1_1_auto] [&_>_span]:[color:var(--foreground)] [&_>_span]:[font-size:11px] [&_>_span]:[line-height:1.4] [&_>_span]:[overflow-wrap:anywhere]"
                   >
-                    <span>{action.label}</span>
+                    <span>
+                      {action.label}
+                      {(action.changes ?? []).map((change) => (
+                        <span key={change}> · {change}</span>
+                      ))}
+                    </span>
                     <Badge tone={action.risk === "admin" ? "danger" : "neutral"}>
                       {action.risk}
                     </Badge>
@@ -242,10 +248,13 @@ export function DoctorPanel({
                 <XCircle aria-hidden="true" />
                 <div>
                   <strong>{issue.targetId ?? issue.scope}</strong>
-                  <span>{issue.message}</span>
+                  <span>{issue.symptom ?? issue.message}</span>
+                  {issue.cause && <span>Cause: {issue.cause}</span>}
+                  {issue.impact && <span>Impact: {issue.impact}</span>}
+                  {issue.nextAction && <span>Next: {issue.nextAction}</span>}
                 </div>
                 <Badge tone={issue.severity === "error" ? "danger" : "neutral"}>
-                  {issue.severity}
+                  {issue.classification ?? issue.severity}
                 </Badge>
               </li>
             ))}
@@ -347,6 +356,22 @@ export function DoctorPanel({
             <ChevronRight aria-hidden="true" />
           </summary>
           <div className="doctor-advanced__body [display:grid] [gap:12px] [&_>_section]:[min-width:0] [&_>_section]:[display:grid] [&_>_section]:[gap:6px]">
+            {sandbox && (
+              <section>
+                <h4>OS sandbox</h4>
+                <div className="doctor-diagnostic [display:flex] [align-items:flex-start] [gap:8px] [padding:8px_0] [border-top:1px_solid_var(--border-subtle)] [&_>_div]:[min-width:0] [&_>_div]:[flex:1_1_auto] [&_>_div]:[display:grid] [&_>_div]:[gap:2px] [&_strong]:[font-size:11px] [&_span]:[color:var(--muted-foreground)] [&_span]:[font-size:10.5px] [&_span]:[line-height:1.4]">
+                  <div>
+                    <strong>{sandbox.strategy}</strong>
+                    <span>
+                      {[sandbox.mode, sandbox.runtimeId, sandbox.note].filter(Boolean).join(" · ")}
+                    </span>
+                  </div>
+                  <Badge tone={sandbox.ready ? "success" : "danger"}>
+                    {sandbox.ready ? "ready" : "blocked"}
+                  </Badge>
+                </div>
+              </section>
+            )}
             {requirements.length > 0 && (
               <section>
                 <h4>Runtime tools</h4>
