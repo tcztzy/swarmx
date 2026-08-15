@@ -8,6 +8,12 @@ import {
   type HookInvocation,
   type HookRuntimeOptions,
 } from "./hook.js";
+import {
+  type AblationProfile,
+  createAblationRunReceipt,
+  type ServiceActivationReceipt,
+  type ServiceTopology,
+} from "./service-registry.js";
 import { Tool } from "./tool.js";
 import {
   type EvalRunResult,
@@ -35,24 +41,40 @@ interface EvalTraceCollector {
   nextStep: number;
 }
 
+type SwarmNodeTopology = Omit<ServiceTopology, "agentName">;
+
 export class SwarmNode {
   kind: "agent" | "tool" | "swarm";
   agent?: Agent;
   tool?: Tool;
   swarm?: Swarm;
 
-  constructor(config: SwarmNodeConfig, options: SwarmRuntimeOptions = {}) {
+  constructor(
+    config: SwarmNodeConfig,
+    options: SwarmRuntimeOptions = {},
+    topology?: SwarmNodeTopology,
+  ) {
     const parsed = SwarmNodeConfigSchema.parse(config);
     this.kind = parsed.kind;
     if (parsed.kind === "agent") {
+      const agentTopology = topology ?? {
+        swarmPath: [],
+        nodeId: parsed.agent.name,
+        rootNodeId: parsed.agent.name,
+      };
       this.agent = new Agent(parsed.agent, {
         ...options.agent,
         hook: options.agent?.hook ?? options.hook,
+        serviceTopology: { ...agentTopology, agentName: parsed.agent.name },
       });
     } else if (parsed.kind === "tool") {
       this.tool = new Tool(parsed.tool);
     } else {
-      this.swarm = new Swarm(parsed.swarm as SwarmConfig, options);
+      this.swarm = new Swarm(
+        parsed.swarm as SwarmConfig,
+        options,
+        topology ? [...topology.swarmPath, topology.nodeId] : [],
+      );
     }
   }
 
@@ -76,22 +98,46 @@ export class Swarm {
   root: string;
   hooks: Hook[];
   private hookRuntime?: HookRuntimeOptions;
+  private readonly ablationProfile?: AblationProfile;
 
-  constructor(config: SwarmConfig, options: SwarmRuntimeOptions = {}) {
+  constructor(
+    config: SwarmConfig,
+    options: SwarmRuntimeOptions = {},
+    parentSwarmPath: readonly string[] = [],
+  ) {
     const parsed = SwarmConfigSchema.parse(config) as SwarmConfig;
+    const swarmPath = [...parentSwarmPath, parsed.name];
     this.name = parsed.name;
     this.description = parsed.description;
     this.parameters = parsed.parameters ?? {};
     this.returns = parsed.returns;
     this.mcpServers = new Map(parsed.mcpServers ? Object.entries(parsed.mcpServers) : []);
-    this.queen = parsed.queen ? new Agent(parsed.queen, options.agent) : undefined;
+    this.queen = parsed.queen
+      ? new Agent(parsed.queen, {
+          ...options.agent,
+          serviceTopology: {
+            swarmPath,
+            nodeId: "$queen",
+            rootNodeId: parsed.root,
+            agentName: parsed.queen.name,
+          },
+        })
+      : undefined;
     this.nodes = new Map(
-      Object.entries(parsed.nodes).map(([k, v]) => [k, new SwarmNode(v, options)]),
+      Object.entries(parsed.nodes).map(([k, v]) => [
+        k,
+        new SwarmNode(v, options, {
+          swarmPath,
+          nodeId: k,
+          rootNodeId: parsed.root,
+        }),
+      ]),
     );
     this.edges = (parsed.edges ?? []).map((e) => new Edge(e));
     this.root = parsed.root;
     this.hooks = (parsed.hooks ?? []).map((h) => new Hook(h));
     this.hookRuntime = options.hook;
+    this.ablationProfile = options.agent?.ablationProfile;
 
     this.validateDag();
   }
@@ -198,13 +244,29 @@ export class Swarm {
       error = errorMessage(err);
     }
 
+    const serviceActivations = this.serviceActivations();
     return EvalRunResultSchema.parse({
       output: messagesToEvalOutput(messages),
       messages,
       trace: [...trace.events].sort((a, b) => a.step - b.step),
       error,
       metrics: { ...buildEvalMetrics(messages, trace.events), contextTokens },
+      ...(this.ablationProfile
+        ? { ablation: createAblationRunReceipt(this.ablationProfile, serviceActivations) }
+        : {}),
     });
+  }
+
+  private serviceActivations(): ServiceActivationReceipt[] {
+    const receipts: ServiceActivationReceipt[] = [];
+    if (this.queen?.serviceActivationReceipt) receipts.push(this.queen.serviceActivationReceipt);
+    for (const node of this.nodes.values()) {
+      if (node.agent?.serviceActivationReceipt) receipts.push(node.agent.serviceActivationReceipt);
+      if (node.swarm) receipts.push(...node.swarm.serviceActivations());
+    }
+    return receipts.sort((left, right) =>
+      serviceTopologyKey(left.topology).localeCompare(serviceTopologyKey(right.topology)),
+    );
   }
 
   private async executeInternal(
@@ -529,6 +591,10 @@ function isSubset(set: Set<string>, superset: Set<string>): boolean {
     if (!superset.has(item)) return false;
   }
   return true;
+}
+
+function serviceTopologyKey(topology: ServiceTopology): string {
+  return `${topology.swarmPath.join("/")}\u0000${topology.nodeId}\u0000${topology.agentName}`;
 }
 
 function messagesToEvalOutput(messages: MessageChunk[]): string {

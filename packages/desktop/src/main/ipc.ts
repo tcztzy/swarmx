@@ -1077,12 +1077,10 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
             capturedAt: new Date().toISOString(),
           },
         });
-        const privateKnowledgeTools = [
-          memoryTool,
-          ...(referenceLibraryBackend
-            ? [createReferenceLibraryAgentTool(referenceLibraryBackend)]
-            : []),
-        ];
+        const memoryTools = [memoryTool];
+        const privateKnowledgeTools = referenceLibraryBackend
+          ? [createReferenceLibraryAgentTool(referenceLibraryBackend)]
+          : [];
         let swarm: Swarm;
         const cwd = await normalizeWorkingDirectory(params.cwd);
         const createRunContextEngine = (contextId: string, history: readonly MessageChunk[]) =>
@@ -1152,6 +1150,7 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
           swarm = new Swarm(await protectSwarmConfigBackends(config, cwd), {
             agent: {
               acpPermissionHandler,
+              memoryTools,
               localTools: privateKnowledgeTools,
               contextEngine: createRunContextEngine(
                 params.sessionId ?? params.requestId,
@@ -1255,7 +1254,8 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
           }
           const projectTools =
             cwd && runtimeHarnessId === "swarmx" ? new WorkspaceTools(cwd) : null;
-          const agentMemoryTools =
+          const agentMemoryTools = !compositionUsesAcp && !params.sideChatId ? memoryTools : [];
+          const agentPrivateKnowledgeTools =
             !compositionUsesAcp && !params.sideChatId ? privateKnowledgeTools : [];
           const directSession =
             params.sessionId && !params.sideChatId ? loadSession(params.sessionId) : undefined;
@@ -1498,8 +1498,9 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
                                 ),
                               }),
                           acpPermissionHandler,
+                          memoryTools: agentMemoryTools,
                           localTools: [
-                            ...agentMemoryTools,
+                            ...agentPrivateKnowledgeTools,
                             ...workspaceAgentTools(
                               backgroundTools,
                               sessionRuntime.shell,
@@ -1663,8 +1664,9 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
                                   ),
                                 }),
                             acpPermissionHandler,
+                            memoryTools: agentMemoryTools,
                             localTools: [
-                              ...agentMemoryTools,
+                              ...agentPrivateKnowledgeTools,
                               ...workspaceAgentTools(childTools, undefined, childToolOptions),
                             ],
                             onChunk: () => observation.markOutput(),
@@ -1786,7 +1788,7 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
                       : {}),
                     ...(() => {
                       const localTools = [
-                        ...agentMemoryTools,
+                        ...agentPrivateKnowledgeTools,
                         ...(projectTools
                           ? workspaceAgentTools(
                               projectTools,
@@ -1795,7 +1797,10 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
                             )
                           : []),
                       ];
-                      return localTools.length > 0 ? { localTools } : {};
+                      return {
+                        ...(agentMemoryTools.length > 0 ? { memoryTools: agentMemoryTools } : {}),
+                        ...(localTools.length > 0 ? { localTools } : {}),
+                      };
                     })(),
                     onChunk: (chunk) => {
                       observation.markOutput();

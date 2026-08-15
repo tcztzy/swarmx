@@ -3,6 +3,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import OpenAI from "openai";
 import type { AcpPermissionHandler, AcpPromptInput } from "./acp.js";
 import { AcpClient, AcpSessionUnavailableError } from "./acp.js";
+import { BuiltinHarness, type BuiltinHarnessTurn } from "./builtin-harness.js";
 import type {
   AgentContextEngine,
   CompiledContext,
@@ -61,6 +62,15 @@ import {
   throwIfCurrentRequestCancelled,
 } from "./request-scope.js";
 import {
+  type AblationProfile,
+  type AgentServiceInputs,
+  type AgentServiceRegistry,
+  createBuiltinAgentServiceRegistry,
+  DEFAULT_ABLATION_PROFILE,
+  type ServiceActivationReceipt,
+  type ServiceTopology,
+} from "./service-registry.js";
+import {
   appendMessages,
   createSession,
   listSessionSummaries as listSessionsFile,
@@ -102,6 +112,8 @@ type ChatMsg = OpenAI.Chat.Completions.ChatCompletionMessageParam;
 export interface AgentRuntimeOptions {
   createAcpClient?: () => AcpPromptClient;
   createMcpManager?: () => McpManager;
+  /** Local tools owned by the Memory service and controlled by its ablation seam. */
+  memoryTools?: readonly LocalTool[];
   localTools?: readonly LocalTool[];
   /**
    * Request-scoped, digest-verified `prompt_fragment` Skill deliveries. Content
@@ -137,6 +149,14 @@ export interface AgentRuntimeOptions {
   projectBootstrap?: ProjectBootstrapBinding;
   /** Publishes the concise bootstrap receipt without exposing the snapshot or Project root. */
   onProjectBootstrap?: (receipt: ProjectBootstrapReceipt) => void | Promise<void>;
+  /** Ordered plugin kernel for the direct `swarmx` Harness only. */
+  builtinHarness?: BuiltinHarness;
+  /** Whole-service variant registry for direct built-in Harness evaluation. */
+  serviceRegistry?: AgentServiceRegistry;
+  /** Complete three-seam selection; explicit profiles are rejected for external ACP. */
+  ablationProfile?: AblationProfile;
+  /** Deterministic Swarm/Agent location supplied to service variant resolvers. */
+  serviceTopology?: ServiceTopology;
 }
 
 interface AcpPromptClient {
@@ -176,6 +196,7 @@ export class Agent {
   hooks: HookRef[];
   backend: AgentBackend;
   processOptions?: ProcessOptions;
+  readonly serviceActivationReceipt?: ServiceActivationReceipt;
   private mcp: McpManager | null = null;
   private createAcpClient: () => AcpPromptClient;
   private createMcpManager: () => McpManager;
@@ -195,6 +216,7 @@ export class Agent {
   private readonly requiredMcpServers: ReadonlySet<string>;
   private readonly projectBootstrap?: ProjectBootstrapBinding;
   private readonly onProjectBootstrap?: AgentRuntimeOptions["onProjectBootstrap"];
+  private readonly builtinHarness: BuiltinHarness;
 
   constructor(config: AgentConfig, options: AgentRuntimeOptions = {}) {
     const parsed = AgentConfigSchema.parse(config);
@@ -204,6 +226,14 @@ export class Agent {
     this.name = parsed.name;
     this.description = parsed.description;
     this.backend = parsed.backend ?? { type: "swarmx" };
+    if (options.builtinHarness && this.backend.type !== "swarmx") {
+      throw new Error("Built-in Harness plugins require the direct SwarmX backend.");
+    }
+    const explicitServiceSelection = Boolean(options.serviceRegistry || options.ablationProfile);
+    if (explicitServiceSelection && this.backend.type === "custom") {
+      throw new Error("Built-in service ablation is unsupported for external ACP Harnesses.");
+    }
+    this.builtinHarness = options.builtinHarness ?? new BuiltinHarness();
     this.apiMode = nativeApiMode(clientConfig, runtimeEnv);
     this.apiProtocol = nativeApiProtocol(clientConfig, runtimeEnv, this.apiMode);
     if (this.apiMode === "codex_responses" && this.apiProtocol !== "openai_responses") {
@@ -216,12 +246,11 @@ export class Agent {
         : undefined);
     this.configuredModel = parsed.model;
     const scopedDeliveries = options.skillInstructionsByAgent?.[parsed.name];
-    const deliveries = scopedDeliveries ?? options.skillInstructions ?? [];
-    this.skillInstructions = deliveries.map((delivery) =>
+    const parsedDeliveries = (scopedDeliveries ?? options.skillInstructions ?? []).map((delivery) =>
       SkillInstructionDeliverySchema.parse(delivery),
     );
     if (
-      this.skillInstructions.length > 0 &&
+      parsedDeliveries.length > 0 &&
       !["swarmx", "echo"].includes(parsed.backend?.type ?? "swarmx")
     ) {
       throw new SkillDeliveryError(
@@ -229,27 +258,56 @@ export class Agent {
         `Skill prompt_fragment delivery is unsupported for backend "${parsed.backend?.type ?? "swarmx"}" on agent "${parsed.name}".`,
       );
     }
+    const parsedGlobalMemory = options.globalMemory
+      ? GlobalMemorySnapshotSchema.parse(options.globalMemory)
+      : undefined;
+    const parsedPersonalMemory = options.personalMemory
+      ? PersonalMemorySnapshotSchema.parse(options.personalMemory)
+      : undefined;
+    const parsedMemoryReflection = options.memoryReflection
+      ? MemoryReflectionDecisionSchema.parse(options.memoryReflection)
+      : undefined;
+    const serviceInputs = {
+      contextEngine: options.contextEngine,
+      globalMemory: parsedGlobalMemory,
+      personalMemory: parsedPersonalMemory,
+      memoryReflection: parsedMemoryReflection,
+      memoryTools: options.memoryTools,
+      skillInstructions: parsedDeliveries,
+    };
+    let resolvedServices: Readonly<AgentServiceInputs> = serviceInputs;
+    let activationReceipt: ServiceActivationReceipt | undefined;
+    if (explicitServiceSelection) {
+      const serviceActivation = (
+        options.serviceRegistry ?? createBuiltinAgentServiceRegistry()
+      ).activate(
+        options.ablationProfile ?? DEFAULT_ABLATION_PROFILE,
+        options.serviceTopology ?? {
+          swarmPath: [],
+          nodeId: parsed.name,
+          rootNodeId: parsed.name,
+          agentName: parsed.name,
+        },
+        serviceInputs,
+      );
+      resolvedServices = serviceActivation.services;
+      activationReceipt = serviceActivation.receipt;
+    }
+    this.serviceActivationReceipt = activationReceipt;
+    this.skillInstructions = resolvedServices.skillInstructions ?? [];
     const deliveredInstructions = buildDeliveredInstructions(
       parsed.instructions ?? "",
       this.skillInstructions,
     );
-    const globalMemory = options.globalMemory
-      ? GlobalMemorySnapshotSchema.parse(options.globalMemory)
-      : undefined;
-    const personalMemory =
-      !globalMemory && options.personalMemory
-        ? PersonalMemorySnapshotSchema.parse(options.personalMemory)
-        : undefined;
+    const globalMemory = resolvedServices.globalMemory;
+    const personalMemory = !globalMemory ? resolvedServices.personalMemory : undefined;
     const memoryInstructions = globalMemory
       ? appendGlobalMemoryInstructions(deliveredInstructions, globalMemory)
       : personalMemory
         ? appendPersonalMemoryInstructions(deliveredInstructions, personalMemory)
         : deliveredInstructions;
-    this.instructions = options.memoryReflection
-      ? appendMemoryReflectionInstructions(
-          memoryInstructions,
-          MemoryReflectionDecisionSchema.parse(options.memoryReflection),
-        )
+    this.instructions = resolvedServices.memoryReflection
+      ? appendMemoryReflectionInstructions(memoryInstructions, resolvedServices.memoryReflection)
       : memoryInstructions;
     this.parameters = parsed.parameters ?? {};
     this.returns = parsed.returns;
@@ -258,13 +316,13 @@ export class Agent {
     this.processOptions = parsed.process;
     this.createAcpClient = options.createAcpClient ?? (() => new AcpClient());
     this.createMcpManager = options.createMcpManager ?? (() => new McpManager());
-    this.localTools = options.localTools ?? [];
+    this.localTools = [...(resolvedServices.memoryTools ?? []), ...(options.localTools ?? [])];
     this.acpPermissionHandler = options.acpPermissionHandler;
     this.acpMode = options.acpMode;
     this.acpSessionId = options.acpSessionId;
     this.onAcpSessionId = options.onAcpSessionId;
     this.hookRuntime = options.hook;
-    this.contextEngine = options.contextEngine;
+    this.contextEngine = resolvedServices.contextEngine;
     this.requiredMcpServers = new Set(
       (options.requiredMcpServers ?? []).map((name) => {
         const normalized = name.trim();
@@ -400,6 +458,7 @@ export class Agent {
     arguments_: Record<string, unknown>,
     runtimeContext: Record<string, unknown>,
     onUsage?: (usage: ModelTokenUsage) => void,
+    builtinTurn?: Readonly<BuiltinHarnessTurn>,
   ): Promise<{ messages: MessageChunk[] }> {
     throwIfCurrentRequestCancelled();
     if (this.backend.type === "echo") {
@@ -407,6 +466,19 @@ export class Agent {
     }
     if (this.backend.type === "custom") {
       return this.callAcp(arguments_);
+    }
+    if (!builtinTurn) {
+      return this.builtinHarness.run(
+        {
+          agentName: this.name,
+          mode: "call",
+          arguments: arguments_,
+          runtimeContext,
+          instructions: this.instructions,
+          tools: this.localTools,
+        },
+        (turn) => this.callUnchecked(turn.arguments, turn.runtimeContext, onUsage, turn),
+      );
     }
 
     try {
@@ -417,14 +489,17 @@ export class Agent {
         arguments_,
         runtimeContext,
         contextRequestId,
+        "preflight",
+        [],
+        builtinTurn.instructions,
       );
       throwIfCurrentRequestCancelled();
-      await this.ensureMcpConnected();
+      await this.ensureMcpConnected(builtinTurn.tools);
       throwIfCurrentRequestCancelled();
       const projectBootstrap = await this.loadProjectBootstrap();
       const runInstructions = projectBootstrap
-        ? appendProjectBootstrapInstructions(this.instructions, projectBootstrap)
-        : this.instructions;
+        ? appendProjectBootstrapInstructions(builtinTurn.instructions, projectBootstrap)
+        : builtinTurn.instructions;
       if (this.contextEngine?.finalize || (this.contextEngine && projectBootstrap)) {
         modelRequest = await this.compileModelRequest(
           arguments_,
@@ -614,6 +689,7 @@ export class Agent {
     runtimeContext: Record<string, unknown>,
     onChunk: (chunk: MessageChunk) => void,
     onUsage?: (usage: ModelTokenUsage) => void,
+    builtinTurn?: Readonly<BuiltinHarnessTurn>,
   ): Promise<{ messages: MessageChunk[] }> {
     throwIfCurrentRequestCancelled();
     if (this.backend.type === "echo") {
@@ -624,6 +700,27 @@ export class Agent {
     if (this.backend.type === "custom") {
       return this.callAcp(arguments_, onChunk);
     }
+    if (!builtinTurn) {
+      return this.builtinHarness.run(
+        {
+          agentName: this.name,
+          mode: "stream",
+          arguments: arguments_,
+          runtimeContext,
+          instructions: this.instructions,
+          tools: this.localTools,
+          emitChunk: onChunk,
+        },
+        (turn) =>
+          this.callStreamUnchecked(
+            turn.arguments,
+            turn.runtimeContext,
+            turn.emitChunk ?? onChunk,
+            onUsage,
+            turn,
+          ),
+      );
+    }
 
     try {
       const contextRequestId = this.contextEngine
@@ -633,14 +730,17 @@ export class Agent {
         arguments_,
         runtimeContext,
         contextRequestId,
+        "preflight",
+        [],
+        builtinTurn.instructions,
       );
       throwIfCurrentRequestCancelled();
-      await this.ensureMcpConnected();
+      await this.ensureMcpConnected(builtinTurn.tools);
       throwIfCurrentRequestCancelled();
       const projectBootstrap = await this.loadProjectBootstrap();
       const runInstructions = projectBootstrap
-        ? appendProjectBootstrapInstructions(this.instructions, projectBootstrap)
-        : this.instructions;
+        ? appendProjectBootstrapInstructions(builtinTurn.instructions, projectBootstrap)
+        : builtinTurn.instructions;
       if (this.contextEngine?.finalize || (this.contextEngine && projectBootstrap)) {
         modelRequest = await this.compileModelRequest(
           arguments_,
@@ -1026,12 +1126,14 @@ export class Agent {
     };
   }
 
-  private async ensureMcpConnected(): Promise<void> {
+  private async ensureMcpConnected(
+    localTools: readonly LocalTool[] = this.localTools,
+  ): Promise<void> {
     if (this.mcp) return;
     const mcp = this.createMcpManager();
     this.mcp = mcp;
-    mcp.addLocalTools([...this.localTools, ...(this.contextEngine?.tools ?? [])]);
-    const isClaudeCodeProfile = this.localTools.some((tool) => tool.name === "Bash");
+    mcp.addLocalTools([...localTools, ...(this.contextEngine?.tools ?? [])]);
+    const isClaudeCodeProfile = localTools.some((tool) => tool.name === "Bash");
     if (isClaudeCodeProfile && this.mcpServers.size > 0) {
       for (const [name, config] of this.mcpServers) {
         mcp.startServer(name, config, this.mcpContract(name));
@@ -1207,7 +1309,7 @@ export class Agent {
     compiled?: CompiledContext;
   }> {
     if (!this.contextEngine) {
-      return { arguments: arguments_, instructions: this.instructions };
+      return { arguments: arguments_, instructions: baseInstructions };
     }
     const resolvedRequestId = requestId ?? resolveContextRequestId(arguments_, runtimeContext);
     const compile =

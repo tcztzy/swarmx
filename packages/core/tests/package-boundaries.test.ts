@@ -49,6 +49,20 @@ describe("Core package boundaries", () => {
     });
   });
 
+  it("keeps built-in service ablation contracts browser-safe", () => {
+    expect(importsFrom("service-registry.ts").map((entry) => entry.module)).toEqual([
+      "zod",
+      "./context-engine.js",
+      "./local-tool-contracts.js",
+      "./personal-memory.js",
+      "./skill-delivery.js",
+    ]);
+    expect(coreExports()["./service-registry"]).toEqual({
+      types: "./dist/service-registry.d.ts",
+      import: "./dist/service-registry.js",
+    });
+  });
+
   it("prevents domain modules from depending on MCP or ACP adapters for shared contracts", () => {
     for (const file of [
       "memory.ts",

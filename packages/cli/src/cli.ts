@@ -160,6 +160,14 @@ program
     "Resolve the evolved active Skill revision(s) as <skillId>:<variantId> for this execution",
   )
   .option("--evolution-root <path>", "Override the skill evolution ledger root")
+  .option(
+    "--ablation-profile <path>",
+    "Strict built-in service AblationProfile JSON for this eval sample",
+  )
+  .option(
+    "--memory-snapshot <path>",
+    "Strict global Memory snapshot JSON supplied identically to each ablation arm",
+  )
   .action(async (message: string | undefined, opts: EvalRunOptions) => {
     const requestId = cliRequestId();
     const contextSuite = isContextEvalSuiteRequest(opts);
@@ -171,6 +179,8 @@ program
       resolvesEvolvedSkills: Boolean(opts.resolveSkill?.length),
       contextSuite,
       writesContextJsonl: Boolean(opts.contextJsonl),
+      hasAblationProfile: Boolean(opts.ablationProfile),
+      hasMemorySnapshot: Boolean(opts.memorySnapshot),
     });
     try {
       if (contextSuite) {

@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { SessionBuiltinToolBindingSchema } from "./builtin-tools.js";
+import { AblationRunReceiptSchema } from "./service-registry.js";
 
 // ── McpServer ────────────────────────────────────────────────────────────────
 
@@ -206,6 +207,7 @@ export const EvalRunResultSchema = z.object({
   messages: z.array(MessageChunkSchema),
   trace: z.array(EvalTraceEventSchema),
   error: z.string().nullable(),
+  ablation: AblationRunReceiptSchema.optional(),
   metrics: z.object({
     steps: z.number().int().nonnegative(),
     messages: z.number().int().nonnegative(),

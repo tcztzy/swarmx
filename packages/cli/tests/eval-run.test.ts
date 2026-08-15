@@ -13,6 +13,7 @@ import {
   evalSwarmOptions,
   formatContextEvaluationError,
   formatContextEvaluationReport,
+  loadAblationProfile,
   loadContextEvaluationSuite,
   runContextEvalSuite,
   runEval,
@@ -173,6 +174,142 @@ describe("eval-run helpers", () => {
       contextTokens: 0,
     });
   });
+
+  it("runs one sample with a strict ablation profile and returns its activation receipt", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "swarmx-ablation-eval-run-"));
+    const configPath = join(dir, "swarm.json");
+    const profilePath = join(dir, "profile.json");
+    writeFileSync(
+      configPath,
+      JSON.stringify({
+        name: "echo_eval",
+        root: "echo_agent",
+        nodes: {
+          echo_agent: {
+            kind: "agent",
+            agent: { name: "echo_agent", backend: { type: "echo" } },
+          },
+        },
+        edges: [],
+      }),
+    );
+    writeFileSync(
+      profilePath,
+      JSON.stringify({
+        schemaVersion: 1,
+        profileId: "all_baseline",
+        variants: {
+          context_engine: "baseline",
+          memory: "baseline",
+          skill_evolution: "baseline",
+        },
+      }),
+    );
+
+    const result = await runEval("deterministic answer", {
+      config: configPath,
+      ablationProfile: profilePath,
+    });
+
+    expect(result.error).toBeNull();
+    expect(result.ablation).toMatchObject({
+      schemaVersion: 1,
+      profileId: "all_baseline",
+      variants: {
+        context_engine: "baseline",
+        memory: "baseline",
+        skill_evolution: "baseline",
+      },
+      activations: [
+        {
+          topology: {
+            swarmPath: ["echo_eval"],
+            nodeId: "echo_agent",
+            rootNodeId: "echo_agent",
+            agentName: "echo_agent",
+          },
+        },
+      ],
+    });
+  });
+
+  it("strictly loads complete ablation profiles", () => {
+    const dir = mkdtempSync(join(tmpdir(), "swarmx-ablation-profile-"));
+    const profilePath = join(dir, "profile.json");
+    writeFileSync(
+      profilePath,
+      JSON.stringify({
+        schemaVersion: 1,
+        profileId: "without_memory",
+        variants: {
+          context_engine: "production",
+          memory: "baseline",
+          skill_evolution: "production",
+        },
+      }),
+    );
+
+    expect(loadAblationProfile(profilePath).profileId).toBe("without_memory");
+    writeFileSync(
+      profilePath,
+      JSON.stringify({
+        schemaVersion: 1,
+        profileId: "incomplete",
+        variants: { context_engine: "baseline" },
+      }),
+    );
+    expect(() => loadAblationProfile(profilePath)).toThrow();
+  });
+
+  it("supplies Context Engine and one strict Memory snapshot before variant selection", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "swarmx-ablation-inputs-"));
+    const profilePath = join(dir, "profile.json");
+    const memoryPath = join(dir, "memory.json");
+    const memoryContent = "Prefer concise answers.";
+    writeFileSync(
+      profilePath,
+      JSON.stringify({
+        schemaVersion: 1,
+        profileId: "production_inputs",
+        variants: {
+          context_engine: "production",
+          memory: "production",
+          skill_evolution: "baseline",
+        },
+      }),
+    );
+    writeFileSync(
+      memoryPath,
+      JSON.stringify({
+        source: "memory_files",
+        user: {
+          target: "user",
+          fileName: "USER.md",
+          content: memoryContent,
+          revision: 1,
+          updatedAt: "2026-08-15T00:00:00.000Z",
+        },
+        memory: null,
+        totalCharacterCount: memoryContent.length,
+      }),
+    );
+
+    const options = await evalSwarmOptions(
+      { ablationProfile: profilePath, memorySnapshot: memoryPath },
+      {
+        name: "fixture",
+        root: "agent",
+        nodes: { agent: { kind: "agent", agent: { name: "agent" } } },
+        edges: [],
+      },
+    );
+
+    expect(options.agent?.contextEngine).toBeDefined();
+    expect(options.agent?.globalMemory?.user?.content).toBe(memoryContent);
+    await expect(evalSwarmOptions({ memorySnapshot: memoryPath })).rejects.toThrow(
+      /requires --ablation-profile/,
+    );
+  });
 });
 
 describe("eval-run context suite", () => {
@@ -265,7 +402,11 @@ describe("eval-run context suite", () => {
     await expect(
       runContextEvalSuite(
         "do not mix",
-        { contextSuite: "/tmp/suite.json", inputJson: "{}" },
+        {
+          contextSuite: "/tmp/suite.json",
+          inputJson: "{}",
+          ablationProfile: "/tmp/profile.json",
+        },
         { executor },
       ),
     ).rejects.toThrow(/cannot be combined/i);

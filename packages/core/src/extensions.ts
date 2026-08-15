@@ -929,6 +929,7 @@ export interface ExecuteAgentCompositionOptions {
   project?: ProjectExecutionContext;
   allowAgentFacingMcp?: boolean;
   allowUnboundProjectMcp?: boolean;
+  memoryTools?: readonly LocalTool[];
   localTools?: readonly LocalTool[];
   createMcpManager?: () => McpManager;
   acpPermissionHandler?: AcpPermissionHandler;
@@ -1820,6 +1821,7 @@ export async function executeAgentComposition(
     {
       hook: options.hook,
       agent: {
+        memoryTools: options.memoryTools,
         localTools: options.localTools,
         createMcpManager: options.createMcpManager,
         requiredMcpServers: mcpRuntime.requiredMcpServers,

@@ -98,6 +98,7 @@ export {
   serializeAgentDefinitionMarkdown,
 } from "./agent-profiles.js";
 export * from "./audit.js";
+export * from "./builtin-harness.js";
 export type {
   BuiltinToolStyle,
   BuiltinToolStylePreference,
@@ -692,6 +693,7 @@ export {
   secretValueFromVault,
 } from "./secrets.js";
 export { createServer } from "./server.js";
+export * from "./service-registry.js";
 export type {
   AppendMessagesOptions,
   BeginSessionRequestInput,

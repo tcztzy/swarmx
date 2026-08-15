@@ -10,6 +10,8 @@ import {
   writeFileSync,
 } from "node:fs";
 import {
+  type AblationProfile,
+  AblationProfileSchema,
   type ContextEvaluationExecutor,
   type ContextEvaluationReport,
   ContextEvaluationReportSchema,
@@ -17,9 +19,13 @@ import {
   type ContextEvaluationSuite,
   ContextEvaluationSuiteSchema,
   classifyContextEvaluationError,
+  createBuiltinAgentServiceRegistry,
+  createSessionContextEngine,
   type EvalRunResult,
   EvalRunResultSchema,
   formatContextEvaluationJsonl,
+  type GlobalMemorySnapshot,
+  GlobalMemorySnapshotSchema,
   loadSkillFragmentContent,
   parseSkillInstructionDelivery,
   runContextEvaluation,
@@ -41,6 +47,8 @@ export interface EvalRunOptions {
   skillDeliveryAgent?: string;
   resolveSkill?: string[];
   evolutionRoot?: string;
+  ablationProfile?: string;
+  memorySnapshot?: string;
 }
 
 export interface ContextEvalSuiteDependencies {
@@ -91,6 +99,14 @@ export function loadContextEvaluationSuite(path: string): ContextEvaluationSuite
   return ContextEvaluationSuiteSchema.parse(JSON.parse(readFileSync(path, "utf8")));
 }
 
+export function loadAblationProfile(path: string): AblationProfile {
+  return AblationProfileSchema.parse(JSON.parse(readFileSync(path, "utf8")));
+}
+
+export function loadGlobalMemorySnapshot(path: string): GlobalMemorySnapshot {
+  return GlobalMemorySnapshotSchema.parse(JSON.parse(readFileSync(path, "utf8")));
+}
+
 export async function runContextEvalSuite(
   message: string | undefined,
   options: EvalRunOptions,
@@ -135,11 +151,21 @@ export function formatContextEvaluationError(error: unknown, pretty = false): st
 export async function evalSwarmOptions(
   options: Pick<
     EvalRunOptions,
-    "skillDelivery" | "skillContentPath" | "skillDeliveryAgent" | "resolveSkill" | "evolutionRoot"
+    | "skillDelivery"
+    | "skillContentPath"
+    | "skillDeliveryAgent"
+    | "resolveSkill"
+    | "evolutionRoot"
+    | "ablationProfile"
+    | "memorySnapshot"
   >,
   config?: SwarmConfig,
 ): Promise<SwarmRuntimeOptions> {
+  if (options.memorySnapshot && !options.ablationProfile) {
+    throw new Error("--memory-snapshot requires --ablation-profile");
+  }
   const explicit = await explicitSkillDelivery(options, config);
+  const ablation = options.ablationProfile ? ablationRuntimeOptions(options, config) : {};
   if (options.resolveSkill && options.resolveSkill.length > 0) {
     if (explicit) {
       throw new Error("Use either --skill-delivery or --resolve-skill, not both");
@@ -162,11 +188,19 @@ export async function evalSwarmOptions(
       const agentDeliveries = deliveries[node.agent.name];
       if (agentDeliveries?.length) perAgent[node.agent.name] = agentDeliveries;
     }
-    return Object.keys(perAgent).length > 0
-      ? { agent: { skillInstructionsByAgent: perAgent } }
-      : {};
+    return {
+      agent: {
+        ...ablation,
+        ...(Object.keys(perAgent).length > 0 ? { skillInstructionsByAgent: perAgent } : {}),
+      },
+    };
   }
-  return explicit ?? {};
+  return {
+    agent: {
+      ...ablation,
+      ...(explicit?.agent ?? {}),
+    },
+  };
 }
 
 export function parseSkillBinding(value: string): { skillId: string; variantId: string } {
@@ -322,10 +356,29 @@ function validateContextEvalSuiteOptions(
     ...(options.skillDeliveryAgent ? ["--skill-delivery-agent"] : []),
     ...(options.resolveSkill?.length ? ["--resolve-skill"] : []),
     ...(options.evolutionRoot ? ["--evolution-root"] : []),
+    ...(options.ablationProfile ? ["--ablation-profile"] : []),
+    ...(options.memorySnapshot ? ["--memory-snapshot"] : []),
   ];
   if (conflicts.length > 0) {
     throw new Error(`--context-suite cannot be combined with ${conflicts.join(", ")}.`);
   }
+}
+
+function ablationRuntimeOptions(
+  options: Pick<EvalRunOptions, "ablationProfile" | "memorySnapshot">,
+  config?: SwarmConfig,
+): NonNullable<SwarmRuntimeOptions["agent"]> {
+  if (!options.ablationProfile) return {};
+  return {
+    serviceRegistry: createBuiltinAgentServiceRegistry(),
+    ablationProfile: loadAblationProfile(options.ablationProfile),
+    contextEngine: createSessionContextEngine({
+      sessionId: `ablation_eval_${config?.name ?? "default"}`,
+    }),
+    ...(options.memorySnapshot
+      ? { globalMemory: loadGlobalMemorySnapshot(options.memorySnapshot) }
+      : {}),
+  };
 }
 
 function reserveContextJsonl(path: string): ContextJsonlReservation {
