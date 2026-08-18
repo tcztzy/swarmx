@@ -277,6 +277,57 @@ describe("AgentServiceRegistry", () => {
     ).toThrow(/requires the direct SwarmX backend/);
   });
 
+  it("keeps unsupported backends outside mixed Swarm ablation", () => {
+    const swarm = new Swarm(
+      {
+        name: "mixed_eval",
+        root: "writer",
+        nodes: {
+          writer: { kind: "agent", agent: { name: "writer" } },
+          echo_agent: {
+            kind: "agent",
+            agent: { name: "echo_agent", backend: { type: "echo" } },
+          },
+          external_agent: {
+            kind: "agent",
+            agent: {
+              name: "external_agent",
+              backend: { type: "custom", program: "external-acp" },
+            },
+          },
+        },
+        edges: [],
+      },
+      { agent: { ablationProfile: DEFAULT_ABLATION_PROFILE } },
+    );
+
+    expect(swarm.nodes.get("writer")?.agent?.serviceActivationReceipt).toMatchObject({
+      profileId: "production",
+    });
+    expect(swarm.nodes.get("echo_agent")?.agent?.serviceActivationReceipt).toBeUndefined();
+    expect(swarm.nodes.get("external_agent")?.agent?.serviceActivationReceipt).toBeUndefined();
+  });
+
+  it("rejects an ablation run without a direct SwarmX Agent", () => {
+    expect(
+      () =>
+        new Swarm(
+          {
+            name: "echo_only_eval",
+            root: "echo_agent",
+            nodes: {
+              echo_agent: {
+                kind: "agent",
+                agent: { name: "echo_agent", backend: { type: "echo" } },
+              },
+            },
+            edges: [],
+          },
+          { agent: { ablationProfile: DEFAULT_ABLATION_PROFILE } },
+        ),
+    ).toThrow(/requires the direct SwarmX backend for at least one Agent/);
+  });
+
   it("retains global Memory precedence over an invalid Personal Memory fallback", () => {
     const memoryContent = "Prefer concise answers.";
     const agent = new Agent(
@@ -299,6 +350,54 @@ describe("AgentServiceRegistry", () => {
     );
 
     expect(agent.instructions).toContain(memoryContent);
+  });
+
+  it("lets a custom Memory variant select Personal Memory when Global Memory is supplied", () => {
+    const globalContent = "Global preference.";
+    const personalContent = "Personal preference.";
+    const registry = createBuiltinAgentServiceRegistry();
+    registry.register({
+      seam: "memory",
+      variantId: "personal_only",
+      resolve: ({ services }) => ({ personalMemory: services.personalMemory }),
+    });
+
+    const agent = new Agent(
+      { name: "writer", instructions: "Base instructions." },
+      {
+        globalMemory: {
+          source: "memory_files",
+          user: {
+            target: "user",
+            fileName: "USER.md",
+            content: globalContent,
+            revision: 1,
+            updatedAt: "2026-08-15T00:00:00.000Z",
+          },
+          memory: null,
+          totalCharacterCount: globalContent.length,
+        },
+        personalMemory: {
+          source: "desktop_settings",
+          content: personalContent,
+          updatedAt: "2026-08-15T00:00:00.000Z",
+          characterCount: personalContent.length,
+        },
+        serviceRegistry: registry,
+        ablationProfile: {
+          schemaVersion: 1,
+          profileId: "personal_only",
+          variants: {
+            context_engine: "baseline",
+            memory: "personal_only",
+            skill_evolution: "baseline",
+          },
+        },
+      },
+    );
+
+    expect(agent.instructions).toContain(personalContent);
+    expect(agent.instructions).not.toContain(globalContent);
   });
 
   it("emits activation receipts only for a direct SwarmX eval", async () => {

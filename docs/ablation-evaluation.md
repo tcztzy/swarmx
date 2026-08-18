@@ -54,5 +54,6 @@ Resolution is fail-closed. Duplicate providers or a profile naming any missing
 variant stops Agent construction before MCP startup or a Provider request. A
 custom registry without an explicit profile is rejected so activations cannot
 lose their run identity. Explicit ablation is supported only by the direct
-`swarmx` backend; echo and external ACP Harnesses do not execute these services
-and therefore cannot emit an activation receipt.
+`swarmx` backend. In mixed workflows, echo and external ACP Harnesses execute
+outside this registry and are omitted from activation receipts. An ablation run
+with no direct `swarmx` Agent is rejected.

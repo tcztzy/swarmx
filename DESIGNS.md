@@ -172,7 +172,9 @@ receives deterministic Swarm/Agent topology rather than consulting ambient
 registration order. Startup asserts that every selected `(seam, variant)` is
 registered and returns one content-free activation receipt. Missing or duplicate
 entries fail before MCP startup or a Provider request. Echo and external ACP
-Harnesses do not enter this registry. Evaluation may select an explicit profile
+Harnesses do not enter this registry. In mixed workflows they execute outside
+this registry and are omitted from activation receipts; an ablation run with no
+direct SwarmX Agent is rejected. Evaluation may select an explicit profile
 and records its profile, variants, and activated topology alongside ordinary
 metrics; the registry never persists a new workflow format or promotes a
 variant.

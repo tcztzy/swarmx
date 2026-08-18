@@ -240,10 +240,17 @@ export class Agent {
     const parsedGlobalMemory = options.globalMemory
       ? GlobalMemorySnapshotSchema.parse(options.globalMemory)
       : undefined;
-    const parsedPersonalMemory =
-      !parsedGlobalMemory && options.personalMemory
-        ? PersonalMemorySnapshotSchema.parse(options.personalMemory)
-        : undefined;
+    // Personal Memory is only a fallback for Global Memory, so an invalid snapshot is
+    // ignored rather than fatal whenever Global Memory is present.
+    const personalMemoryResult = options.personalMemory
+      ? PersonalMemorySnapshotSchema.safeParse(options.personalMemory)
+      : undefined;
+    if (personalMemoryResult?.success === false && !parsedGlobalMemory) {
+      throw personalMemoryResult.error;
+    }
+    const parsedPersonalMemory = personalMemoryResult?.success
+      ? personalMemoryResult.data
+      : undefined;
     const parsedMemoryReflection = options.memoryReflection
       ? MemoryReflectionDecisionSchema.parse(options.memoryReflection)
       : undefined;

@@ -17,6 +17,7 @@ import {
 } from "./service-registry.js";
 import { Tool } from "./tool.js";
 import {
+  type AgentBackend,
   type EvalRunResult,
   EvalRunResultSchema,
   type EvalTraceEvent,
@@ -63,9 +64,10 @@ export class SwarmNode {
         nodeId: parsed.agent.name,
         rootNodeId: parsed.agent.name,
       };
+      const agentOptions = ablationScopedAgentOptions(parsed.agent.backend?.type, options.agent);
       this.agent = new Agent(parsed.agent, {
-        ...options.agent,
-        hook: options.agent?.hook ?? options.hook,
+        ...agentOptions,
+        hook: agentOptions?.hook ?? options.hook,
         serviceTopology: { ...agentTopology, agentName: parsed.agent.name },
       });
     } else if (parsed.kind === "tool") {
@@ -116,9 +118,12 @@ export class Swarm {
     this.parameters = parsed.parameters ?? {};
     this.returns = parsed.returns;
     this.mcpServers = new Map(parsed.mcpServers ? Object.entries(parsed.mcpServers) : []);
+    const queenAgentOptions = parsed.queen
+      ? ablationScopedAgentOptions(parsed.queen.backend?.type, options.agent)
+      : undefined;
     this.queen = parsed.queen
       ? new Agent(parsed.queen, {
-          ...options.agent,
+          ...queenAgentOptions,
           serviceTopology: {
             swarmPath,
             nodeId: "$queen",
@@ -142,6 +147,16 @@ export class Swarm {
     this.hooks = (parsed.hooks ?? []).map((h) => new Hook(h));
     this.hookRuntime = options.hook;
     this.ablationProfile = options.agent?.ablationProfile;
+
+    if (
+      this.ablationProfile &&
+      parentSwarmPath.length === 0 &&
+      this.serviceActivations().length === 0
+    ) {
+      throw new Error(
+        "Built-in service ablation requires the direct SwarmX backend for at least one Agent.",
+      );
+    }
 
     this.validateDag();
   }
@@ -588,6 +603,25 @@ export class Swarm {
 
     return results;
   }
+}
+
+function ablationScopedAgentOptions(
+  backendType: AgentBackend["type"] | undefined,
+  options: AgentRuntimeOptions | undefined,
+): AgentRuntimeOptions | undefined {
+  if (!options?.ablationProfile || (backendType ?? "swarmx") === "swarmx") return options;
+
+  const scoped: AgentRuntimeOptions = { ...options };
+  delete scoped.serviceRegistry;
+  delete scoped.ablationProfile;
+  delete scoped.contextEngine;
+  delete scoped.globalMemory;
+  delete scoped.personalMemory;
+  delete scoped.memoryReflection;
+  delete scoped.memoryTools;
+  delete scoped.skillInstructions;
+  delete scoped.skillInstructionsByAgent;
+  return scoped;
 }
 
 function isSubset(set: Set<string>, superset: Set<string>): boolean {
