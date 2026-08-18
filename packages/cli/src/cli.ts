@@ -5,18 +5,20 @@ import { createInterface } from "node:readline";
 import type {
   AuditInput,
   ChatMessage,
+  CoreRuntime,
+  CoreSwarmExecution,
+  CoreSwarmRuntimeOptions,
   SkillInstructionDelivery,
   SwarmConfig,
-  SwarmRuntimeOptions,
 } from "@swarmx/core";
 import {
   AuditStore,
+  createCoreRuntime,
   createServer,
-  HARNESSES,
   listSessionSummaries,
   SWARMX_VERSION,
-  Swarm,
 } from "@swarmx/core";
+import { HarnessDoctor, HarnessEnvironmentService } from "@swarmx/runtime";
 import { Command } from "commander";
 import { runAuditCommand } from "./audit-command.js";
 import { runDoctorCommand } from "./doctor.js";
@@ -44,6 +46,26 @@ import { runSessionTimelineCommand } from "./session-timeline-command.js";
 
 const program = new Command();
 const cliAudit = new AuditStore();
+let cliRuntimePromise: Promise<CoreRuntime> | undefined;
+
+function coreRuntime(): Promise<CoreRuntime> {
+  cliRuntimePromise ??= createCoreRuntime();
+  return cliRuntimePromise;
+}
+
+process.once("beforeExit", () => {
+  if (cliRuntimePromise) void cliRuntimePromise.then((runtime) => runtime.dispose());
+});
+if (process.env.NODE_ENV !== "test") {
+  const shutdown = (exitCode: number): void => {
+    const disposal = cliRuntimePromise
+      ? cliRuntimePromise.then((runtime) => runtime.dispose())
+      : Promise.resolve();
+    void disposal.finally(() => process.exit(exitCode));
+  };
+  process.once("SIGINT", () => shutdown(130));
+  process.once("SIGTERM", () => shutdown(143));
+}
 
 program.name("swarmx").description("SwarmX multi-agent orchestration CLI").version(SWARMX_VERSION);
 
@@ -61,7 +83,11 @@ program
       scopedHarness: Boolean(opts.harness),
     });
     try {
-      process.exitCode = await runDoctorCommand(opts);
+      const runtime = await coreRuntime();
+      const doctor = new HarnessDoctor(
+        new HarnessEnvironmentService({ harnessCatalog: runtime.harnessCatalog }),
+      );
+      process.exitCode = await runDoctorCommand(opts, undefined, doctor);
       recordCliAudit("cli.doctor", process.exitCode === 0 ? "completed" : "failed", requestId, {
         fix: opts.fix === true,
       });
@@ -105,18 +131,20 @@ program
         resolvesEvolvedSkills: Boolean(opts.resolveSkill?.length),
       });
       try {
-        let swarm: Swarm;
+        const runtime = await coreRuntime();
+        let swarm: CoreSwarmExecution;
 
         if (opts.config) {
           const config = JSON.parse(readFileSync(opts.config, "utf-8")) as SwarmConfig;
-          swarm = new Swarm(config, await cliSkillRuntimeOptions(opts, config));
+          swarm = runtime.prepareSwarm(config, await cliSkillRuntimeOptions(opts, config));
         } else {
           const sendConfig = createSendSwarmConfig({
             harnessId: opts.harness ?? "swarmx",
             model: opts.model,
             effort: opts.effort,
+            harnessCatalog: runtime.harnessCatalog,
           });
-          swarm = new Swarm(sendConfig, await cliSkillRuntimeOptions(opts, sendConfig));
+          swarm = runtime.prepareSwarm(sendConfig, await cliSkillRuntimeOptions(opts, sendConfig));
         }
 
         const result = await swarm.execute({
@@ -184,14 +212,15 @@ program
     });
     try {
       if (contextSuite) {
-        const result = await runContextEvalSuite(message, opts);
+        const runtime = await coreRuntime();
+        const result = await runContextEvalSuite(message, opts, { runtime });
         process.stdout.write(formatContextEvaluationReport(result.report, opts.pretty));
         recordAgentRunAudit("eval", "completed", requestId, {
           contextSuite: true,
           totalRuns: result.report.totalRuns,
         });
       } else {
-        const result = await runEval(message, opts);
+        const result = await runEval(message, opts, await coreRuntime());
         process.stdout.write(formatEvalResult(result, opts.pretty));
         recordAgentRunAudit("eval", "completed", requestId);
       }
@@ -232,13 +261,14 @@ program
         allowedOriginCount: opts.allowedOrigin?.length ?? 0,
       });
       try {
-        let swarm: Swarm;
+        const runtime = await coreRuntime();
+        let swarm: CoreSwarmExecution;
 
         if (opts.config) {
           const config = JSON.parse(readFileSync(opts.config, "utf-8")) as SwarmConfig;
-          swarm = new Swarm(config);
+          swarm = runtime.prepareSwarm(config);
         } else {
-          swarm = new Swarm({
+          swarm = runtime.prepareSwarm({
             name: "default",
             root: "agent",
             nodes: {
@@ -361,8 +391,9 @@ sessionsCommand.action(() => {
 program
   .command("harnesses")
   .description("List available agent harnesses")
-  .action(() => {
-    for (const [id, h] of Object.entries(HARNESSES)) {
+  .action(async () => {
+    const runtime = await coreRuntime();
+    for (const { id, config: h } of runtime.harnessCatalog.listHarnesses()) {
       console.log(`${id}: ${h.label}`);
       console.log(`  Model control: ${h.modelControl}`);
       console.log(
@@ -383,14 +414,15 @@ program
     recordCliAudit("cli.repl.session", "attempted", requestId, {
       hasConfig: Boolean(opts.config),
     });
-    let swarm: Swarm;
+    const runtime = await coreRuntime();
+    let swarm: CoreSwarmExecution;
 
     try {
       if (opts.config) {
         const config = JSON.parse(readFileSync(opts.config, "utf-8")) as SwarmConfig;
-        swarm = new Swarm(config);
+        swarm = runtime.prepareSwarm(config);
       } else {
-        swarm = new Swarm({
+        swarm = runtime.prepareSwarm({
           name: "default",
           root: "agent",
           nodes: {
@@ -615,6 +647,7 @@ evolutionCommand
           seed: Number.parseInt(opts.seed ?? "0", 10),
           taskRoot: opts.taskRoot,
           evolutionRoot: opts.evolutionRoot,
+          runtime: await coreRuntime(),
         });
         process.stdout.write(`${JSON.stringify(manifest, null, 2)}\n`);
         recordCliAudit("skill.evolution.evaluate", "completed", requestId, {
@@ -799,7 +832,7 @@ async function cliSkillRuntimeOptions(
     evolutionRoot?: string;
   },
   config: SwarmConfig,
-): Promise<SwarmRuntimeOptions> {
+): Promise<CoreSwarmRuntimeOptions> {
   if (!opts.resolveSkill?.length) return {};
   const { nativeAgentTargetId, resolveActiveSkillDeliveriesForAgent } = await import(
     "./evolution-command.js"

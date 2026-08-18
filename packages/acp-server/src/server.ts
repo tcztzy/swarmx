@@ -31,6 +31,7 @@ import {
 import type {
   AuditInput,
   AuditStore as AuditStoreType,
+  CoreRuntime,
   McpServerConfig,
   MessageChunk,
   SessionData,
@@ -40,11 +41,11 @@ import type {
 import {
   AuditStore,
   appendMessages,
+  createCoreRuntime,
   createSession,
   listSessionSummaries as listSessionsFile,
   loadSession as loadSessionFile,
   SWARMX_VERSION,
-  Swarm,
   saveSession,
 } from "@swarmx/core";
 import { cancelRequest, RequestCancelledError, withRequestScope } from "@swarmx/core/request-scope";
@@ -64,19 +65,23 @@ export interface SwarmExecutor {
 }
 
 export interface SwarmXAgentOptions {
-  createSwarm?: (config: SwarmConfig) => SwarmExecutor;
+  createSwarm?: (config: SwarmConfig) => SwarmExecutor | Promise<SwarmExecutor>;
+  runtime?: CoreRuntime | Promise<CoreRuntime>;
   audit?: Pick<AuditStoreType, "append">;
 }
 
 export class SwarmXAgent implements AcpAgent {
   private sessions = new Map<string, SessionState>();
   private conn: AgentSideConnection | null = null;
-  private readonly createSwarm: (config: SwarmConfig) => SwarmExecutor;
+  private readonly createSwarm: (config: SwarmConfig) => SwarmExecutor | Promise<SwarmExecutor>;
+  private runtimePromise: Promise<CoreRuntime> | undefined;
   private readonly audit: Pick<AuditStoreType, "append"> | undefined;
   private readonly activePromptRequestIds = new Map<string, string>();
 
   constructor(options: SwarmXAgentOptions = {}) {
-    this.createSwarm = options.createSwarm ?? ((config) => new Swarm(config));
+    this.runtimePromise = options.runtime ? Promise.resolve(options.runtime) : undefined;
+    this.createSwarm =
+      options.createSwarm ?? (async (config) => (await this.coreRuntime()).prepareSwarm(config));
     this.audit = options.audit;
   }
 
@@ -350,7 +355,7 @@ export class SwarmXAgent implements AcpAgent {
           session.cwd,
           session.mcpServers,
         );
-        const swarm = this.createSwarm(config);
+        const swarm = await this.createSwarm(config);
         const result = await swarm.execute(
           { messages: session.sessionData.messages },
           { cwd: session.cwd, sessionId: request.sessionId },
@@ -425,6 +430,15 @@ export class SwarmXAgent implements AcpAgent {
     });
     return { stopReason: "end_turn" };
   };
+
+  async dispose(): Promise<void> {
+    if (this.runtimePromise) await (await this.runtimePromise).dispose();
+  }
+
+  private coreRuntime(): Promise<CoreRuntime> {
+    this.runtimePromise ??= createCoreRuntime();
+    return this.runtimePromise;
+  }
 
   cancel = async (params: CancelNotification): Promise<void> => {
     const auditedSessionId = auditSessionId(params.sessionId);
@@ -822,7 +836,10 @@ export function run(): void {
     return agent;
   }, transport);
 
-  connection.closed.then(() => process.exit(0));
-  process.on("SIGINT", () => process.exit(0));
-  process.on("SIGTERM", () => process.exit(0));
+  const shutdown = (): void => {
+    void agent.dispose().finally(() => process.exit(0));
+  };
+  connection.closed.then(shutdown);
+  process.on("SIGINT", shutdown);
+  process.on("SIGTERM", shutdown);
 }

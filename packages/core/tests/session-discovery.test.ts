@@ -1,5 +1,6 @@
 import type { SessionInfo } from "@agentclientprotocol/sdk";
 import { describe, expect, it } from "vitest";
+import type { HarnessCatalog } from "../src/harness.js";
 import type { DiscoveredSession } from "../src/session-discovery.js";
 import {
   acpSessionToDiscovered,
@@ -81,6 +82,34 @@ describe("Session discovery", () => {
     });
   });
 
+  it("uses the injected DSH Harness catalog for session metadata", () => {
+    const harnessCatalog: HarnessCatalog = {
+      listHarnesses: () => [],
+      getHarness: (id) =>
+        id === "plugin-harness"
+          ? {
+              label: "Plugin Harness",
+              icon: "plugin",
+              software: { name: "plugin-harness" },
+              modelControl: "session",
+              modelCompatibility: "any",
+              supportedModelApis: [],
+              passthroughEnv: [],
+              backend: { type: "custom", program: "plugin", args: ["serve"] },
+            }
+          : undefined,
+      resolveRuntimeModel: (_id, options) => options.runtimeModel ?? options.modelId,
+      resolveModelRuntimeEnv: () => ({}),
+    };
+    expect(
+      acpSessionToDiscovered(
+        { sessionId: "plugin-session", title: "Plugin turn", cwd: "/tmp/plugin" } as SessionInfo,
+        "plugin-harness",
+        harnessCatalog,
+      ),
+    ).toMatchObject({ harnessId: "plugin-harness", harnessLabel: "Plugin Harness" });
+  });
+
   it("loads ACP sessions as renderer session data", async () => {
     const loaded = await loadDiscoveredSession(
       {
@@ -95,8 +124,8 @@ describe("Session discovery", () => {
       {
         createClient: () => ({
           loadSession: async (opts, sessionId, cwd) => {
-            expect(opts.command).toBe("npx");
-            expect(opts.args).toContain("@agentclientprotocol/codex-acp@1.1.2");
+            expect(opts.command).toBe("swarmx-codex");
+            expect(opts.args).toEqual([]);
             expect(sessionId).toBe("codex-session");
             expect(cwd).toBe("/Users/test/swarmx");
             return {

@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { z } from "zod";
-import { Agent, type AgentRuntimeOptions } from "./agent.js";
+import type { AgentRuntimeOptions } from "./agent.js";
 import {
   type ContextEngineConfig,
   type ContextEngineProfile,
@@ -957,7 +957,10 @@ export async function runContextEvaluation(
     );
   }
   const suiteHash = hashValue(publicSuiteFingerprint(suite));
-  const executor = options.executor ?? createAgentContextEvaluationExecutor();
+  if (!options.executor) {
+    throw new Error("Context evaluation requires a CoreRuntime-backed executor.");
+  }
+  const executor = options.executor;
   const records: ContextEvaluationRunRecord[] = [];
   const testedConfigHashes = new Set<string>();
   let roundArms = expandContextEvaluationArms(suite);
@@ -1079,10 +1082,10 @@ export type ContextEvaluationAgentFactory = (
   options?: AgentRuntimeOptions,
 ) => ContextEvaluationAgentLike;
 
-export function createAgentContextEvaluationExecutor(
-  options: { createAgent?: ContextEvaluationAgentFactory } = {},
-): ContextEvaluationExecutor {
-  const createAgent = options.createAgent ?? ((config, runtime) => new Agent(config, runtime));
+export function createAgentContextEvaluationExecutor(options: {
+  createAgent: ContextEvaluationAgentFactory;
+}): ContextEvaluationExecutor {
+  const createAgent = options.createAgent;
   return async (input) => {
     const simulator = createContextEvaluationSimulator(input.caseItem);
     let continuationUsage = emptyUsage(input.agent.continuation.model);

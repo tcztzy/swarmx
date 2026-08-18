@@ -111,23 +111,29 @@ describe("CLI entry surfaces", () => {
       return {
         ...actual,
         AuditStore: noOpAuditStore(),
-        Swarm: class {
-          readonly name = "repl-test";
-          readonly root = "agent";
+        createCoreRuntime: async () => ({
+          prepareSwarm: () =>
+            new (class {
+              readonly name = "repl-test";
+              readonly root = "agent";
 
-          async execute(input: { messages: ChatMessage[] }): Promise<MessageChunk[]> {
-            executeInputs.push(structuredClone(input.messages));
-            const user = [...input.messages].reverse().find((message) => message.role === "user");
-            return [
-              {
-                role: "assistant",
-                content: `answer:${user?.content ?? ""}`,
-                kind: "message",
-                agent: "agent",
-              },
-            ];
-          }
-        },
+              async execute(input: { messages: ChatMessage[] }): Promise<MessageChunk[]> {
+                executeInputs.push(structuredClone(input.messages));
+                const user = [...input.messages]
+                  .reverse()
+                  .find((message) => message.role === "user");
+                return [
+                  {
+                    role: "assistant",
+                    content: `answer:${user?.content ?? ""}`,
+                    kind: "message",
+                    agent: "agent",
+                  },
+                ];
+              }
+            })(),
+          dispose: vi.fn(),
+        }),
       };
     });
     vi.doMock("node:readline", () => ({
@@ -185,11 +191,10 @@ describe("CLI entry surfaces", () => {
         ...actual,
         AuditStore: noOpAuditStore(),
         runContextEvaluation,
-        Swarm: class {
-          constructor() {
-            throw new Error("Legacy Swarm path must not run for a context suite.");
-          }
-        },
+        createCoreRuntime: async () => ({
+          prepareAgent: vi.fn(),
+          dispose: vi.fn(),
+        }),
       };
     });
 
@@ -210,6 +215,7 @@ describe("CLI entry surfaces", () => {
 async function runCli(...arguments_: string[]): Promise<void> {
   process.argv.splice(0, process.argv.length, process.execPath, "swarmx-cli", ...arguments_);
   await import("../src/cli.js");
+  await new Promise((resolve) => setTimeout(resolve, 10));
 }
 
 function noOpAuditStore(): new () => { append(input: AuditInput): AuditInput } {

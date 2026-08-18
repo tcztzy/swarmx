@@ -3604,7 +3604,7 @@ describe("App user workflow", { timeout: 10_000 }, () => {
     expect(screen.getByText("Harness Claude Code")).toBeTruthy();
     expect(screen.getAllByText("Model negotiated by harness")).toHaveLength(3);
     expect(screen.getByText("harness = software + MCPs + skills + project files")).toBeTruthy();
-    expect(screen.getAllByText("Software codex-acp@1.1.2")).toHaveLength(2);
+    expect(screen.getAllByText("Software @swarmx/codex@4.0.0")).toHaveLength(2);
     expect(screen.getByText("Software claude-agent-acp@0.58.1")).toBeTruthy();
     expect(screen.getAllByText("MCPs filesystem")).toHaveLength(3);
     expect(screen.getAllByText("Skills test-driven-development, backprop")).toHaveLength(3);
@@ -3634,14 +3634,14 @@ describe("App user workflow", { timeout: 10_000 }, () => {
                 agent: expect.objectContaining({
                   backend: expect.objectContaining({
                     type: "custom",
-                    program: "npx",
-                    args: expect.arrayContaining(["@agentclientprotocol/codex-acp@1.1.2"]),
+                    program: "swarmx-codex",
+                    args: [],
                   }),
                   parameters: expect.objectContaining({
                     harness: expect.objectContaining({
                       software: expect.objectContaining({
-                        name: "codex-acp",
-                        version: "1.1.2",
+                        name: "@swarmx/codex",
+                        version: "4.0.0",
                       }),
                       mcps: expect.arrayContaining([
                         expect.objectContaining({ name: "filesystem" }),
@@ -3680,14 +3680,14 @@ describe("App user workflow", { timeout: 10_000 }, () => {
                 agent: expect.objectContaining({
                   backend: expect.objectContaining({
                     type: "custom",
-                    program: "npx",
-                    args: expect.arrayContaining(["@agentclientprotocol/codex-acp@1.1.2"]),
+                    program: "swarmx-codex",
+                    args: [],
                   }),
                   parameters: expect.objectContaining({
                     harness: expect.objectContaining({
                       software: expect.objectContaining({
-                        name: "codex-acp",
-                        version: "1.1.2",
+                        name: "@swarmx/codex",
+                        version: "4.0.0",
                       }),
                       mcps: expect.arrayContaining([
                         expect.objectContaining({ name: "filesystem" }),

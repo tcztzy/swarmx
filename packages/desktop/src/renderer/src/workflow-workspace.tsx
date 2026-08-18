@@ -450,7 +450,7 @@ function WorkflowCanvas({
                   <NodeIcon aria-hidden="true" />
                 </span>
                 <span className="workflow-node__kind [color:#a5abb6] [font-size:10px] [font-weight:760] [line-height:1.2] [text-transform:uppercase]">
-                  {node.kind === "agent" ? "ACP Agent" : node.displayKind}
+                  {node.kind === "agent" ? "Harness Agent" : node.displayKind}
                 </span>
                 <span className="workflow-node__status [margin-left:auto] [color:#69d991] [line-height:0] [&_svg]:[width:14px] [&_svg]:[height:14px]">
                   <CircleCheck aria-hidden="true" />
@@ -796,6 +796,7 @@ function harnessIdFromBackend(backend: unknown): string {
     ? backend.args.filter((arg): arg is string => typeof arg === "string")
     : [];
   const commandLine = [program, ...args].join(" ");
+  if (program === "swarmx-codex") return "codex";
   if (commandLine.includes("@agentclientprotocol/codex-acp")) return "codex";
   if (commandLine.includes("@agentclientprotocol/claude-agent-acp")) return "claude_code";
   if (commandLine.includes("pi-acp")) return "pi";

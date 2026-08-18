@@ -47,6 +47,7 @@ describe("SwarmX direct Harness release acceptance", () => {
     isolateEnvironment(home, sessionsDir);
 
     const core = await import("@swarmx/core");
+    const runtime = await core.createCoreRuntime();
     const { ModelCatalogService } = await import("./model-catalog.js");
     const { FileProviderAuthStore } = await import("./provider-auth.js");
     const { DesktopSettingsStore } = await import("./settings-store.js");
@@ -117,6 +118,7 @@ describe("SwarmX direct Harness release acceptance", () => {
     const streamed: Array<{ kind?: string; content: string }> = [];
     const usages: Array<{ inputTokens: number; outputTokens: number; totalTokens: number }> = [];
     const finalMessages = await core.executeAgentComposition(composition, session.messages, {
+      runtime,
       inventory: catalog,
       env: { ...AMBIENT_TRIPWIRES },
       providerSecrets,
@@ -214,6 +216,7 @@ describe("SwarmX direct Harness release acceptance", () => {
       expect.objectContaining({ role: "user", content: USER_PROMPT }),
       expect.objectContaining({ role: "assistant", content: FINAL_RESPONSE }),
     ]);
+    await runtime.dispose();
   }, 20_000);
 });
 

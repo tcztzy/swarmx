@@ -11,6 +11,8 @@ files:
   - third_party_licenses/**/*
 asarUnpack:
   - node_modules/node-pty/**/*
+  - node_modules/@swarmx/codex/**/*
+  - node_modules/@openai/codex*/**/*
 extraResources:
   - from: build/icon.png
     to: icon.png

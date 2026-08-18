@@ -4,12 +4,28 @@ These packages are thin boundary adapters over Core. They parse user/host
 inputs, call reusable services, and format results; they do not introduce a
 second workflow or persistence model.
 
+## Codex module (`@swarmx/codex`)
+
+| Source | Contract |
+| --- | --- |
+| `packages/codex/src/index.ts` | DSH Cordis Harness plugin: registers the managed `swarmx-codex` launcher and the direct `codex_server` transport, resolves Codex in `codexCommand` > PATH `codex` > pinned module priority, resolves Electron-as-Node execution for the pinned path, resolves bundled Linux Codex runtimes for protected containers, consumes the DSH `harnessPermissions` resolver, and rewrites packaged asar paths. Registrations are revoked with the owning Fiber. `proc` composition |
+| `packages/codex/src/codex-server-client.ts` | Direct Codex App Server JSON-RPC client used by the `codex_server` transport: newline-delimited request/notification framing, initialize/thread/turn/thread-list/thread-read operations, fail-closed approval request handling, cancellation/termination, stderr capture, and turn-item message projection. No ACP import. `proc` + `net` through Codex |
+| `packages/codex/bin/swarmx-codex.js` | Stdout-clean executable shim that starts the pinned `@openai/codex` binary in `app-server` mode with inherited stdio; handles the repository module version probe without starting the server. `proc` + `net` through Codex |
+| `packages/codex/bin/swarmx-codex-container.js` | Dependency-free bootstrap run inside the protected `node:22-slim` container: resolves the mounted Linux Codex runtime, starts `app-server`, and mirrors child signals/exit. `proc` through Codex |
+| `packages/codex/tsconfig.json` | TypeScript build boundary for the published Cordis plugin. |
+| `packages/codex/tests/codex-module.test.ts` | Package/version/bin/DSH-plugin, bundled Linux runtime, and Electron unpacking contracts plus fake app-server JSON-RPC acceptance tests for the direct Codex transport, notification coalescing, process exit, and cancellation. |
+
+The package is intentionally a narrow owned DSH plugin and launch module rather
+than a fork. Its compatible Codex runtime is an exact package and lockfile
+input; the vendoring threshold and packaged-Desktop path behavior are
+documented in [`docs/codex-module.md`](../codex-module.md).
+
 ## Runtime (`@swarmx/runtime`)
 
 | Source | Contract |
 | --- | --- |
 | `packages/runtime/src/sandbox-policy.ts` | Host-owned zod-validated `native_allowed` / `protected_required` strategy and immutable protected-profile registry; protected resolution never falls back to native. `pure` |
-| `packages/runtime/src/harness-environment.ts` | Detects Harness executables/versions, container runtimes, protection modes, and setup requirements; explicit host callbacks perform installation/setup. `fs` + `proc` |
+| `packages/runtime/src/harness-environment.ts` | Detects Harness executables/versions, container runtimes, protection modes, and setup requirements from an injectable DSH `HarnessCatalog` (static default); native Codex readiness depends on Node plus the repository module or an explicit `codexCommand` and never installs a separate Codex CLI, protected Codex mounts the repository module and bundled Linux Codex runtime into the container, and legacy persisted Codex ACP commands remain identifiable for protection; explicit host callbacks perform other installation/setup. `fs` + `proc` |
 | `packages/runtime/src/doctor.ts` | `HarnessDoctor` converts runtime plus host-supplied Provider/Project/offline readiness into deterministic `ok`/warning/blocking/repairable/decision findings with symptom/cause/impact/next-action fields, curated first-run guidance, idempotent change previews, and explicit fix results. Inspection and planning are read-only; repair is opt-in. `proc` through host |
 | `packages/runtime/src/python-environment.ts` | Read-only product-worker asset, `uv`, uv-managed Python, and digest-addressed locked-environment inspection; computes the environment digest (including opt-in module sources) and returns an asynchronously reverified direct-Python launch with a hash-checked source snapshot, or an explicit install/repair plan. Status checks are offline/no-download and never mutate during task execution. `fs` + `proc` |
 | `packages/runtime/src/memory-runtime-environment.ts` | Zod-validated packaged Memory runtime manifest, read-only executable/digest/version inspection, explicit repair planning, launch-time revalidation, and secret-minimal launch spec for the private Rust MCP server. Never installs or compiles on an operation path. `fs` + `proc` |
@@ -63,11 +79,11 @@ opt-in `inspect` group.
 
 | Source | Contract |
 | --- | --- |
-| `packages/cli/src/cli.ts` | Commander entrypoint for `doctor`, `send`, `eval-run`, `serve`, `audit`, `sessions`/`sessions timeline`, `harnesses`, `evolution`, and REPL input; the REPL replays prior user/assistant turns within that process, and `send`/eval/REPL share content-free `agent.run` audit events distinguished by `surface`, while other commands retain semantic lifecycle actions. `proc`/`net` via Core/Runtime |
+| `packages/cli/src/cli.ts` | Commander entrypoint and owner of one lazy process-level Core Cordis Runtime for `send`, eval, serve, evolution, and REPL execution. Request resources remain Fiber-scoped and the root is disposed at process shutdown. `proc`/`net` via Core/Runtime |
 | `packages/cli/src/audit-command.ts` | Verifies and filters the canonical audit chain, formats compact human/JSON output, and writes 0600 verified JSONL exports with intent/outcome events. `fs` via Core |
 | `packages/cli/src/doctor.ts` | Interactive/noninteractive Doctor runner plus stable human/JSON formatting for classification and symptom/cause/impact/next-action/change previews, with explicit confirmation handling. `proc` |
 | `packages/cli/src/session-timeline-command.ts` | Read-only `sessions timeline` adapter: loads canonical Session records and verified audit evidence, calls the Core causal projector, and formats concise safe human or strict JSON output. `fs` through Core readers |
-| `packages/cli/src/eval-run.ts` | Loads/validates workflow and eval arguments, executes single-sample `Swarm` evals with an optional strict `AblationProfile`, or runs strict `--context-suite` profile/model/seed matrices; ablation runs supply the default Context Engine and optional strict Memory snapshot identically before variant selection, assert all three built-in service variants, and return a content-free topology/activation receipt. Context mode exclusively reserves a 0600 JSONL path before model calls, emits content-free run records plus report/error output, and rejects option mixing. Single-sample mode retains request-scoped `prompt_fragment` delivery and active-revision resolution. `fs` + injected model calls |
+| `packages/cli/src/eval-run.ts` | Loads/validates workflow and eval arguments, then executes single-sample and Context evaluation through the injected process-level Core Runtime. It retains strict ablation, bounded JSONL reservation, and request-scoped Skill delivery contracts. `fs` + injected model calls |
 | `packages/cli/src/evolution-command.ts` | Thin CLI adapters for the skill evolution loop: digest over worker/project/lockfile/RSI sources/Python and exact DSPy/MCP versions; optimization WorkItem + RSI MCP/gateway wiring; evaluation, status, human decisions, rollback, and active-revision delivery resolution. Business rules stay in Core. `fs` + `proc` via Core |
 | `packages/cli/src/send-config.ts` | Builds a canonical one-agent `SwarmConfig` from CLI model/harness options. `pure` |
 
@@ -75,7 +91,7 @@ opt-in `inspect` group.
 
 | Source | Contract |
 | --- | --- |
-| `packages/acp-server/src/server.ts` | Implements ACP Agent around a persisted Core Session and `Swarm` executor; the executable injects Core audit authority and records content-free Session/prompt lifecycles before effects. Prompt cancellation reuses `acp.prompt` with correlated cancellation outcomes; the no-op mode setter emits no audit noise. `net` + `fs` |
+| `packages/acp-server/src/server.ts` | Implements ACP Agent around persisted Core Sessions and one lazily owned Core Cordis Runtime. Each prompt executes through a request Fiber; connection/signal shutdown disposes the root. ACP lifecycle and cancellation audit contracts remain unchanged. `net` + `fs` |
 | `packages/acp-server/src/index.ts` | Public re-export of `run` and `SwarmXAgent`. `pure` |
 | `packages/acp-server/src/cli.ts` | Executable shim that invokes the ACP server `run` entrypoint. `net` |
 | `packages/acp-server/src/server.test.ts` | ACP lifecycle/capability/session contract tests. |

@@ -8,6 +8,7 @@ import {
   type HookInvocation,
   type HookRuntimeOptions,
 } from "./hook.js";
+import { McpManager } from "./mcp.js";
 import {
   type AblationProfile,
   createAblationRunReceipt,
@@ -68,7 +69,10 @@ export class SwarmNode {
         serviceTopology: { ...agentTopology, agentName: parsed.agent.name },
       });
     } else if (parsed.kind === "tool") {
-      this.tool = new Tool(parsed.tool);
+      this.tool = new Tool(
+        parsed.tool,
+        options.agent?.createMcpManager ?? (() => new McpManager()),
+      );
     } else {
       this.swarm = new Swarm(
         parsed.swarm as SwarmConfig,

@@ -109,8 +109,9 @@ pnpm --filter @swarmx/desktop dist:mac
 ## Packages
 
 - `swarmx` — Desktop-first npm launcher with CLI compatibility
+- `@swarmx/codex` — repository-owned Codex App Server DSH plugin and launch module
 - `@swarmx/desktop` — Electron app and reusable renderer shell
-- `@swarmx/core` — agents, swarms, MCP, ACP, sessions, and platform contracts
+- `@swarmx/core` — the v4 DSH plugin runtime: request-Fiber execution services, Provider/Harness/Swarm registries, Harness transports, sessions, and platform contracts
 - `@swarmx/cli` — terminal commands and OpenAI-compatible server
 - `@swarmx/acp-server` — ACP server adapter
 - `@swarmx/runtime` — runtime detection, Doctor, and repair planning
@@ -118,6 +119,7 @@ pnpm --filter @swarmx/desktop dist:mac
 ## Documentation
 
 - [Current product specification](SPEC.md)
+- [Codex module](docs/codex-module.md)
 - [Product vision](docs/vision.md)
 - [Roadmap](ROADMAP.md)
 - [Architecture and design](DESIGNS.md)

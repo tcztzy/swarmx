@@ -1,7 +1,7 @@
-# Model, Harness, and Agent guidance
+# Task guidance for Models, Harnesses, and Agents
 
 SwarmX distributes a conservative, source-dated task-guidance catalog from
-`@swarmx/core/agent-guidance`. It describes where a Model, Harness, or exact
+`@swarmx/core/task-guidance`. It describes where a Model, Harness, or exact
 `harnessId:modelId` Agent has positive evidence. It is passive metadata: it does
 not select a Provider, change permissions, make an incompatible route runnable,
 or write user Memory.
@@ -34,7 +34,7 @@ A record targets exactly one layer:
 | `harness` | Evidence about a Harness family; often indirect when the benchmark used the upstream native product |
 | `agent` | Evidence about one exact `harnessId:modelId` composition |
 
-`getAgentGuidance()` returns an exact Agent record before matching Model and
+`getTaskGuidanceForAgent()` returns an exact Agent record before matching Model and
 Harness records. It does not merge their verdicts into a synthetic score. This
 keeps conflicting or differently scoped evidence inspectable.
 
@@ -66,7 +66,7 @@ snapshot, not a promise that ranks or prices remain current.
 | Source id | Version/snapshot | What it supports | Primary source |
 | --- | --- | --- | --- |
 | `livebench-2026-06-25` | LiveBench release `2026-06-25` | Model-level general, reasoning, coding, agentic coding, mathematics, data analysis, language, and instruction-following evidence | [LiveBench leaderboard](https://livebench.ai/) |
-| `terminal-bench-2.1` | `terminal-bench@2.1`, leaderboard snapshot checked 2026-08-12 | Verified Agent×Model terminal-task results; upstream native Codex/Claude Code is indirect evidence for SwarmX ACP Harnesses | [Terminal-Bench 2.1 leaderboard](https://www.tbench.ai/leaderboard/terminal-bench/2.1) |
+| `terminal-bench-2.1` | `terminal-bench@2.1`, leaderboard snapshot checked 2026-08-12 | Verified Agent×Model terminal-task results; upstream native Codex/Claude Code is indirect evidence for the corresponding SwarmX Harness adapter | [Terminal-Bench 2.1 leaderboard](https://www.tbench.ai/leaderboard/terminal-bench/2.1) |
 | `swe-bench-verified` | Verified leaderboard snapshot checked 2026-08-12 | Agent×Model real-repository issue-resolution evidence | [SWE-bench Verified leaderboard](https://www.swebench.com/) |
 | `bfcl-v4-2025.12.17` | BFCL V4 commit `f7cf735`, evaluator `2025.12.17`, leaderboard updated 2026-04-12 | Model/API function- and tool-calling evidence | [Berkeley Function Calling Leaderboard V4](https://gorilla.cs.berkeley.edu/leaderboard) |
 
@@ -103,7 +103,7 @@ adapter.
 4. Map a benchmark label to a SwarmX id only when the identity is explicit.
 5. Mark whole-system results as `agent_model`; do not attribute them to the bare
    Model. Mark upstream native Harness evidence as an explicit limitation when
-   SwarmX runs it through an ACP adapter.
+   SwarmX runs it through its Harness adapter.
 6. Keep claims narrow. Do not infer unsupported, security, domain expertise, or
    cost guarantees from an absent or unrelated score.
 7. Update focused tests and this source table, then run the Core tests,

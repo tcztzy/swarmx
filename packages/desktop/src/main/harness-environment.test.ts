@@ -33,7 +33,6 @@ describe("HarnessEnvironmentService", () => {
       findExecutable: async (command) =>
         command === "node" ||
         command === "claude" ||
-        command === "codex" ||
         command === "pi" ||
         command === "kimi" ||
         command === "container" ||
@@ -44,9 +43,6 @@ describe("HarnessEnvironmentService", () => {
         if (program.endsWith("/node")) return { exitCode: 0, stdout: "v22.17.0\n", stderr: "" };
         if (program.endsWith("/claude")) {
           return { exitCode: 0, stdout: "Claude Code v2.1.0 (stable)\n", stderr: "" };
-        }
-        if (program.endsWith("/codex")) {
-          return { exitCode: 0, stdout: "codex-cli 0.69.0\n", stderr: "" };
         }
         if (program.endsWith("/pi")) {
           return { exitCode: 0, stdout: "0.80.10\n", stderr: "" };
@@ -80,19 +76,13 @@ describe("HarnessEnvironmentService", () => {
           id: "node",
           status: "ready",
           version: "22.17.0",
-          requiredBy: [],
+          requiredBy: ["codex"],
         }),
         expect.objectContaining({
           id: "claude_code",
           status: "ready",
           version: "2.1.0",
           requiredBy: ["claude_code"],
-        }),
-        expect.objectContaining({
-          id: "codex",
-          status: "ready",
-          version: "0.69.0",
-          requiredBy: ["codex"],
         }),
         expect.objectContaining({
           id: "pi",
@@ -144,8 +134,8 @@ describe("HarnessEnvironmentService", () => {
     );
     expect(status.harnesses).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ harnessId: "swarmx", status: "ready", version: "3.2.0" }),
-        expect.objectContaining({ harnessId: "codex", status: "ready", version: "0.69.0" }),
+        expect.objectContaining({ harnessId: "swarmx", status: "ready", version: "4.0.0" }),
+        expect.objectContaining({ harnessId: "codex", status: "ready", version: "4.0.0" }),
         expect.objectContaining({
           harnessId: "pi",
           status: "unsupported",
@@ -347,35 +337,25 @@ describe("HarnessEnvironmentService", () => {
     );
   });
 
-  it("runs native one-click setup through npm when protected mode is disabled", async () => {
-    let codexInstalled = false;
-    const runCommand = vi.fn(async (program: string, args: string[]) => {
-      if (program === "bash" && args.join(" ").includes("npm install --global @openai/codex")) {
-        codexInstalled = true;
-        return { exitCode: 0, stdout: "codex installed\n", stderr: "" };
-      }
-      return { exitCode: 0, stdout: "codex-cli 0.69.0\n", stderr: "" };
+  it("uses the repository Codex module without native installation", async () => {
+    const runCommand = vi.fn(async (program: string, _args: string[]) => {
+      return { exitCode: 0, stdout: program.endsWith("node") ? "v22.17.0\n" : "", stderr: "" };
     });
     const service = new HarnessEnvironmentService({
       env: { PATH: "/usr/bin" },
       protectionMode: "native",
       homeDir: "/Users/test",
-      findExecutable: async (command) =>
-        command === "codex" && codexInstalled ? "/Users/test/.npm-global/bin/codex" : null,
+      findExecutable: async (command) => (command === "node" ? "/usr/bin/node" : null),
       runCommand,
     });
 
     const result = await service.setup({ harnessId: "codex" });
 
     expect(result.success).toBe(true);
-    expect(result.installedRequirementIds).toEqual(["codex"]);
+    expect(result.installedRequirementIds).toEqual([]);
     expect(result.failedRequirementIds).toEqual([]);
-    expect(result.log.join("\n")).toContain("codex installed");
-    expect(runCommand).toHaveBeenCalledWith(
-      "bash",
-      ["-lc", "npm install --global @openai/codex"],
-      expect.objectContaining({ timeoutMs: 900000 }),
-    );
+    expect(result.log.join("\n")).not.toContain("npm install");
+    expect(runCommand).not.toHaveBeenCalledWith("bash", expect.anything(), expect.anything());
     expect(result.status.harnesses).toEqual(
       expect.arrayContaining([expect.objectContaining({ harnessId: "codex", status: "ready" })]),
     );
@@ -489,6 +469,13 @@ describe("HarnessEnvironmentService", () => {
     expect(
       service.guessProtectedHarnessId({ type: "custom", program: "kimi", args: ["acp"] }),
     ).toBe("kimi");
+    expect(
+      service.guessProtectedHarnessId({
+        type: "custom",
+        program: "npx",
+        args: ["--yes", "@agentclientprotocol/codex-acp@1.1.2"],
+      }),
+    ).toBe("codex");
   });
 
   it("installs the verified OpenClaw CLI while leaving Gateway setup explicit", async () => {
@@ -579,8 +566,8 @@ describe("HarnessEnvironmentService", () => {
       "codex",
       {
         type: "custom",
-        program: "npx",
-        args: ["--yes", "@agentclientprotocol/codex-acp"],
+        program: "swarmx-codex",
+        args: [],
       },
       { workspaceDir: "/Users/test/project" },
     );
@@ -599,9 +586,18 @@ describe("HarnessEnvironmentService", () => {
           "none",
           "--read-only",
           "node:22-slim@sha256:253da19867dd03e2f817f433d7782adefd2a2bac8729fcd4ebc6770665167a24",
-          "npx",
-          "--yes",
-          "@agentclientprotocol/codex-acp@1.1.2",
+          "--mount",
+          expect.stringMatching(
+            /type=bind,source=.*packages[\\/]codex,target=\/opt\/swarmx\/codex,readonly/,
+          ),
+          "--mount",
+          expect.stringMatching(
+            /type=bind,source=.*codex@0\.147\.0-linux-arm64.*,target=\/opt\/swarmx\/codex-runtime,readonly/,
+          ),
+          "--env",
+          "SWARMX_CODEX_RUNTIME_DIR=/opt/swarmx/codex-runtime",
+          "node",
+          "/opt/swarmx/codex/bin/swarmx-codex-container.js",
         ]),
       }),
     );
@@ -661,8 +657,8 @@ describe("HarnessEnvironmentService", () => {
 
       const result = await service.protectedBackendForHarness("codex", {
         type: "custom",
-        program: "npx",
-        args: ["--yes", "@agentclientprotocol/codex-acp"],
+        program: "swarmx-codex",
+        args: [],
       });
       const args = result.backend?.type === "custom" ? result.backend.args : [];
 
@@ -714,8 +710,8 @@ describe("HarnessEnvironmentService", () => {
 
     const result = await service.protectedBackendForHarness("codex", {
       type: "custom",
-      program: "npx",
-      args: ["--yes", "@agentclientprotocol/codex-acp"],
+      program: "swarmx-codex",
+      args: [],
     });
 
     expect(result.success).toBe(false);

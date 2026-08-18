@@ -3,7 +3,21 @@ import { constants } from "node:fs";
 import { access, stat } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { type AgentBackend, HARNESSES, SWARMX_VERSION } from "@swarmx/core";
+import {
+  CODEX_CONTAINER_ENTRY,
+  CODEX_CONTAINER_MODULE_DIR,
+  CODEX_CONTAINER_RUNTIME_DIR,
+  type CodexContainerAssets,
+  resolveCodexContainerAssets,
+} from "@swarmx/codex";
+import {
+  type AgentBackend,
+  CODEX_MODULE_COMMAND,
+  HARNESSES,
+  type HarnessCatalog,
+  SWARMX_VERSION,
+  staticHarnessCatalog,
+} from "@swarmx/core";
 import {
   type ProtectedSandboxProfile,
   ProtectedSandboxRegistry,
@@ -176,6 +190,8 @@ interface CommandResult {
 
 export interface HarnessEnvironmentHost {
   env?: NodeJS.ProcessEnv;
+  /** DSH plugin Harness catalog; defaults to the built-in static registry. */
+  harnessCatalog?: HarnessCatalog;
   platform?: NodeJS.Platform;
   arch?: string;
   macosVersion?: string;
@@ -199,7 +215,7 @@ export interface HarnessEnvironmentHost {
 const HARNESS_REQUIREMENTS: Record<string, string[]> = {
   swarmx: [],
   claude_code: ["claude_code"],
-  codex: ["codex"],
+  codex: ["node"],
   pi: ["pi"],
   kimi: ["kimi"],
   opencode: ["opencode"],
@@ -210,7 +226,6 @@ const HARNESS_REQUIREMENTS: Record<string, string[]> = {
 const HARNESS_VERSION_COMMANDS: Record<string, string> = {
   swarmx: "swarmx",
   claude_code: "claude",
-  codex: "codex",
   pi: "pi",
   kimi: "kimi",
   opencode: "opencode",
@@ -236,15 +251,6 @@ const REQUIREMENTS: RequirementDefinition[] = [
     versionArgs: ["--version"],
     installers: {
       default: { script: "npm install --global @anthropic-ai/claude-code" },
-    },
-  },
-  {
-    id: "codex",
-    label: "Codex",
-    command: "codex",
-    versionArgs: ["--version"],
-    installers: {
-      default: { script: "npm install --global @openai/codex" },
     },
   },
   {
@@ -369,7 +375,10 @@ const CONTAINER_ENV_KEYS = [
 
 const PROTECTED_HARNESS_DEFINITIONS: Record<string, ProtectedHarnessDefinition> = {
   claude_code: protectedHarnessDefinition("claude_code"),
-  codex: protectedHarnessDefinition("codex"),
+  codex: {
+    ...protectedHarnessDefinition("codex"),
+    command: ["node", CODEX_CONTAINER_ENTRY],
+  },
 };
 
 function protectedHarnessDefinition(harnessId: string): ProtectedHarnessDefinition {
@@ -403,6 +412,7 @@ export function configureDesktopHarnessEnvironment(
 }
 
 export class HarnessEnvironmentService {
+  private readonly harnessCatalog: HarnessCatalog;
   private readonly env: NodeJS.ProcessEnv;
   private readonly platform: NodeJS.Platform;
   private readonly arch: string;
@@ -418,6 +428,7 @@ export class HarnessEnvironmentService {
   private setupInFlight: Promise<HarnessEnvironmentSetupResult> | null = null;
 
   constructor(host: HarnessEnvironmentHost = {}) {
+    this.harnessCatalog = host.harnessCatalog ?? staticHarnessCatalog;
     this.env = host.env ?? process.env;
     this.platform = host.platform ?? process.platform;
     this.arch = host.arch ?? os.arch();
@@ -450,79 +461,99 @@ export class HarnessEnvironmentService {
     const sandbox = this.sandboxStatus(containerRuntimes);
     const protection = this.protectionSummary(sandbox);
     const nodeRuntime = requirements.find((requirement) => requirement.id === "node");
-    const harnesses = Object.entries(HARNESSES).map(([harnessId, harness]) => {
-      const requirementIds = HARNESS_REQUIREMENTS[harnessId] ?? [];
-      const harnessRequirement = requirements.find((requirement) =>
-        requirementIds.includes(requirement.id),
-      );
-      const command = HARNESS_VERSION_COMMANDS[harnessId] ?? harnessId;
-      const protectionRequired =
-        this.sandboxStrategy === "protected_required" && this.harnessRequiresProtection(harnessId);
-      const executionMode = protectionRequired ? "protected" : "native";
-      if (executionMode === "protected") {
-        const definition = this.protectedSandboxRegistry.get(harnessId);
-        const resolution = this.protectedSandboxRegistry.resolve({
-          strategy: this.sandboxStrategy,
-          profileId: harnessId,
-          runtimeReady: protection.ready,
-          runtimeId: protection.selectedRuntimeId,
-          note: protection.note,
-        });
-        const unsupported = !definition || containerRuntimes.some((runtime) => !runtime.supported);
-        const ready = Boolean(definition && resolution.ready);
+    const codexContainerAssetsReady = Boolean(resolveCodexContainerAssets({}, this.arch));
+    const harnesses = this.harnessCatalog
+      .listHarnesses()
+      .map(({ id: harnessId, config: harness }) => {
+        const requirementIds = HARNESS_REQUIREMENTS[harnessId] ?? [];
+        const harnessRequirement = requirements.find((requirement) =>
+          requirementIds.includes(requirement.id),
+        );
+        const command = harness.software.runner ?? HARNESS_VERSION_COMMANDS[harnessId] ?? harnessId;
+        const protectionRequired =
+          this.sandboxStrategy === "protected_required" &&
+          this.harnessRequiresProtection(harnessId);
+        const executionMode = protectionRequired ? "protected" : "native";
+        if (executionMode === "protected") {
+          const definition = this.protectedSandboxRegistry.get(harnessId);
+          const resolution = this.protectedSandboxRegistry.resolve({
+            strategy: this.sandboxStrategy,
+            profileId: harnessId,
+            runtimeReady: protection.ready,
+            runtimeId: protection.selectedRuntimeId,
+            note: protection.note,
+          });
+          const unsupported =
+            !definition || containerRuntimes.some((runtime) => !runtime.supported);
+          const usesBundledCodex =
+            harnessId === "codex" &&
+            definition?.command[0] === "node" &&
+            definition?.command[1] === CODEX_CONTAINER_ENTRY;
+          const ready = Boolean(
+            definition && resolution.ready && (!usesBundledCodex || codexContainerAssetsReady),
+          );
+          return {
+            harnessId,
+            harnessLabel: harness.label,
+            command,
+            installable: harnessRequirement?.installable ?? false,
+            path: harnessRequirement?.path,
+            version:
+              harnessVersions.get(harnessId) ??
+              (harnessId === "codex" ? (harness.software.version ?? SWARMX_VERSION) : undefined),
+            status: ready ? "ready" : unsupported ? "unsupported" : "needs_setup",
+            requirements: requirementIds,
+            executionMode,
+            protectionRequired,
+            containerRuntimeId: protection.selectedRuntimeId,
+            note: ready
+              ? "Protected by container runtime."
+              : usesBundledCodex && !codexContainerAssetsReady
+                ? `Protected Codex execution requires the bundled Linux ${this.arch} runtime.`
+                : definition
+                  ? (protection.note ?? "Container runtime setup required.")
+                  : `No host-registered protected sandbox profile exists for "${harnessId}".`,
+          } satisfies HarnessEnvironmentHarness;
+        }
+
+        const harnessRequirements = requirements.filter((requirement) =>
+          requirementIds.includes(requirement.id),
+        );
+        const unsupported = harnessRequirements.some(
+          (requirement) => requirement.status === "unsupported",
+        );
+        const ready = harnessRequirements.every((requirement) => requirement.status === "ready");
         return {
           harnessId,
           harnessLabel: harness.label,
           command,
           installable: harnessRequirement?.installable ?? false,
           path: harnessRequirement?.path,
-          version: harnessVersions.get(harnessId),
+          version:
+            harnessVersions.get(harnessId) ??
+            (harnessId === "swarmx" || harnessId === "codex"
+              ? (harness.software.version ?? SWARMX_VERSION)
+              : undefined),
           status: ready ? "ready" : unsupported ? "unsupported" : "needs_setup",
           requirements: requirementIds,
           executionMode,
           protectionRequired,
-          containerRuntimeId: protection.selectedRuntimeId,
-          note: ready
-            ? "Protected by container runtime."
-            : definition
-              ? (protection.note ?? "Container runtime setup required.")
-              : `No host-registered protected sandbox profile exists for "${harnessId}".`,
+          note:
+            harnessId === "codex"
+              ? "Runs the repository-owned Codex module with its compatible bundled Codex app-server runtime."
+              : harnessId === "openclaw"
+                ? "CLI ready; a configured and reachable OpenClaw Gateway is also required."
+                : harnessId === "pi"
+                  ? "Runs natively; provider login, settings, and sessions remain owned by Pi."
+                  : harnessId === "kimi"
+                    ? "Runs natively; login, provider settings, plugins, tools, and sessions remain owned by Kimi Code."
+                    : harnessId === "opencode" || harnessId === "hermes"
+                      ? "Runs natively so the installed CLI and user configuration remain available."
+                      : requirementIds.length === 0
+                        ? "Built in."
+                        : undefined,
         } satisfies HarnessEnvironmentHarness;
-      }
-
-      const harnessRequirements = requirements.filter((requirement) =>
-        requirementIds.includes(requirement.id),
-      );
-      const unsupported = harnessRequirements.some(
-        (requirement) => requirement.status === "unsupported",
-      );
-      const ready = harnessRequirements.every((requirement) => requirement.status === "ready");
-      return {
-        harnessId,
-        harnessLabel: harness.label,
-        command,
-        installable: harnessRequirement?.installable ?? false,
-        path: harnessRequirement?.path,
-        version:
-          harnessVersions.get(harnessId) ?? (harnessId === "swarmx" ? SWARMX_VERSION : undefined),
-        status: ready ? "ready" : unsupported ? "unsupported" : "needs_setup",
-        requirements: requirementIds,
-        executionMode,
-        protectionRequired,
-        note:
-          harnessId === "openclaw"
-            ? "CLI ready; a configured and reachable OpenClaw Gateway is also required."
-            : harnessId === "pi"
-              ? "Runs natively; provider login, settings, and sessions remain owned by Pi."
-              : harnessId === "kimi"
-                ? "Runs natively; login, provider settings, plugins, tools, and sessions remain owned by Kimi Code."
-                : harnessId === "opencode" || harnessId === "hermes"
-                  ? "Runs natively so the installed CLI and user configuration remain available."
-                  : requirementIds.length === 0
-                    ? "Built in."
-                    : undefined,
-      } satisfies HarnessEnvironmentHarness;
-    });
+      });
 
     return {
       checkedAt: this.now().toISOString(),
@@ -538,7 +569,13 @@ export class HarnessEnvironmentService {
   }
 
   async harnessVersion(harnessId: string, refresh = false): Promise<HarnessVersionCheck> {
-    if (!Object.hasOwn(HARNESSES, harnessId)) return { harnessId };
+    if (!this.harnessCatalog.getHarness(harnessId)) return { harnessId };
+    if (harnessId === "codex") {
+      return {
+        harnessId,
+        version: this.harnessCatalog.getHarness("codex")?.software.version ?? SWARMX_VERSION,
+      };
+    }
     configureDesktopHarnessEnvironment(this.env, this.homeDir);
     const version = await this.detectHarnessVersion(harnessId, this.env.PATH ?? "", refresh);
     return { harnessId, ...(version ? { version } : {}) };
@@ -605,14 +642,39 @@ export class HarnessEnvironmentService {
       };
     }
 
+    const codexAssets =
+      harnessId === "codex" &&
+      definition.command[0] === "node" &&
+      definition.command[1] === CODEX_CONTAINER_ENTRY
+        ? resolveCodexContainerAssets({}, this.arch)
+        : undefined;
+    if (
+      harnessId === "codex" &&
+      definition.command[0] === "node" &&
+      definition.command[1] === CODEX_CONTAINER_ENTRY &&
+      !codexAssets
+    ) {
+      return {
+        success: false,
+        mode: "protected",
+        runtimeId: status.protection.selectedRuntimeId,
+        error: `Protected Codex execution requires the bundled Linux ${this.arch} Codex runtime.`,
+      };
+    }
+
     const credentialArgs = await this.protectedCredentialArgs(harnessId, resolution.profile);
+    const wrapped = this.containerWrappedBackend(
+      definition,
+      options.workspaceDir ?? process.cwd(),
+      credentialArgs,
+      codexAssets,
+    );
     return {
       success: true,
-      backend: this.containerWrappedBackend(
-        definition,
-        options.workspaceDir ?? process.cwd(),
-        credentialArgs,
-      ),
+      backend:
+        wrapped.type === "custom" && backend.type === "custom" && backend.transport
+          ? { ...wrapped, transport: backend.transport }
+          : wrapped,
       mode: "protected",
       runtimeId: status.protection.selectedRuntimeId,
     };
@@ -620,7 +682,7 @@ export class HarnessEnvironmentService {
 
   guessProtectedHarnessId(backend: AgentBackend): string | null {
     if (backend.type !== "custom") return null;
-    for (const [harnessId, harness] of Object.entries(HARNESSES)) {
+    for (const { id: harnessId, config: harness } of this.harnessCatalog.listHarnesses()) {
       if (harness.enabled === false) continue;
       if (harness.backend.type !== "custom") continue;
       if (harness.backend.program !== backend.program) continue;
@@ -634,7 +696,12 @@ export class HarnessEnvironmentService {
       }
     }
     const commandLine = [backend.program, ...(backend.args ?? [])].join(" ");
-    if (commandLine.includes("@agentclientprotocol/codex-acp")) return "codex";
+    if (
+      backend.program === CODEX_MODULE_COMMAND ||
+      commandLine.includes("@agentclientprotocol/codex-acp")
+    ) {
+      return "codex";
+    }
     if (commandLine.includes("@agentclientprotocol/claude-agent-acp")) return "claude_code";
     if (commandLine.includes("pi-acp")) return "pi";
     if (backend.program === "kimi" && backend.args?.[0] === "acp") return "kimi";
@@ -889,9 +956,10 @@ export class HarnessEnvironmentService {
   private protectionSummary(sandbox: HarnessSandboxStatus): HarnessProtectionSummary {
     const requiredHarnessIds = [
       ...new Set([
-        ...Object.entries(HARNESSES)
-          .filter(([, harness]) => harness.backend.type === "custom")
-          .map(([harnessId]) => harnessId),
+        ...this.harnessCatalog
+          .listHarnesses()
+          .filter(({ config: harness }) => harness.backend.type === "custom")
+          .map(({ id: harnessId }) => harnessId),
         ...this.protectedSandboxRegistry.ids(),
       ]),
     ].sort();
@@ -999,7 +1067,7 @@ export class HarnessEnvironmentService {
 
   private harnessRequiresProtection(harnessId: string): boolean {
     return (
-      HARNESSES[harnessId]?.backend.type === "custom" ||
+      this.harnessCatalog.getHarness(harnessId)?.backend.type === "custom" ||
       Boolean(this.protectedSandboxRegistry.get(harnessId))
     );
   }
@@ -1044,6 +1112,7 @@ export class HarnessEnvironmentService {
     definition: ProtectedSandboxProfile,
     workspaceDir: string,
     credentialArgs: string[] = [],
+    codexAssets?: CodexContainerAssets,
   ): AgentBackend {
     const workspace = path.resolve(workspaceDir);
     return {
@@ -1065,7 +1134,7 @@ export class HarnessEnvironmentService {
         "--memory",
         `${definition.resources.memoryMiB}M`,
         "--platform",
-        "linux/arm64",
+        `linux/${this.arch}`,
         "--workdir",
         workspace,
         "--mount",
@@ -1073,6 +1142,7 @@ export class HarnessEnvironmentService {
         "--mount",
         `type=tmpfs,target=/tmp,size=${definition.resources.temporaryMiB}M,mode=1777`,
         ...credentialArgs,
+        ...(codexAssets ? codexContainerArgs(codexAssets) : []),
         ...containerEnvArgs(definition.environmentAllowlist),
         `${definition.image}@${definition.imageDigest}`,
         ...definition.command,
@@ -1286,6 +1356,17 @@ function shellCommand(
     program: "bash",
     args: ["-lc", script],
   };
+}
+
+function codexContainerArgs(assets: CodexContainerAssets): string[] {
+  return [
+    "--mount",
+    `type=bind,source=${assets.moduleDir},target=${CODEX_CONTAINER_MODULE_DIR},readonly`,
+    "--mount",
+    `type=bind,source=${assets.runtimeDir},target=${CODEX_CONTAINER_RUNTIME_DIR},readonly`,
+    "--env",
+    `SWARMX_CODEX_RUNTIME_DIR=${CODEX_CONTAINER_RUNTIME_DIR}`,
+  ];
 }
 
 function containerEnvArgs(environmentAllowlist: readonly string[]): string[] {

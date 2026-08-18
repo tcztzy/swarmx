@@ -50,9 +50,19 @@ Desktop Preload ───────► Desktop Main ───────► C
 
 Desktop Main ───── private MCP stdio ─────► Memory module (Rust)
 Desktop Main ───── private MCP stdio ─────► Reference module (Python)
+Host ──► one Core Cordis Context ──► request Fiber ──► Swarm/Agent
+                                      │                   │
+                                      │                   ├─ `swarmStrategies` (dag + plugins)
+                                      │                   ├─ `providerConnectors`
+                                      │                   ├─ `harnessConnectors`
+                                      │                   ├─ `harnessPermissions`
+                                      │                   ├─ `taskGuidance`
+                                      │                   └─ `harnessTransports`
+                                      │                         ├─ ACP default
+                                      │                         └─ `codex_server` Codex plugin
 
 CLI ───────────────► Core + Runtime
-ACP server ────────► Core Session + Swarm
+ACP server ────────► Core Session + Cordis Runtime
 swarmx launcher ───► Desktop or CLI
 ```
 
@@ -60,13 +70,14 @@ swarmx launcher ───► Desktop or CLI
 
 | Area | Owns | Must not own |
 | --- | --- | --- |
-| `packages/core` | portable domain contracts, direct execution, durable task state/control, ACP/MCP adapters, Sessions, Projects, catalog and policy logic | Electron UI or renderer-only imports |
+| `packages/codex` | DSH plugin for the repository-owned Codex launcher plus its direct `codex_server` App Server transport and exact upstream runtime pins | SwarmX workflow, Project tools, Codex authentication, or duplicate ACP semantics |
+| `packages/core` | DSH Cordis composition root and Services, Provider/Harness/Swarm/transport registries, portable domain contracts, direct execution, durable task state/control, ACP/MCP adapters, Sessions, Projects, catalog and policy logic | Electron UI or renderer-only imports |
 | `packages/runtime` | executable-harness and Python/uv discovery, environment checks, explicit setup/repair planning | product persistence, scheduling, or silent installation |
 | `packages/desktop/src/main` | filesystem, subprocesses, credentials, IPC handlers, host integrations | renderer presentation or generic unvalidated IPC |
 | `packages/desktop/src/preload` | narrow typed bridge and bootstrap validation | Node authority exposed to the browser |
 | `packages/desktop/src/renderer` | React presentation and transient UI state | filesystem, subprocess, credentials, arbitrary network |
 | `packages/cli` | Commander commands and terminal formatting | duplicate domain schemas or persistence rules |
-| `packages/acp-server` | ACP transport around a Core `Swarm` and Session | duplicate agent runtime semantics |
+| `packages/acp-server` | ACP transport around Core Sessions and one Cordis Runtime | duplicate agent runtime semantics |
 | `packages/swarmx` | npm launcher selection/bootstrap | application behavior |
 
 ## Stable data paths
@@ -139,7 +150,7 @@ swarmx launcher ───► Desktop or CLI
 | New Python package capability | `src/swarmx/` and root `pyproject.toml` | one locked environment, direct project dependencies, private MCP identity tests, `tests/python/package_layout_test.py` |
 | New managed feature module | owning Core zod contract | verified Runtime environment, private MCP host/client, exact tool allowlist, packaging, focused cross-process test, `DESIGNS.md` |
 | New direct model behavior | `packages/core/src/agent.ts` and `native-model.ts` | `providers.ts`, `model-capabilities.ts`, rendering, activity, tests |
-| New external harness behavior | `packages/core/src/acp.ts`, `harness.ts` | desktop harness/session runtime, runtime environment, ACP tests |
+| New external Harness or wire transport | owning DSH plugin plus `packages/core/src/dsh-plugin.ts` | `acp.ts`, `harness-client.ts`, Harness catalog, transport fallback, provider Fiber disposal, runtime environment, focused plugin/transport tests |
 | New durable task state or event | `packages/core/src/task-runtime.ts` | store replay, control service, worker protocol, focused runtime tests, `DESIGNS.md` |
 | New context projection, retrieval, or replay behavior | `packages/core/src/context-engine.ts` | context store, `context.ts`, focused context-engine tests, `docs/context-engine.md`, `DESIGNS.md` |
 | New task worker/backend | `packages/core/src/task-worker-protocol.ts` | process host, capability gateway, `packages/runtime` detection/plan, backend smoke test |

@@ -9,6 +9,7 @@ import { fileURLToPath } from "node:url";
 
 const REPOSITORY_ROOT = fileURLToPath(new URL("..", import.meta.url));
 const RELEASE_PACKAGES = [
+  { directory: "packages/codex", name: "@swarmx/codex" },
   { directory: "packages/core", name: "@swarmx/core" },
   { directory: "packages/runtime", name: "@swarmx/runtime" },
   { directory: "packages/acp-server", name: "@swarmx/acp-server" },

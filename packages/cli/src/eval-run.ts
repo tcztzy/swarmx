@@ -18,7 +18,10 @@ import {
   type ContextEvaluationResult,
   type ContextEvaluationSuite,
   ContextEvaluationSuiteSchema,
+  type CoreRuntime,
+  type CoreSwarmRuntimeOptions,
   classifyContextEvaluationError,
+  createAgentContextEvaluationExecutor,
   createBuiltinAgentServiceRegistry,
   createSessionContextEngine,
   type EvalRunResult,
@@ -30,9 +33,7 @@ import {
   parseSkillInstructionDelivery,
   runContextEvaluation,
   type SkillInstructionDelivery,
-  Swarm,
   type SwarmConfig,
-  type SwarmRuntimeOptions,
 } from "@swarmx/core";
 
 export interface EvalRunOptions {
@@ -53,6 +54,7 @@ export interface EvalRunOptions {
 
 export interface ContextEvalSuiteDependencies {
   executor?: ContextEvaluationExecutor;
+  runtime?: Pick<CoreRuntime, "prepareAgent">;
   now?: () => Date;
 }
 
@@ -84,10 +86,11 @@ export function buildEvalArguments(
 export async function runEval(
   message: string | undefined,
   options: EvalRunOptions,
+  runtime: Pick<CoreRuntime, "prepareSwarm">,
 ): Promise<EvalRunResult> {
   const config = loadSwarmConfig(options.config);
   const swarmOptions = await evalSwarmOptions(options, config);
-  const swarm = new Swarm(config, swarmOptions);
+  const swarm = runtime.prepareSwarm(config, swarmOptions);
   return swarm.executeForEval(buildEvalArguments(message, options));
 }
 
@@ -110,7 +113,7 @@ export function loadGlobalMemorySnapshot(path: string): GlobalMemorySnapshot {
 export async function runContextEvalSuite(
   message: string | undefined,
   options: EvalRunOptions,
-  dependencies: ContextEvalSuiteDependencies = {},
+  dependencies: ContextEvalSuiteDependencies,
 ): Promise<ContextEvaluationResult> {
   validateContextEvalSuiteOptions(message, options);
   const suite = loadContextEvaluationSuite(options.contextSuite as string);
@@ -118,7 +121,12 @@ export async function runContextEvalSuite(
   try {
     const result = await runContextEvaluation({
       suite,
-      ...(dependencies.executor ? { executor: dependencies.executor } : {}),
+      executor:
+        dependencies.executor ??
+        createAgentContextEvaluationExecutor({
+          createAgent: (config, runtimeOptions) =>
+            requireContextRuntime(dependencies.runtime).prepareAgent(config, runtimeOptions),
+        }),
       ...(dependencies.now ? { now: dependencies.now } : {}),
     });
     if (reservation) commitContextJsonl(reservation, result);
@@ -127,6 +135,13 @@ export async function runContextEvalSuite(
     if (reservation) abandonContextJsonl(reservation);
     throw error;
   }
+}
+
+function requireContextRuntime(
+  runtime: Pick<CoreRuntime, "prepareAgent"> | undefined,
+): Pick<CoreRuntime, "prepareAgent"> {
+  if (!runtime) throw new Error("Context evaluation requires the host CoreRuntime.");
+  return runtime;
 }
 
 export function formatContextEvaluationReport(
@@ -160,7 +175,7 @@ export async function evalSwarmOptions(
     | "memorySnapshot"
   >,
   config?: SwarmConfig,
-): Promise<SwarmRuntimeOptions> {
+): Promise<CoreSwarmRuntimeOptions> {
   if (options.memorySnapshot && !options.ablationProfile) {
     throw new Error("--memory-snapshot requires --ablation-profile");
   }
@@ -210,7 +225,7 @@ export function parseSkillBinding(value: string): { skillId: string; variantId: 
 async function explicitSkillDelivery(
   options: Pick<EvalRunOptions, "skillDelivery" | "skillContentPath" | "skillDeliveryAgent">,
   config?: SwarmConfig,
-): Promise<SwarmRuntimeOptions | undefined> {
+): Promise<CoreSwarmRuntimeOptions | undefined> {
   if (!options.skillDelivery) {
     if (options.skillContentPath) {
       throw new Error("--skill-content-path requires --skill-delivery");
@@ -363,7 +378,7 @@ function validateContextEvalSuiteOptions(
 function ablationRuntimeOptions(
   options: Pick<EvalRunOptions, "ablationProfile" | "memorySnapshot">,
   config?: SwarmConfig,
-): NonNullable<SwarmRuntimeOptions["agent"]> {
+): NonNullable<CoreSwarmRuntimeOptions["agent"]> {
   if (!options.ablationProfile) return {};
   return {
     serviceRegistry: createBuiltinAgentServiceRegistry(),
@@ -377,7 +392,9 @@ function ablationRuntimeOptions(
   };
 }
 
-function withAgentOptions(agent: NonNullable<SwarmRuntimeOptions["agent"]>): SwarmRuntimeOptions {
+function withAgentOptions(
+  agent: NonNullable<CoreSwarmRuntimeOptions["agent"]>,
+): CoreSwarmRuntimeOptions {
   return Object.keys(agent).length > 0 ? { agent } : {};
 }
 

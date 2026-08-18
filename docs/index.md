@@ -26,12 +26,13 @@ runtime diagnostics.
 
 Feature guides:
 
+- [Codex module](codex-module.md)
 - [First run and Doctor](first-run-and-doctor.md)
 - [Session causal timeline](session-timeline.md)
 - [Personal Memory](personal-memory.md)
 - [Memory](memory.md)
 - [Reference Library](reference-library.md)
-- [Model, Harness, and Agent guidance](agent-guidance.md)
+- [Task guidance](task-guidance.md)
 - [Durable task runtime](durable-task-runtime.md)
 - [Coding-agent Context Engine](context-engine.md)
 - [Context-policy evaluation](context-evaluation.md)
@@ -141,12 +142,13 @@ swarmx doctor --fix --yes
 
 ## TypeScript core
 
-Install `@swarmx/core` and construct a single-Agent swarm:
+Install `@swarmx/core`, boot one host Runtime, and prepare a single-Agent workflow:
 
 ```ts
-import { Swarm } from "@swarmx/core";
+import { createCoreRuntime } from "@swarmx/core";
 
-const swarm = new Swarm({
+const runtime = await createCoreRuntime();
+const swarm = runtime.prepareSwarm({
   name: "example",
   root: "writer",
   nodes: {
@@ -164,6 +166,8 @@ const swarm = new Swarm({
 const result = await swarm.execute({
   messages: [{ role: "user", content: "Summarize the project." }],
 });
+
+await runtime.dispose();
 ```
 
 API inputs are validated with zod. Prefer the package subpath matching the
@@ -285,7 +289,8 @@ variant, trust, and persistence details.
 | Package | Responsibility |
 | --- | --- |
 | `swarmx` | Desktop-first npm launcher with CLI compatibility |
-| `@swarmx/core` | Agents, workflows, durable task control, ACP/MCP, Sessions, and platform contracts |
+| `@swarmx/codex` | Repository-owned Codex app-server DSH plugin and launch module with exact upstream runtime pins |
+| `@swarmx/core` | DSH runtime, agents, workflows, durable task control, ACP/MCP, Sessions, and platform contracts |
 | `@swarmx/desktop` | Electron host and reusable renderer shell |
 | `@swarmx/cli` | Terminal commands and OpenAI-compatible server |
 | `@swarmx/acp-server` | ACP server adapter |

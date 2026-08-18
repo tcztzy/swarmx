@@ -248,7 +248,7 @@ describe("resolveActiveSkillDeliveriesForAgent", () => {
         JSON.stringify({ caseId: `h${index}`, input: `question ${index}`, target: "parrot" }),
       )
       .join("\n");
-    const { Swarm } = await import("@swarmx/core");
+    const { Swarm } = await import("../../core/src/swarm.js");
     const evalConfig = {
       name: "skill-eval",
       root: "agent",
@@ -413,7 +413,7 @@ describe("resolveActiveSkillDeliveriesForAgent", () => {
     const { workItem, grant } = context.service.createOptimizationWorkItem({ request, launch });
     await context.controlService?.runWorkItem(workItem.id, { launch, grants: [grant] });
     const candidate = context.service.ingestCandidate({ workItemId: workItem.id });
-    const { Swarm } = await import("@swarmx/core");
+    const { Swarm } = await import("../../core/src/swarm.js");
     const holdout = [1, 2, 3, 4]
       .map((index) =>
         JSON.stringify({ caseId: `h${index}`, input: `question ${index}`, target: "parrot" }),

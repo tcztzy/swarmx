@@ -1,33 +1,33 @@
 import { describe, expect, it } from "vitest";
-import {
-  AGENT_GUIDANCE_CATALOG,
-  AgentGuidanceCatalogSchema,
-  AgentGuidanceRecordSchema,
-  getAgentGuidance,
-  getGuidanceForHarness,
-  getGuidanceForModel,
-  getGuidanceForTask,
-} from "../src/agent-guidance.js";
 import { HARNESSES } from "../src/harness.js";
 import { MODELS } from "../src/model-capabilities.js";
+import {
+  getTaskGuidanceForAgent,
+  getTaskGuidanceForHarness,
+  getTaskGuidanceForModel,
+  getTaskGuidanceForTask,
+  TASK_GUIDANCE_CATALOG,
+  TaskGuidanceCatalogSchema,
+  TaskGuidanceRecordSchema,
+} from "../src/task-guidance.js";
 
-describe("source-dated Agent guidance", () => {
+describe("source-dated Task guidance", () => {
   it("ships a fully referenced 2026-08-12 evidence snapshot", () => {
-    expect(AgentGuidanceCatalogSchema.parse(AGENT_GUIDANCE_CATALOG)).toBeDefined();
-    expect(AGENT_GUIDANCE_CATALOG.sources.map((source) => source.id)).toEqual([
+    expect(TaskGuidanceCatalogSchema.parse(TASK_GUIDANCE_CATALOG)).toBeDefined();
+    expect(TASK_GUIDANCE_CATALOG.sources.map((source) => source.id)).toEqual([
       "livebench-2026-06-25",
       "terminal-bench-2.1",
       "swe-bench-verified",
       "bfcl-v4-2025.12.17",
     ]);
 
-    const sourceIds = new Set(AGENT_GUIDANCE_CATALOG.sources.map((source) => source.id));
-    for (const source of AGENT_GUIDANCE_CATALOG.sources) {
+    const sourceIds = new Set(TASK_GUIDANCE_CATALOG.sources.map((source) => source.id));
+    for (const source of TASK_GUIDANCE_CATALOG.sources) {
       expect(source.checkedAt).toBe("2026-08-12");
       expect(source.url).toMatch(/^https:\/\//);
     }
-    for (const record of AGENT_GUIDANCE_CATALOG.records) {
-      expect(AgentGuidanceRecordSchema.parse(record)).toBeDefined();
+    for (const record of TASK_GUIDANCE_CATALOG.records) {
+      expect(TaskGuidanceRecordSchema.parse(record)).toBeDefined();
       expect(record.reviewedAt).toBe("2026-08-12");
       expect(record.limitations.length).toBeGreaterThan(0);
       expect(record.evidence.every((item) => sourceIds.has(item.sourceId))).toBe(true);
@@ -39,7 +39,7 @@ describe("source-dated Agent guidance", () => {
     const modelIds = new Set(MODELS.map((model) => model.id));
     const harnessIds = new Set(Object.keys(HARNESSES));
 
-    for (const record of AGENT_GUIDANCE_CATALOG.records) {
+    for (const record of TASK_GUIDANCE_CATALOG.records) {
       if (record.target.kind === "model" || record.target.kind === "agent") {
         expect(modelIds.has(record.target.modelId)).toBe(true);
       }
@@ -84,14 +84,14 @@ describe("source-dated Agent guidance", () => {
     } as const;
 
     expect(() =>
-      AgentGuidanceCatalogSchema.parse({
+      TaskGuidanceCatalogSchema.parse({
         schemaVersion: 1,
         sources: [source, source],
         records: [record, record],
       }),
     ).toThrow(/Duplicate/i);
     expect(() =>
-      AgentGuidanceCatalogSchema.parse({
+      TaskGuidanceCatalogSchema.parse({
         schemaVersion: 1,
         sources: [source],
         records: [
@@ -101,12 +101,12 @@ describe("source-dated Agent guidance", () => {
           },
         ],
       }),
-    ).toThrow(/Unknown Agent guidance source/i);
+    ).toThrow(/Unknown Task guidance source/i);
   });
 
   it("requires an evaluated Harness for whole-system evidence", () => {
     expect(() =>
-      AgentGuidanceRecordSchema.parse({
+      TaskGuidanceRecordSchema.parse({
         id: "invalid-agent-evidence",
         target: { kind: "agent", harnessId: "codex", modelId: "gpt-5.5" },
         taskFamilies: ["terminal_work"],
@@ -133,27 +133,27 @@ describe("source-dated Agent guidance", () => {
 
   it("queries exact layers without synthesizing a score", () => {
     expect(
-      getGuidanceForModel("gpt-5.6-sol").every((record) => record.target.kind === "model"),
+      getTaskGuidanceForModel("gpt-5.6-sol").every((record) => record.target.kind === "model"),
     ).toBe(true);
-    expect(getGuidanceForHarness("codex").every((record) => record.target.kind === "harness")).toBe(
-      true,
-    );
+    expect(
+      getTaskGuidanceForHarness("codex").every((record) => record.target.kind === "harness"),
+    ).toBe(true);
 
-    const terminal = getAgentGuidance("codex", "gpt-5.5", "terminal_work");
+    const terminal = getTaskGuidanceForAgent("codex", "gpt-5.5", "terminal_work");
     expect(terminal.map((record) => record.target.kind)).toEqual(["agent", "harness"]);
     expect(terminal[0]).toMatchObject({ verdict: "preferred", confidence: "medium" });
-    expect(terminal[0]?.limitations.join(" ")).toMatch(/ACP adapter/i);
+    expect(terminal[0]?.limitations.join(" ")).toMatch(/direct Codex app-server transport/i);
 
-    expect(getAgentGuidance("pi", "gpt-5.5", "terminal_work")).toEqual([]);
+    expect(getTaskGuidanceForAgent("pi", "gpt-5.5", "terminal_work")).toEqual([]);
   });
 
   it("sorts task guidance deterministically and treats missing records as unrated", () => {
-    const general = getGuidanceForTask("general");
+    const general = getTaskGuidanceForTask("general");
     const firstSuitable = general.findIndex((record) => record.verdict === "suitable");
     expect(firstSuitable).toBeGreaterThan(0);
     expect(general.slice(0, firstSuitable).every((record) => record.verdict === "preferred")).toBe(
       true,
     );
-    expect(getGuidanceForModel("deepseek-reasoner")).toEqual([]);
+    expect(getTaskGuidanceForModel("deepseek-reasoner")).toEqual([]);
   });
 });

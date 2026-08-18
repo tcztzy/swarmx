@@ -91,26 +91,27 @@ describe("CLI agent run audit inputs", () => {
             return input;
           }
         },
-        Swarm: class {
-          readonly name = "test";
-          readonly root = "agent";
-
-          async execute(): Promise<[]> {
-            if (executionError) throw executionError;
-            return [];
-          }
-
-          async executeForEval() {
-            if (executionError) throw executionError;
-            return {
-              output: "",
-              messages: [],
-              trace: [],
-              error: null,
-              metrics: { steps: 0, messages: 0, toolCalls: 0, toolResults: 0 },
-            };
-          }
-        },
+        createCoreRuntime: async () => ({
+          prepareSwarm: () => ({
+            name: "test",
+            root: "agent",
+            async execute(): Promise<[]> {
+              if (executionError) throw executionError;
+              return [];
+            },
+            async executeForEval() {
+              if (executionError) throw executionError;
+              return {
+                output: "",
+                messages: [],
+                trace: [],
+                error: null,
+                metrics: { steps: 0, messages: 0, toolCalls: 0, toolResults: 0 },
+              };
+            },
+          }),
+          dispose: vi.fn(),
+        }),
       };
     });
     vi.doMock("node:readline", () => ({

@@ -43,6 +43,7 @@ export const AgentBackendSchema = z.discriminatedUnion("type", [
     type: z.literal("custom"),
     program: z.string().min(1),
     args: z.array(z.string()).optional(),
+    transport: z.enum(["acp", "codex_server"]).optional(),
   }),
 ]);
 
@@ -123,6 +124,8 @@ export const SwarmConfigSchema = z.object({
   edges: z.array(EdgeConfigSchema),
   root: z.string().min(1),
   hooks: z.array(HookConfigSchema).max(64).optional(),
+  /** Named DSH plugin strategy; defaults to the built-in `dag` executor. */
+  strategy: z.string().trim().min(1).optional(),
 });
 
 // ── Messages ──────────────────────────────────────────────────���──────────────

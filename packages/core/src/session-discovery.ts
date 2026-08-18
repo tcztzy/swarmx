@@ -1,6 +1,6 @@
 import type { SessionInfo as AcpSessionInfo } from "@agentclientprotocol/sdk";
 import { AcpClient, type AcpClientOptions } from "./acp.js";
-import { HARNESSES } from "./harness.js";
+import { type HarnessCatalog, staticHarnessCatalog } from "./harness.js";
 import {
   listSessionSummaries as listLocalSessions,
   loadSession as loadLocalSession,
@@ -46,14 +46,22 @@ export interface ListGroupedSessionsOptions {
   cwd?: string;
   harnessIds?: string[];
   timeoutMs?: number;
+  /** DSH plugin Harness catalog; defaults to the built-in static registry. */
+  harnessCatalog?: HarnessCatalog;
+  createClient?: () => AcpSessionLoader;
+  /** DSH transport-aware loader selected from the concrete Harness backend. */
+  createClientFor?: (options: AcpClientOptions) => AcpSessionLoader;
 }
 
 export interface LoadDiscoveredSessionOptions {
+  harnessCatalog?: HarnessCatalog;
   createClient?: () => AcpSessionLoader;
+  createClientFor?: (options: AcpClientOptions) => AcpSessionLoader;
   timeoutMs?: number;
 }
 
 interface AcpSessionLoader {
+  listSessions(opts: AcpClientOptions, cwd?: string): Promise<AcpSessionInfo[]>;
   loadSession(
     opts: AcpClientOptions,
     sessionId: string,
@@ -72,7 +80,10 @@ export async function listGroupedSessions(
   options: ListGroupedSessionsOptions = {},
 ): Promise<GroupedSessionsResult> {
   const mode = options.mode ?? "harness";
-  const sessions: DiscoveredSession[] = listLocalSessions().map(localSessionToDiscovered);
+  const harnessCatalog = options.harnessCatalog ?? staticHarnessCatalog;
+  const sessions: DiscoveredSession[] = listLocalSessions().map((session) =>
+    localSessionToDiscovered(session, harnessCatalog),
+  );
   const errors: SessionDiscoveryError[] = [];
 
   const harnessIds = options.harnessIds ?? [...DEFAULT_ACP_SESSION_HARNESSES];
@@ -81,6 +92,9 @@ export async function listGroupedSessions(
       listAcpHarnessSessions(harnessId, {
         cwd: options.cwd,
         timeoutMs: options.timeoutMs ?? DEFAULT_SESSION_TIMEOUT_MS,
+        harnessCatalog,
+        createClient: options.createClient,
+        createClientFor: options.createClientFor,
       }),
     ),
   );
@@ -134,6 +148,7 @@ export function groupDiscoveredSessions(
 export function acpSessionToDiscovered(
   session: AcpSessionInfo,
   harnessId: string,
+  harnessCatalog: HarnessCatalog = staticHarnessCatalog,
 ): DiscoveredSession | null {
   const alternateSession = session as AcpSessionInfo & {
     session_id?: string | null;
@@ -142,7 +157,7 @@ export function acpSessionToDiscovered(
   const id = session.sessionId ?? alternateSession.session_id;
   if (!id) return null;
 
-  const harness = HARNESSES[harnessId];
+  const harness = harnessCatalog.getHarness(harnessId);
   const title = session.title?.trim() || id;
 
   return {
@@ -164,7 +179,7 @@ export async function loadDiscoveredSession(
     return loadLocalSession(session.id);
   }
 
-  const harness = HARNESSES[session.harnessId];
+  const harness = (options.harnessCatalog ?? staticHarnessCatalog).getHarness(session.harnessId);
   if (!harness || harness.enabled === false) {
     throw new Error(`Unknown harness: ${session.harnessId}`);
   }
@@ -172,13 +187,14 @@ export async function loadDiscoveredSession(
     throw new Error(`Harness does not support ACP session loading: ${session.harnessId}`);
   }
 
-  const client = options.createClient?.() ?? new AcpClient();
   const cwd = session.cwd.trim() || process.cwd();
   const opts: AcpClientOptions = {
     command: harness.backend.program,
     args: harness.backend.args ?? [],
+    ...(harness.backend.transport ? { transport: harness.backend.transport } : {}),
     cwd,
   };
+  const client = requireAcpClient(options, opts);
 
   try {
     const loaded = await withTimeout<{ messages: MessageChunk[] }>(
@@ -214,8 +230,11 @@ export function acpLoadedSessionToSessionData(
   });
 }
 
-function localSessionToDiscovered(session: SessionSummary): DiscoveredSession {
-  const harness = HARNESSES[session.harness];
+function localSessionToDiscovered(
+  session: SessionSummary,
+  harnessCatalog: HarnessCatalog = staticHarnessCatalog,
+): DiscoveredSession {
+  const harness = harnessCatalog.getHarness(session.harness);
 
   return {
     id: session.id,
@@ -232,9 +251,16 @@ function localSessionToDiscovered(session: SessionSummary): DiscoveredSession {
 
 async function listAcpHarnessSessions(
   harnessId: string,
-  options: { cwd?: string; timeoutMs: number },
+  options: {
+    cwd?: string;
+    timeoutMs: number;
+    harnessCatalog?: HarnessCatalog;
+    createClient?: () => AcpSessionLoader;
+    createClientFor?: (options: AcpClientOptions) => AcpSessionLoader;
+  },
 ): Promise<{ sessions: DiscoveredSession[]; error?: SessionDiscoveryError }> {
-  const harness = HARNESSES[harnessId];
+  const harnessCatalog = options.harnessCatalog ?? staticHarnessCatalog;
+  const harness = harnessCatalog.getHarness(harnessId);
   if (!harness || harness.enabled === false) {
     return {
       sessions: [],
@@ -245,12 +271,25 @@ async function listAcpHarnessSessions(
     return { sessions: [] };
   }
 
-  const client = new AcpClient();
   const opts: AcpClientOptions = {
     command: harness.backend.program,
     args: harness.backend.args ?? [],
+    ...(harness.backend.transport ? { transport: harness.backend.transport } : {}),
     cwd: options.cwd ?? process.cwd(),
   };
+  let client: AcpSessionLoader;
+  try {
+    client = requireAcpClient(options, opts);
+  } catch (error) {
+    return {
+      sessions: [],
+      error: {
+        harnessId,
+        harnessLabel: harness.label,
+        message: error instanceof Error ? error.message : String(error),
+      },
+    };
+  }
 
   try {
     const acpSessions = await withTimeout(
@@ -260,7 +299,7 @@ async function listAcpHarnessSessions(
     );
     return {
       sessions: acpSessions
-        .map((session) => acpSessionToDiscovered(session, harnessId))
+        .map((session) => acpSessionToDiscovered(session, harnessId, harnessCatalog))
         .filter((session): session is DiscoveredSession => session !== null),
     };
   } catch (err) {
@@ -275,6 +314,18 @@ async function listAcpHarnessSessions(
   } finally {
     client.kill();
   }
+}
+
+function requireAcpClient(
+  options: {
+    createClient?: () => AcpSessionLoader;
+    createClientFor?: (options: AcpClientOptions) => AcpSessionLoader;
+  },
+  opts?: AcpClientOptions,
+): AcpSessionLoader {
+  if (options.createClientFor && opts) return options.createClientFor(opts);
+  if (options.createClient) return options.createClient();
+  return new AcpClient();
 }
 
 function acpErrorMessage(err: unknown, stderr: string): string {

@@ -6,6 +6,7 @@ import type { AcpPermissionHandler } from "./acp.js";
 import { AgentDefinitionSourceSchema } from "./agent-profiles.js";
 import { ContextPacketModeSchema, ContextStrategySchema } from "./context.js";
 import type { AgentContextEngine } from "./context-engine.js";
+import type { CoreRuntime } from "./core-runtime.js";
 import {
   ExtensionCompositionDeclarationSchema,
   ExtensionCompositionPreflightSchema,
@@ -13,10 +14,9 @@ import {
   preflightExtensionComposition,
 } from "./extension-composition.js";
 import type { InstalledExtension } from "./extension-management.js";
-import { HARNESSES, harnessModelRuntimeEnv, harnessModelRuntimeModel } from "./harness.js";
+import { type HarnessCatalog, staticHarnessCatalog } from "./harness.js";
 import type { HookRuntimeOptions } from "./hook.js";
 import type { LocalTool } from "./local-tool-contracts.js";
-import type { McpManager } from "./mcp.js";
 import { ModelApiModeSchema, ModelApiSchema } from "./model-api.js";
 import {
   ModelSchema as IndependentModelSchema,
@@ -42,16 +42,17 @@ import {
 } from "./project-bootstrap.js";
 import {
   assertNoProviderOwnedModelFields,
+  type BuildProviderRuntimeEnvOptions,
   buildProviderRuntimeEnv,
   ProviderApiCompatibilityModeSchema as CanonicalProviderApiCompatibilityModeSchema,
   ProviderApiCompatibilitySchema as CanonicalProviderApiCompatibilitySchema,
   ProviderKindSchema as CanonicalProviderKindSchema,
   ProviderApiEntrypointsSchema,
   ProviderAuthModeSchema,
+  type ProviderRuntimeEnv,
   ProviderSecretRefSchema,
 } from "./providers.js";
 import { findInlineSecretFields } from "./secret-scanner.js";
-import { Swarm } from "./swarm.js";
 import type {
   AgentBackend,
   AgentConfig,
@@ -912,16 +913,28 @@ export interface ExtensionInventory {
 export interface LoadExtensionInventoryOptions {
   roots?: string[];
   includeBuiltins?: boolean;
+  /** DSH plugin Harness catalog; defaults to the built-in static registry. */
+  harnessCatalog?: HarnessCatalog;
 }
 
 export interface ResolveAgentRuntimeEnvOptions {
   env?: NodeJS.ProcessEnv;
   providerSecrets?: Readonly<Record<string, string>>;
+  /** DSH plugin Harness catalog; defaults to the built-in static registry. */
+  harnessCatalog?: HarnessCatalog;
+  /** DSH plugin Provider connector resolver; defaults to the pure builder. */
+  resolveProviderRuntimeEnv?: (
+    profile: unknown,
+    options: BuildProviderRuntimeEnvOptions,
+  ) => ProviderRuntimeEnv;
 }
 
 export interface ExecuteAgentCompositionOptions {
+  runtime: Pick<CoreRuntime, "prepareSwarm">;
   inventory?: ExtensionInventory;
   inventoryOptions?: LoadExtensionInventoryOptions;
+  harnessCatalog?: HarnessCatalog;
+  resolveProviderRuntimeEnv?: ResolveAgentRuntimeEnvOptions["resolveProviderRuntimeEnv"];
   env?: NodeJS.ProcessEnv;
   providerSecrets?: Readonly<Record<string, string>>;
   context?: Record<string, unknown>;
@@ -931,7 +944,6 @@ export interface ExecuteAgentCompositionOptions {
   allowUnboundProjectMcp?: boolean;
   memoryTools?: readonly LocalTool[];
   localTools?: readonly LocalTool[];
-  createMcpManager?: () => McpManager;
   acpPermissionHandler?: AcpPermissionHandler;
   acpMode?: string;
   acpSessionId?: string;
@@ -1151,7 +1163,10 @@ export async function loadExtensionInventory(
 ): Promise<ExtensionInventory> {
   const roots = options.roots ?? extensionRootsFromEnv();
   const includeBuiltins = options.includeBuiltins ?? true;
-  const bundles: ExtensionBundle[] = includeBuiltins ? [builtInExtensionBundle()] : [];
+  const harnessCatalog = options.harnessCatalog ?? staticHarnessCatalog;
+  const bundles: ExtensionBundle[] = includeBuiltins
+    ? [builtInExtensionBundle(harnessCatalog)]
+    : [];
   const warnings: ExtensionLoadWarning[] = [];
 
   for (const root of roots) {
@@ -1183,6 +1198,7 @@ export function parseAgentCompositionPlan(input: unknown): AgentCompositionPlan 
 export function resolveAgentCompositionPlan(
   compositionInput: unknown,
   inventory: ExtensionInventory,
+  harnessCatalog: HarnessCatalog = staticHarnessCatalog,
 ): AgentCompositionPlan {
   assertNoInlineSecrets(compositionInput);
   const composition = AgentCompositionSchema.parse(compositionInput);
@@ -1320,8 +1336,8 @@ export function resolveAgentCompositionPlan(
     supply?.runtimeModel ?? resolvedMatrixModel?.runtimeModel ?? model?.runtimeModel;
   const adapterId = harness ? runtimeHarnessId(harness) : undefined;
   const runtimeModel =
-    harness && model && baseRuntimeModel && adapterId && HARNESSES[adapterId]
-      ? harnessModelRuntimeModel(adapterId, {
+    harness && model && baseRuntimeModel && adapterId && harnessCatalog.getHarness(adapterId)
+      ? harnessCatalog.resolveRuntimeModel(adapterId, {
           modelId: model.id,
           runtimeModel: baseRuntimeModel,
         })
@@ -1486,8 +1502,9 @@ export function resolveAgentCompositionPlan(
 export function resolveAgentComposition(
   compositionInput: unknown,
   inventory: ExtensionInventory,
+  harnessCatalog: HarnessCatalog = staticHarnessCatalog,
 ): AgentConfig {
-  const plan = resolveAgentCompositionPlan(compositionInput, inventory);
+  const plan = resolveAgentCompositionPlan(compositionInput, inventory, harnessCatalog);
   assertPlanReadyForExecution(plan);
   const composition = AgentCompositionSchema.parse(compositionInput);
   const profile = resolveOptionalById(
@@ -1537,8 +1554,8 @@ export function resolveAgentComposition(
     : undefined;
   const adapterId = runtimeHarnessId(harness);
   const baseRuntimeModel = supply?.runtimeModel ?? matrixModel.runtimeModel;
-  const runtimeModel = HARNESSES[adapterId]
-    ? harnessModelRuntimeModel(adapterId, {
+  const runtimeModel = harnessCatalog.getHarness(adapterId)
+    ? harnessCatalog.resolveRuntimeModel(adapterId, {
         modelId: model.id,
         runtimeModel: baseRuntimeModel,
       })
@@ -1721,7 +1738,9 @@ export function resolveAgentCompositionRuntimeEnv(
   inventory: ExtensionInventory,
   options: ResolveAgentRuntimeEnvOptions = {},
 ): Record<string, string> {
-  const plan = resolveAgentCompositionPlan(compositionInput, inventory);
+  const harnessCatalog = options.harnessCatalog ?? staticHarnessCatalog;
+  const resolveProviderRuntimeEnv = options.resolveProviderRuntimeEnv ?? buildProviderRuntimeEnv;
+  const plan = resolveAgentCompositionPlan(compositionInput, inventory, harnessCatalog);
   assertPlanReadyForExecution(plan);
   const composition = AgentCompositionSchema.parse(compositionInput);
   const profile = resolveOptionalById(
@@ -1752,14 +1771,14 @@ export function resolveAgentCompositionRuntimeEnv(
     throw new Error(`Harness "${harness.id}" cannot select Model "${model.id}".`);
   }
   const baseRuntimeModel = supply?.runtimeModel ?? matrixModel.runtimeModel;
-  const runtimeModel = HARNESSES[adapterId]
-    ? harnessModelRuntimeModel(adapterId, {
+  const runtimeModel = harnessCatalog.getHarness(adapterId)
+    ? harnessCatalog.resolveRuntimeModel(adapterId, {
         modelId: model.id,
         runtimeModel: baseRuntimeModel,
       })
     : baseRuntimeModel;
-  const harnessEnv = HARNESSES[adapterId]
-    ? harnessModelRuntimeEnv(adapterId, {
+  const harnessEnv = harnessCatalog.getHarness(adapterId)
+    ? harnessCatalog.resolveModelRuntimeEnv(adapterId, {
         modelId: model.id,
         runtimeModel,
         effort: plan.effort,
@@ -1772,7 +1791,7 @@ export function resolveAgentCompositionRuntimeEnv(
   }
   const provider = resolveById(inventory.providers, supply.providerProfileId, "provider profile");
   const secret = providerSecretValue(provider, sourceEnv, options.providerSecrets);
-  const providerEnv = buildProviderRuntimeEnv(
+  const providerEnv = resolveProviderRuntimeEnv(
     {
       id: provider.id,
       label: provider.label,
@@ -1797,10 +1816,18 @@ export function resolveAgentCompositionRuntimeEnv(
 export async function executeAgentComposition(
   compositionInput: unknown,
   messages: ChatMessage[],
-  options: ExecuteAgentCompositionOptions = {},
+  options: ExecuteAgentCompositionOptions,
 ): Promise<MessageChunk[]> {
-  const inventory = options.inventory ?? (await loadExtensionInventory(options.inventoryOptions));
-  const agentConfig = resolveAgentComposition(compositionInput, inventory);
+  const harnessCatalog = options.harnessCatalog ?? staticHarnessCatalog;
+  const inventory =
+    options.inventory ??
+    (await loadExtensionInventory({
+      ...options.inventoryOptions,
+      ...(options.inventoryOptions?.harnessCatalog
+        ? {}
+        : { harnessCatalog: options.harnessCatalog ?? staticHarnessCatalog }),
+    }));
+  const agentConfig = resolveAgentComposition(compositionInput, inventory, harnessCatalog);
   const mcpRuntime = resolveAgentCompositionMcpRuntime(compositionInput, inventory, {
     cwd: options.cwd,
     project: options.project,
@@ -1814,16 +1841,17 @@ export async function executeAgentComposition(
   const runtimeEnv = resolveAgentCompositionRuntimeEnv(compositionInput, inventory, {
     env: options.env,
     providerSecrets: options.providerSecrets,
+    harnessCatalog: options.harnessCatalog ?? staticHarnessCatalog,
+    resolveProviderRuntimeEnv: options.resolveProviderRuntimeEnv,
   });
   const cwd = options.cwd ?? options.project?.root;
-  const swarm = new Swarm(
+  const swarm = options.runtime.prepareSwarm(
     singleAgentSwarmConfig(agentConfigWithRuntimeEnv(runtimeAgentConfig, runtimeEnv, cwd)),
     {
       hook: options.hook,
       agent: {
         memoryTools: options.memoryTools,
         localTools: options.localTools,
-        createMcpManager: options.createMcpManager,
         requiredMcpServers: mcpRuntime.requiredMcpServers,
         projectBootstrap: mcpRuntime.projectBootstrap,
         onProjectBootstrap: options.onProjectBootstrap,
@@ -1841,8 +1869,10 @@ export async function executeAgentComposition(
   return swarm.execute({ messages }, options.context, options.onChunk, options.onUsage);
 }
 
-export function builtInExtensionBundle(): ExtensionBundle {
-  const harnesses = Object.entries(HARNESSES).map(([id, harness]) => ({
+export function builtInExtensionBundle(
+  harnessCatalog: HarnessCatalog = staticHarnessCatalog,
+): ExtensionBundle {
+  const harnesses = harnessCatalog.listHarnesses().map(({ id, config: harness }) => ({
     id,
     runtimeHarnessId: id,
     label: harness.label,

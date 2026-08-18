@@ -1,9 +1,11 @@
 import { once } from "node:events";
 import http from "node:http";
+import type { AddressInfo } from "node:net";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AuditInput } from "../src/audit.js";
-import { createServer, type ServerAuditWriter } from "../src/server.js";
+import { createServer, type ServerAuditWriter, type ServerSwarmExecution } from "../src/server.js";
 import { Swarm } from "../src/swarm.js";
+import type { MessageChunk } from "../src/types.js";
 
 const servers: http.Server[] = [];
 
@@ -198,6 +200,87 @@ describe("server boundary", () => {
     expect(audit.events[1]?.metadata).toMatchObject({ statusCode: 500 });
     expect(JSON.stringify(audit.events)).not.toContain("invalid-json-secret");
   });
+
+  it("forwards execution chunks to SSE clients before execution completes", async () => {
+    let releaseSecondChunk!: () => void;
+    const secondChunkStarted = new Promise<void>((resolve) => {
+      releaseSecondChunk = resolve;
+    });
+    const first = { role: "assistant", content: "first", kind: "message" } as const;
+    const second = { role: "assistant", content: "second", kind: "message" } as const;
+    const execute = vi.fn(
+      async (
+        _arguments_: Record<string, unknown>,
+        _context: Record<string, unknown> | undefined,
+        onChunk?: (chunk: MessageChunk) => void,
+      ): Promise<MessageChunk[]> => {
+        onChunk?.(first);
+        await secondChunkStarted;
+        onChunk?.(second);
+        return [first, second];
+      },
+    );
+    const server = await startServerWithSwarm({
+      models: [],
+      execute,
+      listAllSessions: async () => [],
+    });
+    const address = server.address() as AddressInfo;
+    let body = "";
+    let sawFirstChunk!: () => void;
+    const firstChunkSeen = new Promise<void>((resolve) => {
+      sawFirstChunk = resolve;
+    });
+    const response = new Promise<{ statusCode: number; body: string }>((resolve, reject) => {
+      const req = http.request(
+        {
+          host: "127.0.0.1",
+          port: address.port,
+          path: "/chat/completions",
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+        },
+        (res) => {
+          res.setEncoding("utf8");
+          res.on("data", (chunk: string) => {
+            body += chunk;
+            if (body.includes('"content":"first"')) sawFirstChunk();
+          });
+          res.on("end", () => resolve({ statusCode: res.statusCode ?? 0, body }));
+        },
+      );
+      req.on("error", reject);
+      req.end(JSON.stringify({ stream: true, messages: [{ role: "user", content: "go" }] }));
+    });
+
+    let firstChunkTimer: ReturnType<typeof setTimeout> | undefined;
+    await expect(
+      Promise.race([
+        firstChunkSeen,
+        new Promise<never>((_, reject) => {
+          firstChunkTimer = setTimeout(
+            () => reject(new Error("first chunk was not streamed")),
+            1_000,
+          );
+        }),
+      ]),
+    ).resolves.toBeUndefined();
+    if (firstChunkTimer) clearTimeout(firstChunkTimer);
+    releaseSecondChunk();
+    await expect(response).resolves.toMatchObject({ statusCode: 200 });
+
+    const completed = await response;
+    expect(completed.body.indexOf('"content":"first"')).toBeGreaterThanOrEqual(0);
+    expect(completed.body.indexOf('"content":"first"')).toBeLessThan(
+      completed.body.indexOf('"content":"second"'),
+    );
+    expect(completed.body).toContain('"finish_reason":"stop"');
+    expect(execute).toHaveBeenCalledWith(
+      { messages: [{ role: "user", content: "go" }] },
+      undefined,
+      expect.any(Function),
+    );
+  });
 });
 
 async function startServer(options: Parameters<typeof createServer>[1] = {}): Promise<http.Server> {
@@ -205,7 +288,7 @@ async function startServer(options: Parameters<typeof createServer>[1] = {}): Pr
 }
 
 async function startServerWithSwarm(
-  swarm: Swarm,
+  swarm: ServerSwarmExecution,
   options: Parameters<typeof createServer>[1] = {},
 ): Promise<http.Server> {
   const server = createServer(swarm, {
@@ -218,8 +301,8 @@ async function startServerWithSwarm(
   return server;
 }
 
-function createTestSwarm(): Swarm {
-  return new Swarm({
+function createTestSwarm(): Swarm & ServerSwarmExecution {
+  const swarm = new Swarm({
     name: "server_test",
     root: "agent",
     nodes: {
@@ -233,6 +316,7 @@ function createTestSwarm(): Swarm {
     },
     edges: [],
   });
+  return Object.assign(swarm, { models: [{ id: "agent", object: "model" as const }] });
 }
 
 function request(

@@ -44,7 +44,7 @@ class PackageLayoutTest(unittest.TestCase):
 
         self.assertEqual(
             importlib.metadata.version("swarmx"),
-            "3.2.0",
+            "4.0.0",
         )
         self.assertEqual(importlib.metadata.version("mcp"), "2.0.0")
         distributions = {

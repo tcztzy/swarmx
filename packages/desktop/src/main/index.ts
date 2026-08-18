@@ -13,6 +13,7 @@ import {
   shell,
 } from "electron";
 import {
+  disposeDesktopCoreRuntime,
   disposeDesktopTerminals,
   registerIpcHandlers,
   resolveDesktopMediaProtocolUrl,
@@ -291,6 +292,7 @@ app.on("before-quit", () => {
   if (updateCheckTimer) clearInterval(updateCheckTimer);
   updateCheckTimer = null;
   disposeDesktopTerminals();
+  void disposeDesktopCoreRuntime();
   void memoryRuntime.close();
   void referenceLibraryRuntime?.close();
 });

@@ -4,6 +4,41 @@ import { localToolResult } from "../src/local-tool-contracts.js";
 import { type McpConnectionResult, McpManager } from "../src/mcp.js";
 
 describe("McpManager cancellation", () => {
+  it("advertises object-union local tools with an explicit object root", () => {
+    const manager = new McpManager();
+    manager.addLocalTools([
+      {
+        name: "Memory",
+        inputSchema: {
+          $schema: "https://json-schema.org/draft/2020-12/schema",
+          oneOf: [
+            {
+              type: "object",
+              properties: { operation: { type: "string", const: "list" } },
+              required: ["operation"],
+              additionalProperties: false,
+            },
+            {
+              type: "object",
+              properties: {
+                operation: { type: "string", const: "get" },
+                id: { type: "string" },
+              },
+              required: ["operation", "id"],
+              additionalProperties: false,
+            },
+          ],
+        },
+        call: async () => "memory",
+      },
+    ]);
+
+    expect(manager.toolsForOpenai()[0]?.function.parameters).toMatchObject({
+      type: "object",
+      oneOf: expect.any(Array),
+    });
+  });
+
   it("passes the active request signal to an in-flight MCP tool call", async () => {
     const manager = new McpManager();
     const started = deferred<void>();

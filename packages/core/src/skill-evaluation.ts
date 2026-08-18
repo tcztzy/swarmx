@@ -1,3 +1,4 @@
+import type { CoreSwarmExecution } from "./core-runtime.js";
 import type { SkillInstructionDelivery } from "./skill-delivery.js";
 import { evaluateSkillCandidateVerdict, skillEvaluationGateDigest } from "./skill-evolution.js";
 import {
@@ -8,7 +9,6 @@ import {
   type SkillEvaluationSample,
   type SkillEvaluationSampleRun,
 } from "./skill-variants.js";
-import type { Swarm } from "./swarm.js";
 import type { ModelTokenUsage } from "./types.js";
 
 export interface PairedSkillEvaluationCase {
@@ -19,7 +19,9 @@ export interface PairedSkillEvaluationCase {
   safetyFlag?: string;
 }
 
-export type SkillEvaluationSwarmFactory = (delivery: SkillInstructionDelivery) => Swarm;
+export type SkillEvaluationSwarmFactory = (
+  delivery: SkillInstructionDelivery,
+) => Pick<CoreSwarmExecution, "executeForEval">;
 
 export interface RunPairedSkillEvaluationOptions {
   evaluationId: string;

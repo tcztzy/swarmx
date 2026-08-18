@@ -9,7 +9,7 @@ const profile: ProtectedSandboxProfile = {
   id: "codex",
   image: "node:22-slim",
   imageDigest: "sha256:253da19867dd03e2f817f433d7782adefd2a2bac8729fcd4ebc6770665167a24",
-  command: ["npx", "--yes", "@agentclientprotocol/codex-acp@1.1.2"],
+  command: ["node", "/opt/swarmx/codex/bin/swarmx-codex-container.js"],
   environmentAllowlist: ["OPENAI_API_KEY", "LANG"],
   mounts: [
     { source: "project", access: "rw" },

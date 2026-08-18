@@ -16,6 +16,11 @@ import type {
   SessionNotification,
   SessionUpdate,
 } from "@agentclientprotocol/sdk";
+import type {
+  HarnessLaunchRequest,
+  HarnessLaunchSpec,
+  HarnessPermissionHandler,
+} from "./harness-client.js";
 import { buildAcpPromptContent } from "./media.js";
 import {
   cancelRequest,
@@ -80,6 +85,8 @@ async function loadAcp(): Promise<typeof import("@agentclientprotocol/sdk")> {
 export interface AcpClientOptions {
   command: string;
   args: string[];
+  /** Optional DSH wire-transport selector supplied by the Harness backend. */
+  transport?: string;
   cwd?: string;
   env?: Record<string, string>;
   clearEnv?: boolean;
@@ -95,11 +102,15 @@ export interface AcpClientOptions {
   onSessionId?: (sessionId: string) => void | Promise<void>;
 }
 
-export type AcpPermissionRequest = RequestPermissionRequest;
-export type AcpPermissionResponse = RequestPermissionResponse;
-export type AcpPermissionHandler = (
-  request: AcpPermissionRequest,
-) => Promise<AcpPermissionResponse>;
+export type AcpPermissionHandler = HarnessPermissionHandler;
+export type {
+  HarnessPermissionRequest as AcpPermissionRequest,
+  HarnessPermissionResponse as AcpPermissionResponse,
+} from "./harness-client.js";
+
+export interface AcpClientDependencies {
+  resolveLaunch(request: HarnessLaunchRequest): HarnessLaunchSpec;
+}
 
 export interface AcpPromptResult {
   sessionId: string;
@@ -138,6 +149,12 @@ export class AcpClient {
   private cancelFallback: ReturnType<typeof setTimeout> | null = null;
   private stderr = "";
 
+  constructor(
+    private readonly dependencies: AcpClientDependencies = {
+      resolveLaunch: (request) => ({ command: request.command, args: [...request.args], env: {} }),
+    },
+  ) {}
+
   private buildEnv(opts: AcpClientOptions): Record<string, string> {
     const env: Record<string, string> = {};
     if (!opts.clearEnv) {
@@ -161,8 +178,11 @@ export class AcpClient {
     const acp = await loadAcp();
     this.throwIfCancelled();
     const env = this.buildEnv(opts);
+    this.throwIfCancelled();
+    const launch = this.dependencies.resolveLaunch({ command: opts.command, args: opts.args });
+    Object.assign(env, launch.env);
 
-    const child = spawn(opts.command, opts.args, {
+    const child = spawn(launch.command, launch.args, {
       cwd: opts.cwd,
       env,
       detached: process.platform !== "win32",
@@ -175,7 +195,9 @@ export class AcpClient {
     this.throwIfCancelled();
 
     child.once("exit", () => {
-      if (this.child === child) this.child = null;
+      if (this.child === child) {
+        this.child = null;
+      }
     });
 
     child.stderr?.setEncoding("utf-8");

@@ -3,7 +3,8 @@
 Status: current
 
 SwarmX is a local-first desktop workspace and TypeScript platform for running
-direct model agents, ACP-compatible coding agents, and durable background work.
+direct model agents, DSH-plugin Harnesses (including ACP-compatible agents and
+direct Codex App Server transport), and durable background work.
 It composes a runtime Harness with an independent Model, gives that Agent bounded
 access to a Project, preserves conversations as resumable Sessions, and persists
 durable execution independently as WorkItems.
@@ -265,9 +266,10 @@ implementation map, test plan, backlog, changelog, or incident log.
   task authority.
 - Structurally import n8n workflow JSON into `SwarmConfig`, preserving topology
   and inert metadata without importing secrets or executing n8n node runtimes.
-- Run native Provider APIs and external ACP Harnesses with streaming,
-  cancellation, MCP integration, and resumable sessions where the host supports
-  them.
+- Run native Provider APIs and external Harnesses through DSH plugin
+  connectors/transports with streaming, cancellation, MCP integration, and
+  resumable sessions where the host supports them. ACP remains the default
+  custom-Harness transport; Codex uses the direct `codex_server` transport.
 - Keep ACP server capabilities, prompt history, working directory, resources,
   MCP state, and cancellation consistent with the persisted Session.
 
@@ -275,8 +277,17 @@ implementation map, test plan, backlog, changelog, or incident log.
 
 - Discover Models from explicit Provider connections, Extension metadata, and
   manual declarations, then resolve a compatible `Harness x Model` route.
+- Compose Provider supply, Harness catalogs, Harness permission decisions,
+  Harness wire transports, and Swarm execution strategies as DSH Cordis
+  plugins. Built-in plugins provide the standard routes, catalog, fail-closed
+  permission resolver, ACP fallback, and `dag` strategy; a workflow may name
+  any registered Swarm strategy and a backend may select any registered
+  transport. Desktop and CLI runtime paths consume the plugin-backed catalog
+  and Provider resolver. Registrations are effect-scoped and duplicate
+  ownership fails closed.
 - Export source-dated task guidance for Models, Harnesses, and exact Agents as
-  passive product metadata. Keep benchmark configuration, measured target,
+  passive product metadata, composable through the DSH `taskGuidance` Service
+  over the static baseline. Keep benchmark configuration, measured target,
   review date, and limitations visible; never let guidance override runtime
   compatibility or silently turn upstream Harness results into SwarmX parity.
   Missing guidance means unrated, not weak or unsupported, and product guidance
@@ -484,8 +495,9 @@ implementation map, test plan, backlog, changelog, or incident log.
   delivery. Executable UI components must be registered by the embedding host.
 - Session authority, identity, approvals, credentials, audit, permission policy,
   composition enforcement, and execution/completion invariants remain trusted
-  kernel responsibilities. Extensions may request bounded capabilities but do
-  not turn those kernel concepts into plugins or replace them.
+  kernel responsibilities. DSH plugins may replace Provider connectors,
+  Harness catalogs/transports, and Swarm strategies but do not replace those
+  kernel concepts.
 - Raw conversations, prompts, responses, source files, terminal output, and
   credentials are neither telemetry nor audit payloads. Canonical Session and
   task histories retain their own product data; the audit chain records only

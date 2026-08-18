@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   type ContextEvaluationExecutor,
+  createCoreRuntime,
   estimateContextEvaluationMaxRuns,
   type SwarmConfig,
 } from "@swarmx/core";
@@ -18,6 +19,18 @@ import {
   runContextEvalSuite,
   runEval,
 } from "../src/eval-run.js";
+
+async function runEvalWithRuntime(
+  message: string | undefined,
+  options: Parameters<typeof runEval>[1],
+) {
+  const runtime = await createCoreRuntime();
+  try {
+    return await runEval(message, options, runtime);
+  } finally {
+    await runtime.dispose();
+  }
+}
 
 describe("eval-run skill delivery binding", () => {
   it("refuses a multi-agent config without --skill-delivery-agent", async () => {
@@ -119,7 +132,7 @@ describe("eval-run helpers", () => {
       }),
     );
 
-    const result = await runEval("hello", { config: configPath });
+    const result = await runEvalWithRuntime("hello", { config: configPath });
 
     expect(result.output).toBe("");
     expect(result.messages).toEqual([]);
@@ -155,7 +168,7 @@ describe("eval-run helpers", () => {
       }),
     );
 
-    const result = await runEval("deterministic answer", { config: configPath });
+    const result = await runEvalWithRuntime("deterministic answer", { config: configPath });
 
     expect(result.error).toBeNull();
     expect(result.output).toBe("deterministic answer");
@@ -211,7 +224,7 @@ describe("eval-run helpers", () => {
     );
 
     await expect(
-      runEval("deterministic answer", {
+      runEvalWithRuntime("deterministic answer", {
         config: configPath,
         ablationProfile: profilePath,
       }),

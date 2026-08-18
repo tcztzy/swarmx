@@ -16,6 +16,7 @@ export default defineConfig({
         "packages/cli/src/send-config.ts",
         "packages/core/src/audit.ts",
         "packages/core/src/context-engine.ts",
+        "packages/core/src/core-runtime.ts",
         "packages/core/src/local-tool-contracts.ts",
         "packages/core/src/media.ts",
         "packages/core/src/project-contracts.ts",
@@ -86,6 +87,12 @@ export default defineConfig({
           branches: 67,
           functions: 93,
           lines: 89,
+        },
+        "packages/core/src/core-runtime.ts": {
+          statements: 80,
+          branches: 85,
+          functions: 75,
+          lines: 85,
         },
         "packages/core/src/local-tool-contracts.ts": {
           statements: 100,
@@ -296,6 +303,10 @@ export default defineConfig({
   },
   resolve: {
     alias: [
+      {
+        find: /^@swarmx\/codex$/,
+        replacement: fileURLToPath(new URL("./packages/codex/src/index.ts", import.meta.url)),
+      },
       {
         find: /^@swarmx\/core\/personal-memory$/,
         replacement: fileURLToPath(

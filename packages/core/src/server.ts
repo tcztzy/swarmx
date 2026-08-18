@@ -1,7 +1,17 @@
 import { randomUUID } from "node:crypto";
 import http from "node:http";
 import type { AuditInput } from "./audit.js";
-import type { Swarm } from "./swarm.js";
+import type { MessageChunk } from "./types.js";
+
+export interface ServerSwarmExecution {
+  readonly models: readonly { id: string; object: "model" }[];
+  execute(
+    arguments_: Record<string, unknown>,
+    context?: Record<string, unknown>,
+    onChunk?: (chunk: MessageChunk) => void,
+  ): Promise<MessageChunk[]>;
+  listAllSessions(cwd?: string): Promise<unknown[]>;
+}
 
 export interface ServerAuditWriter {
   append(input: AuditInput): unknown | Promise<unknown>;
@@ -16,7 +26,7 @@ export interface ServerOptions {
   audit?: ServerAuditWriter;
 }
 
-export function createServer(swarm: Swarm, opts: ServerOptions = {}): http.Server {
+export function createServer(swarm: ServerSwarmExecution, opts: ServerOptions = {}): http.Server {
   const port = opts.port ?? 3000;
   const host = opts.host ?? "127.0.0.1";
   const boundary = resolveServerBoundary(opts, host);
@@ -358,7 +368,7 @@ function isLoopbackHost(host: string): boolean {
 async function handleStream(
   _req: http.IncomingMessage,
   res: http.ServerResponse,
-  swarm: Swarm,
+  swarm: ServerSwarmExecution,
   body: ChatCompletionRequest,
 ): Promise<boolean> {
   res.writeHead(200, {
@@ -373,13 +383,7 @@ async function handleStream(
   const created = Math.floor(Date.now() / 1000);
 
   try {
-    const rootNode = swarm.nodes.get(swarm.root);
-
-    if (rootNode?.kind === "agent" && rootNode.agent) {
-      await streamViaAgent(id, created, model, res, rootNode.agent, body);
-    } else {
-      await streamViaSwarm(id, created, model, res, swarm, body);
-    }
+    await streamViaSwarm(id, created, model, res, swarm, body);
 
     return true;
   } catch (err) {
@@ -391,73 +395,19 @@ async function handleStream(
   }
 }
 
-async function streamViaAgent(
-  id: string,
-  created: number,
-  model: string,
-  res: http.ServerResponse,
-  agent: import("./agent.js").Agent,
-  body: ChatCompletionRequest,
-): Promise<void> {
-  return new Promise((resolve, reject) => {
-    agent
-      .callStream({ messages: body.messages }, (chunk) => {
-        if (res.closed) return;
-
-        if (chunk.kind === "message") {
-          const c: ChatCompletionChunk = {
-            id,
-            object: "chat.completion.chunk",
-            created,
-            model,
-            choices: [
-              {
-                index: 0,
-                delta: {
-                  role: chunk.role === "user" ? "user" : "assistant",
-                  content: chunk.content,
-                },
-                finish_reason: null,
-              },
-            ],
-          };
-          res.write(`data: ${JSON.stringify(c)}\n\n`);
-        }
-      })
-      .then(() => {
-        const final: ChatCompletionChunk = {
-          id,
-          object: "chat.completion.chunk",
-          created,
-          model,
-          choices: [
-            {
-              index: 0,
-              delta: {},
-              finish_reason: "stop",
-            },
-          ],
-        };
-        res.write(`data: ${JSON.stringify(final)}\n\n`);
-        resolve();
-      })
-      .catch(reject);
-  });
-}
-
 async function streamViaSwarm(
   id: string,
   created: number,
   model: string,
   res: http.ServerResponse,
-  swarm: Swarm,
+  swarm: ServerSwarmExecution,
   body: ChatCompletionRequest,
 ): Promise<void> {
-  const messages = await swarm.execute({ messages: body.messages });
-
-  for (let i = 0; i < messages.length; i++) {
-    const msg = messages[i];
-    const chunk: ChatCompletionChunk = {
+  let streamedMessageChunks = 0;
+  const messages = await swarm.execute({ messages: body.messages }, undefined, (chunk) => {
+    if (res.closed || chunk.kind !== "message") return;
+    streamedMessageChunks += 1;
+    const streamChunk: ChatCompletionChunk = {
       id,
       object: "chat.completion.chunk",
       created,
@@ -465,22 +415,50 @@ async function streamViaSwarm(
       choices: [
         {
           index: 0,
-          delta:
-            msg.kind === "message"
-              ? { role: msg.role === "user" ? "user" : "assistant", content: msg.content }
-              : { role: "assistant" },
-          finish_reason: i === messages.length - 1 ? "stop" : null,
+          delta: { role: chunk.role === "user" ? "user" : "assistant", content: chunk.content },
+          finish_reason: null,
         },
       ],
     };
-    res.write(`data: ${JSON.stringify(chunk)}\n\n`);
+    res.write(`data: ${JSON.stringify(streamChunk)}\n\n`);
+  });
+
+  if (streamedMessageChunks === 0) {
+    for (const msg of messages) {
+      if (msg.kind !== "message") continue;
+      const chunk: ChatCompletionChunk = {
+        id,
+        object: "chat.completion.chunk",
+        created,
+        model,
+        choices: [
+          {
+            index: 0,
+            delta: { role: msg.role === "user" ? "user" : "assistant", content: msg.content },
+            finish_reason: null,
+          },
+        ],
+      };
+      res.write(`data: ${JSON.stringify(chunk)}\n\n`);
+    }
+  }
+
+  if (!res.closed) {
+    const final: ChatCompletionChunk = {
+      id,
+      object: "chat.completion.chunk",
+      created,
+      model,
+      choices: [{ index: 0, delta: {}, finish_reason: "stop" }],
+    };
+    res.write(`data: ${JSON.stringify(final)}\n\n`);
   }
 }
 
 // ── Non-streaming ───────────────────────────────────────────────────────────
 
 async function handleChat(
-  swarm: Swarm,
+  swarm: ServerSwarmExecution,
   body: ChatCompletionRequest,
 ): Promise<ChatCompletionResponse> {
   const messages = await swarm.execute({ messages: body.messages });
@@ -503,17 +481,8 @@ async function handleChat(
 
 // ── Models ──────────────────────────────────────────────────────────────────
 
-function listModels(swarm: Swarm): Array<{ id: string; object: string }> {
-  const models: Array<{ id: string; object: string }> = [];
-  for (const [name, node] of swarm.nodes) {
-    if (node.kind === "agent") {
-      models.push({ id: name, object: "model" });
-    }
-  }
-  if (swarm.queen) {
-    models.push({ id: swarm.queen.name, object: "model" });
-  }
-  return models;
+function listModels(swarm: ServerSwarmExecution): readonly { id: string; object: "model" }[] {
+  return swarm.models;
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────────

@@ -1,7 +1,7 @@
 import { mkdtemp, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   dismissProject,
   listProjects,
@@ -12,12 +12,23 @@ import {
   setProjectPinned,
 } from "../src/project.js";
 
+const { testHome } = vi.hoisted(() => ({
+  testHome: `${process.env.TMPDIR ?? "/tmp"}/swarmx-project-test-${process.pid}-${Date.now()}`,
+}));
+vi.mock("node:os", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:os")>();
+  return { ...actual, homedir: () => testHome };
+});
+
 const tempRoots: string[] = [];
 const projectIds: string[] = [];
 
 afterEach(async () => {
   for (const id of projectIds.splice(0)) removeProject(id);
-  await Promise.all(tempRoots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
+  await Promise.all([
+    ...tempRoots.splice(0).map((root) => rm(root, { recursive: true, force: true })),
+    rm(testHome, { recursive: true, force: true }),
+  ]);
 });
 
 describe("Project registry", () => {

@@ -2,6 +2,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, expectTypeOf, it } from "vitest";
+import { createCoreRuntime } from "../src/core-runtime.js";
 import {
   builtInExtensionBundle,
   createExtensionInventory,
@@ -2186,12 +2187,14 @@ describe("extension inventory", () => {
       },
     });
     const inventory = admitBundles([bundle]);
+    const runtime = await createCoreRuntime();
 
     const streamed: Array<{ kind: string; content: string }> = [];
     const messages = await executeAgentComposition(
       { id: "run-analysis", agentProfileId: "analysis-lead" },
       [{ role: "user", content: "Review dataset evidence." }],
       {
+        runtime,
         inventory,
         env: { OPENAI_API_KEY: "sk-runtime" },
         onChunk: (chunk) => streamed.push(chunk),
@@ -2213,8 +2216,9 @@ describe("extension inventory", () => {
       executeAgentComposition(
         { id: "bad-run", harnessId: "missing", modelId: "gpt-5" },
         [{ role: "user", content: "hello" }],
-        { inventory },
+        { runtime, inventory },
       ),
     ).rejects.toThrow(/Agent composition "bad-run" is blocked/);
+    await runtime.dispose();
   });
 });

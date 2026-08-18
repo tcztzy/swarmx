@@ -1,6 +1,6 @@
 {
   "name": "@swarmx/cli",
-  "version": "3.2.0",
+  "version": "4.0.0",
   "description": "Command-line interface for SwarmX workflows and evaluations.",
   "license": "MIT",
   "repository": {

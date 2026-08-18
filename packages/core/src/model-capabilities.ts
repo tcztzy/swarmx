@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { BuiltinToolStyleSchema } from "./builtin-tools.js";
-import { HARNESSES } from "./harness.js";
+import { type HarnessCatalog, staticHarnessCatalog } from "./harness.js";
 import type { ModelApi } from "./model-api.js";
 import { ModelApiSchema } from "./model-api.js";
 
@@ -289,6 +289,8 @@ export interface ResolveHarnessModelInventoryOptions {
   providers?: readonly unknown[];
   harnesses?: readonly unknown[];
   registry?: readonly unknown[];
+  /** DSH plugin Harness catalog; defaults to the built-in static registry. */
+  harnessCatalog?: HarnessCatalog;
 }
 
 const OPENAI_MODEL_SOURCE = {
@@ -658,12 +660,15 @@ export function findModelCapability(
 export function resolveModelReasoningCapability(
   selectionInput: unknown,
   registryInput: readonly unknown[] = MODEL_CAPABILITIES,
+  harnessCatalog: HarnessCatalog = staticHarnessCatalog,
 ): ResolvedModelReasoningCapability | undefined {
   const selection = ModelReasoningSelectionSchema.parse(selectionInput);
   const model = MODELS.find((candidate) => candidate.id === selection.modelId);
   const apiProtocol =
     selection.apiProtocol ??
-    (model ? modelApiForHarness(selection.harnessId, model, builtInHarnessInventory()) : undefined);
+    (model
+      ? modelApiForHarness(selection.harnessId, model, builtInHarnessInventory(harnessCatalog))
+      : undefined);
   if (!apiProtocol) return undefined;
   const capability = findModelCapability(
     { modelId: selection.modelId, apiProtocol },
@@ -721,7 +726,8 @@ export function modelReasoningRequestParameters(
 export function resolveHarnessModelInventory(
   options: ResolveHarnessModelInventoryOptions,
 ): ResolvedHarnessModel[] {
-  const harnesses = (options.harnesses ?? builtInHarnessInventory()).map((harness) =>
+  const harnessCatalog = options.harnessCatalog ?? staticHarnessCatalog;
+  const harnesses = (options.harnesses ?? builtInHarnessInventory(harnessCatalog)).map((harness) =>
     ModelHarnessInventoryEntrySchema.parse(harness),
   );
   const matches = harnesses.filter((harness) => harness.id === options.harnessId);
@@ -820,8 +826,10 @@ export function resolveHarnessModelInventory(
   return resolved;
 }
 
-function builtInHarnessInventory(): ModelHarnessInventoryEntry[] {
-  return Object.entries(HARNESSES).map(([id, harness]) => ({
+function builtInHarnessInventory(
+  harnessCatalog: HarnessCatalog = staticHarnessCatalog,
+): ModelHarnessInventoryEntry[] {
+  return harnessCatalog.listHarnesses().map(({ id, config: harness }) => ({
     id,
     runtimeHarnessId: id,
     modelControl: harness.modelControl,

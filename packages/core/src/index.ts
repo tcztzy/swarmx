@@ -8,7 +8,6 @@ export type {
   MessageChunk as AcpMessageChunk,
 } from "./acp.js";
 export {
-  AcpClient,
   AcpSessionUnavailableError,
   cancelAcpRequest,
   findSessionConfigSelect,
@@ -64,9 +63,6 @@ export {
   mergeModelTokenUsage,
   summarizeActivityEvents,
 } from "./activity.js";
-export type { AgentRuntimeOptions } from "./agent.js";
-export { Agent, HookRef } from "./agent.js";
-export * from "./agent-guidance.js";
 export type {
   AgentDefinitionDocument,
   AgentDefinitionFormat,
@@ -180,6 +176,29 @@ export {
   replayConversationEvents,
 } from "./conversation.js";
 export type {
+  CoreAgentExecution,
+  CoreAgentRuntimeOptions,
+  CoreRuntime,
+  CoreRuntimeOptions,
+  CoreSwarmExecution,
+  CoreSwarmRuntimeOptions,
+  SwarmStrategy,
+} from "./core-runtime.js";
+export {
+  AcpLauncherService,
+  AcpRuntimeService,
+  builtinHarnessConnectorPlugin,
+  builtinHarnessConnectors,
+  builtinProviderConnector,
+  builtinProviderConnectorPlugin,
+  coreRuntimePlugin,
+  createCoreRuntime,
+  dagSwarmStrategyPlugin,
+  failClosedHarnessPermissionPlugin,
+  McpRuntimeService,
+  SwarmRuntimeService,
+} from "./core-runtime.js";
+export type {
   DependencyDetectionResult,
   DependencyDetectionSource,
   DependencyDetectionStatus,
@@ -268,6 +287,20 @@ export {
   resolveLocaleSelection,
   ServerDataRootSourceSchema,
 } from "./desktop-settings.js";
+export type {
+  HarnessConnector,
+  HarnessTransportFactory,
+  ProviderConnector,
+  TaskGuidanceContribution,
+} from "./dsh-plugin.js";
+export {
+  HarnessConnectorService,
+  HarnessPermissionService,
+  HarnessTransportService,
+  ProviderConnectorService,
+  SwarmStrategyService,
+  TaskGuidanceService,
+} from "./dsh-plugin.js";
 export { Edge } from "./edge.js";
 export type {
   ExtensionCompositionDeclaration,
@@ -436,6 +469,8 @@ export {
   validateSkillHostCompatibility,
 } from "./extensions.js";
 export type {
+  HarnessCatalog,
+  HarnessCatalogEntry,
   HarnessConfig,
   HarnessModelCompatibility,
   HarnessModelControl,
@@ -443,12 +478,28 @@ export type {
   HarnessSoftware,
 } from "./harness.js";
 export {
+  CODEX_MODULE_COMMAND,
   getHarness,
   getHarnessList,
   HARNESSES,
   harnessModelRuntimeEnv,
   harnessModelRuntimeModel,
+  staticHarnessCatalog,
 } from "./harness.js";
+export type {
+  HarnessApprovalOutcome,
+  HarnessApprovalRequest,
+  HarnessApprovalResolver,
+  HarnessClient,
+  HarnessLaunchRequest,
+  HarnessLaunchResolver,
+  HarnessLaunchSpec,
+  HarnessPermissionHandler,
+  HarnessPromptClient,
+  HarnessPromptClientOptions,
+  HarnessPromptInput,
+  HarnessSessionClient,
+} from "./harness-client.js";
 export type {
   HarnessAgentAlias,
   HarnessAvailability,
@@ -501,7 +552,6 @@ export type {
 } from "./local-tool-contracts.js";
 export { localToolResult } from "./local-tool-contracts.js";
 export type { ToolExecutionResult } from "./mcp.js";
-export { McpManager } from "./mcp.js";
 export type {
   AcpPromptContentInput,
   InlineMediaLoader,
@@ -836,9 +886,8 @@ export {
   SkillVariantStatusSchema,
   SkillVariantTargetSchema,
 } from "./skill-variants.js";
-export type { SwarmRuntimeOptions } from "./swarm.js";
-export { Swarm, SwarmNode } from "./swarm.js";
 export * from "./task-control-service.js";
+export * from "./task-guidance.js";
 export * from "./task-runtime.js";
 export * from "./task-runtime-store.js";
 export * from "./task-supervisor.js";

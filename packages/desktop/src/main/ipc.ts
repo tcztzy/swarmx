@@ -15,12 +15,15 @@ import type {
   AuditQuery,
   AuditVerification,
   BeginSessionRequestResult,
+  CoreRuntime,
+  CoreSwarmExecution,
   DiscoveredSession,
   ExtensionAuthorityAuditEvent,
   ExtensionInventory,
   ExternalAcpSessionBinding,
   GlobalMemoryBackend,
   GlobalMemorySnapshot,
+  HarnessCatalog,
   HarnessPermissionMode,
   ListGroupedSessionsOptions,
   MediaAttachment,
@@ -45,6 +48,7 @@ import {
   beginSessionRequest,
   buildGlobalMemoryUseReceipt,
   countPersonalMemoryAgentTargets,
+  createCoreRuntime,
   createMemoryAgentTool,
   createReferenceLibraryAgentTool,
   createSession,
@@ -54,24 +58,21 @@ import {
   estimateModelTokenUsage,
   executeAgentComposition,
   forkSession,
-  getHarness,
   globalMemoryReceiptMessage,
   HarnessPermissionPolicySchema,
   importN8nWorkflow,
-  listGroupedSessions,
   listSessionSummaries,
-  loadDiscoveredSession,
   loadExtensionInventory,
   loadSession,
   mergeModelTokenUsage,
   modelReplayableMessages,
   projectBootstrapReceiptMessage,
   resolveAgentCompositionPlan,
-  Swarm,
   saveSession,
   setSessionPinned,
   settleSessionRequest,
   stableJson,
+  staticHarnessCatalog,
   updateSessionTitle,
   validateMediaAttachments,
 } from "@swarmx/core";
@@ -267,7 +268,16 @@ export const LEGACY_IPC_AUDIT_POLICIES = {
   "asset:imageDataUrl": "intent_outcome",
 } as const satisfies Record<string, IpcAuditPolicy>;
 const lspHost = new LspHost();
-const harnessEnvironment = new HarnessEnvironmentService();
+let desktopHarnessCatalog: HarnessCatalog = staticHarnessCatalog;
+const harnessEnvironment = new HarnessEnvironmentService({
+  harnessCatalog: {
+    listHarnesses: () => desktopHarnessCatalog.listHarnesses(),
+    getHarness: (id) => desktopHarnessCatalog.getHarness(id),
+    resolveRuntimeModel: (id, options) => desktopHarnessCatalog.resolveRuntimeModel(id, options),
+    resolveModelRuntimeEnv: (id, options) =>
+      desktopHarnessCatalog.resolveModelRuntimeEnv(id, options),
+  },
+});
 const harnessDoctor = new HarnessDoctor(harnessEnvironment);
 const agentRequests = new DesktopRequestRegistry();
 const sideChats = new SideChatService();
@@ -327,8 +337,19 @@ const desktopActivity = new ActivityStore(
     ? { filePath: path.join(tmpdir(), `swarmx-activity-test-${process.pid}.jsonl`) }
     : {},
 );
+const desktopCoreRuntimePromise = createCoreRuntime();
+void desktopCoreRuntimePromise
+  .then((runtime) => {
+    desktopHarnessCatalog = runtime.harnessCatalog;
+  })
+  .catch(() => {});
+
+export async function disposeDesktopCoreRuntime(): Promise<void> {
+  await (await desktopCoreRuntimePromise).dispose();
+}
 
 export interface RegisterIpcHandlersOptions {
+  coreRuntime?: CoreRuntime | Promise<CoreRuntime>;
   updateService?: DesktopUpdateServiceLike;
   broadcastUpdateState?: (state: DesktopUpdateState) => void;
   activityStore?: ActivityStore;
@@ -482,8 +503,9 @@ function appendActivity(store: ActivityStore, input: ActivityEventInput): void {
 }
 
 async function loadDesktopExtensionInventory(): Promise<ExtensionInventory> {
+  const runtime = await desktopCoreRuntimePromise;
   const [inventory, nativeAgents, settings] = await Promise.all([
-    loadExtensionInventory(),
+    loadExtensionInventory({ harnessCatalog: runtime.harnessCatalog }),
     customAgents.discoverNative({ workspaceRoot: desktopWorkspaceRoot }),
     desktopSettingsStore.read(),
   ]);
@@ -549,6 +571,30 @@ function isErrorCode(error: unknown, code: string): boolean {
 }
 
 export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): void {
+  const coreRuntimePromise = Promise.resolve(options.coreRuntime ?? desktopCoreRuntimePromise);
+  void coreRuntimePromise
+    .then((runtime) => {
+      desktopHarnessCatalog = runtime.harnessCatalog;
+    })
+    .catch(() => {});
+  const runtimeInventoryWithPlans = async (
+    inventory: ExtensionInventory,
+    env: NodeJS.ProcessEnv = process.env,
+  ) => extensionInventoryWithPlans(inventory, env, (await coreRuntimePromise).harnessCatalog);
+  const executeComposition = async (
+    composition: Parameters<typeof executeAgentComposition>[0],
+    messages: Parameters<typeof executeAgentComposition>[1],
+    runtimeOptions: Omit<Parameters<typeof executeAgentComposition>[2], "runtime">,
+  ): ReturnType<typeof executeAgentComposition> => {
+    const runtime = await coreRuntimePromise;
+    return executeAgentComposition(composition, messages, {
+      ...runtimeOptions,
+      runtime,
+      harnessCatalog: runtimeOptions.harnessCatalog ?? runtime.harnessCatalog,
+      resolveProviderRuntimeEnv:
+        runtimeOptions.resolveProviderRuntimeEnv ?? runtime.resolveProviderRuntimeEnv,
+    });
+  };
   const updateService = options.updateService ?? createDisabledDesktopUpdateService();
   const activityStore = options.activityStore ?? desktopActivity;
   const auditStore = options.auditStore ?? desktopAudit;
@@ -1081,7 +1127,7 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
         const privateKnowledgeTools = referenceLibraryBackend
           ? [createReferenceLibraryAgentTool(referenceLibraryBackend)]
           : [];
-        let swarm: Swarm;
+        let swarm: CoreSwarmExecution;
         const cwd = await normalizeWorkingDirectory(params.cwd);
         const createRunContextEngine = (contextId: string, history: readonly MessageChunk[]) =>
           createSessionContextEngine({
@@ -1147,19 +1193,22 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
           const workflowHistory = params.sessionId
             ? (loadSession(params.sessionId)?.messages ?? [])
             : [];
-          swarm = new Swarm(await protectSwarmConfigBackends(config, cwd), {
-            agent: {
-              acpPermissionHandler,
-              memoryTools,
-              localTools: privateKnowledgeTools,
-              contextEngine: createRunContextEngine(
-                params.sessionId ?? params.requestId,
-                workflowHistory,
-              ),
-              ...(globalMemorySnapshot ? { globalMemory: globalMemorySnapshot } : {}),
-              ...(memoryReflection ? { memoryReflection } : {}),
+          swarm = (await coreRuntimePromise).prepareSwarm(
+            await protectSwarmConfigBackends(config, cwd),
+            {
+              agent: {
+                acpPermissionHandler,
+                memoryTools,
+                localTools: privateKnowledgeTools,
+                contextEngine: createRunContextEngine(
+                  params.sessionId ?? params.requestId,
+                  workflowHistory,
+                ),
+                ...(globalMemorySnapshot ? { globalMemory: globalMemorySnapshot } : {}),
+                ...(memoryReflection ? { memoryReflection } : {}),
+              },
             },
-          });
+          );
           memoryReceipt = globalMemoryReceiptMessage(
             buildGlobalMemoryUseReceipt({
               snapshot: globalMemorySnapshot,
@@ -1171,7 +1220,11 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
           onChunk(memoryReceipt);
         } else if (params.agentComposition) {
           const inventory = await modelCatalog.list(await loadDesktopExtensionInventory());
-          const plan = resolveAgentCompositionPlan(params.agentComposition, inventory);
+          const plan = resolveAgentCompositionPlan(
+            params.agentComposition,
+            inventory,
+            (await coreRuntimePromise).harnessCatalog,
+          );
           for (const skillId of new Set(plan.skills.map((skill) => skill.id))) {
             usedSkillIds.add(skillId);
           }
@@ -1363,7 +1416,7 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
             activePermissionReviewerModel = reviewerModel;
             activePermissionReviewer = new PermissionAutoReviewer({
               generate: (messages) =>
-                executeAgentComposition(reviewerComposition, messages, {
+                executeComposition(reviewerComposition, messages, {
                   inventory: executionInventory,
                   providerSecrets,
                   cwd,
@@ -1472,7 +1525,7 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
                   `${sessionId}:background`,
                   (providerSecrets, observation) =>
                     runWithPermissionReviewer(providerSecrets, observation, () =>
-                      executeAgentComposition(
+                      executeComposition(
                         params.agentComposition,
                         [
                           {
@@ -1650,7 +1703,7 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
                       `${params.sessionId ?? params.requestId}:agent:${agentId}`,
                       (providerSecrets, observation) =>
                         runWithPermissionReviewer(providerSecrets, observation, () =>
-                          executeAgentComposition(params.agentComposition, childMessages, {
+                          executeComposition(params.agentComposition, childMessages, {
                             inventory: protectedInventory,
                             providerSecrets,
                             cwd: childBinding.cwd,
@@ -1743,7 +1796,7 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
             params.sideChatId ?? params.sessionId ?? params.requestId,
             (providerSecrets, observation) =>
               runWithPermissionReviewer(providerSecrets, observation, () =>
-                executeAgentComposition(
+                executeComposition(
                   params.agentComposition,
                   [
                     ...sideChatBoundaryMessage,
@@ -1841,7 +1894,7 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
             "Inline agentConfig is not accepted by the desktop runtime; use Agent Composition.",
           );
         } else {
-          const harness = getHarness(params.harnessId);
+          const harness = (await coreRuntimePromise).harnessCatalog.getHarness(params.harnessId);
           if (!harness) throw new Error(`Unknown harness: ${params.harnessId}`);
           throw new Error(
             `Harness "${params.harnessId}" requires an Agent Composition with an explicit Model.`,
@@ -2157,9 +2210,14 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
     "session:listGrouped",
     async (_event: IpcMainInvokeEvent, params?: ListGroupedSessionsOptions) => {
       const status = await harnessEnvironment.status();
-      return listGroupedSessions({
+      const runtime = await coreRuntimePromise;
+      return runtime.listGroupedSessions({
         ...(params ?? {}),
-        harnessIds: sessionDiscoveryHarnessIds(status, params?.harnessIds),
+        harnessIds: sessionDiscoveryHarnessIds(
+          status,
+          params?.harnessIds,
+          (await coreRuntimePromise).harnessCatalog,
+        ),
       });
     },
   );
@@ -2176,7 +2234,7 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
           );
         }
       }
-      return loadDiscoveredSession(session);
+      return (await coreRuntimePromise).loadDiscoveredSession(session);
     },
   );
 
@@ -2242,7 +2300,11 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
           effort: "none",
           host: "local",
         };
-        const plan = resolveAgentCompositionPlan(composition, inventory);
+        const plan = resolveAgentCompositionPlan(
+          composition,
+          inventory,
+          (await coreRuntimePromise).harnessCatalog,
+        );
         assertCompositionSupplyReady(inventory, plan, process.env);
         const providerRuntime = plan.modelSupplyId
           ? await modelCatalog.runtimeCredentialsForSupply(inventory, plan.modelSupplyId)
@@ -2251,7 +2313,7 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
           providerRuntime,
           `${session.id}:title`,
           (providerSecrets, observation) =>
-            executeAgentComposition(composition, sessionTitleMessages(params.userText), {
+            executeComposition(composition, sessionTitleMessages(params.userText), {
               inventory,
               providerSecrets,
               onChunk: () => observation.markOutput(),
@@ -2335,7 +2397,7 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
 
   ipcMain.handle("extension:list", async () => {
     const inventory = await loadDesktopExtensionInventory();
-    return extensionInventoryWithPlans(await modelCatalog.list(inventory));
+    return runtimeInventoryWithPlans(await modelCatalog.list(inventory));
   });
 
   ipcMain.handle("extension:managementState", () => extensionManager.state());
@@ -2364,7 +2426,7 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
 
   ipcMain.handle("customAgent:list", async () => {
     const inventory = await loadDesktopExtensionInventory();
-    return extensionInventoryWithPlans(await modelCatalog.list(inventory));
+    return runtimeInventoryWithPlans(await modelCatalog.list(inventory));
   });
 
   ipcMain.handle("customAgent:save", async (_event: IpcMainInvokeEvent, input: unknown) => {
@@ -2372,7 +2434,7 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
     await customAgents.save(input, {
       reservedAgentIds: inventory.agents.map((agent) => agent.id),
     });
-    return extensionInventoryWithPlans(await modelCatalog.list(inventory));
+    return runtimeInventoryWithPlans(await modelCatalog.list(inventory));
   });
 
   ipcMain.handle(
@@ -2380,7 +2442,7 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
     async (_event: IpcMainInvokeEvent, params: { id: string }) => {
       await customAgents.remove(params.id);
       const inventory = await loadDesktopExtensionInventory();
-      return extensionInventoryWithPlans(await modelCatalog.list(inventory));
+      return runtimeInventoryWithPlans(await modelCatalog.list(inventory));
     },
   );
 
@@ -2506,14 +2568,14 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
 
   ipcMain.handle("modelCatalog:refresh", async () => {
     const inventory = await loadDesktopExtensionInventory();
-    return extensionInventoryWithPlans(await modelCatalog.refresh(inventory));
+    return runtimeInventoryWithPlans(await modelCatalog.refresh(inventory));
   });
 
   ipcMain.handle(
     "modelCatalog:addManualModel",
     async (_event: IpcMainInvokeEvent, input: ManualModelInput) => {
       const inventory = await loadDesktopExtensionInventory();
-      return extensionInventoryWithPlans(await modelCatalog.addManualModel(inventory, input));
+      return runtimeInventoryWithPlans(await modelCatalog.addManualModel(inventory, input));
     },
   );
 
@@ -2521,7 +2583,7 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
     "modelCatalog:removeManualModel",
     async (_event: IpcMainInvokeEvent, params: { modelId: string }) => {
       const inventory = await loadDesktopExtensionInventory();
-      return extensionInventoryWithPlans(
+      return runtimeInventoryWithPlans(
         await modelCatalog.removeManualModel(inventory, params.modelId),
       );
     },
@@ -2531,7 +2593,7 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
     "modelCatalog:saveProvider",
     async (_event: IpcMainInvokeEvent, input: UserProviderInput) => {
       const inventory = await loadDesktopExtensionInventory();
-      return extensionInventoryWithPlans(await modelCatalog.saveProvider(inventory, input));
+      return runtimeInventoryWithPlans(await modelCatalog.saveProvider(inventory, input));
     },
   );
 
@@ -2539,7 +2601,7 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
     "modelCatalog:removeProvider",
     async (_event: IpcMainInvokeEvent, params: { providerId: string }) => {
       const inventory = await loadDesktopExtensionInventory();
-      return extensionInventoryWithPlans(
+      return runtimeInventoryWithPlans(
         await modelCatalog.removeProvider(inventory, params.providerId),
       );
     },
@@ -2549,7 +2611,7 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
     "modelCatalog:resetProviderKey",
     async (_event: IpcMainInvokeEvent, params: { providerId: string; keyId: string }) => {
       const inventory = await loadDesktopExtensionInventory();
-      return extensionInventoryWithPlans(
+      return runtimeInventoryWithPlans(
         await modelCatalog.resetProviderKey(inventory, params.providerId, params.keyId),
       );
     },
@@ -2657,11 +2719,12 @@ function runCleanupActions(actions: ReadonlyArray<() => void>): void {
 export function sessionDiscoveryHarnessIds(
   status: HarnessEnvironmentStatus,
   requestedHarnessIds?: string[],
+  harnessCatalog: HarnessCatalog = staticHarnessCatalog,
 ): string[] {
   const readyNativeCustomHarnessIds = status.harnesses
     .filter((harness) => {
       if (harness.status !== "ready" || harness.executionMode !== "native") return false;
-      return getHarness(harness.harnessId)?.backend.type === "custom";
+      return harnessCatalog.getHarness(harness.harnessId)?.backend.type === "custom";
     })
     .map((harness) => harness.harnessId);
   if (!requestedHarnessIds) return [];
@@ -2749,6 +2812,7 @@ export function assertDesktopSwarmModels(config: SwarmConfig): void {
 export function extensionInventoryWithPlans(
   inventory: ExtensionInventory,
   env: NodeJS.ProcessEnv = process.env,
+  harnessCatalog: HarnessCatalog = staticHarnessCatalog,
 ): ExtensionInventory & { agentPlans: AgentCompositionPlan[] } {
   const providers = inventory.providers.map((provider) => {
     const readiness = providerRuntimeReadiness(provider, env);
@@ -2765,6 +2829,7 @@ export function extensionInventoryWithPlans(
           host: "local",
         },
         inventory,
+        harnessCatalog,
       );
       const supply = plan.modelSupplyId
         ? inventory.modelSupplies.find((item) => item.id === plan.modelSupplyId)

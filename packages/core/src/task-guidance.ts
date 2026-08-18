@@ -1,8 +1,8 @@
 import { z } from "zod";
-import { HARNESSES } from "./harness.js";
+import { type HarnessCatalog, staticHarnessCatalog } from "./harness.js";
 import { MODELS } from "./model-capabilities.js";
 
-export const AgentGuidanceTaskFamilySchema = z.enum([
+export const TaskGuidanceTaskFamilySchema = z.enum([
   "general",
   "reasoning",
   "coding",
@@ -16,11 +16,11 @@ export const AgentGuidanceTaskFamilySchema = z.enum([
   "instruction_following",
 ]);
 
-export const AgentGuidanceVerdictSchema = z.enum(["preferred", "suitable", "weak"]);
-export const AgentGuidanceConfidenceSchema = z.enum(["low", "medium", "high"]);
-export const AgentGuidanceEvidenceScopeSchema = z.enum(["model", "agent_model"]);
+export const TaskGuidanceVerdictSchema = z.enum(["preferred", "suitable", "weak"]);
+export const TaskGuidanceConfidenceSchema = z.enum(["low", "medium", "high"]);
+export const TaskGuidanceEvidenceScopeSchema = z.enum(["model", "agent_model"]);
 
-export const AgentGuidanceSourceSchema = z
+export const TaskGuidanceSourceSchema = z
   .object({
     id: z.string().min(1),
     kind: z.literal("benchmark_leaderboard"),
@@ -35,7 +35,7 @@ export const AgentGuidanceSourceSchema = z
   })
   .strict();
 
-export const AgentGuidanceTargetSchema = z.discriminatedUnion("kind", [
+export const TaskGuidanceTargetSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("model"), modelId: z.string().min(1) }).strict(),
   z.object({ kind: z.literal("harness"), harnessId: z.string().min(1) }).strict(),
   z
@@ -47,7 +47,7 @@ export const AgentGuidanceTargetSchema = z.discriminatedUnion("kind", [
     .strict(),
 ]);
 
-export const AgentGuidanceConditionsSchema = z
+export const TaskGuidanceConditionsSchema = z
   .object({
     reasoningEffort: z.string().min(1).optional(),
     apiMode: z.string().min(1).optional(),
@@ -56,10 +56,10 @@ export const AgentGuidanceConditionsSchema = z
   })
   .strict();
 
-export const AgentGuidanceEvidenceSchema = z
+export const TaskGuidanceEvidenceSchema = z
   .object({
     sourceId: z.string().min(1),
-    scope: AgentGuidanceEvidenceScopeSchema,
+    scope: TaskGuidanceEvidenceScopeSchema,
     benchmarkTask: z.string().min(1),
     metric: z.string().min(1),
     value: z.number().finite().nonnegative(),
@@ -90,17 +90,17 @@ export const AgentGuidanceEvidenceSchema = z
     }
   });
 
-export const AgentGuidanceRecordSchema = z
+export const TaskGuidanceRecordSchema = z
   .object({
     id: z.string().min(1),
-    target: AgentGuidanceTargetSchema,
-    taskFamilies: z.array(AgentGuidanceTaskFamilySchema).min(1),
-    verdict: AgentGuidanceVerdictSchema,
-    confidence: AgentGuidanceConfidenceSchema,
+    target: TaskGuidanceTargetSchema,
+    taskFamilies: z.array(TaskGuidanceTaskFamilySchema).min(1),
+    verdict: TaskGuidanceVerdictSchema,
+    confidence: TaskGuidanceConfidenceSchema,
     summary: z.string().min(1),
     reviewedAt: z.string().date(),
-    conditions: AgentGuidanceConditionsSchema,
-    evidence: z.array(AgentGuidanceEvidenceSchema).min(1),
+    conditions: TaskGuidanceConditionsSchema,
+    evidence: z.array(TaskGuidanceEvidenceSchema).min(1),
     limitations: z.array(z.string().min(1)).min(1),
   })
   .strict()
@@ -109,16 +109,16 @@ export const AgentGuidanceRecordSchema = z
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ["taskFamilies"],
-        message: "Agent guidance task families must be unique.",
+        message: "Task guidance task families must be unique.",
       });
     }
   });
 
-export const AgentGuidanceCatalogSchema = z
+export const TaskGuidanceCatalogSchema = z
   .object({
     schemaVersion: z.literal(1),
-    sources: z.array(AgentGuidanceSourceSchema).min(1),
-    records: z.array(AgentGuidanceRecordSchema),
+    sources: z.array(TaskGuidanceSourceSchema).min(1),
+    records: z.array(TaskGuidanceRecordSchema),
   })
   .strict()
   .superRefine((catalog, ctx) => {
@@ -128,7 +128,7 @@ export const AgentGuidanceCatalogSchema = z
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
           path: ["sources", index, "id"],
-          message: `Duplicate Agent guidance source id "${source.id}".`,
+          message: `Duplicate Task guidance source id "${source.id}".`,
         });
       }
       sourceIds.add(source.id);
@@ -140,7 +140,7 @@ export const AgentGuidanceCatalogSchema = z
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
           path: ["records", recordIndex, "id"],
-          message: `Duplicate Agent guidance record id "${record.id}".`,
+          message: `Duplicate Task guidance record id "${record.id}".`,
         });
       }
       recordIds.add(record.id);
@@ -149,23 +149,23 @@ export const AgentGuidanceCatalogSchema = z
           ctx.addIssue({
             code: z.ZodIssueCode.custom,
             path: ["records", recordIndex, "evidence", evidenceIndex, "sourceId"],
-            message: `Unknown Agent guidance source id "${evidence.sourceId}".`,
+            message: `Unknown Task guidance source id "${evidence.sourceId}".`,
           });
         }
       }
     }
   });
 
-export type AgentGuidanceTaskFamily = z.infer<typeof AgentGuidanceTaskFamilySchema>;
-export type AgentGuidanceVerdict = z.infer<typeof AgentGuidanceVerdictSchema>;
-export type AgentGuidanceConfidence = z.infer<typeof AgentGuidanceConfidenceSchema>;
-export type AgentGuidanceEvidenceScope = z.infer<typeof AgentGuidanceEvidenceScopeSchema>;
-export type AgentGuidanceSource = z.infer<typeof AgentGuidanceSourceSchema>;
-export type AgentGuidanceTarget = z.infer<typeof AgentGuidanceTargetSchema>;
-export type AgentGuidanceConditions = z.infer<typeof AgentGuidanceConditionsSchema>;
-export type AgentGuidanceEvidence = z.infer<typeof AgentGuidanceEvidenceSchema>;
-export type AgentGuidanceRecord = z.infer<typeof AgentGuidanceRecordSchema>;
-export type AgentGuidanceCatalog = z.infer<typeof AgentGuidanceCatalogSchema>;
+export type TaskGuidanceTaskFamily = z.infer<typeof TaskGuidanceTaskFamilySchema>;
+export type TaskGuidanceVerdict = z.infer<typeof TaskGuidanceVerdictSchema>;
+export type TaskGuidanceConfidence = z.infer<typeof TaskGuidanceConfidenceSchema>;
+export type TaskGuidanceEvidenceScope = z.infer<typeof TaskGuidanceEvidenceScopeSchema>;
+export type TaskGuidanceSource = z.infer<typeof TaskGuidanceSourceSchema>;
+export type TaskGuidanceTarget = z.infer<typeof TaskGuidanceTargetSchema>;
+export type TaskGuidanceConditions = z.infer<typeof TaskGuidanceConditionsSchema>;
+export type TaskGuidanceEvidence = z.infer<typeof TaskGuidanceEvidenceSchema>;
+export type TaskGuidanceRecord = z.infer<typeof TaskGuidanceRecordSchema>;
+export type TaskGuidanceCatalog = z.infer<typeof TaskGuidanceCatalogSchema>;
 
 const REVIEWED_AT = "2026-08-12";
 const LIVEBENCH_SOURCE_ID = "livebench-2026-06-25";
@@ -175,7 +175,9 @@ const BFCL_SOURCE_ID = "bfcl-v4-2025.12.17";
 
 const MODEL_BENCHMARK_LIMITATION =
   "Model-level benchmark evidence does not measure any SwarmX Harness, Provider route, or Project workload.";
-const UPSTREAM_HARNESS_LIMITATION =
+const UPSTREAM_CODEX_LIMITATION =
+  "The leaderboard evaluated the upstream native Harness; SwarmX runs the repository-owned direct Codex app-server transport, whose exact version and behavior were not benchmarked.";
+const UPSTREAM_ACP_LIMITATION =
   "The leaderboard evaluated the upstream native Harness; SwarmX runs an ACP adapter whose exact version and behavior were not benchmarked.";
 const WHOLE_SYSTEM_LIMITATION =
   "The result measures the submitted Agent x Model system and cannot be attributed to the bare Model.";
@@ -186,7 +188,7 @@ function liveBenchEvidence(
   value: number,
   reasoningEffort: string,
   rank?: number,
-): AgentGuidanceEvidence {
+): TaskGuidanceEvidence {
   return {
     sourceId: LIVEBENCH_SOURCE_ID,
     scope: "model",
@@ -207,7 +209,7 @@ function terminalBenchEvidence(
   rank: number,
   reasoningEffort: string,
   evaluatedAt: string,
-): AgentGuidanceEvidence {
+): TaskGuidanceEvidence {
   return {
     sourceId: TERMINAL_BENCH_SOURCE_ID,
     scope: "agent_model",
@@ -229,7 +231,7 @@ function sweBenchEvidence(
   value: number,
   reasoningEffort: string | undefined,
   evaluatedAt: string,
-): AgentGuidanceEvidence {
+): TaskGuidanceEvidence {
   return {
     sourceId: SWE_BENCH_SOURCE_ID,
     scope: "agent_model",
@@ -244,7 +246,7 @@ function sweBenchEvidence(
   };
 }
 
-const RAW_AGENT_GUIDANCE_CATALOG = {
+const RAW_TASK_GUIDANCE_CATALOG = {
   schemaVersion: 1,
   sources: [
     {
@@ -633,7 +635,7 @@ const RAW_AGENT_GUIDANCE_CATALOG = {
         terminalBenchEvidence("Codex", "GPT-5.6 Terra", 78.4, 6, "max", "2026-07-11"),
         terminalBenchEvidence("Codex", "GPT-5.6 Luna", 75.7, 9, "max", "2026-07-11"),
       ],
-      limitations: [UPSTREAM_HARNESS_LIMITATION, WHOLE_SYSTEM_LIMITATION],
+      limitations: [UPSTREAM_CODEX_LIMITATION, WHOLE_SYSTEM_LIMITATION],
     },
     {
       id: "harness-claude-code-terminal",
@@ -652,7 +654,7 @@ const RAW_AGENT_GUIDANCE_CATALOG = {
         terminalBenchEvidence("Claude Code", "Opus 4.8", 78.9, 5, "high", "2026-07-09"),
         terminalBenchEvidence("Claude Code", "Sonnet 5", 74.6, 10, "high", "2026-07-09"),
       ],
-      limitations: [UPSTREAM_HARNESS_LIMITATION, WHOLE_SYSTEM_LIMITATION],
+      limitations: [UPSTREAM_ACP_LIMITATION, WHOLE_SYSTEM_LIMITATION],
     },
     {
       id: "agent-claude-code-fable-5-terminal",
@@ -668,7 +670,7 @@ const RAW_AGENT_GUIDANCE_CATALOG = {
         benchmarkConfiguration: "Claude Code with Fable 5 xhigh on terminal-bench@2.1",
       },
       evidence: [terminalBenchEvidence("Claude Code", "Fable 5", 83.8, 1, "xhigh", "2026-06-07")],
-      limitations: [UPSTREAM_HARNESS_LIMITATION],
+      limitations: [UPSTREAM_ACP_LIMITATION],
     },
     {
       id: "agent-codex-gpt-5.5-terminal",
@@ -684,7 +686,7 @@ const RAW_AGENT_GUIDANCE_CATALOG = {
         benchmarkConfiguration: "Codex with GPT-5.5 xhigh on terminal-bench@2.1",
       },
       evidence: [terminalBenchEvidence("Codex", "GPT-5.5", 83.1, 2, "xhigh", "2026-05-01")],
-      limitations: [UPSTREAM_HARNESS_LIMITATION],
+      limitations: [UPSTREAM_CODEX_LIMITATION],
     },
     {
       id: "agent-claude-code-opus-4.8-terminal",
@@ -700,7 +702,7 @@ const RAW_AGENT_GUIDANCE_CATALOG = {
         benchmarkConfiguration: "Claude Code with Opus 4.8 high on terminal-bench@2.1",
       },
       evidence: [terminalBenchEvidence("Claude Code", "Opus 4.8", 78.9, 5, "high", "2026-07-09")],
-      limitations: [UPSTREAM_HARNESS_LIMITATION],
+      limitations: [UPSTREAM_ACP_LIMITATION],
     },
     {
       id: "agent-codex-gpt-5.6-terra-terminal",
@@ -716,7 +718,7 @@ const RAW_AGENT_GUIDANCE_CATALOG = {
         benchmarkConfiguration: "Codex with GPT-5.6 Terra max on terminal-bench@2.1",
       },
       evidence: [terminalBenchEvidence("Codex", "GPT-5.6 Terra", 78.4, 6, "max", "2026-07-11")],
-      limitations: [UPSTREAM_HARNESS_LIMITATION],
+      limitations: [UPSTREAM_CODEX_LIMITATION],
     },
     {
       id: "agent-codex-gpt-5.6-luna-terminal",
@@ -732,7 +734,7 @@ const RAW_AGENT_GUIDANCE_CATALOG = {
         benchmarkConfiguration: "Codex with GPT-5.6 Luna max on terminal-bench@2.1",
       },
       evidence: [terminalBenchEvidence("Codex", "GPT-5.6 Luna", 75.7, 9, "max", "2026-07-11")],
-      limitations: [UPSTREAM_HARNESS_LIMITATION],
+      limitations: [UPSTREAM_CODEX_LIMITATION],
     },
     {
       id: "agent-claude-code-sonnet-5-terminal",
@@ -748,44 +750,44 @@ const RAW_AGENT_GUIDANCE_CATALOG = {
         benchmarkConfiguration: "Claude Code with Sonnet 5 high on terminal-bench@2.1",
       },
       evidence: [terminalBenchEvidence("Claude Code", "Sonnet 5", 74.6, 10, "high", "2026-07-09")],
-      limitations: [UPSTREAM_HARNESS_LIMITATION],
+      limitations: [UPSTREAM_ACP_LIMITATION],
     },
   ],
 } as const;
 
-export function parseAgentGuidanceCatalog(input: unknown): AgentGuidanceCatalog {
-  return AgentGuidanceCatalogSchema.parse(input);
+export function parseTaskGuidanceCatalog(input: unknown): TaskGuidanceCatalog {
+  return TaskGuidanceCatalogSchema.parse(input);
 }
 
-export const AGENT_GUIDANCE_CATALOG: AgentGuidanceCatalog = validateBuiltInTargets(
-  parseAgentGuidanceCatalog(RAW_AGENT_GUIDANCE_CATALOG),
+export const TASK_GUIDANCE_CATALOG: TaskGuidanceCatalog = validateTaskGuidanceTargets(
+  parseTaskGuidanceCatalog(RAW_TASK_GUIDANCE_CATALOG),
 );
 
-export function getGuidanceForModel(
+export function getTaskGuidanceForModel(
   modelId: string,
-  catalog: AgentGuidanceCatalog = AGENT_GUIDANCE_CATALOG,
-): AgentGuidanceRecord[] {
+  catalog: TaskGuidanceCatalog = TASK_GUIDANCE_CATALOG,
+): TaskGuidanceRecord[] {
   return catalog.records
     .filter((record) => record.target.kind === "model" && record.target.modelId === modelId)
     .sort(compareGuidance);
 }
 
-export function getGuidanceForHarness(
+export function getTaskGuidanceForHarness(
   harnessId: string,
-  catalog: AgentGuidanceCatalog = AGENT_GUIDANCE_CATALOG,
-): AgentGuidanceRecord[] {
+  catalog: TaskGuidanceCatalog = TASK_GUIDANCE_CATALOG,
+): TaskGuidanceRecord[] {
   return catalog.records
     .filter((record) => record.target.kind === "harness" && record.target.harnessId === harnessId)
     .sort(compareGuidance);
 }
 
-export function getAgentGuidance(
+export function getTaskGuidanceForAgent(
   harnessId: string,
   modelId: string,
-  taskFamily?: AgentGuidanceTaskFamily,
-  catalog: AgentGuidanceCatalog = AGENT_GUIDANCE_CATALOG,
-): AgentGuidanceRecord[] {
-  const parsedTaskFamily = taskFamily ? AgentGuidanceTaskFamilySchema.parse(taskFamily) : undefined;
+  taskFamily?: TaskGuidanceTaskFamily,
+  catalog: TaskGuidanceCatalog = TASK_GUIDANCE_CATALOG,
+): TaskGuidanceRecord[] {
+  const parsedTaskFamily = taskFamily ? TaskGuidanceTaskFamilySchema.parse(taskFamily) : undefined;
   return catalog.records
     .filter((record) => {
       if (parsedTaskFamily && !record.taskFamilies.includes(parsedTaskFamily)) return false;
@@ -802,26 +804,29 @@ export function getAgentGuidance(
     .sort(compareLayeredGuidance);
 }
 
-export function getGuidanceForTask(
-  taskFamily: AgentGuidanceTaskFamily,
-  catalog: AgentGuidanceCatalog = AGENT_GUIDANCE_CATALOG,
-): AgentGuidanceRecord[] {
-  const parsedTaskFamily = AgentGuidanceTaskFamilySchema.parse(taskFamily);
+export function getTaskGuidanceForTask(
+  taskFamily: TaskGuidanceTaskFamily,
+  catalog: TaskGuidanceCatalog = TASK_GUIDANCE_CATALOG,
+): TaskGuidanceRecord[] {
+  const parsedTaskFamily = TaskGuidanceTaskFamilySchema.parse(taskFamily);
   return catalog.records
     .filter((record) => record.taskFamilies.includes(parsedTaskFamily))
     .sort(compareGuidance);
 }
 
-function validateBuiltInTargets(catalog: AgentGuidanceCatalog): AgentGuidanceCatalog {
+export function validateTaskGuidanceTargets(
+  catalog: TaskGuidanceCatalog,
+  harnessCatalog: HarnessCatalog = staticHarnessCatalog,
+): TaskGuidanceCatalog {
   const modelIds = new Set(MODELS.map((model) => model.id));
-  const harnessIds = new Set(Object.keys(HARNESSES));
+  const harnessIds = new Set(harnessCatalog.listHarnesses().map((entry) => entry.id));
   for (const record of catalog.records) {
     if (
       (record.target.kind === "model" || record.target.kind === "agent") &&
       !modelIds.has(record.target.modelId)
     ) {
       throw new Error(
-        `Built-in Agent guidance record "${record.id}" references unknown Model "${record.target.modelId}".`,
+        `Built-in Task guidance record "${record.id}" references unknown Model "${record.target.modelId}".`,
       );
     }
     if (
@@ -829,32 +834,32 @@ function validateBuiltInTargets(catalog: AgentGuidanceCatalog): AgentGuidanceCat
       !harnessIds.has(record.target.harnessId)
     ) {
       throw new Error(
-        `Built-in Agent guidance record "${record.id}" references unknown Harness "${record.target.harnessId}".`,
+        `Built-in Task guidance record "${record.id}" references unknown Harness "${record.target.harnessId}".`,
       );
     }
   }
   return catalog;
 }
 
-const VERDICT_ORDER: Record<AgentGuidanceVerdict, number> = {
+const VERDICT_ORDER: Record<TaskGuidanceVerdict, number> = {
   preferred: 0,
   suitable: 1,
   weak: 2,
 };
 
-const CONFIDENCE_ORDER: Record<AgentGuidanceConfidence, number> = {
+const CONFIDENCE_ORDER: Record<TaskGuidanceConfidence, number> = {
   high: 0,
   medium: 1,
   low: 2,
 };
 
-const TARGET_ORDER: Record<AgentGuidanceTarget["kind"], number> = {
+const TARGET_ORDER: Record<TaskGuidanceTarget["kind"], number> = {
   agent: 0,
   model: 1,
   harness: 2,
 };
 
-function compareGuidance(left: AgentGuidanceRecord, right: AgentGuidanceRecord): number {
+function compareGuidance(left: TaskGuidanceRecord, right: TaskGuidanceRecord): number {
   return (
     VERDICT_ORDER[left.verdict] - VERDICT_ORDER[right.verdict] ||
     CONFIDENCE_ORDER[left.confidence] - CONFIDENCE_ORDER[right.confidence] ||
@@ -863,7 +868,7 @@ function compareGuidance(left: AgentGuidanceRecord, right: AgentGuidanceRecord):
   );
 }
 
-function compareLayeredGuidance(left: AgentGuidanceRecord, right: AgentGuidanceRecord): number {
+function compareLayeredGuidance(left: TaskGuidanceRecord, right: TaskGuidanceRecord): number {
   return (
     TARGET_ORDER[left.target.kind] - TARGET_ORDER[right.target.kind] || compareGuidance(left, right)
   );

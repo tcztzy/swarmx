@@ -39,6 +39,28 @@ Sources:
 License: Apache License 2.0. The complete upstream license is included at
 `third_party_licenses/ACP_REGISTRY_APACHE-2.0.txt`.
 
+## Codex runtime
+
+The packaged `@swarmx/codex` module runs the exact compatible `@openai/codex`
+npm dependency declared by the package and lockfile in `app-server` mode.
+SwarmX does not copy or modify its source.
+
+Source: <https://github.com/openai/codex>
+
+Codex is licensed under Apache License 2.0. The complete license text is
+included at `third_party_licenses/ACP_REGISTRY_APACHE-2.0.txt`.
+
+## DSH Cordis runtime
+
+SwarmX Core uses the published `@deepseek-ai/cordis` package maintained in the
+DeepSeek Harness repository for service composition and plugin Fiber lifecycle.
+SwarmX does not currently copy or modify its source.
+
+Source: <https://github.com/deepseek-ai/deepseek-harness/tree/main/vendor/cordis>
+
+Copyright (c) 2021-present Shigma. License: MIT. The complete license text is
+included at `third_party_licenses/CORDIS_MIT.txt`.
+
 ## Hermes Agent icon
 
 The Hermes Agent SVG markup is copied verbatim from

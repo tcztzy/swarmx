@@ -9,6 +9,7 @@ import type {
   ContextCompilePhase,
   ContextWindowSource,
 } from "./context-engine.js";
+import type { HarnessLaunchRequest, HarnessPromptClient } from "./harness-client.js";
 import {
   appendHookContext,
   dispatchHooks,
@@ -109,6 +110,8 @@ type ChatMsg = OpenAI.Chat.Completions.ChatCompletionMessageParam;
 
 export interface AgentRuntimeOptions {
   createAcpClient?: () => AcpPromptClient;
+  /** DSH transport-aware Harness client factory; overrides `createAcpClient`. */
+  createHarnessClient?: (request: HarnessLaunchRequest) => HarnessPromptClient;
   createMcpManager?: () => McpManager;
   /** Local tools owned by the Memory service and controlled by its ablation seam. */
   memoryTools?: readonly LocalTool[];
@@ -155,27 +158,7 @@ export interface AgentRuntimeOptions {
   serviceTopology?: ServiceTopology;
 }
 
-interface AcpPromptClient {
-  prompt(
-    opts: {
-      command: string;
-      args: string[];
-      cwd?: string;
-      env?: Record<string, string>;
-      clearEnv?: boolean;
-      model?: string;
-      effort?: string;
-      preferredMode?: string;
-      requestPermission?: AcpPermissionHandler;
-      onSessionId?: (sessionId: string) => void | Promise<void>;
-    },
-    input: AcpPromptInput,
-    swarmConfig?: unknown,
-    sessionId?: string,
-    onChunk?: (chunk: MessageChunk) => void,
-  ): Promise<{ messages: MessageChunk[] }>;
-  stderrOutput?(): string;
-}
+type AcpPromptClient = HarnessPromptClient;
 
 export class Agent {
   name: string;
@@ -195,6 +178,7 @@ export class Agent {
   readonly serviceActivationReceipt?: ServiceActivationReceipt;
   private mcp: McpManager | null = null;
   private createAcpClient: () => AcpPromptClient;
+  private createHarnessClient?: (request: HarnessLaunchRequest) => HarnessPromptClient;
   private createMcpManager: () => McpManager;
   private localTools: readonly LocalTool[];
   private acpPermissionHandler?: AcpPermissionHandler;
@@ -311,6 +295,7 @@ export class Agent {
     this.hooks = (parsed.hooks ?? []).map((h) => new HookRef(h));
     this.processOptions = parsed.process;
     this.createAcpClient = options.createAcpClient ?? (() => new AcpClient());
+    this.createHarnessClient = options.createHarnessClient;
     this.createMcpManager = options.createMcpManager ?? (() => new McpManager());
     this.localTools = [...(resolvedServices.memoryTools ?? []), ...(options.localTools ?? [])];
     this.acpPermissionHandler = options.acpPermissionHandler;
@@ -1352,8 +1337,15 @@ export class Agent {
       throw new Error(`Agent "${this.name}" backend is not an ACP custom backend.`);
     }
     const backend = this.backend;
+    const launchRequest: HarnessLaunchRequest = {
+      command: backend.program,
+      args: backend.args ?? [],
+      ...(backend.transport ? { transport: backend.transport } : {}),
+    };
 
-    let client = this.createAcpClient();
+    let client = this.createHarnessClient
+      ? this.createHarnessClient(launchRequest)
+      : this.createAcpClient();
     const prompt = (activeClient: AcpPromptClient, sessionId?: string) =>
       activeClient.prompt(
         {
@@ -1367,6 +1359,7 @@ export class Agent {
           ...(this.acpMode ? { preferredMode: this.acpMode } : {}),
           ...(this.acpPermissionHandler ? { requestPermission: this.acpPermissionHandler } : {}),
           ...(!sessionId && this.onAcpSessionId ? { onSessionId: this.onAcpSessionId } : {}),
+          signal: currentRequestSignal(),
         },
         this.buildAcpPrompt(arguments_, !sessionId),
         undefined,
@@ -1381,7 +1374,9 @@ export class Agent {
       } catch (error) {
         if (!this.acpSessionId || !(error instanceof AcpSessionUnavailableError)) throw error;
         await this.onAcpSessionId?.(undefined);
-        client = this.createAcpClient();
+        client = this.createHarnessClient
+          ? this.createHarnessClient(launchRequest)
+          : this.createAcpClient();
         result = await prompt(client);
       }
       throwIfCurrentRequestCancelled();

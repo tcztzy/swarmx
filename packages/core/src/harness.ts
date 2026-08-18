@@ -1,5 +1,6 @@
 import type { ModelApi } from "./model-api.js";
 import type { AgentBackend } from "./types.js";
+import { SWARMX_VERSION } from "./version.js";
 
 export type HarnessModelControl = "direct" | "session" | "unsupported";
 export type HarnessModelCompatibility = "declared_apis" | "any";
@@ -36,7 +37,6 @@ export interface HarnessConfig {
   enabled?: boolean;
 }
 
-const CODEX_ACP_VERSION = "1.1.2";
 const CLAUDE_AGENT_ACP_VERSION = "0.58.1";
 const PI_ACP_VERSION = "0.0.31";
 const CLAUDE_DEEPSEEK_PRO_MODEL = "deepseek-v4-pro[1m]";
@@ -58,7 +58,13 @@ const CLAUDE_AGENT_ACP_SOFTWARE = npxSoftware(
   "@agentclientprotocol/claude-agent-acp",
   CLAUDE_AGENT_ACP_VERSION,
 );
-const CODEX_ACP_SOFTWARE = npxSoftware("@agentclientprotocol/codex-acp", CODEX_ACP_VERSION);
+export const CODEX_MODULE_COMMAND = "swarmx-codex";
+const CODEX_SOFTWARE: HarnessSoftware & { runner: string; command: string[] } = {
+  name: "@swarmx/codex",
+  version: SWARMX_VERSION,
+  runner: CODEX_MODULE_COMMAND,
+  command: [],
+};
 const PI_ACP_SOFTWARE = npxSoftware("pi-acp", PI_ACP_VERSION);
 
 export const HARNESSES: Record<string, HarnessConfig> = {
@@ -90,7 +96,7 @@ export const HARNESSES: Record<string, HarnessConfig> = {
   codex: {
     label: "Codex",
     icon: "codex",
-    software: CODEX_ACP_SOFTWARE,
+    software: CODEX_SOFTWARE,
     modelControl: "session",
     modelCompatibility: "any",
     supportedModelApis: ["openai_responses", "openai_chat", "anthropic", "ollama"],
@@ -107,8 +113,9 @@ export const HARNESSES: Record<string, HarnessConfig> = {
     ],
     backend: {
       type: "custom",
-      program: CODEX_ACP_SOFTWARE.runner,
-      args: CODEX_ACP_SOFTWARE.command,
+      program: CODEX_SOFTWARE.runner,
+      args: CODEX_SOFTWARE.command,
+      transport: "codex_server",
     },
   },
   pi: {
@@ -218,6 +225,36 @@ export function getHarness(name: string): HarnessConfig | undefined {
 export function getHarnessList(): HarnessConfig[] {
   return Object.values(HARNESSES).filter((harness) => harness.enabled !== false);
 }
+
+export interface HarnessCatalogEntry {
+  id: string;
+  config: HarnessConfig;
+}
+
+/**
+ * Injection seam for Harness catalogs. Pure modules use the static default;
+ * CoreRuntime supplies the DSH plugin registry implementation.
+ */
+export interface HarnessCatalog {
+  listHarnesses(): HarnessCatalogEntry[];
+  getHarness(id: string): HarnessConfig | undefined;
+  resolveRuntimeModel(
+    id: string,
+    options: Pick<HarnessModelLaunchOptions, "modelId" | "runtimeModel">,
+  ): string;
+  resolveModelRuntimeEnv(id: string, options: HarnessModelLaunchOptions): Record<string, string>;
+}
+
+export const staticHarnessCatalog: HarnessCatalog = {
+  listHarnesses() {
+    return Object.entries(HARNESSES)
+      .filter(([, harness]) => harness.enabled !== false)
+      .map(([id, config]) => ({ id, config }));
+  },
+  getHarness,
+  resolveRuntimeModel: harnessModelRuntimeModel,
+  resolveModelRuntimeEnv: harnessModelRuntimeEnv,
+};
 
 /** Build request-scoped vendor bootstrap only; this never edits global harness config. */
 export function harnessModelRuntimeEnv(

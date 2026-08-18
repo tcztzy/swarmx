@@ -1,1 +1,1 @@
-export const SWARMX_VERSION = "3.2.0";
+export const SWARMX_VERSION = "4.0.0";

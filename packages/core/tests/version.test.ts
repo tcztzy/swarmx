@@ -5,6 +5,7 @@ import { SWARMX_VERSION } from "../src/version.js";
 const manifestUrls = [
   new URL("../../../package.json", import.meta.url),
   new URL("../package.json", import.meta.url),
+  new URL("../../codex/package.json", import.meta.url),
   new URL("../../runtime/package.json", import.meta.url),
   new URL("../../acp-server/package.json", import.meta.url),
   new URL("../../cli/package.json", import.meta.url),
@@ -13,12 +14,12 @@ const manifestUrls = [
 ];
 
 describe("release version", () => {
-  it("keeps the runtime and every workspace manifest on 3.2.0", async () => {
+  it("keeps the runtime and every workspace manifest on 4.0.0", async () => {
     const versions = await Promise.all(
       manifestUrls.map(async (url) => JSON.parse(await readFile(url, "utf8")).version as unknown),
     );
 
-    expect(SWARMX_VERSION).toBe("3.2.0");
+    expect(SWARMX_VERSION).toBe("4.0.0");
     expect(versions).toEqual(manifestUrls.map(() => SWARMX_VERSION));
   });
 });

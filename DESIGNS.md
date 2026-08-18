@@ -102,7 +102,7 @@ pinned adapter versions, launch commands, and backends. Runtime protection and
 Renderer workflow examples consume that registry instead of copying package
 versions or commands.
 
-Task suitability is a separate passive Core catalog. `agent-guidance.ts` owns
+Task suitability is a separate passive Core catalog. `task-guidance.ts` owns
 the browser-safe schemas, source metadata, curated records, and deterministic
 queries for Model-, Harness-, and exact Agent-targeted guidance. Capability and
 Harness registries remain the hard compatibility authorities; guidance cannot
@@ -110,7 +110,10 @@ make an unavailable route executable. Each record cites normalized evidence,
 the exact benchmark configuration, a review date, and limitations. A benchmark
 of an upstream native Harness is marked as indirect evidence for SwarmX's ACP
 adapter and never advertised as runtime parity. Missing records are unrated.
-The catalog is product-distributed metadata, not user Memory, Activity, or an
+Runtime hosts compose the `taskGuidance` DSH Service: the static catalog is
+the baseline and effect-scoped plugin contributions add records and duplicate ids fail
+closed through normal registry/validation rules. The catalog is
+product-distributed metadata, not user Memory, Activity, or an
 evaluation-results store; user-specific conclusions may be admitted to Memory
 separately, while raw local benchmark runs keep their own structured evidence.
 
@@ -176,6 +179,10 @@ variant.
 
 Provider-independent local tool contracts live in a browser-safe leaf module;
 MCP and native Provider adapters consume that contract instead of owning it.
+Before advertising a JSON function tool to a native Provider, the MCP adapter
+requires an object-root input schema. Object-only `oneOf` schemas receive an
+explicit top-level `type: "object"`; incompatible roots fail locally before a
+Provider request.
 Request cancellation is a separate Node execution scope. ACP, MCP, native
 Providers, and host tools consume its `AbortSignal`, while process-owning
 adapters register bounded cancellation and cleanup participants. The scope does
@@ -249,11 +256,60 @@ execution directory, not persisted Project authority, so a child Agent using a
 required Project MCP fails closed until a future contract can separately attest
 an authority root and registered worktree execution root.
 
-### External ACP Harness
+### External Harness plugins and transports
 
-`AcpClient` launches an ACP-compatible subprocess, initializes it, creates or
-loads a Session, negotiates configuration, sends prompts, and consumes
-`session/update` notifications.
+External Harnesses are integrated as DSH Cordis plugins. `AcpClient` remains
+the default transport: it launches an ACP-compatible subprocess, initializes
+it, creates or loads a Session, negotiates configuration, sends prompts, and
+consumes `session/update` notifications. A plugin may instead register another
+wire transport with `harnessTransports`, keyed by the backend's `transport`
+field or by command token.
+
+`coreRuntimePlugin` is the reusable Cordis composition root for execution: a
+DeepSeek Harness host can load it into an existing Context, while
+`createCoreRuntime` is the convenience wrapper that owns a root Context. The
+plugin installs the effect-scoped `acpLaunchers`, `harnessTransports`,
+`acpRuntime`, `mcpRuntime`, `providerConnectors`, `harnessConnectors`, and
+`swarmStrategies` Services as built-in DSH plugins.
+`swarmRuntime` constructs internal Swarm/Agent graphs in a request Fiber through
+the registered Swarm strategy; subprocess and MCP cleanup binds to that same
+Fiber. The package root no longer exports the old `Swarm`, `Agent`,
+`AcpClient`, or `McpManager` constructors.
+
+Provider supply, Harness catalogs, Swarm execution strategies, Harness
+permission decisions, and Harness wire transports are all plugin
+contributions. Registries reject duplicate ownership and bind registration to
+the contributing Fiber. Built-in plugins contribute the standard Provider
+route builders, the built-in Harness catalog, the fail-closed permission
+resolver, and the `dag` Swarm strategy; hosts may load additional DSH plugins
+through `CoreRuntimeOptions.plugins`. The `@swarmx/codex` plugin owns the DSH
+permission boundary: when a host composes `permissionPresets`/`approval`, it
+maps policy `never` directly and lets interactive `ask` fall through to the
+SwarmX resolver until a typed SwarmX↔DSH Agent/Session adapter exists. A plugin
+connector may use a higher priority to take over a Provider API kind, a custom
+DSH permission bridge may take over Harness approval decisions, and a `SwarmConfig` may name any registered
+`strategy` (default `dag`). Desktop and CLI catalog consumers receive
+`runtime.harnessCatalog` and the injected Provider resolver; Model×Harness
+inventory and external Session discovery accept the same catalog so plugin
+registrations are authoritative. Pure modules retain the static default
+catalog for non-runtime callers. This changes composition, not the persisted
+workflow authority.
+
+`@swarmx/codex` is the first non-ACP Harness plugin. It resolves the trusted
+`swarmx-codex` token in priority order — explicit `codexCommand`, an executable
+`codex` found on PATH, then the pinned module — registers the `codex_server`
+transport, and owns packaged `app.asar` rewriting. The package pins the compatible `@openai/codex` runtime;
+the module starts Codex in `app-server` mode and `CodexServerClient` speaks
+Codex App Server JSON-RPC directly, so ACP is bypassed for the weaker protocol
+path while Session list/load, prompt execution, cancellation, and permission
+fail-closed behavior remain available. Permission resolution comes from the
+`harnessPermissions` registry, so a DSH host can bridge to its own permission
+plugin instead of owning a SwarmX-specific approval implementation. Native
+launch does not run `npx`, install software, or depend on a separately
+installed Codex CLI unless `codexCommand` intentionally selects one.
+Unregistered Custom Harness commands keep the ACP path.
+Request Fiber disposal closes child resources without disposing the host
+Context. See [`docs/codex-module.md`](docs/codex-module.md).
 
 External Harnesses own their native tools, authentication, configuration, and
 permission behavior. SwarmX does not inject duplicate Project tools.
@@ -262,7 +318,11 @@ Desktop can wrap external custom Harnesses in a protected container runtime.
 Under `protected_required`, every such boundary needs a host-registered profile;
 an absent profile or unavailable runtime blocks execution. Native execution is
 available only under an explicit `native_allowed` strategy. A protected wrapper
-receives an explicit Project mount and allowlisted request environment.
+receives an explicit Project mount and allowlisted request environment, and
+preserves the backend transport so the direct Codex path also works inside the
+sandbox. The built-in Codex profile runs a dependency-free bootstrap from a
+read-only module mount and the bundled Linux Codex runtime; if either bundled
+asset is unavailable, protected Codex execution fails closed.
 
 ### Generic OS sandbox policy
 
@@ -327,10 +387,11 @@ completed request.
 
 Background Session activations, scheduled tasks, and durable WorkItems are
 separate executions with explicit ownership and terminal records. They are not
-hidden obligations of a foreground request. This design deliberately does not
-add a generic Inbox or make every subsystem a plugin: the existing synchronous
-boundaries remain the smallest enforceable settlement model, while the durable
-task runtime keeps its stronger lease, receipt, replay, and post-terminal rules.
+hidden obligations of a foreground request. DSH plugins now own Provider,
+Harness, transport, and Swarm-strategy composition, but the synchronous
+foreground boundaries remain the smallest enforceable settlement model, while
+the durable task runtime keeps its stronger lease, receipt, replay, and
+post-terminal rules.
 
 ## Workflow engine
 
@@ -339,11 +400,14 @@ task runtime keeps its stronger lease, receipt, replay, and post-terminal rules.
 - a named `root`;
 - a map of `agent`, `tool`, or nested `swarm` nodes;
 - explicit edges with optional CEL conditions;
-- optional MCP servers and Agent/Swarm lifecycle hooks.
+- optional MCP servers and Agent/Swarm lifecycle hooks;
+- an optional named DSH Swarm strategy (default `dag`).
 
-`Swarm` parses the config, materializes nodes into a `Map`, and stores edges as
-`Edge` objects. Construction rejects unconditional cycles and warns about
-conditional cycles that require an escape condition.
+The Cordis `swarmRuntime` Service validates the config, resolves the named
+strategy from the `swarmStrategies` plugin registry, and creates an internal
+execution graph for each request. The built-in `dag` graph materializes nodes
+and edges, rejects unconditional cycles, and warns about conditional cycles
+that require an escape condition; it is not a public construction API.
 
 Execution starts at `root`, evaluates outgoing edges after each node, waits for
 declared predecessors, schedules a node at most once, and enforces a step bound.

@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import { importN8nWorkflow, N8nImportError, Swarm } from "../src/index.js";
+import { importN8nWorkflow, N8nImportError } from "../src/index.js";
+import { Swarm } from "../src/swarm.js";
 
 describe("importN8nWorkflow", () => {
   it("converts n8n workflow nodes and connections into SwarmConfig", () => {

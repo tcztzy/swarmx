@@ -283,14 +283,15 @@ const DEFAULT_CLAUDE_HARNESS = defaultWorkflowHarness("claude_code");
 
 const DEFAULT_WORKFLOW_CONFIG: SwarmConfig = {
   name: "research_review",
-  description: "Route a request through ACP agents using each harness's negotiated default model.",
+  description:
+    "Route a request through Harness agents using each harness's negotiated default model.",
   root: "triage_agent",
   nodes: {
     triage_agent: {
       kind: "agent",
       agent: {
         name: "triage_agent",
-        description: "Codex ACP agent for classification and planning.",
+        description: "Codex app-server agent for classification and planning.",
         backend: DEFAULT_CODEX_HARNESS.backend,
         parameters: { harness: DEFAULT_CODEX_HARNESS.descriptor },
         instructions: "Identify the user's goal, constraints, and required evidence.",
@@ -310,7 +311,7 @@ const DEFAULT_WORKFLOW_CONFIG: SwarmConfig = {
       kind: "agent",
       agent: {
         name: "writer_agent",
-        description: "Codex ACP agent for implementation-quality synthesis.",
+        description: "Codex app-server agent for implementation-quality synthesis.",
         backend: DEFAULT_CODEX_HARNESS.backend,
         parameters: { harness: DEFAULT_CODEX_HARNESS.descriptor },
         instructions: "Write a concise answer using the research output.",
@@ -4854,6 +4855,7 @@ function backendRequiresProtectedRuntime(backend?: AgentBackend): boolean {
   if (backend?.type !== "custom") return false;
   const command = [backend.program, ...(backend.args ?? [])].join(" ");
   return (
+    backend.program === "swarmx-codex" ||
     command.includes("@agentclientprotocol/claude-agent-acp") ||
     command.includes("@agentclientprotocol/codex-acp")
   );

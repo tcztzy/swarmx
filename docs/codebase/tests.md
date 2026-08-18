@@ -11,9 +11,9 @@ and CLI send composition. Per-file thresholds live only in `vitest.config.ts`.
 
 | Test paths |
 | --- |
-| `packages/core/tests/acp.test.ts`, `actions.test.ts`, `activity.test.ts`, `audit.test.ts`, `agent-profiles.test.ts`, `agent.test.ts`, `builtin-tools.test.ts`, `context.test.ts`, `service-registry.test.ts` |
+| `packages/core/tests/acp.test.ts`, `core-runtime.test.ts`, `actions.test.ts`, `activity.test.ts`, `audit.test.ts`, `agent-profiles.test.ts`, `agent.test.ts`, `builtin-tools.test.ts`, `context.test.ts`, `service-registry.test.ts` |
 | `packages/core/tests/conversation.test.ts`, `dependencies.test.ts`, `desktop-settings.test.ts`, `edge.test.ts`, `memory-links.test.ts`, `memory.test.ts`, `packages/core/tests/memory-runtime-protocol.test.ts`, `extension-composition.test.ts`, `extension-management.test.ts`, `extensions.test.ts`, `harness-management.test.ts`, `harness.test.ts` |
-| `packages/core/tests/local-tool-contracts.test.ts`, `mcp.test.ts`, `media.test.ts`, `model-capabilities.test.ts`, `agent-guidance.test.ts`, `n8n.test.ts`, `package-boundaries.test.ts`, `personal-memory.test.ts`, `project-bootstrap.test.ts`, `project-contracts.test.ts`, `project.test.ts`, `providers.test.ts`, `rendering.test.ts`, `request-scope.test.ts`, `secrets.test.ts` |
+| `packages/core/tests/local-tool-contracts.test.ts`, `mcp.test.ts`, `media.test.ts`, `model-capabilities.test.ts`, `task-guidance.test.ts`, `n8n.test.ts`, `package-boundaries.test.ts`, `personal-memory.test.ts`, `project-bootstrap.test.ts`, `project-contracts.test.ts`, `project.test.ts`, `providers.test.ts`, `rendering.test.ts`, `request-scope.test.ts`, `secrets.test.ts` |
 | `packages/core/tests/server.test.ts`, `session-discovery.test.ts`, `session.test.ts`, `session-timeline.test.ts`, `skill-variants.test.ts`, `swarm-eval.test.ts`, `swarm.test.ts`, `telemetry.test.ts`, `version.test.ts` |
 | `packages/core/tests/skill-evolution.test.ts`, `skill-evolution-store.test.ts`, `skill-evolution-service.test.ts`, `skill-evaluation.test.ts`, `skill-delivery.test.ts` |
 | `packages/core/tests/task-runtime.test.ts` |
@@ -52,6 +52,7 @@ prove digest verification and that candidate instructions change what a stub
 model observes.
 
 Exact Core test paths: `packages/core/tests/acp.test.ts`,
+`packages/core/tests/core-runtime.test.ts`,
 `packages/core/tests/actions.test.ts`, `packages/core/tests/activity.test.ts`,
 `packages/core/tests/audit.test.ts`,
 `packages/core/tests/agent-profiles.test.ts`, `packages/core/tests/agent.test.ts`,
@@ -77,7 +78,7 @@ Exact Core test paths: `packages/core/tests/acp.test.ts`,
 `packages/core/tests/harness.test.ts`, `packages/core/tests/mcp.test.ts`,
 `packages/core/tests/local-tool-contracts.test.ts`,
 `packages/core/tests/media.test.ts`, `packages/core/tests/model-capabilities.test.ts`,
-`packages/core/tests/agent-guidance.test.ts`,
+`packages/core/tests/task-guidance.test.ts`,
 `packages/core/tests/n8n.test.ts`, `packages/core/tests/personal-memory.test.ts`,
 `packages/core/tests/package-boundaries.test.ts`,
 `packages/core/tests/project-bootstrap.test.ts`,
@@ -90,6 +91,23 @@ Exact Core test paths: `packages/core/tests/acp.test.ts`,
 `packages/core/tests/skill-variants.test.ts`, `packages/core/tests/swarm-eval.test.ts`,
 `packages/core/tests/swarm.test.ts`, `packages/core/tests/telemetry.test.ts`,
 `packages/core/tests/version.test.ts`.
+
+## Codex module tests
+
+`packages/codex/tests/codex-module.test.ts` checks the first-party package
+identity, exact upstream runtime pins including bundled Linux runtimes,
+stdout-clean version entrypoint, DSH plugin and `codex_server` registration,
+Codex command priority (`codexCommand`, PATH, pinned module), Electron
+unpacking rules, and direct Codex App Server JSON-RPC exchanges against fake
+app-server processes (including coalesced turn completion, process exit, and
+cancellation).
+`packages/codex/tests/codex-real-app-server.e2e.test.ts` optionally verifies
+the same transport against a real Codex binary when `CODEX_E2E_BIN` points to
+one; it is skipped otherwise.
+`packages/core/tests/core-runtime.test.ts` verifies real Context composition,
+built-in Provider/Harness/Swarm plugin registries, host-supplied DSH plugins,
+provider/request Fiber teardown, duplicate rejection, Custom Harness
+pass-through, removal of old public constructors, and fail-closed disposal.
 
 ## Desktop tests
 

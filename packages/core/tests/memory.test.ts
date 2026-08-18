@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { McpManager } from "../src/mcp.js";
 import {
   buildMemoryGraph,
   createMemoryAgentTool,
@@ -194,6 +195,9 @@ describe("Memory Agent tool", () => {
     });
     if (tool.kind === "text") throw new Error("Memory must be a function tool");
     expect(tool.name).toBe("Memory");
+    const manager = new McpManager();
+    manager.addLocalTools([tool]);
+    expect(manager.toolsForOpenai()[0]?.function.parameters.type).toBe("object");
 
     await expect(
       tool.call({ operation: "create", title: "SwarmX", content: "Uses [[Memory]]." }),

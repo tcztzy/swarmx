@@ -1,4 +1,4 @@
-import { McpManager } from "./mcp.js";
+import type { McpManager } from "./mcp.js";
 import { type McpServerConfig, type ToolConfig, ToolConfigSchema } from "./types.js";
 
 export class Tool {
@@ -9,7 +9,10 @@ export class Tool {
   instructions?: string;
   mcpServers: Map<string, McpServerConfig>;
 
-  constructor(config: ToolConfig) {
+  constructor(
+    config: ToolConfig,
+    private readonly createMcpManager: () => McpManager,
+  ) {
     const parsed = ToolConfigSchema.parse(config);
     this.name = parsed.name;
     this.description = parsed.description;
@@ -23,7 +26,7 @@ export class Tool {
     arguments_: Record<string, unknown>,
     context?: Record<string, unknown>,
   ): Promise<Record<string, unknown>> {
-    const manager = new McpManager();
+    const manager = this.createMcpManager();
     try {
       for (const [name, params] of this.mcpServers) {
         await manager.addServer(name, params);

@@ -435,6 +435,50 @@ describe("Harness x Model matrix", () => {
       }),
     );
   });
+
+  it("resolves built-in Harness inventory from the injected DSH catalog", () => {
+    const pluginModel = {
+      id: "plugin-model",
+      runtimeModel: "plugin-model",
+      apiProtocols: ["openai_chat"],
+    };
+    const harnessCatalog = {
+      listHarnesses() {
+        return [
+          {
+            id: "plugin-openai",
+            config: {
+              label: "Plugin OpenAI",
+              icon: "plugin",
+              software: { name: "plugin-openai" },
+              modelControl: "direct",
+              modelCompatibility: "declared_apis",
+              supportedModelApis: ["openai_chat"],
+              passthroughEnv: [],
+              backend: { type: "swarmx" },
+            },
+          },
+        ];
+      },
+      getHarness: (id: string) =>
+        harnessCatalog.listHarnesses().find((entry) => entry.id === id)?.config,
+      resolveRuntimeModel: (_id: string, options: { modelId: string }) => options.modelId,
+      resolveModelRuntimeEnv: () => ({}),
+    };
+
+    expect(
+      resolveHarnessModelInventory({
+        harnessId: "plugin-openai",
+        models: [pluginModel],
+        harnessCatalog,
+      }),
+    ).toContainEqual(
+      expect.objectContaining({
+        agentId: "plugin-openai:plugin-model",
+        apiProtocol: "openai_chat",
+      }),
+    );
+  });
 });
 
 describe("agent composition identity", () => {

@@ -728,7 +728,7 @@ export class McpManager {
         function: {
           name: tool.name,
           description: tool.description ?? "",
-          parameters: tool.inputSchema,
+          parameters: nativeFunctionParameters(tool),
         },
       }));
   }
@@ -808,6 +808,25 @@ export class McpManager {
       throw error;
     }
   }
+}
+
+function nativeFunctionParameters(tool: McpTool): Record<string, unknown> {
+  if (tool.inputSchema.type === "object") return tool.inputSchema;
+  const alternatives = tool.inputSchema.oneOf;
+  if (
+    Array.isArray(alternatives) &&
+    alternatives.length > 0 &&
+    alternatives.every(
+      (alternative) =>
+        alternative !== null &&
+        typeof alternative === "object" &&
+        !Array.isArray(alternative) &&
+        (alternative as Record<string, unknown>).type === "object",
+    )
+  ) {
+    return { ...tool.inputSchema, type: "object" };
+  }
+  throw new Error(`Tool "${tool.name}" input schema must have root type "object".`);
 }
 
 async function connectMcpServer(

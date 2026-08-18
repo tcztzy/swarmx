@@ -28,8 +28,8 @@ describe("harness registry", () => {
     },
   );
 
-  it("launches built-in ACP adapters through pinned Node.js npx packages", () => {
-    for (const harnessId of ["claude_code", "codex", "pi"]) {
+  it("launches third-party ACP adapters through pinned Node.js npx packages", () => {
+    for (const harnessId of ["claude_code", "pi"]) {
       const backend = getHarness(harnessId)?.backend;
       expect(backend).toMatchObject({ type: "custom", program: "npx" });
       expect(backend?.type === "custom" ? backend.args : []).toContain("--yes");
@@ -43,11 +43,21 @@ describe("harness registry", () => {
       program: "npx",
       args: ["--yes", "pi-acp@0.0.31"],
     });
-    expect(getHarness("codex")?.software).toMatchObject({
-      name: "codex-acp",
-      version: "1.1.2",
-      runner: "npx",
+  });
+
+  it("launches Codex through the repository-owned module without npx", () => {
+    expect(getHarness("codex")?.backend).toEqual({
+      type: "custom",
+      program: "swarmx-codex",
+      args: [],
+      transport: "codex_server",
     });
+    expect(getHarness("codex")?.software).toMatchObject({
+      name: "@swarmx/codex",
+      version: "4.0.0",
+      runner: "swarmx-codex",
+    });
+    expect(getHarness("codex")?.software.command).toEqual([]);
     expect(getHarness("pi")?.passthroughEnv).toEqual(
       expect.arrayContaining(["HOME", "PI_CODING_AGENT_DIR", "PI_CODING_AGENT_SESSION_DIR"]),
     );

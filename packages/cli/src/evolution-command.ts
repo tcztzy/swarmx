@@ -9,6 +9,7 @@ import {
   AppAttachedTaskControlService,
   AuditStore,
   assertEvalSafeSwarmConfig,
+  type CoreRuntime,
   canonicalSkillOptimizerConfig,
   createSkillEvolutionCapabilityGateway,
   SkillDeliveryError,
@@ -21,7 +22,6 @@ import {
   type SkillInstructionDelivery,
   type SkillOptimizationRequest,
   SkillPromotionReceiptSchema,
-  Swarm,
   type SwarmConfig,
   TaskRuntimeStore,
   type TaskWorkerLaunchSpec,
@@ -416,6 +416,7 @@ export async function runEvolutionEvaluate(
     taskRoot?: string;
     evolutionRoot?: string;
     actor?: string;
+    runtime: Pick<CoreRuntime, "prepareSwarm">;
   },
 ): Promise<SkillEvaluationManifest> {
   const context = createEvolutionCliContext({
@@ -469,7 +470,8 @@ export async function runEvolutionEvaluate(
   const manifest = await context.service.evaluateCandidate({
     candidateId,
     holdoutContent: holdout,
-    createSwarm: (delivery) => new Swarm(config, { agent: { skillInstructions: [delivery] } }),
+    createSwarm: (delivery) =>
+      options.runtime.prepareSwarm(config, { agent: { skillInstructions: [delivery] } }),
     evaluatorId: `cli:${options.actor ?? process.getuid?.() ?? "user"}`,
     scorerFingerprint: "swarmx.cli.deterministic.v1",
     runtimeFingerprint: "swarmx.runtime.direct.v1",

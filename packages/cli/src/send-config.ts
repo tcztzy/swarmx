@@ -1,15 +1,18 @@
-import type { AgentConfig, SwarmConfig } from "@swarmx/core";
-import { getHarness, harnessModelRuntimeEnv, harnessModelRuntimeModel } from "@swarmx/core";
+import type { AgentConfig, HarnessCatalog, SwarmConfig } from "@swarmx/core";
+import { staticHarnessCatalog } from "@swarmx/core";
 
 export interface SendSwarmConfigOptions {
   harnessId: string;
   model?: string;
   effort?: string;
   env?: NodeJS.ProcessEnv;
+  /** DSH plugin Harness catalog; defaults to the built-in static registry. */
+  harnessCatalog?: HarnessCatalog;
 }
 
 export function createSendSwarmConfig(options: SendSwarmConfigOptions): SwarmConfig {
-  const harness = getHarness(options.harnessId);
+  const harnessCatalog = options.harnessCatalog ?? staticHarnessCatalog;
+  const harness = harnessCatalog.getHarness(options.harnessId);
   if (!harness) throw new Error(`Unknown harness: ${options.harnessId}`);
   const requestedModel = options.model?.trim();
   if (harness.modelControl === "unsupported") {
@@ -18,13 +21,13 @@ export function createSendSwarmConfig(options: SendSwarmConfigOptions): SwarmCon
     );
   }
   const runtimeModel = requestedModel
-    ? harnessModelRuntimeModel(options.harnessId, {
+    ? harnessCatalog.resolveRuntimeModel(options.harnessId, {
         modelId: requestedModel,
         runtimeModel: requestedModel,
       })
     : undefined;
   const runtimeEnv = requestedModel
-    ? harnessModelRuntimeEnv(options.harnessId, {
+    ? harnessCatalog.resolveModelRuntimeEnv(options.harnessId, {
         modelId: requestedModel,
         runtimeModel,
         effort: options.effort,

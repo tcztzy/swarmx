@@ -339,6 +339,7 @@ describe("npm launcher cold start", () => {
     expect(workflow).toContain("NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}");
     expect(workflow).toContain("node scripts/publish-npm.mjs");
     expect(workflow).toContain("needs: [macos, npm]");
+    expect(publisher).toContain('"packages/codex"');
     expect(publisher).toContain('"packages/core"');
     expect(publisher).toContain('"packages/runtime"');
     expect(publisher).toContain('"packages/acp-server"');

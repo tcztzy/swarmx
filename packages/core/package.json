@@ -1,6 +1,6 @@
 {
   "name": "@swarmx/core",
-  "version": "3.2.0",
+  "version": "4.0.0",
   "description": "Core SwarmX multi-agent runtime and platform contracts.",
   "license": "MIT",
   "repository": {
@@ -65,9 +65,9 @@
       "types": "./dist/model-capabilities.d.ts",
       "import": "./dist/model-capabilities.js"
     },
-    "./agent-guidance": {
-      "types": "./dist/agent-guidance.d.ts",
-      "import": "./dist/agent-guidance.js"
+    "./task-guidance": {
+      "types": "./dist/task-guidance.d.ts",
+      "import": "./dist/task-guidance.js"
     },
     "./builtin-tools": {
       "types": "./dist/builtin-tools.d.ts",
@@ -170,7 +170,9 @@
   "dependencies": {
     "@agentclientprotocol/sdk": "^1.3.0",
     "@anthropic-ai/sdk": "^0.115.0",
+    "@deepseek-ai/cordis": "4.0.1",
     "@modelcontextprotocol/sdk": "^1.30.0",
+    "@swarmx/codex": "workspace:*",
     "cel-js": "^0.8.0",
     "openai": "^7.3.0",
     "smol-toml": "^1.7.1",
