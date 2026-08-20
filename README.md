@@ -1,132 +1,121 @@
 # SwarmX
 
-Run local and ACP-compatible coding agents in one desktop workspace. SwarmX also provides a reusable TypeScript orchestration core and CLI.
+An Electron desktop application for the [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness).
 
-<p align="center">
-  <a href="docs/assets/swarmx-demo.mp4">
-    <img src="docs/assets/swarmx-demo.gif" alt="SwarmX desktop running an agent task" width="900" />
-  </a>
-</p>
+The harness owns the agent: sessions, tools, the agent loop, permissions,
+credentials, persistence, and telemetry. SwarmX contributes the desktop surface
+and one small client extension for non-destructive Retry/Edit actions.
 
-<p align="center"><sub>Pick a Harness and Model, run a task, and inspect live agent work. Click for MP4.</sub></p>
+## How it works
 
-## Install
+DSH's browser surface is a profile bundle that serves a complete UI over HTTP.
+SwarmX composes its conversation extension after DSH's bundles, boots the result
+**inside the Electron main process**, suppresses the profile's normal
+system-browser handoff, and points one Electron window at the port it bound to:
 
-### macOS app
-
-Download the latest DMG from [GitHub Releases](https://github.com/tcztzy/swarmx/releases/latest):
-
-- `arm64` for Apple silicon Macs
-- `x64` for Intel Macs
-
-Open the DMG and drag SwarmX to Applications.
-
-### npm
-
-Requires Node.js 22.13 or newer.
-
-```shell
-npm install swarmx
-npx swarmx
+```
+Electron main ──boot()──> DSH web profile + SwarmX actions ──HTTP/127.0.0.1──> BrowserWindow
+                          (dsh-base + dsh-web-app + one patch)
 ```
 
-`npx swarmx` opens Desktop. Installation itself never launches the app; the first launch may finish downloading the Electron runtime.
+Consequences of that shape:
 
-For a global command:
+- **No replacement renderer.** All published `dsh-client-ui-*` packages are
+  reused; the local extension enters through the public conversation slot.
+- **No IPC bridge.** The renderer already reaches the harness through the
+  `/api` transport its client plugins speak.
+- **No second process.** `boot()` returns the root context, so the harness lives
+  and dies with the window.
+
+The desktop host remains three small source files:
+
+| File | Role |
+| --- | --- |
+| `src/harness.ts` | Compose the profile's patch layers, boot, report the bound URL |
+| `src/window.ts` | Create the window, fence navigation to the harness origin |
+| `src/main.ts` | Sequence startup and shutdown |
+
+`packages/client/ui-conversation` owns the Retry/Edit extension. Edit is an icon on
+each eligible user message, following its timestamp and Copy action in one
+non-overlapping visual sequence. A failed turn keeps its error text visible and adds
+a Retry icon even when no final assistant message exists. Retry prepares a
+separate session before the selected turn and sends the original text; Edit
+opens that session with the original prompt as a draft. Later turns use DSH's
+fork primitive; the first turn uses a fresh session in the same Workspace
+(adopting the source cwd when it was ungrouped) because DSH cannot fork an empty
+completed-turn prefix. Neither action mutates the source history.
+
+Retry/Edit are append-only branch operations. The superseded user message,
+automatic-retry records, and terminal error remain durable in the source
+session. The active child begins before that turn and appends only the revised
+or retried user text, so the superseded turn is not rendered there and failure
+metadata is not part of the messages sent to the model provider.
+
+## Requirements
+
+Node `^22.19.0 || >=24.0.0`.
+
+## Running
 
 ```shell
-npm install --global swarmx
-swarmx
-```
-
-## First run
-
-If no compatible Model is configured, use **Connect model provider** in the main workspace; it opens the Add Provider form directly. Add an OpenAI-, Anthropic-, DeepSeek-, OpenCode Go-, OpenRouter-, or Ollama-compatible connection, then choose a Harness and Model in the composer. Custom Providers use one exact Base URL and key. Official OpenRouter `/api` and `/api/v1` URLs normalize to one Provider with Anthropic, OpenAI Chat, and OpenAI Responses routes. OpenCode Go loads its live model list, routes models through their documented APIs plus narrow runtime-verified compatibility exceptions, and can keep additional plaintext backup keys with local usage counters and quota failover. A newly discovered Go model without a known native route uses the Provider's selected preferred protocol until SwarmX is updated with its official route.
-
-Provider credentials are stored as plaintext in the editable `~/.swarmx/provider-auth.json` file with restrictive permissions. The renderer never reads the file or receives plaintext credentials. The current file format is `schemaVersion: 2`; older encrypted auth files and legacy `local_keychain` Provider references are intentionally not migrated.
-
-## CLI
-
-Passing a CLI argument keeps the existing terminal workflow:
-
-```shell
-npx swarmx doctor
-npx swarmx send "Explain this repository" --model gpt-5.6-sol
-npx swarmx serve --port 8000
-npx swarmx cli --help
-```
-
-Use `npx swarmx desktop` as an explicit Desktop alias.
-
-Session history uses append-only JSONL grouped by working directory under
-`~/.swarmx/projects/`; sessions without Project context use `__recents__`.
-Each directory has a rebuildable index. Older `.json` Session files and
-migration backups are unsupported and are not read.
-
-## Develop from source
-
-```shell
-git clone https://github.com/tcztzy/swarmx.git
-cd swarmx
-corepack enable
 pnpm install
-pnpm --filter @swarmx/desktop dev
+pnpm start
 ```
 
-Validation:
+First run creates `~/.dsh/profiles/web/` from DSH's shipped template. A model
+provider must be configured before the harness can answer; do that in the app's
+own settings, or in `~/.dsh/settings.yaml`.
 
-```shell
-pnpm lint
-pnpm test
-pnpm -r build
-pnpm test:python
-pnpm test:mem
+## Customizing the UI
+
+### Conversation action icons
+
+`packages/client/ui-conversation/src/client/icons.ts` is the only source-level
+mapping for SwarmX conversation icons. It maps the semantic `edit` and `retry`
+actions to 16px React icon components. The defaults reuse DSH primitives so
+size, `currentColor`, hover, and accessibility behavior stay native; replacing
+either mapping value does not require changing the action components, CSS, or
+client bundler.
+
+### Harness profile
+
+Every adjustment happens in the profile's patch layer —
+`~/.dsh/profiles/web/cordis.patch.yml` — without touching this repository. A
+patch replaces the targeted row's whole `config`, so restate the fields you
+keep.
+
+Remove a UI domain:
+
+```yaml
+- id: ui-workflow-run
+  disabled: true
 ```
 
-SwarmX is intentionally one polyglot workspace. Root `package.json` / pnpm own
-the TypeScript product, root `pyproject.toml` / `uv.lock` own one standard
-Python `swarmx` package, and root `Cargo.toml` / `Cargo.lock` discover Rust
-`crates/*` modules:
+Add your own plugin row:
 
-- `src/swarmx/rsi` — DSPy/GEPA private MCP implementation
-- `src/swarmx/ref` — read-only offline ZIM Reference MCP implementation
-- `src/swarmx/worker.py` — durable Python worker
-- `crates/swarmx-mem` — versioned subjective Memory MCP module
-
-The Python worker and private MCP servers use the same locked package environment:
-
-```shell
-uv run --locked python -m swarmx.rsi.server --version-json
-uv run --locked python -m swarmx.ref.server --help
+```yaml
+- insert:
+    - id: my-panel
+      name: '@me/dsh-client-ui-my-panel'
 ```
 
-Create local macOS DMG and ZIP packages with:
+Within a client plugin, `ctx.slots.register` contributes a component into a
+declared slot, and a lower `priority` shadows an existing occupant without
+modifying the package that registered it. Recolor by overriding the `--dsw-*`
+alias tokens `dsh-client-ui-theme` publishes.
 
-```shell
-pnpm --filter @swarmx/desktop dist:mac
-```
+See DSH's own documentation for the slot contract and the cookbooks.
 
-## Packages
+## Security boundary
 
-- `swarmx` — Desktop-first npm launcher with CLI compatibility
-- `@swarmx/codex` — repository-owned Codex App Server DSH plugin and launch module
-- `@swarmx/desktop` — Electron app and reusable renderer shell
-- `@swarmx/core` — the v4 DSH plugin runtime: request-Fiber execution services, Provider/Harness/Swarm registries, Harness transports, sessions, and platform contracts
-- `@swarmx/cli` — terminal commands and OpenAI-compatible server
-- `@swarmx/acp-server` — ACP server adapter
-- `@swarmx/runtime` — runtime detection, Doctor, and repair planning
-
-## Documentation
-
-- [Current product specification](SPEC.md)
-- [Codex module](docs/codex-module.md)
-- [Product vision](docs/vision.md)
-- [Roadmap](ROADMAP.md)
-- [Architecture and design](DESIGNS.md)
-- [Full documentation](docs/index.md)
-- [Extensions and Custom Agents](docs/extensions-custom-agents.md)
-- [Multimedia attachments and previews](docs/multimedia.md)
+The renderer is remote content: no preload, no Node integration, context
+isolation and sandbox on. The server binds loopback on an OS-assigned port.
+Navigation away from that origin is cancelled. Only `http:` and `https:` links
+are handed to the OS browser; local files, scripts, and custom protocols are
+blocked. Chromium permission requests are denied unless SwarmX explicitly adds
+and tests a capability, so model-rendered content cannot acquire camera,
+microphone, location, notification, or similar browser authority.
 
 ## License
 
-[MIT](LICENSE)
+MIT

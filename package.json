@@ -1,45 +1,34 @@
 {
   "name": "swarmx-monorepo",
   "private": true,
-  "version": "4.0.0",
-  "description": "SwarmX multi-agent orchestration — Electron + Node.js edition",
+  "type": "module",
+  "packageManager": "pnpm@11.7.0",
+  "workspaces": [
+    "packages/*/*",
+    "apps/*"
+  ],
+  "engines": {
+    "node": "^22.19.0 || >=24.0.0"
+  },
   "scripts": {
-    "build": "pnpm -r build",
-    "audit:prod": "pnpm audit --prod",
-    "ci": "pnpm run ci:node && pnpm run ci:inspect && pnpm run ci:managed",
-    "ci:inspect": "uv sync --locked --group inspect && pnpm test:inspect",
-    "ci:managed": "pnpm test:python && pnpm test:mem && pnpm test:integration:memory",
-    "ci:node": "pnpm docs:check && pnpm lint && pnpm test:coverage && pnpm test:e2e:release && pnpm -r build",
-    "dev": "pnpm -r dev",
+    "build": "npm run build:lib && npm run build:desktop",
+    "build:lib": "npm run build:lib:client",
+    "build:lib:client": "tsc -b tsconfig.client.json && tsdown --env.DSH_BUILD_FACE client",
+    "build:desktop": "tsc -b tsconfig.host.json",
+    "clean": "tsx scripts/clean.ts",
     "docs:check": "node scripts/check-codebase-docs.mjs",
-    "eval:inspect": "uv run --locked --group inspect inspect eval evals/inspect/tasks.py@swarmx_smoke --model none",
-    "test:python": "uv run --locked --no-default-groups python -m unittest discover -s tests/python -p '*_test.py'",
-    "test:mem": "cargo test --workspace --locked",
     "lint": "biome check .",
-    "format": "biome format --write .",
     "test": "vitest run",
-    "test:coverage": "vitest run --coverage",
-    "test:e2e:release": "pnpm --filter @swarmx/desktop test:e2e:release",
-    "test:integration:memory": "pnpm --filter @swarmx/desktop test:mem-runtime",
-    "test:inspect": "uv run --locked --group inspect python -m unittest discover -s evals/inspect -p '*_test.py' && pnpm eval:inspect",
-    "test:watch": "vitest"
+    "start": "npm run build && npm run start:built --workspace @swarmx/desktop",
+    "typecheck": "tsc -b tsconfig.host.json tsconfig.client.json"
   },
   "devDependencies": {
-    "@biomejs/biome": "^2.5.6",
-    "@vitejs/plugin-react": "^6.0.5",
-    "@vitest/coverage-v8": "^4.1.10",
-    "typescript": "^7.0.2",
-    "vitest": "^4.1.10"
-  },
-  "overrides": {
-    "@hono/node-server": "2.0.12",
-    "body-parser": "2.3.0",
-    "fast-uri": "3.1.4",
-    "hono": "4.12.32",
-    "lodash-es": "4.18.1"
-  },
-  "engines": {
-    "node": ">=22.13.0",
-    "pnpm": ">=9.0.0"
+    "@biomejs/biome": "^2.5.9",
+    "@types/node": "^22.20.0",
+    "lightningcss": "^1.32.0",
+    "tsdown": "^0.22.2",
+    "tsx": "^4.22.4",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.8"
   }
 }

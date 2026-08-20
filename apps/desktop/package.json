@@ -1,0 +1,25 @@
+{
+  "name": "@swarmx/desktop",
+  "version": "0.1.0",
+  "description": "Electron desktop surface over the DeepSeek Harness web profile.",
+  "license": "MIT",
+  "type": "module",
+  "main": "dist/main.js",
+  "scripts": {
+    "start:built": "electron dist/main.js",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@deepseek-ai/dsh": "^0.1.0-rc.8",
+    "@deepseek-ai/dsh-app-boot": "^0.1.0-rc.8",
+    "@deepseek-ai/dsh-base": "^0.1.0-rc.8",
+    "@deepseek-ai/dsh-cmdline": "^0.1.0-rc.8",
+    "@deepseek-ai/dsh-home-paths": "^0.1.0-rc.8",
+    "@deepseek-ai/dsh-web-app": "^0.1.0-rc.8",
+    "@swarmx/dsh-ui-conversation": "workspace:*"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "4.0.1",
+    "electron": "^43.4.1"
+  }
+}

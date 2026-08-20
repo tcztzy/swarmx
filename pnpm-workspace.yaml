@@ -1,15 +1,13 @@
 packages:
-  - "packages/*"
+  - packages/*/*
+  - apps/*
 
 allowBuilds:
-  "@biomejs/biome": true
+  '@deepseek-ai/dsh-subprocess-local': true
+  '@google/genai': false
   electron: true
-  electron-winstaller: false
   esbuild: true
+  koffi: true
+  node-addon-require-builtin: false
   node-pty: true
-
-onlyBuiltDependencies:
-  - "@biomejs/biome"
-  - electron
-  - esbuild
-  - node-pty
+  protobufjs: false
