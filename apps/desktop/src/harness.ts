@@ -18,6 +18,7 @@ import {
   loadOptionalPatches,
   loadProfile,
   PROFILE_PATCH_FILENAME,
+  type Profile,
 } from "@deepseek-ai/dsh-app-boot";
 import { provideCmdline } from "@deepseek-ai/dsh-cmdline";
 import { resolveDshHome } from "@deepseek-ai/dsh-home-paths";
@@ -53,18 +54,72 @@ function conversationAnchor(): string {
   return createRequire(import.meta.url).resolve("@swarmx/dsh-ui-conversation/package.json");
 }
 
-/**
- * Module base anchoring bare plugin specifiers. The profile config lives under
- * $DSH_HOME, outside this project, so bare names must resolve against the
- * installation instead of the config directory. Loader expects a URL.
- */
+/** Installed manifest for the SwarmX science Host service. */
+function scienceAnchor(): string {
+  return createRequire(import.meta.url).resolve("@swarmx/dsh-science/package.json");
+}
+
+/** Installed manifest for the SwarmX Science Workspace client view. */
+function scienceUiAnchor(): string {
+  return createRequire(import.meta.url).resolve("@swarmx/dsh-ui-science/package.json");
+}
+
+/** Module base anchoring in-box and SwarmX-owned bare plugin specifiers. */
 function bareModuleBaseUrl(anchor: string): string {
   return pathToFileURL(anchor).href;
+}
+
+/** Return the package name portion of one bare module specifier. */
+function packageName(specifier: string): string | undefined {
+  if (specifier.startsWith("@")) {
+    const [scope, name] = specifier.split("/");
+    return scope === undefined || name === undefined ? undefined : `${scope}/${name}`;
+  }
+  if (specifier.startsWith(".") || specifier.startsWith("/") || specifier.includes(":")) {
+    return undefined;
+  }
+  return specifier.split("/")[0];
+}
+
+/**
+ * Electron cannot always obtain Node's internal ESM loader, so its fallback
+ * dynamic import ignores the Loader base URL. Resolve only active bundle-owned
+ * entry names to absolute modules up front; all other DSH rows stay bare and
+ * continue resolving from the installed app graph.
+ */
+function resolveProfileBundleEntries<T>(value: T, profile: Profile): T {
+  const resolved = structuredClone(value);
+  const bundleNames = new Set(profile.layers.map((layer) => layer.packageName));
+  const profileRequire = createRequire(join(profile.dir, "package.json"));
+
+  const visit = (current: unknown): void => {
+    if (Array.isArray(current)) {
+      for (const child of current) visit(child);
+      return;
+    }
+    if (current === null || typeof current !== "object") return;
+    const record = current as Record<string, unknown>;
+    if (typeof record.id === "string" && typeof record.name === "string") {
+      const owner = packageName(record.name);
+      if (owner !== undefined && bundleNames.has(owner)) {
+        record.name = profileRequire.resolve(record.name);
+      }
+    }
+    for (const child of Object.values(record)) visit(child);
+  };
+
+  visit(resolved);
+  return resolved;
 }
 
 /** Product-owned patch mounted after DSH bundles and before user overrides. */
 function conversationPatchPath(): string {
   return join(dirname(conversationAnchor()), "cordis.patch.yml");
+}
+
+/** Product-owned Science Journal and workspace view layer. */
+function sciencePatchPath(): string {
+  return join(dirname(scienceAnchor()), "cordis.patch.yml");
 }
 
 /**
@@ -121,6 +176,8 @@ export async function startHarness(): Promise<Harness> {
   const anchor = installAnchor();
   healProfilesModuleFallback(anchor, home);
   healProfilesModuleFallback(conversationAnchor(), home);
+  healProfilesModuleFallback(scienceAnchor(), home);
+  healProfilesModuleFallback(scienceUiAnchor(), home);
   const profile = loadProfile(BIN_NAME, PROFILE, anchor, home);
   writeFileSync(join(profile.dir, ROOT_FILENAME), ROOT_CONFIG);
   // Layer order is the contract: DSH bundles, SwarmX product extensions, the
@@ -129,10 +186,17 @@ export async function startHarness(): Promise<Harness> {
   // include pushes `insert` rows into the mounted tree by reference and later
   // patches mutate them in place.
   const layers = [
-    profile.layers.flatMap((layer) => layer.patches),
+    resolveProfileBundleEntries(
+      profile.layers.flatMap((layer) => layer.patches),
+      profile,
+    ),
     loadOptionalPatches(BIN_NAME, conversationPatchPath()) ?? [],
-    profile.patches,
-    loadOptionalPatches(BIN_NAME, join(home, PROFILE_PATCH_FILENAME)) ?? [],
+    loadOptionalPatches(BIN_NAME, sciencePatchPath()) ?? [],
+    resolveProfileBundleEntries(profile.patches, profile),
+    resolveProfileBundleEntries(
+      loadOptionalPatches(BIN_NAME, join(home, PROFILE_PATCH_FILENAME)) ?? [],
+      profile,
+    ),
   ];
   // An id-targeted patch replaces the row's whole config, so the preset patch
   // needs the composed row it is overriding. `composeEntries` resolves the same

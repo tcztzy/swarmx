@@ -11,3 +11,6 @@ allowBuilds:
   node-addon-require-builtin: false
   node-pty: true
   protobufjs: false
+
+patchedDependencies:
+  '@deepseek-ai/dsh-client-ui-layout@0.1.0-rc.8': patches/@deepseek-ai__dsh-client-ui-layout@0.1.0-rc.8.patch

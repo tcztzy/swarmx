@@ -1,0 +1,1019 @@
+.workspace {
+  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  color: var(--foreground, #252522);
+  background: #fff;
+}
+
+.shell {
+  display: grid;
+  grid-template-columns: 232px minmax(0, 1fr);
+  height: 100%;
+  min-height: 0;
+}
+
+.projectRail {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+  padding: 14px 10px 12px;
+  overflow: hidden;
+  border-right: 1px solid #e8e7e3;
+  background: #f7f7f5;
+}
+
+.projectHeader {
+  display: grid;
+  gap: 3px;
+  padding: 4px 8px 14px;
+}
+
+.projectHeader span,
+.stageHeader span,
+.localStatus small {
+  color: #85847f;
+  font-size: 11px;
+}
+
+.projectHeader strong {
+  overflow: hidden;
+  font-size: 14px;
+  font-weight: 620;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.newAction {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  gap: 9px;
+  min-height: 34px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 7px;
+  color: inherit;
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  background: transparent;
+  cursor: pointer;
+}
+
+.newAction:hover,
+.projectNavigation button:hover,
+.fileRail button:hover {
+  background: #ecebe7;
+}
+
+.newAction:focus-visible,
+.projectNavigation button:focus-visible,
+.fileRail button:focus-visible {
+  outline: 2px solid #8f8d85;
+  outline-offset: 1px;
+}
+
+.projectNavigation {
+  padding-top: 14px;
+}
+
+.projectNavigation > p {
+  padding: 0 8px;
+  margin: 0 0 5px;
+  color: #8d8b84;
+  font-size: 11px;
+}
+
+.projectNavigation ul,
+.fileRail ul,
+.notebookTabs {
+  display: grid;
+  gap: 2px;
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+
+.projectNavigation button {
+  width: 100%;
+  min-height: 32px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 7px;
+  color: inherit;
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  background: transparent;
+  cursor: pointer;
+}
+
+.projectNavigation button[aria-current="page"] {
+  background: #e7e6e2;
+  font-weight: 620;
+}
+
+.fileRail {
+  min-height: 0;
+  padding-top: 14px;
+  overflow: auto;
+}
+
+.fileRail h2 {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 8px;
+  margin: 0 0 5px;
+  font-size: 12px;
+  font-weight: 560;
+}
+
+.fileRail h2 span {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.fileRail h2 small {
+  color: #8d8b84;
+  font-size: 10px;
+  font-weight: 500;
+}
+
+.fileImport {
+  position: relative;
+  display: grid;
+  gap: 2px;
+  padding: 9px 10px;
+  margin: 7px 4px 9px;
+  border: 1px dashed #cbc9c1;
+  border-radius: 8px;
+  background: #fbfbfa;
+}
+
+.fileImport[data-importing="true"] {
+  border-style: solid;
+  background: #f1f0ec;
+}
+
+.fileImport input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+.fileImport label {
+  width: fit-content;
+  font-size: 11px;
+  font-weight: 620;
+  cursor: pointer;
+}
+
+.fileImport input:focus-visible + label {
+  outline: 2px solid #8f8d85;
+  outline-offset: 2px;
+}
+
+.fileImport span,
+.fileImport small {
+  color: #8a8881;
+  font-size: 10px;
+  line-height: 1.35;
+}
+
+.fileImport small[role="alert"] {
+  color: #a13c2f;
+}
+
+.fileRail > p {
+  padding: 3px 8px;
+  margin: 0;
+  color: #93918b;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.fileRail li[data-focused="true"] {
+  outline: 2px solid #9d9a91;
+  outline-offset: -2px;
+  border-radius: 7px;
+}
+
+.fileActions {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 2px;
+}
+
+.fileRail button {
+  display: block;
+  width: 100%;
+  padding: 7px 8px;
+  border: 0;
+  border-radius: 7px;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  background: transparent;
+  cursor: pointer;
+}
+
+.fileRail button > span {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.fileRail strong,
+.fileRail button small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fileRail .analyzeFile {
+  width: auto;
+  padding: 5px 7px;
+  color: #67655f;
+  font-size: 10px;
+  text-align: center;
+}
+
+.fileRail strong {
+  font-size: 12px;
+  font-weight: 560;
+}
+
+.fileRail button small {
+  color: #8a8881;
+  font-size: 10px;
+}
+
+.localStatus {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 8px 0;
+  margin-top: auto;
+  border-top: 1px solid #e6e5e1;
+  color: #63625e;
+  font-size: 11px;
+}
+
+.stage {
+  display: grid;
+  grid-template-rows: 48px minmax(0, 1fr);
+  min-width: 0;
+  min-height: 0;
+  container-type: inline-size;
+}
+
+.stageHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 20px;
+  border-bottom: 1px solid #ecebe8;
+  background: #fff;
+}
+
+.stageHeader > div {
+  display: flex;
+  align-items: baseline;
+  min-width: 0;
+  gap: 8px;
+}
+
+.stageHeader span {
+  overflow: hidden;
+  max-width: 230px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.stageHeader span::after {
+  content: "/";
+  padding-left: 8px;
+  color: #c2c0ba;
+}
+
+.stageHeader strong {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.stageHeader > small {
+  color: #7b7a75;
+  font-size: 11px;
+}
+
+.stageBody {
+  min-height: 0;
+  padding: 24px clamp(20px, 4vw, 52px) 48px;
+  overflow: auto;
+  background: #fdfdfc;
+}
+
+.eyebrow {
+  margin: 0;
+  color: #898780;
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.notice,
+.panel {
+  padding: 20px;
+  border: 1px solid #e5e4e0;
+  border-radius: 10px;
+  background: #fff;
+}
+
+.panel p,
+.notice p,
+.emptyProject p {
+  color: #66645e;
+}
+
+.notice button,
+.formRow button,
+.panel form > button,
+.proposalActions button {
+  min-height: 38px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: 8px;
+  color: white;
+  font: inherit;
+  font-weight: 650;
+  background: #252522;
+  cursor: pointer;
+}
+
+.notice button:focus-visible,
+.formRow button:focus-visible,
+.formRow input:focus-visible,
+.panel input:focus-visible,
+.panel select:focus-visible,
+.panel textarea:focus-visible,
+.panel form > button:focus-visible,
+.proposalActions button:focus-visible {
+  outline: 2px solid #918f88;
+  outline-offset: 2px;
+}
+
+.formRow button:disabled,
+.panel form > button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.formRow button.secondaryAction {
+  border: 1px solid #d8d7d2;
+  color: #5f5d57;
+  background: #fff;
+}
+
+.columns {
+  width: min(100%, 980px);
+  margin: 0 auto;
+}
+
+.panel h2 {
+  margin: 0 0 10px;
+  font-size: 17px;
+  letter-spacing: -0.01em;
+}
+
+.panel form {
+  display: grid;
+  gap: 8px;
+  margin-top: 20px;
+}
+
+.panel label {
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.formRow {
+  display: flex;
+  gap: 8px;
+}
+
+.formRow input {
+  min-width: 0;
+  flex: 1;
+  min-height: 38px;
+  box-sizing: border-box;
+  padding: 0 12px;
+  border: 1px solid #d9d8d3;
+  border-radius: 8px;
+  color: inherit;
+  font: inherit;
+  background: white;
+}
+
+.panel input {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 38px;
+  padding: 0 12px;
+  border: 1px solid #d9d8d3;
+  border-radius: 8px;
+  color: inherit;
+  font: inherit;
+  background: white;
+}
+
+.panel select {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 38px;
+  padding: 0 12px;
+  border: 1px solid #d9d8d3;
+  border-radius: 8px;
+  color: inherit;
+  font: inherit;
+  background: white;
+}
+
+.panel textarea {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 120px;
+  padding: 12px;
+  resize: vertical;
+  border: 1px solid #d9d8d3;
+  border-radius: 8px;
+  color: inherit;
+  font:
+    13px / 1.5 ui-monospace,
+    sfmono-regular,
+    consolas,
+    monospace;
+  background: white;
+}
+
+.panel form > button {
+  justify-self: start;
+}
+
+.emptyProject {
+  width: min(100%, 560px);
+  padding: 42px;
+  margin: 10vh auto 0;
+  border: 1px solid #e5e4e0;
+  border-radius: 12px;
+  background: #fff;
+}
+
+.emptyProject h2 {
+  margin: 8px 0;
+  font-size: 24px;
+  letter-spacing: -0.025em;
+}
+
+.emptyProject form {
+  display: grid;
+  gap: 8px;
+  margin-top: 24px;
+}
+
+.notebookWorkspace {
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  background: transparent;
+}
+
+.notebookHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: 22px 24px 16px;
+}
+
+.notebookHeader h2 {
+  margin: 4px 0 0;
+  font-size: 20px;
+}
+
+.notebookHeader > span {
+  color: #85837d;
+  font-size: 11px;
+}
+
+.notebookTabs {
+  display: flex;
+  gap: 0;
+  padding: 0 16px;
+  overflow-x: auto;
+  border-bottom: 1px solid #e7e6e2;
+}
+
+.notebookTabs button {
+  min-height: 36px;
+  padding: 0 12px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  color: #706f6a;
+  font: inherit;
+  font-size: 12px;
+  white-space: nowrap;
+  background: transparent;
+  cursor: pointer;
+}
+
+.notebookTabs button[aria-pressed="true"] {
+  border-bottom-color: #34332f;
+  color: #24231f;
+  font-weight: 620;
+}
+
+.notebookTabs button:focus-visible {
+  outline: 2px solid #918f88;
+  outline-offset: -2px;
+}
+
+.newNotebookForm {
+  padding: 0 24px 18px;
+  border-bottom: 1px solid #efeeeb;
+}
+
+.newNotebookForm label {
+  color: #7b7973;
+}
+
+.cells {
+  display: grid;
+  gap: 14px;
+  padding: 24px;
+  margin: 0;
+  list-style: none;
+}
+
+.cells li {
+  overflow: hidden;
+  border: 1px solid #e5e4e0;
+  border-radius: 9px;
+  background: #fff;
+}
+
+.cells li[data-kind="output"] {
+  margin-top: -8px;
+  border-color: #e9e8e4;
+  background: #f8f8f6;
+}
+
+.cells span {
+  display: block;
+  padding: 7px 11px;
+  border-bottom: 1px solid #ecebe7;
+  color: #85837d;
+  font-size: 10px;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.cells pre {
+  padding: 12px;
+  margin: 0;
+  overflow: auto;
+  font:
+    12px / 1.55 ui-monospace,
+    sfmono-regular,
+    consolas,
+    monospace;
+  white-space: pre-wrap;
+}
+
+.notebookOutput {
+  padding: 12px;
+  overflow: auto;
+  color: #24231f;
+  font-size: 12px;
+}
+
+.notebookOutputHost:empty {
+  display: none;
+}
+
+.notebookOutputFallback {
+  padding: 0;
+}
+
+.notebookOutput[data-enhanced="true"] .notebookOutputFallback {
+  display: none;
+}
+
+.notebookOutputNotice {
+  display: block;
+  margin-top: 6px;
+  color: #8a4c3d;
+}
+
+.notebookOutputHost,
+.notebookOutputHost > div,
+.notebookOutputHost > div > div {
+  max-width: 100%;
+}
+
+.notebookOutputHost img,
+.notebookOutputHost svg {
+  max-width: 100%;
+  height: auto;
+}
+
+.emptyActivity {
+  padding: 52px 24px;
+  text-align: center;
+}
+
+.emptyActivity strong {
+  font-size: 15px;
+}
+
+.emptyActivity p {
+  margin: 6px 0 0;
+  font-size: 12px;
+}
+
+.cellAction {
+  padding: 16px 24px 22px;
+  border-top: 1px solid #e7e6e2;
+}
+
+.cellAction button {
+  min-height: 34px;
+  padding: 0 13px;
+  border: 1px solid #d8d7d2;
+  border-radius: 7px;
+  color: #4f4d47;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  background: #fff;
+  cursor: pointer;
+}
+
+.cellAction button:hover {
+  background: #f3f2ef;
+}
+
+.cellAction button:focus-visible {
+  outline: 2px solid #918f88;
+  outline-offset: 2px;
+}
+
+.cellComposer {
+  padding: 18px 24px 22px;
+  margin: 0;
+  margin-bottom: 8rem;
+  border-top: 1px solid #e7e6e2;
+  background: #fbfbfa;
+}
+
+.cellComposer textarea {
+  min-height: 108px;
+  background: #fff;
+}
+
+.captureRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: end;
+}
+
+.captureRow > div {
+  display: grid;
+  gap: 6px;
+}
+
+.captureRow button {
+  min-height: 38px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: 8px;
+  color: white;
+  font: inherit;
+  font-weight: 620;
+  background: #252522;
+  cursor: pointer;
+}
+
+.captureRow button:disabled {
+  cursor: not-allowed;
+  opacity: 0.42;
+}
+
+.writingPanel {
+  padding: 4px 0 8rem;
+  border: 0;
+  background: transparent;
+}
+
+.writingGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.5fr) minmax(260px, 0.7fr);
+  gap: 22px;
+}
+
+.writingGrid h3 {
+  margin: 0 0 10px;
+  font-size: 15px;
+}
+
+.writingGrid aside h3:not(:first-child) {
+  margin-top: 24px;
+}
+
+.documentMeta {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.documentMeta span,
+.validationStatus {
+  color: var(--muted-foreground, #607069);
+  font-size: 12px;
+}
+
+.checks,
+.proposals {
+  display: grid;
+  gap: 10px;
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+
+.checks li,
+.proposals li {
+  display: grid;
+  gap: 7px;
+  padding: 12px;
+  border: 1px solid #e6e5e1;
+  border-radius: 9px;
+  background: #f8f8f6;
+}
+
+.checks strong,
+.proposals > li > span {
+  color: #67655f;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.checks span,
+.proposals p {
+  margin: 0;
+  color: var(--muted-foreground, #607069);
+  font-size: 13px;
+}
+
+.proposals del,
+.proposals ins {
+  display: block;
+  max-height: 12rem;
+  padding: 8px;
+  overflow: auto;
+  border-radius: 6px;
+  overflow-wrap: anywhere;
+  font-family: ui-monospace, sfmono-regular, consolas, monospace;
+  font-size: 12px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+}
+
+.proposals del {
+  color: #77746e;
+  background: #f2f1ee;
+}
+
+.proposals ins {
+  color: #3e4d43;
+  text-decoration: none;
+  background: #edf3ee;
+}
+
+.proposalActions {
+  display: flex;
+  gap: 8px;
+}
+
+.sectionHeading,
+.experimentList li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.sectionHeading button,
+.experimentList button {
+  min-height: 38px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: 10px;
+  color: white;
+  font: inherit;
+  font-weight: 650;
+  background: #252522;
+  cursor: pointer;
+}
+
+.mapGrid,
+.experimentList,
+.relationList {
+  display: grid;
+  gap: 10px;
+  padding: 0;
+  margin: 16px 0;
+  list-style: none;
+}
+
+.mapGrid {
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.mapGrid li,
+.experimentList li,
+.relationList li {
+  padding: 14px;
+  border: 1px solid #e6e5e1;
+  border-radius: 9px;
+  background: #f8f8f6;
+}
+
+.mapGrid li {
+  display: grid;
+  gap: 7px;
+}
+
+.mapGrid span,
+.mapGrid small,
+.experimentList span {
+  color: var(--muted-foreground, #607069);
+  font-size: 12px;
+}
+
+.mapGrid p {
+  margin: 0;
+}
+
+.relationList li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  gap: 12px;
+  align-items: center;
+}
+
+.relationList code {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.experimentList div {
+  display: grid;
+  gap: 4px;
+}
+
+.figureCanvas {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 10px;
+  min-height: 180px;
+  padding: 18px;
+  margin: 12px 0;
+  border: 1px solid #e4e3df;
+  border-radius: 10px;
+  background: #f8f8f6;
+}
+
+.figureCanvas button {
+  display: grid;
+  align-content: center;
+  gap: 5px;
+  min-height: 64px;
+  padding: 10px;
+  border: 1px solid #d9d8d3;
+  border-radius: 8px;
+  color: inherit;
+  font: inherit;
+  background: rgb(255 255 255 / 88%);
+  cursor: pointer;
+}
+
+.figureCanvas button[aria-pressed="true"] {
+  border-color: #77756e;
+  background: #ecebe7;
+  box-shadow: 0 0 0 2px rgb(103 101 95 / 12%);
+}
+
+.figureCanvas button:focus-visible {
+  outline: 2px solid #918f88;
+  outline-offset: 2px;
+}
+
+.figureCanvas span {
+  color: var(--muted-foreground, #607069);
+  font-size: 11px;
+  text-transform: uppercase;
+}
+
+@container (max-width: 720px) {
+  .writingGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .sectionHeading,
+  .experimentList li {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .relationList li {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 820px) {
+  .shell {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+
+  .projectRail {
+    display: grid;
+    grid-template-columns: minmax(150px, 1fr) auto;
+    gap: 8px 12px;
+    padding: 10px;
+    border-right: 0;
+    border-bottom: 1px solid #e8e7e3;
+  }
+
+  .projectHeader {
+    padding: 2px 6px;
+  }
+
+  .newAction {
+    width: auto;
+  }
+
+  .projectNavigation {
+    grid-column: 1 / -1;
+    padding-top: 0;
+  }
+
+  .projectNavigation > p,
+  .fileRail,
+  .localStatus {
+    display: none;
+  }
+
+  .projectNavigation ul {
+    display: flex;
+    gap: 4px;
+    overflow-x: auto;
+  }
+
+  .projectNavigation button {
+    padding: 0 10px;
+    white-space: nowrap;
+  }
+
+  .stageBody {
+    padding: 18px 14px 36px;
+  }
+
+  .writingGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .formRow {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .captureRow {
+    grid-template-columns: 1fr;
+  }
+}

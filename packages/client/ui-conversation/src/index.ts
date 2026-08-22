@@ -1,7 +1,7 @@
 /**
- * Node-side half of the re-run actions plugin.
+ * Node-side half of the conversation extensions plugin.
  *
- * The browser half owns all the behavior; this side exists because a DSH client
+ * The browser half owns Retry/Edit and the generic Side View; this side exists because a DSH client
  * plugin is a dual-half package — the host scans enabled entries for a
  * `dsh.client` declaration and serves the matching `./client` bundle. The host
  * has nothing to do here, so the plugin body is empty.

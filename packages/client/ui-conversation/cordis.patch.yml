@@ -1,4 +1,4 @@
-# Bundle patch for the re-run actions plugin.
+# Bundle patch for the conversation extensions plugin.
 #
 # Declaring `dsh.bundle.patch` makes this package self-installing: adding it to
 # a profile's bundle list inserts these rows, with no hand-edited profile patch.

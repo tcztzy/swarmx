@@ -3,8 +3,9 @@
 An Electron desktop application for the [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness).
 
 The harness owns the agent: sessions, tools, the agent loop, permissions,
-credentials, persistence, and telemetry. SwarmX contributes the desktop surface
-and one small client extension for non-destructive Retry/Edit actions.
+credentials, persistence, and telemetry. SwarmX contributes the desktop surface,
+non-destructive Retry/Edit actions, a generic Side View, and an additive local-first Science
+Workspace.
 
 ## How it works
 
@@ -21,7 +22,7 @@ Electron main ──boot()──> DSH web profile + SwarmX actions ──HTTP/12
 Consequences of that shape:
 
 - **No replacement renderer.** All published `dsh-client-ui-*` packages are
-  reused; the local extension enters through the public conversation slot.
+  reused; local extensions enter through public conversation and details slots.
 - **No IPC bridge.** The renderer already reaches the harness through the
   `/api` transport its client plugins speak.
 - **No second process.** `boot()` returns the root context, so the harness lives
@@ -45,11 +46,33 @@ fork primitive; the first turn uses a fresh session in the same Workspace
 (adopting the source cwd when it was ungrouped) because DSH cannot fork an empty
 completed-turn prefix. Neither action mutates the source history.
 
+The same client plugin owns a per-Session Side View that reuses DSH's draggable right details
+column. Tool calls and Science artifacts open as deduplicated tabs through serializable locators;
+their React content remains owned by keyed slots. Opening or closing it does not replace Chat,
+Trajectory, the composer, or the active Science Workspace. SwarmX removes rc.8's fixed 520px
+details ceiling through an exact package-manager patch: dragging can use the available viewport while
+the original 300px floor, 640px center floor, and narrow-screen auto-close remain authoritative.
+
+Artifact tabs request only Host-authorized bounded previews: text and common image formats render in
+the compact right column, while “Open in Science” retains the same locator for the full Science view.
+If Science is not already mounted, rc.8 cannot switch that view programmatically, so the locator waits
+until the user selects its existing Science tab.
+
 Retry/Edit are append-only branch operations. The superseded user message,
 automatic-retry records, and terminal error remain durable in the source
 session. The active child begins before that turn and appends only the revised
 or retried user text, so the superseded turn is not rendered there and failure
 metadata is not part of the messages sent to the model provider.
+
+`@swarmx/dsh-science` and `@swarmx/dsh-ui-science` add an AI-native scientific IDE through
+published Harness seams. Files admits bounded CSV/TSV/JSON/text/XLSX/PDF/image uploads into the
+content-addressed registry; one-click Analyze creates or selects a Notebook, runs a deterministic
+local inspection cell, and returns a JSON result to Files and Side View. Notebook uses one persistent
+Jupyter kernel per document through the configured local JupyMCP controller; Writing manages source-linked
+Typst/LaTeX/Markdown/BibTeX proposals; Figures maps semantic canvas objects to plotting code;
+Research Map retains questions, hypotheses, claims, and evidence; Experiments tracks reproducible
+Runs and content-addressed exports. Science Journal stores domain facts separately from the DSH
+session log, so neither Chat, Trajectory, nor the agent loop is replaced.
 
 ## Requirements
 
@@ -98,6 +121,19 @@ Add your own plugin row:
     - id: my-panel
       name: '@me/dsh-client-ui-my-panel'
 ```
+
+Profile bundles can also be installed through DSH's published plugin command.
+SwarmX resolves the installed bundle from the active profile before falling
+back to its own dependency graph, including in Electron where Node's internal
+ESM loader is unavailable. For example, after cloning and building
+[dsh-cowork](https://github.com/Jesse-njx/dsh-cowork):
+
+```shell
+pnpm --filter @swarmx/desktop exec dsh plugin --profile web add /absolute/path/to/dsh-cowork/packages/dsh
+```
+
+Restart SwarmX and the model receives Cowork's bounded `doc_read` for xlsx,
+ipynb, PDF, docx, and pptx plus atomic `doc_write` for xlsx and ipynb.
 
 Within a client plugin, `ctx.slots.register` contributes a component into a
 declared slot, and a lower `priority` shadows an existing occupant without

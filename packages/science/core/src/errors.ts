@@ -1,0 +1,43 @@
+export type ScienceErrorCode =
+  | "ARTIFACT_IO_FAILED"
+  | "ARTIFACT_NOT_FOUND"
+  | "ARTIFACT_PATH_INVALID"
+  | "ARTIFACT_SOURCE_CHANGED"
+  | "ARTIFACT_TOO_LARGE"
+  | "DOCUMENT_HISTORY_FULL"
+  | "DOCUMENT_NOT_FOUND"
+  | "FIGURE_ARTIFACT_INVALID"
+  | "FIGURE_HISTORY_FULL"
+  | "FIGURE_NOT_FOUND"
+  | "FIGURE_OBJECT_NOT_FOUND"
+  | "FIGURE_SELECTION_AMBIGUOUS"
+  | "IDEMPOTENCY_CONFLICT"
+  | "EXPERIMENT_NOT_FOUND"
+  | "INVALID_REQUEST"
+  | "INVALID_STORAGE_ROOT"
+  | "JUPYMCP_UNAVAILABLE"
+  | "NOTEBOOK_NOT_FOUND"
+  | "PROJECT_NOT_FOUND"
+  | "RESEARCH_ENTITY_NOT_FOUND"
+  | "PROPOSAL_NOT_FOUND"
+  | "PROPOSAL_NOT_PENDING"
+  | "PROVENANCE_ENTITY_NOT_FOUND"
+  | "PYTHON_UNAVAILABLE"
+  | "REVISION_CONFLICT"
+  | "RUN_ARTIFACT_INVALID"
+  | "RUN_COMPARISON_INVALID"
+  | "RUN_NOT_FOUND"
+  | "SCIENCE_CLOSED"
+  | "SESSION_NOT_FOUND"
+  | "WORKSPACE_UNAVAILABLE";
+
+export class ScienceError extends Error {
+  constructor(
+    message: string,
+    readonly code: ScienceErrorCode,
+    options?: ErrorOptions,
+  ) {
+    super(message, options);
+    this.name = "ScienceError";
+  }
+}

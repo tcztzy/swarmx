@@ -1,4 +1,4 @@
 {
   "files": [],
-  "references": [{ "path": "./apps/desktop" }]
+  "references": [{ "path": "./packages/science/core" }, { "path": "./apps/desktop" }]
 }

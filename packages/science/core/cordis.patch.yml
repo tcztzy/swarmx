@@ -1,0 +1,14 @@
+# Product-owned science slice. SwarmX loads this layer after DSH bundles and
+# before user patches, so either row can be disabled or replaced by id.
+
+- insert:
+    - id: swarmx-science
+      name: '@swarmx/dsh-science'
+      config:
+        root: !!js dshHomePath('science')
+
+    - id: swarmx-science-tools
+      name: '@swarmx/dsh-science/tools'
+
+    - id: swarmx-ui-science
+      name: '@swarmx/dsh-ui-science'

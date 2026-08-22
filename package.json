@@ -18,7 +18,7 @@
     "clean": "tsx scripts/clean.ts",
     "docs:check": "node scripts/check-codebase-docs.mjs",
     "lint": "biome check .",
-    "test": "vitest run",
+    "test": "npm run build:lib && vitest run",
     "start": "npm run build && npm run start:built --workspace @swarmx/desktop",
     "typecheck": "tsc -b tsconfig.host.json tsconfig.client.json"
   },

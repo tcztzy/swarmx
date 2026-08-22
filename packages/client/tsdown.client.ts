@@ -23,6 +23,8 @@ import type { UserConfig } from "tsdown";
  */
 const CSS_VIRTUAL_PREFIX = "\0dsh-css:";
 const CSS_VIRTUAL_SUFFIX = ".mjs";
+const SVG_VIRTUAL_PREFIX = "\0dsh-svg:";
+const SVG_VIRTUAL_SUFFIX = ".mjs";
 
 /**
  * Workspace mode replaces an empty config array with the root defaults. A
@@ -67,13 +69,18 @@ function browserSourcePath(source: string, sourcemapPath: string): string {
  * @param libEntry - compiled node-half entries.
  * @returns ENV-selected tsdown config for the current build face.
  */
-export function clientBundle(id: string, libEntry: readonly string[]): BuildFaceConfig {
+export function clientBundle(
+  id: string,
+  libEntry: readonly string[],
+  bundledModules: Readonly<Record<string, string>> = {},
+): BuildFaceConfig {
   const lib = clientLibraryConfig(id, libEntry);
   return ({ env }) => {
     const face = buildFace(env?.DSH_BUILD_FACE);
     const client = clientConfig(
       id,
       face === undefined ? "src/client/index.ts" : "lib/types/client/index.js",
+      bundledModules,
     );
     if (face === "host") return [SKIP_WORKSPACE_BUILD];
     return [lib, client];
@@ -103,7 +110,11 @@ function clientLibraryConfig(id: string, libEntry: readonly string[]): UserConfi
   };
 }
 
-function clientConfig(id: string, entry: string): UserConfig {
+function clientConfig(
+  id: string,
+  entry: string,
+  bundledModules: Readonly<Record<string, string>>,
+): UserConfig {
   return {
     name: `${id}/client`,
     entry: { client: entry },
@@ -125,6 +136,12 @@ function clientConfig(id: string, entry: string): UserConfig {
       alwaysBundle: (id: string) => (CLIENT_EXTERNALS.includes(id) ? undefined : true),
     },
     plugins: [
+      {
+        name: "dsh-workspace-bundle-entry",
+        resolveId(source: string) {
+          return bundledModules[source] ?? null;
+        },
+      },
       {
         // Every DSH value import must resolve through the shared module table.
         name: "dsh-client-bundle-purity",
@@ -171,6 +188,20 @@ function clientConfig(id: string, entry: string): UserConfig {
             "}",
             `export default ${JSON.stringify(classMap)};`,
           ].join("\n");
+        },
+      },
+      {
+        name: "dsh-svg-string",
+        resolveId(source: string, importer: string | undefined) {
+          if (!source.endsWith(".svg") || importer === undefined) return null;
+          return `${SVG_VIRTUAL_PREFIX}${resolvePath(dirname(importer), source)}${SVG_VIRTUAL_SUFFIX}`;
+        },
+        async load(virtualId: string) {
+          if (!virtualId.startsWith(SVG_VIRTUAL_PREFIX)) return null;
+          const fileId = virtualId.slice(SVG_VIRTUAL_PREFIX.length, -SVG_VIRTUAL_SUFFIX.length);
+          this.addWatchFile(fileId);
+          const svg = await readFile(fileId, "utf8");
+          return `export default ${JSON.stringify(svg)};`;
         },
       },
     ],

@@ -1,4 +1,9 @@
 {
   "files": [],
-  "references": [{ "path": "./apps/desktop" }, { "path": "./packages/client/ui-conversation" }]
+  "references": [
+    { "path": "./apps/desktop" },
+    { "path": "./packages/science/core" },
+    { "path": "./packages/client/ui-conversation" },
+    { "path": "./packages/client/ui-science" }
+  ]
 }

@@ -16,7 +16,9 @@
     "@deepseek-ai/dsh-cmdline": "^0.1.0-rc.8",
     "@deepseek-ai/dsh-home-paths": "^0.1.0-rc.8",
     "@deepseek-ai/dsh-web-app": "^0.1.0-rc.8",
-    "@swarmx/dsh-ui-conversation": "workspace:*"
+    "@swarmx/dsh-science": "workspace:*",
+    "@swarmx/dsh-ui-conversation": "workspace:*",
+    "@swarmx/dsh-ui-science": "workspace:*"
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "4.0.1",

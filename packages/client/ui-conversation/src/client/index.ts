@@ -1,6 +1,6 @@
 /**
- * Re-run actions for the DeepSeek Harness conversation surface: show terminal
- * failures with Retry, or edit a user-authored message and send the revision.
+ * Conversation extensions for DeepSeek Harness: generic Side View plus terminal
+ * failure Retry and user-authored message Edit.
  *
  * Neither action mutates history. Later turns fork at the preceding completed
  * boundary; the first turn starts in a fresh sibling because DSH cannot fork
@@ -14,13 +14,25 @@ import type { ConnectionHandle } from "@deepseek-ai/dsh-client-connection/client
 import type { ClientContext, SessionId } from "@deepseek-ai/dsh-client-runtime/client";
 // Type-only: pulls the ui-conversation SlotMap and ChatNodeDataMap merges.
 import type {} from "@deepseek-ai/dsh-client-ui-conversation/client";
+import type {} from "@deepseek-ai/dsh-client-ui-layout/client";
 import { selectFailedTurn } from "../error-turn.js";
 import { userEditDefinition } from "../user-edit-node.js";
 import { FailedTurnAction, UserEditAction } from "./actions.js";
 import { RerunController } from "./controller.js";
+import { registerSideView } from "./side-view-registration.js";
 import type { RerunActionsInjected } from "./slots.js";
 
 export { RerunController } from "./controller.js";
+export {
+  type ISideView,
+  type JsonValue,
+  type SideViewContentOwnerProps,
+  SideViewController,
+  type SideViewEntry,
+  type SideViewMode,
+  type SideViewSnapshot,
+  type ToolSideViewActionOwnerProps,
+} from "./side-view.js";
 export type { RerunActionsInjected } from "./slots.js";
 
 /** Services required before this plugin can register its entries. */
@@ -31,6 +43,7 @@ export const inject = [
   "conversation",
   "conversationEvents",
   "connection",
+  "layout",
 ];
 
 /** Maximum wait for the session-added stream to reach the client runtime. */
@@ -93,6 +106,7 @@ async function createSibling(ctx: ClientContext, sourceId: SessionId): Promise<S
  * @param ctx - client root context.
  */
 export function apply(ctx: ClientContext): void {
+  registerSideView(ctx);
   const controllers = new Map<SessionId, RerunController>();
   const controllerFor = (sessionId: SessionId): RerunController => {
     let controller = controllers.get(sessionId);
