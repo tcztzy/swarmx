@@ -1,9 +1,78 @@
 import { describe, expect, it, vi } from "vitest";
 import { TYPERT_REMOTE } from "../../../science/core/src/remote.js";
 import { apply } from "../src/client/index.js";
+import { apply as applyHost, name as pluginName } from "../src/index.js";
 
-describe("V17/V46 Science client registration", () => {
-  it("mounts its Remote contribution and registers the view inside remote.science injection", async () => {
+vi.mock("@deepseek-ai/dsh-client-ui-primitives", () => ({
+  IconBranchOutline16: () => null,
+  IconDataOutline16: () => null,
+  IconEditOutline16: () => null,
+  IconEllipsisOutline16: () => null,
+  IconFullscreenOutline16: () => null,
+  IconSendOutline16: () => null,
+  IconTrashOutline16: () => null,
+  Menu: () => null,
+}));
+
+const artifact = {
+  id: "artifact-1",
+  projectId: "project-1",
+  kind: "figure" as const,
+  title: "umap.png",
+  digest: `sha256:${"a".repeat(64)}`,
+  mime: "image/png",
+  size: 100,
+  creator: { kind: "session" as const, sessionId: "session-1" },
+  runId: null,
+  environment: {},
+  license: null,
+  sourceEntityIds: [],
+  createdAt: 1,
+  updatedAt: 1,
+  revision: 1,
+  provenance: { eventId: "event-1", journalSeq: 1, sessionId: "session-1" },
+};
+
+describe("V102/V122 Host-global deliverable contract", () => {
+  it("keeps only the generic Markdown file-link guidance global", () => {
+    expect(pluginName).toBe("swarmx-ui-science");
+    const sections: Array<{ name: string; order: number; text: string }> = [];
+    const result = applyHost({
+      systemPrompt: { section: (section) => sections.push(section) },
+    } as never) as unknown as () => void;
+
+    expect(result).toBeUndefined();
+    expect(sections.map((section) => section.name)).toEqual(["ui:deliverable-file-references"]);
+    const deliverables = sections.find(({ name }) => name === "ui:deliverable-file-references");
+    expect(deliverables?.text).toContain("[filename](./workspace-relative/path)");
+    expect(deliverables?.text).toContain("Prefer this Markdown link");
+    expect(deliverables?.text).not.toContain(
+      "Format changed-file references as Markdown inline code",
+    );
+    expect(deliverables?.text).not.toContain("typst compile");
+    expect(deliverables?.text).not.toContain("science_query");
+    expect(deliverables?.text).not.toContain("literature_search");
+  });
+});
+
+describe("V17/V57 Science client registration", () => {
+  it("registers the produced-file accumulator before Remote mounting can yield", () => {
+    const registerConversationNode = vi.fn();
+    const neverMounted = new Promise<never>(() => undefined);
+    void apply({
+      conversationEvents: { register: registerConversationNode },
+      remote: { $mount: vi.fn(() => neverMounted) },
+      sessions: { list: { getSnapshot: () => ({ current: undefined, byId: {} }) } },
+      sideView: { open: vi.fn() },
+      slots: { inject: vi.fn(), register: vi.fn() },
+      workspaces: { openPath: vi.fn() },
+      provide: vi.fn(),
+    } as never);
+
+    expect(registerConversationNode).toHaveBeenCalledOnce();
+  });
+
+  it("mounts Chat artifact cards and DetailsPanel content without a Science peer view", async () => {
     const disposeRemote = vi.fn();
     const mounted = vi.fn(() => Promise.resolve(disposeRemote));
     const registrations: Array<{ options: Record<string, unknown>; component: unknown }> = [];
@@ -15,233 +84,161 @@ describe("V17/V46 Science client registration", () => {
     const injectService = vi.fn((_services: string[], callback: (scope: typeof context) => void) =>
       callback(context),
     );
+    const unregisterReference = vi.fn();
+    const registerSource = vi.fn(() => unregisterReference);
+    const registerConversationNode = vi.fn();
+    const provide = vi.fn();
+    let inputState = {
+      draft: "Existing draft",
+      draftRev: 1,
+      phase: "plain",
+      occurrences: [],
+      imageIds: [],
+      queue: [],
+    };
+    const input = {
+      state: { getSnapshot: () => inputState },
+      setDraft: vi.fn((draft: string) => {
+        inputState = { ...inputState, draft, draftRev: inputState.draftRev + 1 };
+      }),
+      insertReference: vi.fn(() => true),
+    };
     const context = {
+      conversation: { input: { for: vi.fn(() => input) } },
+      conversationEvents: { register: registerConversationNode },
       inject: injectService,
+      inputTriggers: { registerSource },
       remote: {
         $mount: mounted,
         science: {
-          createDocument: vi.fn(() => Promise.resolve({ ok: true, value: {} })),
-          createFigure: vi.fn(() => Promise.resolve({ ok: true, value: {} })),
-          createNotebook: vi.fn(() => Promise.resolve({ ok: true, value: {} })),
-          createProject: vi.fn(() => Promise.resolve({ ok: true, value: {} })),
-          executeNotebookCell: vi.fn(() => Promise.resolve({ ok: true, value: {} })),
-          defineExperiment: vi.fn(() => Promise.resolve({ ok: true, value: {} })),
-          startRun: vi.fn(() => Promise.resolve({ ok: true, value: {} })),
-          finishRun: vi.fn(() => Promise.resolve({ ok: true, value: {} })),
-          exportProject: vi.fn(() => Promise.resolve({ ok: true, value: {} })),
-          getWorkspace: vi.fn(() => Promise.resolve({ ok: true, value: {} })),
-          importArtifact: vi.fn(() => Promise.resolve({ ok: true, value: {} })),
-          modifyDocument: vi.fn(() => Promise.resolve({ ok: true, value: {} })),
-          modifyFigureCode: vi.fn(() => Promise.resolve({ ok: true, value: {} })),
           previewArtifact: vi.fn(() =>
             Promise.resolve({
               ok: true,
               value: {
-                kind: "text",
+                kind: "image",
                 artifactId: "artifact-1",
-                digest: `sha256:${"a".repeat(64)}`,
-                mime: "text/plain",
-                size: 5,
-                text: "hello",
+                digest: artifact.digest,
+                mime: "image/png",
+                size: 4,
+                dataUrl: "data:image/png;base64,iVBORw==",
               },
             }),
           ),
+          getResearchObject: vi.fn(() =>
+            Promise.resolve({
+              ok: true,
+              value: {
+                "@context": "https://w3id.org/ro/crate/1.3/context",
+                "@graph": [
+                  {
+                    "@id": "ro-crate-metadata.json",
+                    "@type": "CreativeWork",
+                    about: { "@id": "urn:uuid:project-1" },
+                  },
+                  {
+                    "@id": "urn:uuid:project-1",
+                    "@type": "Dataset",
+                    name: "Project",
+                    description: "Project Research Object",
+                    datePublished: "2026-08-24T00:00:00.000Z",
+                    license: "All rights reserved",
+                    hasPart: [],
+                  },
+                ],
+              },
+            }),
+          ),
+          previewTypstDocument: vi.fn(() =>
+            Promise.resolve({
+              ok: true,
+              value: {
+                relativePath: "paper.typ",
+                title: "paper.typ",
+                source: "= Paper",
+                sourceRevision: `sha256:${"b".repeat(64)}`,
+                status: "compiling",
+                diagnostics: [],
+                pdfBase64: null,
+                pdfRevision: null,
+                pdfSourceRevision: null,
+                pdfSize: null,
+                compiledAt: null,
+              },
+            }),
+          ),
+          updateTypstSource: vi.fn(),
+          resolveTypstSourceAtPoint: vi.fn(),
         },
       },
-      sideView: { dismiss: vi.fn(), open: vi.fn() },
+      provide,
+      sessions: {
+        binding: vi.fn(() => ({ ctx: {} })),
+        list: { getSnapshot: () => ({ current: "session-1", byId: {} }) },
+      },
+      sideView: { open: vi.fn() },
       slots: { inject: injectSlot, register },
+      workspaces: { openPath: vi.fn() },
     };
 
     const dispose = await apply(context as never);
 
     expect(mounted).toHaveBeenCalledWith(TYPERT_REMOTE);
+    expect(registerSource).toHaveBeenCalledWith(
+      expect.objectContaining({ trigger: "@", name: "annotation" }),
+    );
+    expect(registerConversationNode).toHaveBeenCalledOnce();
+    expect(provide).toHaveBeenCalledWith("chatFileMentions", expect.any(Object));
     expect(injectService).toHaveBeenCalledWith(["remote.science"], expect.any(Function));
-    expect(injectSlot).toHaveBeenCalledWith("conversation.view", expect.any(Function));
+    expect(injectSlot).toHaveBeenCalledWith(
+      "conversation.chat.turnTail.items",
+      expect.any(Function),
+    );
     expect(injectSlot).toHaveBeenCalledWith("side-view.content", expect.any(Function));
-    expect(injectSlot).toHaveBeenCalledWith("side-view.tool.actions", expect.any(Function));
-    expect(register).toHaveBeenCalledWith(
-      expect.objectContaining({
-        name: "side-view.tool.actions",
-        id: "science-artifact",
-      }),
-      expect.any(Function),
+    expect(injectSlot).not.toHaveBeenCalledWith("side-view.tool.actions", expect.any(Function));
+    expect(registrations.some(({ options }) => options.name === "conversation.view")).toBe(false);
+    expect(registrations.some(({ options }) => options.name === "conversation.chat.turnTail")).toBe(
+      false,
     );
-    expect(register).toHaveBeenCalledWith(
-      expect.objectContaining({
-        name: "side-view.content",
-        key: "science-artifact",
-      }),
-      expect.any(Function),
-    );
-    expect(register).toHaveBeenCalledWith(
-      expect.objectContaining({
-        name: "conversation.view",
-        id: "science",
-        order: 20,
-      }),
-      expect.any(Function),
-    );
-    const registration = registrations.find(({ options }) => options.name === "conversation.view")
-      ?.options as
+
+    const filesItem = registrations.find(
+      ({ options }) =>
+        options.name === "conversation.chat.turnTail.items" && options.id === "science-files",
+    )?.options as
       | {
-          inject(sessionId: string): Record<string, (...args: never[]) => Promise<unknown>>;
-          store?: unknown;
+          inject(sessionId: string): {
+            openFile(path: string): void;
+            openTypst(path: string): void;
+          };
         }
       | undefined;
-    if (!registration) throw new Error("Science view registration was not captured");
-    const injected = registration.inject("session-1");
-    const createDocument = injected.createDocument;
-    const executeCell = injected.executeCell;
-    const importArtifact = injected.importArtifact;
-    const modifyDocument = injected.modifyDocument;
-    const createFigure = injected.createFigure;
-    const modifyFigureCode = injected.modifyFigureCode;
-    const defineExperiment = injected.defineExperiment;
-    const startRun = injected.startRun;
-    const finishRun = injected.finishRun;
-    const exportProject = injected.exportProject;
-    const openArtifact = injected.openArtifact;
-    if (
-      !createDocument ||
-      !executeCell ||
-      !importArtifact ||
-      !modifyDocument ||
-      !createFigure ||
-      !modifyFigureCode ||
-      !defineExperiment ||
-      !startRun ||
-      !finishRun ||
-      !exportProject ||
-      !openArtifact
-    ) {
-      throw new Error("Science studio injectors were not captured");
-    }
-    await createDocument("project-1", "paper.typ", "= Results");
-    await importArtifact("project-1", "measurements.csv", "YSxiCjEsMgo=");
-    await executeCell(
-      "notebook-1",
-      "print('saved')",
-      {
-        relativePath: "result.csv",
-        kind: "dataset",
-        title: "result.csv",
-        mime: "text/csv",
-        license: null,
-      },
-      ["artifact-1"],
-    );
-    await modifyDocument({
-      documentId: "document-1",
-      expectedRevision: 1,
-      action: "accept",
-      proposalId: "proposal-1",
+    if (!filesItem) throw new Error("Science Files turn-tail registration was not captured");
+    filesItem.inject("session-1").openTypst("docs/paper.typ");
+    expect(context.sideView.open).toHaveBeenCalledWith("session-1", {
+      id: "science-typst:docs/paper.typ",
+      kind: "science-typst",
+      title: "paper.typ",
+      mode: "workbench",
+      payload: { relativePath: "docs/paper.typ" },
     });
-    await createFigure("project-1", "Accuracy", "matplotlib", "plt.plot(x, y)");
-    await modifyFigureCode({
-      figureId: "figure-1",
-      expectedRevision: 1,
-      action: "propose",
-      objectIds: ["line-1"],
-      proposedCode: "plt.plot(x, y, linewidth=2)",
-      instruction: "Increase line width",
-      reasoning: "The selected line is difficult to see.",
-    });
-    await defineExperiment("project-1", "Benchmark", "Repeat analysis", "python run.py");
-    await startRun("experiment-1", 2);
-    await finishRun("run-1", 1);
-    await exportProject("project-1");
-    openArtifact({
-      id: "artifact-1",
-      projectId: "project-1",
-      kind: "figure",
-      title: "umap.png",
-      digest: `sha256:${"a".repeat(64)}`,
-      mime: "image/png",
-      size: 100,
-      creator: { kind: "session", sessionId: "session-1" },
-      runId: null,
-      environment: {},
-      license: null,
-      sourceEntityIds: [],
-      createdAt: 1,
-      updatedAt: 1,
-      revision: 1,
-      provenance: { eventId: "event-1", journalSeq: 1, sessionId: "session-1" },
-    });
-    expect(context.remote.science.createDocument).toHaveBeenCalledWith(
+
+    const turnTailItem = registrations.find(
+      ({ options }) =>
+        options.name === "conversation.chat.turnTail.items" && options.id === "science-artifacts",
+    )?.options as
+      | {
+          inject(sessionId: string): {
+            loadPreview(artifactId: string, signal?: AbortSignal): Promise<unknown>;
+            openArtifact(artifact: typeof artifact): void;
+          };
+        }
+      | undefined;
+    if (!turnTailItem) throw new Error("Science turn-tail item registration was not captured");
+    const turnTailFace = turnTailItem.inject("session-1");
+    await turnTailFace.loadPreview("artifact-1");
+    turnTailFace.openArtifact(artifact);
+    expect(context.remote.science.previewArtifact).toHaveBeenCalledWith(
       "session-1",
-      expect.objectContaining({ projectId: "project-1", name: "paper.typ", content: "= Results" }),
-      undefined,
-    );
-    expect(context.remote.science.executeNotebookCell).toHaveBeenCalledWith(
-      "session-1",
-      expect.objectContaining({
-        notebookId: "notebook-1",
-        source: "print('saved')",
-        inputArtifactIds: ["artifact-1"],
-        outputArtifact: {
-          relativePath: "result.csv",
-          kind: "dataset",
-          title: "result.csv",
-          mime: "text/csv",
-          license: null,
-        },
-      }),
-      undefined,
-    );
-    expect(context.remote.science.importArtifact).toHaveBeenCalledWith(
-      "session-1",
-      expect.objectContaining({
-        projectId: "project-1",
-        name: "measurements.csv",
-        dataBase64: "YSxiCjEsMgo=",
-      }),
-      undefined,
-    );
-    expect(context.remote.science.modifyDocument).toHaveBeenCalledWith(
-      "session-1",
-      expect.objectContaining({
-        documentId: "document-1",
-        expectedRevision: 1,
-        action: "accept",
-        proposalId: "proposal-1",
-      }),
-      undefined,
-    );
-    expect(context.remote.science.createFigure).toHaveBeenCalledWith(
-      "session-1",
-      expect.objectContaining({
-        projectId: "project-1",
-        title: "Accuracy",
-        library: "matplotlib",
-        code: "plt.plot(x, y)",
-        artifactId: null,
-      }),
-      undefined,
-    );
-    expect(context.remote.science.modifyFigureCode).toHaveBeenCalledWith(
-      "session-1",
-      expect.objectContaining({ figureId: "figure-1", action: "propose", objectIds: ["line-1"] }),
-      undefined,
-    );
-    expect(context.remote.science.defineExperiment).toHaveBeenCalledWith(
-      "session-1",
-      expect.objectContaining({ projectId: "project-1", protocol: "python run.py" }),
-      undefined,
-    );
-    expect(context.remote.science.startRun).toHaveBeenCalledWith(
-      "session-1",
-      expect.objectContaining({ experimentId: "experiment-1", expectedRevision: 2 }),
-      undefined,
-    );
-    expect(context.remote.science.finishRun).toHaveBeenCalledWith(
-      "session-1",
-      expect.objectContaining({ runId: "run-1", status: "succeeded" }),
-      undefined,
-    );
-    expect(context.remote.science.exportProject).toHaveBeenCalledWith(
-      "session-1",
-      expect.objectContaining({ projectId: "project-1" }),
+      { artifactId: "artifact-1" },
       undefined,
     );
     expect(context.sideView.open).toHaveBeenCalledWith(
@@ -249,6 +246,7 @@ describe("V17/V46 Science client registration", () => {
       expect.objectContaining({
         id: "science-artifact:artifact-1",
         kind: "science-artifact",
+        mode: "workbench",
       }),
     );
 
@@ -257,39 +255,40 @@ describe("V17/V46 Science client registration", () => {
     )?.options as
       | {
           inject(sessionId: string): {
-            loadPreview(artifactId: string, signal?: AbortSignal): Promise<unknown>;
-            openInScience(target: Record<string, string>): boolean;
+            loadResearchObject(projectId: string, signal?: AbortSignal): Promise<unknown>;
+            addAnnotationToConversation(annotation: Record<string, unknown>): boolean;
           };
         }
       | undefined;
-    if (!contentRegistration) throw new Error("Artifact Side View registration was not captured");
+    if (!contentRegistration)
+      throw new Error("Artifact DetailsPanel registration was not captured");
     const content = contentRegistration.inject("session-1");
-    await content.loadPreview("artifact-1");
-    expect(context.remote.science.previewArtifact).toHaveBeenCalledWith(
+    await content.loadResearchObject("project-1");
+    expect(context.remote.science.getResearchObject).toHaveBeenCalledWith(
       "session-1",
-      { artifactId: "artifact-1" },
+      { projectId: "project-1" },
       undefined,
     );
-    const target = {
-      kind: "artifact",
-      artifactId: "artifact-1",
-      projectId: "project-1",
-      surface: "artifacts",
-    };
-    expect(content.openInScience(target)).toBe(false);
-    expect(context.sideView.dismiss).not.toHaveBeenCalled();
+    expect(
+      content.addAnnotationToConversation({
+        version: 1,
+        id: "annotation-1",
+        artifactId: "artifact-1",
+        projectId: "project-1",
+        title: "umap.png",
+        digest: artifact.digest,
+        mime: "image/png",
+        x: 0.25,
+        y: 0.75,
+        comment: "Why is this cluster separated?",
+        createdAt: 1_787_371_200_000,
+      }),
+    ).toBe(true);
+    expect(input.setDraft).toHaveBeenCalledWith("Existing draft @");
+    expect(input.insertReference).toHaveBeenCalledOnce();
 
-    const navigation = injected.navigation as unknown as { mount(): () => void };
-    const unmount = navigation.mount();
-    expect(content.openInScience(target)).toBe(true);
-    expect(context.sideView.dismiss).toHaveBeenCalledWith("session-1");
-    unmount();
-
-    expect(registrations.every(({ options }) => options.name !== "conversation.session")).toBe(
-      true,
-    );
-    expect(registration.store).toBeUndefined();
     await dispose();
     expect(disposeRemote).toHaveBeenCalledOnce();
+    expect(unregisterReference).toHaveBeenCalledOnce();
   });
 });

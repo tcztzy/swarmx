@@ -11,6 +11,7 @@
 
 import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
+import { createRequire } from "node:module";
 import { basename, dirname, relative, resolve as resolvePath, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { transform } from "lightningcss";
@@ -25,6 +26,8 @@ const CSS_VIRTUAL_PREFIX = "\0dsh-css:";
 const CSS_VIRTUAL_SUFFIX = ".mjs";
 const SVG_VIRTUAL_PREFIX = "\0dsh-svg:";
 const SVG_VIRTUAL_SUFFIX = ".mjs";
+const RAW_VIRTUAL_PREFIX = "\0dsh-raw:";
+const require = createRequire(import.meta.url);
 
 /**
  * Workspace mode replaces an empty config array with the root defaults. A
@@ -204,9 +207,29 @@ function clientConfig(
           return `export default ${JSON.stringify(svg)};`;
         },
       },
+      {
+        name: "dsh-raw-string",
+        resolveId(source: string, importer: string | undefined) {
+          if (!source.endsWith("?raw") || importer === undefined) return null;
+          const request = source.slice(0, -"?raw".length);
+          const fileId = request.startsWith(".")
+            ? resolvePath(dirname(importer), request)
+            : require.resolve(request, { paths: [dirname(importer)] });
+          return `${RAW_VIRTUAL_PREFIX}${fileId}`;
+        },
+        async load(virtualId: string) {
+          if (!virtualId.startsWith(RAW_VIRTUAL_PREFIX)) return null;
+          const fileId = virtualId.slice(RAW_VIRTUAL_PREFIX.length);
+          this.addWatchFile(fileId);
+          return `export default ${JSON.stringify(await readFile(fileId, "utf8"))};`;
+        },
+      },
     ],
     outputOptions: {
       entryFileNames: "client.js",
+      // Plugin scripts are fetched and evaluated by DSH's module loader; relative
+      // CommonJS chunks cannot be resolved by that loader and are not published.
+      codeSplitting: false,
       // The map is served from /plugins/<scoped-package>/client.js.map. The
       // browser resolves its local sources back into URLs that mirror the
       // /packages/<group>/<package>/src directories; sourcesContent keeps them usable

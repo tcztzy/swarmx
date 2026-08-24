@@ -1,0 +1,135 @@
+.userRow {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+}
+
+.userStack {
+  display: flex;
+  min-width: 0;
+  width: min(620px, 88%);
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.bubble {
+  display: grid;
+  width: fit-content;
+  max-width: 100%;
+  gap: 10px;
+  padding: 10px 14px;
+  border-radius: 20px;
+  background: var(--dsw-specific-bubble);
+  color: var(--dsw-alias-label-primary);
+}
+
+.annotationCard {
+  display: grid;
+  gap: 6px;
+  min-width: min(360px, 100%);
+  padding: 10px 12px;
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--dsw-alias-bg-base) 68%, transparent);
+}
+
+.annotationHeading {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.annotationHeading strong,
+.annotationHeading a {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--dsw-alias-label-primary);
+  font-size: 13px;
+  line-height: 18px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.annotationHeading a {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  text-decoration: none;
+}
+
+.annotationHeading span {
+  flex: none;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+}
+
+.annotationCard blockquote {
+  display: -webkit-box;
+  margin: 0;
+  overflow: hidden;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 13px;
+  line-height: 19px;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
+.annotationCard p,
+.invalid {
+  margin: 0;
+  font-size: 14px;
+  line-height: 20px;
+}
+
+.invalid {
+  color: var(--dsw-alias-state-error-primary);
+}
+
+.body {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: 16px;
+  line-height: 24px;
+}
+
+.body > :first-child,
+.body > :last-child {
+  margin-block: 0;
+}
+
+.actions {
+  display: flex;
+  height: 28px;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.time {
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.actions button {
+  display: inline-flex;
+  width: 28px;
+  height: 28px;
+  align-items: center;
+  justify-content: center;
+  padding: 6px;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.actions button:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-secondary);
+}

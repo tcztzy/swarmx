@@ -12,16 +12,21 @@ import {
   executeNotebookCellRequestSchema,
   exportProjectRequestSchema,
   finishRunRequestSchema,
+  getResearchObjectRequestSchema,
   importArtifactRequestSchema,
   linkEvidenceRequestSchema,
   linkEvidenceResultSchema,
+  literatureSearchRequestSchema,
+  literatureSearchResultSchema,
   modifyDocumentRequestSchema,
   modifyFigureCodeRequestSchema,
   notebookExecutionSchema,
   previewArtifactRequestSchema,
-  provenanceTraceSchema,
+  previewTypstDocumentRequestSchema,
   recordClaimRequestSchema,
   registerArtifactRequestSchema,
+  resolveTypstSourceAtPointRequestSchema,
+  roCrateMetadataDocumentSchema,
   runComparisonSchema,
   runMutationSchema,
   scienceArtifactPreviewSchema,
@@ -34,9 +39,11 @@ import {
   scienceProjectSchema,
   scienceResearchRecordSchema,
   scienceRunSchema,
-  scienceWorkspaceSnapshotSchema,
   startRunRequestSchema,
-  traceProvenanceRequestSchema,
+  typstDocumentPreviewSchema,
+  typstSourceTargetSchema,
+  typstSourceUpdateSchema,
+  updateTypstSourceRequestSchema,
 } from "./contracts.js";
 
 const sessionIdSchema = z.string().min(1).max(200);
@@ -213,10 +220,17 @@ export const SCIENCE_INVOCATIONS = Object.freeze([
     scienceRunSchema,
   ),
   descriptor(
-    "getWorkspace",
-    [parameter("sessionId", "@deepseek-ai/dsh-session/types#SessionId", sessionIdSchema)],
-    "@swarmx/dsh-science/types#ScienceWorkspaceSnapshot",
-    scienceWorkspaceSnapshotSchema,
+    "getResearchObject",
+    [
+      parameter("sessionId", "@deepseek-ai/dsh-session/types#SessionId", sessionIdSchema),
+      parameter(
+        "request",
+        "@swarmx/dsh-science/types#GetResearchObjectRequest",
+        getResearchObjectRequestSchema,
+      ),
+    ],
+    "@swarmx/dsh-science/types#RoCrateMetadataDocument",
+    roCrateMetadataDocumentSchema,
   ),
   descriptor(
     "importArtifact",
@@ -284,6 +298,19 @@ export const SCIENCE_INVOCATIONS = Object.freeze([
     scienceArtifactPreviewSchema,
   ),
   descriptor(
+    "previewTypstDocument",
+    [
+      parameter("sessionId", "@deepseek-ai/dsh-session/types#SessionId", sessionIdSchema),
+      parameter(
+        "request",
+        "@swarmx/dsh-science/types#PreviewTypstDocumentRequest",
+        previewTypstDocumentRequestSchema,
+      ),
+    ],
+    "@swarmx/dsh-science/types#TypstDocumentPreview",
+    typstDocumentPreviewSchema,
+  ),
+  descriptor(
     "recordClaim",
     [
       parameter("sessionId", "@deepseek-ai/dsh-session/types#SessionId", sessionIdSchema),
@@ -310,6 +337,32 @@ export const SCIENCE_INVOCATIONS = Object.freeze([
     scienceArtifactSchema,
   ),
   descriptor(
+    "resolveTypstSourceAtPoint",
+    [
+      parameter("sessionId", "@deepseek-ai/dsh-session/types#SessionId", sessionIdSchema),
+      parameter(
+        "request",
+        "@swarmx/dsh-science/types#ResolveTypstSourceAtPointRequest",
+        resolveTypstSourceAtPointRequestSchema,
+      ),
+    ],
+    "@swarmx/dsh-science/types#TypstSourceTarget | null",
+    typstSourceTargetSchema.nullable(),
+  ),
+  descriptor(
+    "searchLiterature",
+    [
+      parameter("sessionId", "@deepseek-ai/dsh-session/types#SessionId", sessionIdSchema),
+      parameter(
+        "request",
+        "@swarmx/dsh-science/types#LiteratureSearchRequest",
+        literatureSearchRequestSchema,
+      ),
+    ],
+    "@swarmx/dsh-science/types#LiteratureSearchResult",
+    literatureSearchResultSchema,
+  ),
+  descriptor(
     "startRun",
     [
       parameter("sessionId", "@deepseek-ai/dsh-session/types#SessionId", sessionIdSchema),
@@ -319,16 +372,16 @@ export const SCIENCE_INVOCATIONS = Object.freeze([
     runMutationSchema,
   ),
   descriptor(
-    "traceProvenance",
+    "updateTypstSource",
     [
       parameter("sessionId", "@deepseek-ai/dsh-session/types#SessionId", sessionIdSchema),
       parameter(
         "request",
-        "@swarmx/dsh-science/types#TraceProvenanceRequest",
-        traceProvenanceRequestSchema,
+        "@swarmx/dsh-science/types#UpdateTypstSourceRequest",
+        updateTypstSourceRequestSchema,
       ),
     ],
-    "@swarmx/dsh-science/types#ProvenanceTrace",
-    provenanceTraceSchema,
+    "@swarmx/dsh-science/types#TypstSourceUpdate",
+    typstSourceUpdateSchema,
   ),
 ] satisfies readonly InvocationDescriptor[]);

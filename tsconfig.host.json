@@ -1,4 +1,8 @@
 {
   "files": [],
-  "references": [{ "path": "./packages/science/core" }, { "path": "./apps/desktop" }]
+  "references": [
+    { "path": "./packages/core/annotation" },
+    { "path": "./packages/science/core" },
+    { "path": "./apps/desktop" }
+  ]
 }

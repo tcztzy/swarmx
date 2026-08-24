@@ -1,0 +1,83 @@
+diff --git a/lib/index.js b/lib/index.js
+index df6eecc014f10a7c9ac97b77447b749cb29325e4..1c0711d73111d98b40cd7eec2af850b544477ef4 100644
+--- a/lib/index.js
++++ b/lib/index.js
+@@ -5259,10 +5259,22 @@ function renderNode(node, key, context) {
+ 		case "list": return renderList(node, key, context);
+ 		case "listItem": return renderListItem(node, listItemLoose(node), key, context);
+ 		case "table": return renderTable(node, key, context);
+-		case "link": return renderAnchor(node.url, renderChildren(node.children, {
+-			...context,
+-			inLink: true
+-		}), key);
++		case "link": {
++			const children = renderChildren(node.children, {
++				...context,
++				inLink: true
++			});
++			const mention = context.fileMentions?.resolveLink?.(node.url);
++			if (mention !== void 0) return jsx("button", {
++				type: "button",
++				className: css$19.fileMention,
++				title: mention.title,
++				"aria-label": mention.label,
++				onClick: mention.open,
++				children
++			}, key);
++			return renderAnchor(node.url, children, key);
++		}
+ 		case "linkReference": return renderLinkReference(node, key, context);
+ 		case "image": return renderImage(node.url, node.alt ?? "", key);
+ 		case "imageReference": return renderImageReference(node, key, context);
+@@ -5598,7 +5610,7 @@ var StreamingRenderer = class {
+ * forwards localized copy-button labels to fence CodeBlocks — pass a
+ * reference-stable object (memoized per locale revision), because a new
+ * identity discards the streaming render cache mid-message. `fileMentions`
+-* links inline-code tokens its resolver recognizes as real files; this is
++* links inline-code tokens and Markdown destinations its resolver recognizes as real files; this is
+ * the single streaming gate — it applies to settled renders only, because a
+ * streaming message's vocabulary is not final and frozen cached elements
+ * must not bake in handlers that could go stale.
+diff --git a/lib/types/markdown/MarkdownText.d.ts b/lib/types/markdown/MarkdownText.d.ts
+index 9447c6a8249afe5acd02e9633fd984422b8bac01..c33d4f031f5de29c3c665572a0a80ab776b62b4a 100644
+--- a/lib/types/markdown/MarkdownText.d.ts
++++ b/lib/types/markdown/MarkdownText.d.ts
+@@ -21,7 +21,7 @@ export type { MarkdownCodeLabels, MarkdownFileMentions } from './render.tsx';
+  * forwards localized copy-button labels to fence CodeBlocks — pass a
+  * reference-stable object (memoized per locale revision), because a new
+  * identity discards the streaming render cache mid-message. `fileMentions`
+- * links inline-code tokens its resolver recognizes as real files; this is
++ * links inline-code tokens and Markdown destinations its resolver recognizes as real files; this is
+  * the single streaming gate — it applies to settled renders only, because a
+  * streaming message's vocabulary is not final and frozen cached elements
+  * must not bake in handlers that could go stale.
+diff --git a/lib/types/markdown/render.d.ts b/lib/types/markdown/render.d.ts
+index 0ea7bd1a79fb2fbe2f1658683ee4ddb6afd390a6..2114382f74cff475d0b11fe710656a722cd7df40 100644
+--- a/lib/types/markdown/render.d.ts
++++ b/lib/types/markdown/render.d.ts
+@@ -45,9 +45,9 @@ export declare function createReferenceTargets(): ReferenceTargets;
+  */
+ export declare function collectReferenceTargets(nodes: readonly Md.RootContent[], targets: ReferenceTargets): void;
+ /**
+- * File-mention affordance for inline code: the owner resolves an authored
+- * token to the file it names, using its own vocabulary of real files — the
+- * renderer never guesses at what looks like a path.
++ * File-mention affordance: the owner resolves an authored inline-code token or
++ * Markdown destination to the file it names, using its own vocabulary of real
++ * files — the renderer never guesses at what looks like a path.
+  */
+ export interface MarkdownFileMentions {
+     /**
+@@ -61,6 +61,12 @@ export interface MarkdownFileMentions {
+         label: string;
+         title: string;
+     } | undefined;
++    /** Resolve a Markdown link destination through the same trusted vocabulary. */
++    resolveLink?(value: string): {
++        open: () => void;
++        label: string;
++        title: string;
++    } | undefined;
+ }
+ /**
+  * One render pass's state: immutable options and targets plus the footnote

@@ -16,7 +16,7 @@ export function sourceHash(source: string): `sha256:${string}` {
 }
 
 export function documentFormat(name: string): ScienceDocumentFormat {
-  if (name.endsWith(".typ")) return "typst";
+  if (name.endsWith(".typ") || name.endsWith(".typst")) return "typst";
   if (name.endsWith(".tex")) return "latex";
   if (name.endsWith(".md")) return "markdown";
   return "bibtex";

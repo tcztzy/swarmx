@@ -86,6 +86,14 @@ describe("harness boot", () => {
     expect(await response.text()).toContain("__DSH_BOOT__");
   });
 
+  it("serves trusted Markdown file-link resolution through the product route", async () => {
+    const index = await (await fetch(harness.url)).text();
+    const pathname = index.match(/src="(\/assets\/index-[^"]+\.js)"/u)?.[1];
+    expect(pathname).toBeDefined();
+    const module = await (await fetch(new URL(pathname as string, harness.url))).text();
+    expect(module).toContain("fileMentions?.resolveLink?.");
+  });
+
   it("loads the SwarmX conversation actions into the client boot graph", async () => {
     const response = await fetch(harness.url);
     expect(await response.text()).toContain("@swarmx/dsh-ui-conversation");
@@ -102,7 +110,7 @@ describe("harness boot", () => {
     expect(fixtureEntry?.options.name).toBe(realpathSync(fixtureEntryPath));
   });
 
-  it("mounts the Science Journal and adds its client view to the boot graph", async () => {
+  it("mounts the Science Journal and adds its client integration to the boot graph", async () => {
     expect(harness.ctx.get("science")).toBeDefined();
     const typert = harness.ctx.get("typert") as
       | { local: { get(endpoint: string): { service: string } | undefined } }
@@ -115,12 +123,33 @@ describe("harness boot", () => {
     expect(typert?.local.get("science/modifyFigureCode")).toMatchObject({ service: "science" });
     expect(typert?.local.get("science/defineExperiment")).toMatchObject({ service: "science" });
     expect(typert?.local.get("science/exportProject")).toMatchObject({ service: "science" });
-    expect(harness.ctx.tools.get("science_record")).toBeDefined();
-    expect(harness.ctx.tools.get("science_export")).toBeDefined();
+    expect(typert?.local.get("science/searchLiterature")).toMatchObject({ service: "science" });
+    expect(harness.ctx.tools.get("science_record")).toBeUndefined();
+    expect(harness.ctx.tools.get("science_export")).toBeUndefined();
+    expect(harness.ctx.tools.get("literature_search")).toBeUndefined();
     expect(harness.ctx.get("spillStore")).toBeDefined();
     const response = await fetch(harness.url);
     const html = await response.text();
     expect(html).toContain("@swarmx/dsh-ui-science");
+  });
+
+  it("discovers Science as a system preset and scopes its model tools", async () => {
+    const preset = (await harness.ctx.agentPresets.list()).find(({ id }) => id === "dsh-science");
+    expect(preset).toMatchObject({
+      id: "dsh-science",
+      trust: "system",
+      name: "科学模式",
+      order: 5,
+    });
+    expect(preset?.broken).toBeUndefined();
+
+    const standard = await harness.ctx.agentPresets.standingKeyFor("standard");
+    const science = await harness.ctx.agentPresets.standingKeyFor("dsh-science");
+    expect(harness.ctx.tools.get("science_record", standard)).toBeUndefined();
+    expect(harness.ctx.tools.get("literature_search", standard)).toBeUndefined();
+    expect(harness.ctx.tools.get("science_record", science)).toBeDefined();
+    expect(harness.ctx.tools.get("science_export", science)).toBeDefined();
+    expect(harness.ctx.tools.get("literature_search", science)).toBeDefined();
   });
 
   it("suppresses the web profile's system-browser handoff", () => {

@@ -2,8 +2,8 @@
  * Boots the DeepSeek Harness `web` profile inside this process and reports the
  * URL its server bound to. The profile is DSH's own shipped template
  * (`dsh-base` + `dsh-web-app`), so the entire browser surface — every
- * `dsh-client-ui-*` package — is reused as published, with no renderer code of
- * our own.
+ * `dsh-client-ui-*` package — remains the baseline. Product-owned extensions,
+ * exact-version package patches, and the Markdown file-link route stay explicit.
  */
 
 import { writeFileSync } from "node:fs";
@@ -22,6 +22,7 @@ import {
 } from "@deepseek-ai/dsh-app-boot";
 import { provideCmdline } from "@deepseek-ai/dsh-cmdline";
 import { resolveDshHome } from "@deepseek-ai/dsh-home-paths";
+import * as MarkdownFileLinks from "./markdown-file-links.js";
 
 /** Diagnostic prefix on boot failures. */
 const BIN_NAME = "swarmx";
@@ -59,7 +60,7 @@ function scienceAnchor(): string {
   return createRequire(import.meta.url).resolve("@swarmx/dsh-science/package.json");
 }
 
-/** Installed manifest for the SwarmX Science Workspace client view. */
+/** Installed manifest for the SwarmX Science Chat and Side View client integration. */
 function scienceUiAnchor(): string {
   return createRequire(import.meta.url).resolve("@swarmx/dsh-ui-science/package.json");
 }
@@ -117,7 +118,7 @@ function conversationPatchPath(): string {
   return join(dirname(conversationAnchor()), "cordis.patch.yml");
 }
 
-/** Product-owned Science Journal and workspace view layer. */
+/** Product-owned Science Journal service and client integration layer. */
 function sciencePatchPath(): string {
   return join(dirname(scienceAnchor()), "cordis.patch.yml");
 }
@@ -129,21 +130,31 @@ function sciencePatchPath(): string {
 const PORT_PATCH = [{ id: "webserver", config: { host: HOST, port: 0 } }];
 
 /**
- * The shipped agent presets (`code`, `cordis`, `minimal`, `standard`) live
- * beside the installed `dsh` package's own config, so only a launcher can
- * resolve them. Without this root the roster falls back to its built-in default
- * and the preset picker shows one entry.
+ * DSH's shipped presets (`code`, `cordis`, `minimal`, `standard`) and SwarmX's
+ * `dsh-science` preset live beside their owning packages, so only a launcher
+ * can resolve both roots. Without them the roster falls back to its built-in
+ * default and the preset picker shows one entry.
  *
  * `trust: 'system'` marks them read-only product content. The writable root
  * (`$DSH_HOME/.agent-presets`) is the preset plugin's own default and needs no
  * patch, so a person's own presets appear either way.
  */
-function presetPatch(anchor: string, config: Record<string, unknown>) {
+function presetPatch(
+  dshAnchor: string,
+  sciencePackageAnchor: string,
+  config: Record<string, unknown>,
+) {
   return {
     id: "agent-presets",
     config: {
       ...config,
-      roots: [{ path: join(dirname(anchor), "config", "agent-presets"), trust: "system" }],
+      roots: [
+        { path: join(dirname(dshAnchor), "config", "agent-presets"), trust: "system" },
+        {
+          path: join(dirname(sciencePackageAnchor), "config", "agent-presets"),
+          trust: "system",
+        },
+      ],
     },
   };
 }
@@ -207,7 +218,9 @@ export async function startHarness(): Promise<Harness> {
     ...PORT_PATCH,
     ...(presetRow === undefined
       ? []
-      : [presetPatch(anchor, (presetRow.config ?? {}) as Record<string, unknown>)]),
+      : [
+          presetPatch(anchor, scienceAnchor(), (presetRow.config ?? {}) as Record<string, unknown>),
+        ]),
   ]);
   const ctx = await boot(
     BIN_NAME,
@@ -215,6 +228,7 @@ export async function startHarness(): Promise<Harness> {
     patches,
     (hostCtx) => {
       provideCmdline(hostCtx, { args: ["--no-open"], exit: () => {} });
+      hostCtx.plugin(MarkdownFileLinks);
     },
     bareModuleBaseUrl(anchor),
   );

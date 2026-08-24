@@ -1,7 +1,7 @@
 {
   "name": "@swarmx/dsh-ui-science",
   "version": "0.1.0",
-  "description": "Science Workspace view for the SwarmX DeepSeek Harness surface.",
+  "description": "Conversation artifacts and DetailsPanel for SwarmX Science.",
   "license": "MIT",
   "type": "module",
   "main": "lib/index.js",
@@ -24,6 +24,8 @@
         "@deepseek-ai/dsh-api-gateway",
         "@deepseek-ai/dsh-client-runtime",
         "@deepseek-ai/dsh-client-ui-conversation",
+        "@deepseek-ai/dsh-client-ui-input-trigger",
+        "@deepseek-ai/dsh-client-ui-primitives",
         "@deepseek-ai/dsh-client-ui-slots",
         "@swarmx/dsh-ui-conversation"
       ],
@@ -36,29 +38,31 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@jupyterlab/nbformat": "^4.6.3",
-    "@jupyterlab/outputarea": "^4.6.3",
-    "@jupyterlab/rendermime": "^4.6.3",
-    "@lumino/widgets": "^2.9.0",
+    "@swarmx/annotation": "workspace:*",
     "@swarmx/dsh-science": "workspace:*",
     "@swarmx/dsh-ui-conversation": "workspace:*",
     "ag-grid-community": "^36.1.0",
-    "ag-grid-react": "^36.1.0"
+    "ag-grid-react": "^36.1.0",
+    "pdfjs-dist": "6.2.108"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "4.0.1",
-    "@deepseek-ai/dsh-api-gateway": "^0.1.0-rc.8",
-    "@deepseek-ai/dsh-client-runtime": "^0.1.0-rc.8",
-    "@deepseek-ai/dsh-client-ui-conversation": "^0.1.0-rc.8",
-    "@deepseek-ai/dsh-client-ui-slots": "^0.1.0-rc.8",
+    "@deepseek-ai/dsh-api-gateway": "^0.1.1-rc.2",
+    "@deepseek-ai/dsh-client-runtime": "^0.1.1-rc.2",
+    "@deepseek-ai/dsh-client-ui-conversation": "^0.1.1-rc.2",
+    "@deepseek-ai/dsh-client-ui-input-trigger": "^0.1.1-rc.2",
+    "@deepseek-ai/dsh-client-ui-primitives": "^0.1.1-rc.2",
+    "@deepseek-ai/dsh-client-ui-slots": "^0.1.1-rc.2",
     "react": "^18.2.0"
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "4.0.1",
-    "@deepseek-ai/dsh-api-gateway": "^0.1.0-rc.8",
-    "@deepseek-ai/dsh-client-runtime": "^0.1.0-rc.8",
-    "@deepseek-ai/dsh-client-ui-conversation": "^0.1.0-rc.8",
-    "@deepseek-ai/dsh-client-ui-slots": "^0.1.0-rc.8",
+    "@deepseek-ai/dsh-api-gateway": "0.1.1-rc.2",
+    "@deepseek-ai/dsh-client-runtime": "0.1.1-rc.2",
+    "@deepseek-ai/dsh-client-ui-conversation": "0.1.1-rc.2",
+    "@deepseek-ai/dsh-client-ui-input-trigger": "0.1.1-rc.2",
+    "@deepseek-ai/dsh-client-ui-primitives": "0.1.1-rc.2",
+    "@deepseek-ai/dsh-client-ui-slots": "0.1.1-rc.2",
     "@types/react": "~18.3.1",
     "@types/react-dom": "~18.3.1",
     "react": "^18.2.0",

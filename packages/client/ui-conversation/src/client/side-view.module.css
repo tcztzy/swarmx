@@ -73,38 +73,14 @@
   overflow: auto;
 }
 
+.root[data-active-kind="science-artifact"] .body {
+  padding: 0;
+}
+
+.root[data-active-kind="science-artifact"] .tabItem[data-active="true"] .tabClose {
+  display: none;
+}
+
 .empty {
   color: var(--muted-foreground, #607069);
-}
-
-.toolAction {
-  margin-top: 8px;
-  border: 0;
-  padding: 4px 0;
-  color: var(--primary, #2f6f58);
-  background: transparent;
-  font: inherit;
-}
-
-.toolAction:hover {
-  text-decoration: underline;
-}
-
-.toolContent {
-  display: grid;
-  gap: 16px;
-}
-
-.toolContent h2,
-.toolContent h3 {
-  margin: 0;
-}
-
-.toolContent pre {
-  margin: 8px 0 0;
-  padding: 12px;
-  overflow: auto;
-  border-radius: 8px;
-  background: var(--muted, #f3f6f4);
-  white-space: pre-wrap;
 }

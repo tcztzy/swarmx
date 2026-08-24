@@ -95,15 +95,15 @@ describe("T15 Python notebook execution", () => {
     expect(JSON.stringify(execution)).not.toContain(current.workspaceA);
     expect(readdirSync(join(current.root, "artifacts", "v1", "staging"))).toEqual([]);
 
-    const trace = current.context.science.traceProvenance(current.sessionA, {
-      entityId: created.id,
-      maxDepth: 20,
+    const researchObject = current.context.science.getResearchObject(current.sessionA, {
+      projectId: created.projectId,
     });
-    expect(trace.relations).toContainEqual({
-      fromId: created.id,
-      toId: imported.id,
-      type: "uses",
-    });
+    expect(researchObject["@graph"]).toContainEqual(
+      expect.objectContaining({
+        "@id": `urn:uuid:${created.id}`,
+        isBasedOn: [{ "@id": `urn:uuid:${imported.id}` }],
+      }),
+    );
 
     await current.scienceFiber.dispose();
     await current.remount();
@@ -221,16 +221,20 @@ describe("T15 Python notebook execution", () => {
     });
     expect(execution.notebook.cells[0]?.outputArtifactIds).toEqual([execution.artifact?.id]);
     expect(current.context.science.journalCount()).toBe(3);
-    const trace = current.context.science.traceProvenance(current.sessionA, {
-      entityId: execution.artifact?.id ?? "missing-artifact",
-      maxDepth: 20,
+    const researchObject = current.context.science.getResearchObject(current.sessionA, {
+      projectId: created.projectId,
     });
-    expect(trace.events.map((event) => event.operation)).toEqual([
-      "project/created",
-      "notebook/created",
-      "notebook/cell-executed",
-    ]);
-    expect(new Set(trace.events.map((event) => event.journalSeq)).size).toBe(trace.events.length);
+    const executionActions = researchObject["@graph"].filter(
+      (entity) => entity.identifier === `science-journal:${execution.provenance.journalSeq}`,
+    );
+    expect(executionActions).toHaveLength(1);
+    expect(executionActions[0]).toMatchObject({
+      name: "Execute notebook cell",
+      result: expect.arrayContaining([
+        { "@id": `urn:uuid:${created.id}` },
+        { "@id": `urn:uuid:${execution.artifact?.id}` },
+      ]),
+    });
 
     await current.scienceFiber.dispose();
     const database = new DatabaseSync(current.databasePath);

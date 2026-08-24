@@ -26,8 +26,8 @@ const documentNameSchema = z
       name.split("/").every((segment) => segment.length > 0 && segment !== "." && segment !== ".."),
     { message: "document name may not contain empty or traversal segments" },
   )
-  .refine((name) => /\.(?:typ|tex|md|bib)$/u.test(name), {
-    message: "document name must end in .typ, .tex, .md, or .bib",
+  .refine((name) => /\.(?:typ|typst|tex|md|bib)$/u.test(name), {
+    message: "document name must end in .typ, .typst, .tex, .md, or .bib",
   });
 const documentSourceSchema = z.string().max(500_000);
 const figureCodeSchema = z.string().min(1).max(200_000);
@@ -36,6 +36,179 @@ const tagsSchema = z
   .array(z.string().trim().min(1).max(80))
   .max(32)
   .refine((tags) => new Set(tags).size === tags.length, "tags must be unique");
+
+export const RO_CRATE_CONTEXT = "https://w3id.org/ro/crate/1.3/context" as const;
+export const RO_CRATE_PROFILE = "https://w3id.org/ro/crate/1.3" as const;
+export const RO_CRATE_FILENAME = "ro-crate-metadata.json" as const;
+export const RO_CRATE_MEDIA_TYPE = "application/ld+json" as const;
+export const RO_CRATE_FORMAT = "ro-crate@1.3" as const;
+
+export function roCrateEntityId(entityId: string): string {
+  return `urn:uuid:${entityId}`;
+}
+
+const roCrateIdSchema = z.string().trim().min(1).max(4_096);
+const roCrateReferenceSchema = z.strictObject({ "@id": roCrateIdSchema });
+const roCrateReferencesSchema = z.array(roCrateReferenceSchema).max(5_000);
+const roCrateTypeSchema = z.union([
+  z.string().trim().min(1).max(1_000),
+  z
+    .array(z.string().trim().min(1).max(1_000))
+    .min(1)
+    .max(16)
+    .refine((types) => new Set(types).size === types.length, "RO-Crate types must be unique"),
+]);
+
+export const roCrateEntitySchema = z
+  .object({
+    "@id": roCrateIdSchema,
+    "@type": roCrateTypeSchema,
+    about: roCrateReferenceSchema.optional(),
+    actionStatus: roCrateReferenceSchema.optional(),
+    additionalType: z.union([z.string().max(1_000), roCrateReferenceSchema]).optional(),
+    bestRating: z.number().finite().optional(),
+    citation: roCrateReferencesSchema.optional(),
+    conformsTo: z.union([roCrateReferenceSchema, roCrateReferencesSchema]).optional(),
+    contentSize: z.string().max(100).optional(),
+    creativeWorkStatus: z.string().max(200).optional(),
+    dateCreated: z.iso.datetime().optional(),
+    dateModified: z.iso.datetime().optional(),
+    datePublished: z.iso.datetime().optional(),
+    description: z.string().max(20_000).optional(),
+    encodingFormat: z.string().max(500).optional(),
+    endTime: z.iso.datetime().optional(),
+    hasPart: roCrateReferencesSchema.optional(),
+    identifier: z.string().max(500).optional(),
+    instrument: z.union([roCrateReferenceSchema, roCrateReferencesSchema]).optional(),
+    isBasedOn: roCrateReferencesSchema.optional(),
+    isPartOf: roCrateReferenceSchema.optional(),
+    itemReviewed: roCrateReferenceSchema.optional(),
+    keywords: z.array(z.string().max(500)).max(100).optional(),
+    license: z.union([z.string().max(2_000), roCrateReferenceSchema]).optional(),
+    name: z.string().max(1_000).optional(),
+    object: z.union([roCrateReferenceSchema, roCrateReferencesSchema]).optional(),
+    ratingValue: z.number().finite().optional(),
+    result: z.union([roCrateReferenceSchema, roCrateReferencesSchema]).optional(),
+    reviewRating: roCrateReferenceSchema.optional(),
+    sha256: z
+      .string()
+      .regex(/^[0-9a-f]{64}$/u)
+      .optional(),
+    startTime: z.iso.datetime().optional(),
+    text: z.string().max(100_000).optional(),
+    version: z.union([z.string().max(100), z.number().finite()]).optional(),
+    worstRating: z.number().finite().optional(),
+  })
+  .catchall(z.json());
+
+function includesRoCrateType(entity: z.infer<typeof roCrateEntitySchema>, type: string): boolean {
+  const types = entity["@type"];
+  return Array.isArray(types) ? types.includes(type) : types === type;
+}
+
+function roCrateReferenceIds(
+  value: z.infer<typeof roCrateReferenceSchema> | z.infer<typeof roCrateReferencesSchema>,
+): readonly string[] {
+  return (Array.isArray(value) ? value : [value]).map((reference) => reference["@id"]);
+}
+
+function validateRoCrateReferences(
+  value: unknown,
+  entityIds: ReadonlySet<string>,
+  context: z.RefinementCtx,
+  path: readonly (string | number)[],
+): void {
+  if (Array.isArray(value)) {
+    value.forEach((item, index) => {
+      validateRoCrateReferences(item, entityIds, context, [...path, index]);
+    });
+    return;
+  }
+  if (typeof value !== "object" || value === null) return;
+  const object = value as Record<string, unknown>;
+  if (typeof object["@id"] === "string") {
+    if (Object.keys(object).length !== 1) {
+      context.addIssue({
+        code: "custom",
+        message: "RO-Crate entities must be flattened into @graph",
+        path: [...path],
+      });
+      return;
+    }
+    const id = object["@id"];
+    if ((id.startsWith("#") || id.startsWith("urn:uuid:")) && !entityIds.has(id)) {
+      context.addIssue({
+        code: "custom",
+        message: `RO-Crate local reference '${id}' has no entity`,
+        path: [...path, "@id"],
+      });
+    }
+    return;
+  }
+  for (const [key, child] of Object.entries(object)) {
+    if (key !== "@id" && key !== "@type") {
+      validateRoCrateReferences(child, entityIds, context, [...path, key]);
+    }
+  }
+}
+
+export const roCrateMetadataDocumentSchema = z
+  .strictObject({
+    "@context": z.literal(RO_CRATE_CONTEXT),
+    "@graph": z.array(roCrateEntitySchema).min(2).max(5_000),
+  })
+  .superRefine((document, context) => {
+    const entities = new Map<string, z.infer<typeof roCrateEntitySchema>>();
+    for (const [index, entity] of document["@graph"].entries()) {
+      if (entities.has(entity["@id"])) {
+        context.addIssue({
+          code: "custom",
+          message: `RO-Crate entity id '${entity["@id"]}' is duplicated`,
+          path: ["@graph", index, "@id"],
+        });
+      }
+      entities.set(entity["@id"], entity);
+    }
+    const descriptor = entities.get(RO_CRATE_FILENAME);
+    if (
+      !descriptor ||
+      !includesRoCrateType(descriptor, "CreativeWork") ||
+      !descriptor.about ||
+      !descriptor.conformsTo ||
+      !roCrateReferenceIds(descriptor.conformsTo).includes(RO_CRATE_PROFILE)
+    ) {
+      context.addIssue({
+        code: "custom",
+        message: "RO-Crate Metadata Descriptor is missing or invalid",
+        path: ["@graph"],
+      });
+      return;
+    }
+    const entityIds = new Set(entities.keys());
+    for (const [index, entity] of document["@graph"].entries()) {
+      for (const [key, value] of Object.entries(entity)) {
+        if (key !== "@id" && key !== "@type") {
+          validateRoCrateReferences(value, entityIds, context, ["@graph", index, key]);
+        }
+      }
+    }
+    const root = entities.get(descriptor.about["@id"]);
+    if (
+      !root ||
+      !includesRoCrateType(root, "Dataset") ||
+      !root.name ||
+      !root.description ||
+      !root.datePublished ||
+      !root.license ||
+      !root.hasPart
+    ) {
+      context.addIssue({
+        code: "custom",
+        message: "RO-Crate Root Data Entity is missing required metadata",
+        path: ["@graph"],
+      });
+    }
+  });
 
 export const notebookMimeDataSchema = z.strictObject({
   mime: z.string().trim().min(1).max(200),
@@ -241,6 +414,115 @@ export const scienceDocumentSchema = z.strictObject({
 
 export const figureLibrarySchema = z.enum(["matplotlib", "seaborn", "ggplot2", "plotly"]);
 
+function containsControlCharacter(value: string): boolean {
+  return [...value].some((character) => (character.codePointAt(0) ?? 0) < 0x20);
+}
+
+const workspaceSourcePathSchema = z
+  .string()
+  .min(1)
+  .max(4_096)
+  .refine(
+    (path) =>
+      !path.startsWith("/") &&
+      !/^[a-z]:[\\/]/iu.test(path) &&
+      !path.includes("\\") &&
+      !path.includes("\0") &&
+      path.split("/").every((segment) => segment.length > 0 && segment !== "." && segment !== ".."),
+    "workspace source must be a traversal-free relative path",
+  );
+const s3SourceUriSchema = z
+  .string()
+  .min(8)
+  .max(4_096)
+  .regex(
+    /^s3:\/\/[a-z0-9](?:[a-z0-9.-]{1,61}[a-z0-9])\/[^\s?#]+$/u,
+    "S3 source must be a credential-free s3://bucket/key URI",
+  )
+  .refine((uri) => !containsControlCharacter(uri), "S3 source may not contain control characters");
+const sourceVersionIdSchema = z
+  .string()
+  .min(1)
+  .max(1_024)
+  .refine(
+    (versionId) => !containsControlCharacter(versionId),
+    "source version id may not contain control characters",
+  );
+
+export const figureSourceReferenceInputSchema = z.discriminatedUnion("kind", [
+  z.strictObject({
+    kind: z.literal("workspace"),
+    relativePath: workspaceSourcePathSchema,
+    digest: sha256DigestSchema.optional(),
+  }),
+  z.strictObject({
+    kind: z.literal("artifact"),
+    artifactId: entityIdSchema,
+  }),
+  z.strictObject({
+    kind: z.literal("s3"),
+    uri: s3SourceUriSchema,
+    versionId: sourceVersionIdSchema.optional(),
+    digest: sha256DigestSchema.optional(),
+  }),
+]);
+
+const figureSourceReferencesInputSchema = z
+  .array(figureSourceReferenceInputSchema)
+  .max(32)
+  .refine(
+    (sources) => new Set(sources.map((source) => JSON.stringify(source))).size === sources.length,
+    "figure source references must be unique",
+  );
+
+const artifactFigureCodeSchema = figureCodeSchema.refine(
+  (code) => !/["'`](?:\/(?!\/)|[a-z]:[\\/]|\\\\)/iu.test(code),
+  "Artifact metadata code may not contain an absolute filesystem path literal",
+);
+
+export const registerReproducibilityMetadataInputSchema = z.strictObject({
+  library: figureLibrarySchema,
+  code: artifactFigureCodeSchema,
+  sources: figureSourceReferencesInputSchema,
+});
+
+export const notebookReproducibilityMetadataInputSchema = z.strictObject({
+  library: figureLibrarySchema,
+  sources: figureSourceReferencesInputSchema,
+});
+
+const normalizedFigureSourceReferenceSchema = z.discriminatedUnion("kind", [
+  z.strictObject({
+    kind: z.literal("workspace"),
+    relativePath: workspaceSourcePathSchema,
+    digest: sha256DigestSchema,
+  }),
+  z.strictObject({
+    kind: z.literal("artifact"),
+    artifactId: entityIdSchema,
+    digest: sha256DigestSchema,
+  }),
+  z.strictObject({
+    kind: z.literal("s3"),
+    uri: s3SourceUriSchema,
+    versionId: sourceVersionIdSchema.optional(),
+    digest: sha256DigestSchema.optional(),
+  }),
+]);
+
+export const figureReproducibilityMetadataSchema = z.strictObject({
+  schema: z.literal("dsh-science.figure-provenance"),
+  version: z.literal(1),
+  generationId: z.string().uuid(),
+  generator: z.strictObject({
+    library: figureLibrarySchema,
+    code: artifactFigureCodeSchema,
+    codeHash: sha256DigestSchema,
+  }),
+  sources: z.array(normalizedFigureSourceReferenceSchema).max(32),
+  environment: environmentSchema,
+});
+
 export const figureObjectKindSchema = z.enum([
   "axis",
   "legend",
@@ -445,7 +727,7 @@ export const projectExportCountsSchema = z.strictObject({
   runs: z.number().int().nonnegative(),
 });
 
-export const projectExportRecordSchema = z.strictObject({
+const legacyProjectExportRecordSchema = z.strictObject({
   id: entityIdSchema,
   projectId: entityIdSchema,
   kind: z.literal("export"),
@@ -458,10 +740,40 @@ export const projectExportRecordSchema = z.strictObject({
   provenance: provenanceReceiptSchema,
 });
 
-export const scienceProjectExportSchema = projectExportRecordSchema.extend({
+const roCrateProjectExportRecordSchema = z.strictObject({
+  id: entityIdSchema,
+  projectId: entityIdSchema,
+  kind: z.literal("export"),
+  format: z.literal(RO_CRATE_FORMAT),
+  filename: z.literal(RO_CRATE_FILENAME),
+  mediaType: z.literal(RO_CRATE_MEDIA_TYPE),
+  digest: sha256DigestSchema,
+  bytes: z.number().int().nonnegative(),
+  counts: projectExportCountsSchema,
+  createdAt: z.number().int().nonnegative(),
+  revision: z.literal(1),
+  provenance: provenanceReceiptSchema,
+});
+
+export const projectExportRecordSchema = z.discriminatedUnion("format", [
+  legacyProjectExportRecordSchema,
+  roCrateProjectExportRecordSchema,
+]);
+
+const legacyScienceProjectExportSchema = legacyProjectExportRecordSchema.extend({
   classification: z.literal("fact"),
   content: z.string().max(10_000_000),
 });
+
+const roCrateScienceProjectExportSchema = roCrateProjectExportRecordSchema.extend({
+  classification: z.literal("fact"),
+  content: z.string().max(10_000_000),
+});
+
+export const scienceProjectExportSchema = z.discriminatedUnion("format", [
+  legacyScienceProjectExportSchema,
+  roCrateScienceProjectExportSchema,
+]);
 
 export const createProjectRequestSchema = z.strictObject({
   requestId: z.string().uuid(),
@@ -554,6 +866,10 @@ export const exportProjectRequestSchema = z.strictObject({
   projectId: entityIdSchema,
 });
 
+export const getResearchObjectRequestSchema = z.strictObject({
+  projectId: entityIdSchema,
+});
+
 const proposeDocumentPatchRequestSchema = z
   .strictObject({
     requestId: z.string().uuid(),
@@ -614,18 +930,36 @@ export const modifyFigureCodeRequestSchema = z.discriminatedUnion("action", [
   resolveFigureCodeRequestSchema,
 ]);
 
-export const registerArtifactRequestSchema = z.strictObject({
-  requestId: z.string().uuid(),
-  projectId: entityIdSchema,
-  relativePath: z.string().min(1).max(4_096),
-  kind: artifactKindSchema,
-  title: titleSchema,
-  mime: z.string().trim().min(1).max(200),
-  runId: entityIdSchema.nullable(),
-  environment: environmentSchema,
-  license: z.string().trim().min(1).max(200).nullable(),
-  sourceEntityIds: sourceEntityIdsSchema,
-});
+export const registerArtifactRequestSchema = z
+  .strictObject({
+    requestId: z.string().uuid(),
+    projectId: entityIdSchema,
+    relativePath: z.string().min(1).max(4_096),
+    kind: artifactKindSchema,
+    title: titleSchema,
+    mime: z.string().trim().min(1).max(200),
+    runId: entityIdSchema.nullable(),
+    environment: environmentSchema,
+    license: z.string().trim().min(1).max(200).nullable(),
+    sourceEntityIds: sourceEntityIdsSchema,
+    reproducibilityMetadata: z
+      .union([z.literal(false), registerReproducibilityMetadataInputSchema])
+      .optional(),
+  })
+  .superRefine((request, context) => {
+    if (
+      request.reproducibilityMetadata !== undefined &&
+      request.reproducibilityMetadata !== false &&
+      (request.kind !== "figure" ||
+        !["image/png", "image/svg+xml", "application/pdf"].includes(request.mime))
+    ) {
+      context.addIssue({
+        code: "custom",
+        message: "Reproducibility metadata requires a PNG, SVG, or PDF figure artifact",
+        path: ["reproducibilityMetadata"],
+      });
+    }
+  });
 
 const canonicalBase64Shape = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/u;
 
@@ -648,6 +982,128 @@ export const importArtifactRequestSchema = z.strictObject({
 
 export const previewArtifactRequestSchema = z.strictObject({
   artifactId: entityIdSchema,
+});
+
+export const MAX_TYPST_SOURCE_BYTES = 1024 * 1024;
+export const MAX_TYPST_PDF_BYTES = 32 * 1024 * 1024;
+
+export const typstRelativePathSchema = z
+  .string()
+  .min(1)
+  .max(4_096)
+  .refine(
+    (path) =>
+      !path.startsWith("/") &&
+      !/^[a-z]:[\\/]/iu.test(path) &&
+      !path.includes("\\") &&
+      !path.includes("\0") &&
+      path.split("/").every((segment) => segment.length > 0 && segment !== "." && segment !== ".."),
+    "Typst paper path must be traversal-free and workspace-relative",
+  )
+  .refine((path) => /\.(?:typ|typst)$/iu.test(path), "Typst paper path must end in .typ or .typst");
+
+export const previewTypstDocumentRequestSchema = z.strictObject({
+  relativePath: typstRelativePathSchema,
+});
+
+export const resolveTypstSourceAtPointRequestSchema = z.strictObject({
+  relativePath: typstRelativePathSchema,
+  pdfRevision: sha256DigestSchema,
+  page: z.number().int().positive().max(100_000),
+  x: z.number().finite().min(0).max(1),
+  y: z.number().finite().min(0).max(1),
+});
+
+export const updateTypstSourceRequestSchema = z.strictObject({
+  relativePath: typstRelativePathSchema,
+  expectedSourceRevision: sha256DigestSchema,
+  source: z.string().max(MAX_TYPST_SOURCE_BYTES),
+});
+
+export const typstSourceUpdateSchema = z.strictObject({
+  relativePath: typstRelativePathSchema,
+  title: titleSchema,
+  source: z.string().max(MAX_TYPST_SOURCE_BYTES),
+  sourceRevision: sha256DigestSchema,
+});
+
+export const typstSourceTargetSchema = z.strictObject({
+  relativePath: typstRelativePathSchema,
+  title: titleSchema,
+  source: z.string().max(MAX_TYPST_SOURCE_BYTES),
+  sourceRevision: sha256DigestSchema,
+  offset: z.number().int().nonnegative().max(MAX_TYPST_SOURCE_BYTES),
+});
+
+export const typstDocumentPreviewSchema = z.strictObject({
+  relativePath: typstRelativePathSchema,
+  title: titleSchema,
+  source: z.string().max(MAX_TYPST_SOURCE_BYTES),
+  sourceRevision: sha256DigestSchema,
+  status: z.enum(["compiling", "ready", "stale", "error", "unavailable"]),
+  diagnostics: z.array(z.string().max(4_096)).max(100),
+  pdfBase64: z
+    .string()
+    .max(Math.ceil(MAX_TYPST_PDF_BYTES / 3) * 4)
+    .regex(canonicalBase64Shape, "Typst PDF bytes must use canonical base64 shape")
+    .nullable(),
+  pdfRevision: sha256DigestSchema.nullable(),
+  pdfSourceRevision: sha256DigestSchema.nullable(),
+  pdfSize: z.number().int().nonnegative().max(MAX_TYPST_PDF_BYTES).nullable(),
+  compiledAt: z.number().int().nonnegative().nullable(),
+});
+
+const normalizedPdfRectSchema = z
+  .strictObject({
+    x: z.number().finite().min(0).max(1),
+    y: z.number().finite().min(0).max(1),
+    width: z.number().finite().positive().max(1),
+    height: z.number().finite().positive().max(1),
+  })
+  .refine((rect) => rect.x + rect.width <= 1 && rect.y + rect.height <= 1, {
+    message: "Paper annotation rectangle must remain inside the PDF page",
+  });
+
+const paperAnnotationIdentitySchema = {
+  version: z.literal(1),
+  id: entityIdSchema,
+  relativePath: typstRelativePathSchema,
+  title: titleSchema,
+  sourceRevision: sha256DigestSchema,
+  pdfRevision: sha256DigestSchema,
+  page: z.number().int().positive().max(100_000),
+  rect: normalizedPdfRectSchema,
+  comment: z.string().trim().min(1).max(2_000),
+  createdAt: z.number().int().nonnegative(),
+};
+
+export const sciencePaperAnnotationSchema = z.discriminatedUnion("kind", [
+  z.strictObject({
+    ...paperAnnotationIdentitySchema,
+    kind: z.literal("text"),
+    selectedText: z.string().trim().min(1).max(8_000),
+  }),
+  z.strictObject({
+    ...paperAnnotationIdentitySchema,
+    kind: z.literal("figure-point"),
+    figureIndex: z.number().int().nonnegative().max(10_000),
+    x: z.number().finite().min(0).max(1),
+    y: z.number().finite().min(0).max(1),
+  }),
+]);
+
+export const scienceImageAnnotationSchema = z.strictObject({
+  version: z.literal(1),
+  id: entityIdSchema,
+  artifactId: entityIdSchema,
+  projectId: entityIdSchema,
+  title: titleSchema,
+  digest: sha256DigestSchema,
+  mime: z.enum(["image/png", "image/jpeg", "image/gif", "image/webp"]),
+  x: z.number().finite().min(0).max(1),
+  y: z.number().finite().min(0).max(1),
+  comment: z.string().trim().min(1).max(2_000),
+  createdAt: z.number().int().nonnegative(),
 });
 
 const artifactPreviewIdentitySchema = {
@@ -711,6 +1167,23 @@ export const executeNotebookCellRequestSchema = z.strictObject({
       title: titleSchema,
       mime: z.string().trim().min(1).max(200),
       license: z.string().trim().min(1).max(200).nullable(),
+      reproducibilityMetadata: z
+        .union([z.literal(false), notebookReproducibilityMetadataInputSchema])
+        .optional(),
+    })
+    .superRefine((artifact, context) => {
+      if (
+        artifact.reproducibilityMetadata !== undefined &&
+        artifact.reproducibilityMetadata !== false &&
+        (artifact.kind !== "figure" ||
+          !["image/png", "image/svg+xml", "application/pdf"].includes(artifact.mime))
+      ) {
+        context.addIssue({
+          code: "custom",
+          message: "Reproducibility metadata requires a PNG, SVG, or PDF figure artifact",
+          path: ["reproducibilityMetadata"],
+        });
+      }
     })
     .nullable(),
 });
@@ -739,71 +1212,80 @@ export const notebookExecutionSchema = z.strictObject({
   provenance: provenanceReceiptSchema,
 });
 
-export const traceProvenanceRequestSchema = z.strictObject({
-  entityId: entityIdSchema,
-  maxDepth: z.number().int().nonnegative().max(20),
+const literatureYearFilterSchema = z
+  .strictObject({
+    from: z.number().int().min(1000).max(3000).optional(),
+    to: z.number().int().min(1000).max(3000).optional(),
+  })
+  .refine((value) => value.from === undefined || value.to === undefined || value.from <= value.to, {
+    message: "literature year range is inverted",
+  });
+
+export const literatureSearchRequestSchema = z.strictObject({
+  query: z.string().trim().min(1).max(500),
+  limit: z.number().int().min(1).max(20).default(10),
+  filters: z
+    .strictObject({
+      years: literatureYearFilterSchema.optional(),
+      entryTypes: z
+        .array(
+          z
+            .string()
+            .trim()
+            .toLowerCase()
+            .regex(/^[a-z][a-z0-9_-]{0,39}$/u),
+        )
+        .min(1)
+        .max(16)
+        .optional(),
+    })
+    .optional(),
 });
 
-export const provenanceEntitySchema = z.strictObject({
-  id: entityIdSchema,
-  kind: z.enum([
-    "project",
-    "notebook",
-    "artifact",
-    "document",
-    "figure",
-    "question",
-    "hypothesis",
-    "claim",
-    "evidence",
-    "decision",
-    "review",
-    "open-question",
-    "experiment",
-    "run",
-    "export",
-  ]),
-  title: titleSchema,
+export const literatureMatchFieldSchema = z.enum([
+  "title",
+  "authors",
+  "abstract",
+  "keywords",
+  "venue",
+  "identifier",
+]);
+
+export const literatureWorkSchema = z.strictObject({
+  citationKey: z.string().min(1).max(200),
+  sourceItemKey: z.string().regex(/^[A-Z0-9]{8}$/u),
+  entryType: z.string().regex(/^[a-z][a-z0-9_-]{0,39}$/u),
+  title: z.string().min(1).max(1_000),
+  authors: z.array(z.string().min(1).max(500)).max(100),
+  year: z.number().int().min(1000).max(3000).nullable(),
+  venue: z.string().max(1_000).nullable(),
+  doi: z.string().max(500).nullable(),
+  url: z.string().max(2_048).nullable(),
+  abstract: z.string().max(4_000).nullable(),
+  keywords: z.array(z.string().min(1).max(500)).max(100),
+  score: z.number().int().nonnegative(),
+  matchedFields: z.array(literatureMatchFieldSchema).max(6),
+  bibtex: z
+    .string()
+    .min(1)
+    .max(64 * 1024),
 });
 
-export const provenanceRelationSchema = z.strictObject({
-  fromId: entityIdSchema,
-  toId: entityIdSchema,
-  type: scienceRelationTypeSchema,
+export const bibliographySnapshotSchema = z.strictObject({
+  source: z.literal("zotero"),
+  format: z.literal("bibtex"),
+  digest: sha256DigestSchema,
+  entryCount: z.number().int().nonnegative().max(500),
+  sourceVersion: z.string().max(100).nullable(),
 });
 
-export const provenanceEventSchema = z.strictObject({
-  eventId: entityIdSchema,
-  journalSeq: z.number().int().positive(),
-  entityId: entityIdSchema,
-  operation: z.enum([
-    "project/created",
-    "notebook/created",
-    "notebook/cell-executed",
-    "artifact/registered",
-    "document/created",
-    "document/modified",
-    "figure/created",
-    "figure/modified",
-    "question/created",
-    "hypothesis/created",
-    "claim/recorded",
-    "evidence/linked",
-    "experiment/defined",
-    "run/started",
-    "run/finished",
-    "project/exported",
-  ]),
-  occurredAt: z.number().int().nonnegative(),
-  sessionId: entityIdSchema,
-});
-
-export const provenanceTraceSchema = z.strictObject({
-  rootId: entityIdSchema,
-  entities: z.array(provenanceEntitySchema).max(200),
-  relations: z.array(provenanceRelationSchema).max(400),
-  events: z.array(provenanceEventSchema).max(200),
-  truncated: z.boolean(),
+export const literatureSearchResultSchema = z.strictObject({
+  source: z.literal("zotero"),
+  ranking: z.literal("zotero-local-v1"),
+  query: z.string().min(1).max(500),
+  totalCandidates: z.number().int().nonnegative().max(500),
+  snapshot: bibliographySnapshotSchema,
+  results: z.array(literatureWorkSchema).max(20),
 });
 
 export const scienceWorkspaceSnapshotSchema = z.strictObject({
@@ -833,6 +1315,14 @@ export type DocumentRevision = z.infer<typeof documentRevisionSchema>;
 export type DocumentPatchProposal = z.infer<typeof documentPatchProposalSchema>;
 export type ScienceDocument = z.infer<typeof scienceDocumentSchema>;
 export type FigureLibrary = z.infer<typeof figureLibrarySchema>;
+export type FigureSourceReferenceInput = z.infer<typeof figureSourceReferenceInputSchema>;
+export type RegisterReproducibilityMetadataInput = z.infer<
+  typeof registerReproducibilityMetadataInputSchema
+>;
+export type NotebookReproducibilityMetadataInput = z.infer<
+  typeof notebookReproducibilityMetadataInputSchema
+>;
+export type FigureReproducibilityMetadata = z.infer<typeof figureReproducibilityMetadataSchema>;
 export type FigureObjectKind = z.infer<typeof figureObjectKindSchema>;
 export type FigureObject = z.infer<typeof figureObjectSchema>;
 export type FigureRevision = z.infer<typeof figureRevisionSchema>;
@@ -851,6 +1341,8 @@ export type RunComparison = z.infer<typeof runComparisonSchema>;
 export type ProjectExportCounts = z.infer<typeof projectExportCountsSchema>;
 export type ProjectExportRecord = z.infer<typeof projectExportRecordSchema>;
 export type ScienceProjectExport = z.infer<typeof scienceProjectExportSchema>;
+export type RoCrateEntity = z.infer<typeof roCrateEntitySchema>;
+export type RoCrateMetadataDocument = z.infer<typeof roCrateMetadataDocumentSchema>;
 export type CreateProjectRequest = z.infer<typeof createProjectRequestSchema>;
 export type CreateNotebookRequest = z.infer<typeof createNotebookRequestSchema>;
 export type CreateDocumentRequest = z.infer<typeof createDocumentRequestSchema>;
@@ -866,16 +1358,27 @@ export type StartRunRequest = z.infer<typeof startRunRequestSchema>;
 export type FinishRunRequest = z.infer<typeof finishRunRequestSchema>;
 export type CompareRunsRequest = z.infer<typeof compareRunsRequestSchema>;
 export type ExportProjectRequest = z.infer<typeof exportProjectRequestSchema>;
+export type GetResearchObjectRequest = z.infer<typeof getResearchObjectRequestSchema>;
 export type RegisterArtifactRequest = z.infer<typeof registerArtifactRequestSchema>;
 export type ImportArtifactRequest = z.infer<typeof importArtifactRequestSchema>;
 export type PreviewArtifactRequest = z.infer<typeof previewArtifactRequestSchema>;
 export type ScienceArtifactPreview = z.infer<typeof scienceArtifactPreviewSchema>;
+export type ScienceImageAnnotation = z.infer<typeof scienceImageAnnotationSchema>;
+export type PreviewTypstDocumentRequest = z.infer<typeof previewTypstDocumentRequestSchema>;
+export type ResolveTypstSourceAtPointRequest = z.infer<
+  typeof resolveTypstSourceAtPointRequestSchema
+>;
+export type UpdateTypstSourceRequest = z.infer<typeof updateTypstSourceRequestSchema>;
+export type TypstSourceUpdate = z.infer<typeof typstSourceUpdateSchema>;
+export type TypstSourceTarget = z.infer<typeof typstSourceTargetSchema>;
+export type TypstDocumentPreview = z.infer<typeof typstDocumentPreviewSchema>;
+export type SciencePaperAnnotation = z.infer<typeof sciencePaperAnnotationSchema>;
 export type ExecuteNotebookCellRequest = z.infer<typeof executeNotebookCellRequestSchema>;
 export type NotebookExecutionOutput = z.infer<typeof notebookExecutionOutputSchema>;
 export type NotebookExecution = z.infer<typeof notebookExecutionSchema>;
-export type TraceProvenanceRequest = z.infer<typeof traceProvenanceRequestSchema>;
-export type ProvenanceEntity = z.infer<typeof provenanceEntitySchema>;
-export type ProvenanceRelation = z.infer<typeof provenanceRelationSchema>;
-export type ProvenanceEvent = z.infer<typeof provenanceEventSchema>;
-export type ProvenanceTrace = z.infer<typeof provenanceTraceSchema>;
+export type LiteratureSearchRequest = z.infer<typeof literatureSearchRequestSchema>;
+export type LiteratureMatchField = z.infer<typeof literatureMatchFieldSchema>;
+export type LiteratureWork = z.infer<typeof literatureWorkSchema>;
+export type BibliographySnapshot = z.infer<typeof bibliographySnapshotSchema>;
+export type LiteratureSearchResult = z.infer<typeof literatureSearchResultSchema>;
 export type ScienceWorkspaceSnapshot = z.infer<typeof scienceWorkspaceSnapshotSchema>;

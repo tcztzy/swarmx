@@ -157,7 +157,7 @@ describe("T14 content-addressed Artifact Registry", () => {
     const relativePath = "measurements-secret-name.csv";
     writeFileSync(join(current.workspaceA, relativePath), content);
 
-    const artifact = current.context.science.registerArtifact(
+    const artifact = await current.context.science.registerArtifact(
       current.sessionA,
       artifactRequest(project.id, relativePath),
     );
@@ -199,7 +199,7 @@ describe("T14 content-addressed Artifact Registry", () => {
     });
     const content = "sample,value\nA,42\n";
     writeFileSync(join(current.workspaceA, "preview.csv"), content);
-    const artifact = current.context.science.registerArtifact(
+    const artifact = await current.context.science.registerArtifact(
       current.sessionA,
       artifactRequest(project.id, "preview.csv"),
     );
@@ -246,7 +246,7 @@ describe("T14 content-addressed Artifact Registry", () => {
       { sample: "B", value: 40.5, passed: false, note: "review", nested: [1, 2] },
     ]);
     writeFileSync(join(current.workspaceA, "preview.json"), content);
-    const artifact = current.context.science.registerArtifact(current.sessionA, {
+    const artifact = await current.context.science.registerArtifact(current.sessionA, {
       ...artifactRequest(project.id, "preview.json"),
       mime: "application/json",
     });
@@ -282,7 +282,7 @@ describe("T14 content-addressed Artifact Registry", () => {
       ...Array.from({ length: 501 }, (_, index) => `A${index},${index},${index + 1}`),
     ].join("\n");
     writeFileSync(join(current.workspaceA, "duplicates.csv"), content);
-    const artifact = current.context.science.registerArtifact(
+    const artifact = await current.context.science.registerArtifact(
       current.sessionA,
       artifactRequest(project.id, "duplicates.csv"),
     );
@@ -313,14 +313,14 @@ describe("T14 content-addressed Artifact Registry", () => {
     });
     const image = Buffer.from([0x89, 0x50, 0x4e, 0x47]);
     writeFileSync(join(current.workspaceA, "figure.png"), image);
-    const figure = current.context.science.registerArtifact(current.sessionA, {
+    const figure = await current.context.science.registerArtifact(current.sessionA, {
       ...artifactRequest(project.id, "figure.png"),
       kind: "figure",
       mime: "image/png",
       title: "Figure",
     });
     writeFileSync(join(current.workspaceA, "model.bin"), "binary model");
-    const model = current.context.science.registerArtifact(current.sessionA, {
+    const model = await current.context.science.registerArtifact(current.sessionA, {
       ...artifactRequest(project.id, "model.bin"),
       kind: "model",
       mime: "application/octet-stream",
@@ -343,7 +343,7 @@ describe("T14 content-addressed Artifact Registry", () => {
     });
 
     writeFileSync(join(current.workspaceA, "large.txt"), "x".repeat(64 * 1024 + 1));
-    const large = current.context.science.registerArtifact(current.sessionA, {
+    const large = await current.context.science.registerArtifact(current.sessionA, {
       ...artifactRequest(project.id, "large.txt"),
       mime: "text/plain",
       title: "Large text",
@@ -366,7 +366,7 @@ describe("T14 content-addressed Artifact Registry", () => {
     writeFileSync(join(current.workspaceA, "safe.bin"), "safe bytes");
     const request = artifactRequest(project.id, "safe.bin");
 
-    const artifact = current.context.science.registerArtifact(current.sessionA, {
+    const artifact = await current.context.science.registerArtifact(current.sessionA, {
       ...request,
       environment: {
         API_TOKEN: "do-not-store-this-token",
@@ -395,8 +395,8 @@ describe("T14 content-addressed Artifact Registry", () => {
     writeFileSync(join(current.workspaceA, "first.bin"), content);
     writeFileSync(join(current.workspaceA, "second.bin"), content);
     const firstRequest = artifactRequest(project.id, "first.bin");
-    const first = current.context.science.registerArtifact(current.sessionA, firstRequest);
-    const second = current.context.science.registerArtifact(
+    const first = await current.context.science.registerArtifact(current.sessionA, firstRequest);
+    const second = await current.context.science.registerArtifact(
       current.sessionA,
       artifactRequest(project.id, "second.bin"),
     );
@@ -408,8 +408,33 @@ describe("T14 content-addressed Artifact Registry", () => {
     ]);
 
     unlinkSync(join(current.workspaceA, "first.bin"));
-    expect(current.context.science.registerArtifact(current.sessionA, firstRequest)).toEqual(first);
+    await expect(
+      current.context.science.registerArtifact(current.sessionA, firstRequest),
+    ).resolves.toEqual(first);
     expect(current.context.science.journalCount()).toBe(3);
+  });
+
+  it("V18 coalesces concurrent artifact retries and rejects a conflicting in-flight request", async () => {
+    const current = await fixture();
+    const project = current.context.science.createProject(current.sessionA, {
+      requestId: randomUUID(),
+      title: "Concurrent registration",
+    });
+    writeFileSync(join(current.workspaceA, "concurrent.bin"), "same capture");
+    const request = artifactRequest(project.id, "concurrent.bin");
+    const first = current.context.science.registerArtifact(current.sessionA, request);
+    const retry = current.context.science.registerArtifact(current.sessionA, request);
+    await expect(
+      current.context.science.registerArtifact(current.sessionA, {
+        ...request,
+        title: "Conflicting title",
+      }),
+    ).rejects.toMatchObject({ code: "IDEMPOTENCY_CONFLICT" });
+
+    const [artifact, retried] = await Promise.all([first, retry]);
+    expect(retried).toEqual(artifact);
+    expect(current.context.science.getWorkspace(current.sessionA).artifacts).toEqual([artifact]);
+    expect(current.context.science.journalCount()).toBe(2);
   });
 
   it("rejects cancellation before publishing an object or journal fact", async () => {
@@ -422,13 +447,13 @@ describe("T14 content-addressed Artifact Registry", () => {
     const controller = new AbortController();
     controller.abort();
 
-    expect(() =>
+    await expect(
       current.context.science.registerArtifact(
         current.sessionA,
         artifactRequest(project.id, "cancelled.bin"),
         controller.signal,
       ),
-    ).toThrowError(expect.objectContaining({ name: "AbortError" }));
+    ).rejects.toMatchObject(expect.objectContaining({ name: "AbortError" }));
     expect(current.context.science.journalCount()).toBe(1);
     expect(filesBelow(join(current.root, "artifacts", "v1", "objects"))).toEqual([]);
   });
@@ -457,21 +482,23 @@ describe("T14 content-addressed Artifact Registry", () => {
     writeFileSync(join(current.workspaceA, "large.bin"), "12345");
 
     for (const relativePath of [outside, "../outside.bin", "escape.bin", "."]) {
-      expect(() =>
+      await expect(
         current.context.science.registerArtifact(
           current.sessionA,
           artifactRequest(project.id, relativePath),
         ),
-      ).toThrowError(
+      ).rejects.toMatchObject(
         expect.objectContaining<Partial<ScienceError>>({ code: "ARTIFACT_PATH_INVALID" }),
       );
     }
-    expect(() =>
+    await expect(
       current.context.science.registerArtifact(
         current.sessionA,
         artifactRequest(project.id, "large.bin"),
       ),
-    ).toThrowError(expect.objectContaining<Partial<ScienceError>>({ code: "ARTIFACT_TOO_LARGE" }));
+    ).rejects.toMatchObject(
+      expect.objectContaining<Partial<ScienceError>>({ code: "ARTIFACT_TOO_LARGE" }),
+    );
     expect(current.context.science.journalCount()).toBe(1);
     expect(filesBelow(join(current.root, "artifacts", "v1", "objects"))).toEqual([]);
   });
@@ -501,7 +528,7 @@ describe("T14 content-addressed Artifact Registry", () => {
       title: "Replay artifacts",
     });
     writeFileSync(join(current.workspaceA, "replay.bin"), "replay me");
-    const artifact = current.context.science.registerArtifact(
+    const artifact = await current.context.science.registerArtifact(
       current.sessionA,
       artifactRequest(project.id, "replay.bin"),
     );

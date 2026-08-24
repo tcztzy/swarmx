@@ -12,5 +12,12 @@ allowBuilds:
   node-pty: true
   protobufjs: false
 
+minimumReleaseAgeExclude:
+  - '@deepseek-ai/dsh'
+  - '@deepseek-ai/dsh-*'
+  - '@xmldom/xmldom@0.9.12'
+
 patchedDependencies:
-  '@deepseek-ai/dsh-client-ui-layout@0.1.0-rc.8': patches/@deepseek-ai__dsh-client-ui-layout@0.1.0-rc.8.patch
+  '@deepseek-ai/dsh-client-ui-agent-preset@0.1.1-rc.2': patches/@deepseek-ai__dsh-client-ui-agent-preset@0.1.1-rc.2.patch
+  '@deepseek-ai/dsh-client-ui-layout@0.1.1-rc.2': patches/@deepseek-ai__dsh-client-ui-layout@0.1.1-rc.2.patch
+  '@deepseek-ai/dsh-client-ui-primitives@0.1.1-rc.2': patches/@deepseek-ai__dsh-client-ui-primitives@0.1.1-rc.2.patch

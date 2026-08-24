@@ -54,7 +54,12 @@ export function SideViewPanel({ sessionId, renderSlot, sideView }: SideViewPanel
   };
 
   return (
-    <section className={css.root} data-side-view data-mode={active?.mode ?? "inspect"}>
+    <section
+      className={css.root}
+      data-side-view
+      data-mode={active?.mode ?? "inspect"}
+      data-active-kind={active?.kind}
+    >
       <header className={css.header}>
         <div className={css.tabs} role="tablist" aria-label="Side View tabs">
           {state.entries.map((entry) => (
@@ -96,7 +101,7 @@ export function SideViewPanel({ sessionId, renderSlot, sideView }: SideViewPanel
       </header>
       <div className={css.body} role="tabpanel">
         {active === undefined ? (
-          <p className={css.empty}>Open a Tool or artifact to inspect it here.</p>
+          <p className={css.empty}>Open a paper or artifact to view it here.</p>
         ) : (
           renderSlot(
             "side-view.content",

@@ -12,15 +12,6 @@ const SCIENCE_TOOL_NAMES = new Set([
   "science_export",
 ]);
 
-interface ScienceToolArtifactActionInjected {
-  readonly openArtifact: (artifact: ScienceArtifact) => void;
-}
-
-interface ScienceToolArtifactActionProps extends ScienceToolArtifactActionInjected {
-  readonly block: ToolCallBlock;
-  readonly sessionId: SessionId;
-}
-
 /** Strictly recover an artifact locator from one aggregate Science Tool result. */
 export function scienceArtifactFromToolCall(
   block: ToolCallBlock,
@@ -54,7 +45,7 @@ export function scienceArtifactFromToolCall(
       !artifact.success ||
       locator?.sessionId !== sessionId ||
       locator.toolCallId !== block.callId ||
-      locator.entityKind !== "artifact" ||
+      locator.entityKind !== artifact.data.kind ||
       locator.entityId !== artifact.data.id ||
       locator.journalSeq !== artifact.data.provenance.journalSeq
     ) {
@@ -64,19 +55,4 @@ export function scienceArtifactFromToolCall(
   } catch {
     return null;
   }
-}
-
-/** Additive action shown only for a valid same-Session Science artifact result. */
-export function ScienceToolArtifactAction({
-  block,
-  sessionId,
-  openArtifact,
-}: ScienceToolArtifactActionProps) {
-  const artifact = scienceArtifactFromToolCall(block, sessionId);
-  if (artifact === null) return null;
-  return (
-    <button type="button" onClick={() => openArtifact(artifact)}>
-      Open artifact preview
-    </button>
-  );
 }

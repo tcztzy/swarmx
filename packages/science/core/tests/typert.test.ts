@@ -19,16 +19,19 @@ describe("T13 strict Science Remote contract", () => {
       "executeNotebookCell",
       "exportProject",
       "finishRun",
-      "getWorkspace",
+      "getResearchObject",
       "importArtifact",
       "linkEvidence",
       "modifyDocument",
       "modifyFigureCode",
       "previewArtifact",
+      "previewTypstDocument",
       "recordClaim",
       "registerArtifact",
+      "resolveTypstSourceAtPoint",
+      "searchLiterature",
       "startRun",
-      "traceProvenance",
+      "updateTypstSource",
     ]);
 
     for (const descriptor of TYPERT_REMOTE.descriptors) {

@@ -7,6 +7,7 @@ export default defineConfig({
     typert: "lib/types/typert.js",
     remote: "lib/types/remote.js",
     tools: "lib/types/tools.js",
+    preset: "lib/types/preset.js",
   },
   outDir: "lib",
   format: ["esm"],

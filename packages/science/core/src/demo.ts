@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { SessionId } from "@deepseek-ai/dsh-session";
 import type {
-  ProvenanceTrace,
+  RoCrateMetadataDocument,
   ScienceDocument,
   ScienceExperiment,
   ScienceFigure,
@@ -22,7 +22,7 @@ export interface ScienceDemoResult {
   readonly document: ScienceDocument;
   readonly claim: ScienceResearchRecord;
   readonly evidence: ScienceResearchRecord;
-  readonly trace: ProvenanceTrace;
+  readonly researchObject: RoCrateMetadataDocument;
   readonly exported: ScienceProjectExport;
 }
 
@@ -110,7 +110,7 @@ export async function runScienceDemo(
     },
     signal,
   );
-  const runDataset = science.registerArtifact(
+  const runDataset = await science.registerArtifact(
     sessionId,
     {
       requestId: randomUUID(),
@@ -139,7 +139,7 @@ export async function runScienceDemo(
     },
     signal,
   );
-  const figureArtifact = science.registerArtifact(
+  const figureArtifact = await science.registerArtifact(
     sessionId,
     {
       requestId: randomUUID(),
@@ -262,11 +262,7 @@ export async function runScienceDemo(
     },
     signal,
   );
-  const trace = science.traceProvenance(
-    sessionId,
-    { entityId: linked.evidence.id, maxDepth: 20 },
-    signal,
-  );
+  const researchObject = science.getResearchObject(sessionId, { projectId: project.id }, signal);
   const exported = science.exportProject(
     sessionId,
     { requestId: randomUUID(), projectId: project.id },
@@ -281,7 +277,7 @@ export async function runScienceDemo(
     document,
     claim,
     evidence: linked.evidence,
-    trace,
+    researchObject,
     exported,
   };
 }

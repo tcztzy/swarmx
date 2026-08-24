@@ -18,6 +18,10 @@ import type {} from "@deepseek-ai/dsh-client-ui-layout/client";
 import { selectFailedTurn } from "../error-turn.js";
 import { userEditDefinition } from "../user-edit-node.js";
 import { FailedTurnAction, UserEditAction } from "./actions.js";
+import {
+  AnnotationSteeringMessageView,
+  AnnotationUserMessageView,
+} from "./annotation-user-message.js";
 import { RerunController } from "./controller.js";
 import { registerSideView } from "./side-view-registration.js";
 import type { RerunActionsInjected } from "./slots.js";
@@ -31,7 +35,7 @@ export {
   type SideViewEntry,
   type SideViewMode,
   type SideViewSnapshot,
-  type ToolSideViewActionOwnerProps,
+  type TurnTailItemOwnerProps,
 } from "./side-view.js";
 export type { RerunActionsInjected } from "./slots.js";
 
@@ -107,6 +111,28 @@ async function createSibling(ctx: ClientContext, sourceId: SessionId): Promise<S
  */
 export function apply(ctx: ClientContext): void {
   registerSideView(ctx);
+  ctx.slots.inject("conversation.chat.node", () =>
+    ctx.slots.register(
+      {
+        name: "conversation.chat.node",
+        key: "user",
+        priority: -10,
+        locale: "conversation",
+      },
+      AnnotationUserMessageView,
+    ),
+  );
+  ctx.slots.inject("conversation.chat.node", () =>
+    ctx.slots.register(
+      {
+        name: "conversation.chat.node",
+        key: "steering",
+        priority: -10,
+        locale: "conversation",
+      },
+      AnnotationSteeringMessageView,
+    ),
+  );
   const controllers = new Map<SessionId, RerunController>();
   const controllerFor = (sessionId: SessionId): RerunController => {
     let controller = controllers.get(sessionId);

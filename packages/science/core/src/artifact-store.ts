@@ -18,6 +18,17 @@ import {
   writeSync,
 } from "node:fs";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
+import {
+  ARTIFACT_METADATA_KEYWORD,
+  type ArtifactMetadataMime,
+  createPngMetadataChunk,
+  injectArtifactMetadata,
+  isPngMetadataKeywordPrefix,
+  MAX_ARTIFACT_METADATA_BYTES,
+  PNG_SIGNATURE,
+  validatePngMetadataData,
+} from "./artifact-metadata.js";
+import type { FigureReproducibilityMetadata } from "./contracts.js";
 import { ScienceError } from "./errors.js";
 
 const ARTIFACT_VERSION = "v1";
@@ -62,6 +73,147 @@ function writeAll(descriptor: number, buffer: Buffer, length: number): void {
   }
 }
 
+function readExactly(descriptor: number, buffer: Buffer, length: number): void {
+  let offset = 0;
+  while (offset < length) {
+    const read = readSync(descriptor, buffer, offset, length - offset, null);
+    if (read === 0) {
+      throw new ScienceError("PNG chunk ended unexpectedly", "ARTIFACT_IO_FAILED");
+    }
+    offset += read;
+  }
+}
+
+function updatePngCrc(crc: number, content: Uint8Array): number {
+  let updated = crc;
+  for (const byte of content) {
+    updated ^= byte;
+    for (let bit = 0; bit < 8; bit += 1) {
+      updated = (updated >>> 1) ^ (updated & 1 ? 0xedb88320 : 0);
+    }
+  }
+  return updated;
+}
+
+function streamPngWithMetadata(
+  sourceDescriptor: number,
+  sourceSize: number,
+  metadata: FigureReproducibilityMetadata,
+  write: (buffer: Buffer, length: number) => void,
+  signal?: AbortSignal,
+): void {
+  const metadataChunk = createPngMetadataChunk(metadata);
+  const signature = Buffer.alloc(PNG_SIGNATURE.length);
+  readExactly(sourceDescriptor, signature, signature.length);
+  if (!signature.equals(PNG_SIGNATURE)) {
+    throw new ScienceError(
+      "Artifact metadata injection requires a valid PNG signature",
+      "ARTIFACT_IO_FAILED",
+    );
+  }
+  write(signature, signature.length);
+  let consumed = signature.length;
+  let chunkIndex = 0;
+  let ownedCount = 0;
+  let sawIdat = false;
+  let sawIend = false;
+  const copyBuffer = Buffer.allocUnsafe(COPY_BUFFER_BYTES);
+  const copy = (bytes: number, include: boolean, consume: (content: Uint8Array) => void): void => {
+    let remaining = bytes;
+    while (remaining > 0) {
+      signal?.throwIfAborted();
+      const length = Math.min(remaining, copyBuffer.length);
+      readExactly(sourceDescriptor, copyBuffer, length);
+      consumed += length;
+      consume(copyBuffer.subarray(0, length));
+      if (include) write(copyBuffer, length);
+      remaining -= length;
+    }
+  };
+
+  while (consumed < sourceSize) {
+    signal?.throwIfAborted();
+    if (sourceSize - consumed < 12) {
+      throw new ScienceError("PNG chunk ended unexpectedly", "ARTIFACT_IO_FAILED");
+    }
+    const header = Buffer.allocUnsafe(8);
+    readExactly(sourceDescriptor, header, header.length);
+    consumed += header.length;
+    const length = header.readUInt32BE(0);
+    const type = header.subarray(4, 8).toString("ascii");
+    if (length > 0x7fffffff || length + 4 > sourceSize - consumed || !/^[A-Za-z]{4}$/u.test(type)) {
+      throw new ScienceError("PNG chunk header is invalid", "ARTIFACT_IO_FAILED");
+    }
+    if (chunkIndex === 0 && (type !== "IHDR" || length !== 13)) {
+      throw new ScienceError("PNG must begin with one IHDR chunk", "ARTIFACT_IO_FAILED");
+    }
+    if (chunkIndex > 0 && type === "IHDR") {
+      throw new ScienceError("PNG contains a duplicate IHDR chunk", "ARTIFACT_IO_FAILED");
+    }
+    const prefixLength =
+      type === "iTXt" ? Math.min(length, Buffer.byteLength(ARTIFACT_METADATA_KEYWORD) + 1) : 0;
+    const prefix = Buffer.allocUnsafe(prefixLength);
+    if (prefixLength > 0) {
+      readExactly(sourceDescriptor, prefix, prefixLength);
+      consumed += prefixLength;
+    }
+    const replaceOwned = type === "iTXt" && isPngMetadataKeywordPrefix(prefix, length);
+    const include = !replaceOwned && type !== "IEND";
+    if (include) {
+      write(header, header.length);
+      if (prefixLength > 0) write(prefix, prefixLength);
+    }
+    let crc = updatePngCrc(0xffffffff, header.subarray(4, 8));
+    crc = updatePngCrc(crc, prefix);
+    if (replaceOwned && length > MAX_ARTIFACT_METADATA_BYTES + 256) {
+      throw new ScienceError("PNG dsh-science metadata is too large", "ARTIFACT_IO_FAILED");
+    }
+    const ownedData = replaceOwned ? Buffer.allocUnsafe(length) : undefined;
+    if (ownedData) prefix.copy(ownedData, 0);
+    let ownedOffset = prefix.length;
+    copy(length - prefixLength, include, (content) => {
+      crc = updatePngCrc(crc, content);
+      if (ownedData) {
+        Buffer.from(content).copy(ownedData, ownedOffset);
+        ownedOffset += content.length;
+      }
+    });
+    const crcBytes = Buffer.allocUnsafe(4);
+    readExactly(sourceDescriptor, crcBytes, crcBytes.length);
+    consumed += crcBytes.length;
+    if (crcBytes.readUInt32BE(0) !== (crc ^ 0xffffffff) >>> 0) {
+      throw new ScienceError("PNG chunk CRC is invalid", "ARTIFACT_IO_FAILED");
+    }
+    if (include) write(crcBytes, crcBytes.length);
+    if (ownedData) {
+      validatePngMetadataData(ownedData);
+      ownedCount += 1;
+      if (ownedCount > 1) {
+        throw new ScienceError(
+          "PNG contains duplicate dsh-science metadata chunks",
+          "ARTIFACT_IO_FAILED",
+        );
+      }
+    }
+    if (type === "IDAT") sawIdat = true;
+    if (type === "IEND") {
+      if (length !== 0 || !sawIdat) {
+        throw new ScienceError("PNG IEND chunk is invalid", "ARTIFACT_IO_FAILED");
+      }
+      write(metadataChunk, metadataChunk.length);
+      write(header, header.length);
+      write(crcBytes, crcBytes.length);
+      if (consumed !== sourceSize) {
+        throw new ScienceError("PNG contains bytes after IEND", "ARTIFACT_IO_FAILED");
+      }
+      sawIend = true;
+      break;
+    }
+    chunkIndex += 1;
+  }
+  if (!sawIend) throw new ScienceError("PNG is missing IEND", "ARTIFACT_IO_FAILED");
+}
+
 /** Owner-only generic object store. Journal metadata is committed by the caller after capture. */
 export class ArtifactStore {
   readonly root: string;
@@ -82,11 +234,15 @@ export class ArtifactStore {
     this.clearStaging();
   }
 
-  capture(
+  async capture(
     workspaceRoot: string,
     relativePath: string,
     signal?: AbortSignal,
-  ): CapturedArtifactObject {
+    artifactMetadata?: {
+      readonly metadata: FigureReproducibilityMetadata;
+      readonly mime: ArtifactMetadataMime;
+    },
+  ): Promise<CapturedArtifactObject> {
     signal?.throwIfAborted();
     const sourcePath = this.resolveSource(workspaceRoot, relativePath);
     const stagingPath = join(this.stagingRoot, randomUUID());
@@ -110,22 +266,46 @@ export class ArtifactStore {
         constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY,
         0o600,
       );
+      const outputDescriptor = stagingDescriptor;
       const hash = createHash(HASH_ALGORITHM);
       const buffer = Buffer.allocUnsafe(COPY_BUFFER_BYTES);
       let size = 0;
-      while (true) {
-        signal?.throwIfAborted();
-        const read = readSync(sourceDescriptor, buffer, 0, buffer.length, null);
-        if (read === 0) break;
-        size += read;
+      const writeCaptured = (content: Buffer, length: number): void => {
+        size += length;
         if (size > this.maxArtifactBytes) {
           throw new ScienceError(
             `Artifact exceeds the configured ${this.maxArtifactBytes} byte limit`,
             "ARTIFACT_TOO_LARGE",
           );
         }
-        hash.update(buffer.subarray(0, read));
-        writeAll(stagingDescriptor, buffer, read);
+        hash.update(content.subarray(0, length));
+        writeAll(outputDescriptor, content, length);
+      };
+      if (artifactMetadata?.mime === "image/png") {
+        streamPngWithMetadata(
+          sourceDescriptor,
+          before.size,
+          artifactMetadata.metadata,
+          writeCaptured,
+          signal,
+        );
+      } else if (artifactMetadata) {
+        const source = Buffer.allocUnsafe(before.size);
+        readExactly(sourceDescriptor, source, source.length);
+        const transformed = await injectArtifactMetadata(
+          source,
+          artifactMetadata.mime,
+          artifactMetadata.metadata,
+        );
+        signal?.throwIfAborted();
+        writeCaptured(transformed, transformed.length);
+      } else {
+        while (true) {
+          signal?.throwIfAborted();
+          const read = readSync(sourceDescriptor, buffer, 0, buffer.length, null);
+          if (read === 0) break;
+          writeCaptured(buffer, read);
+        }
       }
       const after = fstatSync(sourceDescriptor);
       if (
@@ -164,6 +344,57 @@ export class ArtifactStore {
       if (sourceDescriptor !== undefined) closeSync(sourceDescriptor);
       if (stagingDescriptor !== undefined) closeSync(stagingDescriptor);
       rmSync(stagingPath, { force: true });
+    }
+  }
+
+  fingerprint(
+    workspaceRoot: string,
+    relativePath: string,
+    signal?: AbortSignal,
+  ): CapturedArtifactObject {
+    signal?.throwIfAborted();
+    const sourcePath = this.resolveSource(workspaceRoot, relativePath);
+    let descriptor: number | undefined;
+    try {
+      descriptor = openSync(sourcePath, constants.O_RDONLY);
+      const before = fstatSync(descriptor);
+      if (!before.isFile()) {
+        throw new ScienceError("Artifact source must be a regular file", "ARTIFACT_PATH_INVALID");
+      }
+      if (before.size > this.maxArtifactBytes) {
+        throw new ScienceError(
+          `Artifact exceeds the configured ${this.maxArtifactBytes} byte limit`,
+          "ARTIFACT_TOO_LARGE",
+        );
+      }
+      const hash = createHash(HASH_ALGORITHM);
+      const buffer = Buffer.allocUnsafe(COPY_BUFFER_BYTES);
+      let size = 0;
+      while (true) {
+        signal?.throwIfAborted();
+        const read = readSync(descriptor, buffer, 0, buffer.length, null);
+        if (read === 0) break;
+        size += read;
+        hash.update(buffer.subarray(0, read));
+      }
+      const after = fstatSync(descriptor);
+      if (
+        before.dev !== after.dev ||
+        before.ino !== after.ino ||
+        before.size !== after.size ||
+        before.mtimeMs !== after.mtimeMs
+      ) {
+        throw new ScienceError(
+          "Artifact source changed while it was being fingerprinted",
+          "ARTIFACT_SOURCE_CHANGED",
+        );
+      }
+      return { digest: `sha256:${hash.digest("hex")}`, size };
+    } catch (error) {
+      if (signal?.aborted && error === signal.reason) throw error;
+      return artifactError(error, "Artifact fingerprint failed");
+    } finally {
+      if (descriptor !== undefined) closeSync(descriptor);
     }
   }
 

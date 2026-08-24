@@ -1,70 +1,73 @@
 # `@swarmx/dsh-ui-science`
 
-Browser half of the T13 Science Workspace slice. It mounts the strict Science Remote contribution
-and registers one additive `conversation.view` tab. It does not read or replace Chat or Trajectory
-snapshots.
+Browser half of the local-first Science product. It mounts the strict Science Remote contribution
+but deliberately registers no `conversation.view`: Chat and Trajectory remain the only peer views.
+Science project, Notebook, Writing, Figure, operational research facts, Experiment, and export work
+stays agent-mediated through the seven aggregate tools. Project reads and exports use RO-Crate 1.3.
+Local publication discovery uses the separate
+`literature_search` tool and its Zotero-to-BibTeX Host boundary; the browser owns no literature API.
 
-The view registration lives inside a Cordis `remote.science` injection scope, so every workspace
-action runs with an active Remote namespace and the view withdraws with that capability.
+A completed Chat turn containing valid same-Session Science artifact results renders one Claude-style
+`GENERATED · n` card group beneath the closing answer. Image cards load bounded Host-authorized
+thumbnails; other assets retain a complete filename/type identity. The entire card is keyboard
+operable and opens one deduplicated artifact tab in the existing DetailsPanel.
 
-The initial view exposes Notebook, Writing, Figures, Research Map, and Experiments, with working
-project/notebook creation backed by the Host Science Journal. Later tasks fill the other studios.
+The DetailsPanel follows the Claude Science-style hierarchy: a Side View tab strip, compact filename and
+actions bar, large edge-to-edge preview, on-demand RO-Crate provenance from More, and collapsed file details.
+Science workbench entries request an 880px initial panel width. User drag and the existing viewport
+concession solver remain authoritative. The Host verifies every artifact digest and returns only
+bounded text, table, or image previews; host paths and raw unbounded bytes never reach the browser.
 
-T14 adds read-only artifact metadata to the populated workspace. File capture stays on the Host
-through `ctx.science.registerArtifact`; the browser receives digest, media type, size, scientific
-metadata, and provenance only—never a host path or artifact bytes.
+Image previews support Claude Science-style point annotations. Clicking the rendered image opens a
+bounded comment editor; saved comments become numbered pins and are inserted into the existing Chat
+composer as the generic `annotation` reference. Its `comment.target.type=image_point` payload
+preserves the user's draft and contains only a verified artifact locator, normalized point, and
+comment. When the model needs pixels it calls the existing aggregate `science_query` tool with that
+complete comment object; the Host re-authorizes the artifact and returns a durable image attachment
+rather than exposing a browser data URL or host path.
 
-T15 makes Notebook the first executable studio: once a notebook exists, the view exposes a labeled
-Python source editor, runs the cell through the strict `executeNotebookCell` Remote method, reloads
-the durable projection, and renders code/output cells with execution numbers. An in-flight cell is
-aborted if the view unmounts; controller ownership and output bounds remain on the Host.
+CSV/TSV and scalar-record JSON previews are parsed on the Host into a bounded typed table and rendered
+with AG Grid Community. Text and image previews remain bounded. No fullscreen Science route, delayed
+view handoff, duplicate project shell, or browser Notebook renderer exists.
 
-T16 makes Writing the second working studio. A project can create one of the supported logical
-source documents, select source with native UTF-16 textarea offsets, prepare a proposed replacement
-with a bounded reasoning summary, and accept or reject pending proposals. The view renders durable
-revision/provenance metadata plus structural and scientific warnings. It labels compilation as not
-run so local heuristics cannot be mistaken for a successful Typst or LaTeX build.
+Typst papers are a first-class artifact route rather than a generic text preview. A safe
+workspace-relative `.typ` or `.typst` path produced or explicitly referenced in a completed Chat turn
+appears in the same `Files` row. Activating it opens the same DetailsPanel and starts an authorized
+Host-side semantic Typst watcher. The paper header switches between an optimistic, conflict-checked
+source editor and a multi-page PDF.js viewer. The viewer retains the last successful PDF while a
+newer source revision is compiling or invalid and exposes the current compiler diagnostics.
+Each paper path owns a separate workbench lifecycle, so switching between Typst tabs cannot carry an
+unsaved draft, imported-source caret, conflict, or inverse-search request into another paper.
 
-T17 makes Figures the third working studio. It creates code figures for the four supported plotting
-libraries, renders the durable semantic object map as a keyboard-accessible local canvas, supports
-single selection and additive Shift/Command/Ctrl brush selection, and sends object-linked code patch
-proposals through strict Remote methods. The browser displays patch provenance and accept/reject
-controls; it neither executes plotting code nor receives host artifact paths or bytes.
+The Host-global deliverable contract asks every preset for standard Markdown output links such as
+`[paper.typ](./papers/paper.typ)`, not bare or inline-code paths. The plugin resolves those links only
+against the closing turn's mutation evidence or explicit safe Typst references in Assistant prose and
+Tool arguments. History replay rebuilds the same ordered deduplicated row, so a Bash-authored paper
+does not depend on the model choosing Markdown syntax. Absolute and traversal candidates remain
+inert, and the Host authorizes the file when the workbench opens. The Host watcher owns initial
+compilation and every later source change. Only the `dsh-science` preset adds annotation/literature
+guidance and denies a model-requested Bash `typst compile` or `typst watch`; sibling presets receive
+neither Science tools nor that Science-specific contract.
 
-T18 makes Research Map and Experiments working destinations. Research Map renders bounded facts and
-typed relations and provides a keyboard-accessible entity id/title/tag search field that accepts the
-entity id from a Science tool locator. Experiments can be defined, started, finished, and inspected;
-the project can be downloaded as deterministic JSON. All failures enter the same visible retryable
-error state, and the browser receives no host path.
+PDF.js text layers make rendered prose selectable. Adding a selection to Chat preserves the current
+draft and inserts the same structured `annotation` reference with a
+`comment.target.type=document_text` payload carrying only the paper-relative path, page, normalized
+rectangle, selected text, comment, and source/PDF revisions. Figure regions use
+`document_region` and open as deduplicated Side View tabs on double activation so the same
+conversation-led image editing flow can operate without browser popups or unbounded PDF bytes.
 
-T19 connects artifact locators to the generic Side View. The artifact list opens a deduplicated,
-Session-local right-column tab through `ctx.sideView`; Science owns only the keyed
-`science-artifact` renderer. The entry carries bounded metadata, digest, revision, Run association,
-source entity ids, and Journal sequence—never bytes or a host path—so the Science Workspace remains
-mounted and keeps its editor state while the user inspects provenance.
+An ordinary single click on PDF.js text performs Typst inverse search. The browser sends only the
+page, normalized click point, and exact displayed PDF revision; the Host resolves it against the same
+semantic snapshot that produced the PDF. On success the existing workbench switches to Source,
+opens the owning workspace-relative `.typ` file (including imported files), focuses its exact UTF-16
+caret, and reveals it. A stale PDF/source revision is shown as an error and never moves the caret.
+Dragging or double-clicking a text selection still opens the annotation flow, while figure clicks and
+double-clicks retain their annotation and dedicated-tab behavior.
 
-T20 adds Files preview without widening the rc.8 concession. The Host authorizes artifact ids against
-the requesting Session workspace, verifies immutable bytes, and returns only bounded text, bounded
-PNG/JPEG/GIF/WebP data URLs, or a typed unavailable reason. Tool Details recognizes strict Science
-artifact locators and opens the same tab. “Open in Science” retains a per-Session fullscreen target:
-it focuses immediately when Science is mounted, otherwise waits for the user to select the Science
-tab because rc.8 publishes no programmatic conversation-view switch. Chat stores, drafts, and scroll
-memory remain untouched.
-
-T24 replaces the dashboard with a compact Claude-Science-style project rail and full workbench.
-T27 makes its Files section operational: keyboard file selection and drag/drop admit only supported
-files up to 8 MiB, show independent importing/error state, and reuse the existing artifact Side View
-preview. “Analyze” switches only the Science destination, creates a Notebook when needed, runs one
-deterministic extension-aware inspection against the selected immutable artifact, and captures the
-JSON analysis back into Files. Chat, Trajectory, composer draft, scroll memory, and the agent loop
-remain unchanged.
-
-T28 parses bounded CSV/TSV and scalar-record JSON on the Host with Papa Parse/native JSON, preserving
-blank and duplicate headings in positional rows. Side View renders the typed result with AG Grid
-Community, including sorting, filtering, column resizing, and bounded pagination.
-
-T29 makes configured local JupyMCP the default Notebook Controller: each workspace Notebook owns one
-MCP stdio process and persistent Jupyter kernel, while the legacy fresh-process runtime is available
-only as an explicit isolated mode. T30 adapts the ordered client-safe MIME contract into JupyterLab's
-untrusted `OutputArea`/`RenderMimeRegistry`, with canonical `.ipynb` output types and a visible
-plain-text fallback if the rich renderer cannot mount.
+dsh 0.1.1-rc.2 publishes the final-response file-mention provider as a single service with no opener
+decorator and resolves only inline-code tokens. The SwarmX product patch therefore disables that one
+upstream client row, extends the safe Markdown resolver with an optional file-link seam, and lets this
+plugin own one behavior-equivalent `Files` row. Structured mutation paths retain ordinary Host opener
+behavior; only safe `.typ`/`.typst` references extend the vocabulary and enter the paper workbench.
+Legacy inline-code mentions and standard Markdown destinations share that opener when old turns are
+replayed.

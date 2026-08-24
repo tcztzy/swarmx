@@ -2,6 +2,7 @@
   "files": [],
   "references": [
     { "path": "./apps/desktop" },
+    { "path": "./packages/core/annotation" },
     { "path": "./packages/science/core" },
     { "path": "./packages/client/ui-conversation" },
     { "path": "./packages/client/ui-science" }

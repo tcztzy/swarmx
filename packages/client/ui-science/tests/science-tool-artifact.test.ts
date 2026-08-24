@@ -40,7 +40,7 @@ describe("V54 Science Tool artifact locator", () => {
           locator: {
             sessionId: "session-1",
             toolCallId: "call-1",
-            entityKind: "artifact",
+            entityKind: "figure",
             entityId: "artifact-1",
             journalSeq: 4,
           },
@@ -56,7 +56,7 @@ describe("V54 Science Tool artifact locator", () => {
       locator: {
         sessionId: "session-2",
         toolCallId: "call-1",
-        entityKind: "artifact",
+        entityKind: "figure",
         entityId: "artifact-1",
         journalSeq: 4,
       },

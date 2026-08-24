@@ -19,7 +19,7 @@ async function setup() {
   return { fixture, project };
 }
 
-describe("T18 Research Map and experiment ledger", () => {
+describe("T18 research facts and experiment ledger", () => {
   it("records a typed question, hypothesis, claim, and supporting evidence", async () => {
     const { fixture, project } = await setup();
     const question = fixture.context.science.createQuestion(fixture.sessionA, {
@@ -75,18 +75,22 @@ describe("T18 Research Map and experiment ledger", () => {
       "supports",
     ]);
 
-    const trace = fixture.context.science.traceProvenance(fixture.sessionA, {
-      entityId: linked.evidence.id,
-      maxDepth: 20,
+    const researchObject = fixture.context.science.getResearchObject(fixture.sessionA, {
+      projectId: project.id,
     });
-    expect(trace.entities.map((entity) => entity.kind)).toEqual([
-      "evidence",
-      "hypothesis",
-      "claim",
-      "project",
-      "question",
-    ]);
-    expect(trace.events.map((event) => event.operation)).toContain("evidence/linked");
+    expect(researchObject["@graph"]).toContainEqual(
+      expect.objectContaining({
+        "@id": `urn:uuid:${linked.evidence.id}`,
+        "@type": "Review",
+        itemReviewed: { "@id": `urn:uuid:${claim.id}` },
+      }),
+    );
+    expect(researchObject["@graph"]).toContainEqual(
+      expect.objectContaining({
+        "@type": "CreateAction",
+        result: [{ "@id": `urn:uuid:${linked.evidence.id}` }],
+      }),
+    );
   });
 
   it("runs one experiment lifecycle, compares completed runs, and survives replay", async () => {
@@ -153,6 +157,19 @@ describe("T18 Research Map and experiment ledger", () => {
       }),
     );
     expect(fixture.context.science.journalCount()).toBe(6);
+    const researchObject = fixture.context.science.getResearchObject(fixture.sessionA, {
+      projectId: project.id,
+    });
+    expect(researchObject["@graph"]).toContainEqual(
+      expect.objectContaining({
+        "@id": `urn:uuid:${first.id}`,
+        "@type": "CreateAction",
+        object: { "@id": `urn:uuid:${experiment.id}` },
+        instrument: { "@id": "https://github.com/tcztzy/swarmx" },
+        actionStatus: { "@id": "https://schema.org/CompletedActionStatus" },
+      }),
+    );
+    expect(JSON.stringify(researchObject)).not.toContain("must-not-persist");
 
     await fixture.scienceFiber.dispose();
     await fixture.remount();
@@ -242,23 +259,24 @@ describe("T18 project export", () => {
       title: "Analysis",
     });
     const request = { requestId: randomUUID(), projectId: project.id };
+    const researchObject = fixture.context.science.getResearchObject(fixture.sessionA, {
+      projectId: project.id,
+    });
 
     const exported = fixture.context.science.exportProject(fixture.sessionA, request);
     const repeated = fixture.context.science.exportProject(fixture.sessionA, request);
     expect(repeated).toEqual(exported);
     expect(exported).toMatchObject({
-      format: "dsh-science-project@1",
+      format: "ro-crate@1.3",
+      filename: "ro-crate-metadata.json",
+      mediaType: "application/ld+json",
       projectId: project.id,
       classification: "fact",
       digest: expect.stringMatching(/^sha256:[0-9a-f]{64}$/u),
       bytes: expect.any(Number),
       counts: { projects: 1, notebooks: 1 },
     });
-    expect(JSON.parse(exported.content)).toMatchObject({
-      format: "dsh-science-project@1",
-      project: { id: project.id, title: project.title },
-      notebooks: [{ title: "Analysis" }],
-    });
+    expect(JSON.parse(exported.content)).toEqual(researchObject);
     expect(exported.content).not.toContain(fixture.workspaceA);
     const database = new DatabaseSync(fixture.databasePath);
     const row = database
@@ -268,5 +286,41 @@ describe("T18 project export", () => {
     expect(row.payload_json).not.toContain(exported.content);
     expect(fixture.context.science.getWorkspace(fixture.sessionA).exports).toHaveLength(1);
     database.close();
+  });
+
+  it("replays immutable pre-RO-Crate export records without making them the current format", async () => {
+    const { fixture, project } = await setup();
+    const exported = fixture.context.science.exportProject(fixture.sessionA, {
+      requestId: randomUUID(),
+      projectId: project.id,
+    });
+    if (exported.format !== "ro-crate@1.3") throw new Error("Expected current export format");
+    const legacy = {
+      id: exported.id,
+      projectId: exported.projectId,
+      kind: exported.kind,
+      format: "dsh-science-project@1",
+      digest: exported.digest,
+      bytes: exported.bytes,
+      counts: exported.counts,
+      createdAt: exported.createdAt,
+      revision: exported.revision,
+      provenance: exported.provenance,
+    };
+    const database = new DatabaseSync(fixture.databasePath);
+    database
+      .prepare("UPDATE science_journal SET payload_json = ? WHERE type = 'project/exported'")
+      .run(JSON.stringify(legacy));
+    database.close();
+
+    await fixture.scienceFiber.dispose();
+    await fixture.remount();
+    expect(fixture.context.science.getWorkspace(fixture.sessionA).exports).toEqual([legacy]);
+
+    const next = fixture.context.science.exportProject(fixture.sessionA, {
+      requestId: randomUUID(),
+      projectId: project.id,
+    });
+    expect(next.format).toBe("ro-crate@1.3");
   });
 });

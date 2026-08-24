@@ -9,7 +9,7 @@ Science service:
 4. register and semantically edit a matplotlib Figure;
 5. create a Typst document and accept a source-selection revision;
 6. record a question, hypothesis, claim, and supporting evidence;
-7. trace provenance and create a content-addressed project export.
+7. read the RO-Crate 1.3 Research Object and create a content-addressed project export.
 
 The example is executable in the repository through `packages/science/core/tests/demo.test.ts`.
 Repository tests select the explicit isolated runtime so they require no external kernel; the

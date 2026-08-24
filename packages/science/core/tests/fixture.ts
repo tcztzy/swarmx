@@ -21,6 +21,7 @@ export interface ScienceFixture {
 }
 
 export interface ScienceFixtureConfig {
+  readonly embedArtifactMetadata?: boolean;
   readonly maxArtifactBytes?: number;
   readonly maxCellOutputBytes?: number;
   readonly maxExportBytes?: number;

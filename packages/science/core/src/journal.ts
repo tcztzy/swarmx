@@ -24,14 +24,12 @@ import {
   notebookExecutionSchema,
   type ProjectExportCounts,
   type ProjectExportRecord,
-  type ProvenanceEntity,
-  type ProvenanceEvent,
-  type ProvenanceRelation,
-  type ProvenanceTrace,
   projectExportRecordSchema,
-  provenanceTraceSchema,
   type RecordClaimRequest,
   type RegisterArtifactRequest,
+  RO_CRATE_FILENAME,
+  RO_CRATE_FORMAT,
+  RO_CRATE_MEDIA_TYPE,
   type RunComparison,
   type RunMutation,
   runComparisonSchema,
@@ -56,7 +54,6 @@ import {
   scienceRelationSchema,
   scienceResearchRecordSchema,
   scienceRunSchema,
-  type TraceProvenanceRequest,
 } from "./contracts.js";
 import { ScienceError } from "./errors.js";
 import { codeHash, inferFigureObjects, remapFigureObjects } from "./figure.js";
@@ -64,8 +61,6 @@ import { analyzeDocument, documentFormat, sourceHash } from "./writing.js";
 
 const DATABASE_NAME = "science.sqlite";
 const MIGRATION_VERSION = 5;
-const MAX_TRACE_ENTITIES = 200;
-const MAX_TRACE_RELATIONS = 400;
 const MAX_DOCUMENT_SOURCE_LENGTH = 500_000;
 const MAX_DOCUMENT_PROPOSALS = 1_000;
 const MAX_FIGURE_PROPOSALS = 200;
@@ -139,30 +134,6 @@ interface RunRow {
 
 interface ExportRow {
   export_json: string;
-}
-
-interface TraceNode {
-  readonly entity: ProvenanceEntity;
-  readonly events: readonly ProvenanceEvent[];
-  readonly sources: readonly ProvenanceRelation[];
-}
-
-function sourceLinks(
-  fromId: string,
-  ids: readonly string[],
-  type: ProvenanceRelation["type"] = "derived_from",
-): ProvenanceRelation[] {
-  return ids.map((toId) => ({ fromId, toId, type }));
-}
-
-function uniqueSourceLinks(...groups: readonly ProvenanceRelation[][]): ProvenanceRelation[] {
-  return [
-    ...new Map(
-      groups
-        .flat()
-        .map((relation) => [`${relation.fromId}:${relation.type}:${relation.toId}`, relation]),
-    ).values(),
-  ];
 }
 
 export interface SettledNotebookCell {
@@ -929,7 +900,9 @@ export class ScienceJournal {
         id: randomUUID(),
         projectId: request.projectId,
         kind: "export",
-        format: "dsh-science-project@1",
+        format: RO_CRATE_FORMAT,
+        filename: RO_CRATE_FILENAME,
+        mediaType: RO_CRATE_MEDIA_TYPE,
         digest: object.digest,
         bytes: object.size,
         counts,
@@ -1315,7 +1288,7 @@ export class ScienceJournal {
               runId: executionId,
               environment: settled.environment,
               license: request.outputArtifact.license,
-              sourceEntityIds: [previous.id],
+              sourceEntityIds: [previous.id, ...(request.inputArtifactIds ?? [])],
               createdAt: now,
               updatedAt: now,
               revision: 1,
@@ -1392,8 +1365,22 @@ export class ScienceJournal {
     sessionId: string,
     request: RegisterArtifactRequest,
     capture: () => CapturedArtifactObject,
+    identity?: object,
+  ): ScienceArtifact;
+  registerArtifact(
+    workspaceKey: string,
+    sessionId: string,
+    request: RegisterArtifactRequest,
+    capture: () => Promise<CapturedArtifactObject>,
+    identity?: object,
+  ): Promise<ScienceArtifact>;
+  registerArtifact(
+    workspaceKey: string,
+    sessionId: string,
+    request: RegisterArtifactRequest,
+    capture: () => CapturedArtifactObject | Promise<CapturedArtifactObject>,
     identity: object = request,
-  ): ScienceArtifact {
+  ): ScienceArtifact | Promise<ScienceArtifact> {
     ensureOpen(this.open);
     const hash = requestHash("artifact/registered", workspaceKey, identity);
     const existing = this.findRequest(request.requestId);
@@ -1414,42 +1401,46 @@ export class ScienceJournal {
       }
     }
 
-    const captured = capture();
-    return this.transaction(() => {
-      const eventId = randomUUID();
-      const journalSeq = this.nextSequence();
-      const now = Date.now();
-      const artifact = scienceArtifactSchema.parse({
-        id: randomUUID(),
-        projectId: request.projectId,
-        kind: request.kind,
-        title: request.title,
-        digest: captured.digest,
-        mime: request.mime,
-        size: captured.size,
-        creator: { kind: "session", sessionId },
-        runId: request.runId,
-        environment: request.environment,
-        license: request.license,
-        sourceEntityIds: request.sourceEntityIds,
-        createdAt: now,
-        updatedAt: now,
-        revision: 1,
-        provenance: { eventId, journalSeq, sessionId },
+    const commit = (captured: CapturedArtifactObject): ScienceArtifact => {
+      ensureOpen(this.open);
+      return this.transaction(() => {
+        const eventId = randomUUID();
+        const journalSeq = this.nextSequence();
+        const now = Date.now();
+        const artifact = scienceArtifactSchema.parse({
+          id: randomUUID(),
+          projectId: request.projectId,
+          kind: request.kind,
+          title: request.title,
+          digest: captured.digest,
+          mime: request.mime,
+          size: captured.size,
+          creator: { kind: "session", sessionId },
+          runId: request.runId,
+          environment: request.environment,
+          license: request.license,
+          sourceEntityIds: request.sourceEntityIds,
+          createdAt: now,
+          updatedAt: now,
+          revision: 1,
+          provenance: { eventId, journalSeq, sessionId },
+        });
+        this.appendEvent(
+          journalSeq,
+          eventId,
+          request.requestId,
+          hash,
+          workspaceKey,
+          "artifact/registered",
+          now,
+          artifact,
+        );
+        this.insertArtifactProjection(workspaceKey, artifact);
+        return artifact;
       });
-      this.appendEvent(
-        journalSeq,
-        eventId,
-        request.requestId,
-        hash,
-        workspaceKey,
-        "artifact/registered",
-        now,
-        artifact,
-      );
-      this.insertArtifactProjection(workspaceKey, artifact);
-      return artifact;
-    });
+    };
+    const captured = capture();
+    return captured instanceof Promise ? captured.then(commit) : commit(captured);
   }
 
   compareRuns(workspaceKey: string, request: CompareRunsRequest): RunComparison {
@@ -1569,262 +1560,6 @@ export class ScienceJournal {
       runs,
       exports,
     };
-  }
-
-  traceProvenance(workspaceKey: string, request: TraceProvenanceRequest): ProvenanceTrace {
-    ensureOpen(this.open);
-    const rows = this.database
-      .prepare(
-        "SELECT seq, type, occurred_at, payload_json, workspace_key FROM science_journal WHERE workspace_key = ? ORDER BY seq",
-      )
-      .all(workspaceKey) as unknown as JournalRow[];
-    const nodes = new Map<string, TraceNode>();
-    for (const row of rows) {
-      const payload = JSON.parse(row.payload_json) as unknown;
-      if (row.type === "project/created") {
-        const project = scienceProjectSchema.parse(payload);
-        nodes.set(project.id, {
-          entity: { id: project.id, kind: "project", title: project.title },
-          events: [this.provenanceEvent(project, row)],
-          sources: [],
-        });
-        continue;
-      }
-      if (row.type === "notebook/created") {
-        const notebook = scienceNotebookSchema.parse(payload);
-        nodes.set(notebook.id, {
-          entity: { id: notebook.id, kind: "notebook", title: notebook.title },
-          events: [this.provenanceEvent(notebook, row)],
-          sources: sourceLinks(notebook.id, [notebook.projectId]),
-        });
-        continue;
-      }
-      if (row.type === "notebook/cell-executed") {
-        const execution = notebookExecutionSchema.parse(payload);
-        const previousNotebook = nodes.get(execution.notebook.id);
-        const notebookEvents = previousNotebook?.events ?? [];
-        nodes.set(execution.notebook.id, {
-          entity: {
-            id: execution.notebook.id,
-            kind: "notebook",
-            title: execution.notebook.title,
-          },
-          events: [...notebookEvents, this.provenanceEvent(execution.notebook, row)],
-          sources: uniqueSourceLinks(
-            [...(previousNotebook?.sources ?? [])],
-            sourceLinks(execution.notebook.id, [execution.notebook.projectId]),
-            sourceLinks(execution.notebook.id, execution.inputArtifactIds ?? [], "uses"),
-          ),
-        });
-        if (execution.artifact) {
-          nodes.set(execution.artifact.id, {
-            entity: {
-              id: execution.artifact.id,
-              kind: "artifact",
-              title: execution.artifact.title,
-            },
-            events: [this.provenanceEvent(execution.notebook, row)],
-            sources: sourceLinks(execution.artifact.id, execution.artifact.sourceEntityIds),
-          });
-        }
-        continue;
-      }
-      if (row.type === "artifact/registered") {
-        const artifact = scienceArtifactSchema.parse(payload);
-        nodes.set(artifact.id, {
-          entity: { id: artifact.id, kind: "artifact", title: artifact.title },
-          events: [this.provenanceEvent(artifact, row)],
-          sources: sourceLinks(artifact.id, artifact.sourceEntityIds),
-        });
-        continue;
-      }
-      if (row.type === "document/created" || row.type === "document/modified") {
-        const document = scienceDocumentSchema.parse(payload);
-        const documentEvents = nodes.get(document.id)?.events ?? [];
-        nodes.set(document.id, {
-          entity: { id: document.id, kind: "document", title: document.name },
-          events: [...documentEvents, this.provenanceEvent(document, row)],
-          sources: sourceLinks(document.id, [document.projectId]),
-        });
-        continue;
-      }
-      if (row.type === "figure/created" || row.type === "figure/modified") {
-        const figure = scienceFigureSchema.parse(payload);
-        const figureEvents = nodes.get(figure.id)?.events ?? [];
-        const sources = sourceLinks(figure.id, [
-          figure.projectId,
-          ...(figure.artifactId ? [figure.artifactId] : []),
-        ]);
-        nodes.set(figure.id, {
-          entity: { id: figure.id, kind: "figure", title: figure.title },
-          events: [...figureEvents, this.provenanceEvent(figure, row)],
-          sources,
-        });
-        continue;
-      }
-      if (
-        row.type === "question/created" ||
-        row.type === "hypothesis/created" ||
-        row.type === "claim/recorded"
-      ) {
-        const mutation = payload as {
-          readonly record: unknown;
-          readonly relation: unknown | null;
-        };
-        const record = scienceResearchRecordSchema.parse(mutation.record);
-        const relation = mutation.relation
-          ? scienceRelationSchema.parse(mutation.relation)
-          : undefined;
-        const links = sourceLinks(record.id, record.sourceEntityIds);
-        if (relation && !links.some((link) => link.toId === relation.toId)) {
-          links.push({ fromId: record.id, toId: relation.toId, type: relation.type });
-        } else if (relation) {
-          const index = links.findIndex((link) => link.toId === relation.toId);
-          links[index] = { fromId: record.id, toId: relation.toId, type: relation.type };
-        }
-        links.push(...sourceLinks(record.id, [record.projectId]));
-        nodes.set(record.id, {
-          entity: { id: record.id, kind: record.kind, title: record.title },
-          events: [this.provenanceEvent(record, row)],
-          sources: links,
-        });
-        continue;
-      }
-      if (row.type === "evidence/linked") {
-        const result = linkEvidenceResultSchema.parse(payload);
-        nodes.set(result.evidence.id, {
-          entity: {
-            id: result.evidence.id,
-            kind: result.evidence.kind,
-            title: result.evidence.title,
-          },
-          events: [this.provenanceEvent(result.evidence, row)],
-          sources: [
-            ...sourceLinks(result.evidence.id, result.evidence.sourceEntityIds),
-            {
-              fromId: result.evidence.id,
-              toId: result.relation.toId,
-              type: result.relation.type,
-            },
-            ...sourceLinks(result.evidence.id, [result.evidence.projectId]),
-          ],
-        });
-        continue;
-      }
-      if (row.type === "experiment/defined") {
-        const experiment = scienceExperimentSchema.parse(payload);
-        nodes.set(experiment.id, {
-          entity: { id: experiment.id, kind: "experiment", title: experiment.title },
-          events: [this.provenanceEvent(experiment, row)],
-          sources: [
-            ...sourceLinks(experiment.id, experiment.hypothesisIds, "uses"),
-            ...sourceLinks(experiment.id, [experiment.projectId]),
-          ],
-        });
-        continue;
-      }
-      if (row.type === "run/started") {
-        const result = runMutationSchema.parse(payload);
-        const previousExperiment = nodes.get(result.experiment.id);
-        if (previousExperiment) {
-          nodes.set(result.experiment.id, {
-            ...previousExperiment,
-            entity: {
-              id: result.experiment.id,
-              kind: "experiment",
-              title: result.experiment.title,
-            },
-          });
-        }
-        nodes.set(result.run.id, {
-          entity: {
-            id: result.run.id,
-            kind: "run",
-            title: `Run ${result.run.id.slice(0, 8)}`,
-          },
-          events: [this.provenanceEvent(result.run, row)],
-          sources: sourceLinks(result.run.id, [result.run.experimentId], "uses"),
-        });
-        continue;
-      }
-      if (row.type === "run/finished") {
-        const run = scienceRunSchema.parse(payload);
-        const runEvents = nodes.get(run.id)?.events ?? [];
-        nodes.set(run.id, {
-          entity: { id: run.id, kind: "run", title: `Run ${run.id.slice(0, 8)}` },
-          events: [...runEvents, this.provenanceEvent(run, row)],
-          sources: [
-            ...sourceLinks(run.id, [run.experimentId], "uses"),
-            ...sourceLinks(run.id, run.artifactIds, "produces"),
-          ],
-        });
-        continue;
-      }
-      if (row.type === "project/exported") {
-        const exported = projectExportRecordSchema.parse(payload);
-        nodes.set(exported.id, {
-          entity: { id: exported.id, kind: "export", title: "Project export" },
-          events: [this.provenanceEvent(exported, row)],
-          sources: sourceLinks(exported.id, [exported.projectId], "derived_from"),
-        });
-        continue;
-      }
-      throw new Error(`Unsupported science journal event '${row.type}' at sequence ${row.seq}`);
-    }
-
-    if (!nodes.has(request.entityId)) {
-      throw new ScienceError(
-        "Provenance entity not found in this workspace",
-        "PROVENANCE_ENTITY_NOT_FOUND",
-      );
-    }
-    const entities: ProvenanceEntity[] = [];
-    const relations: ProvenanceRelation[] = [];
-    const events: ProvenanceEvent[] = [];
-    const eventSequences = new Set<number>();
-    const visited = new Set<string>();
-    const queue: Array<{ depth: number; id: string }> = [{ depth: 0, id: request.entityId }];
-    let truncated = false;
-    while (queue.length > 0) {
-      const current = queue.shift();
-      if (!current || visited.has(current.id)) continue;
-      if (entities.length >= MAX_TRACE_ENTITIES) {
-        truncated = true;
-        break;
-      }
-      const node = nodes.get(current.id);
-      if (!node) continue;
-      visited.add(current.id);
-      entities.push(node.entity);
-      for (const event of node.events) {
-        if (eventSequences.has(event.journalSeq)) continue;
-        eventSequences.add(event.journalSeq);
-        events.push(event);
-      }
-      if (node.sources.length > 0 && current.depth >= request.maxDepth) {
-        truncated = true;
-        continue;
-      }
-      for (const relation of node.sources) {
-        if (!nodes.has(relation.toId)) continue;
-        if (relations.length >= MAX_TRACE_RELATIONS) {
-          truncated = true;
-          break;
-        }
-        relations.push(relation);
-        if (!visited.has(relation.toId)) {
-          queue.push({ depth: current.depth + 1, id: relation.toId });
-        }
-      }
-    }
-    events.sort((left, right) => left.journalSeq - right.journalSeq);
-    return provenanceTraceSchema.parse({
-      rootId: request.entityId,
-      entities,
-      relations,
-      events,
-      truncated,
-    });
   }
 
   journalCount(): number {
@@ -2481,29 +2216,6 @@ export class ScienceJournal {
         entityId,
       );
     return row !== undefined;
-  }
-
-  private provenanceEvent(
-    entity:
-      | ScienceProject
-      | ScienceNotebook
-      | ScienceArtifact
-      | ScienceDocument
-      | ScienceFigure
-      | ScienceResearchRecord
-      | ScienceExperiment
-      | ScienceRun
-      | ProjectExportRecord,
-    row: JournalRow,
-  ): ProvenanceEvent {
-    return {
-      eventId: entity.provenance.eventId,
-      journalSeq: entity.provenance.journalSeq,
-      entityId: entity.id,
-      operation: row.type as ProvenanceEvent["operation"],
-      occurredAt: row.occurred_at,
-      sessionId: entity.provenance.sessionId,
-    };
   }
 
   private nextSequence(): number {

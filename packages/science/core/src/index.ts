@@ -1,9 +1,12 @@
 import { createHash } from "node:crypto";
 import { realpathSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import type { Context } from "@deepseek-ai/cordis";
 import { SessionId } from "@deepseek-ai/dsh-session";
 import { TypertRemoteService } from "@deepseek-ai/dsh-typert-protocol";
 import s from "@deepseek-ai/schemastery";
+import { isArtifactMetadataMime } from "./artifact-metadata.js";
 import { ArtifactStore } from "./artifact-store.js";
 import {
   type CompareRunsRequest,
@@ -26,29 +29,43 @@ import {
   type ExportProjectRequest,
   executeNotebookCellRequestSchema,
   exportProjectRequestSchema,
+  type FigureLibrary,
+  type FigureReproducibilityMetadata,
+  type FigureSourceReferenceInput,
   type FinishRunRequest,
+  figureReproducibilityMetadataSchema,
   finishRunRequestSchema,
+  type GetResearchObjectRequest,
+  getResearchObjectRequestSchema,
   type ImportArtifactRequest,
   importArtifactRequestSchema,
   type LinkEvidenceRequest,
   type LinkEvidenceResult,
+  type LiteratureSearchRequest,
+  type LiteratureSearchResult,
   linkEvidenceRequestSchema,
   MAX_SCIENCE_IMPORT_BYTES,
+  MAX_TYPST_PDF_BYTES,
+  MAX_TYPST_SOURCE_BYTES,
   type ModifyDocumentRequest,
   type ModifyFigureCodeRequest,
   modifyDocumentRequestSchema,
   modifyFigureCodeRequestSchema,
   type NotebookExecution,
   type PreviewArtifactRequest,
+  type PreviewTypstDocumentRequest,
   type ProjectExportCounts,
-  type ProvenanceTrace,
   previewArtifactRequestSchema,
+  previewTypstDocumentRequestSchema,
   type RecordClaimRequest,
   type RegisterArtifactRequest,
+  type ResolveTypstSourceAtPointRequest,
+  type RoCrateMetadataDocument,
   type RunComparison,
   type RunMutation,
   recordClaimRequestSchema,
   registerArtifactRequestSchema,
+  resolveTypstSourceAtPointRequestSchema,
   type ScienceArtifact,
   type ScienceArtifactPreview,
   type ScienceDocument,
@@ -64,22 +81,46 @@ import {
   scienceImportType,
   scienceProjectExportSchema,
   startRunRequestSchema,
-  type TraceProvenanceRequest,
-  traceProvenanceRequestSchema,
+  type TypstDocumentPreview,
+  type TypstSourceTarget,
+  type TypstSourceUpdate,
+  typstDocumentPreviewSchema,
+  type UpdateTypstSourceRequest,
+  updateTypstSourceRequestSchema,
 } from "./contracts.js";
 import { ScienceError } from "./errors.js";
+import { codeHash } from "./figure.js";
 import { ScienceJournal } from "./journal.js";
 import { JupyMcpRuntime } from "./jupymcp-runtime.js";
+import { LiteratureSearchRuntime, ZoteroBibliographySource } from "./literature.js";
 import { PythonRuntime } from "./python-runtime.js";
+import { createResearchObject } from "./research-object.js";
 import { tabularPreview } from "./tabular-preview.js";
+import { TypstPreviewRuntime } from "./typst-preview.js";
 
+export {
+  ARTIFACT_METADATA_KEYWORD,
+  ARTIFACT_METADATA_MIMES,
+  type ArtifactMetadataMime,
+  countPdfMetadataRecords,
+  countPngMetadataChunks,
+  countSvgMetadataRecords,
+  extractArtifactMetadata,
+  extractPdfMetadata,
+  extractPngMetadata,
+  extractSvgMetadata,
+  MAX_ARTIFACT_METADATA_BYTES,
+} from "./artifact-metadata.js";
 export { ArtifactStore } from "./artifact-store.js";
+export * from "./bibliography.js";
 export * from "./contracts.js";
 export { runScienceDemo, type ScienceDemoResult } from "./demo.js";
 export * from "./errors.js";
 export { ScienceJournal } from "./journal.js";
-
+export * from "./literature.js";
+export { createResearchObject } from "./research-object.js";
 export interface Config {
+  readonly embedArtifactMetadata?: boolean;
   readonly root: string;
   readonly maxArtifactBytes?: number;
   readonly maxCellOutputBytes?: number;
@@ -91,6 +132,12 @@ export interface Config {
   readonly jupymcpCommand?: string;
   readonly jupymcpRequestTimeoutMs?: number;
   readonly pythonCommand?: string;
+  readonly typstCommand?: string;
+  readonly writingPreviewRuntimeCommand?: string;
+  readonly typstInitialCompileTimeoutMs?: number;
+  readonly typstMaxDiagnosticsBytes?: number;
+  readonly typstMaxPdfBytes?: number;
+  readonly typstMaxSourceBytes?: number;
 }
 
 const DEFAULT_MAX_ARTIFACT_BYTES = 1024 * 1024 * 1024;
@@ -105,6 +152,20 @@ const DEFAULT_PROCESS_GRACE_MS = 2_000;
 const DEFAULT_JUPYMCP_COMMAND = "jupymcp";
 const DEFAULT_JUPYMCP_REQUEST_TIMEOUT_MS = 60_000;
 const DEFAULT_PYTHON_COMMAND = "python3";
+const DEFAULT_TYPST_COMMAND = "typst";
+const DEFAULT_WRITING_PREVIEW_RUNTIME_COMMAND = resolve(
+  dirname(fileURLToPath(import.meta.url)),
+  "..",
+  "bin",
+  `${process.platform}-${process.arch}`,
+  process.platform === "win32"
+    ? "swarmx-writing-preview-runtime.exe"
+    : "swarmx-writing-preview-runtime",
+);
+const DEFAULT_TYPST_INITIAL_COMPILE_TIMEOUT_MS = 15_000;
+const DEFAULT_TYPST_MAX_DIAGNOSTICS_BYTES = 64 * 1024;
+const DEFAULT_TYPST_MAX_PDF_BYTES = 32 * 1024 * 1024;
+const DEFAULT_TYPST_MAX_SOURCE_BYTES = 1024 * 1024;
 const REDACTED_METADATA = "[redacted]";
 const SECRET_ENVIRONMENT_KEY = /api.?key|credential|password|private.?key|secret|token/iu;
 const ABSOLUTE_PATH_VALUE = /^(?:\/|[a-z]:[\\/]|\\\\)/iu;
@@ -138,10 +199,86 @@ function redactEnvironment(environment: Readonly<Record<string, string>>): Recor
   );
 }
 
+type NormalizedFigureSource = FigureReproducibilityMetadata["sources"][number];
+
+function inferFigureLibrary(code: string): FigureLibrary | undefined {
+  if (/(?:library\s*\(\s*["']ggplot2|ggplot\s*\()/iu.test(code)) return "ggplot2";
+  if (/(?:\bseaborn\b|\bsns\.)/iu.test(code)) return "seaborn";
+  if (/(?:\bplotly\b|\bpx\.|\bgo\.)/iu.test(code)) return "plotly";
+  if (/(?:\bmatplotlib\b|\bplt\.)/iu.test(code)) return "matplotlib";
+  return undefined;
+}
+
+function normalizedSourceKey(source: NormalizedFigureSource): string {
+  if (source.kind === "artifact") return `artifact:${source.artifactId}`;
+  if (source.kind === "workspace") {
+    return `workspace:${source.relativePath}:${source.digest}`;
+  }
+  return `s3:${source.uri}:${source.versionId ?? ""}:${source.digest ?? ""}`;
+}
+
+function uniqueNormalizedSources(
+  sources: readonly NormalizedFigureSource[],
+): NormalizedFigureSource[] {
+  const unique = new Map(sources.map((source) => [normalizedSourceKey(source), source]));
+  if (unique.size > 32) {
+    throw new ScienceError("Artifact metadata may contain at most 32 sources", "INVALID_REQUEST");
+  }
+  return [...unique.values()];
+}
+
+function normalizeFigureSources(
+  sources: readonly FigureSourceReferenceInput[],
+  artifacts: readonly ScienceArtifact[],
+  fingerprintWorkspaceSource: (relativePath: string) => `sha256:${string}`,
+): NormalizedFigureSource[] {
+  const normalized = sources.map((source): NormalizedFigureSource => {
+    if (source.kind === "workspace") {
+      const digest = fingerprintWorkspaceSource(source.relativePath);
+      if (source.digest && source.digest !== digest) {
+        throw new ScienceError(
+          "Workspace source digest does not match its current bytes",
+          "ARTIFACT_SOURCE_CHANGED",
+        );
+      }
+      return { ...source, digest };
+    }
+    if (source.kind !== "artifact") return source;
+    const artifact = artifacts.find((candidate) => candidate.id === source.artifactId);
+    if (!artifact) {
+      throw new ScienceError("Artifact source not found in this workspace", "ARTIFACT_NOT_FOUND");
+    }
+    return { kind: "artifact", artifactId: artifact.id, digest: artifact.digest };
+  });
+  return uniqueNormalizedSources(normalized);
+}
+
+function artifactMetadataDocument(input: {
+  readonly code: string;
+  readonly environment: Readonly<Record<string, string>>;
+  readonly generationId: string;
+  readonly library: FigureLibrary;
+  readonly sources: readonly NormalizedFigureSource[];
+}): FigureReproducibilityMetadata {
+  return parseRequest(figureReproducibilityMetadataSchema, {
+    schema: "dsh-science.figure-provenance",
+    version: 1,
+    generationId: input.generationId,
+    generator: {
+      library: input.library,
+      code: input.code,
+      codeHash: codeHash(input.code),
+    },
+    sources: input.sources,
+    environment: input.environment,
+  });
+}
+
 /** Workspace-scoped science journal exposed to Host and strict Client Remote callers. */
 export class ScienceService extends TypertRemoteService {
   static inject = ["sessions", "subprocess"];
   static Config = s.object({
+    embedArtifactMetadata: s.boolean().default(true),
     root: s.string().required(),
     maxArtifactBytes: s.natural().min(1).default(DEFAULT_MAX_ARTIFACT_BYTES),
     maxCellOutputBytes: s.natural().min(1).max(1_000_000).default(DEFAULT_MAX_CELL_OUTPUT_BYTES),
@@ -161,25 +298,56 @@ export class ScienceService extends TypertRemoteService {
       .max(3_600_000)
       .default(DEFAULT_JUPYMCP_REQUEST_TIMEOUT_MS),
     pythonCommand: s.string().default(DEFAULT_PYTHON_COMMAND),
+    typstCommand: s.string().default(DEFAULT_TYPST_COMMAND),
+    writingPreviewRuntimeCommand: s.string().default(DEFAULT_WRITING_PREVIEW_RUNTIME_COMMAND),
+    typstInitialCompileTimeoutMs: s
+      .natural()
+      .min(100)
+      .max(60_000)
+      .default(DEFAULT_TYPST_INITIAL_COMPILE_TIMEOUT_MS),
+    typstMaxDiagnosticsBytes: s
+      .natural()
+      .min(1_024)
+      .max(1024 * 1024)
+      .default(DEFAULT_TYPST_MAX_DIAGNOSTICS_BYTES),
+    typstMaxPdfBytes: s
+      .natural()
+      .min(1_024)
+      .max(MAX_TYPST_PDF_BYTES)
+      .default(DEFAULT_TYPST_MAX_PDF_BYTES),
+    typstMaxSourceBytes: s
+      .natural()
+      .min(1_024)
+      .max(MAX_TYPST_SOURCE_BYTES)
+      .default(DEFAULT_TYPST_MAX_SOURCE_BYTES),
   });
 
   private readonly artifacts: ArtifactStore;
+  private readonly embedArtifactMetadata: boolean;
   private readonly executions = new Map<
     string,
     { readonly fingerprint: string; readonly promise: Promise<NotebookExecution> }
   >();
   private readonly journal: ScienceJournal;
+  private readonly literature: LiteratureSearchRuntime;
+  private readonly registrations = new Map<
+    string,
+    { readonly fingerprint: string; readonly promise: Promise<ScienceArtifact> }
+  >();
   private readonly maxExportBytes: number;
   private readonly notebookRuntime: JupyMcpRuntime | PythonRuntime;
   private readonly notebookRuntimeKind: "isolated" | "jupymcp";
+  private readonly typstRuntime: TypstPreviewRuntime;
 
   constructor(ctx: Context, config: Config) {
     super(ctx, "science");
     this.journal = new ScienceJournal(config.root);
+    this.literature = new LiteratureSearchRuntime(config.root, new ZoteroBibliographySource());
     this.artifacts = new ArtifactStore(
       config.root,
       config.maxArtifactBytes ?? DEFAULT_MAX_ARTIFACT_BYTES,
     );
+    this.embedArtifactMetadata = config.embedArtifactMetadata ?? true;
     this.notebookRuntimeKind = config.notebookRuntime ?? "jupymcp";
     this.notebookRuntime =
       this.notebookRuntimeKind === "jupymcp"
@@ -197,10 +365,21 @@ export class ScienceService extends TypertRemoteService {
             maxOutputBytes: config.maxCellOutputBytes ?? DEFAULT_MAX_CELL_OUTPUT_BYTES,
           });
     this.maxExportBytes = config.maxExportBytes ?? DEFAULT_MAX_EXPORT_BYTES;
+    this.typstRuntime = new TypstPreviewRuntime(ctx.subprocess, {
+      command: config.typstCommand ?? DEFAULT_TYPST_COMMAND,
+      runtimeCommand:
+        config.writingPreviewRuntimeCommand ?? DEFAULT_WRITING_PREVIEW_RUNTIME_COMMAND,
+      graceMs: config.processGraceMs ?? DEFAULT_PROCESS_GRACE_MS,
+      initialCompileTimeoutMs:
+        config.typstInitialCompileTimeoutMs ?? DEFAULT_TYPST_INITIAL_COMPILE_TIMEOUT_MS,
+      maxDiagnosticsBytes: config.typstMaxDiagnosticsBytes ?? DEFAULT_TYPST_MAX_DIAGNOSTICS_BYTES,
+      maxPdfBytes: config.typstMaxPdfBytes ?? DEFAULT_TYPST_MAX_PDF_BYTES,
+      maxSourceBytes: config.typstMaxSourceBytes ?? DEFAULT_TYPST_MAX_SOURCE_BYTES,
+    });
     ctx.effect(
       () => async () => {
         try {
-          await this.notebookRuntime.close();
+          await Promise.all([this.notebookRuntime.close(), this.typstRuntime.close()]);
         } finally {
           this.journal.close();
         }
@@ -315,8 +494,6 @@ export class ScienceService extends TypertRemoteService {
     if (!project)
       throw new ScienceError("Project not found in this workspace", "PROJECT_NOT_FOUND");
     const bundle = {
-      format: "dsh-science-project@1" as const,
-      project,
       notebooks: snapshot.notebooks.filter((entity) => entity.projectId === project.id),
       artifacts: snapshot.artifacts.filter((entity) => entity.projectId === project.id),
       documents: snapshot.documents.filter((entity) => entity.projectId === project.id),
@@ -337,7 +514,7 @@ export class ScienceService extends TypertRemoteService {
       experiments: bundle.experiments.length,
       runs: bundle.runs.length,
     };
-    const content = `${JSON.stringify(bundle, null, 2)}\n`;
+    const content = `${JSON.stringify(createResearchObject(snapshot, project.id), null, 2)}\n`;
     const object = this.artifacts.publishText(content, this.maxExportBytes, signal);
     abortIfRequested(signal);
     const exported = this.journal.recordProjectExport(
@@ -410,21 +587,75 @@ export class ScienceService extends TypertRemoteService {
     return promise;
   }
 
-  registerArtifact(
+  async registerArtifact(
     sessionId: SessionId,
     request: RegisterArtifactRequest,
     signal?: AbortSignal,
-  ): ScienceArtifact {
+  ): Promise<ScienceArtifact> {
     abortIfRequested(signal);
     const parsed = parseRequest(registerArtifactRequestSchema, request);
     const workspace = this.workspace(sessionId);
-    const redacted = {
+    const metadataArtifactIds =
+      this.embedArtifactMetadata && parsed.reproducibilityMetadata
+        ? parsed.reproducibilityMetadata.sources.flatMap((source) =>
+            source.kind === "artifact" ? [source.artifactId] : [],
+          )
+        : [];
+    const redacted = parseRequest(registerArtifactRequestSchema, {
       ...parsed,
       environment: redactEnvironment(parsed.environment),
-    };
-    return this.journal.registerArtifact(workspace.key, sessionId, redacted, () =>
-      this.artifacts.capture(workspace.root, redacted.relativePath, signal),
-    );
+      sourceEntityIds: [...new Set([...parsed.sourceEntityIds, ...metadataArtifactIds])],
+    });
+    const key = `${workspace.key}\0${redacted.requestId}`;
+    const fingerprint = createHash("sha256").update(JSON.stringify(redacted)).digest("hex");
+    const active = this.registrations.get(key);
+    if (active) {
+      if (active.fingerprint !== fingerprint) {
+        throw new ScienceError(
+          "Idempotency key is already registering a different science artifact",
+          "IDEMPOTENCY_CONFLICT",
+        );
+      }
+      return active.promise;
+    }
+    const promise = Promise.resolve(
+      this.journal.registerArtifact(workspace.key, sessionId, redacted, async () => {
+        const normalizedSources =
+          this.embedArtifactMetadata && redacted.reproducibilityMetadata
+            ? normalizeFigureSources(
+                redacted.reproducibilityMetadata.sources,
+                this.journal.getWorkspace(workspace.key).artifacts,
+                (relativePath) =>
+                  this.artifacts.fingerprint(workspace.root, relativePath, signal).digest,
+              )
+            : [];
+        const metadata =
+          this.embedArtifactMetadata && redacted.reproducibilityMetadata
+            ? artifactMetadataDocument({
+                code: redacted.reproducibilityMetadata.code,
+                environment: redacted.environment,
+                generationId: redacted.requestId,
+                library: redacted.reproducibilityMetadata.library,
+                sources: normalizedSources,
+              })
+            : undefined;
+        if (metadata && !isArtifactMetadataMime(redacted.mime)) {
+          throw new ScienceError("Artifact metadata MIME is unsupported", "INVALID_REQUEST");
+        }
+        const captureMetadata =
+          metadata && isArtifactMetadataMime(redacted.mime)
+            ? { metadata, mime: redacted.mime }
+            : undefined;
+        return this.artifacts.capture(
+          workspace.root,
+          redacted.relativePath,
+          signal,
+          captureMetadata,
+        );
+      }),
+    ).finally(() => this.registrations.delete(key));
+    this.registrations.set(key, { fingerprint, promise });
+    return promise;
   }
 
   importArtifact(
@@ -477,19 +708,31 @@ export class ScienceService extends TypertRemoteService {
     );
   }
 
-  traceProvenance(
+  searchLiterature(
     sessionId: SessionId,
-    request: TraceProvenanceRequest,
+    request: LiteratureSearchRequest,
     signal?: AbortSignal,
-  ): ProvenanceTrace {
+  ): Promise<LiteratureSearchResult> {
     abortIfRequested(signal);
-    const parsed = parseRequest(traceProvenanceRequestSchema, request);
-    return this.journal.traceProvenance(this.workspace(sessionId).key, parsed);
+    return this.literature.search(this.workspace(sessionId).key, request, signal);
   }
 
   getWorkspace(sessionId: SessionId, signal?: AbortSignal): ScienceWorkspaceSnapshot {
     abortIfRequested(signal);
     return this.journal.getWorkspace(this.workspace(sessionId).key);
+  }
+
+  getResearchObject(
+    sessionId: SessionId,
+    request: GetResearchObjectRequest,
+    signal?: AbortSignal,
+  ): RoCrateMetadataDocument {
+    abortIfRequested(signal);
+    const parsed = parseRequest(getResearchObjectRequestSchema, request);
+    return createResearchObject(
+      this.journal.getWorkspace(this.workspace(sessionId).key),
+      parsed.projectId,
+    );
   }
 
   previewArtifact(
@@ -539,6 +782,56 @@ export class ScienceService extends TypertRemoteService {
     return { kind: "unavailable", ...identity, reason: "unsupported" };
   }
 
+  async previewTypstDocument(
+    sessionId: SessionId,
+    request: PreviewTypstDocumentRequest,
+    signal?: AbortSignal,
+  ): Promise<TypstDocumentPreview> {
+    abortIfRequested(signal);
+    const parsed = parseRequest(previewTypstDocumentRequestSchema, request);
+    const workspace = this.workspace(sessionId);
+    return typstDocumentPreviewSchema.parse(
+      await this.typstRuntime.preview({
+        workspaceKey: workspace.key,
+        workspaceRoot: workspace.root,
+        relativePath: parsed.relativePath,
+        ...(signal === undefined ? {} : { signal }),
+      }),
+    );
+  }
+
+  async updateTypstSource(
+    sessionId: SessionId,
+    request: UpdateTypstSourceRequest,
+    signal?: AbortSignal,
+  ): Promise<TypstSourceUpdate> {
+    abortIfRequested(signal);
+    const parsed = parseRequest(updateTypstSourceRequestSchema, request);
+    const workspace = this.workspace(sessionId);
+    return this.typstRuntime.updateSource({
+      workspaceKey: workspace.key,
+      workspaceRoot: workspace.root,
+      ...parsed,
+      ...(signal === undefined ? {} : { signal }),
+    });
+  }
+
+  async resolveTypstSourceAtPoint(
+    sessionId: SessionId,
+    request: ResolveTypstSourceAtPointRequest,
+    signal?: AbortSignal,
+  ): Promise<TypstSourceTarget | null> {
+    abortIfRequested(signal);
+    const parsed = parseRequest(resolveTypstSourceAtPointRequestSchema, request);
+    const workspace = this.workspace(sessionId);
+    return this.typstRuntime.resolveSourceAtPoint({
+      workspaceKey: workspace.key,
+      workspaceRoot: workspace.root,
+      ...parsed,
+      ...(signal === undefined ? {} : { signal }),
+    });
+  }
+
   modifyDocument(
     sessionId: SessionId,
     request: ModifyDocumentRequest,
@@ -577,6 +870,60 @@ export class ScienceService extends TypertRemoteService {
       }
       return artifact;
     });
+    const requestedMetadata = request.outputArtifact?.reproducibilityMetadata;
+    const shouldEmbedMetadata =
+      this.embedArtifactMetadata &&
+      request.outputArtifact?.kind === "figure" &&
+      isArtifactMetadataMime(request.outputArtifact.mime) &&
+      requestedMetadata !== false;
+    const metadataLibrary = shouldEmbedMetadata
+      ? (requestedMetadata?.library ?? inferFigureLibrary(request.source))
+      : undefined;
+    if (shouldEmbedMetadata && !metadataLibrary) {
+      throw new ScienceError(
+        "Figure metadata requires an explicit or inferable plotting library",
+        "INVALID_REQUEST",
+      );
+    }
+    const explicitMetadataSources =
+      shouldEmbedMetadata && requestedMetadata
+        ? normalizeFigureSources(
+            requestedMetadata.sources,
+            workspaceSnapshot.artifacts,
+            (relativePath) =>
+              this.artifacts.fingerprint(workspace.root, relativePath, signal).digest,
+          )
+        : [];
+    const inputArtifactIds = new Set(inputArtifacts.map((artifact) => artifact.id));
+    if (
+      explicitMetadataSources.some(
+        (source) => source.kind === "artifact" && !inputArtifactIds.has(source.artifactId),
+      )
+    ) {
+      throw new ScienceError(
+        "Notebook metadata may reference only declared input artifacts",
+        "INVALID_REQUEST",
+      );
+    }
+    const metadataSources = uniqueNormalizedSources([
+      ...inputArtifacts.map(
+        (artifact): NormalizedFigureSource => ({
+          kind: "artifact",
+          artifactId: artifact.id,
+          digest: artifact.digest,
+        }),
+      ),
+      ...explicitMetadataSources,
+    ]);
+    if (shouldEmbedMetadata && metadataLibrary) {
+      artifactMetadataDocument({
+        code: request.source,
+        environment: {},
+        generationId: request.requestId,
+        library: metadataLibrary,
+        sources: metadataSources,
+      });
+    }
     const inputBytes = inputArtifacts.reduce((total, artifact) => total + artifact.size, 0);
     if (inputBytes > MAX_NOTEBOOK_INPUT_BYTES) {
       throw new ScienceError("Notebook inputs exceed the 32 MiB limit", "ARTIFACT_TOO_LARGE");
@@ -633,14 +980,46 @@ export class ScienceService extends TypertRemoteService {
                     : ("failed" as const),
               }));
       signal?.throwIfAborted();
+      for (const source of metadataSources) {
+        if (source.kind !== "workspace") continue;
+        const currentDigest = this.artifacts.fingerprint(
+          workspace.root,
+          source.relativePath,
+          signal,
+        ).digest;
+        if (currentDigest !== source.digest) {
+          throw new ScienceError(
+            "Workspace source changed during Figure generation",
+            "ARTIFACT_SOURCE_CHANGED",
+          );
+        }
+      }
+      const environment = redactEnvironment(process.environment);
+      const metadata =
+        shouldEmbedMetadata && metadataLibrary
+          ? artifactMetadataDocument({
+              code: request.source,
+              environment,
+              generationId: request.requestId,
+              library: metadataLibrary,
+              sources: metadataSources,
+            })
+          : undefined;
       const capturedArtifact = request.outputArtifact
-        ? this.artifacts.capture(workspace.root, request.outputArtifact.relativePath, signal)
+        ? await this.artifacts.capture(
+            workspace.root,
+            request.outputArtifact.relativePath,
+            signal,
+            metadata && isArtifactMetadataMime(request.outputArtifact.mime)
+              ? { metadata, mime: request.outputArtifact.mime }
+              : undefined,
+          )
         : undefined;
       signal?.throwIfAborted();
       return this.journal.recordNotebookExecution(workspace.key, sessionId, request, {
         capturedArtifact,
         durationMs: process.durationMs,
-        environment: redactEnvironment(process.environment),
+        environment,
         exitCode: "outcome" in process ? process.outcome.exitCode : process.exitCode,
         outputs: process.outputs,
         signal: "outcome" in process ? process.outcome.signal : process.signal,

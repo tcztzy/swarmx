@@ -12,16 +12,21 @@ import type {
   ExecuteNotebookCellRequest,
   ExportProjectRequest,
   FinishRunRequest,
+  GetResearchObjectRequest,
   ImportArtifactRequest,
   LinkEvidenceRequest,
   LinkEvidenceResult,
+  LiteratureSearchRequest,
+  LiteratureSearchResult,
   ModifyDocumentRequest,
   ModifyFigureCodeRequest,
   NotebookExecution,
   PreviewArtifactRequest,
-  ProvenanceTrace,
+  PreviewTypstDocumentRequest,
   RecordClaimRequest,
   RegisterArtifactRequest,
+  ResolveTypstSourceAtPointRequest,
+  RoCrateMetadataDocument,
   RunComparison,
   RunMutation,
   ScienceArtifact,
@@ -34,9 +39,11 @@ import type {
   ScienceProjectExport,
   ScienceResearchRecord,
   ScienceRun,
-  ScienceWorkspaceSnapshot,
   StartRunRequest,
-  TraceProvenanceRequest,
+  TypstDocumentPreview,
+  TypstSourceTarget,
+  TypstSourceUpdate,
+  UpdateTypstSourceRequest,
 } from "./contracts.js";
 import { SCIENCE_INVOCATIONS } from "./remote-contract.js";
 
@@ -96,10 +103,11 @@ interface ScienceRemoteNamespace {
     request: FinishRunRequest,
     signal?: AbortSignal,
   ) => Promise<RemoteResult<ScienceRun>>;
-  getWorkspace: (
+  getResearchObject: (
     sessionId: SessionId,
+    request: GetResearchObjectRequest,
     signal?: AbortSignal,
-  ) => Promise<RemoteResult<ScienceWorkspaceSnapshot>>;
+  ) => Promise<RemoteResult<RoCrateMetadataDocument>>;
   importArtifact: (
     sessionId: SessionId,
     request: ImportArtifactRequest,
@@ -125,6 +133,21 @@ interface ScienceRemoteNamespace {
     request: PreviewArtifactRequest,
     signal?: AbortSignal,
   ) => Promise<RemoteResult<ScienceArtifactPreview>>;
+  previewTypstDocument: (
+    sessionId: SessionId,
+    request: PreviewTypstDocumentRequest,
+    signal?: AbortSignal,
+  ) => Promise<RemoteResult<TypstDocumentPreview>>;
+  resolveTypstSourceAtPoint: (
+    sessionId: SessionId,
+    request: ResolveTypstSourceAtPointRequest,
+    signal?: AbortSignal,
+  ) => Promise<RemoteResult<TypstSourceTarget | null>>;
+  searchLiterature: (
+    sessionId: SessionId,
+    request: LiteratureSearchRequest,
+    signal?: AbortSignal,
+  ) => Promise<RemoteResult<LiteratureSearchResult>>;
   recordClaim: (
     sessionId: SessionId,
     request: RecordClaimRequest,
@@ -140,11 +163,11 @@ interface ScienceRemoteNamespace {
     request: StartRunRequest,
     signal?: AbortSignal,
   ) => Promise<RemoteResult<RunMutation>>;
-  traceProvenance: (
+  updateTypstSource: (
     sessionId: SessionId,
-    request: TraceProvenanceRequest,
+    request: UpdateTypstSourceRequest,
     signal?: AbortSignal,
-  ) => Promise<RemoteResult<ProvenanceTrace>>;
+  ) => Promise<RemoteResult<TypstSourceUpdate>>;
 }
 
 declare module "@deepseek-ai/dsh-typert-protocol" {
@@ -160,16 +183,19 @@ declare module "@deepseek-ai/dsh-typert-protocol" {
     "science/executeNotebookCell": ScienceRemoteNamespace["executeNotebookCell"];
     "science/exportProject": ScienceRemoteNamespace["exportProject"];
     "science/finishRun": ScienceRemoteNamespace["finishRun"];
-    "science/getWorkspace": ScienceRemoteNamespace["getWorkspace"];
+    "science/getResearchObject": ScienceRemoteNamespace["getResearchObject"];
     "science/importArtifact": ScienceRemoteNamespace["importArtifact"];
     "science/linkEvidence": ScienceRemoteNamespace["linkEvidence"];
     "science/modifyDocument": ScienceRemoteNamespace["modifyDocument"];
     "science/modifyFigureCode": ScienceRemoteNamespace["modifyFigureCode"];
     "science/previewArtifact": ScienceRemoteNamespace["previewArtifact"];
+    "science/previewTypstDocument": ScienceRemoteNamespace["previewTypstDocument"];
+    "science/resolveTypstSourceAtPoint": ScienceRemoteNamespace["resolveTypstSourceAtPoint"];
+    "science/searchLiterature": ScienceRemoteNamespace["searchLiterature"];
     "science/recordClaim": ScienceRemoteNamespace["recordClaim"];
     "science/registerArtifact": ScienceRemoteNamespace["registerArtifact"];
     "science/startRun": ScienceRemoteNamespace["startRun"];
-    "science/traceProvenance": ScienceRemoteNamespace["traceProvenance"];
+    "science/updateTypstSource": ScienceRemoteNamespace["updateTypstSource"];
   }
 
   interface TypertRemoteNamespaceMap {

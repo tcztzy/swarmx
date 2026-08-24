@@ -9,7 +9,7 @@ afterEach(async () => {
 });
 
 describe("T18 runnable Science IDE demo", () => {
-  it("completes notebook, experiment, figure, writing, provenance, and export", async () => {
+  it("completes notebook, experiment, figure, writing, Research Object, and export", async () => {
     const fixture = await createScienceFixture();
     fixtures.push(fixture);
 
@@ -19,7 +19,9 @@ describe("T18 runnable Science IDE demo", () => {
     expect(demo.figure.code).toContain("bbox_to_anchor");
     expect(demo.document.content).toContain("12%");
     expect(demo.claim.status).toBe("supported");
-    expect(demo.trace.entities.map((entity) => entity.id)).toContain(demo.run.id);
+    expect(demo.researchObject["@graph"].map((entity) => entity["@id"])).toContain(
+      `urn:uuid:${demo.run.id}`,
+    );
     expect(demo.exported.counts).toMatchObject({
       projects: 1,
       notebooks: 1,

@@ -19,9 +19,12 @@ describe("Science package build", () => {
       "lib/remote.js",
       "lib/remote-contract.js",
       "lib/tools.js",
+      "lib/preset.js",
       "lib/types/**/*.d.ts",
+      "bin",
       "src",
       "demo",
+      "config/agent-presets",
       "cordis.patch.yml",
     ]);
   });

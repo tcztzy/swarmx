@@ -1,4 +1,4 @@
-import type { SessionId, ToolCallBlock } from "@deepseek-ai/dsh-client-runtime/client";
+import type { SessionId } from "@deepseek-ai/dsh-client-runtime/client";
 
 export type SideViewMode = "inspect" | "workbench";
 
@@ -28,8 +28,8 @@ export interface SideViewContentOwnerProps {
   readonly entry: SideViewEntry;
 }
 
-export interface ToolSideViewActionOwnerProps {
-  readonly block: ToolCallBlock;
+export interface TurnTailItemOwnerProps {
+  readonly turn: number;
 }
 
 declare module "@deepseek-ai/cordis" {
@@ -45,10 +45,10 @@ declare module "@deepseek-ai/dsh-client-ui-slots" {
       scope: "session";
       owner: SideViewContentOwnerProps;
     };
-    "side-view.tool.actions": {
+    "conversation.chat.turnTail.items": {
       kind: "list";
       scope: "session";
-      owner: ToolSideViewActionOwnerProps;
+      owner: TurnTailItemOwnerProps;
     };
   }
 }
@@ -63,8 +63,14 @@ export interface ISideView {
 }
 
 interface SideViewLayout {
-  openDetails(): void;
+  openDetails(preferredWidth?: number): void;
   closeDetails(): void;
+}
+
+const WORKBENCH_DETAILS_WIDTH = 880;
+
+function preferredWidth(entry: SideViewEntry): number | undefined {
+  return entry.mode === "workbench" ? WORKBENCH_DETAILS_WIDTH : undefined;
 }
 
 const EMPTY_ENTRIES: readonly SideViewEntry[] = Object.freeze([]);
@@ -145,7 +151,7 @@ export class SideViewController implements ISideView {
             candidateIndex === index ? nextEntry : candidate,
           );
     this.write(sessionId, entries, nextEntry.id);
-    this.layout.openDetails();
+    this.layout.openDetails(preferredWidth(nextEntry));
   }
 
   activate(sessionId: SessionId, entryId: string): void {
@@ -155,7 +161,8 @@ export class SideViewController implements ISideView {
       throw new Error(`Side View entry ${entryId} is not open in Session ${String(sessionId)}`);
     }
     if (current.activeId !== entryId) this.write(sessionId, current.entries, entryId);
-    this.layout.openDetails();
+    const entry = current.entries.find((candidate) => candidate.id === entryId);
+    this.layout.openDetails(entry === undefined ? undefined : preferredWidth(entry));
   }
 
   close(sessionId: SessionId, entryId: string): void {

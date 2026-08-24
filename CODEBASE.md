@@ -12,11 +12,20 @@ The Harness supplies the complete browser UI and `/api` transport. SwarmX has no
 
 | Path | Ownership |
 | --- | --- |
-| `apps/desktop/src/harness.ts` | Profile creation, profile-installed bundle resolution, patch composition, in-process Harness boot, loopback URL |
+| `apps/desktop/src/harness.ts` | Profile creation, profile-installed bundle resolution, DSH + Science system-preset roots, patch composition, in-process Harness boot, loopback URL |
+| `apps/desktop/src/markdown-file-links.ts` | Exact rc.2 frontend asset route that adds trusted Markdown file-link resolution and rejects upstream seam drift |
 | `apps/desktop/src/main.ts` | Electron startup, window recreation, Harness shutdown |
 | `apps/desktop/src/window.ts` | BrowserWindow construction, navigation and permission boundary |
-| `apps/desktop/tests/harness.test.ts` | Real profile boot, profile-installed bundle resolution, browser-handoff and HTTP integration |
+| `apps/desktop/tests/harness.test.ts` | Real profile boot, profile-installed bundle resolution, Science preset discovery/scoping, browser-handoff and HTTP integration |
+| `apps/desktop/tests/markdown-file-links.test.ts` | Markdown seam transformation, native-link fallback, and upstream drift rejection contract |
 | `apps/desktop/tests/window.test.ts` | Window security regression tests |
+| `native/writing-preview-runtime/Cargo.toml` | Native semantic writing preview runtime dependency and release boundary; Typst is the initial engine |
+| `native/writing-preview-runtime/Cargo.lock` | Reproducible native writing runtime dependency graph |
+| `native/writing-preview-runtime/src/main.rs` | Typst engine implementation for same-snapshot compile/watch, PDF export, and IDE click-to-source resolution |
+| `packages/core/annotation/tsdown.config.ts` | Provider-neutral annotation package artifact configuration |
+| `packages/core/annotation/vitest.config.ts` | Focused annotation contract test configuration |
+| `packages/core/annotation/src/index.ts` | OpenAI Responses annotation superset plus bounded SwarmX comment targets |
+| `packages/core/annotation/tests/annotation.test.ts` | Official branch round-trip, provider-field preservation, and extension rejection contract |
 | `packages/client/tsdown.client.ts` | DSH-compatible client-plugin build preset and module-table external policy |
 | `packages/client/ui-conversation/tsdown.config.ts` | Conversation extensions host/client artifact configuration |
 | `packages/client/ui-conversation/src/index.ts` | Conversation extensions plugin host half |
@@ -27,15 +36,18 @@ The Harness supplies the complete browser UI and `/api` transport. SwarmX has no
 | `packages/client/ui-conversation/src/error-turn.ts` | Terminal failure selection for the turn-tail row |
 | `packages/client/ui-conversation/src/user-edit-node.ts` | Derived Edit node for user-authored messages |
 | `packages/client/ui-conversation/src/client/actions.tsx` | User Edit and failed-turn Retry icon controls |
+| `packages/client/ui-conversation/src/client/annotation-projection.ts` | Hidden annotation transport, legacy persisted projection, card metadata, and readable Copy text |
+| `packages/client/ui-conversation/src/client/annotation-user-message.tsx` | Safe-Markdown user/steering renderer with bounded annotation cards |
 | `packages/client/ui-conversation/src/client/controller.ts` | Per-session Retry/Edit orchestration |
 | `packages/client/ui-conversation/src/client/index.ts` | Retry/Edit and generic Side View client registration |
 | `packages/client/ui-conversation/src/client/icons.ts` | Single semantic Edit/Retry icon mapping |
 | `packages/client/ui-conversation/src/client/slots.ts` | Injected action contract |
 | `packages/client/ui-conversation/src/client/side-view.ts` | Serializable per-Session Side View service contract and deterministic tab state |
 | `packages/client/ui-conversation/src/client/side-view-panel.tsx` | Generic right-column tab shell and keyed content dispatch |
-| `packages/client/ui-conversation/src/client/side-view-registration.ts` | Side View service, details geometry, Tool route, and turn entry lifecycle |
-| `packages/client/ui-conversation/src/client/tool-side-view.tsx` | Public Conversation snapshot Tool locator, existing Tool output bridge, and additive Tool actions seat |
+| `packages/client/ui-conversation/src/client/side-view-registration.ts` | Side View service, details geometry, and additive turn-tail item seat |
+| `packages/client/ui-conversation/src/client/turn-tail-items.tsx` | Pass-through renderer for explicitly registered completed-turn contributions |
 | `packages/client/ui-conversation/tests/client-build.test.ts` | Client build face, entry, external, and loader wrapper contract |
+| `packages/client/ui-conversation/tests/annotation-projection.test.ts` | Raw protocol suppression, Markdown preservation, readable Copy, and legacy recovery contract |
 | `packages/client/ui-conversation/tests/controller.test.ts` | Controller behavior |
 | `packages/client/ui-conversation/tests/error-turn.test.ts` | Terminal failure selection behavior |
 | `packages/client/ui-conversation/tests/fork-boundary.test.ts` | Boundary behavior |
@@ -48,59 +60,89 @@ The Harness supplies the complete browser UI and `/api` transport. SwarmX has no
 | `packages/client/ui-conversation/tests/side-view.test.ts` | Side View tabs, Session isolation, serialization, dismissal, and HMR disposal contract |
 | `packages/client/ui-conversation/tests/side-view-registration.test.ts` | Published details/slot ownership and service lifecycle contract |
 | `packages/client/ui-conversation/tests/side-view-panel.test.ts` | Wrapping Arrow/Home/End tab keyboard navigation contract |
-| `packages/client/ui-conversation/tests/tool-side-view.test.ts` | Root and nested public Tool locator contract |
+| `packages/client/ui-conversation/tests/turn-tail-items.test.tsx` | Completed-turn pass-through and no-derived-Tool-action contract |
 | `packages/client/ui-science/tsdown.config.ts` | Science host/client artifact configuration and bundled Remote entry |
-| `packages/client/ui-science/src/index.ts` | Science Workspace plugin host half |
+| `packages/client/ui-science/src/index.ts` | Science plugin Host half and preset-independent Markdown deliverable-link prompt |
 | `packages/client/ui-science/src/css.d.ts` | Science CSS Module type boundary |
-| `packages/client/ui-science/src/client/index.ts` | Strict Remote mount, additive conversation view, and keyed artifact Side View registration |
-| `packages/client/ui-science/src/client/notebook-output.tsx` | Untrusted JupyterLab OutputArea/RenderMime adapter with ordered nbformat conversion and plain-text fallback |
-| `packages/client/ui-science/src/client/science-artifact-side-view.tsx` | Science artifact locator, bounded preview states, and fullscreen workbench handoff |
-| `packages/client/ui-science/src/client/science-navigation.ts` | Deduplicated per-Session Science fullscreen deep-link retention and mount tracking |
+| `packages/client/ui-science/src/client/index.ts` | Strict Remote mount, Chat turn-tail artifact cards, annotation reference source, and keyed artifact DetailsPanel registration |
+| `packages/client/ui-science/src/client/annotation-reference.ts` | Generic annotation codec, Science target conversion, and draft-preserving composer insertion |
+| `packages/client/ui-science/src/client/science-artifact-side-view.tsx` | Claude-style artifact DetailsPanel, on-demand RO-Crate provenance projection, bounded previews, image point annotations, and native fullscreen |
+| `packages/client/ui-science/src/client/science-conversation-artifacts.tsx` | Ordered same-Turn Science artifact recovery plus generated thumbnail/card group in Chat |
+| `packages/client/ui-science/src/client/science-deliverables.tsx` | Completed-turn file evidence recovery, safe Typst reference parsing, shared Markdown/tail opener, and Typst workbench routing |
+| `packages/client/ui-science/src/client/science-pdf-geometry.ts` | PDF page, annotation, and inverse-search click geometry normalization |
+| `packages/client/ui-science/src/client/science-pdf-viewer.tsx` | Bounded PDF rendering, page navigation, selection/figure annotations, and text-click inverse search |
 | `packages/client/ui-science/src/client/science-table-grid.tsx` | AG Grid Community typed tabular artifact renderer with sorting, filtering, resizing, and bounded pagination |
-| `packages/client/ui-science/src/client/science-tool-artifact.tsx` | Strict same-Session Science Tool artifact locator parser and Side View action |
-| `packages/client/ui-science/src/client/science-workspace.tsx` | Science Workspace Files import/analysis, Notebook, Writing, Figure, Research Map search, Experiment/Run, and project export UI |
+| `packages/client/ui-science/src/client/science-tool-artifact.tsx` | Strict same-Session Science Tool artifact locator parser for generated cards |
+| `packages/client/ui-science/src/client/science-typst-side-view.tsx` | Typst source/live PDF split view, imported-source switching, exact caret reveal, and PDF figure workbench tabs |
 | `packages/client/ui-science/tests/client-registration.test.ts` | Remote and slot registration lifecycle contract |
-| `packages/client/ui-science/tests/client-build.test.ts` | Client bundle dependency-SVG support required by the JupyterLab renderer contract |
-| `packages/client/ui-science/tests/notebook-output-lifecycle.test.tsx` | Lumino widget layout-cleanup ordering regression contract |
-| `packages/client/ui-science/tests/notebook-output.test.tsx` | Ordered Notebook MIME-to-nbformat adaptation and accessible fallback contract |
-| `packages/client/ui-science/tests/science-artifact-side-view.test.tsx` | Bounded artifact locator and path-free provenance renderer contract |
-| `packages/client/ui-science/tests/science-navigation.test.ts` | Fullscreen target deduplication, Session isolation, mounted fallback, and HMR disposal contract |
+| `packages/client/ui-science/tests/client-build.test.ts` | Shared client-bundle configuration and Jupyter adapter exclusion contract |
+| `packages/client/ui-science/tests/annotation-reference.test.ts` | Unified image/paper comment conversion, hidden model serialization, and draft-preserving insertion contract |
+| `packages/client/ui-science/tests/science-artifact-side-view.test.tsx` | Bounded artifact locator, on-demand path-free RO-Crate provenance projection, and image point normalization contract |
+| `packages/client/ui-science/tests/science-conversation-artifacts.test.tsx` | Same-Turn artifact ordering/deduplication and complete clickable Chat card contract |
+| `packages/client/ui-science/tests/science-deliverables.test.ts` | Paper deliverables state and action contract |
+| `packages/client/ui-science/tests/science-pdf-viewer.test.ts` | PDF viewer geometry, navigation, and annotation contract |
+| `packages/client/ui-science/tests/science-typst-side-view.test.tsx` | Per-paper workbench identity and cross-tab state-isolation contract |
 | `packages/client/ui-science/tests/science-table-grid.test.ts` | Science scalar column to AG Grid data-type mapping regression contract |
 | `packages/client/ui-science/tests/science-tool-artifact.test.ts` | Strict Science Tool artifact locator acceptance and rejection contract |
-| `packages/client/ui-science/tests/science-view.test.tsx` | Science Workspace states, all five destinations, selection/search helpers, mutation failure, and accessibility contract |
 | `packages/science/core/demo/README.md` | Runnable local-only end-to-end Science IDE demo guide |
-| `packages/science/core/tsdown.config.ts` | Science service, contracts, and Typert artifact build configuration |
-| `packages/science/core/src/artifact-store.ts` | Owner-only streamed/uploaded/generated SHA256 capture, verified bounded readback, disposable Notebook input materialization, and deduplication |
-| `packages/science/core/src/contracts.ts` | Client-safe project, notebook input, browser artifact import/preview, studio, Research Map, Experiment/Run, export, provenance, and request schemas |
+| `packages/science/core/config/agent-presets/dsh-science/agent.cordis.yml` | Complete locked DSH standard composition plus preset-scoped Science tool and contract rows |
+| `packages/science/core/config/agent-presets/dsh-science/preset.yml` | Read-only Science mode display metadata and roster order |
+| `packages/science/core/tsdown.config.ts` | Science service, contracts, Typert, tools, and preset-contract artifact build configuration |
+| `packages/science/core/src/artifact-store.ts` | Owner-only streamed/uploaded/generated SHA256 capture, stable source fingerprinting, verified bounded readback, disposable Notebook input materialization, and deduplication |
+| `packages/science/core/src/bibliography.ts` | Strict bounded BibTeX parser/serializer and path-bearing private-field removal for the provider-neutral literature exchange boundary |
+| `packages/science/core/src/contracts.ts` | Client-safe operational requests/results plus RO-Crate 1.3 entity, metadata-document, export, and boundary schemas |
 | `packages/science/core/src/demo.ts` | Executable public-service tour through the complete first Science product loop |
 | `packages/science/core/src/errors.ts` | Stable Science service error codes |
 | `packages/science/core/src/figure.ts` | Figure code hashing, semantic object inference, and accepted-patch range remapping |
 | `packages/science/core/src/index.ts` | Workspace-scoped `ctx.science` service and Remote methods |
-| `packages/science/core/src/journal.ts` | WAL SQLite journal, v1–v5 migrations, replay, materialized views, and bounded provenance trace |
+| `packages/science/core/src/journal.ts` | WAL SQLite journal, v1–v5 migrations, replay, materialized operational views, and export receipts |
 | `packages/science/core/src/jupymcp-runtime.ts` | Official-SDK MCP stdio controller pool with one persistent Jupyter kernel and bounded canonical Notebook per workspace Notebook |
+| `packages/science/core/src/literature.ts` | Loopback-only Zotero v3 candidate retrieval, Zotero-to-BibTeX normalization, owner-only snapshot, deterministic local ranking, and bounded citation results |
+| `packages/science/core/src/artifact-metadata.ts` | Format routing plus deterministic PNG `iTXt`, SVG `metadata`, and PDF XMP reproducibility encoding/extraction |
 | `packages/science/core/src/python-runtime.ts` | Managed stateless Python execution over the DSH subprocess seam |
+| `packages/science/core/src/preset.ts` | Preset-scoped Science annotation/literature/Typst prompt sections and direct Typst Bash guard |
 | `packages/science/core/src/tabular-preview.ts` | Papa Parse CSV/TSV and bounded scalar-record JSON adaptation for typed table previews |
+| `packages/science/core/src/writing-preview-runtime.ts` | Engine-identified strict NDJSON controller for the bundled semantic writing process and revision-bound point lookup |
+| `packages/science/core/src/typst-preview.ts` | Workspace-authorized semantic Typst watcher with bounded PDF, diagnostics, source writes, and inverse search |
 | `packages/science/core/src/remote-contract.ts` | Shared strict invocation descriptors |
 | `packages/science/core/src/remote.ts` | Client Remote contribution and namespace typing |
+| `packages/science/core/src/research-object.ts` | Deterministic project-scoped RO-Crate 1.3 projection with Schema.org entities and Action provenance |
 | `packages/science/core/src/typert.ts` | Host Typert contribution |
-| `packages/science/core/src/tools.ts` | Seven strict aggregate Science tools, durable locators, and HMR-safe registration |
+| `packages/science/core/src/tools.ts` | Seven strict aggregate Science tools plus direct local literature search, preset-scoped registration, durable locators, and verified annotation image projection |
 | `packages/science/core/src/writing.ts` | Deterministic source hashing, format routing, structural checks, and scientific diagnostics |
 | `packages/science/core/tests/artifact-registry.test.ts` | Artifact security, deduplication, cancellation, migration, and replay contract |
 | `packages/science/core/tests/build.test.ts` | Deterministic shared-chunk and publish allowlist regression contract |
 | `packages/science/core/tests/demo.test.ts` | Runnable Notebook-to-export Science IDE demo contract |
-| `packages/science/core/tests/experiment-export.test.ts` | Research Map, Experiment/Run lifecycle, v5 replay, comparison, and project export contract |
+| `packages/science/core/tests/experiment-export.test.ts` | Operational research facts, Experiment/Run lifecycle, v5 replay, comparison, and RO-Crate export contract |
 | `packages/science/core/tests/fixture.ts` | Shared two-workspace Science service lifecycle fixture |
-| `packages/science/core/tests/figure-studio.test.ts` | Figure libraries, semantic selection, artifact linkage, revisions, migration, provenance, and replay contract |
+| `packages/science/core/tests/figure-studio.test.ts` | Figure libraries, semantic selection, artifact linkage, revisions, migration, RO-Crate Action projection, and replay contract |
 | `packages/science/core/tests/jupymcp-runtime.test.ts` | JupyMCP controller isolation, MIME normalization, resource bounds, cancellation, input cleanup, and disposal contract |
-| `packages/science/core/tests/notebook-execution.test.ts` | Python execution, materialized artifact input, output bounds, idempotency, cancellation, disposal, provenance, and replay contract |
-| `packages/science/core/tests/provenance.test.ts` | Workspace-local bounded lineage contract |
+| `packages/science/core/tests/notebook-execution.test.ts` | Python execution, materialized artifact input, output bounds, idempotency, cancellation, disposal, RO-Crate Action projection, and replay contract |
+| `packages/science/core/tests/preset-contract.test.ts` | Science-only prompt sections and managed Typst guard contract |
+| `packages/science/core/tests/preset.test.ts` | Standard composition parity, preset metadata, Host boundary, and published asset contract |
+| `packages/science/core/tests/artifact-metadata.test.ts` | PNG/SVG/PDF replacement, round-trip, malformed input, source normalization, and opt-out contract |
+| `packages/science/core/tests/bibliography.test.ts` | BibTeX nested-value round-trip, private-path removal, malformed input, and duplicate-key contract |
+| `packages/science/core/tests/literature.test.ts` | Local Zotero boundary, Bib snapshot, deterministic result projection, cancellation, and unavailable-source contract |
+| `packages/science/core/tests/provenance.test.ts` | Workspace-local RO-Crate lineage, Action, privacy, and isolation contract |
+| `packages/science/core/tests/research-object.test.ts` | RO-Crate 1.3 structure, Schema.org mapping, Action provenance, privacy, and boundary rejection contract |
 | `packages/science/core/tests/science-service.test.ts` | Journal, replay, isolation, cancellation, and disposal contract |
-| `packages/science/core/tests/science-tools.test.ts` | Seven aggregate tools, strict input, cancellation, locator, and disposal contract |
+| `packages/science/core/tests/science-tools.test.ts` | Science aggregate/direct tools, strict input, cancellation, locator, literature separation, and disposal contract |
 | `packages/science/core/tests/typert.test.ts` | Strict Host/Client Typert descriptor parity |
+| `packages/science/core/tests/typst-integration.test.ts` | Real Typst CLI plus bundled semantic compile/inverse-search integration contract |
+| `packages/science/core/tests/typst-preview.test.ts` | Typst preview lifecycle, bounds, revisions, updates, and cleanup contract |
 | `packages/science/core/tests/writing-studio.test.ts` | Document validation, diagnostics, patch revision, cancellation, migration, and replay contract |
-| `patches/@deepseek-ai__dsh-client-ui-layout@0.1.0-rc.8.patch` | Exact rc.8 layout patch removing the fixed 520px details ceiling while retaining the 300px floor and center-width concession |
-| `scripts/clean.ts` | Removes only known desktop and client-plugin build outputs |
+| `patches/@deepseek-ai__dsh-client-ui-agent-preset@0.1.1-rc.2.patch` | Exact-baseline English/Chinese locale mapping for the system-owned `dsh-science` preset while retaining metadata fallback for unknown and user presets |
+| `patches/@deepseek-ai__dsh-client-ui-layout@0.1.1-rc.2.patch` | Exact-baseline layout patch removing the fixed 520px details ceiling while retaining the 300px floor, preferred open width, and center-width concession |
+| `patches/@deepseek-ai__dsh-client-ui-primitives@0.1.1-rc.2.patch` | Exact-baseline optional Markdown destination resolver for verified produced-file buttons; unresolved relative and unsafe links remain inert |
+| `scripts/build-writing-preview-runtime.ts` | Builds and stages the current-platform semantic writing preview executable for the Science package |
+| `scripts/clean.ts` | Removes only known desktop, client-plugin, and staged native build outputs |
 | `scripts/check-codebase-docs.mjs` | Checks every authored source/test path is mapped here |
-| `scripts/workspace-layout.test.ts` | Grouped workspace, package-manager, root build-tool ownership, and patched viewport-bound details solver contract |
+| `scripts/workspace-layout.test.ts` | Grouped workspace, package-manager, development entry, root build-tool ownership, patched preset locale and safe Markdown seams, and viewport-bound details solver contract |
 
-Generated `dist/` and `lib/` artifacts are not source. DSH does not publish its client tsdown preset; the local minimal preset is release-coupled to the DSH module table and guarded by `client-build.test.ts`.
+Generated `dist/`, `lib/`, native `target/`, and staged `packages/science/core/bin/` artifacts are not source. DSH does not publish its client tsdown preset; the local minimal preset is release-coupled to the DSH module table and guarded by `client-build.test.ts`.
+
+`docs/ro-crate.md` defines the RO-Crate 1.3 Research Object boundary, Science projection mapping,
+extension policy, and legacy-export rule.
+
+`docs/reproducibility-metadata.md` defines the portable Figure PNG/SVG/PDF metadata schema,
+Python/R generation flow, source locators, security boundary, and opt-out semantics.

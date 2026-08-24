@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { registerSideView } from "../src/client/side-view-registration.js";
 
-describe("V48/V49 Side View registration lifecycle", () => {
+describe("V48/V49/V99 Side View registration lifecycle", () => {
   it("shadows only details, publishes the service, and does not redeclare upstream children", () => {
     const registrations: Array<{ options: Record<string, unknown>; component: unknown }> = [];
     const cleanups: Array<() => void> = [];
@@ -38,13 +38,18 @@ describe("V48/V49 Side View registration lifecycle", () => {
         },
       }),
     );
-    const tool = registrations.find(
-      ({ options }) => options.name === "side-view.content" && options.key === "tool",
+    expect(
+      registrations.some(
+        ({ options }) => options.name === "side-view.content" && options.key === "tool",
+      ),
+    ).toBe(false);
+    const turnTail = registrations.find(
+      ({ options }) => options.name === "conversation.chat.turnTail",
     );
-    expect(tool?.options).toEqual(
+    expect(turnTail?.options).toEqual(
       expect.objectContaining({
         children: {
-          "side-view.tool.actions": { kind: "list", scope: "session" },
+          "conversation.chat.turnTail.items": { kind: "list", scope: "session" },
         },
       }),
     );
@@ -53,6 +58,7 @@ describe("V48/V49 Side View registration lifecycle", () => {
         ["conversation", "conversation.session"].includes(String(options.name)),
       ),
     ).toBe(false);
+    expect(JSON.stringify(registrations)).not.toContain("Inspect");
 
     for (const cleanup of cleanups.reverse()) cleanup();
     expect(context.layout.closeDetails).toHaveBeenCalled();

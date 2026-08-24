@@ -86,7 +86,7 @@ describe("T17 Science Figure Studio", () => {
   it("links only a workspace-local registered figure artifact", async () => {
     const { fixture, project } = await setup();
     writeFileSync(join(fixture.workspaceA, "figure.png"), "rendered figure bytes");
-    const artifact = fixture.context.science.registerArtifact(fixture.sessionA, {
+    const artifact = await fixture.context.science.registerArtifact(fixture.sessionA, {
       requestId: randomUUID(),
       projectId: project.id,
       relativePath: "figure.png",
@@ -108,7 +108,7 @@ describe("T17 Science Figure Studio", () => {
       artifactId: artifact.id,
     });
     expect(figure.artifactId).toBe(artifact.id);
-    const dataset = fixture.context.science.registerArtifact(fixture.sessionA, {
+    const dataset = await fixture.context.science.registerArtifact(fixture.sessionA, {
       requestId: randomUUID(),
       projectId: project.id,
       relativePath: "figure.png",
@@ -256,20 +256,23 @@ describe("T17 Science Figure Studio", () => {
     expect(acceptedAxis?.codeRange.start).toBe(axis.codeRange.start + delta);
     expect(accepted.proposals[0]?.status).toBe("accepted");
     expect(fixture.context.science.journalCount()).toBe(4);
-    const trace = fixture.context.science.traceProvenance(fixture.sessionA, {
-      entityId: accepted.id,
-      maxDepth: 20,
+    const researchObject = fixture.context.science.getResearchObject(fixture.sessionA, {
+      projectId: project.id,
     });
-    expect(trace.entities.map(({ id, kind }) => ({ id, kind }))).toEqual([
-      { id: accepted.id, kind: "figure" },
-      { id: project.id, kind: "project" },
-    ]);
-    expect(trace.events.map((event) => event.operation)).toEqual([
-      "project/created",
-      "figure/created",
-      "figure/modified",
-      "figure/modified",
-    ]);
+    expect(researchObject["@graph"]).toContainEqual(
+      expect.objectContaining({
+        "@id": `urn:uuid:${accepted.id}`,
+        "@type": "SoftwareSourceCode",
+        name: accepted.title,
+      }),
+    );
+    expect(researchObject["@graph"]).toContainEqual(
+      expect.objectContaining({
+        "@type": "UpdateAction",
+        name: "Update figure source",
+        result: [{ "@id": `urn:uuid:${accepted.id}` }],
+      }),
+    );
   });
 
   it("rejects a multi-object patch that crosses an unselected semantic object", async () => {

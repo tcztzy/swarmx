@@ -11,6 +11,10 @@ function entry(id: string, title: string = id): SideViewEntry {
   };
 }
 
+function workbenchEntry(id: string): SideViewEntry {
+  return { ...entry(id), mode: "workbench" };
+}
+
 function controller() {
   const layout = {
     openDetails: vi.fn(),
@@ -32,6 +36,7 @@ describe("V47/V48 generic Side View state", () => {
       activeId: "one",
     });
     expect(layout.openDetails).toHaveBeenCalledTimes(3);
+    expect(layout.openDetails).toHaveBeenNthCalledWith(1, undefined);
 
     sideView.close("session-a" as never, "one");
     expect(sideView.getSnapshot("session-a" as never).activeId).toBe("two");
@@ -41,6 +46,16 @@ describe("V47/V48 generic Side View state", () => {
       activeId: null,
     });
     expect(layout.closeDetails).toHaveBeenCalledOnce();
+  });
+
+  it("requests the wide preference only for a workbench entry", () => {
+    const { layout, sideView } = controller();
+
+    sideView.open("session-a" as never, workbenchEntry("artifact"));
+    sideView.activate("session-a" as never, "artifact");
+
+    expect(layout.openDetails).toHaveBeenNthCalledWith(1, 880);
+    expect(layout.openDetails).toHaveBeenNthCalledWith(2, 880);
   });
 
   it("isolates tabs and subscriptions by Session", () => {

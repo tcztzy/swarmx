@@ -1,0 +1,228 @@
+.root {
+  position: relative;
+  display: grid;
+  min-width: 0;
+  min-height: 0;
+  grid-template-rows: auto minmax(0, 1fr);
+  background: #e9e8e4;
+}
+
+.toolbar {
+  position: sticky;
+  z-index: 10;
+  top: 0;
+  display: flex;
+  min-height: 42px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 0.8rem;
+  border-bottom: 1px solid #d7d5d0;
+  color: #6e6b65;
+  font-size: 0.72rem;
+  background: rgb(250 249 247 / 94%);
+  backdrop-filter: blur(10px);
+}
+
+.zoomControls {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.zoomControls button,
+.editorActions button {
+  min-width: 30px;
+  min-height: 28px;
+  border: 1px solid #d5d3ce;
+  border-radius: 6px;
+  color: inherit;
+  font: inherit;
+  background: #fff;
+  cursor: pointer;
+}
+
+.zoomControls output {
+  min-width: 3rem;
+  text-align: center;
+}
+
+.document {
+  display: grid;
+  min-height: 18rem;
+  align-content: start;
+  justify-items: center;
+  gap: 1.35rem;
+  padding: 1.35rem;
+  overflow: auto;
+}
+
+.pageSection {
+  display: grid;
+  width: max-content;
+  max-width: none;
+  justify-items: center;
+  gap: 0.4rem;
+}
+
+.pageNumber {
+  justify-self: start;
+  color: #77746e;
+  font-size: 0.65rem;
+}
+
+.page,
+.focusPage {
+  position: relative;
+  width: 100%;
+  overflow: hidden;
+  box-shadow: 0 3px 18px rgb(42 40 35 / 15%);
+  background: #fff;
+}
+
+.canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.textLayer {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  line-height: 1;
+  opacity: 1;
+  text-size-adjust: none;
+  forced-color-adjust: none;
+  transform-origin: 0 0;
+  --min-font-size: 1;
+  --text-scale-factor: calc(var(--total-scale-factor) * var(--min-font-size));
+  --min-font-size-inv: calc(1 / var(--min-font-size));
+}
+
+.textLayer span,
+.textLayer br {
+  position: absolute;
+  color: transparent;
+  white-space: pre;
+  cursor: text;
+  user-select: text;
+  transform-origin: 0 0;
+}
+
+.textLayer > :not([class="markedContent"]),
+.textLayer [class="markedContent"] span:not([class="markedContent"]) {
+  z-index: 1;
+  font-size: calc(var(--text-scale-factor) * var(--font-height));
+  transform: rotate(var(--rotate)) scaleX(var(--scale-x)) scale(var(--min-font-size-inv));
+  --font-height: 0;
+  --scale-x: 1;
+  --rotate: 0deg;
+}
+
+.textLayer [class="markedContent"] {
+  display: contents;
+}
+
+.textLayer ::selection {
+  background: rgb(64 112 190 / 32%);
+}
+
+.figureRegion,
+.focusFigureRegion {
+  position: absolute;
+  z-index: 3;
+  padding: 0;
+  border: 1px solid transparent;
+  background: transparent;
+  cursor: crosshair;
+}
+
+.figureRegion:hover,
+.focusFigureRegion:hover,
+.figureRegion:focus-visible,
+.focusFigureRegion:focus-visible {
+  border-color: rgb(70 107 169 / 75%);
+  outline: 2px solid rgb(70 107 169 / 16%);
+  background: rgb(70 107 169 / 5%);
+}
+
+.focusFigureRegion {
+  border: 2px solid rgb(70 107 169 / 80%);
+  background: rgb(70 107 169 / 4%);
+}
+
+.state,
+.pageError {
+  margin: 0;
+  padding: 2rem;
+  color: #68655f;
+  font-size: 0.78rem;
+}
+
+.pageError {
+  position: absolute;
+  inset: 0;
+  background: rgb(255 255 255 / 88%);
+}
+
+.annotationEditor {
+  position: fixed;
+  z-index: 20;
+  display: grid;
+  width: min(24rem, calc(100vw - 2rem));
+  gap: 0.65rem;
+  padding: 0.85rem;
+  border: 1px solid #d7d5cf;
+  border-radius: 10px;
+  box-shadow: 0 14px 44px rgb(30 28 24 / 22%);
+  color: #292824;
+  background: #fff;
+}
+
+.annotationEditor label {
+  font-size: 0.76rem;
+  font-weight: 650;
+}
+
+.annotationEditor blockquote {
+  max-height: 6rem;
+  margin: 0;
+  padding-left: 0.65rem;
+  overflow: auto;
+  border-left: 2px solid #cac7c0;
+  color: #706d66;
+  font-size: 0.72rem;
+  line-height: 1.45;
+}
+
+.annotationEditor textarea {
+  min-height: 5rem;
+  padding: 0.6rem;
+  resize: vertical;
+  border: 1px solid #d7d5cf;
+  border-radius: 6px;
+  color: inherit;
+  font: inherit;
+  font-size: 0.75rem;
+}
+
+.editorActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.45rem;
+}
+
+.editorActions button {
+  padding: 0 0.65rem;
+}
+
+.editorActions button[type="submit"] {
+  border-color: #302f2b;
+  color: #fff;
+  background: #302f2b;
+}
+
+.editorActions button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}

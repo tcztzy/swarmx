@@ -2,6 +2,8 @@
 node_modules/
 dist/
 lib/
+native/writing-preview-runtime/target/
+/packages/science/core/bin/
 coverage/
 *.js.map
 *.tsbuildinfo
@@ -24,3 +26,5 @@ coverage/
 
 # Retained artwork not used by the current DSH surface
 /apps/desktop/assets/icons/
+.dsh-science-notebook-*.ipynb
+kernel-*.json

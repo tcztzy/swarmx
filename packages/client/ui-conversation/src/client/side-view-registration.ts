@@ -1,9 +1,9 @@
-import type { ClientContext, ToolCallBlock } from "@deepseek-ai/dsh-client-runtime/client";
+import type { ClientContext } from "@deepseek-ai/dsh-client-runtime/client";
 import type { TurnTailOwnerProps } from "@deepseek-ai/dsh-client-ui-conversation/client";
 import type {} from "@deepseek-ai/dsh-client-ui-layout/client";
 import { SideViewController } from "./side-view.js";
 import { SideViewPanel } from "./side-view-panel.js";
-import { ToolDetailsAction, ToolSideViewContent, toolSideViewEntry } from "./tool-side-view.js";
+import { TurnTailItems } from "./turn-tail-items.js";
 
 /** Install the generic right-column shell and its first Tool content route. */
 export function registerSideView(ctx: ClientContext): SideViewController {
@@ -27,28 +27,16 @@ export function registerSideView(ctx: ClientContext): SideViewController {
     },
     SideViewPanel,
   );
-  ctx.slots.inject("side-view.content", () =>
-    ctx.slots.register(
-      {
-        name: "side-view.content",
-        key: "tool",
-        children: {
-          "side-view.tool.actions": { kind: "list", scope: "session" },
-        },
-      },
-      ToolSideViewContent,
-    ),
-  );
   ctx.slots.inject("conversation.chat.turnTail", () =>
     ctx.slots.register(
       {
         name: "conversation.chat.turnTail",
         select: (owner: TurnTailOwnerProps) => owner.turn.turn,
-        inject: (sessionId) => ({
-          openTool: (block: ToolCallBlock) => sideView.open(sessionId, toolSideViewEntry(block)),
-        }),
+        children: {
+          "conversation.chat.turnTail.items": { kind: "list", scope: "session" },
+        },
       },
-      ToolDetailsAction,
+      TurnTailItems,
     ),
   );
   return sideView;
