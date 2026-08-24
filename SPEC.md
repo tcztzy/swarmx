@@ -132,6 +132,7 @@ V76: ∀ JupyMCP 0.3.1 controller → start one kernel per Notebook, retain its 
 V77: ∀ JupyMCP Notebook document → store only as the Host-derived owner-only `.dsh-science-notebook-<notebook-id>.ipynb` hidden file inside the verified workspace, so JupyMCP 0.3.1's authority-only `notebook://{path}` resource template can address it without unsupported slash encoding; bound resource reads independently from one-cell outputs and return neither its name/path nor raw unbounded document to Client.
 V78: ∀ Notebook MIME output → adapt canonical outputs to the official JupyterLab OutputArea/RenderMime stack with untrusted rendering by default, preserve stream/error/display ordering and plain-text fallback, detach widgets on cell change/unmount/HMR, and do not hand-code parallel HTML/image/LaTeX renderer dispatch.
 V79: ∀ bundled JupyterLab renderer dependency → resolve its published browser entry even when the DSH closure factory provides a loader-scoped `require`; never execute a Node builtin fallback in Web, and retain the visible plain-text fallback if a later renderer dependency still fails.
+V120: ∀ renderer clipboard write → permit only `clipboard-sanitized-write` from the SwarmX window's main frame at the exact Harness origin; clipboard read, subframes, foreign origins/WebContents, and every unrelated permission remain denied.
 
 ## §T TASKS
 
@@ -205,3 +206,4 @@ B32|2026-08-21|T24 imported the aggregate DSH primitives entry for two rail icon
 B33|2026-08-21|T24 project-heading JSX exceeded Biome's canonical wrapping after the accessible id correction|V4
 B34|2026-08-21|the embedded launcher forced all bare plugin imports to resolve from the installed DSH package, bypassing the active profile's own `node_modules` and breaking plugins installed through the published `dsh plugin` command|V64
 B35|2026-08-21|the profile-plugin harness fixture import was expanded across lines instead of Biome's canonical single-line form|V4
+B49|2026-08-24|the desktop's blanket renderer permission denial rejected the async Clipboard API used by the native assistant Copy action, so the button produced neither clipboard content nor success feedback|V120

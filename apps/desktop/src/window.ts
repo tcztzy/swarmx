@@ -5,7 +5,7 @@
  * already reachable through the harness's `/api` transport, which its client
  * plugins speak natively.
  */
-import { BrowserWindow, shell } from "electron";
+import { BrowserWindow, shell, type WebContents } from "electron";
 
 /** Initial window size; the harness UI is a desktop-width layout. */
 const WIDTH = 1280;
@@ -31,8 +31,9 @@ export function createWindow(url: string): BrowserWindow {
       sandbox: true,
     },
   });
-  fenceNavigation(window, new URL(url).origin);
-  denyRendererPermissions(window);
+  const origin = new URL(url).origin;
+  fenceNavigation(window, origin);
+  setRendererPermissionPolicy(window, origin);
   window.once("ready-to-show", () => window.show());
   void window.loadURL(url).catch((error: unknown) => {
     process.stderr.write(
@@ -78,9 +79,52 @@ function openExternal(target: string): void {
   });
 }
 
-/** Remote renderer content receives no ambient Chromium permissions. */
-function denyRendererPermissions(window: BrowserWindow): void {
+/** Match one permission requester to the app-owned window, origin, and main frame. */
+function isHarnessClipboardWrite(
+  window: BrowserWindow,
+  origin: string,
+  webContents: WebContents | null,
+  permission: string,
+  requestingUrl: string,
+  isMainFrame: boolean,
+): boolean {
+  if (
+    webContents !== window.webContents ||
+    permission !== "clipboard-sanitized-write" ||
+    !isMainFrame
+  ) {
+    return false;
+  }
+  try {
+    return new URL(requestingUrl).origin === origin;
+  } catch {
+    return false;
+  }
+}
+
+/** Allow same-origin text writes required by Copy; deny every other renderer permission. */
+function setRendererPermissionPolicy(window: BrowserWindow, origin: string): void {
   const { session } = window.webContents;
-  session.setPermissionCheckHandler(() => false);
-  session.setPermissionRequestHandler((_webContents, _permission, callback) => callback(false));
+  session.setPermissionCheckHandler((webContents, permission, requestingOrigin, details) =>
+    isHarnessClipboardWrite(
+      window,
+      origin,
+      webContents,
+      permission,
+      requestingOrigin,
+      details.isMainFrame,
+    ),
+  );
+  session.setPermissionRequestHandler((webContents, permission, callback, details) =>
+    callback(
+      isHarnessClipboardWrite(
+        window,
+        origin,
+        webContents,
+        permission,
+        details.requestingUrl,
+        details.isMainFrame,
+      ),
+    ),
+  );
 }

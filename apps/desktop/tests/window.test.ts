@@ -125,23 +125,87 @@ describe("navigation fence", () => {
     expect(shell.openExternal).not.toHaveBeenCalled();
   });
 
-  it("denies renderer permission checks and requests", () => {
+  it("V120: permits only same-origin main-frame sanitized clipboard writes", () => {
     const window = createWindow("http://127.0.0.1:5173");
-    const session = (
-      window.webContents as unknown as {
-        session: {
-          permissionCheckHandler: (...args: unknown[]) => boolean;
-          permissionRequestHandler: (
-            webContents: unknown,
-            permission: string,
-            callback: (allowed: boolean) => void,
-          ) => void;
-        };
-      }
-    ).session;
+    const contents = window.webContents;
+    const session = contents.session as unknown as {
+      permissionCheckHandler: (
+        webContents: unknown,
+        permission: string,
+        requestingOrigin: string,
+        details: { isMainFrame: boolean; requestingUrl?: string },
+      ) => boolean;
+      permissionRequestHandler: (
+        webContents: unknown,
+        permission: string,
+        callback: (allowed: boolean) => void,
+        details: { isMainFrame: boolean; requestingUrl: string },
+      ) => void;
+    };
+
+    expect(
+      session.permissionCheckHandler(
+        contents,
+        "clipboard-sanitized-write",
+        "http://127.0.0.1:5173",
+        { isMainFrame: true, requestingUrl: "http://127.0.0.1:5173/sessions/abc" },
+      ),
+    ).toBe(true);
     const callback = vi.fn();
-    expect(session.permissionCheckHandler(undefined, "media")).toBe(false);
-    session.permissionRequestHandler(undefined, "media", callback);
+    session.permissionRequestHandler(contents, "clipboard-sanitized-write", callback, {
+      isMainFrame: true,
+      requestingUrl: "http://127.0.0.1:5173/sessions/abc",
+    });
+    expect(callback).toHaveBeenCalledWith(true);
+  });
+
+  it("V120: denies clipboard reads, foreign requesters, subframes, and other permissions", () => {
+    const window = createWindow("http://127.0.0.1:5173");
+    const contents = window.webContents;
+    const session = contents.session as unknown as {
+      permissionCheckHandler: (
+        webContents: unknown,
+        permission: string,
+        requestingOrigin: string,
+        details: { isMainFrame: boolean; requestingUrl?: string },
+      ) => boolean;
+      permissionRequestHandler: (
+        webContents: unknown,
+        permission: string,
+        callback: (allowed: boolean) => void,
+        details: { isMainFrame: boolean; requestingUrl: string },
+      ) => void;
+    };
+    const details = { isMainFrame: true, requestingUrl: "http://127.0.0.1:5173/" };
+
+    expect(
+      session.permissionCheckHandler(contents, "clipboard-read", "http://127.0.0.1:5173", details),
+    ).toBe(false);
+    expect(
+      session.permissionCheckHandler(contents, "clipboard-sanitized-write", "https://example.com", {
+        ...details,
+        requestingUrl: "https://example.com/",
+      }),
+    ).toBe(false);
+    expect(
+      session.permissionCheckHandler(
+        contents,
+        "clipboard-sanitized-write",
+        "http://127.0.0.1:5173",
+        { ...details, isMainFrame: false },
+      ),
+    ).toBe(false);
+    expect(
+      session.permissionCheckHandler(
+        {},
+        "clipboard-sanitized-write",
+        "http://127.0.0.1:5173",
+        details,
+      ),
+    ).toBe(false);
+
+    const callback = vi.fn();
+    session.permissionRequestHandler(contents, "media", callback, details);
     expect(callback).toHaveBeenCalledWith(false);
   });
 });
