@@ -3,7 +3,16 @@
  * under `$DSH_HOME` and binds a loopback port, so the home is redirected to a
  * scratch directory and the context is always disposed.
  */
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
+import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -133,6 +142,21 @@ describe("harness boot", () => {
     expect(html).toContain("@swarmx/dsh-ui-science");
   });
 
+  it("mounts the private PKB service and aggregate tool", () => {
+    expect(harness.ctx.get("pkb")).toBeDefined();
+    expect(harness.ctx.tools.get("pkb")).toBeDefined();
+    const entries = harness.ctx.loader.entries() as Array<{
+      options: { id?: string; name?: string };
+    }>;
+    const pkbEntry = entries.find((entry) => entry.options.id === "swarmx-pkb");
+    const expectedEntry = createRequire(import.meta.url).resolve("@swarmx/dsh-pkb");
+    expect(pkbEntry?.options.name).toBe(realpathSync(expectedEntry));
+    expect(statSync(join(home, "pkb", "vault")).mode & 0o777).toBe(0o700);
+    expect(readFileSync(join(home, "pkb", "vault", "index.md"), "utf8")).toContain(
+      'okf_version: "0.2"',
+    );
+  });
+
   it("discovers Science as a system preset and scopes its model tools", async () => {
     const preset = (await harness.ctx.agentPresets.list()).find(({ id }) => id === "dsh-science");
     expect(preset).toMatchObject({
@@ -146,10 +170,12 @@ describe("harness boot", () => {
     const standard = await harness.ctx.agentPresets.standingKeyFor("standard");
     const science = await harness.ctx.agentPresets.standingKeyFor("dsh-science");
     expect(harness.ctx.tools.get("science_record", standard)).toBeUndefined();
+    expect(harness.ctx.tools.get("pkb", standard)).toBeDefined();
     expect(harness.ctx.tools.get("literature_search", standard)).toBeUndefined();
     expect(harness.ctx.tools.get("science_record", science)).toBeDefined();
     expect(harness.ctx.tools.get("science_export", science)).toBeDefined();
     expect(harness.ctx.tools.get("literature_search", science)).toBeDefined();
+    expect(harness.ctx.tools.get("pkb", science)).toBeDefined();
   });
 
   it("suppresses the web profile's system-browser handoff", () => {

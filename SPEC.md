@@ -2,7 +2,7 @@
 
 ## §G GOAL
 
-SwarmX presents the published DeepSeek Harness Web profile as one safe, local Electron desktop surface with an additive local-first scientific IDE.
+SwarmX presents the published DeepSeek Harness Web profile as one safe, local Electron desktop surface with an additive local-first scientific IDE and private personal knowledge base.
 
 ## §C CONSTRAINTS
 
@@ -13,6 +13,8 @@ SwarmX presents the published DeepSeek Harness Web profile as one safe, local El
 - Workspace uses `pnpm@11.7.0`; build tooling follows DSH TypeScript 6 + tsdown client conventions.
 - DSH session log remains agent-interaction truth; Science Journal owns scientific domain facts and never replaces Chat/Trajectory projections.
 - Science defaults to local-only execution/storage with no implicit network capability.
+- SwarmX PKB uses owner-readable local plaintext Markdown so Obsidian can open it directly; no implicit network, publication, sync, or at-rest encryption claim.
+- PKB Wiki synthesizes durable personal knowledge; DSH session logs remain immutable conversation evidence and Science Journal remains scientific-domain truth.
 
 ## §I INTERFACES
 
@@ -50,6 +52,10 @@ SwarmX presents the published DeepSeek Harness Web profile as one safe, local El
 - api: `ctx.science.searchLiterature(sessionId, request, signal?)` → search the running local Zotero library, normalize every candidate through one owner-only BibTeX snapshot, and return bounded citation-ready records without reading attachment paths or contacting a cloud service.
 - plugin: `@swarmx/dsh-science/tools` → the `dsh-science` preset's bounded aggregate `science_*` tools plus one explicit `literature_search` tool registered through the preset-scoped `ctx.tools` layer, each returning a fact/inference/proposal classification and Science entity locator where applicable.
 - api: `JupyMcpRuntime.execute/readNotebook/close` → Host-only persistent Notebook Controller keyed by workspace + Notebook, backed by one local JupyMCP MCP stdio session through the official TypeScript SDK; returns bounded standard MIME outputs and owns MCP/kernel teardown.
+- package: `@swarmx/dsh-pkb` → Host-only OKF v0.2 Personal Knowledge Base service, one aggregate model tool, bounded index context, and DSH conversation-source retrieval.
+- file: `$DSH_HOME/pkb/vault` → one owner-only Obsidian-openable OKF v0.2 Markdown bundle; `index.md` and `log.md` plus global/workspace concepts and bounded conversation-source excerpts.
+- api: `ctx.pkb.search/read/create/update/deprecate/searchConversations/readConversation/getVaultInfo` → workspace-authorized Wiki and cross-Session knowledge operations with exact revisions, cancellation, and bounded results.
+- tool: `pkb` → aggregate `search|read|create|update|deprecate|search_conversations|read_conversation|vault_info` actions; no `memory` compatibility alias.
 
 ## §R RESEARCH
 
@@ -66,6 +72,11 @@ R13|RO-Crate entity contract|Every graph entity ! unique `@id` + `@type`, SHOULD
 R14|RO-Crate provenance|File/data creation and updates SHOULD use Schema.org `CreateAction|UpdateAction`; inputs → `object`, outputs → `result`, software/equipment → `instrument`, and times → ISO 8601 `startTime|endTime`.|https://www.researchobject.org/ro-crate/specification/1.3/provenance.html
 R15|RO-Crate profiles|Domain supersets use RO-Crate Profiles declared by Root `conformsTo`; a profile URI ! resolve to human-readable documentation and SHOULD be persistent+versioned, so SwarmX ⊥ claim a private/unpublished profile.|https://www.researchobject.org/ro-crate/specification/1.3/profiles.html
 R16|RO-Crate implementation|RO-Crate processing does not require a JSON-LD library; the required flat graph can be handled defensively through an ID lookup while preserving valid JSON-LD.|https://www.researchobject.org/ro-crate/specification/1.1/appendix/implementation-notes
+R17|OKF v0.2|bundle = UTF-8 Markdown tree + YAML frontmatter; concept `type` required; `index.md`/`log.md` reserved; unknown fields tolerated|https://github.com/GoogleCloudPlatform/knowledge-catalog/blob/main/okf/SPEC.md
+R18|OKF provenance|`sources[].resource` records provenance; stable `sources[].id` joins per-claim Markdown footnotes; standard relative links supported|https://github.com/GoogleCloudPlatform/knowledge-catalog/blob/main/okf/SPEC.md
+R19|Obsidian interop|YAML properties + standard Markdown links supported; Wikilinks optional; block references Obsidian-specific|https://help.obsidian.md/properties
+R20|MyST interop|YAML frontmatter, relative Markdown document links, named footnotes, and standard citations supported|https://mystmd.org/guide/quickstart-myst-markdown
+R21|DSH conversation query|`ctx.sessionQuery` owns exact/filter/search/read-window APIs; literal text filter remains provider-independent; callers own authorization|https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/session-query/session-query/README.md
 
 ## §V INVARIANTS
 
@@ -198,6 +209,19 @@ V126: ∀ non-empty bounded selection wholly inside one rendered `user|steering|
 V127: ∀ `message_quote` annotation → carry the source `session_id`, durable message event `seq`, optional provider `message_id`, role, and exact selected text; destination Session identity remains an insertion argument rather than annotation state, so current-Session and future cross-Session references share one codec and persisted transcript projection.
 V128: ∀ composer annotation set → contain ≤32 independently addressable detached occurrences without modifying visible draft text; the tray count equals the set size, its popup preserves insertion order and numbered selected text, hover/focus reveals working Edit and Remove actions, optional message-quote notes remain editable, and successful submit clears the same occurrence set while failed submit retains it.
 V129: ∀ product-owned annotation UI copy → resolve from the `swarmx.annotation` locale namespace with complete `zh|en` dictionaries; English count copy distinguishes one/many and Chinese count copy uses one natural bounded template.
+V130: ∀ committed PKB concept → UTF-8 OKF v0.2 Markdown under `$DSH_HOME/pkb/vault` is sole durable truth; any search cache/index is disposable and rebuildable from Markdown or DSH session logs.
+V131: ∀ PKB concept → YAML frontmatter contains bounded `type|title|description|tags|status|generated|sources|swarmx_scope|swarmx_workspace`; body uses standard Markdown relative links + named footnotes; unknown frontmatter survives SwarmX round-trip; canonical content uses no Wikilink or Obsidian block reference.
+V132: ∀ PKB workspace operation → Host derives one salted opaque key from `realpath(live session cwd)`; symlink aliases converge, same-basename directories remain distinct, missing/unverifiable source workspaces decline, and no absolute host path reaches Tool output or Markdown.
+V133: ∀ PKB read/search → expose global + current workspace concepts only; `search_conversations(scope=workspace)` reads only canonically matching Sessions; `scope=all` requires one DSH approval before any cross-workspace snippet enters model context.
+V134: ∀ conversation-derived claim → `sources[].id` joins a body footnote to one bounded `Conversation Excerpt` page carrying exact Session event seq bounds; expansion re-authorizes source scope against current DSH corpus and labels historic text untrusted evidence, never current instruction or permission.
+V135: ∀ model PKB create/update/deprecate → require an open-Turn `ctx.approval` `allowed-once` decision for exact Tool call; rejected/cancelled/unavailable/aborted action changes no concept, index, log, or history file; physical delete ⊥ model surface.
+V136: ∀ PKB update/deprecate → require exact SHA256 revision, re-read immediately before commit, preserve prior bytes in owner-only revision history, then fsync + atomic replace; external Obsidian edits cause explicit conflict rather than silent stale overwrite.
+V137: ∀ PKB create/update → path generated by Host under authorized scope, inputs/outputs bounded, directories `0700`, files `0600`, `index.md` and newest-first `log.md` regenerated deterministically, and failure never publishes a partial Markdown file.
+V138: ∀ first model request in one live Session → inject one deterministic frozen bounded snapshot of `global/index.md` + current workspace `index.md`; later PKB writes reach that Session through Tool results while a new/resumed process snapshots current files.
+V139: ∀ malformed hand-edited Markdown → preserve bytes, exclude that page from trusted synthesis, report actionable file-relative diagnostics, and never rewrite/quarantine/delete it implicitly; unknown OKF type or extension field alone ≠ malformed.
+V140: ∀ PKB operation → local-only with no public route, implicit network, automatic sync, background LLM, or second durable transcript corpus; Science claims/experiments remain Science Journal entities and PKB may store only a locator or personal synthesis with explicit provenance.
+V141: ∀ package-local test script reusing root Vitest include globs → set workspace root explicitly and constrain execution to that package's tests; filtered invocation discovers ≥1 test.
+V142: ∀ product-owned workspace package relocation → package/test/docs references point to actual workspace directory; Host-only patch bare entries resolve from owning package manifest before boot, while client-bearing entries stay bare for DSH module registration.
 
 ## §T TASKS
 
@@ -249,6 +273,12 @@ T45|x|replace public Research Map/provenance/export graph contracts with RO-Crat
 T46|x|ship dsh-science as a standard-based system preset with preset-scoped model tools and contracts|V43,V94,V102,V103,V111,V121,V122,V123,I.preset,I.plugin,I.package
 T47|x|localize dsh-science display copy through the built-in Web preset locale path|V121,V124,I.preset
 T48|x|add pnpm dev as the development entry for the existing desktop start chain|V125,I.cmd
+T49|x|document PKB contract + executable OKF fixtures|R17,R18,R19,R20,V130,V131,V134,V139,V140
+T50|x|implement owner-only OKF Vault + revision/index/log lifecycle|I.`@swarmx/dsh-pkb`,I.`$DSH_HOME/pkb/vault`,V130,V131,V132,V136,V137,V139
+T51|x|implement authorized cross-Session search + conversation evidence pages|R21,V132,V133,V134,V140
+T52|x|register `ctx.pkb`, aggregate `pkb` tool, approval policy, and frozen index context|I.`ctx.pkb`,I.`pkb`,V133,V135,V138,V140
+T53|x|compose desktop package + verify build, docs, security, lifecycle|V4,V15,V22,V32,V64,V84,V130,V140
+T54|x|fix PKB relocation references + owner-anchored product patch resolution|V64,V141,V142
 
 ## §B BUGS
 
@@ -303,3 +333,8 @@ B47|2026-08-23|deliverables accumulated only `diff|edit` Tool locations, so Bash
 B48|2026-08-23|`science-typst` renderer reused one hook instance by entry kind and never keyed paper-local editor state by `relativePath`, so tab A state could survive activation of tab B|V110
 B49|2026-08-24|the desktop's blanket renderer permission denial rejected the async Clipboard API used by the native assistant Copy action, so the button produced neither clipboard content nor success feedback|V120
 B50|2026-08-24|the Web preset locale allowlist covered only DSH's four original system ids, so `dsh-science` fell back to Chinese YAML metadata in the English interface|V124
+B51|2026-08-25|new package-local `vitest run` inherited root-relative include globs from package cwd and found no tests|package script pins root config
+B52|2026-08-25|pinning root Vitest config did not change Vitest root, so root-relative globs still resolved from package cwd|V141
+B53|2026-08-25|PKB relocation references misspelled `pkb` as `pkg`, breaking filtered tests, Host typecheck, layout checks, and code map|V142
+B54|2026-08-25|product-owned PKB patch kept bare package entry against DSH module base, depending on incidental workspace hoisting|V142
+B55|2026-08-25|owner-anchoring every product patch converted client-bearing Conversation/Science entries to file paths, removing their DSH client-module identity|V142

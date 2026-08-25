@@ -1,6 +1,6 @@
 # SwarmX codebase map
 
-SwarmX is a thin Electron host around the published DeepSeek Harness Web profile, plus product-owned conversation and local-first science extensions composed after the published bundles and before user patches.
+SwarmX is a thin Electron host around the published DeepSeek Harness Web profile, plus product-owned conversation, local-first science, and private PKB extensions composed after the published bundles and before user patches.
 
 ## Runtime flow
 
@@ -26,6 +26,18 @@ The Harness supplies the complete browser UI and `/api` transport. SwarmX has no
 | `packages/core/annotation/vitest.config.ts` | Focused annotation contract test configuration |
 | `packages/core/annotation/src/index.ts` | OpenAI Responses annotation superset plus bounded SwarmX document, image, and source-addressed message targets |
 | `packages/core/annotation/tests/annotation.test.ts` | Official branch round-trip, provider-field preservation, message quote, and extension rejection contract |
+| `packages/core/pkb/tsdown.config.ts` | Host-only PKB service artifact configuration |
+| `packages/core/pkb/src/conversation.ts` | Workspace-authorized DSH Session search, exact event expansion, and bounded conversation evidence capture |
+| `packages/core/pkb/src/errors.ts` | Stable PKB error taxonomy |
+| `packages/core/pkb/src/index.ts` | Public PKB package and default Cordis plugin entry |
+| `packages/core/pkb/src/markdown.ts` | Bounded OKF frontmatter, portable Markdown, provenance, and revision contract |
+| `packages/core/pkb/src/plugin.ts` | `ctx.pkb`, aggregate model tool, approval gates, and per-Agent frozen index context |
+| `packages/core/pkb/src/vault.ts` | Owner-only Markdown Vault, workspace authorization, revisions, indexes, logs, and conversation references |
+| `packages/core/pkb/src/workspace.ts` | Salted canonical workspace identity without host-path disclosure |
+| `packages/core/pkb/tests/conversation.test.ts` | Cross-Session workspace isolation, all-scope authorization, CJK fallback, and exact evidence contract |
+| `packages/core/pkb/tests/okf-fixture.test.ts` | Executable OKF, Obsidian, MyST, and conversation-footnote fixture contract |
+| `packages/core/pkb/tests/plugin.test.ts` | Aggregate tool approval and frozen prompt-index contract |
+| `packages/core/pkb/tests/vault.test.ts` | Vault permissions, isolation, revision, history, malformed-page, and portability contract |
 | `packages/client/tsdown.client.ts` | DSH-compatible client-plugin build preset and module-table external policy |
 | `packages/client/ui-conversation/tsdown.config.ts` | Conversation extensions host/client artifact configuration |
 | `packages/client/ui-conversation/src/annotation-reference.ts` | Stable reusable annotation-reference module entry for client plugins |
@@ -158,3 +170,6 @@ extension policy, and legacy-export rule.
 
 `docs/reproducibility-metadata.md` defines the portable Figure PNG/SVG/PDF metadata schema,
 Python/R generation flow, source locators, security boundary, and opt-out semantics.
+
+`docs/pkb.md` defines the owner-only OKF v0.2 Vault, Obsidian/MyST compatibility profile,
+conversation evidence boundary, approval policy, and progressive-disclosure prompt behavior.

@@ -2,6 +2,7 @@
   "files": [],
   "references": [
     { "path": "./packages/core/annotation" },
+    { "path": "./packages/core/pkb" },
     { "path": "./packages/science/core" },
     { "path": "./apps/desktop" }
   ]

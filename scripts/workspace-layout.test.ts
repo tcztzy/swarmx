@@ -65,6 +65,7 @@ describe("workspace layout", () => {
     expect(existsSync("packages/client/ui-conversation/package.json")).toBe(true);
     expect(existsSync("packages/client/ui-science/package.json")).toBe(true);
     expect(existsSync("packages/core/annotation/package.json")).toBe(true);
+    expect(existsSync("packages/core/pkb/package.json")).toBe(true);
     expect(existsSync("packages/science/core/package.json")).toBe(true);
     expect(existsSync("apps/desktop/package.json")).toBe(true);
     expect(existsSync("packages/dsh-ui-conversation")).toBe(false);
@@ -78,9 +79,24 @@ describe("workspace layout", () => {
 
     const desktop = manifest("apps/desktop/package.json");
     expect(desktop.dependencies?.["@swarmx/dsh-ui-conversation"]).toBe("workspace:*");
+    expect(desktop.dependencies?.["@swarmx/dsh-pkb"]).toBe("workspace:*");
     expect(desktop.dependencies?.["@swarmx/dsh-science"]).toBe("workspace:*");
     expect(desktop.dependencies?.["@swarmx/dsh-ui-science"]).toBe("workspace:*");
     expect(desktop.dependencies?.["@deepseek-ai/dsh-web-frontend"]).toBe("0.1.1-rc.2");
+  });
+
+  it("V141/V142 keeps the relocated PKB package rooted and package-bounded", () => {
+    const pkb = manifest("packages/core/pkb/package.json");
+    const patch = readFileSync("packages/core/pkb/cordis.patch.yml", "utf8");
+
+    expect(pkb.scripts?.test).toContain("--root ../../..");
+    expect(pkb.scripts?.test).toContain("packages/core/pkb/tests");
+    expect(existsSync("packages/memory/core")).toBe(false);
+    expect(existsSync("packages/core/pkg")).toBe(false);
+    expect(patch).toContain("id: session-query-sqlite");
+    expect(patch).toContain("openAt: first-search");
+    expect(patch).toContain("path: ':memory:'");
+    expect(patch).toContain("dshHomePath('pkb', 'vault')");
   });
 
   it("keeps shared build tools at the workspace root", () => {
@@ -122,6 +138,7 @@ describe("workspace layout", () => {
       "packages/client/ui-conversation/package.json",
       "packages/client/ui-science/package.json",
       "packages/core/annotation/package.json",
+      "packages/core/pkb/package.json",
       "packages/science/core/package.json",
     ];
     const baseline = manifest(files[0] as string).dependencies?.["@deepseek-ai/dsh"];

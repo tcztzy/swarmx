@@ -1,0 +1,13 @@
+# Product-owned private Personal Knowledge Base. The SQLite index remains a
+# disposable acceleration layer; OKF Markdown and DSH session logs are truth.
+
+- id: session-query-sqlite
+  config:
+    path: ':memory:'
+    openAt: first-search
+
+- insert:
+    - id: swarmx-pkb
+      name: '@swarmx/dsh-pkb'
+      config:
+        root: !!js dshHomePath('pkb', 'vault')

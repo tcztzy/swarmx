@@ -60,6 +60,11 @@ function scienceAnchor(): string {
   return createRequire(import.meta.url).resolve("@swarmx/dsh-science/package.json");
 }
 
+/** Installed manifest for the SwarmX private Personal Knowledge Base. */
+function pkbAnchor(): string {
+  return createRequire(import.meta.url).resolve("@swarmx/dsh-pkb/package.json");
+}
+
 /** Installed manifest for the SwarmX Science Chat and Side View client integration. */
 function scienceUiAnchor(): string {
   return createRequire(import.meta.url).resolve("@swarmx/dsh-ui-science/package.json");
@@ -113,6 +118,29 @@ function resolveProfileBundleEntries<T>(value: T, profile: Profile): T {
   return resolved;
 }
 
+/** Resolve one Host-only patch package without changing client-bearing package identities. */
+function resolveHostPatchEntries<T>(value: T, packageId: string, anchor: string): T {
+  const resolved = structuredClone(value);
+
+  const visit = (current: unknown): void => {
+    if (Array.isArray(current)) {
+      for (const child of current) visit(child);
+      return;
+    }
+    if (current === null || typeof current !== "object") return;
+    const record = current as Record<string, unknown>;
+    if (typeof record.id === "string" && typeof record.name === "string") {
+      if (packageName(record.name) === packageId) {
+        record.name = createRequire(anchor).resolve(record.name);
+      }
+    }
+    for (const child of Object.values(record)) visit(child);
+  };
+
+  visit(resolved);
+  return resolved;
+}
+
 /** Product-owned patch mounted after DSH bundles and before user overrides. */
 function conversationPatchPath(): string {
   return join(dirname(conversationAnchor()), "cordis.patch.yml");
@@ -121,6 +149,11 @@ function conversationPatchPath(): string {
 /** Product-owned Science Journal service and client integration layer. */
 function sciencePatchPath(): string {
   return join(dirname(scienceAnchor()), "cordis.patch.yml");
+}
+
+/** Product-owned PKB service, tool, and session-search activation layer. */
+function pkbPatchPath(): string {
+  return join(dirname(pkbAnchor()), "cordis.patch.yml");
 }
 
 /**
@@ -185,10 +218,15 @@ const ROOT_CONFIG = `# SwarmX profile root — an empty entry list. The tree is 
 export async function startHarness(): Promise<Harness> {
   const home = resolveDshHome();
   const anchor = installAnchor();
+  const conversationPackageAnchor = conversationAnchor();
+  const pkbPackageAnchor = pkbAnchor();
+  const sciencePackageAnchor = scienceAnchor();
+  const scienceUiPackageAnchor = scienceUiAnchor();
   healProfilesModuleFallback(anchor, home);
-  healProfilesModuleFallback(conversationAnchor(), home);
-  healProfilesModuleFallback(scienceAnchor(), home);
-  healProfilesModuleFallback(scienceUiAnchor(), home);
+  healProfilesModuleFallback(conversationPackageAnchor, home);
+  healProfilesModuleFallback(pkbPackageAnchor, home);
+  healProfilesModuleFallback(sciencePackageAnchor, home);
+  healProfilesModuleFallback(scienceUiPackageAnchor, home);
   const profile = loadProfile(BIN_NAME, PROFILE, anchor, home);
   writeFileSync(join(profile.dir, ROOT_FILENAME), ROOT_CONFIG);
   // Layer order is the contract: DSH bundles, SwarmX product extensions, the
@@ -202,6 +240,11 @@ export async function startHarness(): Promise<Harness> {
       profile,
     ),
     loadOptionalPatches(BIN_NAME, conversationPatchPath()) ?? [],
+    resolveHostPatchEntries(
+      loadOptionalPatches(BIN_NAME, pkbPatchPath()) ?? [],
+      "@swarmx/dsh-pkb",
+      pkbPackageAnchor,
+    ),
     loadOptionalPatches(BIN_NAME, sciencePatchPath()) ?? [],
     resolveProfileBundleEntries(profile.patches, profile),
     resolveProfileBundleEntries(
@@ -219,7 +262,11 @@ export async function startHarness(): Promise<Harness> {
     ...(presetRow === undefined
       ? []
       : [
-          presetPatch(anchor, scienceAnchor(), (presetRow.config ?? {}) as Record<string, unknown>),
+          presetPatch(
+            anchor,
+            sciencePackageAnchor,
+            (presetRow.config ?? {}) as Record<string, unknown>,
+          ),
         ]),
   ]);
   const ctx = await boot(
