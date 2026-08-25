@@ -11,13 +11,28 @@
  * @module @swarmx/dsh-ui-conversation/client
  */
 import type { ConnectionHandle } from "@deepseek-ai/dsh-client-connection/client";
+import type {} from "@deepseek-ai/dsh-client-locale/client";
 import type { ClientContext, SessionId } from "@deepseek-ai/dsh-client-runtime/client";
 // Type-only: pulls the ui-conversation SlotMap and ChatNodeDataMap merges.
 import type {} from "@deepseek-ai/dsh-client-ui-conversation/client";
+import type {} from "@deepseek-ai/dsh-client-ui-input-trigger/client";
 import type {} from "@deepseek-ai/dsh-client-ui-layout/client";
 import { selectFailedTurn } from "../error-turn.js";
 import { userEditDefinition } from "../user-edit-node.js";
 import { FailedTurnAction, UserEditAction } from "./actions.js";
+import { AnnotationComposer } from "./annotation-composer.js";
+import {
+  ANNOTATION_LOCALE_NS,
+  type AnnotationLocaleKey,
+  en as annotationEn,
+  zh as annotationZh,
+} from "./annotation-locales.js";
+import {
+  annotationReferenceSource,
+  insertAnnotationReference,
+  removeAnnotationReference,
+  replaceAnnotationReference,
+} from "./annotation-reference.js";
 import {
   AnnotationSteeringMessageView,
   AnnotationUserMessageView,
@@ -26,6 +41,18 @@ import { RerunController } from "./controller.js";
 import { registerSideView } from "./side-view-registration.js";
 import type { RerunActionsInjected } from "./slots.js";
 
+export {
+  ANNOTATION_REFERENCE_SOURCE,
+  annotationReferenceInsert,
+  annotationReferenceSource,
+  decodeAnnotationReference,
+  encodeAnnotationReference,
+  insertAnnotationReference,
+  MAX_COMPOSER_ANNOTATIONS,
+  messageQuoteAnnotation,
+  removeAnnotationReference,
+  replaceAnnotationReference,
+} from "./annotation-reference.js";
 export { RerunController } from "./controller.js";
 export {
   type ISideView,
@@ -39,6 +66,12 @@ export {
 } from "./side-view.js";
 export type { RerunActionsInjected } from "./slots.js";
 
+declare module "@deepseek-ai/dsh-client-ui-slots" {
+  interface LocaleNamespaceMap {
+    "swarmx.annotation": AnnotationLocaleKey;
+  }
+}
+
 /** Services required before this plugin can register its entries. */
 export const inject = [
   "slots",
@@ -48,6 +81,8 @@ export const inject = [
   "conversationEvents",
   "connection",
   "layout",
+  "inputTriggers",
+  "locale",
 ];
 
 /** Maximum wait for the session-added stream to reach the client runtime. */
@@ -111,6 +146,17 @@ async function createSibling(ctx: ClientContext, sourceId: SessionId): Promise<S
  */
 export function apply(ctx: ClientContext): void {
   registerSideView(ctx);
+  ctx.effect(
+    () =>
+      ctx.locale.register(ANNOTATION_LOCALE_NS, {
+        zh: annotationZh,
+        en: annotationEn,
+      }),
+    "dsh-ui-conversation: annotation dictionaries",
+  );
+  const annotationT = ctx.locale.bind(ANNOTATION_LOCALE_NS);
+  const disposeAnnotationSource = ctx.inputTriggers.registerSource(annotationReferenceSource());
+  ctx.effect(() => disposeAnnotationSource, "dsh-ui-conversation: annotation reference source");
   ctx.slots.inject("conversation.chat.node", () =>
     ctx.slots.register(
       {
@@ -118,6 +164,7 @@ export function apply(ctx: ClientContext): void {
         key: "user",
         priority: -10,
         locale: "conversation",
+        inject: () => ({ annotationT }),
       },
       AnnotationUserMessageView,
     ),
@@ -129,8 +176,34 @@ export function apply(ctx: ClientContext): void {
         key: "steering",
         priority: -10,
         locale: "conversation",
+        inject: () => ({ annotationT }),
       },
       AnnotationSteeringMessageView,
+    ),
+  );
+  ctx.slots.inject("conversation.input.dock", () =>
+    ctx.slots.register(
+      {
+        name: "conversation.input.dock",
+        id: "swarmx-annotations",
+        order: -20,
+        locale: ANNOTATION_LOCALE_NS,
+        inject: (sessionId: SessionId) => ({
+          addAnnotation: (annotation) =>
+            insertAnnotationReference(ctx.conversation, ctx.sessions, sessionId, annotation),
+          replaceAnnotation: (occurrenceId, annotation) =>
+            replaceAnnotationReference(
+              ctx.conversation,
+              ctx.sessions,
+              sessionId,
+              occurrenceId,
+              annotation,
+            ),
+          removeAnnotation: (occurrenceId) =>
+            removeAnnotationReference(ctx.conversation, ctx.sessions, sessionId, occurrenceId),
+        }),
+      },
+      AnnotationComposer,
     ),
   );
   const controllers = new Map<SessionId, RerunController>();

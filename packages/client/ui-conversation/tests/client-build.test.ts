@@ -8,7 +8,7 @@ describe("client build", () => {
     const configs = buildConfig({ env: { DSH_BUILD_FACE: "client" } });
 
     expect(configs).toHaveLength(2);
-    expect(configs[0]?.entry).toEqual(["lib/types/index.js"]);
+    expect(configs[0]?.entry).toEqual(["lib/types/index.js", "lib/types/annotation-reference.js"]);
     expect(configs[1]?.entry).toEqual({ client: "lib/types/client/index.js" });
     expect(configs[1]?.outputOptions).toMatchObject({
       entryFileNames: "client.js",
@@ -55,6 +55,7 @@ describe("client build", () => {
 
     expect(packageJson.files).toEqual([
       "lib/index.js",
+      "lib/annotation-reference.js",
       "lib/client.js",
       "lib/types/**/*.d.ts",
       "src",

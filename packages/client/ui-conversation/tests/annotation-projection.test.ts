@@ -20,14 +20,22 @@ const annotation = {
 
 describe("V101 annotation transcript projection", () => {
   it("removes protocol markup while preserving the Markdown body", () => {
-    const text = `Please **revise** this. <annotation>${JSON.stringify(annotation)}</annotation>`;
+    const text = `Please **revise** this. <dsh-annotation>${JSON.stringify(annotation)}</dsh-annotation>`;
     const projected = projectAnnotatedText(text);
     expect(projected.body).toBe("Please **revise** this.");
     expect(projected.annotations).toEqual([annotation]);
     expect(projected.invalidCount).toBe(0);
     expect(annotationCopyText(projected)).toContain("> State the confidence interval.");
     expect(annotationCopyText(projected)).toContain("Please **revise** this.");
-    expect(annotationCopyText(projected)).not.toContain("<annotation>");
+    expect(annotationCopyText(projected)).not.toContain("<dsh-annotation>");
+  });
+
+  it("keeps reading the old generic annotation envelope", () => {
+    const projected = projectAnnotatedText(
+      `<annotation>${JSON.stringify(annotation)}</annotation>`,
+    );
+    expect(projected.annotations).toEqual([annotation]);
+    expect(projected.body).toBe("");
   });
 
   it("projects persisted legacy paper payloads without rewriting them", () => {

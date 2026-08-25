@@ -3,11 +3,22 @@
 Browser conversation extensions for SwarmX: non-destructive Retry/Edit, annotation-aware user
 messages, and the generic Side View.
 
-User messages shadow the upstream renderer only at a lower slot priority. The renderer extracts the
-single model-only `<annotation>` transport, presents bounded annotation cards, and renders the
-remaining body with DSH's safe Markdown renderer. Copy produces readable Markdown rather than JSON.
-Persisted legacy Science annotation tags are recovered only for display; session history is never
+User messages shadow the upstream renderer only at a lower slot priority. The renderer extracts
+model-only `<dsh-annotation>` transport, presents bounded annotation cards, and renders the remaining
+body with DSH's safe Markdown renderer. Copy produces readable Markdown rather than JSON. Persisted
+`<annotation>` and legacy Science tags are recovered only for display; session history is never
 rewritten.
+
+Selecting bounded text inside a durable user, steering, or finalized assistant Chat row opens one
+compact localized `Add to chat` action beside the selection. The first selection is captured
+immediately; later selections open a PDF-style optional-note editor and Enter confirms. Detached
+references leave visible draft text untouched and render as one count control above the composer.
+Its popup lists numbered selections in insertion order; row hover/focus reveals functional Edit and
+Remove controls. The annotation records the source Session and durable message locator separately
+from the destination composer Session, so today's same-Session action and a future cross-Session
+picker use the same persisted payload. Selections spanning rows, Tool/context rows, and
+streaming-only assistant text remain inert. All annotation UI copy comes from complete Chinese and
+English dictionaries.
 
 Side View reuses the installed DeepSeek Harness baseline's published `details` column and
 `ctx.layout` geometry. Its

@@ -6,8 +6,10 @@ import type {
 import {
   annotationReferenceInsert,
   annotationReferenceSource,
-  imageCommentAnnotation,
   insertAnnotationReference,
+} from "../../ui-conversation/src/client/annotation-reference.js";
+import {
+  imageCommentAnnotation,
   paperCommentAnnotation,
 } from "../src/client/annotation-reference.js";
 
@@ -63,7 +65,7 @@ describe("V81 V92 generic annotation references", () => {
     const serialized = await source.codec?.serialize(insert.ref, new AbortController().signal);
     expect(source.name).toBe("annotation");
     expect(insert.source).toBe("annotation");
-    expect(serialized).toMatch(/^<annotation>.*<\/annotation>$/u);
+    expect(serialized).toMatch(/^<dsh-annotation>.*<\/dsh-annotation>$/u);
     expect(serialized).toContain("The result improves by four percent.");
     expect(serialized).not.toContain("science-paper-annotation");
     expect(serialized).not.toContain("data:application/pdf");
@@ -92,11 +94,11 @@ describe("V81 V92 generic annotation references", () => {
     const annotation = paperCommentAnnotation(paperAnnotation);
 
     expect(insertAnnotationReference(conversation, sessions, "session-1", annotation)).toBe(true);
-    expect(input.setDraft).toHaveBeenCalledWith("Please revise @");
+    expect(input.setDraft).not.toHaveBeenCalled();
     expect(insertReference).toHaveBeenCalledWith(annotationReferenceInsert(annotation), {
-      start: 14,
-      end: 15,
-      draftRev: 5,
+      start: 13,
+      end: 13,
+      draftRev: 4,
     });
   });
 });

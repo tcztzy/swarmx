@@ -1,11 +1,13 @@
 import type { Annotation, CommentAnnotation } from "@swarmx/annotation";
 import { annotationSchema } from "@swarmx/annotation";
+import { type AnnotationTranslate, englishAnnotationText } from "./annotation-locales.js";
 
 const LEGACY_PAPER_INSTRUCTION =
   "Use the workspace-relative Typst source and this rendered PDF context to make the requested revision. Re-open the paper preview after editing; do not infer a host path.";
 const LEGACY_IMAGE_INSTRUCTION =
   "Use science_query with this exact action and request before discussing the referenced image point.";
-const TAG = /<(annotation|science-paper-annotation|science-image-annotation)>([\s\S]*?)<\/\1>/gu;
+const TAG =
+  /<(dsh-annotation|annotation|science-paper-annotation|science-image-annotation)>([\s\S]*?)<\/\1>/gu;
 
 export interface AnnotatedTextProjection {
   readonly body: string;
@@ -113,11 +115,14 @@ export interface AnnotationPresentation {
   readonly href: string | null;
 }
 
-export function annotationPresentation(annotation: Annotation): AnnotationPresentation {
+export function annotationPresentation(
+  annotation: Annotation,
+  t: AnnotationTranslate = englishAnnotationText,
+): AnnotationPresentation {
   if (annotation.type === "file_citation") {
     return {
       title: annotation.filename,
-      meta: "File citation",
+      meta: t("presentation.fileCitation"),
       quote: null,
       comment: null,
       href: null,
@@ -126,7 +131,7 @@ export function annotationPresentation(annotation: Annotation): AnnotationPresen
   if (annotation.type === "url_citation") {
     return {
       title: annotation.title || annotation.url,
-      meta: "Web citation",
+      meta: t("presentation.webCitation"),
       quote: null,
       comment: null,
       href: annotation.url,
@@ -135,7 +140,7 @@ export function annotationPresentation(annotation: Annotation): AnnotationPresen
   if (annotation.type === "container_file_citation") {
     return {
       title: annotation.filename,
-      meta: "Container file citation",
+      meta: t("presentation.containerFileCitation"),
       quote: null,
       comment: null,
       href: null,
@@ -144,21 +149,39 @@ export function annotationPresentation(annotation: Annotation): AnnotationPresen
   if (annotation.type === "file_path") {
     return {
       title: annotation.file_id,
-      meta: "File path",
+      meta: t("presentation.filePath"),
       quote: null,
       comment: null,
       href: null,
     };
   }
-  return commentPresentation(annotation);
+  if (annotation.type === "message_quote") {
+    const roleKey =
+      annotation.target.role === "assistant"
+        ? "presentation.assistantMessage"
+        : annotation.target.role === "steering"
+          ? "presentation.steeringMessage"
+          : "presentation.userMessage";
+    return {
+      title: t(roleKey),
+      meta: t("presentation.message", { seq: annotation.target.message_seq }),
+      quote: annotation.target.text,
+      comment: annotation.comment ?? null,
+      href: null,
+    };
+  }
+  return commentPresentation(annotation, t);
 }
 
-function commentPresentation(annotation: CommentAnnotation): AnnotationPresentation {
+function commentPresentation(
+  annotation: CommentAnnotation,
+  t: AnnotationTranslate,
+): AnnotationPresentation {
   const target = annotation.target;
   if (target.type === "document_text") {
     return {
       title: target.title,
-      meta: `Page ${target.page}`,
+      meta: t("presentation.page", { page: target.page }),
       quote: target.text,
       comment: annotation.comment,
       href: null,
@@ -167,7 +190,9 @@ function commentPresentation(annotation: CommentAnnotation): AnnotationPresentat
   if (target.type === "document_region") {
     return {
       title: target.title,
-      meta: `Page ${target.page} · Region ${target.region_index + 1}`,
+      meta: `${t("presentation.page", { page: target.page })} · ${t("presentation.region", {
+        region: target.region_index + 1,
+      })}`,
       quote: null,
       comment: annotation.comment,
       href: null,
@@ -175,7 +200,7 @@ function commentPresentation(annotation: CommentAnnotation): AnnotationPresentat
   }
   return {
     title: target.title,
-    meta: "Image point",
+    meta: t("presentation.imagePoint"),
     quote: null,
     comment: annotation.comment,
     href: null,
@@ -183,11 +208,16 @@ function commentPresentation(annotation: CommentAnnotation): AnnotationPresentat
 }
 
 /** Human-readable clipboard projection; never emits protocol JSON. */
-export function annotationCopyText(projection: AnnotatedTextProjection): string {
+export function annotationCopyText(
+  projection: AnnotatedTextProjection,
+  t: AnnotationTranslate = englishAnnotationText,
+): string {
   const annotations = projection.annotations.map((annotation) => {
-    const view = annotationPresentation(annotation);
+    const view = annotationPresentation(annotation, t);
     return [
-      `> [Annotation] ${view.title}${view.meta === null ? "" : ` · ${view.meta}`}`,
+      `> [${t("presentation.annotation")}] ${view.title}${
+        view.meta === null ? "" : ` · ${view.meta}`
+      }`,
       ...(view.quote === null ? [] : [`> “${view.quote}”`]),
       ...(view.comment === null ? [] : [`> ${view.comment}`]),
     ].join("\n");

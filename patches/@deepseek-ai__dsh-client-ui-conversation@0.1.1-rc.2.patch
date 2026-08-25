@@ -1,0 +1,275 @@
+diff --git a/lib/client.js b/lib/client.js
+index c6be13412e7a47a3a999b4bd6cc11cb4aa4cf20e..dc97ea643587135de0eac6cc1db6377e352ce10a 100644
+--- a/lib/client.js
++++ b/lib/client.js
+@@ -433,7 +433,7 @@ window.__ModuleLoader__.load({
+ 			if (occurrences.length === 0) return draft;
+ 			let out = "";
+ 			let cursor = 0;
+-			for (const o of occurrences) {
++			for (const o of occurrences.filter((o) => o.placement !== "detached")) {
+ 				out += draft.slice(cursor, o.offset) + o.clipboardText;
+ 				cursor = o.offset + o.length;
+ 			}
+@@ -496,6 +496,8 @@ window.__ModuleLoader__.load({
+ 					case "draft-changed": return this.onDraftChanged(ev.draft, ev.editRange);
+ 					case "begin-command": return this.onBeginCommand(ev.claim, ev.span);
+ 					case "insert-ref": return this.onInsertRef(ev.reference, ev.span);
++					case "replace-ref": return this.onReplaceRef(ev.occurrenceId, ev.reference);
++					case "remove-ref": return this.onRemoveRef(ev.occurrenceId);
+ 					case "consume-token": return this.onConsumeToken(ev.guard);
+ 					case "set-invalid": return this.onSetInvalid(ev.invalidIds);
+ 					case "undo": return this.onUndo();
+@@ -538,7 +540,8 @@ window.__ModuleLoader__.load({
+ 			reconcile(range) {
+ 				const delta = range.insertedLength - (range.end - range.start);
+ 				const kept = [];
+-				for (const o of this.occurrences) if (o.offset + o.length <= range.start) kept.push(o);
++				for (const o of this.occurrences) if (o.placement === "detached") kept.push(o);
++				else if (o.offset + o.length <= range.start) kept.push(o);
+ 				else if (o.offset >= range.end) kept.push(delta === 0 ? o : {
+ 					...o,
+ 					offset: o.offset + delta
+@@ -563,6 +566,7 @@ window.__ModuleLoader__.load({
+ 					length,
+ 					label: reference.label,
+ 					...reference.appearance === void 0 ? {} : { appearance: reference.appearance },
++					...reference.placement === void 0 ? {} : { placement: reference.placement },
+ 					clipboardText: reference.clipboardText
+ 				};
+ 			}
+@@ -618,6 +622,51 @@ window.__ModuleLoader__.load({
+ 				this.paste = void 0;
+ 				return [];
+ 			}
++			onReplaceRef(occurrenceId, reference) {
++				if (this.phase !== "plain" && this.phase !== "claimed") return [];
++				const index = this.occurrences.findIndex((occurrence) => occurrence.occurrenceId === occurrenceId);
++				if (index < 0) return [];
++				this.pushTxn();
++				this.typingRun = void 0;
++				this.occurrences = this.occurrences.map((occurrence, occurrenceIndex) => {
++					if (occurrenceIndex !== index) return occurrence;
++					const { appearance: _appearance, placement: _placement, invalid: _invalid, ...stable } = occurrence;
++					return {
++						...stable,
++						source: reference.source,
++						ref: reference.ref,
++						label: reference.label,
++						clipboardText: reference.clipboardText,
++						...reference.appearance === void 0 ? {} : { appearance: reference.appearance },
++						...reference.placement === void 0 ? {} : { placement: reference.placement },
++						offset: reference.placement === "detached" ? 0 : occurrence.offset,
++						length: reference.placement === "detached" ? 0 : occurrence.length
++					};
++				});
++				this.adopt(this.draft);
++				this.paste = void 0;
++				return [];
++			}
++			onRemoveRef(occurrenceId) {
++				if (this.phase !== "plain" && this.phase !== "claimed") return [];
++				const occurrence = this.occurrences.find((candidate) => candidate.occurrenceId === occurrenceId);
++				if (occurrence === void 0) return [];
++				this.pushTxn();
++				this.typingRun = void 0;
++				this.occurrences = this.occurrences.filter((candidate) => candidate.occurrenceId !== occurrenceId);
++				if (occurrence.placement === "detached") this.adopt(this.draft);
++				else {
++					this.reconcile({
++						start: occurrence.offset,
++						end: occurrence.offset + occurrence.length,
++						insertedLength: 0
++					});
++					this.adopt(this.draft.slice(0, occurrence.offset) + this.draft.slice(occurrence.offset + occurrence.length));
++					this.watchClaim();
++				}
++				this.paste = void 0;
++				return [];
++			}
+ 			/**
+ 			* Shared reference-insertion transaction: replace [span) with one inline
+ 			* occurrence (insert-ref and paste-upgrade both land here). A separating
+@@ -627,6 +676,17 @@ window.__ModuleLoader__.load({
+ 			replaceSpanWithChip(reference, span) {
+ 				this.pushTxn();
+ 				this.typingRun = void 0;
++				if (reference.placement === "detached") {
++					this.reconcile({
++						start: span.start,
++						end: span.end,
++						insertedLength: 0
++					});
++					this.withMinted([this.mint(reference, 0, 0)]);
++					this.adopt(this.draft.slice(0, span.start) + this.draft.slice(span.end));
++					this.watchClaim();
++					return 0;
++				}
+ 				const tail = this.draft.slice(span.end);
+ 				const gap = tail.length === 0 || tail[0] !== " " ? " " : "";
+ 				const displayText = referenceDraftText(reference);
+@@ -819,7 +879,7 @@ window.__ModuleLoader__.load({
+ 					}];
+ 				}
+ 				const trimmed = this.draft.trim();
+-				if (trimmed === "") return [];
++				if (trimmed === "" && this.occurrences.length === 0) return [];
+ 				this.paste = void 0;
+ 				if (trimmed.startsWith("/")) {
+ 					const attempt = this.beginAttempt(mode);
+@@ -1082,7 +1142,7 @@ window.__ModuleLoader__.load({
+ 			* dismisses and the menu tracks frozen.
+ 			*/
+ 			submit(mode = "queue") {
+-				if (this.snapshot.draft.trim() === "" && this.imageIds.length > 0) {
++				if (this.snapshot.draft.trim() === "" && this.snapshot.occurrences.length === 0 && this.imageIds.length > 0) {
+ 					if (this.snapshot.phase === "plain" && !this.imageSendInFlight) {
+ 						const imageIds = [...this.imageIds];
+ 						this.imageSendInFlight = true;
+@@ -1200,6 +1260,25 @@ window.__ModuleLoader__.load({
+ 				}));
+ 				return this.core.state.draftRev !== before;
+ 			}
++			/** Replace one structured reference occurrence without changing its identity. */
++			replaceReference(occurrenceId, ref) {
++				const before = this.core.state.draftRev;
++				this.run(this.core.dispatch({
++					type: "replace-ref",
++					occurrenceId,
++					reference: ref
++				}));
++				return this.core.state.draftRev !== before;
++			}
++			/** Remove one structured reference occurrence. */
++			removeReference(occurrenceId) {
++				const before = this.core.state.draftRev;
++				this.run(this.core.dispatch({
++					type: "remove-ref",
++					occurrenceId
++				}));
++				return this.core.state.draftRev !== before;
++			}
+ 			/**
+ 			* Consume one command token after business success (scoped consume-token
+ 			* event listener body). Span guard: revision CAS then splice; bare-token
+@@ -2564,7 +2643,7 @@ window.__ModuleLoader__.load({
+ 				start: 0,
+ 				end: claim.token.length
+ 			} : null;
+-			const chips = occurrences.map((o) => ({
++			const chips = occurrences.filter((o) => o.placement !== "detached").map((o) => ({
+ 				occurrenceId: o.occurrenceId,
+ 				offset: o.offset,
+ 				length: o.length,
+@@ -3571,7 +3650,7 @@ window.__ModuleLoader__.load({
+ 			const live = input !== void 0 && keyboard !== void 0 && inputActions !== void 0;
+ 			const draft = input?.draft ?? "";
+ 			const attachments = (0, react.useMemo)(() => input === void 0 || draftImages === void 0 ? [] : draftImages(input.imageIds), [draftImages, input?.imageIds]);
+-			const empty = draft.trim() === "" && attachments.length === 0;
++			const empty = draft.trim() === "" && attachments.length === 0 && (input?.occurrences.length ?? 0) === 0;
+ 			const [toast, setToast] = (0, react.useState)(null);
+ 			const toastSeq = (0, react.useRef)(0);
+ 			const showToast = (0, react.useCallback)((text) => {
+diff --git a/lib/types/client/input/contract.d.ts b/lib/types/client/input/contract.d.ts
+index 7c7267a5570991b59d6e681244e4272cca8ad385..5b133e57d4bbfcc2d23338b379791530a03b1192 100644
+--- a/lib/types/client/input/contract.d.ts
++++ b/lib/types/client/input/contract.d.ts
+@@ -25,6 +25,10 @@ export interface InputTarget {
+ }
+ /** Per-session input facade owned by the conversation wiring layer. */
+ export interface SessionInput extends InputTarget {
++	/** Replace one structured reference occurrence while preserving its identity. */
++	replaceReference(occurrenceId: number, ref: ReferenceInsert): boolean;
++	/** Remove one structured reference occurrence. */
++	removeReference(occurrenceId: number): boolean;
+     /** Single write path for draft text (all mutation rides machine events). */
+     setDraft(text: string): void;
+     /** Append ordered browser-owned image ids; busy admission phases refuse. */
+@@ -134,8 +138,9 @@ export interface EditRange extends EditSelection {
+     readonly insertedLength: number;
+ }
+ /**
+- * One reference occurrence backed by its complete inline display text in the
+- * draft. Identity is occurrenceId — same-named
++ * One reference occurrence. Inline occurrences occupy display text in the
++ * draft; detached occurrences serialize with the prompt without changing the
++ * draft geometry. Identity is occurrenceId — same-named
+  * references stay independently addressable. label/appearance/clipboardText are the
+  * owner's insert-time projections, cached so the chip survives owner loss
+  * (invalid flips instead of dropping the occurrence).
+@@ -153,8 +158,10 @@ export interface Occurrence {
+     readonly length: number;
+     /** Inline display label (insert-time cache). */
+     readonly label: string;
+-    /** Optional domain glyph (insert-time cache). */
+-    readonly appearance?: ReferenceInsert['appearance'];
++	/** Optional domain glyph (insert-time cache). */
++	readonly appearance?: ReferenceInsert['appearance'];
++	/** Inline by default; detached occurrences keep zero-length draft geometry. */
++	readonly placement?: 'inline' | 'detached';
+     /** Clipboard / persistence projection, e.g. `/name` (insert-time cache, never the model form). */
+     readonly clipboardText: string;
+     /** Owner-resolution failure flag: chip renders invalid; serialization must fail. */
+@@ -242,11 +249,22 @@ export type InputEvent =
+     readonly claim: CommandClaim;
+     readonly span: TokenSpan;
+ }
+-/** Place one inline reference at the span and mint the occurrence (scoped insert-reference event payload). */
++/** Place one reference at the span and mint the occurrence (scoped insert-reference event payload). */
+  | {
+     readonly type: 'insert-ref';
+     readonly reference: ReferenceInsert;
+-    readonly span: TokenSpan;
++	readonly span: TokenSpan;
++}
++/** Replace one occurrence's owner projections without changing its identity. */
++ | {
++	readonly type: 'replace-ref';
++	readonly occurrenceId: number;
++	readonly reference: ReferenceInsert;
++}
++/** Remove one occurrence. */
++ | {
++	readonly type: 'remove-ref';
++	readonly occurrenceId: number;
+ }
+ /** Delete a settled command token; success is observable as a draftRev advance. */
+  | {
+diff --git a/lib/types/client/input/facade.d.ts b/lib/types/client/input/facade.d.ts
+index 77966936352ad02667cb806ada9d3d549a67cf17..732759f1ffa6c429527d21139e762d4005d51541 100644
+--- a/lib/types/client/input/facade.d.ts
++++ b/lib/types/client/input/facade.d.ts
+@@ -167,7 +167,11 @@ export declare class SessionInputShell implements SessionInput {
+      * @param span - pick-time span snapshot.
+      * @returns whether the machine accepted.
+      */
+-    insertReference(ref: ReferenceInsert, span: TokenSpan): boolean;
++	insertReference(ref: ReferenceInsert, span: TokenSpan): boolean;
++	/** Replace one structured reference occurrence without changing its identity. */
++	replaceReference(occurrenceId: number, ref: ReferenceInsert): boolean;
++	/** Remove one structured reference occurrence. */
++	removeReference(occurrenceId: number): boolean;
+     /**
+      * Consume one command token after business success (scoped consume-token
+      * event listener body). Span guard: revision CAS then splice; bare-token
+diff --git a/lib/types/client/input/machine.d.ts b/lib/types/client/input/machine.d.ts
+index e2647c37626a782b96022b9aab562edaf7d7d117..79230f07ae5de98c4d8f0650808b42fba9043bd7 100644
+--- a/lib/types/client/input/machine.d.ts
++++ b/lib/types/client/input/machine.d.ts
+@@ -87,10 +87,13 @@ export declare class InputMachine {
+     /** Span CAS: revision equality (content identity follows) plus bounds sanity. */
+     private casOk;
+     private onBeginCommand;
+-    private onInsertRef;
++	private onInsertRef;
++	private onReplaceRef;
++	private onRemoveRef;
+     /**
+-     * Shared reference-insertion transaction: replace [span) with one inline
+-     * occurrence (insert-ref and paste-upgrade both land here). A separating
++	 * Shared reference-insertion transaction: replace [span) with one
++	 * occurrence (insert-ref and paste-upgrade both land here). Inline references
++	 * receive a separating
+      * space follows the reference unless one is already next.
+      * @returns the inserted length (display text plus optional gap).
+      */

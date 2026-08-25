@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   annotationSchema,
   commentAnnotationSchema,
+  messageQuoteAnnotationSchema,
   openAIResponseAnnotationSchema,
 } from "../src/index.js";
 
@@ -83,5 +84,32 @@ describe("V100 annotation superset", () => {
         },
       }),
     ).toThrow();
+  });
+
+  it("keeps a message quote source-addressed for future cross-session insertion", () => {
+    const value = {
+      type: "message_quote",
+      id: "quote-1",
+      created_at: 1_787_371_200_000,
+      target: {
+        type: "message_text",
+        session_id: "source-session",
+        message_seq: 42,
+        message_id: "message-42",
+        role: "assistant",
+        text: "The selected answer fragment.",
+      },
+      comment: "Compare this with the earlier constraint.",
+    } as const;
+    expect(messageQuoteAnnotationSchema.parse(value)).toEqual(value);
+    expect(annotationSchema.parse(value)).toEqual(value);
+    expect(() =>
+      messageQuoteAnnotationSchema.parse({
+        ...value,
+        target: { ...value.target, text: "" },
+      }),
+    ).toThrow();
+    const { comment: _comment, ...withoutComment } = value;
+    expect(messageQuoteAnnotationSchema.parse(withoutComment)).toEqual(withoutComment);
   });
 });

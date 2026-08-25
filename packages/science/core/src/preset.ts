@@ -57,7 +57,7 @@ export function apply(ctx: {
   ctx.systemPrompt.section({
     name: "science:annotations",
     order: 192,
-    text: "Treat each <annotation>{...}</annotation> object in user input as structured context. Its type follows the SwarmX annotation union, which contains OpenAI Responses citation/path objects unchanged plus type=comment targets. For comment.target.type=image_point, call science_query with action=inspect_annotation and the complete comment object before discussing the protected image. For document_text or document_region, use the relative Typst source and rendered revision context to make the requested change; never infer a host path.",
+    text: "Treat each <dsh-annotation>{...}</dsh-annotation> object in user input as structured context. Its type follows the SwarmX annotation union, which contains OpenAI Responses citation/path objects unchanged plus type=comment and type=message_quote targets. For comment.target.type=image_point, call science_query with action=inspect_annotation and the complete comment object before discussing the protected image. For document_text or document_region, use the relative Typst source and rendered revision context to make the requested change; never infer a host path. A message_quote carries exact selected text plus its source Session/message locator and optional user note.",
   });
   ctx.systemPrompt.section({
     name: "science:literature-search",

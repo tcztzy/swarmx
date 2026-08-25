@@ -24,10 +24,11 @@ The Harness supplies the complete browser UI and `/api` transport. SwarmX has no
 | `native/writing-preview-runtime/src/main.rs` | Typst engine implementation for same-snapshot compile/watch, PDF export, and IDE click-to-source resolution |
 | `packages/core/annotation/tsdown.config.ts` | Provider-neutral annotation package artifact configuration |
 | `packages/core/annotation/vitest.config.ts` | Focused annotation contract test configuration |
-| `packages/core/annotation/src/index.ts` | OpenAI Responses annotation superset plus bounded SwarmX comment targets |
-| `packages/core/annotation/tests/annotation.test.ts` | Official branch round-trip, provider-field preservation, and extension rejection contract |
+| `packages/core/annotation/src/index.ts` | OpenAI Responses annotation superset plus bounded SwarmX document, image, and source-addressed message targets |
+| `packages/core/annotation/tests/annotation.test.ts` | Official branch round-trip, provider-field preservation, message quote, and extension rejection contract |
 | `packages/client/tsdown.client.ts` | DSH-compatible client-plugin build preset and module-table external policy |
 | `packages/client/ui-conversation/tsdown.config.ts` | Conversation extensions host/client artifact configuration |
+| `packages/client/ui-conversation/src/annotation-reference.ts` | Stable reusable annotation-reference module entry for client plugins |
 | `packages/client/ui-conversation/src/index.ts` | Conversation extensions plugin host half |
 | `packages/client/ui-conversation/src/css.d.ts` | CSS Module type boundary |
 | `packages/client/ui-conversation/src/fork-boundary.ts` | Safe rerun preparation strategy resolution |
@@ -36,22 +37,32 @@ The Harness supplies the complete browser UI and `/api` transport. SwarmX has no
 | `packages/client/ui-conversation/src/error-turn.ts` | Terminal failure selection for the turn-tail row |
 | `packages/client/ui-conversation/src/user-edit-node.ts` | Derived Edit node for user-authored messages |
 | `packages/client/ui-conversation/src/client/actions.tsx` | User Edit and failed-turn Retry icon controls |
-| `packages/client/ui-conversation/src/client/annotation-projection.ts` | Hidden annotation transport, legacy persisted projection, card metadata, and readable Copy text |
+| `packages/client/ui-conversation/src/client/annotation-composer.module.css` | Composer-aligned annotation tray, selection action, optional-note editor, and hover/focus actions |
+| `packages/client/ui-conversation/src/client/annotation-composer.tsx` | Message-selection annotation controller plus ordered tray edit/remove interaction |
+| `packages/client/ui-conversation/src/client/annotation-locales.ts` | Complete English and Chinese product annotation namespace |
+| `packages/client/ui-conversation/src/client/annotation-projection.ts` | Hidden `dsh-annotation` transport, legacy persisted projection, localized card metadata, and readable Copy text |
+| `packages/client/ui-conversation/src/client/annotation-reference.ts` | Generic annotation codec and detached per-session composer occurrence operations |
 | `packages/client/ui-conversation/src/client/annotation-user-message.tsx` | Safe-Markdown user/steering renderer with bounded annotation cards |
 | `packages/client/ui-conversation/src/client/controller.ts` | Per-session Retry/Edit orchestration |
 | `packages/client/ui-conversation/src/client/index.ts` | Retry/Edit and generic Side View client registration |
 | `packages/client/ui-conversation/src/client/icons.ts` | Single semantic Edit/Retry icon mapping |
+| `packages/client/ui-conversation/src/client/message-selection.ts` | Same-message selection validation, durable source addressing, popover positioning, and note keyboard policy |
 | `packages/client/ui-conversation/src/client/slots.ts` | Injected action contract |
 | `packages/client/ui-conversation/src/client/side-view.ts` | Serializable per-Session Side View service contract and deterministic tab state |
 | `packages/client/ui-conversation/src/client/side-view-panel.tsx` | Generic right-column tab shell and keyed content dispatch |
 | `packages/client/ui-conversation/src/client/side-view-registration.ts` | Side View service, details geometry, and additive turn-tail item seat |
 | `packages/client/ui-conversation/src/client/turn-tail-items.tsx` | Pass-through renderer for explicitly registered completed-turn contributions |
 | `packages/client/ui-conversation/tests/client-build.test.ts` | Client build face, entry, external, and loader wrapper contract |
-| `packages/client/ui-conversation/tests/annotation-projection.test.ts` | Raw protocol suppression, Markdown preservation, readable Copy, and legacy recovery contract |
+| `packages/client/ui-conversation/tests/annotation-composer.test.tsx` | Ordered tray content plus hover/focus edit/remove affordance contract |
+| `packages/client/ui-conversation/tests/annotation-locales.test.ts` | English/Chinese annotation namespace parity contract |
+| `packages/client/ui-conversation/tests/annotation-projection.test.ts` | `dsh-annotation` suppression, Markdown preservation, readable Copy, and legacy recovery contract |
+| `packages/client/ui-conversation/tests/annotation-reference.test.ts` | Detached codec, zero-draft-geometry insertion, source/destination isolation, edit, and removal contract |
 | `packages/client/ui-conversation/tests/controller.test.ts` | Controller behavior |
 | `packages/client/ui-conversation/tests/error-turn.test.ts` | Terminal failure selection behavior |
+| `packages/client/ui-conversation/tests/detached-reference-patch.test.ts` | Exact-baseline detached-reference runtime seam contract |
 | `packages/client/ui-conversation/tests/fork-boundary.test.ts` | Boundary behavior |
 | `packages/client/ui-conversation/tests/history-projection.test.ts` | Append-only branch and model-projection isolation |
+| `packages/client/ui-conversation/tests/message-selection.test.ts` | Selection eligibility, cross-session-ready source identity, positioning, and keyboard behavior |
 | `packages/client/ui-conversation/tests/rerun.test.ts` | Re-run orchestration behavior |
 | `packages/client/ui-conversation/tests/turn-origin.test.ts` | Turn lookup behavior |
 | `packages/client/ui-conversation/tests/user-edit-node.test.ts` | User-message Edit node behavior |
@@ -64,8 +75,8 @@ The Harness supplies the complete browser UI and `/api` transport. SwarmX has no
 | `packages/client/ui-science/tsdown.config.ts` | Science host/client artifact configuration and bundled Remote entry |
 | `packages/client/ui-science/src/index.ts` | Science plugin Host half and preset-independent Markdown deliverable-link prompt |
 | `packages/client/ui-science/src/css.d.ts` | Science CSS Module type boundary |
-| `packages/client/ui-science/src/client/index.ts` | Strict Remote mount, Chat turn-tail artifact cards, annotation reference source, and keyed artifact DetailsPanel registration |
-| `packages/client/ui-science/src/client/annotation-reference.ts` | Generic annotation codec, Science target conversion, and draft-preserving composer insertion |
+| `packages/client/ui-science/src/client/index.ts` | Strict Remote mount, Chat turn-tail artifact cards, shared annotation insertion, and keyed artifact DetailsPanel registration |
+| `packages/client/ui-science/src/client/annotation-reference.ts` | Science image/paper target conversion into the shared annotation contract |
 | `packages/client/ui-science/src/client/science-artifact-side-view.tsx` | Claude-style artifact DetailsPanel, on-demand RO-Crate provenance projection, bounded previews, image point annotations, and native fullscreen |
 | `packages/client/ui-science/src/client/science-conversation-artifacts.tsx` | Ordered same-Turn Science artifact recovery plus generated thumbnail/card group in Chat |
 | `packages/client/ui-science/src/client/science-deliverables.tsx` | Completed-turn file evidence recovery, safe Typst reference parsing, shared Markdown/tail opener, and Typst workbench routing |
@@ -132,6 +143,7 @@ The Harness supplies the complete browser UI and `/api` transport. SwarmX has no
 | `packages/science/core/tests/typst-preview.test.ts` | Typst preview lifecycle, bounds, revisions, updates, and cleanup contract |
 | `packages/science/core/tests/writing-studio.test.ts` | Document validation, diagnostics, patch revision, cancellation, migration, and replay contract |
 | `patches/@deepseek-ai__dsh-client-ui-agent-preset@0.1.1-rc.2.patch` | Exact-baseline English/Chinese locale mapping for the system-owned `dsh-science` preset while retaining metadata fallback for unknown and user presets |
+| `patches/@deepseek-ai__dsh-client-ui-conversation@0.1.1-rc.2.patch` | Exact-baseline detached reference occurrences, annotation-only submission, and occurrence edit/remove operations |
 | `patches/@deepseek-ai__dsh-client-ui-layout@0.1.1-rc.2.patch` | Exact-baseline layout patch removing the fixed 520px details ceiling while retaining the 300px floor, preferred open width, and center-width concession |
 | `patches/@deepseek-ai__dsh-client-ui-primitives@0.1.1-rc.2.patch` | Exact-baseline optional Markdown destination resolver for verified produced-file buttons; unresolved relative and unsafe links remain inert |
 | `scripts/build-writing-preview-runtime.ts` | Builds and stages the current-platform semantic writing preview executable for the Science package |

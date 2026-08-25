@@ -103,6 +103,23 @@ export const commentAnnotationSchema = z.strictObject({
   target: annotationTargetSchema,
 });
 
+export const messageTextTargetSchema = z.strictObject({
+  type: z.literal("message_text"),
+  session_id: boundedString,
+  message_seq: safeIndex,
+  message_id: boundedString.optional(),
+  role: z.enum(["user", "steering", "assistant"]),
+  text: z.string().trim().min(1).max(8_000),
+});
+
+export const messageQuoteAnnotationSchema = z.strictObject({
+  type: z.literal("message_quote"),
+  id: boundedString,
+  created_at: z.number().int().nonnegative(),
+  target: messageTextTargetSchema,
+  comment: z.string().trim().min(1).max(2_000).optional(),
+});
+
 /** OpenAI Responses output annotations plus SwarmX-authored comment targets. */
 export const annotationSchema = z.union([
   openAIFileCitationAnnotationSchema,
@@ -110,9 +127,12 @@ export const annotationSchema = z.union([
   openAIContainerFileCitationAnnotationSchema,
   openAIFilePathAnnotationSchema,
   commentAnnotationSchema,
+  messageQuoteAnnotationSchema,
 ]);
 
 export type OpenAIResponseAnnotation = z.infer<typeof openAIResponseAnnotationSchema>;
 export type AnnotationTarget = z.infer<typeof annotationTargetSchema>;
 export type CommentAnnotation = z.infer<typeof commentAnnotationSchema>;
+export type MessageTextTarget = z.infer<typeof messageTextTargetSchema>;
+export type MessageQuoteAnnotation = z.infer<typeof messageQuoteAnnotationSchema>;
 export type Annotation = z.infer<typeof annotationSchema>;

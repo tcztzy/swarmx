@@ -84,8 +84,6 @@ describe("V17/V57 Science client registration", () => {
     const injectService = vi.fn((_services: string[], callback: (scope: typeof context) => void) =>
       callback(context),
     );
-    const unregisterReference = vi.fn();
-    const registerSource = vi.fn(() => unregisterReference);
     const registerConversationNode = vi.fn();
     const provide = vi.fn();
     let inputState = {
@@ -107,7 +105,6 @@ describe("V17/V57 Science client registration", () => {
       conversation: { input: { for: vi.fn(() => input) } },
       conversationEvents: { register: registerConversationNode },
       inject: injectService,
-      inputTriggers: { registerSource },
       remote: {
         $mount: mounted,
         science: {
@@ -183,9 +180,6 @@ describe("V17/V57 Science client registration", () => {
     const dispose = await apply(context as never);
 
     expect(mounted).toHaveBeenCalledWith(TYPERT_REMOTE);
-    expect(registerSource).toHaveBeenCalledWith(
-      expect.objectContaining({ trigger: "@", name: "annotation" }),
-    );
     expect(registerConversationNode).toHaveBeenCalledOnce();
     expect(provide).toHaveBeenCalledWith("chatFileMentions", expect.any(Object));
     expect(injectService).toHaveBeenCalledWith(["remote.science"], expect.any(Function));
@@ -284,11 +278,13 @@ describe("V17/V57 Science client registration", () => {
         createdAt: 1_787_371_200_000,
       }),
     ).toBe(true);
-    expect(input.setDraft).toHaveBeenCalledWith("Existing draft @");
-    expect(input.insertReference).toHaveBeenCalledOnce();
+    expect(input.setDraft).not.toHaveBeenCalled();
+    expect(input.insertReference).toHaveBeenCalledWith(
+      expect.objectContaining({ source: "annotation", placement: "detached" }),
+      { start: 14, end: 14, draftRev: 1 },
+    );
 
     await dispose();
     expect(disposeRemote).toHaveBeenCalledOnce();
-    expect(unregisterReference).toHaveBeenCalledOnce();
   });
 });

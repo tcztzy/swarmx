@@ -11,4 +11,7 @@ export default clientBundle("@swarmx/dsh-ui-science", ["lib/types/index.js"], {
   "@swarmx/dsh-science/types": fileURLToPath(
     new URL("../../science/core/lib/types/contracts.js", import.meta.url),
   ),
+  "@swarmx/dsh-ui-conversation/annotation-reference": fileURLToPath(
+    new URL("../ui-conversation/lib/types/annotation-reference.js", import.meta.url),
+  ),
 });

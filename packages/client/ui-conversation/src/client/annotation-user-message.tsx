@@ -9,6 +9,7 @@ import {
   writeClipboard,
 } from "@deepseek-ai/dsh-client-ui-primitives";
 import { memo, useEffect, useMemo, useRef, useState } from "react";
+import type { AnnotationTranslate } from "./annotation-locales.js";
 import {
   annotationCopyText,
   annotationPresentation,
@@ -50,10 +51,12 @@ function contentParts(content: readonly unknown[]) {
 
 function AnnotationCard({
   annotation,
+  annotationT,
 }: {
   readonly annotation: Parameters<typeof annotationPresentation>[0];
+  readonly annotationT: AnnotationTranslate;
 }) {
-  const view = annotationPresentation(annotation);
+  const view = annotationPresentation(annotation, annotationT);
   const title =
     view.href === null ? (
       view.title
@@ -75,7 +78,17 @@ function AnnotationCard({
   );
 }
 
-function UserActions({ text, time }: { readonly text: string; readonly time: number }) {
+function UserActions({
+  text,
+  time,
+  copyLabel,
+  copiedLabel,
+}: {
+  readonly text: string;
+  readonly time: number;
+  readonly copyLabel: string;
+  readonly copiedLabel: string;
+}) {
   const [copied, setCopied] = useState(false);
   const timer = useRef<number | null>(null);
   useEffect(
@@ -94,11 +107,12 @@ function UserActions({ text, time }: { readonly text: string; readonly time: num
     () => new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit" }).format(time),
     [time],
   );
+  const label = copied ? copiedLabel : copyLabel;
   return (
     <div className={css.actions}>
       <span className={css.time}>{clock}</span>
-      <Tooltip label={copied ? "Copied" : "Copy"} side="bottom">
-        <button type="button" aria-label={copied ? "Copied" : "Copy"} onClick={copy}>
+      <Tooltip label={label} side="bottom">
+        <button type="button" aria-label={label} onClick={copy}>
           {copied ? <IconCheckOutline16 /> : <IconCopyOutline16 />}
         </button>
       </Tooltip>
@@ -106,14 +120,19 @@ function UserActions({ text, time }: { readonly text: string; readonly time: num
   );
 }
 
+interface AnnotationMessageInjected {
+  readonly annotationT: AnnotationTranslate;
+}
+
 const AnnotationUserMessage = memo(function AnnotationUserMessage({
   node,
   renderMessageImages,
   t,
-}: UserNodeProps) {
+  annotationT,
+}: UserNodeProps & AnnotationMessageInjected) {
   const { text, images, rest } = contentParts(node.data.content);
   const projection = projectAnnotatedText(text);
-  const copyText = annotationCopyText(projection);
+  const copyText = annotationCopyText(projection, annotationT);
   const annotationCards = keyed(projection.annotations);
   const fallbackBlocks = keyed(rest);
   const showBubble =
@@ -128,11 +147,16 @@ const AnnotationUserMessage = memo(function AnnotationUserMessage({
         {showBubble && (
           <div className={css.bubble}>
             {annotationCards.map(({ key, value }) => (
-              <AnnotationCard key={key} annotation={value} />
+              <AnnotationCard key={key} annotation={value} annotationT={annotationT} />
             ))}
             {projection.invalidCount > 0 && (
               <p className={css.invalid} role="status">
-                {projection.invalidCount} invalid annotation hidden
+                {annotationT(
+                  projection.invalidCount === 1
+                    ? "presentation.invalidOne"
+                    : "presentation.invalidMany",
+                  { count: projection.invalidCount },
+                )}
               </p>
             )}
             {projection.body !== "" && (
@@ -150,16 +174,25 @@ const AnnotationUserMessage = memo(function AnnotationUserMessage({
             ))}
           </div>
         )}
-        <UserActions text={copyText} time={node.data.time} />
+        <UserActions
+          text={copyText}
+          time={node.data.time}
+          copyLabel={t("copy")}
+          copiedLabel={t("copied")}
+        />
       </div>
     </div>
   );
 });
 
-export function AnnotationUserMessageView(props: ChatNodeViewProps<"user">) {
+export function AnnotationUserMessageView(
+  props: ChatNodeViewProps<"user"> & AnnotationMessageInjected,
+) {
   return <AnnotationUserMessage {...props} />;
 }
 
-export function AnnotationSteeringMessageView(props: ChatNodeViewProps<"steering">) {
+export function AnnotationSteeringMessageView(
+  props: ChatNodeViewProps<"steering"> & AnnotationMessageInjected,
+) {
   return <AnnotationUserMessage {...props} />;
 }

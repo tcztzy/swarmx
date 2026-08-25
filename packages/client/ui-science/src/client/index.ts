@@ -1,16 +1,11 @@
 import type { Context } from "@deepseek-ai/cordis";
 import type {} from "@deepseek-ai/dsh-api-gateway/client";
 import type { SessionId } from "@deepseek-ai/dsh-client-runtime/client";
-import type {} from "@deepseek-ai/dsh-client-ui-input-trigger/client";
 import { TYPERT_REMOTE } from "@swarmx/dsh-science/remote";
 import type { ScienceArtifact, ScienceImageAnnotation } from "@swarmx/dsh-science/types";
+import { insertAnnotationReference } from "@swarmx/dsh-ui-conversation/annotation-reference";
 import type { SideViewEntry } from "@swarmx/dsh-ui-conversation/client";
-import {
-  annotationReferenceSource,
-  imageCommentAnnotation,
-  insertAnnotationReference,
-  paperCommentAnnotation,
-} from "./annotation-reference.js";
+import { imageCommentAnnotation, paperCommentAnnotation } from "./annotation-reference.js";
 import {
   artifactPayload,
   ScienceArtifactSideView,
@@ -28,7 +23,6 @@ import {
 export const inject = [
   "conversation",
   "conversationEvents",
-  "inputTriggers",
   "remote",
   "sessions",
   "sideView",
@@ -47,7 +41,6 @@ function remoteValue<T>(
 export async function apply(ctx: Context): Promise<() => Promise<void>> {
   registerScienceDeliverables(ctx);
   const disposeRemote = await ctx.remote.$mount(TYPERT_REMOTE);
-  const disposeAnnotationSource = ctx.inputTriggers.registerSource(annotationReferenceSource());
   const annotations = new Map<string, readonly ScienceImageAnnotation[]>();
   const annotationKey = (sessionId: SessionId, artifactId: string) =>
     `${sessionId}\u0000${artifactId}`;
@@ -183,7 +176,6 @@ export async function apply(ctx: Context): Promise<() => Promise<void>> {
 
   return async () => {
     annotations.clear();
-    disposeAnnotationSource();
     await disposeRemote();
   };
 }

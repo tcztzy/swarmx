@@ -158,6 +158,7 @@ describe("workspace layout", () => {
       .sort();
     expect(patchFiles).toEqual([
       `@deepseek-ai__dsh-client-ui-agent-preset@${baseline}.patch`,
+      `@deepseek-ai__dsh-client-ui-conversation@${baseline}.patch`,
       `@deepseek-ai__dsh-client-ui-layout@${baseline}.patch`,
       `@deepseek-ai__dsh-client-ui-primitives@${baseline}.patch`,
     ]);

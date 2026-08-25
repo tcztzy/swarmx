@@ -1,0 +1,241 @@
+.root {
+  position: relative;
+  width: 100%;
+  max-width: var(--dsh-composer-card-max-width);
+  margin: 0 auto;
+}
+
+.tray {
+  position: relative;
+  width: fit-content;
+}
+
+.countButton {
+  min-height: 28px;
+  padding: 3px 10px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 999px;
+  background: var(--dsw-specific-input-major);
+  color: var(--dsw-alias-label-secondary);
+  box-shadow: var(--dsw-shadow-lv1);
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 20px;
+}
+
+.countButton:hover,
+.countButton[aria-expanded="true"] {
+  border-color: var(--dsw-alias-border-l1);
+  background: var(--dsw-alias-interactive-bg-hover-solid);
+  color: var(--dsw-alias-label-primary);
+}
+
+.countButton:focus-visible,
+.itemActions button:focus-visible,
+.selectionAction button:focus-visible,
+.noteEditor button:focus-visible,
+.inlineEditor:focus-visible,
+.noteEditor textarea:focus-visible {
+  outline: 2px solid var(--dsw-alias-button-info-fill);
+  outline-offset: 2px;
+}
+
+.list {
+  position: absolute;
+  z-index: 12;
+  bottom: calc(100% + 8px);
+  left: 0;
+  width: min(390px, calc(100vw - 32px));
+  overflow: hidden;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 16px;
+  background: var(--dsw-specific-input-major);
+  box-shadow: var(--dsw-shadow-lv3);
+}
+
+.item {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr) auto;
+  gap: 4px;
+  align-items: start;
+  padding: 10px 12px;
+}
+
+.item + .item {
+  border-top: 1px solid var(--dsw-alias-border-l3);
+}
+
+.itemIndex,
+.itemLabel {
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 13px;
+  line-height: 20px;
+}
+
+.itemBody {
+  min-width: 0;
+}
+
+.itemBody blockquote,
+.itemBody p {
+  margin: 0;
+  overflow-wrap: anywhere;
+  color: var(--dsw-alias-label-primary);
+  font-size: 14px;
+  line-height: 20px;
+}
+
+.itemBody blockquote {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
+.itemBody .comment {
+  margin-top: 4px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.itemActions {
+  display: flex;
+  gap: 2px;
+  opacity: 0;
+  transition: opacity 80ms ease;
+}
+
+.item:hover .itemActions {
+  opacity: 1;
+}
+
+.item:focus-within .itemActions {
+  opacity: 1;
+}
+
+.itemActions button {
+  display: grid;
+  width: 26px;
+  height: 26px;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--dsw-alias-label-tertiary);
+  cursor: pointer;
+}
+
+.itemActions button:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
+}
+
+.inlineEditor,
+.noteEditor textarea {
+  box-sizing: border-box;
+  width: 100%;
+  resize: none;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 8px;
+  background: var(--dsw-alias-bg-base);
+  color: var(--dsw-alias-label-primary);
+  font: inherit;
+}
+
+.inlineEditor {
+  min-height: 58px;
+  margin-top: 6px;
+  padding: 7px 8px;
+}
+
+.selectionAction,
+.noteEditor {
+  position: fixed;
+  z-index: 30;
+  transform: translateX(-50%);
+}
+
+.selectionAction[data-placement="above"],
+.noteEditor[data-placement="above"] {
+  transform: translate(-50%, -100%);
+}
+
+.selectionAction {
+  display: flex;
+  overflow: hidden;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 12px;
+  background: var(--dsw-specific-input-major);
+  box-shadow: var(--dsw-shadow-lv2);
+}
+
+.selectionAction button {
+  min-height: 36px;
+  padding: 7px 12px;
+  border: 0;
+  background: transparent;
+  color: var(--dsw-alias-label-primary);
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 20px;
+}
+
+.selectionAction button:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.noteEditor {
+  display: grid;
+  width: min(340px, calc(100vw - 32px));
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 14px;
+  background: var(--dsw-specific-input-major);
+  box-shadow: var(--dsw-shadow-lv3);
+}
+
+.noteEditor label {
+  color: var(--dsw-alias-label-secondary);
+  font-size: 13px;
+  line-height: 18px;
+}
+
+.noteEditor textarea {
+  min-height: 76px;
+  padding: 9px 10px;
+}
+
+.noteActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.noteActions button {
+  min-height: 30px;
+  padding: 4px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  cursor: pointer;
+}
+
+.noteActions button[type="submit"] {
+  background: var(--dsw-alias-button-info-fill);
+  color: white;
+}
+
+.error {
+  margin: 4px 0 0;
+  color: var(--dsw-alias-state-error-primary);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .itemActions {
+    transition: none;
+  }
+}
