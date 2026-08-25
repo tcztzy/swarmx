@@ -26,6 +26,12 @@ The Harness supplies the complete browser UI and `/api` transport. SwarmX has no
 | `packages/core/annotation/vitest.config.ts` | Focused annotation contract test configuration |
 | `packages/core/annotation/src/index.ts` | OpenAI Responses annotation superset plus bounded SwarmX document, image, and source-addressed message targets |
 | `packages/core/annotation/tests/annotation.test.ts` | Official branch round-trip, provider-field preservation, message quote, and extension rejection contract |
+| `packages/core/dvc/tsdown.config.ts` | Host-only DVC service artifact configuration |
+| `packages/core/dvc/src/git-worktree.ts` | Package-private committed Git identity and owner-only detached-worktree lifecycle used only by DVC replay |
+| `packages/core/dvc/src/index.ts` | `ctx.dvc` path-free status, explicit pull, isolated exact-HEAD reproduction, request validation, redaction, and cleanup |
+| `packages/core/dvc/tests/dvc.test.ts` | DVC status digest, explicit mutation, isolated replay, dirty-workspace rejection, failure redaction, lazy CLI, and disposal contract |
+| `packages/core/dvc/tests/dvc-real.test.ts` | Opt-in-required real DVC CLI initialization, relative-root inspection, exact-HEAD replay, source isolation, and cleanup gate |
+| `packages/core/dvc/tests/fixtures/fake-dvc.mjs` | Deterministic local DVC CLI fixture for status, pull, cache, repro, and failed-stage tests |
 | `packages/core/pkb/tsdown.config.ts` | Host-only PKB service artifact configuration |
 | `packages/core/pkb/src/conversation.ts` | Workspace-authorized DSH Session search, exact event expansion, and bounded conversation evidence capture |
 | `packages/core/pkb/src/errors.ts` | Stable PKB error taxonomy |
@@ -39,6 +45,31 @@ The Harness supplies the complete browser UI and `/api` transport. SwarmX has no
 | `packages/core/pkb/tests/plugin.test.ts` | Aggregate tool approval and frozen prompt-index contract |
 | `packages/core/pkb/tests/vault.test.ts` | Vault permissions, isolation, revision, history, malformed-page, and portability contract |
 | `packages/client/tsdown.client.ts` | DSH-compatible client-plugin build preset and module-table external policy |
+| `packages/client/ui-dvc/tsdown.config.ts` | DVC UI host/client artifacts and bundled strict Remote entries |
+| `packages/client/ui-dvc/src/contracts.ts` | Bounded path-free DVC inspection and typed unavailable-state schemas |
+| `packages/client/ui-dvc/src/index.ts` | Session-authorized, read-only `ctx.dvcUi` adapter over Host-only `ctx.dvc.inspect` |
+| `packages/client/ui-dvc/src/remote-contract.ts` | Shared strict DVC snapshot invocation descriptor |
+| `packages/client/ui-dvc/src/remote.ts` | Client DVC Remote contribution and namespace typing |
+| `packages/client/ui-dvc/src/typert.ts` | Host DVC UI Typert contribution |
+| `packages/client/ui-dvc/src/client/index.ts` | DVC Remote mount consumed by the shared Version Control presentation |
+| `packages/client/ui-dvc/tests/client-build.test.ts` | Shared single-file DVC client-bundle contract |
+| `packages/client/ui-dvc/tests/client.test.tsx` | DVC client Remote-only registration contract |
+| `packages/client/ui-dvc/tests/dvc-snapshot.test.ts` | Session delegation, path privacy, typed optional-state, and cancellation contract |
+| `packages/client/ui-dvc/tests/typert.test.ts` | Host/Client DVC descriptor parity, strict path boundary, and read-only method surface |
+| `packages/client/ui-git/tsdown.config.ts` | Git UI host/client artifacts and bundled strict Remote entries |
+| `packages/client/ui-git/src/contracts.ts` | Bounded repository-relative Git status and typed unavailable-state schemas |
+| `packages/client/ui-git/src/index.ts` | Session-authorized, read-only `ctx.gitUi` Host service over porcelain-v2 Git status |
+| `packages/client/ui-git/src/remote-contract.ts` | Shared strict Git snapshot invocation descriptor |
+| `packages/client/ui-git/src/remote.ts` | Client Git Remote contribution and namespace typing |
+| `packages/client/ui-git/src/typert.ts` | Host Git Typert contribution |
+| `packages/client/ui-git/src/css.d.ts` | Git UI CSS Module type boundary |
+| `packages/client/ui-git/src/client/index.ts` | Git Remote mount plus one per-Session Version Control action/view combining independent Git and optional DVC loads |
+| `packages/client/ui-git/src/client/version-control-view.tsx` | Read-only default-open Git Changes and detected DVC accordion presentation with shared refresh/error states |
+| `packages/client/ui-git/src/client/version-control-view.module.css` | Compact Source Control-inspired disclosure, status-row, and header-action styling |
+| `packages/client/ui-git/tests/client-build.test.ts` | Shared single-file client-bundle contract |
+| `packages/client/ui-git/tests/client.test.tsx` | Single Version Control registration, default-open Git/DVC disclosures, DVC hiding, and read-only rendering contract |
+| `packages/client/ui-git/tests/git-snapshot.test.ts` | Real Git repository status, path privacy, entry cap, lazy CLI, Session, and cancellation contract |
+| `packages/client/ui-git/tests/typert.test.ts` | Host/Client Git descriptor parity and read-only method surface |
 | `packages/client/ui-conversation/tsdown.config.ts` | Conversation extensions host/client artifact configuration |
 | `packages/client/ui-conversation/src/annotation-reference.ts` | Stable reusable annotation-reference module entry for client plugins |
 | `packages/client/ui-conversation/src/index.ts` | Conversation extensions plugin host half |
@@ -173,3 +204,6 @@ Python/R generation flow, source locators, security boundary, and opt-out semant
 
 `docs/pkb.md` defines the owner-only OKF v0.2 Vault, Obsidian/MyST compatibility profile,
 conversation evidence boundary, approval policy, and progressive-disclosure prompt behavior.
+
+`docs/version-control.md` defines the read-only human Git/DVC UIs, Host-only DVC command capability,
+and package-private Git isolation boundary used for clean-HEAD DVC reproduction.

@@ -13,6 +13,7 @@ SwarmX presents the published DeepSeek Harness Web profile as one safe, local El
 - Workspace uses `pnpm@11.7.0`; build tooling follows DSH TypeScript 6 + tsdown client conventions.
 - DSH session log remains agent-interaction truth; Science Journal owns scientific domain facts and never replaces Chat/Trajectory projections.
 - Science defaults to local-only execution/storage with no implicit network capability.
+- Git and DVC integrations are optional Host capabilities over user-installed CLIs; desktop boot never installs, initializes, synchronizes, or contacts a remote implicitly.
 - SwarmX PKB uses owner-readable local plaintext Markdown so Obsidian can open it directly; no implicit network, publication, sync, or at-rest encryption claim.
 - PKB Wiki synthesizes durable personal knowledge; DSH session logs remain immutable conversation evidence and Science Journal remains scientific-domain truth.
 
@@ -52,6 +53,14 @@ SwarmX presents the published DeepSeek Harness Web profile as one safe, local El
 - api: `ctx.science.searchLiterature(sessionId, request, signal?)` → search the running local Zotero library, normalize every candidate through one owner-only BibTeX snapshot, and return bounded citation-ready records without reading attachment paths or contacting a cloud service.
 - plugin: `@swarmx/dsh-science/tools` → the `dsh-science` preset's bounded aggregate `science_*` tools plus one explicit `literature_search` tool registered through the preset-scoped `ctx.tools` layer, each returning a fact/inference/proposal classification and Science entity locator where applicable.
 - api: `JupyMcpRuntime.execute/readNotebook/close` → Host-only persistent Notebook Controller keyed by workspace + Notebook, backed by one local JupyMCP MCP stdio session through the official TypeScript SDK; returns bounded standard MIME outputs and owns MCP/kernel teardown.
+- package: `@swarmx/dsh-ui-git` → read-only, Session-scoped Git status Remote plus the single browser Version Control header action and Details view that composes Git with optional DVC project status; registers no model tool and exposes no mutation.
+- api: `ctx.gitUi.snapshot(sessionId, signal?)` → committed-HEAD identity, branch/upstream facts, and bounded porcelain-v2 staged/unstaged/untracked/conflict entries using repository-relative paths only.
+- package: `@swarmx/dsh-dvc` → Host-only `ctx.dvc` service over an existing DVC project; owns path-free status, explicit live-workspace pull, and isolated clean-HEAD reproduction with a package-private Git/worktree runtime.
+- api: `ctx.dvc.inspect(cwd, signal?)` → DVC/Git versions, Git HEAD, DVC project-relative root, SHA256 `dvc.yaml|dvc.lock` identities, and bounded path-free data/pipeline status summaries without remote refresh.
+- api: `ctx.dvc.pull(cwd, request, signal?)` → explicit target/remote cache synchronization into the addressed live workspace; no implicit invocation or approval bypass through a model surface.
+- api: `ctx.dvc.reproduce(cwd, request, signal?)` → require a clean committed Git workspace, create one detached worktree, reuse only private local DVC configuration/cache, run the requested DVC targets, and return a disposable Host-only result handle without mutating the source workspace.
+- package: `@swarmx/dsh-ui-dvc` → read-only, Session-scoped DVC status Remote consumed by the Version Control view; delegates inspection to `ctx.dvc`, registers no separate browser surface or model tool, and exposes no DVC mutation.
+- api: `ctx.dvcUi.snapshot(sessionId, signal?)` → derive the live Session workspace, return one typed `project|not-project|unavailable` result, and expose only the path-free `ctx.dvc.inspect` projection.
 - package: `@swarmx/dsh-pkb` → Host-only OKF v0.2 Personal Knowledge Base service, one aggregate model tool, bounded index context, and DSH conversation-source retrieval.
 - file: `$DSH_HOME/pkb/vault` → one owner-only Obsidian-openable OKF v0.2 Markdown bundle; `index.md` and `log.md` plus global/workspace concepts and bounded conversation-source excerpts.
 - api: `ctx.pkb.search/read/create/update/deprecate/searchConversations/readConversation/getVaultInfo` → workspace-authorized Wiki and cross-Session knowledge operations with exact revisions, cancellation, and bounded results.
@@ -77,6 +86,11 @@ R18|OKF provenance|`sources[].resource` records provenance; stable `sources[].id
 R19|Obsidian interop|YAML properties + standard Markdown links supported; Wikilinks optional; block references Obsidian-specific|https://help.obsidian.md/properties
 R20|MyST interop|YAML frontmatter, relative Markdown document links, named footnotes, and standard citations supported|https://mystmd.org/guide/quickstart-myst-markdown
 R21|DSH conversation query|`ctx.sessionQuery` owns exact/filter/search/read-window APIs; literal text filter remains provider-independent; callers own authorization|https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/session-query/session-query/README.md
+R22|Git machine status|`git status --porcelain=v2 -z --branch` is config-stable, NUL-delimits raw paths, emits extensible `#` headers, and requires parsers to ignore unknown headers|https://git-scm.com/docs/git-status
+R23|Git isolated worktree|`git worktree add --detach <path> <commit>` creates a branchless linked worktree; normal lifecycle ends through `git worktree remove`, with `--force` required for dirty disposable trees|https://git-scm.com/docs/git-worktree
+R24|DVC status|`dvc data status --json` is read-only workspace-vs-HEAD data status; `dvc status --json` reports pipeline/cache state, and remote comparison occurs only when explicitly requested|https://doc.dvc.org/command-reference/data/status
+R25|DVC reproduction|`dvc repro` executes required dependency-graph stages and deletes non-persistent stage outputs before their producing command; `--pull` is explicit|https://doc.dvc.org/command-reference/repro
+R26|DVC synchronization|`dvc pull` downloads selected tracked objects into cache then links/copies them into the workspace; remote selection is explicit or project-configured|https://doc.dvc.org/command-reference/pull
 
 ## §V INVARIANTS
 
@@ -222,6 +236,25 @@ V139: ∀ malformed hand-edited Markdown → preserve bytes, exclude that page f
 V140: ∀ PKB operation → local-only with no public route, implicit network, automatic sync, background LLM, or second durable transcript corpus; Science claims/experiments remain Science Journal entities and PKB may store only a locator or personal synthesis with explicit provenance.
 V141: ∀ package-local test script reusing root Vitest include globs → set workspace root explicitly and constrain execution to that package's tests; filtered invocation discovers ≥1 test.
 V142: ∀ product-owned workspace package relocation → package/test/docs references point to actual workspace directory; Host-only patch bare entries resolve from owning package manifest before boot, while client-bearing entries stay bare for DSH module registration.
+V143: ∀ `ctx.gitUi.snapshot` → authorize from the live Session cwd, resolve configured Git lazily through `ctx.subprocess`, use explicit argv/cwd/stdio/env with no shell, bound stdout/stderr, forward abort, and return one typed `repository|not-repository|unavailable` result without preventing desktop boot.
+V144: ∀ Git UI repository snapshot → require one non-bare repository with committed HEAD, run `--no-optional-locks status --porcelain=v2 -z --branch --untracked-files=all`, ignore unknown `#` headers, reject malformed records, cap entries, and expose only repository-relative changed paths plus branch/object identity; no canonical repository/cwd path crosses Remote.
+V145: ∀ `dsh-ui-git` client → mount one read-only per-Session Version Control header action and keyed Details view whose Git Changes accordion is open by default with explicit refresh/error/empty/truncated states; register no model tool, staging, commit, branch, checkout, fetch, pull, push, or implicit polling mutation.
+V146: ∀ `ctx.dvc.inspect` → require an existing DVC root contained by the inspected Git repository, resolve configured DVC lazily, perform no remote refresh/network/write, hash bounded regular `dvc.yaml|dvc.lock` bytes with SHA256, and expose only Git-relative DVC root plus deterministic category/count/digest summaries of bounded JSON status.
+V147: ∀ DVC target/remote input → strict bounded strings reject option prefixes, NUL, absolute paths, and `..` path segments; remote names use one bounded identifier grammar; subprocess argv remains unambiguous with no shell concatenation.
+V148: ∀ `ctx.dvc.pull` → only an explicit Host caller may mutate the addressed live workspace or contact its configured remote; the package registers no model tool/Remote endpoint, and settled output is bounded/path-redacted while cancellation terminates the complete process tree.
+V149: ∀ `ctx.dvc.reproduce` → reject dirty/unborn/bare Git state, reproduce only an exact clean HEAD inside a package-private detached Git worktree, privately reuse source `.dvc/config.local` and cache without returning either path/content, optionally pull only when requested, preserve the disposable tree for caller inspection, and never mutate the source workspace.
+V150: ∀ settled DVC command → distinguish executable/service failure from a started process's `succeeded|failed|cancelled` outcome; no nonzero stage result is mislabeled as successful reproduction, and every unreleased reproduction is removed on service disposal.
+V151: ∀ Git/DVC workspace operation → serialize mutating operations per canonical repository, validate post-resolution containment before filesystem access, keep copied local configuration `0600` below the `0700` disposable owner, redact canonical paths/credential-bearing remote URLs from diagnostics, and never return credential material.
+V152: ∀ desktop profile boot → mount exactly one `@swarmx/dsh-ui-git`, one `@swarmx/dsh-dvc`, and one `@swarmx/dsh-ui-dvc`; Git/DVC UI cross-process surfaces remain read-only, DVC mutation remains Host-only, and missing user CLIs become per-call actionable states/errors rather than boot failures.
+V153: ∀ `ctx.dvcUi.snapshot` → authorize from the live Session cwd, call only `ctx.dvc.inspect`, validate the result at the Remote boundary, and map expected missing-project/CLI conditions to typed `not-project|unavailable` states without exposing canonical paths, remote URLs, credentials, command output, or mutation handles.
+V154: ∀ `dsh-ui-dvc` client → mount only the strict DVC Remote contribution for the shared Version Control view and no separate header action or keyed Details view; register no model tool, initialize, add, pull, push, repro, experiment, implicit polling, or network action.
+V155: ∀ DVC UI composition → mount `@swarmx/dsh-dvc` before `@swarmx/dsh-ui-dvc`, publish exactly one strict `dvcUi/snapshot` Typert endpoint, preserve `ctx.dvc` as the only DVC command owner, and keep optional CLI failure local to the rendered Session state.
+V156: ∀ required real-DVC integration gate → initialize a temporary committed Git/DVC pipeline with the installed CLI, exercise `ctx.dvc.inspect` and exact-HEAD `ctx.dvc.reproduce`, prove source-workspace isolation and disposable-worktree cleanup, and fail explicitly when the CLI is required but unavailable.
+V157: ∀ `dvc root` result → resolve the CLI's relative-or-absolute path against the command cwd, canonicalize it, then enforce Git-root containment before manifest or configuration access.
+V158: ∀ test requiring multiple DSH loader-entry lookups or order comparison → materialize `ctx.loader.entries()` once before array operations; never cast and reuse its consumable iterator as an Array.
+V159: ∀ real external-CLI integration test → declare a bounded timeout sized for full-suite contention; default unit-test timeout must not turn a successful DVC operation into a false failure.
+V160: ∀ §B append → scan the complete section, allocate `max(existing id)+1`, and keep rows in strictly increasing numeric order; partial-tail reads must not determine identifiers.
+V161: ∀ Version Control snapshot → Git remains independently usable; render one default-open DVC accordion iff `ctx.dvcUi.snapshot` returns `project`, hide `not-project|unavailable|failed` DVC detection without hiding Git, and display only path-free DVC identity plus data/pipeline category counts inside the shared panel.
 
 ## §T TASKS
 
@@ -279,6 +312,15 @@ T51|x|implement authorized cross-Session search + conversation evidence pages|R2
 T52|x|register `ctx.pkb`, aggregate `pkb` tool, approval policy, and frozen index context|I.`ctx.pkb`,I.`pkb`,V133,V135,V138,V140
 T53|x|compose desktop package + verify build, docs, security, lifecycle|V4,V15,V22,V32,V64,V84,V130,V140
 T54|x|fix PKB relocation references + owner-anchored product patch resolution|V64,V141,V142
+T55|x|document and test Git UI/DVC contracts|R22,R23,R24,R25,R26,V143,V144,V145,V146,V147,V148,V149,V150,V151,V152
+T56|x|implement read-only `@swarmx/dsh-ui-git` Remote, header action, and Details view|I.`@swarmx/dsh-ui-git`,I.`ctx.gitUi.snapshot`,V143,V144,V145
+T57|x|implement `@swarmx/dsh-dvc` status + explicit pull + isolated reproduction|I.`@swarmx/dsh-dvc`,I.`ctx.dvc.inspect`,I.`ctx.dvc.pull`,I.`ctx.dvc.reproduce`,V146,V147,V148,V149,V150,V151
+T58|x|compose Git UI/DVC packages into desktop and verify build/docs/lifecycle|V4,V15,V22,V32,V141,V142,V152
+T59|x|document and test DVC UI + real CLI contracts|I.`@swarmx/dsh-ui-dvc`,I.`ctx.dvcUi.snapshot`,V153,V154,V155,V156
+T60|x|install DVC CLI and validate status/reproduction against a real temporary project|R24,R25,V146,V149,V150,V156
+T61|x|implement read-only `@swarmx/dsh-ui-dvc` Remote, header action, and Details view|I.`@swarmx/dsh-ui-dvc`,I.`ctx.dvcUi.snapshot`,V153,V154,V155
+T62|x|compose DVC UI into desktop and verify runtime/build/docs/lifecycle|V4,V15,V22,V32,V141,V142,V152,V155,V156
+T63|x|merge Git and available DVC status into one accordion Version Control panel|I.`@swarmx/dsh-ui-git`,I.`@swarmx/dsh-ui-dvc`,V145,V154,V161
 
 ## §B BUGS
 
@@ -338,3 +380,8 @@ B52|2026-08-25|pinning root Vitest config did not change Vitest root, so root-re
 B53|2026-08-25|PKB relocation references misspelled `pkb` as `pkg`, breaking filtered tests, Host typecheck, layout checks, and code map|V142
 B54|2026-08-25|product-owned PKB patch kept bare package entry against DSH module base, depending on incidental workspace hoisting|V142
 B55|2026-08-25|owner-anchoring every product patch converted client-bearing Conversation/Science entries to file paths, removing their DSH client-module identity|V142
+B56|2026-08-25|DVC 3.67 returned `dvc root` as `.`, but Host resolved it against its own process cwd instead of command cwd|V157
+B57|2026-08-25|desktop test cast consumable `ctx.loader.entries()` iterator to Array, so first `find` closed it before DVC UI lookup|V158
+B58|2026-08-25|real DVC integration finished alone but exceeded Vitest's 5s default under full-suite process contention|V159
+B59|2026-08-25|new DVC UI test imports and real-CLI timeout edit were not Biome-formatted before verification|V4
+B60|2026-08-25|backprop allocated IDs from a stale partial §B tail and duplicated existing `B54|B55`|V160

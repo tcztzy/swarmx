@@ -1,0 +1,5 @@
+# Host-only DVC capability with a package-private Git worktree runtime.
+
+- insert:
+    - id: swarmx-dvc
+      name: '@swarmx/dsh-dvc'

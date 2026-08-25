@@ -112,11 +112,41 @@ describe("harness boot", () => {
     expect(
       (globalThis as { __SWARMX_PROFILE_FIXTURE__?: boolean }).__SWARMX_PROFILE_FIXTURE__,
     ).toBe(true);
-    const entries = harness.ctx.loader.entries() as Array<{
+    const entries = [...harness.ctx.loader.entries()] as Array<{
       options: { id?: string; name?: string };
     }>;
     const fixtureEntry = entries.find((entry) => entry.options.id === "profile-fixture");
     expect(fixtureEntry?.options.name).toBe(realpathSync(fixtureEntryPath));
+  });
+
+  it("mounts read-only Git/DVC UIs and keeps DVC mutations off model tools", async () => {
+    expect(harness.ctx.get("gitUi")).toBeDefined();
+    expect(harness.ctx.get("dvc")).toBeDefined();
+    expect(harness.ctx.get("dvcUi")).toBeDefined();
+    const typert = harness.ctx.get("typert") as
+      | { local: { get(endpoint: string): { service: string } | undefined } }
+      | undefined;
+    expect(typert?.local.get("gitUi/snapshot")).toMatchObject({ service: "gitUi" });
+    expect(typert?.local.get("dvcUi/snapshot")).toMatchObject({ service: "dvcUi" });
+    expect(harness.ctx.tools.get("git")).toBeUndefined();
+    expect(harness.ctx.tools.get("dvc")).toBeUndefined();
+
+    const entries = [...harness.ctx.loader.entries()] as Array<{
+      options: { id?: string; name?: string };
+    }>;
+    const dvcEntry = entries.find((entry) => entry.options.id === "swarmx-dvc");
+    const dvcUiEntry = entries.find((entry) => entry.options.id === "swarmx-ui-dvc");
+    const expectedDvc = createRequire(import.meta.url).resolve("@swarmx/dsh-dvc");
+    expect(dvcEntry?.options.name).toBe(realpathSync(expectedDvc));
+    expect(dvcUiEntry).toBeDefined();
+    expect(entries.indexOf(dvcUiEntry as (typeof entries)[number])).toBeGreaterThan(
+      entries.indexOf(dvcEntry as (typeof entries)[number]),
+    );
+
+    const response = await fetch(harness.url);
+    const html = await response.text();
+    expect(html).toContain("@swarmx/dsh-ui-git");
+    expect(html).toContain("@swarmx/dsh-ui-dvc");
   });
 
   it("mounts the Science Journal and adds its client integration to the boot graph", async () => {

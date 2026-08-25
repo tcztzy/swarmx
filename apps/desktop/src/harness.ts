@@ -9,7 +9,7 @@
 import { writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import type { Context } from "@deepseek-ai/cordis";
 import {
   boot,
@@ -50,9 +50,29 @@ function installAnchor(): string {
   return createRequire(import.meta.url).resolve("@deepseek-ai/dsh/package.json");
 }
 
+/** Desktop composition manifest owning every product plugin dependency. */
+function appAnchor(): string {
+  return join(dirname(dirname(fileURLToPath(import.meta.url))), "package.json");
+}
+
 /** Installed manifest for the SwarmX client extension and its dependency closure. */
 function conversationAnchor(): string {
   return createRequire(import.meta.url).resolve("@swarmx/dsh-ui-conversation/package.json");
+}
+
+/** Installed manifest for the read-only SwarmX Git status UI. */
+function gitUiAnchor(): string {
+  return createRequire(import.meta.url).resolve("@swarmx/dsh-ui-git/package.json");
+}
+
+/** Installed manifest for the Host-only SwarmX DVC capability. */
+function dvcAnchor(): string {
+  return createRequire(import.meta.url).resolve("@swarmx/dsh-dvc/package.json");
+}
+
+/** Installed manifest for the read-only SwarmX DVC status UI. */
+function dvcUiAnchor(): string {
+  return createRequire(import.meta.url).resolve("@swarmx/dsh-ui-dvc/package.json");
 }
 
 /** Installed manifest for the SwarmX science Host service. */
@@ -146,6 +166,21 @@ function conversationPatchPath(): string {
   return join(dirname(conversationAnchor()), "cordis.patch.yml");
 }
 
+/** Read-only Git status service and client integration layer. */
+function gitUiPatchPath(): string {
+  return join(dirname(gitUiAnchor()), "cordis.patch.yml");
+}
+
+/** Host-only DVC status, pull, and isolated reproduction layer. */
+function dvcPatchPath(): string {
+  return join(dirname(dvcAnchor()), "cordis.patch.yml");
+}
+
+/** Read-only DVC status service and client integration layer. */
+function dvcUiPatchPath(): string {
+  return join(dirname(dvcUiAnchor()), "cordis.patch.yml");
+}
+
 /** Product-owned Science Journal service and client integration layer. */
 function sciencePatchPath(): string {
   return join(dirname(scienceAnchor()), "cordis.patch.yml");
@@ -219,11 +254,17 @@ export async function startHarness(): Promise<Harness> {
   const home = resolveDshHome();
   const anchor = installAnchor();
   const conversationPackageAnchor = conversationAnchor();
+  const gitUiPackageAnchor = gitUiAnchor();
+  const dvcPackageAnchor = dvcAnchor();
+  const dvcUiPackageAnchor = dvcUiAnchor();
   const pkbPackageAnchor = pkbAnchor();
   const sciencePackageAnchor = scienceAnchor();
   const scienceUiPackageAnchor = scienceUiAnchor();
   healProfilesModuleFallback(anchor, home);
   healProfilesModuleFallback(conversationPackageAnchor, home);
+  healProfilesModuleFallback(gitUiPackageAnchor, home);
+  healProfilesModuleFallback(dvcPackageAnchor, home);
+  healProfilesModuleFallback(dvcUiPackageAnchor, home);
   healProfilesModuleFallback(pkbPackageAnchor, home);
   healProfilesModuleFallback(sciencePackageAnchor, home);
   healProfilesModuleFallback(scienceUiPackageAnchor, home);
@@ -240,6 +281,13 @@ export async function startHarness(): Promise<Harness> {
       profile,
     ),
     loadOptionalPatches(BIN_NAME, conversationPatchPath()) ?? [],
+    loadOptionalPatches(BIN_NAME, gitUiPatchPath()) ?? [],
+    resolveHostPatchEntries(
+      loadOptionalPatches(BIN_NAME, dvcPatchPath()) ?? [],
+      "@swarmx/dsh-dvc",
+      dvcPackageAnchor,
+    ),
+    loadOptionalPatches(BIN_NAME, dvcUiPatchPath()) ?? [],
     resolveHostPatchEntries(
       loadOptionalPatches(BIN_NAME, pkbPatchPath()) ?? [],
       "@swarmx/dsh-pkb",
@@ -277,7 +325,7 @@ export async function startHarness(): Promise<Harness> {
       provideCmdline(hostCtx, { args: ["--no-open"], exit: () => {} });
       hostCtx.plugin(MarkdownFileLinks);
     },
-    bareModuleBaseUrl(anchor),
+    bareModuleBaseUrl(appAnchor()),
   );
   const port = ctx.get("webServer")?.port;
   if (port === undefined) {

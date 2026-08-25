@@ -1,0 +1,5 @@
+# Read-only DVC status service plus browser UI. DVC mutations stay Host-only or in Bash.
+
+- insert:
+    - id: swarmx-ui-dvc
+      name: '@swarmx/dsh-ui-dvc'

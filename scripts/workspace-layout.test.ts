@@ -63,8 +63,11 @@ function columnSolver(bundle: string): ComputeColumns {
 describe("workspace layout", () => {
   it("groups reusable packages and keeps the desktop as an app", () => {
     expect(existsSync("packages/client/ui-conversation/package.json")).toBe(true);
+    expect(existsSync("packages/client/ui-dvc/package.json")).toBe(true);
+    expect(existsSync("packages/client/ui-git/package.json")).toBe(true);
     expect(existsSync("packages/client/ui-science/package.json")).toBe(true);
     expect(existsSync("packages/core/annotation/package.json")).toBe(true);
+    expect(existsSync("packages/core/dvc/package.json")).toBe(true);
     expect(existsSync("packages/core/pkb/package.json")).toBe(true);
     expect(existsSync("packages/science/core/package.json")).toBe(true);
     expect(existsSync("apps/desktop/package.json")).toBe(true);
@@ -78,7 +81,10 @@ describe("workspace layout", () => {
     expect(Object.values(root.scripts ?? {}).join("\n")).not.toContain("npm run");
 
     const desktop = manifest("apps/desktop/package.json");
+    expect(desktop.dependencies?.["@swarmx/dsh-dvc"]).toBe("workspace:*");
     expect(desktop.dependencies?.["@swarmx/dsh-ui-conversation"]).toBe("workspace:*");
+    expect(desktop.dependencies?.["@swarmx/dsh-ui-dvc"]).toBe("workspace:*");
+    expect(desktop.dependencies?.["@swarmx/dsh-ui-git"]).toBe("workspace:*");
     expect(desktop.dependencies?.["@swarmx/dsh-pkb"]).toBe("workspace:*");
     expect(desktop.dependencies?.["@swarmx/dsh-science"]).toBe("workspace:*");
     expect(desktop.dependencies?.["@swarmx/dsh-ui-science"]).toBe("workspace:*");
@@ -136,8 +142,11 @@ describe("workspace layout", () => {
       "apps/desktop/package.json",
       "package.json",
       "packages/client/ui-conversation/package.json",
+      "packages/client/ui-dvc/package.json",
+      "packages/client/ui-git/package.json",
       "packages/client/ui-science/package.json",
       "packages/core/annotation/package.json",
+      "packages/core/dvc/package.json",
       "packages/core/pkb/package.json",
       "packages/science/core/package.json",
     ];

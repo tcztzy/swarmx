@@ -1,0 +1,5 @@
+# Read-only Git status service plus browser UI. Git mutations stay in Bash.
+
+- insert:
+    - id: swarmx-ui-git
+      name: '@swarmx/dsh-ui-git'

@@ -4,6 +4,8 @@
     { "path": "./packages/core/annotation" },
     { "path": "./packages/science/core" },
     { "path": "./packages/client/ui-conversation" },
+    { "path": "./packages/client/ui-dvc" },
+    { "path": "./packages/client/ui-git" },
     { "path": "./packages/client/ui-science" }
   ]
 }
