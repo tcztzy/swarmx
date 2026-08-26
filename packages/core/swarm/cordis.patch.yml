@@ -1,0 +1,7 @@
+# Owner-only Swarm journal and DSH-native continuable-member runtime.
+
+- insert:
+    - id: swarmx-swarm
+      name: '@swarmx/dsh-swarm'
+      config:
+        root: !!js dshHomePath('swarm')

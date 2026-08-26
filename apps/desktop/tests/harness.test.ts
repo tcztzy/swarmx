@@ -187,6 +187,32 @@ describe("harness boot", () => {
     );
   });
 
+  it("mounts the durable Swarm service and read-only client projection", async () => {
+    expect(harness.ctx.get("swarm")).toBeDefined();
+    const typert = harness.ctx.get("typert") as
+      | { local: { get(endpoint: string): { service: string } | undefined } }
+      | undefined;
+    expect(typert?.local.get("swarm/uiSnapshot")).toMatchObject({ service: "swarm" });
+    expect(typert?.local.get("swarm/waitUi")).toMatchObject({ service: "swarm" });
+    expect(harness.ctx.tools.get("swarm")).toBeUndefined();
+    expect(statSync(join(home, "swarm")).mode & 0o777).toBe(0o700);
+    expect(statSync(join(home, "swarm", "swarm.sqlite")).mode & 0o777).toBe(0o600);
+
+    const entries = [...harness.ctx.loader.entries()] as Array<{
+      options: { id?: string; name?: string };
+    }>;
+    const swarmEntry = entries.find((entry) => entry.options.id === "swarmx-swarm");
+    const swarmUiEntry = entries.find((entry) => entry.options.id === "swarmx-ui-swarm");
+    expect(swarmEntry?.options.name).toBe("@swarmx/dsh-swarm");
+    expect(swarmUiEntry).toBeDefined();
+    expect(entries.indexOf(swarmUiEntry as (typeof entries)[number])).toBeGreaterThan(
+      entries.indexOf(swarmEntry as (typeof entries)[number]),
+    );
+
+    const response = await fetch(harness.url);
+    expect(await response.text()).toContain("@swarmx/dsh-ui-swarm");
+  });
+
   it("discovers Science as a system preset and scopes its model tools", async () => {
     const preset = (await harness.ctx.agentPresets.list()).find(({ id }) => id === "dsh-science");
     expect(preset).toMatchObject({
@@ -206,6 +232,26 @@ describe("harness boot", () => {
     expect(harness.ctx.tools.get("science_export", science)).toBeDefined();
     expect(harness.ctx.tools.get("literature_search", science)).toBeDefined();
     expect(harness.ctx.tools.get("pkb", science)).toBeDefined();
+  });
+
+  it("discovers Team mode and scopes Swarm tools to that preset only", async () => {
+    const preset = (await harness.ctx.agentPresets.list()).find(({ id }) => id === "dsh-swarm");
+    expect(preset).toMatchObject({
+      id: "dsh-swarm",
+      trust: "system",
+      name: "团队模式",
+      order: 6,
+    });
+    expect(preset?.broken).toBeUndefined();
+
+    const standard = await harness.ctx.agentPresets.standingKeyFor("standard");
+    const science = await harness.ctx.agentPresets.standingKeyFor("dsh-science");
+    const swarm = await harness.ctx.agentPresets.standingKeyFor("dsh-swarm");
+    expect(harness.ctx.tools.get("swarm", standard)).toBeUndefined();
+    expect(harness.ctx.tools.get("swarm", science)).toBeUndefined();
+    expect(harness.ctx.tools.get("swarm", swarm)).toBeDefined();
+    expect(harness.ctx.tools.get("science_record", swarm)).toBeDefined();
+    expect(harness.ctx.tools.get("literature_search", swarm)).toBeDefined();
   });
 
   it("suppresses the web profile's system-browser handoff", () => {

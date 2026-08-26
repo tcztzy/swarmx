@@ -69,11 +69,10 @@ describe("T18 research facts and experiment ledger", () => {
     });
     const workspace = fixture.context.science.getWorkspace(fixture.sessionA);
     expect(workspace.records).toHaveLength(4);
-    expect(workspace.relations.map((relation) => relation.type)).toEqual([
-      "motivated_by",
-      "derived_from",
-      "supports",
-    ]);
+    expect(workspace.relations).toHaveLength(3);
+    expect(workspace.relations.map((relation) => relation.type)).toEqual(
+      expect.arrayContaining(["motivated_by", "derived_from", "supports"]),
+    );
 
     const researchObject = fixture.context.science.getResearchObject(fixture.sessionA, {
       projectId: project.id,

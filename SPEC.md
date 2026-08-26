@@ -2,7 +2,7 @@
 
 ## §G GOAL
 
-SwarmX presents the published DeepSeek Harness Web profile as one safe, local Electron desktop surface with an additive local-first scientific IDE and private personal knowledge base.
+SwarmX presents the published DeepSeek Harness Web profile as one safe, local Electron desktop surface with an additive local-first scientific IDE, durable DSH-native agent swarms, and private personal knowledge base.
 
 ## §C CONSTRAINTS
 
@@ -16,6 +16,8 @@ SwarmX presents the published DeepSeek Harness Web profile as one safe, local El
 - Git and DVC integrations are optional Host capabilities over user-installed CLIs; desktop boot never installs, initializes, synchronizes, or contacts a remote implicitly.
 - SwarmX PKB uses owner-readable local plaintext Markdown so Obsidian can open it directly; no implicit network, publication, sync, or at-rest encryption claim.
 - PKB Wiki synthesizes durable personal knowledge; DSH session logs remain immutable conversation evidence and Science Journal remains scientific-domain truth.
+- Swarm members share one checkout; read-only tasks may overlap, while SwarmX admits at most one active workspace-mutating attempt per Team.
+- Swarm orchestration state stays owner-only under `$DSH_HOME`; no workspace file, alternate Agent runtime, or second conversation transcript becomes authoritative.
 
 ## §I INTERFACES
 
@@ -65,6 +67,12 @@ SwarmX presents the published DeepSeek Harness Web profile as one safe, local El
 - file: `$DSH_HOME/pkb/vault` → one owner-only Obsidian-openable OKF v0.2 Markdown bundle; `index.md` and `log.md` plus global/workspace concepts and bounded conversation-source excerpts.
 - api: `ctx.pkb.search/read/create/update/deprecate/searchConversations/readConversation/getVaultInfo` → workspace-authorized Wiki and cross-Session knowledge operations with exact revisions, cancellation, and bounded results.
 - tool: `pkb` → aggregate `search|read|create|update|deprecate|search_conversations|read_conversation|vault_info` actions; no `memory` compatibility alias.
+- package: `@swarmx/dsh-swarm` → Host-owned Team roster, mailbox, task DAG, event journal, continuable-member lifecycle, scheduler, aggregate model tool, and strict UI Remote.
+- file: `$DSH_HOME/swarm/swarm.sqlite` → owner-only SQLite WAL event log plus replayable materialized Team projections; workspace contains no authoritative swarm state.
+- api: `ctx.swarm.create/addMember/sendMessage/createTask/updateTask/reassignTask/interruptMember/waitForChange/archive/snapshot` → exact-Agent-authorized orchestration and Session-scoped read projection.
+- tool: `swarm` → aggregate `create|status|add_member|send_message|create_task|update_task|reassign_task|interrupt_member|wait|archive` actions, visible only in `dsh-swarm`.
+- preset: `dsh-swarm` → system-owned Team mode with the complete locked `dsh-science` composition plus preset-scoped `swarm` tool and Team guidance.
+- package: `@swarmx/dsh-ui-swarm` → strict Session-scoped `swarm/uiSnapshot|waitUi` Remote, one conversation header action, one keyed Side View activity renderer, and bounded historical Tool card.
 
 ## §R RESEARCH
 
@@ -91,6 +99,9 @@ R23|Git isolated worktree|`git worktree add --detach <path> <commit>` creates a 
 R24|DVC status|`dvc data status --json` is read-only workspace-vs-HEAD data status; `dvc status --json` reports pipeline/cache state, and remote comparison occurs only when explicitly requested|https://doc.dvc.org/command-reference/data/status
 R25|DVC reproduction|`dvc repro` executes required dependency-graph stages and deletes non-persistent stage outputs before their producing command; `--pull` is explicit|https://doc.dvc.org/command-reference/repro
 R26|DVC synchronization|`dvc pull` downloads selected tracked objects into cache then links/copies them into the workspace; remote selection is explicit or project-configured|https://doc.dvc.org/command-reference/pull
+R27|DSH Agent Teams reference|community implementation proves continuable members, attempt-fenced DAG scheduling, durable mailboxes, event-driven status handling, and Tool-derived UI; its workspace JSON/JSONL truth and process-global service wrapping are unsuitable for SwarmX|https://github.com/NanmiCoder/dsh-agent-teams/tree/912aae5225d3d85fa841a1b0c8a5c77021876c25
+R28|DSH experimental Agent Teams|official private workspace design uses root Session identity, exact Agent authority, provisioning-before-spawn, bounded mailbox/task state, revision CAS, lifecycle drain, and wait-for-change; it is a design oracle, not a publishable dependency|https://github.com/deepseek-ai/deepseek-harness/blob/b150a551b8d465e31e418e1b2eaf5e79bbb7d28e/packages/experimental/agent-team/README.zh.md
+R29|DSH continuable setup|`ctx.subagents.registerContinuableSetup` composes and immediately revokes child-scoped capabilities; `agent.ctx.tools.guard|restrict` enforce execution and visibility per exact Agent without monkey-patching process-global services|https://github.com/deepseek-ai/deepseek-harness/tree/b150a551b8d465e31e418e1b2eaf5e79bbb7d28e/packages/subagent/subagent
 
 ## §V INVARIANTS
 
@@ -255,6 +266,18 @@ V158: ∀ test requiring multiple DSH loader-entry lookups or order comparison �
 V159: ∀ real external-CLI integration test → declare a bounded timeout sized for full-suite contention; default unit-test timeout must not turn a successful DVC operation into a false failure.
 V160: ∀ §B append → scan the complete section, allocate `max(existing id)+1`, and keep rows in strictly increasing numeric order; partial-tail reads must not determine identifiers.
 V161: ∀ Version Control snapshot → Git remains independently usable; render one default-open DVC accordion iff `ctx.dvcUi.snapshot` returns `project`, hide `not-project|unavailable|failed` DVC detection without hiding Git, and display only path-free DVC identity plus data/pipeline category counts inside the shared panel.
+V162: ∀ Swarm mutation → authorize the exact live `Agent`; Team id equals root Session id, member id equals continuable child Session id, and caller-provided names, `from`, owner, attempt, or UI Session id never grant authority.
+V163: ∀ committed Swarm fact → append one bounded versioned event and update its materialized projection in one SQLite WAL transaction under owner-only `$DSH_HOME/swarm`; deterministic replay rebuilds projections, and workspace/Git/DVC contain no authoritative swarm file.
+V164: ∀ member spawn → reserve one immutable lower-kebab name + child Session id in `provisioning` before `ctx.subagents.startContinuable`; publish `active|failed` afterward, reconcile crash-orphaned provisioning without duplicate members, inherit the root workspace/preset, and set delegation depth cap 0.
+V165: ∀ Team task → bound text/count/dependency/write-scope inputs, reject missing blockers and cycles, increment exact revision on every transition, require expected revision plus active attempt for member completion/failure/release, and treat completed/cancelled rows as tombstones rather than reusable ids.
+V166: ∀ member workspace-mutating Tool dispatch → agent-scoped guard requires that exact member's active `write` task/attempt; one Team owns ≤1 such attempt, read tasks may overlap, attempt rotation waits for interrupted owner quiescence, and advisory write scopes never claim filesystem isolation or rollback.
+V167: ∀ peer message → queue bounded content under one stable id before delivery, preserve target-local order and de-duplicate acceptance, distinguish quiet injection from waking follow-up, retain undelivered mail for recovery, and expose neither body nor Session ids through UI projection.
+V168: ∀ cold process recovery → every previously `in_progress` task becomes `needs_attention` with its attempt revoked; no non-idempotent work auto-replays. ∀ plugin disposal/reload → close admission, abort/release waiters, settle admitted scheduler/mailbox operations within a bound, revoke child setup, and close SQLite without detached work.
+V169: ∀ `swarm/uiSnapshot|waitUi` → derive membership from one live Session, validate strict bounded payloads, return only that Team's path-free roster/task/count projection, use revision-based bounded long-polling, and reveal no workspace title/path, message body, model-private text, or raw Session id.
+V170: ∀ `dsh-swarm` Agent surface → equal the exact locked `dsh-science` composition plus one preset-scoped aggregate `swarm` Tool/guidance; standard and `dsh-science` expose no `swarm`, members cannot use nested delegation or PKB, and all administrative actions remain lead-only.
+V171: ∀ Swarm Client mount → reuse the generic per-Session Side View with one header action, keyed activity content, and bounded Tool-result card; register no overlay, peer conversation view, polling disk scan, direct mutation control, or independent layout geometry; HMR/session switch cancels every outstanding wait.
+V172: ∀ Swarm/Science/PKB boundary → Swarm journal records orchestration ids and optional client-safe Science locators only; Science Journal remains scientific truth, Team members cannot mutate/read PKB directly, PKB receives no automatic Team synthesis, and RO-Crate receives no private Team/Session identity.
+V173: ∀ Team retirement → model/user action is named `archive`, interrupts and drains live members before one durable archived edge, preserves history read-only, rejects later mutation, and never claims physical deletion.
 
 ## §T TASKS
 
@@ -321,6 +344,12 @@ T60|x|install DVC CLI and validate status/reproduction against a real temporary 
 T61|x|implement read-only `@swarmx/dsh-ui-dvc` Remote, header action, and Details view|I.`@swarmx/dsh-ui-dvc`,I.`ctx.dvcUi.snapshot`,V153,V154,V155
 T62|x|compose DVC UI into desktop and verify runtime/build/docs/lifecycle|V4,V15,V22,V32,V141,V142,V152,V155,V156
 T63|x|merge Git and available DVC status into one accordion Version Control panel|I.`@swarmx/dsh-ui-git`,I.`@swarmx/dsh-ui-dvc`,V145,V154,V161
+T64|x|document dsh-swarm contract + add failing journal/authority/DAG/mailbox/recovery tests|R27,R28,R29,V162,V163,V164,V165,V167,V168,V172,V173
+T65|x|implement owner-only Swarm event journal, replayable projection, exact identity, task CAS, attempts, and bounded mailbox|I.`@swarmx/dsh-swarm`,I.`$DSH_HOME/swarm/swarm.sqlite`,I.`ctx.swarm`,V162,V163,V165,V167,V168,V173
+T66|x|implement continuable members, scoped capability guard, event-driven single-writer scheduler, aggregate Tool, and fail-safe recovery|I.`ctx.swarm`,I.`swarm`,R29,V164,V166,V167,V168,V170,V172
+T67|x|implement strict Swarm Remote, revision wait, header action, Side View activity, and bounded Tool card|I.`@swarmx/dsh-ui-swarm`,V169,V171
+T68|x|ship `dsh-swarm` system preset and compose Host/UI packages into desktop profile|I.`dsh-swarm`,V14,V15,V32,V64,V142,V170,V171
+T69|x|document operations and verify unit, lifecycle, client, preset, real-profile, build, lint, and code-map gates|V4,V15,V32,V141,V163,V168,V169,V170,V171
 
 ## §B BUGS
 

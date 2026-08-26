@@ -66,9 +66,11 @@ describe("workspace layout", () => {
     expect(existsSync("packages/client/ui-dvc/package.json")).toBe(true);
     expect(existsSync("packages/client/ui-git/package.json")).toBe(true);
     expect(existsSync("packages/client/ui-science/package.json")).toBe(true);
+    expect(existsSync("packages/client/ui-swarm/package.json")).toBe(true);
     expect(existsSync("packages/core/annotation/package.json")).toBe(true);
     expect(existsSync("packages/core/dvc/package.json")).toBe(true);
     expect(existsSync("packages/core/pkb/package.json")).toBe(true);
+    expect(existsSync("packages/core/swarm/package.json")).toBe(true);
     expect(existsSync("packages/science/core/package.json")).toBe(true);
     expect(existsSync("apps/desktop/package.json")).toBe(true);
     expect(existsSync("packages/dsh-ui-conversation")).toBe(false);
@@ -87,7 +89,9 @@ describe("workspace layout", () => {
     expect(desktop.dependencies?.["@swarmx/dsh-ui-git"]).toBe("workspace:*");
     expect(desktop.dependencies?.["@swarmx/dsh-pkb"]).toBe("workspace:*");
     expect(desktop.dependencies?.["@swarmx/dsh-science"]).toBe("workspace:*");
+    expect(desktop.dependencies?.["@swarmx/dsh-swarm"]).toBe("workspace:*");
     expect(desktop.dependencies?.["@swarmx/dsh-ui-science"]).toBe("workspace:*");
+    expect(desktop.dependencies?.["@swarmx/dsh-ui-swarm"]).toBe("workspace:*");
     expect(desktop.dependencies?.["@deepseek-ai/dsh-web-frontend"]).toBe("0.1.1-rc.2");
   });
 
@@ -145,9 +149,11 @@ describe("workspace layout", () => {
       "packages/client/ui-dvc/package.json",
       "packages/client/ui-git/package.json",
       "packages/client/ui-science/package.json",
+      "packages/client/ui-swarm/package.json",
       "packages/core/annotation/package.json",
       "packages/core/dvc/package.json",
       "packages/core/pkb/package.json",
+      "packages/core/swarm/package.json",
       "packages/science/core/package.json",
     ];
     const baseline = manifest(files[0] as string).dependencies?.["@deepseek-ai/dsh"];

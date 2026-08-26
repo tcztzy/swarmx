@@ -24,7 +24,9 @@
     "@swarmx/dsh-science": "workspace:*",
     "@swarmx/dsh-pkb": "workspace:*",
     "@swarmx/dsh-ui-conversation": "workspace:*",
-    "@swarmx/dsh-ui-science": "workspace:*"
+    "@swarmx/dsh-ui-science": "workspace:*",
+    "@swarmx/dsh-swarm": "workspace:*",
+    "@swarmx/dsh-ui-swarm": "workspace:*"
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "4.0.1",

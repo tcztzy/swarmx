@@ -1,6 +1,6 @@
 # SwarmX codebase map
 
-SwarmX is a thin Electron host around the published DeepSeek Harness Web profile, plus product-owned conversation, local-first science, and private PKB extensions composed after the published bundles and before user patches.
+SwarmX is a thin Electron host around the published DeepSeek Harness Web profile, plus product-owned conversation, local-first science, durable DSH-native Swarm, and private PKB extensions composed after the published bundles and before user patches.
 
 ## Runtime flow
 
@@ -12,7 +12,7 @@ The Harness supplies the complete browser UI and `/api` transport. SwarmX has no
 
 | Path | Ownership |
 | --- | --- |
-| `apps/desktop/src/harness.ts` | Profile creation, profile-installed bundle resolution, DSH + Science system-preset roots, patch composition, in-process Harness boot, loopback URL |
+| `apps/desktop/src/harness.ts` | Profile creation, profile-installed bundle resolution, DSH + Science + Swarm system-preset roots, patch composition, in-process Harness boot, loopback URL |
 | `apps/desktop/src/markdown-file-links.ts` | Exact rc.2 frontend asset route that adds trusted Markdown file-link resolution and rejects upstream seam drift |
 | `apps/desktop/src/main.ts` | Electron startup, window recreation, Harness shutdown |
 | `apps/desktop/src/window.ts` | BrowserWindow construction, navigation and permission boundary |
@@ -44,6 +44,33 @@ The Harness supplies the complete browser UI and `/api` transport. SwarmX has no
 | `packages/core/pkb/tests/okf-fixture.test.ts` | Executable OKF, Obsidian, MyST, and conversation-footnote fixture contract |
 | `packages/core/pkb/tests/plugin.test.ts` | Aggregate tool approval and frozen prompt-index contract |
 | `packages/core/pkb/tests/vault.test.ts` | Vault permissions, isolation, revision, history, malformed-page, and portability contract |
+| `packages/core/swarm/src/capabilities.ts` | Exact-member delegation/PKB denial and active-write-attempt Tool guard |
+| `packages/core/swarm/src/contracts.ts` | Strict bounded Team, member, task, mailbox, model snapshot, and UI projection schemas |
+| `packages/core/swarm/src/coordinator.ts` | Exact-Agent authority, continuable member lifecycle, revision/attempt fencing, mailbox delivery, and single-writer scheduling |
+| `packages/core/swarm/src/errors.ts` | Stable Swarm error taxonomy |
+| `packages/core/swarm/src/index.ts` | `ctx.swarm` Host service, DSH runtime adapter, continuable setup, revision wait, recovery, and disposal |
+| `packages/core/swarm/src/journal.ts` | Owner-only SQLite WAL event log, deterministic projection rebuild, salted workspace identity, and interrupted-attempt recovery |
+| `packages/core/swarm/src/remote-contract.ts` | Strict read-only Swarm UI snapshot/wait invocation descriptors |
+| `packages/core/swarm/src/remote.ts` | Client Swarm Remote contribution and namespace typing |
+| `packages/core/swarm/src/tools.ts` | Preset-scoped aggregate `swarm` Tool and Team-mode prompt contract |
+| `packages/core/swarm/src/typert.ts` | Host Swarm Typert contribution |
+| `packages/core/swarm/tsdown.config.ts` | Deterministic Host package artifact configuration |
+| `packages/core/swarm/tests/capabilities.test.ts` | Member delegation, PKB, exact authority, and write-attempt guard contract |
+| `packages/core/swarm/tests/build.test.ts` | Published entry and shared runtime chunk allowlist contract |
+| `packages/core/swarm/tests/coordinator.test.ts` | Exact identity, continuable provisioning, task CAS/attempts, single-writer scheduling, mailbox, reassignment, and archival contract |
+| `packages/core/swarm/tests/journal.test.ts` | Atomic event/projection replay, storage permission, salted workspace, recovery, and archive contract |
+| `packages/core/swarm/tests/preset.test.ts` | Exact Science composition plus Swarm-only preset row and metadata contract |
+| `packages/core/swarm/tests/remote-contract.test.ts` | Strict read-only Remote method and cancellation surface contract |
+| `packages/core/swarm/tests/service.test.ts` | Strict path-free Swarm service UI projection regression |
+| `packages/core/swarm/tests/tools.test.ts` | Bounded aggregate Tool actions and exact Agent carrier contract |
+| `packages/client/ui-swarm/src/css.d.ts` | Swarm activity CSS Module type boundary |
+| `packages/client/ui-swarm/src/index.ts` | Stable Host marker for the browser-only Swarm activity contribution |
+| `packages/client/ui-swarm/src/client/activity-store.ts` | One shared cancellable revision wait loop per rendered Session |
+| `packages/client/ui-swarm/src/client/index.ts` | Strict Remote mount, per-Session header action, and keyed Side View registration |
+| `packages/client/ui-swarm/src/client/swarm-view.tsx` | Safe Team/member/task activity projection and Side View rendering |
+| `packages/client/ui-swarm/tsdown.config.ts` | DSH-compatible Host marker and single-file browser bundle configuration |
+| `packages/client/ui-swarm/tests/activity-store.test.ts` | Shared single-poll and last-subscriber cancellation contract |
+| `packages/client/ui-swarm/tests/swarm-view.test.tsx` | Serializable Side View entry and de-identified activity rendering contract |
 | `packages/client/tsdown.client.ts` | DSH-compatible client-plugin build preset and module-table external policy |
 | `packages/client/ui-dvc/tsdown.config.ts` | DVC UI host/client artifacts and bundled strict Remote entries |
 | `packages/client/ui-dvc/src/contracts.ts` | Bounded path-free DVC inspection and typed unavailable-state schemas |
@@ -207,3 +234,6 @@ conversation evidence boundary, approval policy, and progressive-disclosure prom
 
 `docs/version-control.md` defines the read-only human Git/DVC UIs, Host-only DVC command capability,
 and package-private Git isolation boundary used for clean-HEAD DVC reproduction.
+
+`docs/swarm.md` defines exact Agent authority, continuable member lifecycle, task attempts,
+single-writer coordination, durable mailbox/recovery, archive behavior, and the read-only UI boundary.

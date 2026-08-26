@@ -90,6 +90,16 @@ function scienceUiAnchor(): string {
   return createRequire(import.meta.url).resolve("@swarmx/dsh-ui-science/package.json");
 }
 
+/** Installed manifest for the durable Swarm Host service and system preset. */
+function swarmAnchor(): string {
+  return createRequire(import.meta.url).resolve("@swarmx/dsh-swarm/package.json");
+}
+
+/** Installed manifest for the read-only Swarm activity client integration. */
+function swarmUiAnchor(): string {
+  return createRequire(import.meta.url).resolve("@swarmx/dsh-ui-swarm/package.json");
+}
+
 /** Module base anchoring in-box and SwarmX-owned bare plugin specifiers. */
 function bareModuleBaseUrl(anchor: string): string {
   return pathToFileURL(anchor).href;
@@ -191,6 +201,16 @@ function pkbPatchPath(): string {
   return join(dirname(pkbAnchor()), "cordis.patch.yml");
 }
 
+/** Durable DSH-native Swarm roster, scheduler, mailbox, and lifecycle layer. */
+function swarmPatchPath(): string {
+  return join(dirname(swarmAnchor()), "cordis.patch.yml");
+}
+
+/** Read-only Swarm activity header and Side View layer. */
+function swarmUiPatchPath(): string {
+  return join(dirname(swarmUiAnchor()), "cordis.patch.yml");
+}
+
 /**
  * Bind the web server to an OS-assigned loopback port. Electron reads the
  * resolved port back off the service, so nothing has to agree on a constant.
@@ -199,7 +219,7 @@ const PORT_PATCH = [{ id: "webserver", config: { host: HOST, port: 0 } }];
 
 /**
  * DSH's shipped presets (`code`, `cordis`, `minimal`, `standard`) and SwarmX's
- * `dsh-science` preset live beside their owning packages, so only a launcher
+ * `dsh-science`/`dsh-swarm` presets live beside their owning packages, so only a launcher
  * can resolve both roots. Without them the roster falls back to its built-in
  * default and the preset picker shows one entry.
  *
@@ -209,7 +229,7 @@ const PORT_PATCH = [{ id: "webserver", config: { host: HOST, port: 0 } }];
  */
 function presetPatch(
   dshAnchor: string,
-  sciencePackageAnchor: string,
+  productPresetAnchors: readonly string[],
   config: Record<string, unknown>,
 ) {
   return {
@@ -218,10 +238,10 @@ function presetPatch(
       ...config,
       roots: [
         { path: join(dirname(dshAnchor), "config", "agent-presets"), trust: "system" },
-        {
-          path: join(dirname(sciencePackageAnchor), "config", "agent-presets"),
+        ...productPresetAnchors.map((anchor) => ({
+          path: join(dirname(anchor), "config", "agent-presets"),
           trust: "system",
-        },
+        })),
       ],
     },
   };
@@ -260,6 +280,8 @@ export async function startHarness(): Promise<Harness> {
   const pkbPackageAnchor = pkbAnchor();
   const sciencePackageAnchor = scienceAnchor();
   const scienceUiPackageAnchor = scienceUiAnchor();
+  const swarmPackageAnchor = swarmAnchor();
+  const swarmUiPackageAnchor = swarmUiAnchor();
   healProfilesModuleFallback(anchor, home);
   healProfilesModuleFallback(conversationPackageAnchor, home);
   healProfilesModuleFallback(gitUiPackageAnchor, home);
@@ -268,6 +290,8 @@ export async function startHarness(): Promise<Harness> {
   healProfilesModuleFallback(pkbPackageAnchor, home);
   healProfilesModuleFallback(sciencePackageAnchor, home);
   healProfilesModuleFallback(scienceUiPackageAnchor, home);
+  healProfilesModuleFallback(swarmPackageAnchor, home);
+  healProfilesModuleFallback(swarmUiPackageAnchor, home);
   const profile = loadProfile(BIN_NAME, PROFILE, anchor, home);
   writeFileSync(join(profile.dir, ROOT_FILENAME), ROOT_CONFIG);
   // Layer order is the contract: DSH bundles, SwarmX product extensions, the
@@ -294,6 +318,8 @@ export async function startHarness(): Promise<Harness> {
       pkbPackageAnchor,
     ),
     loadOptionalPatches(BIN_NAME, sciencePatchPath()) ?? [],
+    loadOptionalPatches(BIN_NAME, swarmPatchPath()) ?? [],
+    loadOptionalPatches(BIN_NAME, swarmUiPatchPath()) ?? [],
     resolveProfileBundleEntries(profile.patches, profile),
     resolveProfileBundleEntries(
       loadOptionalPatches(BIN_NAME, join(home, PROFILE_PATCH_FILENAME)) ?? [],
@@ -312,7 +338,7 @@ export async function startHarness(): Promise<Harness> {
       : [
           presetPatch(
             anchor,
-            sciencePackageAnchor,
+            [sciencePackageAnchor, swarmPackageAnchor],
             (presetRow.config ?? {}) as Record<string, unknown>,
           ),
         ]),
