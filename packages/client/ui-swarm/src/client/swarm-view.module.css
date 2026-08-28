@@ -40,6 +40,7 @@
 .summary p,
 .summary > span,
 .group p,
+.detail p,
 .empty,
 .notice {
   color: var(--dsw-alias-label-tertiary);
@@ -72,8 +73,29 @@
   border-top: 1px solid var(--dsw-alias-border-subtle, rgba(128, 128, 128, 0.14));
 }
 
+.group li > div {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
 .group strong {
   font-size: 13px;
+}
+
+.detail {
+  margin-top: 7px;
+  max-width: 42rem;
+}
+
+.detail > summary {
+  cursor: pointer;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+}
+
+.detail p {
+  margin-top: 4px;
+  overflow-wrap: anywhere;
 }
 
 .group li > span {
@@ -88,7 +110,11 @@
 }
 
 .group li > span[data-status="failed"],
-.group li > span[data-status="needs_attention"] {
+.group li > span[data-status="needs_attention"],
+.group li > span[data-status="rejected"],
+.group li > span[data-status="escalated"],
+.group li > span[data-status="block"],
+.group li > span[data-status="escalate"] {
   color: var(--dsw-alias-state-warning-primary, #b56600);
 }
 

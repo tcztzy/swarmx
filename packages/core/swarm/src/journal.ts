@@ -4,10 +4,18 @@ import { isAbsolute, join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { z } from "zod";
 import {
+  type MonitorFinding,
+  monitorFindingSchema,
+  type SwarmAttempt,
+  type SwarmEffect,
+  type SwarmKnowledgeAdmission,
   type SwarmMember,
   type SwarmMessage,
   type SwarmTask,
   type SwarmTeamState,
+  swarmAttemptSchema,
+  swarmEffectSchema,
+  swarmKnowledgeAdmissionSchema,
   swarmMemberSchema,
   swarmMessageSchema,
   swarmTaskSchema,
@@ -16,7 +24,7 @@ import {
 import { SwarmError } from "./errors.js";
 
 const DATABASE_NAME = "swarm.sqlite";
-const MIGRATION_VERSION = 1;
+const MIGRATION_VERSION = 3;
 
 const createdEventDataSchema = z.strictObject({
   createdAt: z.number().int().nonnegative(),
@@ -31,14 +39,34 @@ const deliveredEventDataSchema = z.strictObject({
   messageId: z.string().min(1).max(200),
   deliveredAt: z.number().int().nonnegative(),
 });
+const deliveryStartedEventDataSchema = z.strictObject({
+  messageId: z.string().min(1).max(200),
+  deliveryStartedAt: z.number().int().nonnegative(),
+});
+const attemptTransitionEventDataSchema = z.strictObject({
+  task: swarmTaskSchema,
+  attempt: swarmAttemptSchema,
+});
 
 export type SwarmEvent =
   | { type: "team/created"; data: z.infer<typeof createdEventDataSchema> }
   | { type: "team/archived"; data: z.infer<typeof archivedEventDataSchema> }
   | { type: "member/updated"; data: SwarmMember }
   | { type: "task/updated"; data: SwarmTask }
+  | { type: "effect/updated"; data: SwarmEffect }
+  | { type: "knowledge/admission-updated"; data: SwarmKnowledgeAdmission }
   | { type: "message/queued"; data: SwarmMessage }
-  | { type: "message/delivered"; data: z.infer<typeof deliveredEventDataSchema> };
+  | { type: "message/delivery-started"; data: z.infer<typeof deliveryStartedEventDataSchema> }
+  | { type: "message/delivered"; data: z.infer<typeof deliveredEventDataSchema> }
+  | { type: "attempt/started"; data: z.infer<typeof attemptTransitionEventDataSchema> }
+  | { type: "attempt/usage-recorded"; data: SwarmAttempt }
+  | { type: "attempt/budget-warning"; data: SwarmAttempt }
+  | { type: "task/submitted"; data: z.infer<typeof attemptTransitionEventDataSchema> }
+  | { type: "verification/started"; data: z.infer<typeof attemptTransitionEventDataSchema> }
+  | { type: "verification/recorded"; data: z.infer<typeof attemptTransitionEventDataSchema> }
+  | { type: "task/escalated"; data: z.infer<typeof attemptTransitionEventDataSchema> }
+  | { type: "attempt/ended"; data: z.infer<typeof attemptTransitionEventDataSchema> }
+  | { type: "monitor/finding-recorded"; data: MonitorFinding };
 
 interface EventRow {
   team_id: string;
@@ -69,10 +97,28 @@ function parseEvent(type: SwarmEvent["type"], value: unknown): SwarmEvent {
       return { type, data: swarmMemberSchema.parse(value) };
     case "task/updated":
       return { type, data: swarmTaskSchema.parse(value) };
+    case "effect/updated":
+      return { type, data: swarmEffectSchema.parse(value) };
+    case "knowledge/admission-updated":
+      return { type, data: swarmKnowledgeAdmissionSchema.parse(value) };
     case "message/queued":
       return { type, data: swarmMessageSchema.parse(value) };
+    case "message/delivery-started":
+      return { type, data: deliveryStartedEventDataSchema.parse(value) };
     case "message/delivered":
       return { type, data: deliveredEventDataSchema.parse(value) };
+    case "attempt/started":
+    case "task/submitted":
+    case "verification/started":
+    case "verification/recorded":
+    case "task/escalated":
+    case "attempt/ended":
+      return { type, data: attemptTransitionEventDataSchema.parse(value) };
+    case "attempt/usage-recorded":
+    case "attempt/budget-warning":
+      return { type, data: swarmAttemptSchema.parse(value) };
+    case "monitor/finding-recorded":
+      return { type, data: monitorFindingSchema.parse(value) };
   }
 }
 
@@ -86,10 +132,28 @@ function eventTimestamp(event: SwarmEvent): number {
       return event.data.createdAt;
     case "task/updated":
       return event.data.updatedAt;
+    case "effect/updated":
+      return event.data.updatedAt;
+    case "knowledge/admission-updated":
+      return event.data.updatedAt;
     case "message/queued":
       return event.data.createdAt;
+    case "message/delivery-started":
+      return event.data.deliveryStartedAt;
     case "message/delivered":
       return event.data.deliveredAt;
+    case "attempt/started":
+    case "task/submitted":
+    case "verification/started":
+    case "verification/recorded":
+    case "task/escalated":
+    case "attempt/ended":
+      return event.data.task.updatedAt;
+    case "attempt/usage-recorded":
+    case "attempt/budget-warning":
+      return event.data.lastProgressAt;
+    case "monitor/finding-recorded":
+      return event.data.recordedAt;
   }
 }
 
@@ -106,7 +170,9 @@ function replaceMember(state: SwarmTeamState, member: SwarmMember): SwarmMember[
     existing &&
     (existing.name !== member.name ||
       existing.role !== member.role ||
-      existing.createdAt !== member.createdAt)
+      existing.createdAt !== member.createdAt ||
+      JSON.stringify(existing.modelPolicy) !== JSON.stringify(member.modelPolicy) ||
+      JSON.stringify(existing.budget) !== JSON.stringify(member.budget))
   ) {
     throw new SwarmError("Swarm member identity is immutable", "SWARM_INVALID_REQUEST");
   }
@@ -141,9 +207,113 @@ function replaceTask(state: SwarmTeamState, task: SwarmTask): SwarmTask[] {
     : [...state.tasks, task];
 }
 
+function replaceAttempt(state: SwarmTeamState, attempt: SwarmAttempt): SwarmAttempt[] {
+  const existing = state.attempts.find((candidate) => candidate.id === attempt.id);
+  if (!existing && attempt.revision !== 1) {
+    throw new SwarmError("A new swarm attempt must start at revision 1", "SWARM_STALE_REVISION");
+  }
+  if (existing) {
+    if (
+      existing.taskId !== attempt.taskId ||
+      existing.taskRevision !== attempt.taskRevision ||
+      existing.ownerId !== attempt.ownerId ||
+      existing.memberName !== attempt.memberName ||
+      existing.role !== attempt.role ||
+      existing.startedAt !== attempt.startedAt ||
+      JSON.stringify(existing.modelPolicy) !== JSON.stringify(attempt.modelPolicy) ||
+      JSON.stringify(existing.budget) !== JSON.stringify(attempt.budget)
+    ) {
+      throw new SwarmError("Swarm attempt identity is immutable", "SWARM_INVALID_REQUEST");
+    }
+    if (attempt.revision !== existing.revision + 1) {
+      throw new SwarmError("Swarm attempt revision is stale", "SWARM_STALE_REVISION");
+    }
+  }
+  return existing
+    ? state.attempts.map((candidate) => (candidate.id === attempt.id ? attempt : candidate))
+    : [...state.attempts, attempt];
+}
+
+function appendFinding(state: SwarmTeamState, finding: MonitorFinding): MonitorFinding[] {
+  if (state.findings.some((candidate) => candidate.dedupeKey === finding.dedupeKey)) {
+    throw new SwarmError("Swarm monitor finding already exists", "SWARM_INVALID_REQUEST");
+  }
+  const findings = [...state.findings, finding];
+  return findings.length > 2_048 ? findings.slice(-2_048) : findings;
+}
+
+function replaceEffect(state: SwarmTeamState, effect: SwarmEffect): SwarmEffect[] {
+  const existing = state.effects.find((candidate) => candidate.id === effect.id);
+  const callOwner = state.effects.find(
+    (candidate) => candidate.attemptId === effect.attemptId && candidate.callId === effect.callId,
+  );
+  if (callOwner && callOwner.id !== effect.id) {
+    throw new SwarmError("Swarm effect call already exists", "SWARM_DUPLICATE_EFFECT");
+  }
+  if (!existing && effect.revision !== 1) {
+    throw new SwarmError("A new swarm effect must start at revision 1", "SWARM_STALE_REVISION");
+  }
+  if (existing) {
+    if (
+      existing.callId !== effect.callId ||
+      existing.taskId !== effect.taskId ||
+      existing.attemptId !== effect.attemptId ||
+      existing.ownerId !== effect.ownerId ||
+      existing.toolName !== effect.toolName ||
+      existing.createdAt !== effect.createdAt
+    ) {
+      throw new SwarmError("Swarm effect identity is immutable", "SWARM_INVALID_REQUEST");
+    }
+    if (effect.revision !== existing.revision + 1) {
+      throw new SwarmError("Swarm effect revision is stale", "SWARM_STALE_REVISION");
+    }
+  }
+  return existing
+    ? state.effects.map((candidate) => (candidate.id === effect.id ? effect : candidate))
+    : [...state.effects, effect];
+}
+
+function replaceAdmission(
+  state: SwarmTeamState,
+  admission: SwarmKnowledgeAdmission,
+): SwarmKnowledgeAdmission[] {
+  const existing = state.admissions.find((candidate) => candidate.id === admission.id);
+  if (!existing && admission.revision !== 1) {
+    throw new SwarmError(
+      "A new knowledge admission must start at revision 1",
+      "SWARM_STALE_REVISION",
+    );
+  }
+  if (existing) {
+    if (
+      existing.requestHash !== admission.requestHash ||
+      existing.taskId !== admission.taskId ||
+      existing.targetKind !== admission.targetKind ||
+      existing.createdAt !== admission.createdAt
+    ) {
+      throw new SwarmError("Knowledge admission identity is immutable", "SWARM_ADMISSION_CONFLICT");
+    }
+    if (admission.revision !== existing.revision + 1) {
+      throw new SwarmError("Knowledge admission revision is stale", "SWARM_STALE_REVISION");
+    }
+  }
+  return existing
+    ? state.admissions.map((candidate) => (candidate.id === admission.id ? admission : candidate))
+    : [...state.admissions, admission];
+}
+
 function queueMessage(state: SwarmTeamState, message: SwarmMessage): SwarmMessage[] {
-  if (state.messages.some((candidate) => candidate.id === message.id)) {
-    throw new SwarmError("Swarm message id already exists", "SWARM_INVALID_REQUEST");
+  const existing = state.messages.find((candidate) => candidate.id === message.id);
+  if (existing) {
+    if (
+      existing.senderId === message.senderId &&
+      existing.targetId === message.targetId &&
+      existing.delivery === message.delivery &&
+      existing.content === message.content
+    ) {
+      return state.messages;
+    }
+    throw new SwarmError("Swarm message id already exists", "SWARM_MESSAGE_CONFLICT");
   }
   if (state.messages.some((candidate) => candidate.sequence === message.sequence)) {
     throw new SwarmError("Swarm message sequence already exists", "SWARM_INVALID_REQUEST");
@@ -173,6 +343,22 @@ function deliverMessage(
   );
 }
 
+function startMessageDelivery(
+  state: SwarmTeamState,
+  data: z.infer<typeof deliveryStartedEventDataSchema>,
+): SwarmMessage[] {
+  const existing = state.messages.find((message) => message.id === data.messageId);
+  if (!existing) {
+    throw new SwarmError("Swarm message not found", "SWARM_INVALID_REQUEST");
+  }
+  if (existing.deliveryStartedAt !== undefined) return state.messages;
+  return state.messages.map((message) =>
+    message.id === data.messageId
+      ? { ...message, deliveryStartedAt: data.deliveryStartedAt }
+      : message,
+  );
+}
+
 function applyEvent(
   teamId: string,
   current: SwarmTeamState | undefined,
@@ -195,6 +381,10 @@ function applyEvent(
       members: [event.data.lead],
       tasks: [],
       messages: [],
+      effects: [],
+      admissions: [],
+      attempts: [],
+      findings: [],
     });
   }
 
@@ -230,6 +420,20 @@ function applyEvent(
         tasks: replaceTask(current, event.data),
         updatedAt,
       });
+    case "effect/updated":
+      return swarmTeamStateSchema.parse({
+        ...current,
+        revision,
+        effects: replaceEffect(current, event.data),
+        updatedAt,
+      });
+    case "knowledge/admission-updated":
+      return swarmTeamStateSchema.parse({
+        ...current,
+        revision,
+        admissions: replaceAdmission(current, event.data),
+        updatedAt,
+      });
     case "message/queued":
       return swarmTeamStateSchema.parse({
         ...current,
@@ -237,11 +441,48 @@ function applyEvent(
         messages: queueMessage(current, event.data),
         updatedAt,
       });
+    case "message/delivery-started":
+      return swarmTeamStateSchema.parse({
+        ...current,
+        revision,
+        messages: startMessageDelivery(current, event.data),
+        updatedAt,
+      });
     case "message/delivered":
       return swarmTeamStateSchema.parse({
         ...current,
         revision,
         messages: deliverMessage(current, event.data),
+        updatedAt,
+      });
+    case "attempt/started":
+    case "task/submitted":
+    case "verification/started":
+    case "verification/recorded":
+    case "task/escalated":
+    case "attempt/ended": {
+      const tasks = replaceTask(current, event.data.task);
+      return swarmTeamStateSchema.parse({
+        ...current,
+        revision,
+        tasks,
+        attempts: replaceAttempt({ ...current, tasks }, event.data.attempt),
+        updatedAt,
+      });
+    }
+    case "attempt/usage-recorded":
+    case "attempt/budget-warning":
+      return swarmTeamStateSchema.parse({
+        ...current,
+        revision,
+        attempts: replaceAttempt(current, event.data),
+        updatedAt,
+      });
+    case "monitor/finding-recorded":
+      return swarmTeamStateSchema.parse({
+        ...current,
+        revision,
+        findings: appendFinding(current, event.data),
         updatedAt,
       });
   }
@@ -336,6 +577,7 @@ export class SwarmJournal {
   rebuildProjections(): void {
     assertOpen(this.open);
     this.transaction(() => {
+      this.database.exec("DELETE FROM swarm_attempts");
       this.database.exec("DELETE FROM swarm_teams");
       const states = new Map<string, SwarmTeamState>();
       const rows = this.database
@@ -355,23 +597,92 @@ export class SwarmJournal {
     const interrupted = this.list().flatMap((team) =>
       team.phase === "active"
         ? team.tasks
-            .filter((task) => task.status === "in_progress")
-            .map((task) => ({ teamId: team.id, task }))
+            .filter((task) => ["in_progress", "submitted", "verifying"].includes(task.status))
+            .map((task) => ({
+              teamId: team.id,
+              task,
+              attempt: task.attemptId
+                ? team.attempts.find((candidate) => candidate.id === task.attemptId)
+                : undefined,
+            }))
         : [],
     );
-    for (const { teamId, task } of interrupted) {
+    for (const { teamId, task, attempt } of interrupted) {
       const { attemptId: _attemptId, ...rest } = task;
-      this.append(teamId, {
-        type: "task/updated",
-        data: {
-          ...rest,
-          revision: task.revision + 1,
-          status: "needs_attention",
-          updatedAt: now,
-        },
-      });
+      const recoveredTask = {
+        ...rest,
+        revision: task.revision + 1,
+        status: "needs_attention" as const,
+        updatedAt: now,
+      };
+      if (attempt && ["active", "submitted", "verifying"].includes(attempt.status)) {
+        this.append(teamId, {
+          type: "attempt/ended",
+          data: {
+            task: recoveredTask,
+            attempt: {
+              ...attempt,
+              revision: attempt.revision + 1,
+              status: "interrupted",
+              endedAt: now,
+              wallMs: Math.max(0, now - attempt.startedAt),
+              terminalReason: "Host recovered a non-terminal attempt",
+              lastProgressAt: now,
+              actors: attempt.actors.map((actor) =>
+                actor.endedAt === undefined ? { ...actor, endedAt: now } : actor,
+              ),
+            },
+          },
+        });
+      } else {
+        this.append(teamId, { type: "task/updated", data: recoveredTask });
+      }
     }
     return interrupted.length;
+  }
+
+  recoverUncertainIntents(now: number): number {
+    assertOpen(this.open);
+    const started = this.list().flatMap((team) =>
+      team.phase === "active"
+        ? [
+            ...team.effects
+              .filter((effect) => effect.status === "started")
+              .map((effect) => ({ kind: "effect" as const, teamId: team.id, value: effect })),
+            ...team.admissions
+              .filter((admission) => admission.status === "started")
+              .map((admission) => ({
+                kind: "admission" as const,
+                teamId: team.id,
+                value: admission,
+              })),
+          ]
+        : [],
+    );
+    for (const item of started) {
+      if (item.kind === "effect") {
+        this.append(item.teamId, {
+          type: "effect/updated",
+          data: {
+            ...item.value,
+            revision: item.value.revision + 1,
+            status: "uncertain",
+            updatedAt: now,
+          },
+        });
+      } else {
+        this.append(item.teamId, {
+          type: "knowledge/admission-updated",
+          data: {
+            ...item.value,
+            revision: item.value.revision + 1,
+            status: "uncertain",
+            updatedAt: now,
+          },
+        });
+      }
+    }
+    return started.length;
   }
 
   close(): void {
@@ -423,6 +734,19 @@ export class SwarmJournal {
             ) STRICT;
           `);
         }
+        if (version === 3) {
+          this.database.exec(`
+            CREATE TABLE swarm_attempts (
+              team_id TEXT NOT NULL,
+              attempt_id TEXT NOT NULL,
+              task_id TEXT NOT NULL,
+              started_at INTEGER NOT NULL,
+              snapshot_json TEXT NOT NULL,
+              PRIMARY KEY(team_id, attempt_id)
+            ) STRICT;
+            CREATE INDEX swarm_attempts_task_idx ON swarm_attempts(team_id, task_id, started_at);
+          `);
+        }
         this.database
           .prepare("INSERT INTO swarm_migrations(version, applied_at) VALUES (?, ?)")
           .run(version, Date.now());
@@ -455,6 +779,14 @@ export class SwarmJournal {
            snapshot_json = excluded.snapshot_json`,
       )
       .run(state.id, state.revision, state.phase, state.createdAt, JSON.stringify(state));
+    this.database.prepare("DELETE FROM swarm_attempts WHERE team_id = ?").run(state.id);
+    const insert = this.database.prepare(
+      `INSERT INTO swarm_attempts(team_id, attempt_id, task_id, started_at, snapshot_json)
+       VALUES (?, ?, ?, ?, ?)`,
+    );
+    for (const attempt of state.attempts) {
+      insert.run(state.id, attempt.id, attempt.taskId, attempt.startedAt, JSON.stringify(attempt));
+    }
   }
 
   private transaction<T>(operation: () => T): T {

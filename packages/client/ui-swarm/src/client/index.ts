@@ -1,11 +1,19 @@
 import type { Context } from "@deepseek-ai/cordis";
 import type {} from "@deepseek-ai/dsh-api-gateway/client";
+import type {} from "@deepseek-ai/dsh-client-locale/client";
 import type { SessionId } from "@deepseek-ai/dsh-client-runtime/client";
 import { TYPERT_REMOTE } from "@swarmx/dsh-swarm/remote";
 import { SwarmActivityStore } from "./activity-store.js";
+import { en, SWARM_LOCALE_NS, type SwarmLocaleKey, zh } from "./swarm-locales.js";
 import { SwarmActivityView, SwarmHeaderAction, swarmSideViewEntry } from "./swarm-view.js";
 
-export const inject = ["remote", "sideView", "slots"];
+export const inject = ["locale", "remote", "sideView", "slots"];
+
+declare module "@deepseek-ai/dsh-client-ui-slots" {
+  interface LocaleNamespaceMap {
+    "swarmx.swarm": SwarmLocaleKey;
+  }
+}
 
 function remoteValue<T>(
   result: { ok: true; value: T } | { ok: false; error: { message: string } },
@@ -16,6 +24,8 @@ function remoteValue<T>(
 
 /** Mount the strict read-only Swarm Remote and reuse the generic per-Session Side View. */
 export async function apply(ctx: Context): Promise<() => Promise<void>> {
+  const disposeLocale = ctx.locale.register(SWARM_LOCALE_NS, { en, zh });
+  const t = ctx.locale.bind(SWARM_LOCALE_NS);
   const disposeRemote = await ctx.remote.$mount(TYPERT_REMOTE);
   const stores = new Set<SwarmActivityStore>();
   ctx.inject(["remote.swarm"], (swarmCtx) => {
@@ -36,8 +46,9 @@ export async function apply(ctx: Context): Promise<() => Promise<void>> {
           order: -9,
           inject: (sessionId: SessionId) => ({
             store,
+            t,
             open: (snapshot: Parameters<typeof swarmSideViewEntry>[0]) =>
-              swarmCtx.sideView.open(sessionId, swarmSideViewEntry(snapshot)),
+              swarmCtx.sideView.open(sessionId, swarmSideViewEntry(snapshot, t)),
           }),
         },
         SwarmHeaderAction,
@@ -48,7 +59,7 @@ export async function apply(ctx: Context): Promise<() => Promise<void>> {
         {
           name: "side-view.content",
           key: "swarm-activity",
-          inject: (sessionId: SessionId) => ({ sessionId, store }),
+          inject: (sessionId: SessionId) => ({ sessionId, store, t }),
         },
         SwarmActivityView,
       ),
@@ -63,6 +74,7 @@ export async function apply(ctx: Context): Promise<() => Promise<void>> {
   return async () => {
     for (const store of stores) store.dispose();
     stores.clear();
+    disposeLocale();
     await disposeRemote();
   };
 }

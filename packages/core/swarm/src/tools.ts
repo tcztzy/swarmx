@@ -3,11 +3,18 @@ import type { JsonSchemaNode, ToolDefinition, ToolRunContext } from "@deepseek-a
 import { z } from "zod";
 import type {
   AddSwarmMemberRequest,
+  AdmitKnowledgeRequest,
   CreateSwarmRequest,
   CreateSwarmTaskRequest,
+  EscalateSwarmTaskRequest,
   InterruptSwarmMemberRequest,
   ReassignSwarmTaskRequest,
+  RecordSemanticFindingRequest,
+  RecordSwarmVerdictRequest,
+  ResolveSwarmEffectRequest,
   SendSwarmMessageRequest,
+  StartSwarmVerificationRequest,
+  SubmitSwarmTaskRequest,
   SwarmSnapshot,
   UpdateSwarmTaskRequest,
   WaitForSwarmChangeRequest,
@@ -21,8 +28,15 @@ export const SWARM_ACTIONS = [
   "send_message",
   "create_task",
   "update_task",
+  "submit_task",
+  "start_verification",
+  "record_verdict",
+  "record_monitor_finding",
+  "escalate_task",
   "reassign_task",
   "interrupt_member",
+  "admit_knowledge",
+  "resolve_effect",
   "wait",
   "archive",
 ] as const;
@@ -36,8 +50,15 @@ const ACTION_TITLES: Record<SwarmAction, string> = {
   send_message: "Send Team message",
   create_task: "Create Team task",
   update_task: "Update Team task",
+  submit_task: "Submit Team task",
+  start_verification: "Start task verification",
+  record_verdict: "Record verification verdict",
+  record_monitor_finding: "Record semantic monitor finding",
+  escalate_task: "Escalate Team task",
   reassign_task: "Reassign Team task",
   interrupt_member: "Interrupt Team member",
+  admit_knowledge: "Admit verified knowledge",
+  resolve_effect: "Resolve uncertain effect",
   wait: "Wait for Team change",
   archive: "Archive Team",
 };
@@ -69,7 +90,7 @@ export interface SwarmToolService {
     agent: Agent,
     request: SendSwarmMessageRequest,
     signal?: AbortSignal,
-  ): Promise<{ id: string; status: "delivered" | "queued" }>;
+  ): Promise<{ id: string; status: "delivered" | "queued" | "uncertain" }>;
   createTask(
     agent: Agent,
     request: CreateSwarmTaskRequest,
@@ -80,6 +101,31 @@ export interface SwarmToolService {
     request: UpdateSwarmTaskRequest,
     signal?: AbortSignal,
   ): Promise<SwarmSnapshot>;
+  submitTask(
+    agent: Agent,
+    request: SubmitSwarmTaskRequest,
+    signal?: AbortSignal,
+  ): Promise<SwarmSnapshot>;
+  startVerification(
+    agent: Agent,
+    request: StartSwarmVerificationRequest,
+    signal?: AbortSignal,
+  ): Promise<SwarmSnapshot>;
+  recordVerdict(
+    agent: Agent,
+    request: RecordSwarmVerdictRequest,
+    signal?: AbortSignal,
+  ): Promise<SwarmSnapshot>;
+  recordMonitorFinding(
+    agent: Agent,
+    request: RecordSemanticFindingRequest,
+    signal?: AbortSignal,
+  ): Promise<SwarmSnapshot>;
+  escalateTask(
+    agent: Agent,
+    request: EscalateSwarmTaskRequest,
+    signal?: AbortSignal,
+  ): Promise<SwarmSnapshot>;
   reassignTask(
     agent: Agent,
     request: ReassignSwarmTaskRequest,
@@ -88,6 +134,17 @@ export interface SwarmToolService {
   interruptMember(
     agent: Agent,
     request: InterruptSwarmMemberRequest,
+    signal?: AbortSignal,
+  ): Promise<SwarmSnapshot>;
+  admitKnowledge(
+    agent: Agent,
+    request: AdmitKnowledgeRequest,
+    callId: string,
+    signal?: AbortSignal,
+  ): Promise<unknown>;
+  resolveEffect(
+    agent: Agent,
+    request: ResolveSwarmEffectRequest,
     signal?: AbortSignal,
   ): Promise<SwarmSnapshot>;
   waitForChange(
@@ -111,6 +168,7 @@ async function dispatch(
   action: SwarmAction,
   request: unknown,
   signal: AbortSignal,
+  callId: string,
 ): Promise<unknown> {
   signal.throwIfAborted();
   switch (action) {
@@ -126,10 +184,24 @@ async function dispatch(
       return service.createTask(agent, request as CreateSwarmTaskRequest, signal);
     case "update_task":
       return service.updateTask(agent, request as UpdateSwarmTaskRequest, signal);
+    case "submit_task":
+      return service.submitTask(agent, request as SubmitSwarmTaskRequest, signal);
+    case "start_verification":
+      return service.startVerification(agent, request as StartSwarmVerificationRequest, signal);
+    case "record_verdict":
+      return service.recordVerdict(agent, request as RecordSwarmVerdictRequest, signal);
+    case "record_monitor_finding":
+      return service.recordMonitorFinding(agent, request as RecordSemanticFindingRequest, signal);
+    case "escalate_task":
+      return service.escalateTask(agent, request as EscalateSwarmTaskRequest, signal);
     case "reassign_task":
       return service.reassignTask(agent, request as ReassignSwarmTaskRequest, signal);
     case "interrupt_member":
       return service.interruptMember(agent, request as InterruptSwarmMemberRequest, signal);
+    case "admit_knowledge":
+      return service.admitKnowledge(agent, request as AdmitKnowledgeRequest, callId, signal);
+    case "resolve_effect":
+      return service.resolveEffect(agent, request as ResolveSwarmEffectRequest, signal);
     case "wait":
       return service.waitForChange(agent, request as WaitForSwarmChangeRequest, signal);
     case "archive":
@@ -141,7 +213,7 @@ export function createSwarmToolDefinition(service: SwarmToolService): ToolDefini
   return {
     name: "swarm",
     description:
-      "Create and coordinate one durable DSH-native Team. Task updates require exact revisions and attempts; archive retires history without deleting it.",
+      "Create and coordinate one durable DSH-native Team. Implementers submit bounded evidence; only an exact authorized verifier or lead records acceptance. Task actions require exact revisions, attempts, and submissions.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -186,7 +258,14 @@ export function createSwarmToolDefinition(service: SwarmToolService): ToolDefini
           cause,
         });
       }
-      const data = await dispatch(service, agent, input.action, input.request, execution.signal);
+      const data = await dispatch(
+        service,
+        agent,
+        input.action,
+        input.request,
+        execution.signal,
+        execution.callId,
+      );
       return { action: input.action, data };
     },
   };
@@ -214,7 +293,7 @@ export function apply(ctx: SwarmToolContext): void {
   ctx.systemPrompt.section({
     name: "swarmx:team-mode",
     order: 194,
-    text: "Use the swarm tool as the only Team coordination surface. The lead creates and administers the Team. Members settle only their current task attempt and must not delegate or access PKB. A write task grants coordination authority for workspace mutation but does not replace ordinary tool approvals or sandbox policy.",
+    text: "Use the swarm tool as the only Team coordination surface. Classify tasks as read (R), write (W), or knowledge (K). The lead creates and administers the Team. Members act only within their durable role and current task attempt; they must not delegate or access PKB. A write task grants one effect-fenced mutation lane but does not replace ordinary approvals or sandbox policy. Implementers submit bounded artifacts and evidence; submission revokes mutation authority and is not completion. Only the exact assigned verifier or lead may start verification and record a verdict, with self-verification explicitly degraded. A semantic monitor is optional and event-triggered; it may only record a strict read-only monitor finding and never a command or task verdict. Tool timeout/error may mean an uncertain effect and must be resolved before retry. Task completion and messages are candidates, not knowledge; only lead-only admit_knowledge with verified sources can commit a K task through Science Journal or approved PKB ownership.",
   });
   effectContext.effect(() => registerSwarmTool(ctx), "dsh-swarm: register aggregate tool");
 }

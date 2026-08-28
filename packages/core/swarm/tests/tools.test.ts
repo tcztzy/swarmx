@@ -20,6 +20,12 @@ describe("swarm aggregate tool", () => {
 
     expect(actions).toEqual(SWARM_ACTIONS);
     expect(actions).toContain("archive");
+    expect(actions).toContain("admit_knowledge");
+    expect(actions).toContain("resolve_effect");
+    expect(actions).toContain("submit_task");
+    expect(actions).toContain("start_verification");
+    expect(actions).toContain("record_verdict");
+    expect(actions).toContain("record_monitor_finding");
     expect(actions).not.toContain("delete");
     const privateArgs = {
       action: "send_message",

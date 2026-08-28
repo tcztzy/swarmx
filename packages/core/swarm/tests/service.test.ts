@@ -10,8 +10,33 @@ describe("Swarm service Remote projection", () => {
     const lead = { id: sessionId } as Agent;
     const snapshot: SwarmSnapshot = {
       kind: "active",
+      effects: [
+        {
+          id: "10000000-0000-4000-8000-000000000001",
+          taskId: "task-1",
+          attemptId: "private-effect-attempt",
+          toolName: "write",
+          status: "uncertain",
+        },
+      ],
+      admissions: [
+        {
+          id: "20000000-0000-4000-8000-000000000001",
+          taskId: "task-1",
+          attemptId: "private-admission-attempt",
+          targetKind: "pkb_concept",
+          status: "uncertain",
+        },
+      ],
       memberName: "lead",
-      members: [{ description: "Team lead", name: "lead", role: "lead", status: "idle" }],
+      members: [
+        {
+          description: "Team lead at /Users/private/project",
+          name: "lead",
+          role: "lead",
+          status: "idle",
+        },
+      ],
       name: "Research team",
       pendingMessages: 0,
       revision: 2,
@@ -28,6 +53,14 @@ describe("Swarm service Remote projection", () => {
           revision: 2,
           status: "in_progress",
           subject: "Implement scheduler",
+          submission: {
+            id: "30000000-0000-4000-8000-000000000001",
+            attemptId: "private-attempt",
+            summary: "Report saved at /Users/private/report.json",
+            artifactLocators: [],
+            evidenceDigests: [],
+            submittedAt: 90,
+          },
           writeScopes: ["private/workspace/path"],
         },
       ],
@@ -43,7 +76,7 @@ describe("Swarm service Remote projection", () => {
 
     expect(result.kind).toBe("active");
     expect(JSON.stringify(result)).not.toMatch(
-      /private task detail|private-attempt|private\/workspace/u,
+      /private task detail|private-attempt|private-effect-attempt|private-admission-attempt|private\/workspace|\/Users\/private/u,
     );
   });
 });
