@@ -4,6 +4,7 @@
     { "path": "./apps/desktop" },
     { "path": "./packages/core/annotation" },
     { "path": "./packages/core/dvc" },
+    { "path": "./packages/core/pkb" },
     { "path": "./packages/core/swarm" },
     { "path": "./packages/science/core" },
     { "path": "./packages/client/ui-conversation" },

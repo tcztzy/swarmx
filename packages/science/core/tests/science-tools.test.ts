@@ -1,12 +1,14 @@
 import { randomUUID } from "node:crypto";
 import type { ImageAttachmentRef } from "@deepseek-ai/dsh-attachment";
-import type { SessionId } from "@deepseek-ai/dsh-session";
-import type { ToolDefinition, ToolRunContext } from "@deepseek-ai/dsh-tools";
+import { assertSupportedJsonSchema } from "@deepseek-ai/dsh-tools";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { z } from "zod";
 import {
   createScienceToolDefinitions,
   registerScienceTools,
   SCIENCE_TOOL_NAMES,
+  type ScienceToolDefinition,
+  type ScienceToolExecution,
 } from "../src/tools.js";
 import { createScienceFixture, type ScienceFixture } from "./fixture.js";
 
@@ -16,20 +18,15 @@ afterEach(async () => {
   await Promise.all(fixtures.splice(0).map((fixture) => fixture.dispose()));
 });
 
-function execution(sessionId: SessionId, signal = new AbortController().signal): ToolRunContext {
+function execution(actorId: string, signal = new AbortController().signal): ScienceToolExecution {
   return {
     callId: "science-call-1",
-    rootCallId: "science-call-1",
-    name: "science_record",
-    arguments: {},
-    agent: { id: sessionId },
+    actorId,
     signal,
-    deferContext: vi.fn(),
-    concludeTurn: vi.fn(),
-  } as unknown as ToolRunContext;
+  };
 }
 
-function named(definitions: readonly ToolDefinition[], name: string): ToolDefinition {
+function named(definitions: readonly ScienceToolDefinition[], name: string): ScienceToolDefinition {
   const definition = definitions.find((candidate) => candidate.name === name);
   if (!definition) throw new Error(`Missing tool ${name}`);
   return definition;
@@ -64,7 +61,7 @@ describe("Science model tools", () => {
     } as never);
     const record = named(definitions, "science_record");
 
-    const result = await record.execute(
+    const result = await record.invoke(
       {
         action: "create_question",
         request: {
@@ -90,7 +87,7 @@ describe("Science model tools", () => {
       data: { kind: "question" },
     });
     await expect(
-      record.execute(
+      record.invoke(
         {
           action: "create_question",
           request: {
@@ -107,6 +104,29 @@ describe("Science model tools", () => {
     ).rejects.toMatchObject({ code: "INVALID_REQUEST" });
   });
 
+  it("lets every runtime create the project root through the shared tool", async () => {
+    const fixture = await createScienceFixture();
+    fixtures.push(fixture);
+    const notebook = named(
+      createScienceToolDefinitions(fixture.context.science, { saveImage: vi.fn() } as never),
+      "science_notebook",
+    );
+
+    const created = await notebook.invoke(
+      {
+        action: "create_project",
+        request: { requestId: randomUUID(), title: "Runtime-neutral project" },
+      },
+      execution(fixture.sessionA),
+    );
+
+    expect(created).toMatchObject({
+      classification: "fact",
+      summary: "Created science project",
+      data: { kind: "project", title: "Runtime-neutral project" },
+    });
+  });
+
   it("queries the project Research Object instead of exposing workspace or trace graphs", async () => {
     const fixture = await createScienceFixture();
     fixtures.push(fixture);
@@ -119,10 +139,40 @@ describe("Science model tools", () => {
       "science_query",
     );
 
-    expect(query.parameters.properties?.action).toMatchObject({
-      enum: ["research_object", "inspect_annotation"],
+    expect(query.parameters.oneOf).toHaveLength(7);
+    expect(() => assertSupportedJsonSchema(query.parameters)).not.toThrow();
+    expect(query.mcpParameters).toMatchObject({ type: "object", oneOf: expect.any(Array) });
+    const publishedInput = z.fromJSONSchema(
+      query.mcpParameters as Parameters<typeof z.fromJSONSchema>[0],
+    );
+    expect(() =>
+      publishedInput.parse({ action: "head", request: { projectId: project.id } }),
+    ).toThrow();
+    expect(() => publishedInput.parse({ action: "batch_head", request: { ids: [] } })).toThrow();
+    const mcpVariants = (query.mcpParameters as { oneOf?: Record<string, unknown>[] }).oneOf;
+    const neighbors = mcpVariants?.find(
+      (variant) =>
+        (
+          (variant.properties as Record<string, unknown> | undefined)?.action as
+            | Record<string, unknown>
+            | undefined
+        )?.const === "neighbors",
+    );
+    expect(neighbors).toMatchObject({
+      properties: {
+        action: { const: "neighbors" },
+        request: {
+          properties: {
+            relations: { minItems: 1, maxItems: 16, uniqueItems: true },
+            limit: { minimum: 1, maximum: 100 },
+          },
+        },
+      },
     });
-    const value = await query.execute(
+    expect(
+      publishedInput.parse({ action: "research_object", request: { projectId: project.id } }),
+    ).toEqual({ action: "research_object", request: { projectId: project.id } });
+    const value = await query.invoke(
       { action: "research_object", request: { projectId: project.id } },
       execution(fixture.sessionA),
     );
@@ -135,6 +185,55 @@ describe("Science model tools", () => {
         "@graph": expect.any(Array),
       },
     });
+  });
+
+  it("exposes strict ID-addressed query actions without returning a workspace snapshot", async () => {
+    const fixture = await createScienceFixture();
+    fixtures.push(fixture);
+    const project = fixture.context.science.createProject(fixture.sessionA, {
+      requestId: randomUUID(),
+      title: "Addressed tool project",
+    });
+    const query = named(
+      createScienceToolDefinitions(fixture.context.science, { saveImage: vi.fn() } as never),
+      "science_query",
+    );
+    const id = `sx:p/${project.id}`;
+
+    const head = await query.invoke(
+      { action: "head", request: { id } },
+      execution(fixture.sessionA),
+    );
+    expect(head).toMatchObject({
+      classification: "fact",
+      summary: "Read science resource head",
+      locator: { entityKind: "project", entityId: project.id },
+      data: { ref: { id, exactId: `${id}@1`, revision: 1 } },
+    });
+    const metadata = await query.invoke(
+      { action: "get", request: { id: `${id}@1`, projection: "metadata" } },
+      execution(fixture.sessionA),
+    );
+    expect(metadata).toMatchObject({
+      classification: "fact",
+      data: { ref: { id }, metadata: { kind: "project" } },
+    });
+    expect(JSON.stringify(head)).not.toContain("projects");
+    expect(metadata.data).not.toHaveProperty("projects");
+    expect(metadata.data).not.toHaveProperty("notebooks");
+
+    for (const input of [
+      { action: "head", request: { id, extra: true } },
+      { action: "batch_head", request: { ids: [id], extra: true } },
+      { action: "get", request: { id, projection: "metadata", extra: true } },
+      { action: "select", request: { id, format: "table", extra: true } },
+      { action: "neighbors", request: { id, extra: true } },
+      { action: "unknown", request: {} },
+    ]) {
+      await expect(query.invoke(input, execution(fixture.sessionA))).rejects.toMatchObject({
+        code: "INVALID_REQUEST",
+      });
+    }
   });
 
   it("forwards cancellation and labels comparisons as inference", async () => {
@@ -152,7 +251,7 @@ describe("Science model tools", () => {
     controller.abort();
 
     await expect(
-      experimentTool.execute(
+      experimentTool.invoke(
         {
           action: "define",
           request: {
@@ -201,9 +300,9 @@ describe("Science model tools", () => {
       required: ["query"],
       properties: { query: { type: "string" }, limit: { type: "integer" } },
     });
-    const value = await literature.execute(
+    const value = await literature.invoke(
       { query: "genome foundation model", limit: 5 },
-      execution("literature-session" as SessionId),
+      execution("literature-session"),
     );
     expect(searchLiterature).toHaveBeenCalledWith(
       "literature-session",
@@ -217,9 +316,9 @@ describe("Science model tools", () => {
       data: { source: "zotero", ranking: "zotero-local-v1" },
     });
     await expect(
-      literature.execute(
+      literature.invoke(
         { query: "genome", provider: "semantic-scholar" },
-        execution("literature-session" as SessionId),
+        execution("literature-session"),
       ),
     ).rejects.toMatchObject({ code: "INVALID_REQUEST" });
     expect(searchLiterature).toHaveBeenCalledOnce();
@@ -253,12 +352,11 @@ describe("Science model tools", () => {
       "science_query",
     );
     expect(query.description).toContain("never submit artifact_id alone");
-    expect(query.parameters.properties?.request).toMatchObject({
-      oneOf: expect.arrayContaining([
-        expect.objectContaining({
-          required: ["type", "id", "comment", "created_at", "target"],
-        }),
-      ]),
+    const inspectBranch = query.parameters.oneOf?.find(
+      (branch) => branch.title === "Image annotation request",
+    )?.properties?.request;
+    expect(inspectBranch).toMatchObject({
+      required: ["type", "id", "comment", "created_at", "target"],
     });
     const request = {
       type: "comment",
@@ -276,7 +374,7 @@ describe("Science model tools", () => {
       },
     } as const;
 
-    const value = await query.execute(
+    const value = await query.invoke(
       { action: "inspect_annotation", request },
       execution(fixture.sessionA),
     );
@@ -294,7 +392,7 @@ describe("Science model tools", () => {
     ]);
 
     await expect(
-      query.execute(
+      query.invoke(
         {
           action: "inspect_annotation",
           request: {

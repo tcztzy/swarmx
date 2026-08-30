@@ -3,7 +3,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ToolRunContext } from "@deepseek-ai/dsh-tools";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createFrozenPkbIndexProvider, createPkbToolDefinition, PkbVault } from "../src/index.js";
+import {
+  createFrozenPkbIndexProvider,
+  createPkbToolDefinition,
+  executePkbOperation,
+  PkbVault,
+} from "../src/index.js";
 
 const roots: string[] = [];
 
@@ -47,6 +52,20 @@ describe("pkb tool", () => {
 
     expect(output).toMatchObject({ action: "search_knowledge" });
     expect(approval.request).not.toHaveBeenCalled();
+
+    await expect(
+      executePkbOperation(
+        { archive, vault },
+        { action: "search_knowledge", request: { query: "anything" } },
+        {
+          actorId: "codex:thread-1",
+          callId: "mcp-call-1",
+          workspaceRoot: cwd,
+          signal: new AbortController().signal,
+          approve: vi.fn(),
+        },
+      ),
+    ).resolves.toMatchObject({ action: "search_knowledge" });
   });
 
   it("V133 V135: fails closed before mutations and all-session reads", async () => {
@@ -106,6 +125,124 @@ describe("pkb tool", () => {
 
     expect((await vault.search(cwd, { query: "Approved" })).items).toHaveLength(1);
     expect(approval.request).toHaveBeenCalledTimes(1);
+  });
+
+  it("V135: does not mutate after approval returns to an aborted call", async () => {
+    const { cwd } = await fixture();
+    const controller = new AbortController();
+    const createConcept = vi.fn();
+    const approve = vi.fn(async () => {
+      controller.abort();
+      return "allowed-once";
+    });
+
+    await expect(
+      executePkbOperation(
+        {
+          archive: { capture: vi.fn(), read: vi.fn(), search: vi.fn() },
+          vault: {
+            createConcept,
+            deprecateConcept: vi.fn(),
+            readConcept: vi.fn(),
+            search: vi.fn(),
+            updateConcept: vi.fn(),
+          },
+        },
+        {
+          action: "create_knowledge",
+          request: {
+            body: "# Cancelled\n\nMust not be written.",
+            description: "Cancelled write.",
+            title: "Cancelled",
+            type: "Decision",
+          },
+        },
+        {
+          actorId: "codex:thread-1",
+          callId: "mcp-call-aborted-after-approval",
+          workspaceRoot: cwd,
+          signal: controller.signal,
+          approve,
+        },
+      ),
+    ).rejects.toMatchObject({ name: "AbortError" });
+    expect(createConcept).not.toHaveBeenCalled();
+  });
+
+  it("V134/V220: accepts every runtime-qualified native Thread locator it can return", async () => {
+    const { cwd, vault } = await fixture();
+    const sessionId = `codex:${"n".repeat(512)}`;
+    const archive = {
+      capture: vi.fn(),
+      read: vi.fn().mockResolvedValue({ locator: { seq: 7, sessionId }, text: "evidence" }),
+      search: vi.fn(),
+    };
+
+    await expect(
+      executePkbOperation(
+        { archive, vault },
+        { action: "read_conversation", request: { seq: 7, sessionId } },
+        {
+          actorId: "codex:thread-1",
+          callId: "mcp-call-long-locator",
+          workspaceRoot: cwd,
+          signal: new AbortController().signal,
+          approve: vi.fn(),
+        },
+      ),
+    ).resolves.toMatchObject({ action: "read_conversation", data: { text: "evidence" } });
+    expect(archive.read).toHaveBeenCalledWith(cwd, { seq: 7, sessionId }, expect.anything());
+  });
+
+  it("V221: validates and defaults create scope before one approval", async () => {
+    const { cwd, vault } = await fixture();
+    const approve = vi.fn().mockResolvedValue("allowed-once");
+    const archive = { capture: vi.fn(), read: vi.fn(), search: vi.fn() };
+
+    await expect(
+      executePkbOperation(
+        { archive, vault },
+        {
+          action: "create_knowledge",
+          request: {
+            body: "# Default\n\nApproved.",
+            description: "Approved default workspace write.",
+            title: "Default workspace",
+            type: "Decision",
+          },
+        },
+        {
+          actorId: "codex:thread-1",
+          callId: "mcp-call-221",
+          workspaceRoot: cwd,
+          signal: new AbortController().signal,
+          approve,
+        },
+      ),
+    ).resolves.toMatchObject({
+      action: "create_knowledge",
+      data: { id: expect.stringMatching(/^workspaces\//u) },
+    });
+    expect(approve).toHaveBeenCalledOnce();
+
+    approve.mockClear();
+    await expect(
+      executePkbOperation(
+        { archive, vault },
+        {
+          action: "create_knowledge",
+          request: { body: "# Invalid", description: "Missing title and type." },
+        },
+        {
+          actorId: "codex:thread-1",
+          callId: "mcp-call-invalid",
+          workspaceRoot: cwd,
+          signal: new AbortController().signal,
+          approve,
+        },
+      ),
+    ).rejects.toMatchObject({ code: "INVALID_REQUEST" });
+    expect(approve).not.toHaveBeenCalled();
   });
 });
 

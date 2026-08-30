@@ -13,7 +13,6 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, relative, resolve, sep } from "node:path";
-import type { SubprocessHandle, SubprocessRuntime } from "@deepseek-ai/dsh-subprocess";
 import type {
   ResolveTypstSourceAtPointRequest,
   TypstDocumentPreview,
@@ -22,6 +21,7 @@ import type {
   UpdateTypstSourceRequest,
 } from "./contracts.js";
 import { ScienceError } from "./errors.js";
+import type { ScienceProcessHandle, ScienceProcessRuntime } from "./subprocess.js";
 import {
   type WritingPreviewCompiledEvent,
   WritingPreviewRuntimeProcess,
@@ -88,7 +88,7 @@ interface Controller {
   diagnostics: string[];
   diagnosticsOffset: number;
   events: Promise<void>;
-  handle: SubprocessHandle | null;
+  handle: ScienceProcessHandle | null;
   lastOutputMtimeMs: number;
   lastPdf: LastPdf | null;
   lastUsedAt: number;
@@ -142,7 +142,7 @@ export class TypstPreviewRuntime {
   private open = true;
 
   constructor(
-    private readonly subprocess: SubprocessRuntime,
+    private readonly subprocess: ScienceProcessRuntime,
     private readonly config: TypstPreviewRuntimeConfig,
   ) {}
 

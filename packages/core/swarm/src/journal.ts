@@ -1,11 +1,15 @@
 import { createHash, randomBytes } from "node:crypto";
-import { chmodSync, mkdirSync, realpathSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, realpathSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { z } from "zod";
 import {
+  knowledgeCommitReceiptSchema,
+  legacySwarmKnowledgeAdmissionSchema,
   type MonitorFinding,
   monitorFindingSchema,
+  type ResolveSwarmEffectRequest,
+  SWARM_PROVISIONING_INTERRUPTED_ERROR,
   type SwarmAttempt,
   type SwarmEffect,
   type SwarmKnowledgeAdmission,
@@ -24,16 +28,27 @@ import {
 import { SwarmError } from "./errors.js";
 
 const DATABASE_NAME = "swarm.sqlite";
-const MIGRATION_VERSION = 3;
+const MIGRATION_VERSION = 5;
+const LEGACY_EVENT_CUTOFF_SETTING = "swarm_v5_legacy_event_cutoff";
+const workspaceKeySchema = z.string().regex(/^swarmx--[0-9a-f]{64}$/u);
+const memberBindingSchema = z.strictObject({
+  workspaceKey: workspaceKeySchema,
+  runtime: z.string().min(1).max(64),
+  memberId: z.string().uuid(),
+  handle: z.string().min(1).max(2_048),
+});
 
 const createdEventDataSchema = z.strictObject({
   createdAt: z.number().int().nonnegative(),
   lead: swarmMemberSchema,
   name: z.string().trim().min(1).max(100),
-  workspaceKey: z.string().regex(/^swarmx--[0-9a-f]{64}$/u),
+  workspaceKey: workspaceKeySchema,
 });
 const archivedEventDataSchema = z.strictObject({
   archivedAt: z.number().int().nonnegative(),
+});
+const archiveStartedEventDataSchema = z.strictObject({
+  archiveStartedAt: z.number().int().nonnegative(),
 });
 const deliveredEventDataSchema = z.strictObject({
   messageId: z.string().min(1).max(200),
@@ -50,6 +65,7 @@ const attemptTransitionEventDataSchema = z.strictObject({
 
 export type SwarmEvent =
   | { type: "team/created"; data: z.infer<typeof createdEventDataSchema> }
+  | { type: "team/archive-started"; data: z.infer<typeof archiveStartedEventDataSchema> }
   | { type: "team/archived"; data: z.infer<typeof archivedEventDataSchema> }
   | { type: "member/updated"; data: SwarmMember }
   | { type: "task/updated"; data: SwarmTask }
@@ -69,6 +85,7 @@ export type SwarmEvent =
   | { type: "monitor/finding-recorded"; data: MonitorFinding };
 
 interface EventRow {
+  seq: number;
   team_id: string;
   revision: number;
   type: SwarmEvent["type"];
@@ -78,6 +95,35 @@ interface EventRow {
 interface TeamRow {
   snapshot_json: string;
 }
+
+interface MemberBindingRow {
+  workspace_key: string;
+  runtime: string;
+  member_id: string;
+  handle: string;
+}
+
+interface MessageLedgerRow {
+  snapshot_json: string;
+}
+
+export type SwarmMemberBinding = z.infer<typeof memberBindingSchema>;
+
+export interface SwarmJournalOptions {
+  readonly mode?: "client" | "owner";
+}
+
+export interface QueuedSwarmMessage {
+  readonly created: boolean;
+  readonly message: SwarmMessage;
+}
+
+export interface SettledKnowledgeAdmission {
+  readonly admission: SwarmKnowledgeAdmission;
+  readonly committed: boolean;
+}
+
+export type ProvisioningMemberBindingClaim = "created" | "existing" | "archive_required";
 
 function clone<T>(value: T): T {
   return structuredClone(value);
@@ -91,6 +137,8 @@ function parseEvent(type: SwarmEvent["type"], value: unknown): SwarmEvent {
   switch (type) {
     case "team/created":
       return { type, data: createdEventDataSchema.parse(value) };
+    case "team/archive-started":
+      return { type, data: archiveStartedEventDataSchema.parse(value) };
     case "team/archived":
       return { type, data: archivedEventDataSchema.parse(value) };
     case "member/updated":
@@ -122,10 +170,33 @@ function parseEvent(type: SwarmEvent["type"], value: unknown): SwarmEvent {
   }
 }
 
+function parseLegacyEvent(type: SwarmEvent["type"], value: unknown): SwarmEvent {
+  if (type !== "knowledge/admission-updated") return parseEvent(type, value);
+  const admission = legacySwarmKnowledgeAdmissionSchema.parse(value);
+  const receiptMatches =
+    admission.receipt === undefined || admission.receipt.kind === admission.targetKind;
+  if (admission.status !== "committed" && receiptMatches) {
+    return { type, data: swarmKnowledgeAdmissionSchema.parse(admission) };
+  }
+  if (admission.status === "committed" && admission.receipt !== undefined && receiptMatches) {
+    return { type, data: swarmKnowledgeAdmissionSchema.parse(admission) };
+  }
+  const { receipt: _receipt, ...rest } = admission;
+  return {
+    type,
+    data: swarmKnowledgeAdmissionSchema.parse({
+      ...rest,
+      ...(admission.status === "committed" ? { status: "uncertain" } : {}),
+    }),
+  };
+}
+
 function eventTimestamp(event: SwarmEvent): number {
   switch (event.type) {
     case "team/created":
       return event.data.createdAt;
+    case "team/archive-started":
+      return event.data.archiveStartedAt;
     case "team/archived":
       return event.data.archivedAt;
     case "member/updated":
@@ -315,7 +386,12 @@ function queueMessage(state: SwarmTeamState, message: SwarmMessage): SwarmMessag
     }
     throw new SwarmError("Swarm message id already exists", "SWARM_MESSAGE_CONFLICT");
   }
-  if (state.messages.some((candidate) => candidate.sequence === message.sequence)) {
+  if (
+    state.messages.some(
+      (candidate) =>
+        candidate.targetId === message.targetId && candidate.sequence === message.sequence,
+    )
+  ) {
     throw new SwarmError("Swarm message sequence already exists", "SWARM_INVALID_REQUEST");
   }
   const messages = [...state.messages, message];
@@ -359,6 +435,57 @@ function startMessageDelivery(
   );
 }
 
+const NON_TERMINAL_TASK_STATUSES = new Set(["in_progress", "submitted", "verifying"]);
+const NON_TERMINAL_ATTEMPT_STATUSES = new Set(["active", "submitted", "verifying"]);
+
+function isArchiveCleanupEvent(current: SwarmTeamState, event: SwarmEvent): boolean {
+  switch (event.type) {
+    case "team/archived":
+    case "message/delivered":
+      return true;
+    case "member/updated": {
+      const member = current.members.find((candidate) => candidate.id === event.data.id);
+      if (member === undefined) return false;
+      if (event.data.phase !== "active" && event.data.phase !== "provisioning") return true;
+      return (
+        member.phase === "provisioning" &&
+        member.runtimeReadyAt === undefined &&
+        event.data.phase === "provisioning" &&
+        event.data.runtimeReadyAt !== undefined &&
+        event.data.name === member.name &&
+        event.data.role === member.role &&
+        event.data.description === member.description &&
+        event.data.createdAt === member.createdAt &&
+        event.data.error === member.error &&
+        JSON.stringify(event.data.modelPolicy) === JSON.stringify(member.modelPolicy) &&
+        JSON.stringify(event.data.budget) === JSON.stringify(member.budget)
+      );
+    }
+    case "task/updated":
+      return (
+        current.tasks.some((task) => task.id === event.data.id) &&
+        !NON_TERMINAL_TASK_STATUSES.has(event.data.status)
+      );
+    case "attempt/ended":
+      return (
+        !NON_TERMINAL_TASK_STATUSES.has(event.data.task.status) &&
+        !NON_TERMINAL_ATTEMPT_STATUSES.has(event.data.attempt.status)
+      );
+    case "effect/updated":
+      return (
+        current.effects.some((effect) => effect.id === event.data.id) &&
+        event.data.status !== "started"
+      );
+    case "knowledge/admission-updated":
+      return (
+        current.admissions.some((admission) => admission.id === event.data.id) &&
+        event.data.status !== "started"
+      );
+    default:
+      return false;
+  }
+}
+
 function applyEvent(
   teamId: string,
   current: SwarmTeamState | undefined,
@@ -395,17 +522,46 @@ function applyEvent(
   if (current.phase === "archived") {
     throw new SwarmError("Swarm is archived", "SWARM_ARCHIVED");
   }
+  if (
+    current.archiveStartedAt !== undefined &&
+    event.type !== "team/archive-started" &&
+    !isArchiveCleanupEvent(current, event)
+  ) {
+    throw new SwarmError("Swarm archive is in progress", "SWARM_ARCHIVED");
+  }
 
   const updatedAt = eventTimestamp(event);
   switch (event.type) {
-    case "team/archived":
+    case "team/archive-started":
+      if (current.archiveStartedAt !== undefined) {
+        throw new SwarmError("Swarm archive is already in progress", "SWARM_INVALID_REQUEST");
+      }
       return swarmTeamStateSchema.parse({
         ...current,
+        revision,
+        archiveStartedAt: event.data.archiveStartedAt,
+        updatedAt,
+      });
+    case "team/archived": {
+      if (
+        current.archiveStartedAt === undefined ||
+        current.members.some((member) => member.role !== "lead" && member.phase !== "retired") ||
+        current.tasks.some((task) => NON_TERMINAL_TASK_STATUSES.has(task.status)) ||
+        current.attempts.some((attempt) => NON_TERMINAL_ATTEMPT_STATUSES.has(attempt.status)) ||
+        current.effects.some((effect) => effect.status === "started") ||
+        current.admissions.some((admission) => admission.status === "started")
+      ) {
+        throw new SwarmError("Swarm archive has not drained", "SWARM_INVALID_REQUEST");
+      }
+      const { archiveStartedAt: _archiveStartedAt, ...rest } = current;
+      return swarmTeamStateSchema.parse({
+        ...rest,
         revision,
         phase: "archived",
         archivedAt: event.data.archivedAt,
         updatedAt,
       });
+    }
     case "member/updated":
       return swarmTeamStateSchema.parse({
         ...current,
@@ -435,26 +591,26 @@ function applyEvent(
         updatedAt,
       });
     case "message/queued":
-      return swarmTeamStateSchema.parse({
+      return {
         ...current,
         revision,
         messages: queueMessage(current, event.data),
         updatedAt,
-      });
+      };
     case "message/delivery-started":
-      return swarmTeamStateSchema.parse({
+      return {
         ...current,
         revision,
         messages: startMessageDelivery(current, event.data),
         updatedAt,
-      });
+      };
     case "message/delivered":
-      return swarmTeamStateSchema.parse({
+      return {
         ...current,
         revision,
         messages: deliverMessage(current, event.data),
         updatedAt,
-      });
+      };
     case "attempt/started":
     case "task/submitted":
     case "verification/started":
@@ -488,6 +644,48 @@ function applyEvent(
   }
 }
 
+function applyLegacyArchivedEvent(
+  teamId: string,
+  current: SwarmTeamState | undefined,
+  revision: number,
+  archivedAt: number,
+): SwarmTeamState {
+  if (current === undefined) throw new SwarmError("Swarm not found", "SWARM_NOT_FOUND");
+  if (revision !== current.revision + 1) {
+    throw new SwarmError("Swarm revision is stale", "SWARM_STALE_REVISION");
+  }
+  if (current.phase === "archived") {
+    throw new SwarmError("Swarm is archived", "SWARM_ARCHIVED");
+  }
+  const { archiveStartedAt: _archiveStartedAt, ...rest } = current;
+  return swarmTeamStateSchema.parse({
+    ...rest,
+    id: teamId,
+    revision,
+    phase: "archived",
+    archivedAt,
+    updatedAt: archivedAt,
+  });
+}
+
+function advanceIgnoredLegacyMessageEvent(
+  current: SwarmTeamState | undefined,
+  revision: number,
+  event: SwarmEvent,
+): SwarmTeamState {
+  if (current === undefined) throw new SwarmError("Swarm not found", "SWARM_NOT_FOUND");
+  if (revision !== current.revision + 1) {
+    throw new SwarmError("Swarm revision is stale", "SWARM_STALE_REVISION");
+  }
+  if (current.phase === "archived") {
+    throw new SwarmError("Swarm is archived", "SWARM_ARCHIVED");
+  }
+  if (current.archiveStartedAt !== undefined && event.type === "message/queued") {
+    throw new SwarmError("Swarm archive is in progress", "SWARM_ARCHIVED");
+  }
+  return { ...current, revision, updatedAt: eventTimestamp(event) };
+}
+
 /** Owner-only append-only event log with rebuildable swarm projections. */
 export class SwarmJournal {
   readonly databasePath: string;
@@ -495,41 +693,787 @@ export class SwarmJournal {
   private readonly database: DatabaseSync;
   private open = true;
 
-  constructor(root: string) {
+  constructor(root: string, options: SwarmJournalOptions = {}) {
     if (!isAbsolute(root)) {
       throw new SwarmError("Swarm storage root must be absolute", "SWARM_INVALID_REQUEST");
     }
-    mkdirSync(root, { recursive: true, mode: 0o700 });
-    chmodSync(root, 0o700);
+    const mode = options.mode ?? "owner";
+    if (mode === "owner") {
+      mkdirSync(root, { recursive: true, mode: 0o700 });
+      chmodSync(root, 0o700);
+    }
     this.databasePath = join(root, DATABASE_NAME);
+    if (mode === "client" && !existsSync(this.databasePath)) {
+      throw new SwarmError(
+        "Swarm storage has not been initialized by the platform owner",
+        "SWARM_CLOSED",
+      );
+    }
     this.database = new DatabaseSync(this.databasePath);
-    chmodSync(this.databasePath, 0o600);
-    this.database.exec(`
-      PRAGMA foreign_keys = ON;
-      PRAGMA synchronous = FULL;
-      PRAGMA busy_timeout = 5000;
-      PRAGMA journal_mode = WAL;
-    `);
-    this.migrate();
-    this.ensureWorkspaceSalt();
-    this.rebuildProjections();
+    try {
+      if (mode === "owner") chmodSync(this.databasePath, 0o600);
+      this.database.exec(`
+        PRAGMA foreign_keys = ON;
+        PRAGMA synchronous = FULL;
+        PRAGMA busy_timeout = 5000;
+      `);
+      if (mode === "owner") {
+        this.database.exec("PRAGMA journal_mode = WAL");
+        this.transaction(() => {
+          this.migrate();
+          this.ensureWorkspaceSalt();
+          this.rebuildProjectionsInTransaction();
+        });
+      } else {
+        this.verifyClientStorage();
+      }
+    } catch (cause) {
+      this.database.close();
+      this.open = false;
+      if (mode === "client") {
+        throw new SwarmError("Swarm storage is not ready for an auxiliary client", "SWARM_CLOSED", {
+          cause,
+        });
+      }
+      throw cause;
+    }
   }
 
   append(teamId: string, input: SwarmEvent): SwarmTeamState {
     assertOpen(this.open);
     const event = parseEvent(input.type, input.data);
+    return this.transaction(() => clone(this.appendEvent(teamId, this.readTeam(teamId), event)));
+  }
+
+  reserveMember(
+    teamId: string,
+    input: SwarmMember,
+    maxMembers: number,
+    authorize?: () => boolean,
+  ): SwarmTeamState {
+    assertOpen(this.open);
+    const member = swarmMemberSchema.parse(input);
+    const limit = z.number().int().positive().max(64).parse(maxMembers);
+    if (member.role === "lead" || member.phase !== "provisioning") {
+      throw new SwarmError("Invalid provisioning member", "SWARM_INVALID_REQUEST");
+    }
     return this.transaction(() => {
       const current = this.readTeam(teamId);
-      const revision = (current?.revision ?? 0) + 1;
-      const next = applyEvent(teamId, current, revision, event);
-      this.database
+      if (current === undefined) throw new SwarmError("Swarm not found", "SWARM_NOT_FOUND");
+      if (current.phase !== "active" || current.archiveStartedAt !== undefined) {
+        throw new SwarmError("Swarm is archived", "SWARM_ARCHIVED");
+      }
+      if (authorize !== undefined && !authorize()) {
+        throw new SwarmError("Swarm lead identity is stale", "SWARM_UNAUTHORIZED");
+      }
+      if (current.members.length >= limit) {
+        throw new SwarmError("Swarm member limit reached", "SWARM_LIMIT");
+      }
+      return clone(this.appendEvent(teamId, current, { type: "member/updated", data: member }));
+    });
+  }
+
+  activateProvisioningMember(
+    teamId: string,
+    input: SwarmMember,
+    authorize?: () => boolean,
+  ): SwarmTeamState {
+    assertOpen(this.open);
+    const member = swarmMemberSchema.parse(input);
+    if (member.phase !== "active") {
+      throw new SwarmError("Invalid active member", "SWARM_INVALID_REQUEST");
+    }
+    return this.transaction(() => {
+      const current = this.readTeam(teamId);
+      const existing = current?.members.find((candidate) => candidate.id === member.id);
+      if (
+        current?.phase !== "active" ||
+        current.archiveStartedAt !== undefined ||
+        existing?.phase !== "provisioning"
+      ) {
+        throw new SwarmError("Swarm member provisioning is no longer active", "SWARM_ARCHIVED");
+      }
+      if (authorize !== undefined && !authorize()) {
+        throw new SwarmError("Swarm lead identity is stale", "SWARM_UNAUTHORIZED");
+      }
+      return clone(this.appendEvent(teamId, current, { type: "member/updated", data: member }));
+    });
+  }
+
+  acknowledgeProvisioningMember(teamId: string, memberId: string, readyAt: number): SwarmMember {
+    assertOpen(this.open);
+    const id = z.string().min(1).max(512).parse(memberId);
+    const runtimeReadyAt = z.number().int().nonnegative().parse(readyAt);
+    return this.transaction(() => {
+      const current = this.readTeam(teamId);
+      const member = current?.members.find((candidate) => candidate.id === id);
+      if (current?.phase !== "active" || member?.phase !== "provisioning") {
+        throw new SwarmError("Swarm member is no longer provisioning", "SWARM_ARCHIVED");
+      }
+      if (member.runtimeReadyAt !== undefined) return clone(member);
+      const acknowledged = swarmMemberSchema.parse({ ...member, runtimeReadyAt });
+      this.appendEvent(teamId, current, { type: "member/updated", data: acknowledged });
+      return clone(acknowledged);
+    });
+  }
+
+  beginArchive(
+    teamId: string,
+    archiveStartedAt: number,
+    authorize?: () => boolean,
+  ): SwarmTeamState {
+    assertOpen(this.open);
+    const startedAt = z.number().int().nonnegative().parse(archiveStartedAt);
+    return this.transaction(() => {
+      const current = this.readTeam(teamId);
+      if (current === undefined) throw new SwarmError("Swarm not found", "SWARM_NOT_FOUND");
+      if (current.phase === "archived") {
+        throw new SwarmError("Swarm is archived", "SWARM_ARCHIVED");
+      }
+      if (authorize !== undefined && !authorize()) {
+        throw new SwarmError("Swarm lead identity is stale", "SWARM_UNAUTHORIZED");
+      }
+      if (current.archiveStartedAt !== undefined) return clone(current);
+      return clone(
+        this.appendEvent(teamId, current, {
+          type: "team/archive-started",
+          data: { archiveStartedAt: startedAt },
+        }),
+      );
+    });
+  }
+
+  settleProvisioningMemberWithoutBinding(teamId: string, memberId: string): boolean {
+    assertOpen(this.open);
+    const id = z.string().min(1).max(512).parse(memberId);
+    return this.transaction(() => {
+      const current = this.readTeam(teamId);
+      const member = current?.members.find((candidate) => candidate.id === id);
+      if (
+        current?.phase !== "active" ||
+        current.archiveStartedAt === undefined ||
+        member?.role === "lead" ||
+        member?.phase !== "provisioning"
+      ) {
+        return false;
+      }
+      const binding = this.database
+        .prepare("SELECT 1 FROM swarm_member_bindings WHERE member_id = ? LIMIT 1")
+        .get(id);
+      if (binding !== undefined) return false;
+      this.appendEvent(teamId, current, {
+        type: "member/updated",
+        data: { ...member, phase: "retired" },
+      });
+      return true;
+    });
+  }
+
+  retireMemberForArchive(teamId: string, memberId: string): boolean {
+    assertOpen(this.open);
+    const id = z.string().min(1).max(512).parse(memberId);
+    return this.transaction(() => {
+      const current = this.readTeam(teamId);
+      const member = current?.members.find((candidate) => candidate.id === id);
+      if (
+        current?.phase !== "active" ||
+        current.archiveStartedAt === undefined ||
+        member === undefined ||
+        member.role === "lead"
+      ) {
+        return false;
+      }
+      if (member.phase === "retired") return true;
+      if (member.phase === "provisioning") return false;
+      const binding = this.database
+        .prepare("SELECT 1 FROM swarm_member_bindings WHERE member_id = ? LIMIT 1")
+        .get(id);
+      if (binding !== undefined) return false;
+      this.appendEvent(teamId, current, {
+        type: "member/updated",
+        data: { ...member, phase: "retired" },
+      });
+      return true;
+    });
+  }
+
+  retireBoundMemberForArchive(teamId: string, input: SwarmMemberBinding): boolean {
+    assertOpen(this.open);
+    const binding = memberBindingSchema.parse(input);
+    return this.transaction(() => {
+      const current = this.readTeam(teamId);
+      const member = current?.members.find((candidate) => candidate.id === binding.memberId);
+      if (
+        current?.phase !== "active" ||
+        current.archiveStartedAt === undefined ||
+        current.workspaceKey !== binding.workspaceKey ||
+        member === undefined ||
+        member.role === "lead"
+      ) {
+        return false;
+      }
+      const owner = this.database
         .prepare(
-          `INSERT INTO swarm_events(team_id, revision, type, payload_json, occurred_at)
-           VALUES (?, ?, ?, ?, ?)`,
+          `SELECT workspace_key, runtime, member_id, handle
+           FROM swarm_member_bindings
+           WHERE workspace_key = ? AND runtime = ? AND member_id = ?`,
         )
-        .run(teamId, revision, event.type, JSON.stringify(event.data), eventTimestamp(event));
-      this.writeTeam(next);
+        .get(binding.workspaceKey, binding.runtime, binding.memberId) as
+        | MemberBindingRow
+        | undefined;
+      if (
+        owner === undefined ||
+        owner.handle !== binding.handle ||
+        owner.runtime !== binding.runtime ||
+        owner.workspace_key !== binding.workspaceKey
+      ) {
+        return false;
+      }
+      if (member.phase !== "retired") {
+        this.appendEvent(teamId, current, {
+          type: "member/updated",
+          data: { ...member, phase: "retired" },
+        });
+      }
+      const released = this.database
+        .prepare(
+          `DELETE FROM swarm_member_bindings
+           WHERE workspace_key = ? AND runtime = ? AND member_id = ? AND handle = ?`,
+        )
+        .run(binding.workspaceKey, binding.runtime, binding.memberId, binding.handle);
+      if (Number(released.changes) !== 1) {
+        throw new SwarmError("Swarm member binding changed during archive", "SWARM_STALE_REVISION");
+      }
+      return true;
+    });
+  }
+
+  finishArchive(teamId: string, archivedAt: number): SwarmTeamState | undefined {
+    assertOpen(this.open);
+    const completedAt = z.number().int().nonnegative().parse(archivedAt);
+    return this.transaction(() => {
+      const current = this.readTeam(teamId);
+      if (current === undefined) throw new SwarmError("Swarm not found", "SWARM_NOT_FOUND");
+      if (current.phase === "archived") return clone(current);
+      if (
+        current.archiveStartedAt === undefined ||
+        current.members.some((member) => member.role !== "lead" && member.phase !== "retired") ||
+        current.tasks.some((task) => NON_TERMINAL_TASK_STATUSES.has(task.status)) ||
+        current.attempts.some((attempt) => NON_TERMINAL_ATTEMPT_STATUSES.has(attempt.status)) ||
+        current.effects.some((effect) => effect.status === "started") ||
+        current.admissions.some((admission) => admission.status === "started")
+      ) {
+        return undefined;
+      }
+      for (const member of current.members.filter((candidate) => candidate.role !== "lead")) {
+        const binding = this.database
+          .prepare("SELECT 1 FROM swarm_member_bindings WHERE member_id = ? LIMIT 1")
+          .get(member.id);
+        if (binding !== undefined) return undefined;
+      }
+      return clone(
+        this.appendEvent(teamId, current, {
+          type: "team/archived",
+          data: { archivedAt: completedAt },
+        }),
+      );
+    });
+  }
+
+  settleArchiveIntents(teamId: string, now: number): SwarmTeamState {
+    assertOpen(this.open);
+    const settledAt = z.number().int().nonnegative().parse(now);
+    return this.transaction(() => {
+      let current = this.readTeam(teamId);
+      if (current?.phase !== "active" || current.archiveStartedAt === undefined) {
+        throw new SwarmError("Swarm archive is not in progress", "SWARM_INVALID_REQUEST");
+      }
+      for (const effect of current.effects.filter((candidate) => candidate.status === "started")) {
+        current = this.appendEvent(teamId, current, {
+          type: "effect/updated",
+          data: {
+            ...effect,
+            revision: effect.revision + 1,
+            status: "uncertain",
+            updatedAt: settledAt,
+          },
+        });
+      }
+      for (const admission of current.admissions.filter(
+        (candidate) => candidate.status === "started",
+      )) {
+        current = this.appendEvent(teamId, current, {
+          type: "knowledge/admission-updated",
+          data: {
+            ...admission,
+            revision: admission.revision + 1,
+            status: "uncertain",
+            updatedAt: settledAt,
+          },
+        });
+      }
+      return clone(current);
+    });
+  }
+
+  tryStartAttempt(
+    teamId: string,
+    input: z.infer<typeof attemptTransitionEventDataSchema>,
+    authorize?: () => boolean,
+  ): boolean {
+    assertOpen(this.open);
+    const data = attemptTransitionEventDataSchema.parse(input);
+    return this.transaction(() => {
+      const current = this.readTeam(teamId);
+      if (
+        current?.phase !== "active" ||
+        current.archiveStartedAt !== undefined ||
+        (authorize !== undefined && !authorize())
+      ) {
+        return false;
+      }
+      const task = current.tasks.find((candidate) => candidate.id === data.task.id);
+      const member = current.members.find((candidate) => candidate.id === data.attempt.ownerId);
+      if (
+        task?.status !== "pending" ||
+        task.revision + 1 !== data.task.revision ||
+        data.task.status !== "in_progress" ||
+        data.task.ownerId !== data.attempt.ownerId ||
+        data.task.attemptId !== data.attempt.id ||
+        data.attempt.taskId !== task.id ||
+        data.attempt.taskRevision !== data.task.revision ||
+        data.attempt.status !== "active" ||
+        member?.phase !== "active" ||
+        (task.ownerId !== undefined && task.ownerId !== member.id) ||
+        current.tasks.some(
+          (candidate) => candidate.status === "in_progress" && candidate.ownerId === member.id,
+        ) ||
+        task.blockedBy.some(
+          (dependency) =>
+            current.tasks.find((candidate) => candidate.id === dependency)?.status !== "completed",
+        ) ||
+        (task.kind === "write" &&
+          current.tasks.some(
+            (candidate) => candidate.kind === "write" && candidate.status === "in_progress",
+          )) ||
+        current.effects.some(
+          (effect) =>
+            effect.taskId === task.id &&
+            (effect.status === "started" || effect.status === "uncertain"),
+        )
+      ) {
+        return false;
+      }
+      this.appendEvent(teamId, current, { type: "attempt/started", data });
+      return true;
+    });
+  }
+
+  beginToolEffect(
+    teamId: string,
+    actorId: string,
+    input: SwarmEffect,
+    authorize?: () => boolean,
+  ): SwarmEffect {
+    assertOpen(this.open);
+    const effect = swarmEffectSchema.parse(input);
+    return this.transaction(() => {
+      const current = this.readTeam(teamId);
+      const member = current?.members.find((candidate) => candidate.id === actorId);
+      const task = current?.tasks.find((candidate) => candidate.id === effect.taskId);
+      if (
+        current?.phase !== "active" ||
+        current.archiveStartedAt !== undefined ||
+        member?.phase !== "active" ||
+        (authorize !== undefined && !authorize()) ||
+        task?.kind !== "write" ||
+        task.status !== "in_progress" ||
+        task.ownerId !== actorId ||
+        task.attemptId !== effect.attemptId ||
+        task.revision !== effect.taskRevision ||
+        effect.ownerId !== actorId ||
+        effect.status !== "started"
+      ) {
+        throw new SwarmError(
+          "Workspace mutation requires an active write attempt",
+          "SWARM_UNAUTHORIZED",
+        );
+      }
+      if (
+        current.effects.some(
+          (candidate) =>
+            candidate.attemptId === effect.attemptId && candidate.callId === effect.callId,
+        )
+      ) {
+        throw new SwarmError(
+          "This Tool call already entered the effect boundary",
+          "SWARM_DUPLICATE_EFFECT",
+        );
+      }
+      if (
+        current.effects.some(
+          (candidate) =>
+            candidate.taskId === task.id &&
+            (candidate.status === "started" || candidate.status === "uncertain"),
+        )
+      ) {
+        throw new SwarmError(
+          "Verify the previous uncertain Tool effect before another mutation",
+          "SWARM_EFFECT_UNCERTAIN",
+        );
+      }
+      this.appendEvent(teamId, current, { type: "effect/updated", data: effect });
+      return clone(effect);
+    });
+  }
+
+  settleToolEffect(
+    teamId: string,
+    actorId: string,
+    effectId: string,
+    outcome: { readonly status: "succeeded" | "uncertain"; readonly resultDigest?: string },
+    authorize?: () => boolean,
+  ): SwarmEffect {
+    assertOpen(this.open);
+    return this.transaction(() => {
+      const current = this.readTeam(teamId);
+      const effect = current?.effects.find((candidate) => candidate.id === effectId);
+      if (current === undefined || effect?.ownerId !== actorId || effect.status !== "started") {
+        throw new SwarmError("Swarm Tool effect is not active", "SWARM_UNAUTHORIZED");
+      }
+      const task = current.tasks.find((candidate) => candidate.id === effect.taskId);
+      const member = current.members.find((candidate) => candidate.id === actorId);
+      const stillCurrent =
+        current.phase === "active" &&
+        current.archiveStartedAt === undefined &&
+        member?.phase === "active" &&
+        (authorize === undefined || authorize()) &&
+        task?.status === "in_progress" &&
+        task.ownerId === actorId &&
+        task.attemptId === effect.attemptId &&
+        task.revision === effect.taskRevision;
+      const next = swarmEffectSchema.parse({
+        ...effect,
+        revision: effect.revision + 1,
+        status: stillCurrent ? outcome.status : "uncertain",
+        updatedAt: Date.now(),
+        ...(stillCurrent && outcome.resultDigest !== undefined
+          ? { resultDigest: outcome.resultDigest }
+          : {}),
+      });
+      this.appendEvent(teamId, current, { type: "effect/updated", data: next });
       return clone(next);
+    });
+  }
+
+  resolveToolEffect(
+    teamId: string,
+    actorId: string,
+    request: ResolveSwarmEffectRequest,
+    authorize?: () => boolean,
+  ): SwarmEffect {
+    assertOpen(this.open);
+    return this.transaction(() => {
+      const current = this.readTeam(teamId);
+      if (current === undefined) {
+        throw new SwarmError("Swarm not found", "SWARM_NOT_FOUND");
+      }
+      const lead = current.members.find(
+        (member) => member.id === actorId && member.role === "lead" && member.phase === "active",
+      );
+      if (
+        current.id !== actorId ||
+        lead === undefined ||
+        (authorize !== undefined && !authorize())
+      ) {
+        throw new SwarmError("Swarm lead authority is stale", "SWARM_UNAUTHORIZED");
+      }
+      if (current.phase !== "active" || current.archiveStartedAt !== undefined) {
+        throw new SwarmError("Swarm is archived", "SWARM_ARCHIVED");
+      }
+      const task = current.tasks.find((candidate) => candidate.id === request.taskId);
+      if (task === undefined) {
+        throw new SwarmError("Swarm task not found", "SWARM_TASK_NOT_FOUND");
+      }
+      if (task.revision !== request.expectedRevision) {
+        throw new SwarmError("Swarm task revision is stale", "SWARM_STALE_REVISION");
+      }
+      const effect = current.effects.find((candidate) => candidate.id === request.effectId);
+      if (
+        effect === undefined ||
+        effect.taskId !== task.id ||
+        effect.attemptId !== request.attemptId ||
+        effect.status !== "uncertain"
+      ) {
+        throw new SwarmError("Uncertain Swarm Tool effect not found", "SWARM_STALE_ATTEMPT");
+      }
+      const next = swarmEffectSchema.parse({
+        ...effect,
+        revision: effect.revision + 1,
+        status: request.resolution,
+        updatedAt: Date.now(),
+        verification: request.verification,
+      });
+      this.appendEvent(teamId, current, { type: "effect/updated", data: next });
+      return clone(next);
+    });
+  }
+
+  beginKnowledgeAdmission(
+    teamId: string,
+    actorId: string,
+    input: SwarmKnowledgeAdmission,
+    authorize?: () => boolean,
+  ): SwarmKnowledgeAdmission {
+    assertOpen(this.open);
+    const admission = swarmKnowledgeAdmissionSchema.parse(input);
+    return this.transaction(() => {
+      const current = this.readTeam(teamId);
+      const lead = current?.members.find(
+        (member) => member.id === actorId && member.role === "lead",
+      );
+      const task = current?.tasks.find((candidate) => candidate.id === admission.taskId);
+      const existing = current?.admissions.find((candidate) => candidate.id === admission.id);
+      if (
+        current?.phase !== "active" ||
+        current.archiveStartedAt !== undefined ||
+        current.id !== actorId ||
+        lead?.phase !== "active" ||
+        (authorize !== undefined && !authorize()) ||
+        task?.kind !== "knowledge" ||
+        task.status !== "in_progress" ||
+        task.attemptId !== admission.attemptId ||
+        task.revision !== admission.taskRevision ||
+        admission.status !== "started" ||
+        (existing !== undefined && existing.status !== "uncertain") ||
+        current.admissions.some(
+          (candidate) =>
+            candidate.id !== admission.id &&
+            candidate.taskId === admission.taskId &&
+            ["started", "uncertain", "committed"].includes(candidate.status),
+        )
+      ) {
+        throw new SwarmError(
+          "Knowledge admission does not own the current task attempt",
+          "SWARM_STALE_ATTEMPT",
+        );
+      }
+      this.appendEvent(teamId, current, {
+        type: "knowledge/admission-updated",
+        data: admission,
+      });
+      return clone(admission);
+    });
+  }
+
+  settleKnowledgeAdmissionUncertain(
+    teamId: string,
+    actorId: string,
+    admissionId: string,
+    authorize?: () => boolean,
+  ): SwarmKnowledgeAdmission {
+    assertOpen(this.open);
+    return this.transaction(() => {
+      const current = this.readTeam(teamId);
+      const admission = current?.admissions.find((candidate) => candidate.id === admissionId);
+      if (
+        current === undefined ||
+        current.id !== actorId ||
+        admission?.status !== "started" ||
+        (authorize !== undefined && !authorize())
+      ) {
+        throw new SwarmError("Knowledge admission is not active", "SWARM_UNAUTHORIZED");
+      }
+      const uncertain = swarmKnowledgeAdmissionSchema.parse({
+        ...admission,
+        revision: admission.revision + 1,
+        status: "uncertain",
+        updatedAt: Date.now(),
+      });
+      this.appendEvent(teamId, current, {
+        type: "knowledge/admission-updated",
+        data: uncertain,
+      });
+      return clone(uncertain);
+    });
+  }
+
+  commitKnowledgeAdmission(
+    teamId: string,
+    actorId: string,
+    admissionId: string,
+    receipt: NonNullable<SwarmKnowledgeAdmission["receipt"]>,
+    authorize?: () => boolean,
+  ): SettledKnowledgeAdmission {
+    assertOpen(this.open);
+    const ownerReceipt = knowledgeCommitReceiptSchema.parse(receipt);
+    return this.transaction(() => {
+      let current = this.readTeam(teamId);
+      const admission = current?.admissions.find((candidate) => candidate.id === admissionId);
+      if (current === undefined || current.id !== actorId || admission?.status !== "started") {
+        throw new SwarmError("Knowledge admission is not active", "SWARM_UNAUTHORIZED");
+      }
+      const task = current.tasks.find((candidate) => candidate.id === admission.taskId);
+      const stillCurrent =
+        current.phase === "active" &&
+        current.archiveStartedAt === undefined &&
+        (authorize === undefined || authorize()) &&
+        task?.kind === "knowledge" &&
+        task.status === "in_progress" &&
+        task.attemptId === admission.attemptId &&
+        task.revision === admission.taskRevision;
+      const settled = swarmKnowledgeAdmissionSchema.parse({
+        ...admission,
+        receipt: ownerReceipt,
+        revision: admission.revision + 1,
+        status: stillCurrent ? "committed" : "uncertain",
+        updatedAt: Date.now(),
+      });
+      current = this.appendEvent(teamId, current, {
+        type: "knowledge/admission-updated",
+        data: settled,
+      });
+      if (!stillCurrent || task === undefined) {
+        return { admission: clone(settled), committed: false };
+      }
+      const now = Date.now();
+      const { attemptId: _attemptId, ...taskWithoutAttempt } = task;
+      const completed = swarmTaskSchema.parse({
+        ...taskWithoutAttempt,
+        revision: task.revision + 1,
+        status: "completed",
+        updatedAt: now,
+      });
+      const attempt = current.attempts.find((candidate) => candidate.id === task.attemptId);
+      if (attempt === undefined) {
+        this.appendEvent(teamId, current, { type: "task/updated", data: completed });
+      } else {
+        this.appendEvent(teamId, current, {
+          type: "attempt/ended",
+          data: {
+            task: completed,
+            attempt: {
+              ...attempt,
+              revision: attempt.revision + 1,
+              status: "accepted",
+              endedAt: now,
+              wallMs: Math.max(0, now - attempt.startedAt),
+              lastProgressAt: now,
+              terminalReason: "Knowledge admitted by owner",
+              actors: attempt.actors.map((actor) =>
+                actor.endedAt === undefined ? { ...actor, endedAt: now } : actor,
+              ),
+            },
+          },
+        });
+      }
+      return { admission: clone(settled), committed: true };
+    });
+  }
+
+  queueMessage(
+    teamId: string,
+    input: Omit<SwarmMessage, "sequence">,
+    maxPendingMessages: number,
+    authorize?: () => boolean,
+  ): QueuedSwarmMessage {
+    assertOpen(this.open);
+    const limit = z.number().int().positive().parse(maxPendingMessages);
+    return this.transaction(() => {
+      const current = this.readTeam(teamId);
+      if (current === undefined) {
+        throw new SwarmError("Swarm not found", "SWARM_NOT_FOUND");
+      }
+      if (current.phase !== "active") {
+        throw new SwarmError("Swarm is archived", "SWARM_ARCHIVED");
+      }
+      if (authorize !== undefined && !authorize()) {
+        throw new SwarmError("Swarm actor identity is stale", "SWARM_UNAUTHORIZED");
+      }
+      const sender = current.members.find((member) => member.id === input.senderId);
+      if (
+        sender?.phase !== "active" ||
+        sender.name !== input.senderName ||
+        sender.role === "monitor"
+      ) {
+        throw new SwarmError("Swarm sender is unavailable", "SWARM_UNAUTHORIZED");
+      }
+      const existing = this.readMessageLedger(teamId, input.id);
+      if (existing !== undefined) {
+        if (
+          existing.senderId !== input.senderId ||
+          existing.targetId !== input.targetId ||
+          existing.delivery !== input.delivery ||
+          existing.content !== input.content
+        ) {
+          throw new SwarmError(
+            "Swarm message idempotency key conflicts with another message",
+            "SWARM_MESSAGE_CONFLICT",
+          );
+        }
+        return { created: false, message: clone(existing) };
+      }
+      const target = current.members.find((member) => member.id === input.targetId);
+      if (target?.phase !== "active") {
+        throw new SwarmError("Swarm target is unavailable", "SWARM_MEMBER_NOT_FOUND");
+      }
+      if (target.id === sender.id) {
+        throw new SwarmError("Cannot send a swarm message to yourself", "SWARM_INVALID_REQUEST");
+      }
+      const pending = current.messages.filter(
+        (message) => message.targetId === input.targetId && message.deliveredAt === undefined,
+      ).length;
+      if (pending >= limit) throw new SwarmError("Swarm mailbox limit reached", "SWARM_LIMIT");
+      const message = swarmMessageSchema.parse({
+        ...input,
+        sequence:
+          Number(
+            (
+              this.database
+                .prepare(
+                  `SELECT MAX(sequence) AS sequence
+                   FROM swarm_message_ledger
+                   WHERE team_id = ? AND target_id = ?`,
+                )
+                .get(teamId, input.targetId) as { sequence: number | null }
+            ).sequence ?? 0,
+          ) + 1,
+      });
+      const event = parseEvent("message/queued", message);
+      this.appendEvent(teamId, current, event);
+      return { created: true, message: clone(message) };
+    });
+  }
+
+  claimMessageDelivery(
+    teamId: string,
+    messageId: string,
+    deliveryStartedAt: number,
+    authorize?: () => boolean,
+  ): boolean {
+    assertOpen(this.open);
+    const data = deliveryStartedEventDataSchema.parse({ messageId, deliveryStartedAt });
+    return this.transaction(() => {
+      const current = this.readTeam(teamId);
+      const existing = this.readMessageLedger(teamId, data.messageId);
+      if (existing === undefined) {
+        throw new SwarmError("Swarm message not found", "SWARM_INVALID_REQUEST");
+      }
+      if (existing.deliveryStartedAt !== undefined || existing.deliveredAt !== undefined) {
+        return false;
+      }
+      if (current?.phase !== "active") {
+        throw new SwarmError("Swarm is archived", "SWARM_ARCHIVED");
+      }
+      if (authorize !== undefined && !authorize()) {
+        throw new SwarmError("Swarm target identity is stale", "SWARM_UNAUTHORIZED");
+      }
+      const target = current.members.find((member) => member.id === existing.targetId);
+      if (target?.phase !== "active") {
+        throw new SwarmError("Swarm target is unavailable", "SWARM_MEMBER_NOT_FOUND");
+      }
+      this.appendEvent(teamId, current, parseEvent("message/delivery-started", data));
+      return true;
     });
   }
 
@@ -549,6 +1493,72 @@ export class SwarmJournal {
 
   findByParticipant(sessionId: string): SwarmTeamState | undefined {
     return this.list().find((team) => team.members.some((member) => member.id === sessionId));
+  }
+
+  listMemberBindings(workspaceKey: string, runtime: string): SwarmMemberBinding[] {
+    assertOpen(this.open);
+    const scope = workspaceKeySchema.parse(workspaceKey);
+    const runtimeName = z.string().min(1).max(64).parse(runtime);
+    const rows = this.database
+      .prepare(
+        `SELECT workspace_key, runtime, member_id, handle
+         FROM swarm_member_bindings
+         WHERE workspace_key = ? AND runtime = ?
+         ORDER BY member_id`,
+      )
+      .all(scope, runtimeName) as unknown as MemberBindingRow[];
+    return rows.map((row) =>
+      memberBindingSchema.parse({
+        workspaceKey: row.workspace_key,
+        runtime: row.runtime,
+        memberId: row.member_id,
+        handle: row.handle,
+      }),
+    );
+  }
+
+  claimMemberBinding(input: SwarmMemberBinding): "created" | "existing" {
+    assertOpen(this.open);
+    const binding = memberBindingSchema.parse(input);
+    return this.transaction(() => this.claimMemberBindingRow(binding));
+  }
+
+  claimProvisioningMemberBinding(
+    teamId: string,
+    input: SwarmMemberBinding,
+  ): ProvisioningMemberBindingClaim {
+    assertOpen(this.open);
+    const id = z.string().min(1).max(512).parse(teamId);
+    const binding = memberBindingSchema.parse(input);
+    return this.transaction(() => {
+      const team = this.readTeam(id);
+      const member = team?.members.find((candidate) => candidate.id === binding.memberId);
+      if (
+        team?.phase !== "active" ||
+        team.workspaceKey !== binding.workspaceKey ||
+        member?.role === "lead" ||
+        member?.phase !== "provisioning"
+      ) {
+        throw new SwarmError(
+          "Swarm member is not reserved for native provisioning",
+          "SWARM_UNAUTHORIZED",
+        );
+      }
+      const result = this.claimMemberBindingRow(binding);
+      return team.archiveStartedAt === undefined ? result : "archive_required";
+    });
+  }
+
+  releaseMemberBinding(input: SwarmMemberBinding): boolean {
+    assertOpen(this.open);
+    const binding = memberBindingSchema.parse(input);
+    const result = this.database
+      .prepare(
+        `DELETE FROM swarm_member_bindings
+         WHERE workspace_key = ? AND runtime = ? AND member_id = ? AND handle = ?`,
+      )
+      .run(binding.workspaceKey, binding.runtime, binding.memberId, binding.handle);
+    return Number(result.changes) === 1;
   }
 
   workspaceKey(cwd: string | undefined): string {
@@ -576,26 +1586,13 @@ export class SwarmJournal {
 
   rebuildProjections(): void {
     assertOpen(this.open);
-    this.transaction(() => {
-      this.database.exec("DELETE FROM swarm_attempts");
-      this.database.exec("DELETE FROM swarm_teams");
-      const states = new Map<string, SwarmTeamState>();
-      const rows = this.database
-        .prepare("SELECT team_id, revision, type, payload_json FROM swarm_events ORDER BY seq")
-        .all() as unknown as EventRow[];
-      for (const row of rows) {
-        const event = parseEvent(row.type, JSON.parse(row.payload_json));
-        const next = applyEvent(row.team_id, states.get(row.team_id), row.revision, event);
-        states.set(row.team_id, next);
-      }
-      for (const state of states.values()) this.writeTeam(state);
-    });
+    this.transaction(() => this.rebuildProjectionsInTransaction());
   }
 
-  recoverInterruptedTasks(now: number): number {
+  recoverInterruptedTasks(now: number, workspaceKey?: string): number {
     assertOpen(this.open);
     const interrupted = this.list().flatMap((team) =>
-      team.phase === "active"
+      team.phase === "active" && (workspaceKey === undefined || team.workspaceKey === workspaceKey)
         ? team.tasks
             .filter((task) => ["in_progress", "submitted", "verifying"].includes(task.status))
             .map((task) => ({
@@ -641,10 +1638,10 @@ export class SwarmJournal {
     return interrupted.length;
   }
 
-  recoverUncertainIntents(now: number): number {
+  recoverUncertainIntents(now: number, workspaceKey?: string): number {
     assertOpen(this.open);
     const started = this.list().flatMap((team) =>
-      team.phase === "active"
+      team.phase === "active" && (workspaceKey === undefined || team.workspaceKey === workspaceKey)
         ? [
             ...team.effects
               .filter((effect) => effect.status === "started")
@@ -685,6 +1682,29 @@ export class SwarmJournal {
     return started.length;
   }
 
+  recoverProvisioningMembers(
+    error = SWARM_PROVISIONING_INTERRUPTED_ERROR,
+    workspaceKey?: string,
+  ): number {
+    assertOpen(this.open);
+    const interrupted = this.list().flatMap((team) =>
+      team.phase === "active" &&
+      team.archiveStartedAt === undefined &&
+      (workspaceKey === undefined || team.workspaceKey === workspaceKey)
+        ? team.members
+            .filter((member) => member.phase === "provisioning")
+            .map((member) => ({ teamId: team.id, member }))
+        : [],
+    );
+    for (const { teamId, member } of interrupted) {
+      this.append(teamId, {
+        type: "member/updated",
+        data: { ...member, error, phase: "failed" },
+      });
+    }
+    return interrupted.length;
+  }
+
   close(): void {
     if (!this.open) return;
     this.open = false;
@@ -708,50 +1728,83 @@ export class SwarmJournal {
     }
     for (let version = 1; version <= MIGRATION_VERSION; version += 1) {
       if (applied.has(version)) continue;
-      this.transaction(() => {
-        if (version === 1) {
-          this.database.exec(`
-            CREATE TABLE swarm_events (
-              seq INTEGER PRIMARY KEY AUTOINCREMENT,
-              team_id TEXT NOT NULL,
-              revision INTEGER NOT NULL,
-              type TEXT NOT NULL,
-              payload_json TEXT NOT NULL,
-              occurred_at INTEGER NOT NULL,
-              UNIQUE(team_id, revision)
-            ) STRICT;
-            CREATE INDEX swarm_events_team_idx ON swarm_events(team_id, seq);
-            CREATE TABLE swarm_settings (
-              key TEXT PRIMARY KEY,
-              value TEXT NOT NULL
-            ) STRICT;
-            CREATE TABLE swarm_teams (
-              team_id TEXT PRIMARY KEY,
-              revision INTEGER NOT NULL,
-              phase TEXT NOT NULL,
-              created_at INTEGER NOT NULL,
-              snapshot_json TEXT NOT NULL
-            ) STRICT;
-          `);
-        }
-        if (version === 3) {
-          this.database.exec(`
-            CREATE TABLE swarm_attempts (
-              team_id TEXT NOT NULL,
-              attempt_id TEXT NOT NULL,
-              task_id TEXT NOT NULL,
-              started_at INTEGER NOT NULL,
-              snapshot_json TEXT NOT NULL,
-              PRIMARY KEY(team_id, attempt_id)
-            ) STRICT;
-            CREATE INDEX swarm_attempts_task_idx ON swarm_attempts(team_id, task_id, started_at);
-          `);
-        }
+      if (version === 1) {
+        this.database.exec(`
+          CREATE TABLE swarm_events (
+            seq INTEGER PRIMARY KEY AUTOINCREMENT,
+            team_id TEXT NOT NULL,
+            revision INTEGER NOT NULL,
+            type TEXT NOT NULL,
+            payload_json TEXT NOT NULL,
+            occurred_at INTEGER NOT NULL,
+            UNIQUE(team_id, revision)
+          ) STRICT;
+          CREATE INDEX swarm_events_team_idx ON swarm_events(team_id, seq);
+          CREATE TABLE swarm_settings (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL
+          ) STRICT;
+          CREATE TABLE swarm_teams (
+            team_id TEXT PRIMARY KEY,
+            revision INTEGER NOT NULL,
+            phase TEXT NOT NULL,
+            created_at INTEGER NOT NULL,
+            snapshot_json TEXT NOT NULL
+          ) STRICT;
+        `);
+      }
+      if (version === 3) {
+        this.database.exec(`
+          CREATE TABLE swarm_attempts (
+            team_id TEXT NOT NULL,
+            attempt_id TEXT NOT NULL,
+            task_id TEXT NOT NULL,
+            started_at INTEGER NOT NULL,
+            snapshot_json TEXT NOT NULL,
+            PRIMARY KEY(team_id, attempt_id)
+          ) STRICT;
+          CREATE INDEX swarm_attempts_task_idx ON swarm_attempts(team_id, task_id, started_at);
+        `);
+      }
+      if (version === 4) {
+        this.database.exec(`
+          CREATE TABLE swarm_member_bindings (
+            workspace_key TEXT NOT NULL,
+            runtime TEXT NOT NULL,
+            member_id TEXT NOT NULL,
+            handle TEXT NOT NULL,
+            PRIMARY KEY(workspace_key, runtime, member_id),
+            UNIQUE(runtime, handle)
+          ) STRICT;
+        `);
+      }
+      if (version === 5) {
+        this.database.exec(`
+          CREATE TABLE swarm_message_ledger (
+            team_id TEXT NOT NULL,
+            message_id TEXT NOT NULL,
+            target_id TEXT NOT NULL,
+            sequence INTEGER NOT NULL,
+            snapshot_json TEXT NOT NULL,
+            PRIMARY KEY(team_id, message_id)
+          ) STRICT;
+        `);
+        const cutoff = this.database
+          .prepare("SELECT COALESCE(MAX(seq), 0) AS seq FROM swarm_events")
+          .get() as {
+          seq: number;
+        };
         this.database
-          .prepare("INSERT INTO swarm_migrations(version, applied_at) VALUES (?, ?)")
-          .run(version, Date.now());
-      });
+          .prepare("INSERT INTO swarm_settings(key, value) VALUES (?, ?)")
+          .run(LEGACY_EVENT_CUTOFF_SETTING, String(cutoff.seq));
+      }
+      this.database
+        .prepare("INSERT INTO swarm_migrations(version, applied_at) VALUES (?, ?)")
+        .run(version, Date.now());
     }
+    this.database
+      .prepare("INSERT OR IGNORE INTO swarm_settings(key, value) VALUES (?, '0')")
+      .run(LEGACY_EVENT_CUTOFF_SETTING);
   }
 
   private readTeam(teamId: string): SwarmTeamState | undefined {
@@ -765,6 +1818,210 @@ export class SwarmJournal {
     this.database
       .prepare("INSERT OR IGNORE INTO swarm_settings(key, value) VALUES ('workspace_salt', ?)")
       .run(randomBytes(32).toString("hex"));
+  }
+
+  private rebuildProjectionsInTransaction(): void {
+    this.database.exec("DELETE FROM swarm_attempts");
+    this.database.exec("DELETE FROM swarm_message_ledger");
+    this.database.exec("DELETE FROM swarm_teams");
+    const cutoffRow = this.database
+      .prepare("SELECT value FROM swarm_settings WHERE key = ?")
+      .get(LEGACY_EVENT_CUTOFF_SETTING) as { value: string } | undefined;
+    const legacyEventCutoff = Number(cutoffRow?.value);
+    if (!Number.isSafeInteger(legacyEventCutoff) || legacyEventCutoff < 0) {
+      throw new Error("Swarm legacy event cutoff is invalid");
+    }
+    const states = new Map<string, SwarmTeamState>();
+    const ignoredDuplicateMessages = new Set<string>();
+    const rows = this.database
+      .prepare("SELECT seq, team_id, revision, type, payload_json FROM swarm_events ORDER BY seq")
+      .all() as unknown as EventRow[];
+    for (const row of rows) {
+      const legacy = row.seq <= legacyEventCutoff;
+      const event = (legacy ? parseLegacyEvent : parseEvent)(
+        row.type,
+        JSON.parse(row.payload_json),
+      );
+      const current = states.get(row.team_id);
+      const messageId =
+        event.type === "message/queued"
+          ? event.data.id
+          : event.type === "message/delivery-started" || event.type === "message/delivered"
+            ? event.data.messageId
+            : undefined;
+      const messageKey = messageId === undefined ? undefined : `${row.team_id}\0${messageId}`;
+      let next: SwarmTeamState;
+      if (legacy && event.type === "team/archived" && current?.archiveStartedAt === undefined) {
+        next = applyLegacyArchivedEvent(row.team_id, current, row.revision, event.data.archivedAt);
+      } else if (
+        legacy &&
+        event.type === "message/queued" &&
+        this.readMessageLedger(row.team_id, event.data.id) !== undefined
+      ) {
+        if (messageKey !== undefined) ignoredDuplicateMessages.add(messageKey);
+        next = advanceIgnoredLegacyMessageEvent(current, row.revision, event);
+      } else if (
+        legacy &&
+        messageKey !== undefined &&
+        ignoredDuplicateMessages.has(messageKey) &&
+        (event.type === "message/delivery-started" || event.type === "message/delivered")
+      ) {
+        next = advanceIgnoredLegacyMessageEvent(current, row.revision, event);
+      } else {
+        next = applyEvent(row.team_id, current, row.revision, event);
+        this.writeMessageLedgerEvent(row.team_id, event);
+      }
+      states.set(row.team_id, next);
+    }
+    for (const state of states.values()) this.writeTeam(state);
+  }
+
+  private verifyClientStorage(): void {
+    const rows = this.database
+      .prepare("SELECT version FROM swarm_migrations ORDER BY version")
+      .all() as { version: number }[];
+    const newest = Math.max(0, ...rows.map((row) => row.version));
+    if (newest !== MIGRATION_VERSION) {
+      throw new Error(
+        `Swarm database version ${newest} is not the required version ${MIGRATION_VERSION}`,
+      );
+    }
+    const salt = this.database
+      .prepare("SELECT value FROM swarm_settings WHERE key = 'workspace_salt'")
+      .get() as { value: string } | undefined;
+    if (salt === undefined) throw new Error("Swarm workspace salt is unavailable");
+    const cutoff = this.database
+      .prepare("SELECT value FROM swarm_settings WHERE key = ?")
+      .get(LEGACY_EVENT_CUTOFF_SETTING) as { value: string } | undefined;
+    if (
+      cutoff === undefined ||
+      !Number.isSafeInteger(Number(cutoff.value)) ||
+      Number(cutoff.value) < 0
+    ) {
+      throw new Error("Swarm legacy event cutoff is unavailable");
+    }
+    this.database.prepare("SELECT 1 FROM swarm_member_bindings LIMIT 1").get();
+    this.database.prepare("SELECT 1 FROM swarm_message_ledger LIMIT 1").get();
+  }
+
+  private readMessageLedger(teamId: string, messageId: string): SwarmMessage | undefined {
+    const row = this.database
+      .prepare(
+        `SELECT snapshot_json
+         FROM swarm_message_ledger
+         WHERE team_id = ? AND message_id = ?`,
+      )
+      .get(teamId, messageId) as MessageLedgerRow | undefined;
+    return row === undefined ? undefined : swarmMessageSchema.parse(JSON.parse(row.snapshot_json));
+  }
+
+  private writeMessageLedgerEvent(teamId: string, event: SwarmEvent): void {
+    if (event.type === "message/queued") {
+      this.database
+        .prepare(
+          `INSERT OR IGNORE INTO swarm_message_ledger(
+             team_id,
+             message_id,
+             target_id,
+             sequence,
+             snapshot_json
+           ) VALUES (?, ?, ?, ?, ?)`,
+        )
+        .run(
+          teamId,
+          event.data.id,
+          event.data.targetId,
+          event.data.sequence,
+          JSON.stringify(event.data),
+        );
+      return;
+    }
+    if (event.type !== "message/delivery-started" && event.type !== "message/delivered") return;
+    const message = this.readMessageLedger(teamId, event.data.messageId);
+    if (message === undefined) {
+      throw new SwarmError("Swarm message ledger entry is unavailable", "SWARM_INVALID_REQUEST");
+    }
+    const updated =
+      event.type === "message/delivery-started"
+        ? { ...message, deliveryStartedAt: event.data.deliveryStartedAt }
+        : { ...message, deliveredAt: event.data.deliveredAt };
+    this.database
+      .prepare(
+        `UPDATE swarm_message_ledger
+         SET snapshot_json = ?
+         WHERE team_id = ? AND message_id = ?`,
+      )
+      .run(JSON.stringify(swarmMessageSchema.parse(updated)), teamId, event.data.messageId);
+  }
+
+  private appendEvent(
+    teamId: string,
+    current: SwarmTeamState | undefined,
+    event: SwarmEvent,
+  ): SwarmTeamState {
+    if (event.type === "message/queued" && this.readMessageLedger(teamId, event.data.id)) {
+      throw new SwarmError("Swarm message id already exists", "SWARM_MESSAGE_CONFLICT");
+    }
+    const revision = (current?.revision ?? 0) + 1;
+    const next = applyEvent(teamId, current, revision, event);
+    this.database
+      .prepare(
+        `INSERT INTO swarm_events(team_id, revision, type, payload_json, occurred_at)
+         VALUES (?, ?, ?, ?, ?)`,
+      )
+      .run(teamId, revision, event.type, JSON.stringify(event.data), eventTimestamp(event));
+    this.writeMessageLedgerEvent(teamId, event);
+    this.writeTeam(next);
+    return next;
+  }
+
+  private claimMemberBindingRow(binding: SwarmMemberBinding): "created" | "existing" {
+    const memberOwner = this.database
+      .prepare(
+        `SELECT workspace_key, runtime, member_id, handle
+         FROM swarm_member_bindings
+         WHERE workspace_key = ? AND runtime = ? AND member_id = ?`,
+      )
+      .get(binding.workspaceKey, binding.runtime, binding.memberId) as MemberBindingRow | undefined;
+    const handleOwner = this.database
+      .prepare(
+        `SELECT workspace_key, runtime, member_id, handle
+         FROM swarm_member_bindings
+         WHERE runtime = ? AND handle = ?`,
+      )
+      .get(binding.runtime, binding.handle) as MemberBindingRow | undefined;
+    if (memberOwner !== undefined) {
+      if (
+        memberOwner.handle === binding.handle &&
+        handleOwner?.workspace_key === binding.workspaceKey &&
+        handleOwner.member_id === binding.memberId
+      ) {
+        return "existing";
+      }
+      if (handleOwner !== undefined) {
+        throw new SwarmError(
+          "Swarm runtime handle already belongs to another member",
+          "SWARM_INVALID_REQUEST",
+        );
+      }
+      throw new SwarmError(
+        "Swarm member already belongs to another runtime handle",
+        "SWARM_INVALID_REQUEST",
+      );
+    }
+    if (handleOwner !== undefined) {
+      throw new SwarmError(
+        "Swarm runtime handle already belongs to another member",
+        "SWARM_INVALID_REQUEST",
+      );
+    }
+    this.database
+      .prepare(
+        `INSERT INTO swarm_member_bindings(workspace_key, runtime, member_id, handle)
+         VALUES (?, ?, ?, ?)`,
+      )
+      .run(binding.workspaceKey, binding.runtime, binding.memberId, binding.handle);
+    return "created";
   }
 
   private writeTeam(state: SwarmTeamState): void {

@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import buildConfig from "../tsdown.config.js";
 
 describe("Science package build", () => {
-  it("uses one deterministic shared chunk and publishes only current runtime entries", () => {
+  it("uses deterministic shared chunks and publishes only current runtime entries", () => {
     expect(buildConfig).toMatchObject({
       clean: false,
       outputOptions: { chunkFileNames: "[name].js" },
@@ -14,12 +14,18 @@ describe("Science package build", () => {
 
     expect(packageJson.files).toEqual([
       "lib/index.js",
+      "lib/core.js",
+      "lib/core2.js",
       "lib/contracts.js",
       "lib/typert.js",
       "lib/remote.js",
       "lib/remote-contract.js",
       "lib/tools.js",
       "lib/preset.js",
+      "lib/resource-id.js",
+      "lib/resource-id2.js",
+      "lib/resource-resolver.js",
+      "lib/resource-view.js",
       "lib/types/**/*.d.ts",
       "bin",
       "src",

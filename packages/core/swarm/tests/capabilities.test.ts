@@ -1,8 +1,29 @@
 import type { Agent } from "@deepseek-ai/dsh-agent";
 import { describe, expect, it, vi } from "vitest";
-import { leadToolGuard, memberToolGuard } from "../src/capabilities.js";
+import { isMutatingMemberTool, leadToolGuard, memberToolGuard } from "../src/capabilities.js";
 
 describe("V166/V170 member capabilities", () => {
+  it("B145 classifies DSH PKB reads precisely and every other action fail-closed", () => {
+    for (const action of [
+      "read_conversation",
+      "read_knowledge",
+      "search_conversations",
+      "search_knowledge",
+    ]) {
+      expect(isMutatingMemberTool("pkb", { action })).toBe(false);
+    }
+    for (const action of [
+      "capture_conversation",
+      "create_knowledge",
+      "deprecate_knowledge",
+      "update_knowledge",
+      "future_action",
+      undefined,
+    ]) {
+      expect(isMutatingMemberTool("pkb", { action })).toBe(true);
+    }
+  });
+
   it("denies delegation and PKB, and fences mutation by exact write ownership", () => {
     const member = { id: "session-member" } as Agent;
     const hasActiveWriteAttempt = vi.fn(() => false);
@@ -43,9 +64,30 @@ describe("V166/V170 member capabilities", () => {
     expect(
       leadToolGuard(lead, coordinator as never, { agent: lead, name: "swarm" }),
     ).toBeUndefined();
+    expect(
+      leadToolGuard(lead, coordinator as never, {
+        agent: lead,
+        arguments: { action: "search_knowledge", request: { query: "safe" } },
+        name: "pkb",
+      }),
+    ).toBeUndefined();
+    expect(
+      leadToolGuard(lead, coordinator as never, {
+        agent: lead,
+        arguments: { action: "create_knowledge", request: {} },
+        name: "pkb",
+      }),
+    ).toMatch(/lead.*active write/iu);
     hasActiveWriteAttempt.mockReturnValue(true);
     expect(
       leadToolGuard(lead, coordinator as never, { agent: lead, name: "write" }),
+    ).toBeUndefined();
+    expect(
+      leadToolGuard(lead, coordinator as never, {
+        agent: lead,
+        arguments: { action: "update_knowledge", request: {} },
+        name: "pkb",
+      }),
     ).toBeUndefined();
   });
 

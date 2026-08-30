@@ -26,7 +26,7 @@ const searchSchema = z.object({
 const locatorSchema = z.object({
   allAuthorized: z.boolean().optional(),
   seq: z.number().int().nonnegative(),
-  sessionId: z.string().trim().min(1).max(500),
+  sessionId: z.string().trim().min(1).max(1_024),
 });
 
 export interface ConversationSessionQuery {
@@ -194,13 +194,17 @@ export class ConversationArchive {
     signal?: AbortSignal,
   ): Promise<ConversationExcerpt> {
     const evidence = await this.read(cwd, rawLocator, signal);
-    return this.vault.saveConversationExcerpt(cwd, {
-      eventTime: Date.parse(evidence.eventTime),
-      eventType: evidence.eventType,
-      seq: evidence.locator.seq,
-      sessionId: evidence.locator.sessionId,
-      text: evidence.text,
-    });
+    return this.vault.saveConversationExcerpt(
+      cwd,
+      {
+        eventTime: Date.parse(evidence.eventTime),
+        eventType: evidence.eventType,
+        seq: evidence.locator.seq,
+        sessionId: evidence.locator.sessionId,
+        text: evidence.text,
+      },
+      signal,
+    );
   }
 
   private async candidates(

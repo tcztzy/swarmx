@@ -1,56 +1,76 @@
 /**
- * Electron entry point: boot the harness, then show its surface in a window.
- * Lifecycle is deliberately narrow — the harness owns sessions, tools,
- * permissions, and persistence, so this process only sequences startup and
- * shutdown around it.
+ * Electron entry point: boot the DSH Web application as the sole UI, register
+ * the selected peer conversation runtime below it, then load that one origin.
  */
 import { app, BrowserWindow } from "electron";
-import { type Harness, startHarness } from "./harness.js";
+import {
+  acquirePrimaryInstance,
+  activateOwnedResource,
+  createBeforeQuitHandler,
+  disposeAfterFailure,
+  disposeOwnedResource,
+  onceFailureReporter,
+} from "./app-lifecycle.js";
+import { type DesktopPlatform, startDesktopPlatform } from "./runtime/platform.js";
+import { resolveRuntimeSelection } from "./runtime/selection.js";
 import { createWindow } from "./window.js";
 
-/** The booted harness, once startup completes. */
-let harness: Harness | undefined;
-
-/** Dispose the harness exactly once, even when several exit paths fire. */
-let shutdown: Promise<void> | undefined;
-
-/** Tear the harness down, releasing its server port and flushing its writes. */
-function stopHarness(): Promise<void> {
-  shutdown ??= harness === undefined ? Promise.resolve() : harness.ctx.fiber.dispose();
-  return shutdown;
-}
+/** The DSH Web host and its peer runtime registry. */
+let platform: DesktopPlatform | undefined;
+let platformBoot: Promise<DesktopPlatform> | undefined;
 
 /**
  * A boot failure leaves nothing to show, so it is fatal and reported on stderr
  * rather than swallowed into an empty window.
  */
-function failLoud(error: unknown): never {
+function failLoud(error: unknown): void {
   process.stderr.write(
     `swarmx: ${error instanceof Error ? (error.stack ?? error.message) : String(error)}\n`,
   );
   app.exit(1);
-  throw error;
 }
 
-app.whenReady().then(async () => {
-  harness = await startHarness().catch(failLoud);
-  createWindow(harness.url);
-  // macOS keeps the app alive with no windows; reopening must not re-boot.
-  app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length === 0 && harness !== undefined) {
-      createWindow(harness.url);
-    }
-  });
-}, failLoud);
+const reportFatalOnce = onceFailureReporter(failLoud);
 
-// Every platform quits with its last window: a single-window desktop app has
-// nothing to return to, and the harness must not outlive its surface.
-app.on("window-all-closed", () => app.quit());
+if (acquirePrimaryInstance(app, () => BrowserWindow.getAllWindows())) {
+  void app
+    .whenReady()
+    .then(async () => {
+      const runtime = resolveRuntimeSelection(process.argv.slice(2), process.env);
+      const workspaceRoot = process.env.SWARMX_WORKSPACE ?? process.cwd();
+      platformBoot = activateOwnedResource(
+        startDesktopPlatform({ runtime, workspaceRoot }),
+        (started) => createWindow(started.url),
+      );
+      platform = await platformBoot;
+      // macOS keeps the app alive with no windows; reopening must not re-boot.
+      app.on("activate", () => {
+        if (BrowserWindow.getAllWindows().length === 0 && platform !== undefined) {
+          try {
+            createWindow(platform.url);
+          } catch (error) {
+            void disposeAfterFailure(platform, error).catch(reportFatalOnce);
+          }
+        }
+      });
+    })
+    .catch(reportFatalOnce);
 
-// Hold the quit until the harness has released its resources.
-app.on("before-quit", (event) => {
-  if (shutdown === undefined) {
-    event.preventDefault();
-    void stopHarness().then(() => app.quit());
-  }
-});
+  // Every platform quits with its last window: a single-window desktop app has
+  // nothing to return to, and the harness must not outlive its surface.
+  app.on("window-all-closed", () => app.quit());
+
+  // Hold the quit until every owned server and native runtime has released resources.
+  app.on(
+    "before-quit",
+    createBeforeQuitHandler({
+      dispose: () =>
+        disposeOwnedResource(
+          () => platform,
+          () => platformBoot,
+        ),
+      quit: () => app.quit(),
+      reportFailure: reportFatalOnce,
+    }),
+  );
+}

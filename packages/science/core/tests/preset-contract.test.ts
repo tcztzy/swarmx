@@ -24,11 +24,15 @@ describe("V103/V111/V122 Science preset contract", () => {
       "science:typst-workflow",
       "science:annotations",
       "science:literature-search",
+      "science:resource-addressing",
     ]);
     expect(sections[0]?.text).toContain("Do not call `typst compile` or `typst watch`");
     expect(sections[1]?.text).toContain("science_query");
     expect(sections[2]?.text).toContain("`literature_search`");
     expect(sections[2]?.text).toContain("local Zotero");
+    expect(sections[3]?.text).toContain("`head`");
+    expect(sections[3]?.text).toContain("`exactId`");
+    expect(sections[3]?.text).toContain("RESOURCE_REVISION_MISMATCH");
     expect(guard?.({ name: "bash", arguments: { command: "typst compile paper.typ" } })).toContain(
       "managed automatically",
     );

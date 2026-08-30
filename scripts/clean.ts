@@ -5,8 +5,12 @@ const root = resolve(import.meta.dirname, "..");
 const outputs = [
   resolve(root, "apps/desktop/dist"),
   resolve(root, "packages/core/annotation/lib"),
+  resolve(root, "packages/core/dvc/lib"),
+  resolve(root, "packages/core/pkb/lib"),
   resolve(root, "packages/core/swarm/lib"),
   resolve(root, "packages/client/ui-conversation/lib"),
+  resolve(root, "packages/client/ui-dvc/lib"),
+  resolve(root, "packages/client/ui-git/lib"),
   resolve(root, "packages/client/ui-science/lib"),
   resolve(root, "packages/client/ui-swarm/lib"),
   resolve(root, "packages/science/core/lib"),

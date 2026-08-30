@@ -1,22 +1,24 @@
 # SwarmX
 
-An Electron desktop application for the [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness).
+An Electron desktop application that keeps [DeepSeek Harness Web](https://github.com/deepseek-ai/deepseek-harness) as its only UI and plugin host, with DSH and Codex App Server as peer conversation runtimes below it.
 
-The harness owns the agent: sessions, tools, the agent loop, permissions,
-credentials, persistence, and telemetry. SwarmX contributes the desktop surface,
-non-destructive Retry/Edit actions, a generic Side View, and local-first Science tools whose
+Each runtime owns its native transcript, agent loop, tools, approvals, credentials, and persistence.
+SwarmX contributes the desktop lifecycle, a narrow runtime protocol inside DSH Web,
+runtime-native Retry/Edit actions, a generic Side View, and local-first Science tools whose
 artifacts stay inside the conversation flow.
 
 ## How it works
 
-DSH's browser surface is a profile bundle that serves a complete UI over HTTP.
-SwarmX composes its conversation extension after DSH's bundles, boots the result
-**inside the Electron main process**, suppresses the profile's normal
-system-browser handoff, and points one Electron window at the port it bound to:
+DSH's browser surface is a profile bundle that serves the complete application UI over HTTP.
+SwarmX composes its extensions after DSH's bundles, boots the result **inside the Electron main
+process**, registers DSH/Codex adapters as a Host Cordis service on that same listener, suppresses
+the profile's normal system-browser handoff, and points one Electron window at the bound port:
 
 ```
-Electron main ──boot()──> DSH web profile + SwarmX layers ──HTTP/127.0.0.1──> BrowserWindow
-                          (DSH bundles + product layers + user patches)
+Electron main ──boot()──> DSH Web + SwarmX Cordis layers ──HTTP/127.0.0.1──> BrowserWindow
+                              │
+                              ├── DSH Session/Agent runtime
+                              └── Codex app-server over stdio
 ```
 
 Consequences of that shape:
@@ -26,12 +28,14 @@ Consequences of that shape:
   with two exact-version package patches kept explicit under `patches/`.
   One exact Web-server route supplies the trusted Markdown file-link seam absent
   from rc.2's prebuilt frontend and refuses to start if that upstream seam drifts.
-- **No IPC bridge.** The renderer already reaches the harness through the
-  `/api` transport its client plugins speak.
-- **No second process.** `boot()` returns the root context, so the harness lives
-  and dies with the window.
+- **No second browser transport.** Runtime lifecycle routes are registered under
+  `/api/swarmx/conversation-runtimes` on DSH Web; the browser never connects to app-server directly.
+- **No double harness.** Codex runs as its own app-server process below the UI, never inside the DSH Agent loop.
+- **One Conversation seat.** DSH selection keeps the published DSH Conversation unchanged. Codex
+  selection shadows only that DSH Web slot with the runtime-neutral protocol client; the DSH app
+  frame and plugin host remain the sole application UI.
 
-The desktop host remains four small source files:
+The desktop host keeps the UI and runtime composition explicit:
 
 | File | Role |
 | --- | --- |
@@ -39,6 +43,8 @@ The desktop host remains four small source files:
 | `src/markdown-file-links.ts` | Add trusted file-link resolution to the one rc.2 frontend asset |
 | `src/window.ts` | Create the window, fence navigation to the harness origin |
 | `src/main.ts` | Sequence startup and shutdown |
+| `src/runtime/platform.ts` | Register peer runtimes under the DSH Web host |
+| `src/runtime/web-plugin.ts` | Mount the bounded runtime protocol on the existing listener |
 
 `packages/client/ui-conversation` owns the Retry/Edit extension. Edit is an icon on
 each eligible user message, following its timestamp and Copy action in one
@@ -79,11 +85,15 @@ stable entry even when the model omits Markdown syntax. Opening a Typst entry re
 Host watcher. In the `dsh-science` preset, the model edits source but never spends a tool call on
 `typst compile` or `typst watch`.
 
-Retry/Edit are append-only branch operations. The superseded user message,
-automatic-retry records, and terminal error remain durable in the source
-session. The active child begins before that turn and appends only the revised
-or retried user text, so the superseded turn is not rendered there and failure
-metadata is not part of the messages sent to the model provider.
+DSH Retry/Edit remain append-only branch operations. Codex threads created by
+SwarmX use legacy history by default because standalone App Server builds may
+advertise paginated schemas before implementing their reads. Setting
+`SWARMX_CODEX_PAGINATED_HISTORY=1` explicitly enables paginated history: editing
+or retrying the latest terminal turn reverts that turn in the same Codex thread
+and then starts the replacement; older turns and legacy Codex threads still
+branch. The Edit icon only fills the composer—no native history changes until the revised draft is submitted.
+Codex history revert does not roll back file edits or commands already applied
+to the workspace.
 
 `@swarmx/dsh-science` and `@swarmx/dsh-ui-science` add an AI-native scientific IDE through
 published Harness seams without introducing a second workspace. Project, Notebook, Writing, Figure,
@@ -99,6 +109,11 @@ configured local JupyMCP controller. Science Journal stores domain facts separat
 session log, while results return through ordinary Tool/Chat rows and generated artifact cards; Chat,
 Trajectory, the composer, and the agent loop remain the product's single interaction surface.
 
+`science_query` can progressively read local entities through canonical typed `sx:` IDs: start with
+one bounded `head`, reuse its revision-guarded `exactId`, and request only metadata, a verified
+Artifact preview window, or typed neighbors when needed. See
+[`docs/resource-addressing.md`](docs/resource-addressing.md).
+
 ## Requirements
 
 Node `^22.19.0 || >=24.0.0`.
@@ -112,6 +127,16 @@ pnpm dev
 
 `pnpm dev` reuses the canonical `pnpm start` chain: it builds the current source,
 boots Harness, and opens the Electron app.
+
+DSH is the default conversation runtime. Select the Codex peer explicitly with either form:
+
+```shell
+pnpm start -- --runtime codex
+SWARMX_RUNTIME=codex pnpm start
+```
+
+Codex mode requires an installed, authenticated `codex` CLI. SwarmX still boots the same DSH Web
+application, starts `codex app-server` over stdio behind the Host, and loads no second URL.
 
 First run creates `~/.dsh/profiles/web/` from DSH's shipped template. A model
 provider must be configured before the harness can answer; do that in the app's

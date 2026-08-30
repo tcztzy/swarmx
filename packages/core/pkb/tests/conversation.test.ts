@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { mkdir, mkdtemp, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -33,6 +34,7 @@ function userEvent(seq: number, text: string, time: number): SessionEvent {
 }
 
 class FakeQuery implements ConversationSessionQuery {
+  onRead?: () => void;
   searchError?: unknown;
 
   constructor(
@@ -81,6 +83,7 @@ class FakeQuery implements ConversationSessionQuery {
     const target = this.events.get(`${request.sessionId}:${String(request.seq)}`);
     const session = this.records.find((record) => record.header.id === request.sessionId)?.header;
     if (target === undefined || session === undefined) throw new Error("missing event");
+    this.onRead?.();
     return {
       endSeq: request.seq,
       events: [target],
@@ -209,6 +212,27 @@ describe("ConversationArchive", () => {
     expect(source).toContain("end_seq: 7");
     expect(source).toContain("我们决定 PKB 使用 Markdown。");
     expect(source).not.toContain(current);
+  });
+
+  it("B147: cancellation after the native read publishes no conversation excerpt", async () => {
+    const { archive, current, query, vault } = await fixture();
+    const controller = new AbortController();
+    query.onRead = () => controller.abort(new Error("capture cancelled after read"));
+
+    await expect(
+      archive.capture(current, { seq: 7, sessionId: "session-current" }, controller.signal),
+    ).rejects.toThrow("capture cancelled after read");
+
+    const workspace = await vault.resolveWorkspace(current);
+    const locatorHash = createHash("sha256").update("session-current:7").digest("hex").slice(0, 16);
+    const target = join(
+      vault.root,
+      workspace.directory,
+      "references",
+      "conversations",
+      `conversation--${locatorHash}--seq-7.md`,
+    );
+    await expect(readFile(target, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
   });
 
   it("V134: expands one exact event as bounded untrusted evidence", async () => {

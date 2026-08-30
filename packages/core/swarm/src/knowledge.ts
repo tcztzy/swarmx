@@ -1,11 +1,10 @@
-import type { Agent } from "@deepseek-ai/dsh-agent";
 import type { AdmitKnowledgeRequest, EvidenceSource, KnowledgeCommitReceipt } from "./contracts.js";
-import type { KnowledgeCommitContext, KnowledgeCommitter } from "./coordinator.js";
+import type { KnowledgeCommitContext, KnowledgeCommitter, SwarmActor } from "./coordinator.js";
 import { SwarmError } from "./errors.js";
 
 interface ScienceOwner {
   linkEvidence(
-    sessionId: string,
+    actorId: string,
     request: {
       requestId: string;
       projectId: string;
@@ -45,7 +44,7 @@ interface PkbOwner {
 
 interface ApprovalOwner {
   request(input: {
-    agent: Agent;
+    actorId: string;
     callId: string;
     reason: string;
     signal: AbortSignal;
@@ -57,6 +56,7 @@ export interface KnowledgeOwners {
   readonly approval: ApprovalOwner;
   readonly pkb: PkbOwner;
   readonly science: ScienceOwner;
+  workspaceRoot(actorId: string): string | undefined;
 }
 
 function pkbSource(source: EvidenceSource): Record<string, unknown> {
@@ -74,7 +74,7 @@ export class OwnerKnowledgeCommitter implements KnowledgeCommitter {
   constructor(private readonly owners: KnowledgeOwners) {}
 
   async commit(
-    lead: Agent,
+    lead: SwarmActor,
     request: AdmitKnowledgeRequest,
     context: KnowledgeCommitContext,
   ): Promise<KnowledgeCommitReceipt> {
@@ -110,12 +110,12 @@ export class OwnerKnowledgeCommitter implements KnowledgeCommitter {
       };
     }
 
-    const cwd = lead.session.header.cwd;
+    const cwd = this.owners.workspaceRoot(lead.id);
     if (!cwd) {
       throw new SwarmError("Knowledge admission requires a workspace", "SWARM_UNAUTHORIZED");
     }
     const approval = await this.owners.approval.request({
-      agent: lead,
+      actorId: lead.id,
       callId: context.callId,
       reason: "Admit one verified Team candidate into the private PKB.",
       signal: context.signal,

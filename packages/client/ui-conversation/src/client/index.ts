@@ -38,6 +38,7 @@ import {
   AnnotationUserMessageView,
 } from "./annotation-user-message.js";
 import { RerunController } from "./controller.js";
+import { registerPeerRuntimeConversation } from "./runtime-conversation.js";
 import { registerSideView } from "./side-view-registration.js";
 import type { RerunActionsInjected } from "./slots.js";
 
@@ -145,6 +146,7 @@ async function createSibling(ctx: ClientContext, sourceId: SessionId): Promise<S
  * @param ctx - client root context.
  */
 export function apply(ctx: ClientContext): void {
+  registerPeerRuntimeConversation(ctx);
   registerSideView(ctx);
   ctx.effect(
     () =>

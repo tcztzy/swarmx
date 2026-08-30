@@ -1,34 +1,71 @@
-# DSH Swarm
+# SwarmX Swarm
 
-`dsh-swarm` is SwarmX's opt-in scientific Team mode. It keeps the complete `dsh-science` Agent
-composition and adds one aggregate `swarm` Tool. Standard and ordinary Science sessions do not see
-that Tool.
+SwarmX Swarm is the opt-in scientific Team mode. DSH mounts it through the `dsh-swarm` preset;
+Codex mounts the same coordinator through the owned SwarmX MCP server.
 
 ## Ownership
 
-- DeepSeek Harness owns Agents, continuable subagents, Sessions, model calls, Tool execution,
-  approvals, persistence, and the browser conversation surface.
-- `@swarmx/dsh-swarm` owns only Team roster, task, mailbox, scheduling, and orchestration
-  provenance under `$DSH_HOME/swarm/swarm.sqlite`.
+- The selected runtime owns Agents or Threads, model calls, Tool execution, approvals, and native
+  conversation persistence.
+- `SwarmCoordinator` owns only Team roster, task, mailbox, scheduling, and orchestration provenance
+  under `$SWARMX_HOME/swarm/swarm.sqlite`; its DSH and Codex member handles are bottom adapters.
 - Science Journal remains scientific truth. PKB remains personal synthesis. Swarm state is never
   written into the project checkout and private Team/Session ids never enter RO-Crate output.
 
 ## Identity and authority
 
-One top-level Session is the Team lead and Team id. Every member is a continuable direct child and
-uses its immutable child Session id as the authority credential; display names are immutable labels,
-not credentials. Every Host mutation resolves the exact live Agent object. Lead-only actions are
-Team creation, member admission, task reassignment, interruption, effect reconciliation, evidence
-admission, and archival.
+On DSH, one top-level Session is the Team lead and Team id. Every member is a continuable direct
+child and uses its immutable child Session id as the authority credential. On Codex, the owned MCP
+server binds the lead to exact Codex-supplied native Thread metadata only after the bridge proves
+that Thread belongs to the canonical workspace, then to an exact stable MCP session identity, and
+otherwise to the current call-scoped request actor. It never invents a Thread identity. Native lead
+authority and the private
+reserved-member-to-native-child binding remain stable across MCP restarts; a child Thread's own MCP
+call resolves to that reserved member, while the same Thread id on another workspace has no Team
+authority. A stdio call without Thread or session metadata has no ambient continuation identity and
+cannot inherit another call's Team. Codex member materialization uses native child Threads. Display names are
+immutable labels, not credentials. Every Host mutation resolves the exact live adapter actor.
+Lead-only actions are Team creation, member admission, task reassignment, interruption, effect
+reconciliation, evidence admission, and archival.
+
+Codex App Server may construct the required MCP process for a native child while its reserved
+member is still provisioning. The one Electron primary owns a non-configurable platform recovery
+service that starts before configurable Harness plugins and App Server and stops after both. An
+auxiliary per-Thread MCP process opens only existing initialized storage, without migration or
+projection rebuild, and never crash-recovers the journal on construction, first invocation, or
+disposal. It only re-reads a committed exact native-Thread binding, so a pre-commit miss is retryable
+and cannot fail the live provision. A present but inactive binding is denied rather than converted
+into lead authority, and cached actors remain exact only while the same claim and active member phase
+still exist. Bindings are immutable transactional claims per member and use exact conditional
+release, so concurrent MCP processes cannot replace or delete one another's native handles. Native
+child creation is a root-bridge operation: it is not cancelled by an MCP response disconnect, and
+the bridge transactionally claims the returned Thread for the exact still-provisioning member before
+it publishes the response. A lost response therefore leaves a durable handle for root recovery
+rather than an invisible orphan. A bridge error or caller timeout is not proof that no native handle
+exists, so the member remains provisioning until the root proves creation failed or cleanup finished.
+Rollback uses a cancellation-independent cleanup operation: an exact source-tagged zero-turn Thread
+is physically deleted because Codex cannot archive a Thread without a rollout, while a materialized
+Thread is natively archived. Cleanup is single-flighted per exact member/Thread identity, and the
+binding is released only after acknowledgement. When the returned handle is already claimed by
+another member, the failed caller neither archives nor releases that Thread. Root
+Codex startup alone reconciles interrupted provisioning and orphaned claims, and promotes only an
+unarchived native child whose initial turn is observable. Cancellation, transient reads, and an
+unsupported `thread/read` method fail loudly and retain the durable claim; they are not evidence that
+the Thread is missing. The provisioning source tag is only a same-App-Server, zero-turn correlation:
+blank Threads do not appear in `thread/list`, and Codex clears the tag after materialization. It is
+never a persisted lookup index. Before the first turn the owning bridge retains the exact returned
+Thread id; after the first turn the transactional member binding is the sole authority. Live synchronization also requires the same Thread id, workspace, and
+unarchived state. A mismatch fails the member and revokes its attempts before further scheduling.
 
 Every member also has one immutable orchestration role: `lead`, `legacy`, `researcher`,
 `implementer`, `monitor`, or `verifier`. `legacy` is the explicit default for persisted members and
 old `add_member` calls that predate role profiles; SwarmX does not guess their historical model.
-Roles narrow actions but never grant authority: every mutation still requires the exact current
-Agent. Researchers may create bounded tasks and messages, implementers may execute and submit their
-assigned attempts, monitors may read safe projections and record only strict findings, and verifiers
-may record verdicts only for the exact current submission assigned to them. Monitor/verifier roles
-have no workspace-mutation, roster, budget-policy, nested-delegation, or PKB authority.
+Roles narrow Swarm actions and registered DSH/product MCP Tools but never grant authority: every such
+mutation still requires the exact current Agent. Researchers may create bounded tasks and messages,
+implementers may execute and submit their assigned attempts, monitors may read safe projections and
+record only strict findings, and verifiers may record verdicts only for the exact current submission
+assigned to them. Monitor/verifier roles have no guarded workspace-mutation, roster, budget-policy,
+nested-delegation, or PKB authority. Codex-native Tools follow the separate boundary described below.
 
 `add_member` may carry bounded `agentOptions.provider`, `agentOptions.model`, and
 `agentOptions.maxTokens` plus an attempt-budget template. Provider/model labels are restricted
@@ -77,22 +114,28 @@ independent. Knowledge tasks keep their existing owner-preserving evidence-admis
 path.
 
 Team participants share one checkout. Read tasks may overlap. Agent-scoped Tool guards admit
-`write`, `edit`, shell, Science mutation, and similar side-effecting tools only while that exact Agent
-owns an active `write` attempt. The lead receives no ambient mutation exemption: lead integration
-work must be an explicitly lead-assigned W task, while unowned tasks continue to schedule only to
-members. At most one write attempt exists per Team. Declared write scopes are coordination hints,
-not filesystem locks or rollback guarantees. Reassignment interrupts the old owner and waits for
-quiescence before rotating the attempt.
+workspace-mutating DSH Tools and Codex product MCP calls, including Science and PKB mutations, only
+while that exact Agent owns an active `write` attempt. The lead receives no ambient mutation
+exemption: lead integration work must be an explicitly lead-assigned W task, while unowned tasks
+continue to schedule only to members. At most one write attempt exists per Team. Declared write
+scopes are coordination hints, not filesystem locks or rollback guarantees. Reassignment interrupts
+the old owner and waits for quiescence before rotating the attempt.
 
-Every admitted participant W Tool body is enclosed by a durable effect intent keyed by attempt plus DSH
-call id. A successful Tool result settles the intent. A Tool error, cancellation, timeout, or host
-crash after intent commit is conservatively `uncertain`: the effect may have happened. An unresolved
-uncertain intent blocks later W dispatch for that task. The lead must record a typed postcondition or
-operator observation as `observed` (do not retry) or `absent` (retry may use a new call id). Repeated
-delivery of the same call id never re-enters the Tool body. This is verify-before-retry and duplicate
-suppression at the Swarm boundary, not general exactly-once execution: an opaque Tool may perform
-multiple internal effects, an external system may ignore idempotency, and effects outside registered
-DSH Tools are outside the guarantee.
+Codex-native shell and file Tools remain owned and executed directly by Codex App Server; they do
+not traverse the SwarmX product MCP or DSH Tool guard. Swarm role and attempt assignment therefore
+coordinate those native actions but do not form a security boundary for them. Runtime sandbox and
+approval policy remain the authority boundary for native Tool execution.
+
+Every admitted participant W Tool body on a guarded carrier is enclosed by a durable effect intent
+keyed by attempt plus the DSH Tool call id or derived Codex MCP request id. A successful Tool result
+settles the intent. A Tool error, cancellation, timeout, or host crash after intent commit is
+conservatively `uncertain`: the effect may have happened. An unresolved uncertain intent blocks later
+W dispatch for that task. The lead must record a typed postcondition or operator observation as
+`observed` (do not retry) or `absent` (retry may use a new call id). Repeated delivery of the same call
+id never re-enters the Tool body. This is verify-before-retry and duplicate suppression at the Swarm
+boundary, not general exactly-once execution: an opaque Tool may perform multiple internal effects,
+an external system may ignore idempotency, and effects outside registered DSH or Codex product MCP
+Tools are outside the guarantee.
 
 ## Attempt budgets and economics
 
@@ -173,26 +216,47 @@ These rules define the system properties:
 ## Mailbox, recovery, and retirement
 
 Messages are durably queued before delivery with stable ids, bounded content, per-target ordering,
-and pending-mail limits. An optional caller idempotency key makes repeated quiet/wakeup submission
-return the original message status instead of delivering twice; reusing a key for different content
-is rejected. Quiet messages inject context only into a resident member. Waking messages use DSH
-continuable follow-up and may cold-resume the target. Delivery intent is journaled before either
-call. If the process loses the outcome after that point, recovery leaves the message uncertain and
-does not redeliver it automatically; a human must inspect the target before choosing a new message
-id. Messages that were queued but never entered delivery remain eligible for recovery.
+and pending-mail limits. Queue insertion atomically owns idempotency comparison, pending-limit
+enforcement, and target sequence. A separate delivery transaction atomically grants the first claim,
+so concurrent processes cannot accept or enter delivery twice. An optional caller idempotency key makes repeated quiet/wakeup submission
+return the original message status; reusing a key for different content is rejected. Quiet messages
+inject context only into a resident member. Waking messages use native follow-up and may cold-resume
+the target. A Codex lead may reload child handles for scheduling and lifecycle observation, but it
+does not consume sibling mailboxes: queued mail is recovered only when the exact target Thread's MCP
+carrier invokes Swarm. DSH wakeup remains queued until its parent handle is available. Delivery
+intent is journaled before the native call. If the process loses the outcome after that point,
+recovery leaves the message uncertain and does not redeliver it automatically; a human must inspect
+the target before choosing a new message id. Messages that were queued but never entered delivery
+remain eligible for exact-target recovery.
 
-After process recovery, previously running tasks become `needs_attention` and lose their attempt;
-SwarmX never silently replays potentially non-idempotent work. Plugin disposal closes admission,
-releases long-poll waiters, aborts and settles admitted runtime work, revokes member-scoped
-capabilities, then closes SQLite. `archive` is an honest durable retirement operation; it is not
-physical deletion.
+After platform-owner recovery, previously running tasks become `needs_attention` and lose their attempt;
+started effects/admissions become `uncertain`, and SwarmX never silently replays potentially
+non-idempotent work. The root carrier closes admission, aborts and settles admitted runtime work,
+reconciles native member lifecycle, performs final crash-closed recovery, then closes SQLite. An
+auxiliary Codex MCP process settles only its own operations/watchers and closes its client connection
+without recovering or rebuilding shared state. DSH monitoring skips Teams with no runtime-owned
+actor. A Codex native member watch/interrupt failure never becomes
+an unhandled Promise or a fabricated idle acknowledgement. `archive` first commits one replayable
+cross-process fence that closes admission, activation, scheduling, mailbox delivery, and ordinary
+mutation. Provisioning already in flight must either publish and clean its exact native handle or
+durably acknowledge that no handle was created; timeout, disconnect, and unclassified rejection keep
+the fence open. Native archive/delete acknowledgement, member retirement,
+and exact binding release cannot be split by a crash; the final archived edge is allowed only after
+every child, non-terminal attempt, and started intent has drained. Archive is durable retirement, not
+physical deletion of materialized conversation or domain state; deletion is limited to an exact
+source-tagged provisioning Thread that has zero turns and was never published as a member.
 
 Submitted and verifying attempts are equally unsafe to continue after process recovery: they become
 `needs_attention`, retain immutable submission/verdict history in the attempt ledger, and are never
-automatically re-run or re-verified. The v3 migration adds replayable attempt materialization;
-v1/v2 events rebuild with explicit legacy role/model/usage defaults. Migration is transactional and
-idempotent, a database newer than the runtime fails loud, and owner-only directory/file permissions
-remain `0700`/`0600`.
+automatically re-run or re-verified. The v3 migration adds replayable attempt materialization, v4
+adds exact transactional runtime-member claims, and v5 adds durable message idempotency and
+target-sequence history that bounded Team projection trimming never forgets. Owner replay rebuilds
+the message ledger deterministically with the earliest historical key as owner while leaving exact
+runtime-member claims untouched. Legacy committed knowledge admissions that lack a valid matching
+owner receipt migrate to `uncertain` without fabricating a receipt; v1/v2 events
+rebuild with explicit legacy role/model/usage defaults. Migration acquires the write lock before
+reading applied versions, is transactional and idempotent, rejects a database newer than the runtime,
+and preserves owner-only `0700`/`0600` directory/file permissions.
 
 ## Browser surface
 

@@ -24,7 +24,5 @@ coverage/
 /rsi-*
 /review.json
 
-# Retained artwork not used by the current DSH surface
-/apps/desktop/assets/icons/
 .dsh-science-notebook-*.ipynb
 kernel-*.json

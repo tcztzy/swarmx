@@ -1,7 +1,4 @@
 import { createHash, randomUUID } from "node:crypto";
-import type { Agent } from "@deepseek-ai/dsh-agent";
-import type { TokenUsage } from "@deepseek-ai/dsh-llm";
-import { SessionId } from "@deepseek-ai/dsh-session";
 import {
   type AddSwarmMemberRequest,
   type AdmitKnowledgeRequest,
@@ -50,6 +47,19 @@ import type { SwarmJournal } from "./journal.js";
 import { evaluateSwarmMonitor } from "./monitor.js";
 import { redactSwarmText } from "./privacy.js";
 
+const MEMBER_LIFECYCLE_FAILURE = "Continuable member exited unexpectedly";
+
+export class SwarmMemberStartupError extends Error {
+  constructor(
+    message: string,
+    readonly handleState: "absent" | "possible",
+    options?: ErrorOptions,
+  ) {
+    super(message, options);
+    this.name = "SwarmMemberStartupError";
+  }
+}
+
 export interface StartSwarmMemberRequest {
   childId: string;
   name: string;
@@ -61,22 +71,43 @@ export interface StartSwarmMemberRequest {
   signal: AbortSignal;
 }
 
+export interface SwarmActor {
+  readonly id: string;
+  readonly status: string;
+  cancel(reason: { readonly kind: "hook"; readonly reason: string }): void | Promise<void>;
+  whenIdle(): Promise<unknown>;
+}
+
+export interface SwarmTokenUsage {
+  readonly inputTokens: number;
+  readonly outputTokens: number;
+  readonly cacheReadTokens: number;
+  readonly cacheWriteTokens: number;
+}
+
 export interface SwarmRuntimeAdapter {
-  exact(agent: Agent): boolean;
-  getAgent(id: string): Agent | undefined;
-  workspaceKey(agent: Agent): string;
-  inject(target: Agent, content: string, senderId: string): void;
+  readonly followupWithoutParent?: boolean;
+  exact(agent: SwarmActor): boolean;
+  getActor(id: string): SwarmActor | undefined;
+  isSubagent(agent: SwarmActor): boolean;
+  modelOptions(agent: SwarmActor): {
+    readonly provider?: string;
+    readonly model?: string;
+    readonly maxTokens?: number;
+  };
+  workspaceKey(agent: SwarmActor): string;
+  inject(target: SwarmActor, content: string, senderId: string): void | Promise<void>;
   followup(
-    parent: Agent,
+    parent: SwarmActor | undefined,
     targetId: string,
     content: string,
     senderId: string,
     signal?: AbortSignal,
   ): Promise<void>;
-  followupRoot(target: Agent, content: string, senderId: string): void;
-  interrupt(parent: Agent, targetId: string): void;
-  stopContinuable(parent: Agent, targetId: string): Promise<void>;
-  startContinuable(parent: Agent, request: StartSwarmMemberRequest): Promise<string>;
+  followupRoot(target: SwarmActor, content: string, senderId: string): void | Promise<void>;
+  interrupt(parent: SwarmActor, targetId: string): void | Promise<void>;
+  stopContinuable(parent: SwarmActor, targetId: string): Promise<void>;
+  startContinuable(parent: SwarmActor, request: StartSwarmMemberRequest): Promise<string>;
 }
 
 export interface SwarmCoordinatorConfig {
@@ -99,7 +130,7 @@ export interface KnowledgeCommitContext {
 
 export interface KnowledgeCommitter {
   commit(
-    lead: Agent,
+    lead: SwarmActor,
     request: AdmitKnowledgeRequest,
     context: KnowledgeCommitContext,
   ): Promise<KnowledgeCommitReceipt>;
@@ -198,7 +229,7 @@ function withoutAttempt(task: SwarmTask): Omit<SwarmTask, "attemptId"> {
   return rest;
 }
 
-function exactStatus(agent: Agent | undefined): "running" | "idle" | "inactive" {
+function exactStatus(agent: SwarmActor | undefined): "running" | "idle" | "inactive" {
   if (!agent) return "inactive";
   return agent.status === "running" ? "running" : "idle";
 }
@@ -212,7 +243,7 @@ function parse<T>(schema: { parse(input: unknown): T }, input: unknown): T {
 }
 
 function requireActive(team: SwarmTeamState): void {
-  if (team.phase === "archived") {
+  if (team.phase === "archived" || team.archiveStartedAt !== undefined) {
     throw new SwarmError("Swarm is archived", "SWARM_ARCHIVED");
   }
 }
@@ -240,7 +271,7 @@ function formatAssignment(task: SwarmTask): string {
   ].join("\n");
 }
 
-async function waitForIdle(agent: Agent, timeoutMs: number): Promise<void> {
+async function waitForIdle(agent: SwarmActor, timeoutMs: number): Promise<void> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     await Promise.race([
@@ -268,9 +299,9 @@ export class SwarmCoordinator {
     private readonly knowledge?: KnowledgeCommitter,
   ) {}
 
-  async create(agent: Agent, input: CreateSwarmRequest): Promise<SwarmTeamState> {
+  async create(agent: SwarmActor, input: CreateSwarmRequest): Promise<SwarmTeamState> {
     this.requireExact(agent);
-    if (agent.session.header.origin === "subagent") {
+    if (this.runtime.isSubagent(agent)) {
       throw new SwarmError("Subagents cannot create nested swarms", "SWARM_UNAUTHORIZED");
     }
     if (this.journal.findByParticipant(agent.id)) {
@@ -289,7 +320,7 @@ export class SwarmCoordinator {
           name: "lead",
           phase: "active",
           role: "lead",
-          modelPolicy: modelPolicy("observed", agent.options),
+          modelPolicy: modelPolicy("observed", this.runtime.modelOptions(agent)),
         },
         name: request.name,
         workspaceKey: this.runtime.workspaceKey(agent),
@@ -298,7 +329,7 @@ export class SwarmCoordinator {
   }
 
   async addMember(
-    agent: Agent,
+    agent: SwarmActor,
     input: AddSwarmMemberRequest,
     signal: AbortSignal = new AbortController().signal,
   ): Promise<SwarmMember> {
@@ -315,7 +346,7 @@ export class SwarmCoordinator {
     const member: SwarmMember = {
       createdAt: Date.now(),
       description: request.description,
-      id: SessionId(randomUUID()),
+      id: randomUUID(),
       name: request.name,
       phase: "provisioning",
       role: request.role,
@@ -324,7 +355,9 @@ export class SwarmCoordinator {
         : modelPolicy("legacy-default", undefined),
       ...(request.budget ? { budget: request.budget } : {}),
     };
-    this.journal.append(team.id, { type: "member/updated", data: member });
+    this.journal.reserveMember(team.id, member, this.config.maxMembers, () =>
+      this.runtime.exact(agent),
+    );
     let startedId: string | undefined;
     try {
       startedId = await this.runtime.startContinuable(agent, {
@@ -343,8 +376,13 @@ export class SwarmCoordinator {
           "SWARM_INVALID_REQUEST",
         );
       }
-      const active: SwarmMember = { ...member, phase: "active" };
-      this.journal.append(team.id, { type: "member/updated", data: active });
+      const acknowledged = this.journal.acknowledgeProvisioningMember(
+        team.id,
+        member.id,
+        Date.now(),
+      );
+      const active: SwarmMember = { ...acknowledged, phase: "active" };
+      this.journal.activateProvisioningMember(team.id, active, () => this.runtime.exact(agent));
       await this.kick(team.id);
       return active;
     } catch (cause) {
@@ -354,16 +392,30 @@ export class SwarmCoordinator {
         phase: "failed",
       };
       const failures: unknown[] = [cause];
-      try {
-        this.journal.append(team.id, { type: "member/updated", data: failed });
-      } catch (recordError) {
-        failures.push(recordError);
-      }
-      if (startedId) {
+      let handleAbsent = cause instanceof SwarmMemberStartupError && cause.handleState === "absent";
+      if (startedId !== undefined && this.journal.get(team.id)?.phase === "active") {
         try {
           await this.runtime.stopContinuable(agent, startedId);
+          handleAbsent = true;
         } catch (stopError) {
           failures.push(stopError);
+        }
+      }
+      const currentTeam = this.journal.get(team.id);
+      if (handleAbsent && currentTeam?.phase === "active") {
+        if (currentTeam.archiveStartedAt === undefined) {
+          try {
+            this.journal.append(team.id, { type: "member/updated", data: failed });
+          } catch (recordError) {
+            failures.push(recordError);
+          }
+        } else {
+          const currentMember = currentTeam.members.find((candidate) => candidate.id === member.id);
+          if (currentMember?.phase === "provisioning") {
+            this.journal.settleProvisioningMemberWithoutBinding(team.id, member.id);
+          } else if (currentMember !== undefined && currentMember.phase !== "retired") {
+            this.journal.retireMemberForArchive(team.id, member.id);
+          }
         }
       }
       if (failures.length > 1) {
@@ -373,10 +425,13 @@ export class SwarmCoordinator {
     }
   }
 
-  async snapshot(agent: Agent): Promise<SwarmSnapshot> {
+  async snapshot(agent: SwarmActor): Promise<SwarmSnapshot> {
     this.requireExact(agent);
     const team = this.journal.findByParticipant(agent.id);
     if (!team) return { kind: "inactive", revision: 0 };
+    if (team.workspaceKey !== this.runtime.workspaceKey(agent)) {
+      return { kind: "inactive", revision: 0 };
+    }
     const caller = team.members.find((member) => member.id === agent.id);
     if (!caller) return { kind: "inactive", revision: 0 };
     const nameById = new Map(team.members.map((member) => [member.id, member.name]));
@@ -388,7 +443,7 @@ export class SwarmCoordinator {
     const latestAttemptForMember = (memberId: string) =>
       team.attempts.filter((attempt) => attempt.ownerId === memberId).at(-1);
     return swarmSnapshotSchema.parse({
-      kind: team.phase,
+      kind: team.archiveStartedAt === undefined ? team.phase : "archived",
       memberName: caller.name,
       members: team.members.map((member) => ({
         budgetState: latestAttemptForMember(member.id)?.budgetState ?? "unknown",
@@ -397,7 +452,7 @@ export class SwarmCoordinator {
         name: member.name,
         role: member.role,
         status:
-          member.phase === "active" ? exactStatus(this.runtime.getAgent(member.id)) : member.phase,
+          member.phase === "active" ? exactStatus(this.runtime.getActor(member.id)) : member.phase,
       })),
       name: team.name,
       pendingMessages: team.messages.filter(
@@ -467,25 +522,25 @@ export class SwarmCoordinator {
     });
   }
 
-  memberByName(agent: Agent, name: string): Agent {
+  memberByName(agent: SwarmActor, name: string): SwarmActor {
     const team = this.requireMember(agent);
     const member = team.members.find((candidate) => candidate.name === name);
     if (!member) throw new SwarmError("Swarm member not found", "SWARM_MEMBER_NOT_FOUND");
-    const memberAgent = this.runtime.getAgent(member.id);
+    const memberAgent = this.runtime.getActor(member.id);
     if (!memberAgent) {
       throw new SwarmError("Swarm member is inactive", "SWARM_MEMBER_NOT_FOUND");
     }
     return memberAgent;
   }
 
-  task(agent: Agent, taskId: string): SwarmTask {
+  task(agent: SwarmActor, taskId: string): SwarmTask {
     const team = this.requireMember(agent);
     const task = team.tasks.find((candidate) => candidate.id === taskId);
     if (!task) throw new SwarmError("Swarm task not found", "SWARM_TASK_NOT_FOUND");
     return structuredClone(task);
   }
 
-  async createTask(agent: Agent, input: CreateSwarmTaskRequest): Promise<SwarmTask> {
+  async createTask(agent: SwarmActor, input: CreateSwarmTaskRequest): Promise<SwarmTask> {
     const team = this.requireMember(agent);
     requireActive(team);
     const caller = this.findMember(team, agent.id);
@@ -552,7 +607,7 @@ export class SwarmCoordinator {
     return this.task(agent, task.id);
   }
 
-  async updateTask(agent: Agent, input: UpdateSwarmTaskRequest): Promise<SwarmTask> {
+  async updateTask(agent: SwarmActor, input: UpdateSwarmTaskRequest): Promise<SwarmTask> {
     const team = this.requireMember(agent);
     requireActive(team);
     const request = parse(updateSwarmTaskRequestSchema, input);
@@ -632,7 +687,7 @@ export class SwarmCoordinator {
     return this.task(agent, task.id);
   }
 
-  async submitTask(agent: Agent, input: SubmitSwarmTaskRequest): Promise<SwarmTask> {
+  async submitTask(agent: SwarmActor, input: SubmitSwarmTaskRequest): Promise<SwarmTask> {
     const team = this.requireMember(agent);
     requireActive(team);
     const request = parse(submitSwarmTaskRequestSchema, input);
@@ -703,7 +758,10 @@ export class SwarmCoordinator {
     return this.task(agent, task.id);
   }
 
-  async startVerification(agent: Agent, input: StartSwarmVerificationRequest): Promise<SwarmTask> {
+  async startVerification(
+    agent: SwarmActor,
+    input: StartSwarmVerificationRequest,
+  ): Promise<SwarmTask> {
     const team = this.requireMember(agent);
     requireActive(team);
     const request = parse(startSwarmVerificationRequestSchema, input);
@@ -767,7 +825,7 @@ export class SwarmCoordinator {
     return this.task(agent, task.id);
   }
 
-  async recordVerdict(agent: Agent, input: RecordSwarmVerdictRequest): Promise<SwarmTask> {
+  async recordVerdict(agent: SwarmActor, input: RecordSwarmVerdictRequest): Promise<SwarmTask> {
     const team = this.requireMember(agent);
     requireActive(team);
     const request = parse(recordSwarmVerdictRequestSchema, input);
@@ -846,7 +904,7 @@ export class SwarmCoordinator {
     return this.task(agent, task.id);
   }
 
-  async escalateTask(agent: Agent, input: EscalateSwarmTaskRequest): Promise<SwarmTask> {
+  async escalateTask(agent: SwarmActor, input: EscalateSwarmTaskRequest): Promise<SwarmTask> {
     const team = this.requireMember(agent);
     requireActive(team);
     const request = parse(escalateSwarmTaskRequestSchema, input);
@@ -895,7 +953,7 @@ export class SwarmCoordinator {
     return this.task(agent, task.id);
   }
 
-  recordSemanticFinding(agent: Agent, input: RecordSemanticFindingRequest): void {
+  recordSemanticFinding(agent: SwarmActor, input: RecordSemanticFindingRequest): void {
     const team = this.requireMember(agent);
     requireActive(team);
     const member = this.findMember(team, agent.id);
@@ -932,7 +990,7 @@ export class SwarmCoordinator {
     });
   }
 
-  recordRoleToolViolation(agent: Agent, toolName: string): void {
+  recordRoleToolViolation(agent: SwarmActor, toolName: string): void {
     const team = this.requireMember(agent);
     requireActive(team);
     const member = this.findMember(team, agent.id);
@@ -955,20 +1013,27 @@ export class SwarmCoordinator {
     });
   }
 
-  async recordMemberLifecycleFailure(sessionId: string): Promise<void> {
-    const team = this.journal.findByParticipant(sessionId);
+  async recordMemberLifecycleFailure(actorId: string): Promise<void> {
+    const team = this.journal.findByParticipant(actorId);
     if (team?.phase !== "active") return;
-    const member = team.members.find((candidate) => candidate.id === sessionId);
-    if (!member || member.role === "lead" || member.phase !== "active") return;
-    this.journal.append(team.id, {
-      type: "member/updated",
-      data: {
-        ...member,
-        phase: "failed",
-        error: "Continuable member exited unexpectedly",
-      },
-    });
-    await this.revokeAttempts(team.id, sessionId);
+    const member = team.members.find((candidate) => candidate.id === actorId);
+    if (!member || member.role === "lead") return;
+    if (member.phase === "active") {
+      await this.revokeAttempts(team.id, actorId);
+      const current = this.journal
+        .get(team.id)
+        ?.members.find((candidate) => candidate.id === actorId);
+      if (current?.phase !== "active") return;
+      this.journal.append(team.id, {
+        type: "member/updated",
+        data: { ...current, phase: "failed", error: MEMBER_LIFECYCLE_FAILURE },
+      });
+      await this.revokeAttempts(team.id, actorId);
+      return;
+    } else if (member.phase !== "failed" || member.error !== MEMBER_LIFECYCLE_FAILURE) {
+      return;
+    }
+    await this.revokeAttempts(team.id, actorId);
   }
 
   recordSemanticMonitorDeliveryFailure(teamId: string): void {
@@ -1001,7 +1066,7 @@ export class SwarmCoordinator {
     const monitor = team.members.find(
       (member) => member.role === "monitor" && member.phase === "active",
     );
-    const lead = this.runtime.getAgent(team.id);
+    const lead = this.runtime.getActor(team.id);
     if (!monitor || !lead) return false;
     const task = taskId ? team.tasks.find((candidate) => candidate.id === taskId) : undefined;
     const attempt = task
@@ -1076,11 +1141,11 @@ export class SwarmCoordinator {
     return true;
   }
 
-  teamId(agent: Agent): string {
+  teamId(agent: SwarmActor): string {
     return this.requireMember(agent).id;
   }
 
-  async reassignTask(agent: Agent, input: ReassignSwarmTaskRequest): Promise<SwarmTask> {
+  async reassignTask(agent: SwarmActor, input: ReassignSwarmTaskRequest): Promise<SwarmTask> {
     const team = this.requireLead(agent);
     requireActive(team);
     const request = parse(reassignSwarmTaskRequestSchema, input);
@@ -1114,9 +1179,9 @@ export class SwarmCoordinator {
 
     const activeActorId = task.status === "verifying" ? task.verificationStartedById : task.ownerId;
     if ((task.status === "in_progress" || task.status === "verifying") && activeActorId) {
-      const oldOwner = this.runtime.getAgent(activeActorId);
+      const oldOwner = this.runtime.getActor(activeActorId);
       if (oldOwner) {
-        this.runtime.interrupt(agent, oldOwner.id);
+        await this.runtime.interrupt(agent, oldOwner.id);
         await waitForIdle(oldOwner, this.config.quiescenceTimeoutMs);
       }
       const current = this.findTask(this.requireLead(agent), task.id);
@@ -1171,7 +1236,7 @@ export class SwarmCoordinator {
   }
 
   async sendMessage(
-    agent: Agent,
+    agent: SwarmActor,
     input: SendSwarmMessageRequest,
     signal?: AbortSignal,
   ): Promise<SentSwarmMessage> {
@@ -1190,48 +1255,32 @@ export class SwarmCoordinator {
     if (target.id === agent.id) {
       throw new SwarmError("Cannot send a swarm message to yourself", "SWARM_INVALID_REQUEST");
     }
-    if (request.idempotencyKey) {
-      const existing = team.messages.find((candidate) => candidate.id === request.idempotencyKey);
-      if (existing) {
-        if (
-          existing.senderId !== agent.id ||
-          existing.targetId !== target.id ||
-          existing.delivery !== request.delivery ||
-          existing.content !== request.content
-        ) {
-          throw new SwarmError(
-            "Swarm message idempotency key conflicts with another message",
-            "SWARM_MESSAGE_CONFLICT",
-          );
-        }
-        return {
-          id: existing.id,
-          status:
-            existing.deliveredAt !== undefined
-              ? "delivered"
-              : existing.deliveryStartedAt !== undefined
-                ? "uncertain"
-                : "queued",
-        };
-      }
+    const queued = this.journal.queueMessage(
+      team.id,
+      {
+        content: request.content,
+        createdAt: Date.now(),
+        delivery: request.delivery,
+        id: request.idempotencyKey ?? randomUUID(),
+        senderId: agent.id,
+        senderName: sender.name,
+        targetId: target.id,
+      },
+      this.config.maxPendingMessagesPerMember,
+      () => this.runtime.exact(agent),
+    );
+    const { message } = queued;
+    if (!queued.created) {
+      return {
+        id: message.id,
+        status:
+          message.deliveredAt !== undefined
+            ? "delivered"
+            : message.deliveryStartedAt !== undefined
+              ? "uncertain"
+              : "queued",
+      };
     }
-    const pending = team.messages.filter(
-      (message) => message.targetId === target.id && message.deliveredAt === undefined,
-    ).length;
-    if (pending >= this.config.maxPendingMessagesPerMember) {
-      throw new SwarmError("Swarm mailbox limit reached", "SWARM_LIMIT");
-    }
-    const message: SwarmMessage = {
-      content: request.content,
-      createdAt: Date.now(),
-      delivery: request.delivery,
-      id: request.idempotencyKey ?? randomUUID(),
-      senderId: agent.id,
-      senderName: sender.name,
-      sequence: Math.max(0, ...team.messages.map((candidate) => candidate.sequence)) + 1,
-      targetId: target.id,
-    };
-    this.journal.append(team.id, { type: "message/queued", data: message });
     const delivered = await this.deliver(team, message, signal);
     const current = this.journal
       .get(team.id)
@@ -1246,7 +1295,7 @@ export class SwarmCoordinator {
     };
   }
 
-  async recoverMember(agent: Agent): Promise<number> {
+  async recoverMember(agent: SwarmActor): Promise<number> {
     const team = this.requireMember(agent);
     if (team.phase === "archived") return 0;
     let delivered = 0;
@@ -1264,7 +1313,7 @@ export class SwarmCoordinator {
     return delivered;
   }
 
-  async interruptMember(agent: Agent, input: InterruptSwarmMemberRequest): Promise<void> {
+  async interruptMember(agent: SwarmActor, input: InterruptSwarmMemberRequest): Promise<void> {
     const team = this.requireLead(agent);
     requireActive(team);
     const request = parse(interruptSwarmMemberRequestSchema, input);
@@ -1272,38 +1321,64 @@ export class SwarmCoordinator {
       (member) => member.name === request.target && member.role !== "lead",
     );
     if (!target) throw new SwarmError("Swarm member not found", "SWARM_MEMBER_NOT_FOUND");
-    const targetAgent = this.runtime.getAgent(target.id);
+    const targetAgent = this.runtime.getActor(target.id);
     if (targetAgent) {
-      this.runtime.interrupt(agent, target.id);
+      await this.runtime.interrupt(agent, target.id);
       await waitForIdle(targetAgent, this.config.quiescenceTimeoutMs);
     }
     await this.revokeAttempts(team.id, target.id);
   }
 
-  async archive(agent: Agent): Promise<SwarmTeamState> {
-    const team = this.requireLead(agent);
-    requireActive(team);
-    for (const member of team.members.filter((candidate) => candidate.role !== "lead")) {
-      const child = this.runtime.getAgent(member.id);
-      if (!child) continue;
-      this.runtime.interrupt(agent, child.id);
-      await waitForIdle(child, this.config.quiescenceTimeoutMs);
+  async archive(agent: SwarmActor): Promise<SwarmTeamState> {
+    const observed = this.requireLead(agent);
+    if (observed.phase === "archived") {
+      throw new SwarmError("Swarm is archived", "SWARM_ARCHIVED");
     }
-    for (const member of team.members) await this.revokeAttempts(team.id, member.id);
-    for (const member of team.members.filter((candidate) => candidate.role !== "lead")) {
-      this.journal.append(team.id, {
-        type: "member/updated",
-        data: { ...member, phase: "retired" },
-      });
-      await this.runtime.stopContinuable(agent, member.id);
+    const team = this.journal.beginArchive(observed.id, Date.now(), () =>
+      this.runtime.exact(agent),
+    );
+    const deadline = Date.now() + this.config.quiescenceTimeoutMs;
+    while (true) {
+      const current = this.journal.get(team.id);
+      if (current === undefined) throw new SwarmError("Swarm not found", "SWARM_NOT_FOUND");
+      if (current.phase === "archived") return current;
+      for (const member of current.members.filter(
+        (candidate) => candidate.role !== "lead" && candidate.phase !== "retired",
+      )) {
+        const child = this.runtime.getActor(member.id);
+        if (child !== undefined) {
+          await this.runtime.interrupt(agent, child.id);
+          await waitForIdle(child, this.config.quiescenceTimeoutMs);
+        }
+      }
+      for (const member of current.members) await this.revokeAttempts(team.id, member.id);
+      this.journal.settleArchiveIntents(team.id, Date.now());
+      const draining = this.journal.get(team.id);
+      if (draining === undefined) throw new SwarmError("Swarm not found", "SWARM_NOT_FOUND");
+      for (const member of draining.members.filter(
+        (candidate) => candidate.role !== "lead" && candidate.phase !== "retired",
+      )) {
+        if (member.phase === "provisioning" && member.runtimeReadyAt === undefined) continue;
+        await this.runtime.stopContinuable(agent, member.id);
+        if (member.phase === "provisioning") {
+          this.journal.settleProvisioningMemberWithoutBinding(team.id, member.id);
+        } else {
+          this.journal.retireMemberForArchive(team.id, member.id);
+        }
+      }
+      const archived = this.journal.finishArchive(team.id, Date.now());
+      if (archived !== undefined) return archived;
+      if (Date.now() >= deadline) {
+        throw new SwarmError(
+          "Swarm archive is waiting for in-flight member provisioning",
+          "SWARM_CLOSED",
+        );
+      }
+      await new Promise<void>((resolve) => setTimeout(resolve, 10));
     }
-    return this.journal.append(team.id, {
-      type: "team/archived",
-      data: { archivedAt: Date.now() },
-    });
   }
 
-  hasActiveWriteAttempt(agent: Agent): boolean {
+  hasActiveWriteAttempt(agent: SwarmActor): boolean {
     if (!this.runtime.exact(agent)) return false;
     const team = this.journal.findByParticipant(agent.id);
     return Boolean(
@@ -1314,7 +1389,7 @@ export class SwarmCoordinator {
     );
   }
 
-  beginToolEffect(agent: Agent, callId: string, toolName: string): SwarmEffect {
+  beginToolEffect(agent: SwarmActor, callId: string, toolName: string): SwarmEffect {
     const team = this.requireMember(agent);
     requireActive(team);
     const task = team.tasks.find(
@@ -1358,68 +1433,31 @@ export class SwarmCoordinator {
       createdAt: now,
       updatedAt: now,
     };
-    this.journal.append(team.id, { type: "effect/updated", data: effect });
-    return structuredClone(effect);
+    return this.journal.beginToolEffect(team.id, agent.id, effect, () => this.runtime.exact(agent));
   }
 
   settleToolEffect(
-    agent: Agent,
+    agent: SwarmActor,
     effectId: string,
     outcome: { readonly status: "succeeded" | "uncertain"; readonly resultDigest?: string },
   ): SwarmEffect {
     const team = this.requireMember(agent);
-    const effect = team.effects.find((candidate) => candidate.id === effectId);
-    if (!effect || effect.ownerId !== agent.id || effect.status !== "started") {
-      throw new SwarmError("Swarm Tool effect is not active", "SWARM_UNAUTHORIZED");
-    }
-    const current = this.findTask(team, effect.taskId);
-    const stillCurrent =
-      current.status === "in_progress" &&
-      current.ownerId === agent.id &&
-      current.attemptId === effect.attemptId;
-    const next: SwarmEffect = {
-      ...effect,
-      revision: effect.revision + 1,
-      status: stillCurrent ? outcome.status : "uncertain",
-      updatedAt: Date.now(),
-      ...(stillCurrent && outcome.resultDigest
-        ? { resultDigest: outcome.resultDigest as `sha256:${string}` }
-        : {}),
-    };
-    this.journal.append(team.id, { type: "effect/updated", data: next });
-    return structuredClone(next);
+    return this.journal.settleToolEffect(team.id, agent.id, effectId, outcome, () =>
+      this.runtime.exact(agent),
+    );
   }
 
-  resolveEffect(agent: Agent, input: ResolveSwarmEffectRequest): SwarmEffect {
+  resolveEffect(agent: SwarmActor, input: ResolveSwarmEffectRequest): SwarmEffect {
     const team = this.requireLead(agent);
     requireActive(team);
     const request = parse(resolveSwarmEffectRequestSchema, input);
-    const task = this.findTask(team, request.taskId);
-    if (task.revision !== request.expectedRevision) {
-      throw new SwarmError("Swarm task revision is stale", "SWARM_STALE_REVISION");
-    }
-    const effect = team.effects.find((candidate) => candidate.id === request.effectId);
-    if (
-      !effect ||
-      effect.taskId !== task.id ||
-      effect.attemptId !== request.attemptId ||
-      effect.status !== "uncertain"
-    ) {
-      throw new SwarmError("Uncertain Swarm Tool effect not found", "SWARM_STALE_ATTEMPT");
-    }
-    const next: SwarmEffect = {
-      ...effect,
-      revision: effect.revision + 1,
-      status: request.resolution,
-      updatedAt: Date.now(),
-      verification: request.verification,
-    };
-    this.journal.append(team.id, { type: "effect/updated", data: next });
-    return structuredClone(next);
+    return this.journal.resolveToolEffect(team.id, agent.id, request, () =>
+      this.runtime.exact(agent),
+    );
   }
 
   async admitKnowledge(
-    agent: Agent,
+    agent: SwarmActor,
     input: AdmitKnowledgeRequest,
     context: KnowledgeCommitContext,
   ): Promise<KnowledgeCommitReceipt> {
@@ -1460,6 +1498,12 @@ export class SwarmCoordinator {
       verification: request.verification,
     });
     const existing = team.admissions.find((admission) => admission.id === request.admissionId);
+    if (existing !== undefined && existing.taskId !== task.id) {
+      throw new SwarmError(
+        "Knowledge admission id already belongs to another task",
+        "SWARM_ADMISSION_CONFLICT",
+      );
+    }
     if (existing?.requestHash !== undefined && existing.requestHash !== hash) {
       throw new SwarmError(
         "Knowledge admission id was reused for different content",
@@ -1498,75 +1542,84 @@ export class SwarmCoordinator {
           createdAt: now,
           updatedAt: now,
         };
-    this.journal.append(team.id, { type: "knowledge/admission-updated", data: started });
+    const admitted = this.journal.beginKnowledgeAdmission(team.id, agent.id, started, () =>
+      this.runtime.exact(agent),
+    );
 
     let receipt: KnowledgeCommitReceipt;
     try {
       receipt = knowledgeCommitReceiptSchema.parse(
         await this.knowledge.commit(agent, request, context),
       );
+      if (receipt.kind !== request.target.kind) {
+        throw new SwarmError(
+          "Knowledge owner receipt kind does not match the admission target",
+          "SWARM_ADMISSION_CONFLICT",
+        );
+      }
     } catch (cause) {
-      this.journal.append(team.id, {
-        type: "knowledge/admission-updated",
-        data: {
-          ...started,
-          revision: started.revision + 1,
-          status: "uncertain",
-          updatedAt: Date.now(),
-        },
-      });
+      this.journal.settleKnowledgeAdmissionUncertain(team.id, agent.id, admitted.id, () =>
+        this.runtime.exact(agent),
+      );
       throw cause;
     }
-    this.journal.append(team.id, {
-      type: "knowledge/admission-updated",
-      data: {
-        ...started,
-        receipt,
-        revision: started.revision + 1,
-        status: "committed",
-        updatedAt: Date.now(),
-      },
-    });
-    this.completeKnowledgeTask(team.id, task);
+    const settled = this.journal.commitKnowledgeAdmission(
+      team.id,
+      agent.id,
+      admitted.id,
+      receipt,
+      () => this.runtime.exact(agent),
+    );
+    if (!settled.committed) {
+      throw new SwarmError("Knowledge task changed during admission", "SWARM_STALE_ATTEMPT");
+    }
     return structuredClone(receipt);
   }
 
-  isMemberIdentity(sessionId: string): boolean {
-    const team = this.journal.findByParticipant(sessionId);
+  isMemberIdentity(actorId: string): boolean {
+    const team = this.journal.findByParticipant(actorId);
     return Boolean(
       team?.phase === "active" &&
+        team.archiveStartedAt === undefined &&
         team.members.some(
           (member) =>
-            member.id === sessionId &&
+            member.id === actorId &&
             member.role !== "lead" &&
             (member.phase === "active" || member.phase === "provisioning"),
         ),
     );
   }
 
-  isLeadIdentity(sessionId: string): boolean {
-    const team = this.journal.findByParticipant(sessionId);
-    return Boolean(team?.phase === "active" && team.id === sessionId);
+  isLeadIdentity(actorId: string): boolean {
+    const team = this.journal.findByParticipant(actorId);
+    return Boolean(
+      team?.phase === "active" && team.archiveStartedAt === undefined && team.id === actorId,
+    );
   }
 
-  memberProfile(agent: Agent): SwarmMember {
+  memberProfile(agent: SwarmActor): SwarmMember {
     const team = this.requireMember(agent);
     return structuredClone(this.findMember(team, agent.id));
   }
 
-  memberProfileBySessionId(sessionId: string): SwarmMember {
-    const team = this.journal.findByParticipant(sessionId);
-    const member = team?.members.find((candidate) => candidate.id === sessionId);
-    if (team?.phase !== "active" || !member || member.role === "lead") {
+  memberProfileByActorId(actorId: string): SwarmMember {
+    const team = this.journal.findByParticipant(actorId);
+    const member = team?.members.find((candidate) => candidate.id === actorId);
+    if (
+      team?.phase !== "active" ||
+      team.archiveStartedAt !== undefined ||
+      !member ||
+      member.role === "lead"
+    ) {
       throw new SwarmError("Swarm member not found", "SWARM_MEMBER_NOT_FOUND");
     }
     return structuredClone(member);
   }
 
   recordUsage(
-    agent: Agent,
+    agent: SwarmActor,
     delta: {
-      readonly usage?: TokenUsage;
+      readonly usage?: SwarmTokenUsage;
       readonly turns?: number;
       readonly toolCalls?: number;
       readonly observedModel?: { readonly provider?: string; readonly model?: string };
@@ -1616,12 +1669,13 @@ export class SwarmCoordinator {
     return structuredClone(next);
   }
 
-  runMonitor(now: number, stallMs: number): string[] {
+  async runMonitor(now: number, stallMs: number): Promise<string[]> {
     const changedTeams = new Set<string>();
     for (const team of this.journal.list().filter((candidate) => candidate.phase === "active")) {
+      if (!team.members.some((member) => this.runtime.getActor(member.id) !== undefined)) continue;
       const runningMemberIds = new Set(
         team.members
-          .filter((member) => this.runtime.getAgent(member.id)?.status === "running")
+          .filter((member) => this.runtime.getActor(member.id)?.status === "running")
           .map((member) => member.id),
       );
       const drafts = evaluateSwarmMonitor(team, {
@@ -1648,10 +1702,38 @@ export class SwarmCoordinator {
             const actorMember = actor
               ? current.members.find((member) => member.name === actor.memberName)
               : undefined;
-            this.runtime.getAgent(actorMember?.id ?? attempt.ownerId)?.cancel({
-              kind: "hook",
-              reason: `Swarm budget exhausted: ${draft.code}`,
-            });
+            const runtimeActor = this.runtime.getActor(actorMember?.id ?? attempt.ownerId);
+            if (runtimeActor === undefined) {
+              this.journal.append(team.id, {
+                type: "monitor/finding-recorded",
+                data: {
+                  ...draft,
+                  id: randomUUID(),
+                  action: "lead_review",
+                  summary: `${draft.summary} The runtime could not acknowledge interruption.`,
+                },
+              });
+              changedTeams.add(team.id);
+              continue;
+            }
+            try {
+              await runtimeActor.cancel({
+                kind: "hook",
+                reason: `Swarm budget exhausted: ${draft.code}`,
+              });
+            } catch {
+              this.journal.append(team.id, {
+                type: "monitor/finding-recorded",
+                data: {
+                  ...draft,
+                  id: randomUUID(),
+                  action: "lead_review",
+                  summary: `${draft.summary} The runtime could not acknowledge interruption.`,
+                },
+              });
+              changedTeams.add(team.id);
+              continue;
+            }
             const {
               attemptId: _attemptId,
               verificationStartedById: _verificationStartedById,
@@ -1718,6 +1800,7 @@ export class SwarmCoordinator {
       next = next === undefined ? candidate : Math.min(next, candidate);
     };
     for (const team of this.journal.list().filter((candidate) => candidate.phase === "active")) {
+      if (!team.members.some((member) => this.runtime.getActor(member.id) !== undefined)) continue;
       for (const attempt of team.attempts) {
         if (!["active", "submitted", "verifying"].includes(attempt.status)) continue;
         const actor = attempt.actors.find((candidate) => candidate.endedAt === undefined);
@@ -1727,7 +1810,7 @@ export class SwarmCoordinator {
           ? team.members.find((member) => member.name === actor.memberName)
           : undefined;
         const actorRunning =
-          this.runtime.getAgent(actorMember?.id ?? attempt.ownerId)?.status === "running";
+          this.runtime.getActor(actorMember?.id ?? attempt.ownerId)?.status === "running";
         const suffix = `${actor?.phase ?? "implementation"}:${actor?.memberName ?? attempt.memberName}`;
         const findingKeys = new Set(team.findings.map((finding) => finding.dedupeKey));
         if (budget?.maxWallMs !== undefined && attempt.status !== "submitted") {
@@ -1751,7 +1834,7 @@ export class SwarmCoordinator {
     return next;
   }
 
-  private requireExact(agent: Agent): void {
+  private requireExact(agent: SwarmActor): void {
     if (!this.runtime.exact(agent)) {
       throw new SwarmError("Agent authority is not exact", "SWARM_UNAUTHORIZED");
     }
@@ -1799,14 +1882,17 @@ export class SwarmCoordinator {
     }
   }
 
-  private requireMember(agent: Agent): SwarmTeamState {
+  private requireMember(agent: SwarmActor): SwarmTeamState {
     this.requireExact(agent);
     const team = this.journal.findByParticipant(agent.id);
     if (!team) throw new SwarmError("Agent does not belong to a swarm", "SWARM_NOT_FOUND");
+    if (team.workspaceKey !== this.runtime.workspaceKey(agent)) {
+      throw new SwarmError("Agent does not belong to this workspace swarm", "SWARM_NOT_FOUND");
+    }
     return team;
   }
 
-  private requireLead(agent: Agent): SwarmTeamState {
+  private requireLead(agent: SwarmActor): SwarmTeamState {
     const team = this.requireMember(agent);
     if (team.id !== agent.id) {
       throw new SwarmError("Only the swarm lead may perform this action", "SWARM_UNAUTHORIZED");
@@ -1860,22 +1946,34 @@ export class SwarmCoordinator {
     message: SwarmMessage,
     signal?: AbortSignal,
   ): Promise<boolean> {
-    const target = this.runtime.getAgent(message.targetId);
+    const target = this.runtime.getActor(message.targetId);
     if (!target) return false;
-    if (message.deliveryStartedAt !== undefined) return false;
-    this.journal.append(team.id, {
-      type: "message/delivery-started",
-      data: { deliveryStartedAt: Date.now(), messageId: message.id },
-    });
+    const lead =
+      message.delivery === "wakeup" && target.id !== team.id
+        ? this.runtime.getActor(team.id)
+        : undefined;
+    if (
+      message.delivery === "wakeup" &&
+      target.id !== team.id &&
+      lead === undefined &&
+      this.runtime.followupWithoutParent !== true
+    ) {
+      return false;
+    }
+    if (
+      !this.journal.claimMessageDelivery(team.id, message.id, Date.now(), () =>
+        this.runtime.exact(target),
+      )
+    ) {
+      return false;
+    }
     const content = formatDelivery(message.senderName, message.content);
     try {
       if (message.delivery === "quiet") {
-        this.runtime.inject(target, content, message.senderId);
+        await this.runtime.inject(target, content, message.senderId);
       } else if (target.id === team.id) {
-        this.runtime.followupRoot(target, content, message.senderId);
+        await this.runtime.followupRoot(target, content, message.senderId);
       } else {
-        const lead = this.runtime.getAgent(team.id);
-        if (!lead) return false;
         await this.runtime.followup(lead, target.id, content, message.senderId, signal);
       }
       this.journal.append(team.id, {
@@ -1893,7 +1991,8 @@ export class SwarmCoordinator {
     if (!team || team.phase === "archived") return;
     for (const task of team.tasks.filter(
       (candidate) =>
-        (candidate.status === "in_progress" && candidate.ownerId === ownerId) ||
+        (["in_progress", "submitted"].includes(candidate.status) &&
+          candidate.ownerId === ownerId) ||
         (candidate.status === "verifying" && candidate.verificationStartedById === ownerId),
     )) {
       const now = Date.now();
@@ -1912,7 +2011,12 @@ export class SwarmCoordinator {
       const attempt = task.attemptId
         ? team.attempts.find((candidate) => candidate.id === task.attemptId)
         : undefined;
-      if (attempt && (attempt.status === "active" || attempt.status === "verifying")) {
+      if (
+        attempt &&
+        (attempt.status === "active" ||
+          attempt.status === "submitted" ||
+          attempt.status === "verifying")
+      ) {
         this.journal.append(team.id, {
           type: "attempt/ended",
           data: {
@@ -1952,7 +2056,7 @@ export class SwarmCoordinator {
 
   private async schedule(teamId: string): Promise<void> {
     const team = this.journal.get(teamId);
-    if (!team || team.phase === "archived") return;
+    if (!team || team.phase === "archived" || team.archiveStartedAt !== undefined) return;
     const completed = new Set(
       team.tasks.filter((task) => task.status === "completed").map((task) => task.id),
     );
@@ -1971,7 +2075,8 @@ export class SwarmCoordinator {
         candidate.phase === "active" &&
         (canExecuteTask(candidate.role) || available.some((task) => task.ownerId === candidate.id)),
     )) {
-      if (occupied.has(member.id) || !this.runtime.getAgent(member.id)) continue;
+      const memberActor = this.runtime.getActor(member.id);
+      if (occupied.has(member.id) || !memberActor) continue;
       const candidates = available.filter(
         (task) =>
           task.status === "pending" &&
@@ -1984,10 +2089,8 @@ export class SwarmCoordinator {
       );
       const task = candidates.find((candidate) => candidate.kind !== "write" || !hasWriter);
       if (!task) continue;
-      available.splice(
-        available.findIndex((candidate) => candidate.id === task.id),
-        1,
-      );
+      const lead = this.runtime.getActor(team.id);
+      if (!lead) continue;
       const now = Date.now();
       const active: SwarmTask = {
         ...task,
@@ -2030,19 +2133,22 @@ export class SwarmCoordinator {
         lastProgressAt: now,
         warningCodes: [],
       };
-      this.journal.append(team.id, { type: "attempt/started", data: { task: active, attempt } });
-      occupied.add(member.id);
-      if (active.kind === "write") hasWriter = true;
-      const lead = this.runtime.getAgent(team.id);
-      if (!lead) {
-        await this.revokeAttempts(team.id, member.id);
-        occupied.delete(member.id);
-        if (active.kind === "write") hasWriter = false;
+      if (
+        !this.journal.tryStartAttempt(team.id, { task: active, attempt }, () =>
+          Boolean(this.runtime.exact(lead) && this.runtime.exact(memberActor)),
+        )
+      ) {
         continue;
       }
+      available.splice(
+        available.findIndex((candidate) => candidate.id === task.id),
+        1,
+      );
+      occupied.add(member.id);
+      if (active.kind === "write") hasWriter = true;
       try {
         if (member.id === team.id) {
-          this.runtime.followupRoot(lead, formatAssignment(active), lead.id);
+          await this.runtime.followupRoot(lead, formatAssignment(active), lead.id);
         } else {
           await this.runtime.followup(lead, member.id, formatAssignment(active), lead.id);
         }

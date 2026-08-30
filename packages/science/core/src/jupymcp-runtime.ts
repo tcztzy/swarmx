@@ -1,12 +1,12 @@
 import { createHash } from "node:crypto";
 import { chmodSync, existsSync } from "node:fs";
-import { scrubbedParentEnv } from "@deepseek-ai/dsh-subprocess";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import type { CallToolResult, ReadResourceResult } from "@modelcontextprotocol/sdk/types.js";
 import { CallToolResultSchema } from "@modelcontextprotocol/sdk/types.js";
 import type { NotebookOutputBlock } from "./contracts.js";
 import { ScienceError } from "./errors.js";
+import { scrubbedScienceEnvironment } from "./subprocess.js";
 
 const NOTEBOOK_PREFIX = ".dsh-science-notebook-";
 const NOTEBOOK_ID = /^[A-Za-z0-9_-]{1,200}$/u;
@@ -81,7 +81,7 @@ interface BoundedText {
 }
 
 function childEnvironment(explicit: Readonly<Record<string, string>> = {}): Record<string, string> {
-  const environment = { ...scrubbedParentEnv(), ...explicit };
+  const environment = { ...scrubbedScienceEnvironment(), ...explicit };
   for (const key of DISABLED_ENVIRONMENT_KEYS) delete environment[key];
   environment.NO_PROXY = "*";
   environment.no_proxy = "*";

@@ -1,8 +1,8 @@
 import { randomUUID } from "node:crypto";
 import type { Writable } from "node:stream";
-import type { SubprocessHandle, SubprocessRuntime } from "@deepseek-ai/dsh-subprocess";
 import { z } from "zod";
 import { ScienceError } from "./errors.js";
+import type { ScienceProcessHandle, ScienceProcessRuntime } from "./subprocess.js";
 
 const digestSchema = z.string().regex(/^sha256:[0-9a-f]{64}$/u);
 const engineSchema = z.enum(["typst"]);
@@ -78,13 +78,13 @@ const MAX_PROTOCOL_LINE_BYTES = 1024 * 1024;
 const RESOLVE_TIMEOUT_MS = 5_000;
 
 export class WritingPreviewRuntimeProcess {
-  readonly handle: SubprocessHandle;
+  readonly handle: ScienceProcessHandle;
   private buffer = "";
   private closed = false;
   private readonly pending = new Map<string, PendingResolution>();
 
   private constructor(
-    handle: SubprocessHandle,
+    handle: ScienceProcessHandle,
     private readonly stdin: Writable,
     private readonly onCompiled: WritingPreviewProcessConfig["onCompiled"],
     private readonly onDiagnostics: WritingPreviewProcessConfig["onDiagnostics"],
@@ -111,7 +111,7 @@ export class WritingPreviewRuntimeProcess {
   }
 
   static async start(
-    subprocess: SubprocessRuntime,
+    subprocess: ScienceProcessRuntime,
     config: WritingPreviewProcessConfig,
   ): Promise<WritingPreviewRuntimeProcess> {
     const executable = await subprocess.resolveExecutable(config.command, {}, config.signal);

@@ -1,5 +1,8 @@
 import { z } from "zod";
 
+export const SWARM_PROVISIONING_INTERRUPTED_ERROR =
+  "Host restarted before member provisioning completed";
+
 export const MEMBER_NAME_PATTERN = /^[a-z][a-z0-9-]{0,31}$/u;
 export const TASK_ID_PATTERN = /^task-[1-9][0-9]*$/u;
 export const MODEL_ROUTE_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9._:/-]{0,127}$/u;
@@ -71,6 +74,7 @@ const currentSwarmMemberSchema = z.strictObject({
   phase: z.enum(["provisioning", "active", "failed", "retired"]),
   description: z.string().trim().min(1).max(500),
   createdAt: timestampSchema,
+  runtimeReadyAt: timestampSchema.optional(),
   modelPolicy: memberModelPolicySchema.default({ source: "legacy-default" }),
   budget: attemptBudgetSchema.optional(),
   error: z.string().min(1).max(1_000).optional(),
@@ -362,7 +366,7 @@ export const knowledgeCommitReceiptSchema = z.discriminatedUnion("kind", [
   }),
 ]);
 
-export const swarmKnowledgeAdmissionSchema = z.strictObject({
+export const legacySwarmKnowledgeAdmissionSchema = z.strictObject({
   id: uuidSchema,
   revision: revisionSchema,
   taskId: taskIdSchema,
@@ -378,6 +382,25 @@ export const swarmKnowledgeAdmissionSchema = z.strictObject({
   receipt: knowledgeCommitReceiptSchema.optional(),
 });
 
+export const swarmKnowledgeAdmissionSchema = legacySwarmKnowledgeAdmissionSchema.superRefine(
+  (admission, context) => {
+    if (admission.status === "committed" && admission.receipt === undefined) {
+      context.addIssue({
+        code: "custom",
+        message: "Committed knowledge admission requires an owner receipt",
+        path: ["receipt"],
+      });
+    }
+    if (admission.receipt !== undefined && admission.receipt.kind !== admission.targetKind) {
+      context.addIssue({
+        code: "custom",
+        message: "Knowledge admission receipt kind must match its target",
+        path: ["receipt", "kind"],
+      });
+    }
+  },
+);
+
 export const swarmTeamStateSchema = z.strictObject({
   id: sessionIdSchema,
   revision: revisionSchema,
@@ -386,6 +409,7 @@ export const swarmTeamStateSchema = z.strictObject({
   phase: z.enum(["active", "archived"]),
   createdAt: timestampSchema,
   updatedAt: timestampSchema,
+  archiveStartedAt: timestampSchema.optional(),
   archivedAt: timestampSchema.optional(),
   members: z.array(swarmMemberSchema).min(1).max(64),
   tasks: z.array(swarmTaskSchema).max(2_048),
@@ -551,7 +575,7 @@ export const swarmEffectViewSchema = swarmEffectSchema.pick({
   status: true,
 });
 
-export const swarmAdmissionViewSchema = swarmKnowledgeAdmissionSchema.pick({
+export const swarmAdmissionViewSchema = legacySwarmKnowledgeAdmissionSchema.pick({
   id: true,
   taskId: true,
   attemptId: true,

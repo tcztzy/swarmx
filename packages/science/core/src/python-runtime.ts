@@ -1,9 +1,9 @@
-import type {
-  SubprocessHandle,
-  SubprocessOutcome,
-  SubprocessRuntime,
-} from "@deepseek-ai/dsh-subprocess";
 import { ScienceError } from "./errors.js";
+import type {
+  ScienceProcessHandle,
+  ScienceProcessOutcome,
+  ScienceProcessRuntime,
+} from "./subprocess.js";
 
 const PROBE_SOURCE = [
   "import hashlib, importlib.metadata, json, platform",
@@ -41,24 +41,24 @@ export interface PythonRuntimeConfig {
 export interface PythonExecutionResult {
   readonly durationMs: number;
   readonly environment: Record<string, string>;
-  readonly outcome: SubprocessOutcome;
+  readonly outcome: ScienceProcessOutcome;
   readonly stderr: { readonly text: string; readonly truncated: boolean };
   readonly stdout: { readonly text: string; readonly truncated: boolean };
 }
 
 interface CollectedProcess {
-  readonly outcome: SubprocessOutcome;
+  readonly outcome: ScienceProcessOutcome;
   readonly stderr: { readonly text: string; readonly truncated: boolean };
   readonly stdout: { readonly text: string; readonly truncated: boolean };
 }
 
 /** Stateless Python cell runner over the DSH managed subprocess seam. */
 export class PythonRuntime {
-  private readonly active = new Set<SubprocessHandle>();
+  private readonly active = new Set<ScienceProcessHandle>();
   private open = true;
 
   constructor(
-    private readonly subprocess: SubprocessRuntime,
+    private readonly subprocess: ScienceProcessRuntime,
     private readonly config: PythonRuntimeConfig,
   ) {}
 
@@ -156,7 +156,7 @@ export class PythonRuntime {
   ): Promise<CollectedProcess> {
     this.ensureOpen();
     signal?.throwIfAborted();
-    let handle: SubprocessHandle;
+    let handle: ScienceProcessHandle;
     try {
       handle = this.subprocess.spawn({
         argv: spec.argv,

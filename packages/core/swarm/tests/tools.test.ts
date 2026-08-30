@@ -1,19 +1,20 @@
-import type { Agent } from "@deepseek-ai/dsh-agent";
 import type { ToolRunContext } from "@deepseek-ai/dsh-tools";
 import { describe, expect, it, vi } from "vitest";
+import type { SwarmActor } from "../src/coordinator.js";
 import { createSwarmToolDefinition, SWARM_ACTIONS } from "../src/tools.js";
 
-function execution(agent: Agent): ToolRunContext {
+function actor(): SwarmActor {
   return {
-    agent,
-    callId: "call-swarm",
-    signal: new AbortController().signal,
-  } as unknown as ToolRunContext;
+    id: "runtime-lead",
+    status: "idle",
+    cancel: vi.fn(),
+    whenIdle: vi.fn(async () => undefined),
+  };
 }
 
 describe("swarm aggregate tool", () => {
   it("V162/V170/V173: exposes one bounded aggregate surface with archive and no delete", async () => {
-    const root = { id: "session-lead" } as Agent;
+    const root = actor();
     const snapshot = vi.fn(() => Promise.resolve({ kind: "inactive", revision: 0 }));
     const tool = createSwarmToolDefinition({ snapshot } as never);
     const actions = (tool.parameters.properties.action as { enum: string[] }).enum;
@@ -43,7 +44,10 @@ describe("swarm aggregate tool", () => {
       ),
     ).not.toContain("private coordination detail");
     await expect(
-      tool.execute({ action: "status", request: {} }, execution(root)),
+      tool.invoke(
+        { action: "status", request: {} },
+        { actor: root, callId: "call-swarm", signal: new AbortController().signal },
+      ),
     ).resolves.toMatchObject({ action: "status", data: { kind: "inactive" } });
     expect(snapshot).toHaveBeenCalledWith(root);
   });

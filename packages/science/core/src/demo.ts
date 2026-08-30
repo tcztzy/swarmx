@@ -11,7 +11,7 @@ import type {
   ScienceResearchRecord,
   ScienceRun,
 } from "./contracts.js";
-import type { ScienceService } from "./index.js";
+import type { ScienceCore } from "./core.js";
 
 export interface ScienceDemoResult {
   readonly project: ScienceProject;
@@ -28,7 +28,7 @@ export interface ScienceDemoResult {
 
 /** One runnable, local-only tour through the public Science service. */
 export async function runScienceDemo(
-  science: ScienceService,
+  science: ScienceCore,
   sessionId: SessionId,
   signal?: AbortSignal,
 ): Promise<ScienceDemoResult> {

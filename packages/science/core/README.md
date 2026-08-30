@@ -1,6 +1,9 @@
 # `@swarmx/dsh-science`
 
-Local-first scientific domain service for SwarmX. T13 establishes the first end-to-end slice:
+Local-first scientific domain authority for SwarmX. `ScienceCore` owns all workspace, journal,
+artifact, notebook, literature, and writing behavior behind structural workspace/process seams.
+The default export is the thin DSH Cordis/Typert carrier; Codex calls `ScienceCore` through the
+owned SwarmX MCP carrier. T13 establishes the first end-to-end slice:
 
 - `ctx.science.createProject(sessionId, request, signal?)`
 - `ctx.science.createNotebook(sessionId, request, signal?)`
@@ -122,6 +125,7 @@ continue to work independently of the selected agent preset.
 - exactly seven aggregate tools from `@swarmx/dsh-science/tools`: `science_notebook`,
   `science_write`, `science_figure`, `science_experiment`, `science_record`, `science_query`, and
   `science_export`, plus the direct read-only `literature_search` tool
+- `science_notebook.create_project` gives every runtime the same model-facing project-root action
 - `science_query.inspect_annotation` re-authorizes a structured image point and projects the
   verified artifact as a durable image block for model discussion
 - `runScienceDemo(ctx.science, sessionId, signal?)`, an executable local-only tour covering Notebook,
@@ -135,8 +139,7 @@ Local literature discovery is a separate read-only boundary:
 - `literature_search` is the sole model-facing literature tool. `science_query` remains the local
   RO-Crate/annotation reader and does not search publications.
 - every Zotero candidate is converted to a sanitized, owner-only BibTeX snapshot before ranking or
-  Tool output. The snapshot is the provider-neutral exchange boundary for later EndNote, Mendeley,
-  JabRef, or online-source adapters; provider-native JSON is not a public result contract.
+  Tool output; provider-native JSON is not a public result contract.
 - results distinguish the Zotero item key from the BibTeX citation key, carry bounded portable
   BibTeX entries, and label ranking as `zotero-local-v1`. Search is ephemeral and appends no Science
   Journal event; only a later explicit citation/evidence action persists a selected work.
@@ -153,10 +156,10 @@ The Host defaults to the configured local `jupymcp` executable, 256 KiB per cell
 Notebook resource bound, and a 60-second MCP request timeout. It uses the same official SDK and
 scrubbed child environment precedent as the Harness MCP client, additionally removes Python
 injection and proxy variables, and never returns an executable, Notebook, or kernel path.
-The controller is validated against JupyMCP 0.3.1's native dependency set (`mcp>=2,<3` plus
-`ipykernel`); Science adds no MCP downgrade or kernel-package compatibility pin.
+The controller uses JupyMCP's native MCP and kernel dependencies; Science adds no downgrade or
+compatibility pin.
 
-The legacy `isolated` mode defaults to `python3` and a two-second process termination grace. It is
+The `isolated` mode defaults to `python3` and a two-second process termination grace. It is
 available only when explicitly configured and is never an automatic fallback for a missing
 JupyMCP/kernel prerequisite. Callers may name one workspace-relative output file for capture and
 may attach up to four immutable Science inputs.
@@ -190,10 +193,16 @@ The Host derives an opaque workspace key from the addressed live DSH session. Re
 responses never carry a filesystem path. A caller-provided UUID is the idempotency key; reusing it
 with different input is rejected.
 
-The DSH session log remains the interaction truth. Science Journal events contain scientific
+The selected runtime's native Session or Thread remains the interaction truth. Science Journal events contain scientific
 facts only and never enter Chat, Trajectory, or model history.
+
+ID-addressed reads use canonical typed `sx:` logical IDs and revision-guarded exact IDs. The
+`science_query` actions `head`, `batch_head`, `get`, `select`, and `neighbors` resolve only within the
+live authorized workspace and return bounded refs/projections rather than a workspace snapshot or full
+entity. Artifact selection is limited to the existing verified 64 KiB/500-row preview, with at most
+100 returned table rows or 16 KiB text per call. See `../../../docs/resource-addressing.md`.
 
 No `dsh-memory` package or stable memory service is present in the current profile. Science therefore
 does not invent a memory adapter: its stable integration surfaces are the client-safe contracts,
-strict Typert Remote descriptors, `ctx.science`, DSH session ids, `ctx.subprocess`, `ctx.tools`, and
-the profile spill policy.
+the platform-neutral `ScienceCore`, strict DSH Typert descriptors, the Codex MCP carrier, and the
+selected runtime's bounded Tool result policy.

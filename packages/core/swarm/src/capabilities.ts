@@ -1,6 +1,5 @@
-import type { Agent } from "@deepseek-ai/dsh-agent";
 import type { SwarmRole } from "./contracts.js";
-import type { SwarmCoordinator } from "./coordinator.js";
+import type { SwarmActor, SwarmCoordinator } from "./coordinator.js";
 
 const FORBIDDEN_MEMBER_TOOLS = new Set([
   "interrupt_agent",
@@ -30,29 +29,43 @@ const MUTATING_MEMBER_TOOLS = new Set([
   "write",
 ]);
 
-export function isMutatingMemberTool(name: string): boolean {
-  return MUTATING_MEMBER_TOOLS.has(name);
+const PKB_READ_ONLY_ACTIONS = new Set([
+  "read_conversation",
+  "read_knowledge",
+  "search_conversations",
+  "search_knowledge",
+]);
+
+export function isMutatingMemberTool(name: string, arguments_?: unknown): boolean {
+  if (MUTATING_MEMBER_TOOLS.has(name)) return true;
+  if (name !== "pkb") return false;
+  if (typeof arguments_ !== "object" || arguments_ === null) return true;
+  const action = (arguments_ as { readonly action?: unknown }).action;
+  return typeof action !== "string" || !PKB_READ_ONLY_ACTIONS.has(action);
 }
 
 export interface MemberToolExecution {
-  readonly agent?: Agent;
+  readonly agent?: SwarmActor;
+  readonly arguments?: unknown;
+  readonly mutating?: boolean;
   readonly name: string;
 }
 
 export function leadToolGuard(
-  lead: Agent,
+  lead: SwarmActor,
   coordinator: Pick<SwarmCoordinator, "hasActiveWriteAttempt">,
   execution: MemberToolExecution,
 ): string | undefined {
   if (execution.agent !== lead) return "Swarm lead authority is not exact.";
-  if (isMutatingMemberTool(execution.name) && !coordinator.hasActiveWriteAttempt(lead)) {
+  const mutating = execution.mutating ?? isMutatingMemberTool(execution.name, execution.arguments);
+  if (mutating && !coordinator.hasActiveWriteAttempt(lead)) {
     return "Team workspace mutation requires this exact lead to own an active write task attempt.";
   }
   return undefined;
 }
 
 export function memberToolGuard(
-  member: Agent,
+  member: SwarmActor,
   coordinator: Pick<SwarmCoordinator, "hasActiveWriteAttempt">,
   execution: MemberToolExecution,
   role: Exclude<SwarmRole, "lead"> = "legacy",
@@ -61,10 +74,11 @@ export function memberToolGuard(
   if (FORBIDDEN_MEMBER_TOOLS.has(execution.name)) {
     return "Swarm members must use the swarm tool for coordination and cannot delegate or access PKB.";
   }
-  if ((role === "monitor" || role === "verifier") && isMutatingMemberTool(execution.name)) {
+  const mutating = execution.mutating ?? isMutatingMemberTool(execution.name, execution.arguments);
+  if ((role === "monitor" || role === "verifier") && mutating) {
     return `Swarm ${role} role is read-only and cannot mutate the workspace.`;
   }
-  if (isMutatingMemberTool(execution.name) && !coordinator.hasActiveWriteAttempt(member)) {
+  if (mutating && !coordinator.hasActiveWriteAttempt(member)) {
     return "Workspace mutation requires this exact Swarm member to own an active write task attempt.";
   }
   return undefined;

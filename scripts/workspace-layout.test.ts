@@ -74,7 +74,7 @@ describe("workspace layout", () => {
     expect(existsSync("packages/science/core/package.json")).toBe(true);
     expect(existsSync("apps/desktop/package.json")).toBe(true);
     expect(existsSync("packages/dsh-ui-conversation")).toBe(false);
-    expect(existsSync("packages/desktop/package.json")).toBe(false);
+    expect(existsSync("packages/desktop")).toBe(false);
 
     const root = manifest("package.json");
     expect(root.packageManager).toBe("pnpm@11.7.0");
@@ -107,6 +107,25 @@ describe("workspace layout", () => {
     expect(patch).toContain("openAt: first-search");
     expect(patch).toContain("path: ':memory:'");
     expect(patch).toContain("dshHomePath('pkb', 'vault')");
+  });
+
+  it("V226 includes PKB in the clean client build graph", () => {
+    const clientConfig = JSON.parse(readFileSync("tsconfig.client.json", "utf8")) as {
+      readonly references?: readonly { readonly path?: string }[];
+    };
+    const cleanScript = readFileSync("scripts/clean.ts", "utf8");
+
+    expect(clientConfig.references?.map((reference) => reference.path)).toContain(
+      "./packages/core/pkb",
+    );
+    for (const output of [
+      "packages/core/dvc/lib",
+      "packages/core/pkb/lib",
+      "packages/client/ui-dvc/lib",
+      "packages/client/ui-git/lib",
+    ]) {
+      expect(cleanScript).toContain(output);
+    }
   });
 
   it("keeps shared build tools at the workspace root", () => {

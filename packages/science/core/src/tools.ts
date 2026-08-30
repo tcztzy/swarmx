@@ -1,6 +1,5 @@
 import type { Context } from "@deepseek-ai/cordis";
 import type { AttachmentStore, ImageAttachmentRef } from "@deepseek-ai/dsh-attachment";
-import type { SessionId } from "@deepseek-ai/dsh-session";
 import type {
   JsonSchemaNode,
   JsonValue,
@@ -10,8 +9,17 @@ import type {
 import { commentAnnotationSchema } from "@swarmx/annotation";
 import { z } from "zod";
 import { literatureSearchRequestSchema } from "./contracts.js";
+import type { ScienceCore } from "./core.js";
 import { ScienceError } from "./errors.js";
-import type { ScienceService } from "./index.js";
+import { parseScienceResourceId } from "./resource-id.js";
+import {
+  MAX_RESOURCE_BATCH_HEAD,
+  MAX_RESOURCE_NEIGHBORS,
+  MAX_RESOURCE_SELECT_COLUMNS,
+  MAX_RESOURCE_SELECT_ROWS,
+  MAX_RESOURCE_SELECT_TEXT_CHARS,
+  scienceResourceRelationSchema,
+} from "./resource-view.js";
 
 export const SCIENCE_TOOL_NAMES = [
   "science_notebook",
@@ -57,61 +65,234 @@ const outputSchema: JsonSchemaNode = {
   required: ["classification", "summary", "locator", "data"],
 };
 
-const scienceQueryParameters: ToolDefinition["parameters"] = {
+type JsonSchemaRecord = Record<string, unknown>;
+
+const resourceIdParameter: JsonSchemaRecord = {
+  type: "string",
+  minLength: 1,
+  maxLength: 1_024,
+  description: "Canonical sx: resource ID. Reuse the revision-guarded exactId from head.",
+};
+
+function queryActionParameters(
+  action: string,
+  request: JsonSchemaRecord,
+  title: string,
+): JsonSchemaRecord {
+  return {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      action: { type: "string", const: action },
+      request,
+    },
+    required: ["action", "request"],
+    title,
+  };
+}
+
+const imageAnnotationRequestParameters: JsonSchemaRecord = {
   type: "object",
   additionalProperties: false,
+  description:
+    "Copy the complete comment annotation from the annotation reference. Never reduce it to artifact_id.",
   properties: {
-    action: { type: "string", enum: ["research_object", "inspect_annotation"] },
-    request: {
-      description:
-        "For inspect_annotation, copy the complete comment annotation from the annotation reference. Never reduce it to artifact_id.",
+    type: { type: "string", const: "comment" },
+    id: { type: "string" },
+    comment: { type: "string" },
+    created_at: { type: "integer" },
+    target: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        type: { type: "string", const: "image_point" },
+        artifact_id: { type: "string" },
+        project_id: { type: "string" },
+        title: { type: "string" },
+        digest: { type: "string" },
+        mime: {
+          type: "string",
+          enum: ["image/png", "image/jpeg", "image/gif", "image/webp"],
+        },
+        point: {
+          type: "object",
+          additionalProperties: false,
+          properties: { x: { type: "number" }, y: { type: "number" } },
+          required: ["x", "y"],
+        },
+      },
+      required: ["type", "artifact_id", "project_id", "title", "digest", "mime", "point"],
+    },
+  },
+  required: ["type", "id", "comment", "created_at", "target"],
+};
+
+const scienceQueryVariants: readonly JsonSchemaRecord[] = [
+  queryActionParameters(
+    "research_object",
+    {
+      type: "object",
+      additionalProperties: false,
+      properties: { projectId: { type: "string", minLength: 1, maxLength: 200 } },
+      required: ["projectId"],
+    },
+    "RO-Crate Research Object request",
+  ),
+  queryActionParameters(
+    "inspect_annotation",
+    imageAnnotationRequestParameters,
+    "Image annotation request",
+  ),
+  queryActionParameters(
+    "head",
+    {
+      type: "object",
+      additionalProperties: false,
+      properties: { id: resourceIdParameter },
+      required: ["id"],
+    },
+    "Science resource head request",
+  ),
+  queryActionParameters(
+    "batch_head",
+    {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        ids: {
+          type: "array",
+          items: resourceIdParameter,
+          minItems: 1,
+          maxItems: MAX_RESOURCE_BATCH_HEAD,
+          description: "Between 1 and 50 resource IDs; input order and duplicates are preserved.",
+        },
+      },
+      required: ["ids"],
+    },
+    "Science resource batch head request",
+  ),
+  queryActionParameters(
+    "get",
+    {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        id: resourceIdParameter,
+        projection: { type: "string", const: "metadata" },
+      },
+      required: ["id", "projection"],
+    },
+    "Science resource metadata request",
+  ),
+  queryActionParameters(
+    "select",
+    {
       oneOf: [
         {
           type: "object",
           additionalProperties: false,
-          properties: { projectId: { type: "string" } },
-          required: ["projectId"],
-          title: "RO-Crate Research Object request",
+          properties: {
+            id: resourceIdParameter,
+            format: { type: "string", const: "table" },
+            offset: {
+              type: "integer",
+              minimum: 0,
+              description: "Non-negative row offset; defaults to 0.",
+            },
+            limit: {
+              type: "integer",
+              minimum: 1,
+              maximum: MAX_RESOURCE_SELECT_ROWS,
+              description: "Row count from 1 through 100; defaults to 25.",
+            },
+            columns: {
+              type: "array",
+              items: { type: "string", maxLength: 4_096 },
+              minItems: 1,
+              maxItems: MAX_RESOURCE_SELECT_COLUMNS,
+              uniqueItems: true,
+              description: "Between 1 and 32 unique column names in requested output order.",
+            },
+          },
+          required: ["id", "format"],
         },
         {
           type: "object",
           additionalProperties: false,
           properties: {
-            type: { type: "string", const: "comment" },
-            id: { type: "string" },
-            comment: { type: "string" },
-            created_at: { type: "integer" },
-            target: {
-              type: "object",
-              additionalProperties: false,
-              properties: {
-                type: { type: "string", const: "image_point" },
-                artifact_id: { type: "string" },
-                project_id: { type: "string" },
-                title: { type: "string" },
-                digest: { type: "string" },
-                mime: {
-                  type: "string",
-                  enum: ["image/png", "image/jpeg", "image/gif", "image/webp"],
-                },
-                point: {
-                  type: "object",
-                  additionalProperties: false,
-                  properties: { x: { type: "number" }, y: { type: "number" } },
-                  required: ["x", "y"],
-                },
-              },
-              required: ["type", "artifact_id", "project_id", "title", "digest", "mime", "point"],
+            id: resourceIdParameter,
+            format: { type: "string", const: "text" },
+            offset: {
+              type: "integer",
+              minimum: 0,
+              description: "Non-negative character offset; defaults to 0.",
+            },
+            limit: {
+              type: "integer",
+              minimum: 1,
+              maximum: MAX_RESOURCE_SELECT_TEXT_CHARS,
+              description: "Character count from 1 through 16384; defaults to 4096.",
             },
           },
-          required: ["type", "id", "comment", "created_at", "target"],
-          title: "Image annotation request",
+          required: ["id", "format"],
         },
       ],
     },
-  },
-  required: ["action", "request"],
-};
+    "Science artifact selection request",
+  ),
+  queryActionParameters(
+    "neighbors",
+    {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        id: resourceIdParameter,
+        relations: {
+          type: "array",
+          items: { type: "string", enum: [...scienceResourceRelationSchema.options] },
+          minItems: 1,
+          maxItems: 16,
+          uniqueItems: true,
+          description: "Optional non-empty list of at most 16 unique relation names.",
+        },
+        limit: {
+          type: "integer",
+          minimum: 1,
+          maximum: MAX_RESOURCE_NEIGHBORS,
+          description: "Edge count from 1 through 100; defaults to 50.",
+        },
+      },
+      required: ["id"],
+    },
+    "Science resource neighbors request",
+  ),
+];
+
+const scienceQueryParameters = projectDshSchema({ oneOf: scienceQueryVariants });
+const scienceQueryMcpParameters = { type: "object", oneOf: scienceQueryVariants };
+
+function projectDshSchema(value: unknown): ToolDefinition["parameters"] {
+  const unsupported = new Set([
+    "maximum",
+    "maxItems",
+    "maxLength",
+    "minimum",
+    "minItems",
+    "minLength",
+    "pattern",
+    "uniqueItems",
+  ]);
+  const project = (candidate: unknown): unknown => {
+    if (Array.isArray(candidate)) return candidate.map(project);
+    if (candidate === null || typeof candidate !== "object") return candidate;
+    return Object.fromEntries(
+      Object.entries(candidate)
+        .filter(([key]) => !unsupported.has(key))
+        .map(([key, nested]) => [key, project(nested)]),
+    );
+  };
+  return project(value) as ToolDefinition["parameters"];
+}
 
 const literatureSearchParameters: ToolDefinition["parameters"] = {
   type: "object",
@@ -159,7 +340,7 @@ const literatureSearchParameters: ToolDefinition["parameters"] = {
   required: ["query"],
 };
 
-interface ScienceLocator {
+export interface ScienceLocator {
   readonly sessionId: string;
   readonly toolCallId: string;
   readonly entityKind: string;
@@ -167,16 +348,28 @@ interface ScienceLocator {
   readonly journalSeq: number;
 }
 
-interface ScienceToolResult {
+export interface ScienceToolResult {
   readonly classification: "fact" | "inference" | "proposal";
   readonly summary: string;
   readonly locator: ScienceLocator | null;
   readonly data: JsonValue;
 }
 
+/** Runtime-neutral authority supplied by either a DSH Tool or Codex MCP carrier. */
+export interface ScienceToolExecution {
+  readonly actorId: string;
+  readonly callId: string;
+  readonly signal: AbortSignal;
+}
+
+export interface ScienceToolDefinition extends ToolDefinition {
+  readonly mcpParameters?: unknown;
+  invoke(args: unknown, execution: ScienceToolExecution): Promise<ScienceToolResult>;
+}
+
 interface ScienceToolContext {
   readonly attachments: Pick<AttachmentStore, "saveImage">;
-  readonly science: ScienceService;
+  readonly science: ScienceCore;
   readonly tools: { register(definition: ToolDefinition): () => void };
 }
 
@@ -194,15 +387,23 @@ function parseInput(args: unknown, actions: readonly string[]) {
   }
 }
 
-function session(exec: ToolRunContext): SessionId {
+function dshExecution(exec: ToolRunContext): ScienceToolExecution {
   if (!exec.agent) {
     throw new ScienceError("Science tools require an owning agent session", "SESSION_NOT_FOUND");
   }
-  return exec.agent.id;
+  return {
+    actorId: String(exec.agent.id),
+    callId: String(exec.callId),
+    signal: exec.signal,
+  };
+}
+
+function session(exec: ScienceToolExecution): string {
+  return exec.actorId;
 }
 
 function result(
-  exec: ToolRunContext,
+  exec: ScienceToolExecution,
   classification: ScienceToolResult["classification"],
   summary: string,
   entity: {
@@ -217,8 +418,8 @@ function result(
     summary,
     locator: entity
       ? {
-          sessionId: session(exec),
-          toolCallId: String(exec.callId),
+          sessionId: exec.actorId,
+          toolCallId: exec.callId,
           entityKind: entity.kind,
           entityId: entity.id,
           journalSeq: entity.provenance.journalSeq,
@@ -228,21 +429,61 @@ function result(
   };
 }
 
+function resourceLocatorEntity(
+  science: ScienceCore,
+  sessionId: string,
+  id: string,
+  signal: AbortSignal,
+) {
+  const parsed = parseScienceResourceId(id);
+  const snapshot = science.getWorkspace(sessionId, signal);
+  const collection =
+    parsed.kind === "project"
+      ? snapshot.projects
+      : parsed.kind === "notebook"
+        ? snapshot.notebooks
+        : parsed.kind === "artifact"
+          ? snapshot.artifacts
+          : parsed.kind === "document"
+            ? snapshot.documents
+            : parsed.kind === "figure"
+              ? snapshot.figures
+              : parsed.kind === "record"
+                ? snapshot.records
+                : parsed.kind === "experiment"
+                  ? snapshot.experiments
+                  : snapshot.runs;
+  const entity = collection.find((candidate) => candidate.id === parsed.entityId);
+  if (!entity) {
+    throw new ScienceError(
+      "Science resource disappeared from this workspace",
+      "RESOURCE_NOT_FOUND",
+    );
+  }
+  return entity;
+}
+
 function definition(
   name: (typeof SCIENCE_TOOL_NAMES)[number],
   description: string,
   actions: readonly string[],
   execute: (
-    science: ScienceService,
+    science: ScienceCore,
     input: { readonly action: string; readonly request: unknown },
-    exec: ToolRunContext,
+    exec: ScienceToolExecution,
   ) => Promise<ScienceToolResult>,
-  science: ScienceService,
+  science: ScienceCore,
   render: ToolDefinition["output"]["render"] = (_args, value) => [
     { type: "text", text: JSON.stringify(value) },
   ],
   parameters?: ToolDefinition["parameters"],
-): ToolDefinition {
+  mcpParameters?: unknown,
+): ScienceToolDefinition {
+  const invoke = async (args: unknown, exec: ScienceToolExecution): Promise<ScienceToolResult> => {
+    const input = parseInput(args, actions);
+    exec.signal.throwIfAborted();
+    return execute(science, input, exec);
+  };
   return {
     name,
     description,
@@ -255,6 +496,7 @@ function definition(
       },
       required: ["action", "request"],
     },
+    ...(mcpParameters === undefined ? {} : { mcpParameters }),
     output: {
       schema: outputSchema,
       render,
@@ -266,15 +508,27 @@ function definition(
         } as unknown as JsonValue;
       },
     },
-    async execute(args, exec) {
-      const input = parseInput(args, actions);
-      exec.signal.throwIfAborted();
-      return execute(science, input, exec);
+    invoke,
+    execute(args, exec) {
+      return invoke(args, dshExecution(exec));
     },
   };
 }
 
-function literatureDefinition(science: ScienceService): ToolDefinition {
+function literatureDefinition(science: ScienceCore): ScienceToolDefinition {
+  const invoke = async (args: unknown, exec: ScienceToolExecution): Promise<ScienceToolResult> => {
+    let request: z.infer<typeof literatureSearchRequestSchema>;
+    try {
+      request = literatureSearchRequestSchema.parse(args);
+    } catch (error) {
+      throw new ScienceError("Invalid literature search request", "INVALID_REQUEST", {
+        cause: error,
+      });
+    }
+    exec.signal.throwIfAborted();
+    const data = await science.searchLiterature(exec.actorId, request, exec.signal);
+    return result(exec, "inference", "Searched local Zotero literature", null, data);
+  };
   return {
     name: "literature_search",
     description:
@@ -291,18 +545,9 @@ function literatureDefinition(science: ScienceService): ToolDefinition {
         } as unknown as JsonValue;
       },
     },
-    async execute(args, exec) {
-      let request: z.infer<typeof literatureSearchRequestSchema>;
-      try {
-        request = literatureSearchRequestSchema.parse(args);
-      } catch (error) {
-        throw new ScienceError("Invalid literature search request", "INVALID_REQUEST", {
-          cause: error,
-        });
-      }
-      exec.signal.throwIfAborted();
-      const data = await science.searchLiterature(session(exec), request, exec.signal);
-      return result(exec, "inference", "Searched local Zotero literature", null, data);
+    invoke,
+    execute(args, exec) {
+      return invoke(args, dshExecution(exec));
     },
   };
 }
@@ -362,16 +607,20 @@ function parseImageAnnotation(request: unknown) {
 }
 
 export function createScienceToolDefinitions(
-  science: ScienceService,
+  science: ScienceCore,
   attachments: Pick<AttachmentStore, "saveImage">,
-): readonly ToolDefinition[] {
+): readonly ScienceToolDefinition[] {
   return [
     definition(
       "science_notebook",
-      "Create a Science Notebook or execute one Python cell with provenance and bounded output. Figure PNG/SVG/PDF output embeds exact code and input identities by default; outputArtifact.reproducibilityMetadata=false opts out.",
-      ["create", "execute"],
+      "Create a Science Project or Notebook, or execute one Python cell with provenance and bounded output. Figure PNG/SVG/PDF output embeds exact code and input identities by default; outputArtifact.reproducibilityMetadata=false opts out.",
+      ["create_project", "create", "execute"],
       async (service, input, exec) => {
         const sessionId = session(exec);
+        if (input.action === "create_project") {
+          const project = service.createProject(sessionId, input.request as never, exec.signal);
+          return result(exec, "fact", "Created science project", project, project);
+        }
         if (input.action === "create") {
           const notebook = service.createNotebook(sessionId, input.request as never, exec.signal);
           return result(exec, "fact", "Created science notebook", notebook, notebook);
@@ -518,8 +767,8 @@ export function createScienceToolDefinitions(
     ),
     definition(
       "science_query",
-      "Read one project as an RO-Crate 1.3 Research Object or inspect one image annotation. This differs from file search: it returns structured research entities and provenance Actions. For inspect_annotation, copy the complete comment object from the annotation reference; never submit artifact_id alone.",
-      ["research_object", "inspect_annotation"],
+      "Read local Science entities through bounded typed resource views, read one project RO-Crate, or inspect one image annotation. Start with head, reuse its exactId for get/select/neighbors, and re-head after RESOURCE_REVISION_MISMATCH instead of removing the revision. Never request a whole workspace; for inspect_annotation, never submit artifact_id alone.",
+      ["research_object", "inspect_annotation", "head", "batch_head", "get", "select", "neighbors"],
       async (service, input, exec) => {
         const sessionId = session(exec);
         if (input.action === "research_object") {
@@ -532,6 +781,34 @@ export function createScienceToolDefinitions(
           }
           const researchObject = service.getResearchObject(sessionId, request, exec.signal);
           return result(exec, "fact", "Read project Research Object", project, researchObject);
+        }
+        if (input.action === "head") {
+          const head = service.headResource(sessionId, input.request as never, exec.signal);
+          const entity = resourceLocatorEntity(service, sessionId, head.ref.id, exec.signal);
+          return result(exec, "fact", "Read science resource head", entity, head);
+        }
+        if (input.action === "batch_head") {
+          const batch = service.batchHeadResources(sessionId, input.request as never, exec.signal);
+          return result(exec, "fact", "Read science resource heads", null, batch);
+        }
+        if (input.action === "get") {
+          const view = service.getResource(sessionId, input.request as never, exec.signal);
+          const entity = resourceLocatorEntity(service, sessionId, view.ref.id, exec.signal);
+          return result(exec, "fact", "Read science resource metadata", entity, view);
+        }
+        if (input.action === "select") {
+          const selection = service.selectResource(sessionId, input.request as never, exec.signal);
+          const entity = resourceLocatorEntity(service, sessionId, selection.ref.id, exec.signal);
+          return result(exec, "fact", "Selected science artifact data", entity, selection);
+        }
+        if (input.action === "neighbors") {
+          const neighbors = service.getResourceNeighbors(
+            sessionId,
+            input.request as never,
+            exec.signal,
+          );
+          const entity = resourceLocatorEntity(service, sessionId, neighbors.ref.id, exec.signal);
+          return result(exec, "fact", "Read science resource neighbors", entity, neighbors);
         }
         if (input.action === "inspect_annotation") {
           const annotation = parseImageAnnotation(input.request);
@@ -584,6 +861,7 @@ export function createScienceToolDefinitions(
       science,
       scienceQueryRender,
       scienceQueryParameters,
+      scienceQueryMcpParameters,
     ),
     literatureDefinition(science),
     definition(

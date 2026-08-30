@@ -31,8 +31,10 @@ import {
   waitForSwarmChangeRequestSchema,
 } from "./contracts.js";
 import {
+  type SwarmActor,
   SwarmCoordinator,
   type SwarmCoordinatorConfig,
+  SwarmMemberStartupError,
   type SwarmRuntimeAdapter,
 } from "./coordinator.js";
 import { SwarmError } from "./errors.js";
@@ -54,6 +56,7 @@ export * from "./verification-model.js";
 
 export interface Config extends Partial<SwarmCoordinatorConfig> {
   readonly monitorStallMs?: number;
+  readonly recoveryOwner?: boolean;
   readonly semanticMonitor?: boolean;
   readonly provider?: string;
   readonly root: string;
@@ -166,6 +169,7 @@ export class SwarmService extends TypertRemoteService {
       .max(60_000)
       .default(DEFAULT_CONFIG.quiescenceTimeoutMs),
     monitorStallMs: s.natural().min(1_000).max(86_400_000).default(DEFAULT_MONITOR_STALL_MS),
+    recoveryOwner: s.boolean().default(true),
     semanticMonitor: s.boolean().default(false),
   });
 
@@ -177,6 +181,7 @@ export class SwarmService extends TypertRemoteService {
   private readonly leadBoundaries = new Map<string, () => void>();
   private readonly intentionalStops = new Set<string>();
   private readonly monitorStallMs: number;
+  private readonly recoveryOwner: boolean;
   private readonly semanticMonitor: boolean;
   private monitorTimer: ReturnType<typeof setTimeout> | undefined;
   private monitoring = false;
@@ -185,29 +190,42 @@ export class SwarmService extends TypertRemoteService {
   constructor(ctx: Context, config: Config) {
     super(ctx, "swarm");
     this.journal = new SwarmJournal(config.root);
-    this.journal.recoverUncertainIntents(Date.now());
-    this.journal.recoverInterruptedTasks(Date.now());
-    for (const team of this.journal.list()) {
-      if (team.phase === "archived") continue;
-      for (const member of team.members.filter((candidate) => candidate.phase === "provisioning")) {
-        this.journal.append(team.id, {
-          type: "member/updated",
-          data: {
-            ...member,
-            error: "Host restarted before member provisioning completed",
-            phase: "failed",
-          },
-        });
-      }
+    this.recoveryOwner = config.recoveryOwner ?? true;
+    if (this.recoveryOwner) {
+      this.journal.recoverUncertainIntents(Date.now());
+      this.journal.recoverInterruptedTasks(Date.now());
+      this.journal.recoverProvisioningMembers();
     }
 
     const provider = config.provider ?? "spawn";
+    const knowledgeOwners = ctx as unknown as {
+      science: KnowledgeOwners["science"];
+      pkb: KnowledgeOwners["pkb"];
+      approval: {
+        request(input: {
+          agent: Agent;
+          callId: string;
+          reason: string;
+          signal: AbortSignal;
+          toolName: string;
+        }): Promise<string>;
+      };
+    };
+    const nativeActor = (actor: SwarmActor): Agent => {
+      const native = ctx.agents.get(SessionId(actor.id));
+      if (native === undefined || native !== actor) {
+        throw new SwarmError("Agent authority is not exact", "SWARM_UNAUTHORIZED");
+      }
+      return native;
+    };
     const runtime: SwarmRuntimeAdapter = {
-      exact: (agent) => ctx.agents.get(agent.id) === agent,
-      getAgent: (id) => ctx.agents.get(SessionId(id)),
-      workspaceKey: (agent) => this.journal.workspaceKey(agent.session.header.cwd),
+      exact: (agent) => ctx.agents.get(SessionId(agent.id)) === agent,
+      getActor: (id) => ctx.agents.get(SessionId(id)),
+      isSubagent: (agent) => nativeActor(agent).session.header.origin === "subagent",
+      modelOptions: (agent) => nativeActor(agent).options,
+      workspaceKey: (agent) => this.journal.workspaceKey(nativeActor(agent).session.header.cwd),
       inject: (target, content, senderId) => {
-        target.inject(
+        nativeActor(target).inject(
           createUserMessage({
             content: [{ type: "text", text: content }],
             source: {
@@ -219,8 +237,11 @@ export class SwarmService extends TypertRemoteService {
         );
       },
       followup: async (parent, targetId, content, senderId, signal) => {
+        if (parent === undefined) {
+          throw new SwarmError("Swarm lead is inactive", "SWARM_MEMBER_NOT_FOUND");
+        }
         await ctx.subagents.followup(
-          parent,
+          nativeActor(parent),
           SessionId(targetId),
           [{ type: "text", text: content }],
           {
@@ -234,7 +255,7 @@ export class SwarmService extends TypertRemoteService {
         );
       },
       followupRoot: (target, content, senderId) => {
-        target.followup(
+        nativeActor(target).followup(
           createUserMessage({
             content: [{ type: "text", text: content }],
             source: {
@@ -246,10 +267,13 @@ export class SwarmService extends TypertRemoteService {
         );
       },
       interrupt: (parent, targetId) => {
-        ctx.subagents.interrupt(SessionId(targetId), { agent: parent, kind: "ancestor" });
+        ctx.subagents.interrupt(SessionId(targetId), {
+          agent: nativeActor(parent),
+          kind: "ancestor",
+        });
       },
       stopContinuable: async (parent, targetId) => {
-        await ctx.subagents.drainContinuableChildren(parent, [SessionId(targetId)]);
+        await ctx.subagents.drainContinuableChildren(nativeActor(parent), [SessionId(targetId)]);
       },
       startContinuable: async (parent, request) => {
         const agentOptions = request.agentOptions
@@ -261,20 +285,28 @@ export class SwarmService extends TypertRemoteService {
                 : {}),
             }
           : undefined;
-        const started = await ctx.subagents.startContinuable({
-          childId: SessionId(request.childId),
-          label: request.description,
-          provider,
-          request: {
-            maxDepth: 1,
-            parent,
-            ...(agentOptions ? { agentOptions } : {}),
-            persona: `You are Swarm ${request.role} ${request.name}: ${request.description}. Work only within this role and assigned Swarm tasks. Use the swarm tool for bounded coordination. Do not delegate or access PKB. Submit implementation evidence; only an authorized verifier or lead may accept it.`,
-            prompt: [{ type: "text", text: request.prompt }],
-          },
-          signal: request.signal,
-        });
-        return started.childId;
+        try {
+          const started = await ctx.subagents.startContinuable({
+            childId: SessionId(request.childId),
+            label: request.description,
+            provider,
+            request: {
+              maxDepth: 1,
+              parent: nativeActor(parent),
+              ...(agentOptions ? { agentOptions } : {}),
+              persona: `You are Swarm ${request.role} ${request.name}: ${request.description}. Work only within this role and assigned Swarm tasks. Use the swarm tool for bounded coordination. Do not delegate or access PKB. Submit implementation evidence; only an authorized verifier or lead may accept it.`,
+              prompt: [{ type: "text", text: request.prompt }],
+            },
+            signal: request.signal,
+          });
+          return started.childId;
+        } catch (cause) {
+          throw new SwarmMemberStartupError(
+            cause instanceof Error ? cause.message : "DSH member startup failed",
+            "absent",
+            { cause },
+          );
+        }
       },
     };
     this.coordinator = new SwarmCoordinator(
@@ -288,7 +320,20 @@ export class SwarmService extends TypertRemoteService {
         maxTasks: config.maxTasks ?? DEFAULT_CONFIG.maxTasks,
         quiescenceTimeoutMs: config.quiescenceTimeoutMs ?? DEFAULT_CONFIG.quiescenceTimeoutMs,
       },
-      new OwnerKnowledgeCommitter(ctx as unknown as KnowledgeOwners),
+      new OwnerKnowledgeCommitter({
+        science: knowledgeOwners.science,
+        pkb: knowledgeOwners.pkb,
+        workspaceRoot: (actorId) => ctx.agents.get(SessionId(actorId))?.session.header.cwd,
+        approval: {
+          request: ({ actorId, ...request }) => {
+            const agent = ctx.agents.get(SessionId(actorId));
+            if (agent === undefined) {
+              throw new SwarmError("Knowledge approval Agent is unavailable", "SWARM_UNAUTHORIZED");
+            }
+            return knowledgeOwners.approval.request({ ...request, agent });
+          },
+        },
+      }),
     );
     this.monitorStallMs = config.monitorStallMs ?? DEFAULT_MONITOR_STALL_MS;
     this.semanticMonitor = config.semanticMonitor ?? false;
@@ -302,7 +347,7 @@ export class SwarmService extends TypertRemoteService {
         ctx.subagents.registerContinuableSetup((childCtx: Context) => {
           const member = childCtx.agent;
           if (!member || !this.coordinator.isMemberIdentity(member.id)) return () => undefined;
-          const profile = this.coordinator.memberProfileBySessionId(member.id);
+          const profile = this.coordinator.memberProfileByActorId(member.id);
           const disposePolicy = childCtx.on("agent/request", async (_payload, next) =>
             applyMemberModelPolicy(await next(), profile),
           );
@@ -592,7 +637,11 @@ export class SwarmService extends TypertRemoteService {
       return denied;
     });
     const disposeExecution = scope.on("tools/execute", async (execution, next) => {
-      if (execution.agent !== agent || execution.parent || !isMutatingMemberTool(execution.name)) {
+      if (
+        execution.agent !== agent ||
+        execution.parent ||
+        !isMutatingMemberTool(execution.name, execution.arguments)
+      ) {
         return next();
       }
       const effect = this.coordinator.beginToolEffect(agent, execution.callId, execution.name);
@@ -678,7 +727,16 @@ export class SwarmService extends TypertRemoteService {
     } else if (event.type === "assistant/message") {
       changed =
         this.coordinator.recordUsage(agent, {
-          ...(event.data.usage ? { usage: event.data.usage } : {}),
+          ...(event.data.usage
+            ? {
+                usage: {
+                  inputTokens: event.data.usage.inputTokens,
+                  outputTokens: event.data.usage.outputTokens,
+                  cacheReadTokens: event.data.usage.cacheReadTokens ?? 0,
+                  cacheWriteTokens: event.data.usage.cacheWriteTokens ?? 0,
+                },
+              }
+            : {}),
           observedModel: {
             provider: event.data.message.source.provider,
             model: event.data.message.source.model,
@@ -693,41 +751,45 @@ export class SwarmService extends TypertRemoteService {
   private monitorAndArm(): void {
     if (this.closed || this.monitoring) return;
     this.monitoring = true;
-    try {
-      const changedTeams = this.coordinator.runMonitor(Date.now(), this.monitorStallMs);
-      if (changedTeams.length > 0) {
-        this.notify();
-        if (this.semanticMonitor) {
-          for (const teamId of changedTeams) {
-            void this.track(() =>
-              this.coordinator
-                .triggerSemanticMonitor(
-                  teamId,
-                  "deterministic_finding",
-                  undefined,
-                  this.lifetime.signal,
-                )
-                .then(() => {
-                  this.monitorAndArm();
-                  this.notify();
-                }),
-            ).catch(() => {
-              if (this.closed) return;
-              this.coordinator.recordSemanticMonitorDeliveryFailure(teamId);
-              this.monitorAndArm();
-              this.notify();
-            });
+    void this.track(async () => {
+      try {
+        const changedTeams = await this.coordinator.runMonitor(Date.now(), this.monitorStallMs);
+        if (changedTeams.length > 0) {
+          this.notify();
+          if (this.semanticMonitor) {
+            for (const teamId of changedTeams) {
+              void this.track(() =>
+                this.coordinator
+                  .triggerSemanticMonitor(
+                    teamId,
+                    "deterministic_finding",
+                    undefined,
+                    this.lifetime.signal,
+                  )
+                  .then(() => {
+                    this.monitorAndArm();
+                    this.notify();
+                  }),
+              ).catch(() => {
+                if (this.closed) return;
+                this.coordinator.recordSemanticMonitorDeliveryFailure(teamId);
+                this.monitorAndArm();
+                this.notify();
+              });
+            }
           }
         }
+        if (this.monitorTimer) clearTimeout(this.monitorTimer);
+        const deadline = this.coordinator.nextMonitorAt(Date.now(), this.monitorStallMs);
+        this.monitorTimer = deadline
+          ? setTimeout(() => this.monitorAndArm(), Math.min(2_147_483_647, deadline - Date.now()))
+          : undefined;
+      } finally {
+        this.monitoring = false;
       }
-      if (this.monitorTimer) clearTimeout(this.monitorTimer);
-      const deadline = this.coordinator.nextMonitorAt(Date.now(), this.monitorStallMs);
-      this.monitorTimer = deadline
-        ? setTimeout(() => this.monitorAndArm(), Math.min(2_147_483_647, deadline - Date.now()))
-        : undefined;
-    } finally {
-      this.monitoring = false;
-    }
+    }).catch(() => {
+      if (!this.closed) this.notify();
+    });
   }
 
   private queueSemanticMonitor(
@@ -772,8 +834,11 @@ export class SwarmService extends TypertRemoteService {
       return [this.ctx.subagents.drainContinuableChildren(lead, children)];
     });
     const settled = await Promise.allSettled(drains);
-    this.journal.recoverUncertainIntents(Date.now());
-    this.journal.recoverInterruptedTasks(Date.now());
+    if (this.recoveryOwner) {
+      this.journal.recoverUncertainIntents(Date.now());
+      this.journal.recoverInterruptedTasks(Date.now());
+      this.journal.recoverProvisioningMembers();
+    }
     this.journal.close();
     const failures = settled.flatMap((result) =>
       result.status === "rejected" ? [result.reason] : [],

@@ -10,7 +10,7 @@ import s from "@deepseek-ai/schemastery";
 import { z } from "zod";
 import { ConversationArchive } from "./conversation.js";
 import { PkbError } from "./errors.js";
-import { PkbVault } from "./vault.js";
+import { normalizeCreateConceptRequest, PkbVault } from "./vault.js";
 
 export const PKB_ACTIONS = [
   "search_knowledge",
@@ -37,7 +37,7 @@ const conversationSearchSchema = z.strictObject({
 const captureSchema = z.strictObject({
   scope: z.enum(["all", "workspace"]).optional(),
   seq: z.number().int().nonnegative(),
-  sessionId: z.string().trim().min(1).max(500),
+  sessionId: z.string().trim().min(1).max(1_024),
 });
 
 const outputSchema: JsonSchemaNode = {
@@ -45,13 +45,24 @@ const outputSchema: JsonSchemaNode = {
   type: "object",
 };
 
-export interface PkbToolDependencies {
-  readonly approval: Pick<ApprovalService, "request">;
+export interface PkbOperationDependencies {
   readonly archive: Pick<ConversationArchive, "capture" | "read" | "search">;
   readonly vault: Pick<
     PkbVault,
     "createConcept" | "deprecateConcept" | "readConcept" | "search" | "updateConcept"
   >;
+}
+
+export interface PkbToolDependencies extends PkbOperationDependencies {
+  readonly approval: Pick<ApprovalService, "request">;
+}
+
+export interface PkbOperationContext {
+  readonly actorId: string;
+  readonly callId: string;
+  readonly workspaceRoot: string;
+  readonly signal: AbortSignal;
+  approve(reason: string): Promise<string>;
 }
 
 interface PkbIndexContext {
@@ -76,34 +87,127 @@ function parsed<T>(schema: { parse(value: unknown): T }, value: unknown): T {
   }
 }
 
-async function approve(
-  dependencies: PkbToolDependencies,
-  exec: ToolRunContext,
-  reason: string,
-): Promise<void> {
-  if (exec.agent === undefined) {
-    throw new PkbError("PKB approval requires an owning agent", "AUTHORIZATION_REQUIRED");
-  }
-  const outcome = await dependencies.approval.request({
-    agent: exec.agent,
-    callId: exec.callId,
-    reason,
-    signal: exec.signal,
-    toolName: "pkb",
-  });
+async function approve(context: PkbOperationContext, reason: string): Promise<void> {
+  const outcome = await context.approve(reason);
   if (outcome !== "allowed-once") {
     throw new PkbError(`PKB action was not approved (${outcome})`, "AUTHORIZATION_REQUIRED");
   }
+  context.signal.throwIfAborted();
 }
 
 function result(action: (typeof PKB_ACTIONS)[number], data: unknown): JsonValue {
   return { action, data } as JsonValue;
 }
 
+export async function executePkbOperation(
+  dependencies: PkbOperationDependencies,
+  args: unknown,
+  context: PkbOperationContext,
+): Promise<JsonValue> {
+  context.signal.throwIfAborted();
+  const input = parsed(aggregateSchema, args);
+  const cwd = context.workspaceRoot;
+  switch (input.action) {
+    case "search_knowledge":
+      return result(input.action, await dependencies.vault.search(cwd, input.request as never));
+    case "read_knowledge": {
+      const request = parsed(identifierSchema, input.request);
+      return result(input.action, await dependencies.vault.readConcept(cwd, request.id));
+    }
+    case "search_conversations": {
+      const request = parsed(conversationSearchSchema, input.request);
+      const all = request.scope === "all";
+      if (all) {
+        await approve(
+          context,
+          "Search conversation history from every PKB workspace for this call.",
+        );
+      }
+      return result(
+        input.action,
+        await dependencies.archive.search(
+          cwd,
+          {
+            query: request.query,
+            ...(request.limit === undefined ? {} : { limit: request.limit }),
+            ...(request.scope === undefined ? {} : { scope: request.scope }),
+            ...(all ? { allAuthorized: true as const } : {}),
+          },
+          context.signal,
+        ),
+      );
+    }
+    case "read_conversation": {
+      const request = parsed(captureSchema, input.request);
+      const all = request.scope === "all";
+      if (all) {
+        await approve(
+          context,
+          `Read conversation ${request.sessionId}#${String(request.seq)} from any workspace for this call.`,
+        );
+      }
+      return result(
+        input.action,
+        await dependencies.archive.read(
+          cwd,
+          {
+            seq: request.seq,
+            sessionId: request.sessionId,
+            ...(all ? { allAuthorized: true as const } : {}),
+          },
+          context.signal,
+        ),
+      );
+    }
+    case "capture_conversation": {
+      const request = parsed(captureSchema, input.request);
+      const all = request.scope === "all";
+      await approve(
+        context,
+        all
+          ? `Save conversation ${request.sessionId}#${String(request.seq)} from any workspace as PKB evidence.`
+          : `Save conversation ${request.sessionId}#${String(request.seq)} as PKB evidence.`,
+      );
+      return result(
+        input.action,
+        await dependencies.archive.capture(
+          cwd,
+          {
+            seq: request.seq,
+            sessionId: request.sessionId,
+            ...(all ? { allAuthorized: true as const } : {}),
+          },
+          context.signal,
+        ),
+      );
+    }
+    case "create_knowledge": {
+      const request = normalizeCreateConceptRequest(input.request as never);
+      await approve(context, "Create one private PKB Markdown concept.");
+      return result(
+        input.action,
+        await dependencies.vault.createConcept(cwd, request, context.signal),
+      );
+    }
+    case "update_knowledge":
+      await approve(context, "Update one private PKB Markdown concept.");
+      return result(
+        input.action,
+        await dependencies.vault.updateConcept(cwd, input.request as never, context.signal),
+      );
+    case "deprecate_knowledge":
+      await approve(context, "Deprecate one private PKB Markdown concept.");
+      return result(
+        input.action,
+        await dependencies.vault.deprecateConcept(cwd, input.request as never, context.signal),
+      );
+  }
+}
+
 export function createPkbToolDefinition(dependencies: PkbToolDependencies): ToolDefinition {
   return {
     description:
-      "Search and curate the private Markdown personal knowledge base. Actions: search_knowledge {query,limit?}; read_knowledge {id}; search_conversations {query,limit?,scope?}; read_conversation/capture_conversation {sessionId,seq,scope?}; create_knowledge {scope,title,description,type,body,tags?,aliases?,sources?,status?}; update_knowledge {id,expectedRevision plus changed fields}; deprecate_knowledge {id,expectedRevision}. Scope defaults to the current workspace. Writes, deprecation, evidence capture, and all-workspace conversation reads require user approval. There is no delete action.",
+      "Search and curate the private Markdown personal knowledge base. Actions: search_knowledge {query,limit?}; read_knowledge {id}; search_conversations {query,limit?,scope?}; read_conversation/capture_conversation {sessionId,seq,scope?}; create_knowledge {scope?,title,description,type,body,tags?,aliases?,sources?,status?}; update_knowledge {id,expectedRevision plus changed fields}; deprecate_knowledge {id,expectedRevision}. Scope defaults to the current workspace. Writes, deprecation, evidence capture, and all-workspace conversation reads require user approval. There is no delete action.",
     name: "pkb",
     output: {
       render: (_args, value) => [{ text: JSON.stringify(value), type: "text" }],
@@ -123,104 +227,25 @@ export function createPkbToolDefinition(dependencies: PkbToolDependencies): Tool
       type: "object",
     },
     async execute(args, exec) {
-      const input = parsed(aggregateSchema, args);
       const cwd = cwdOf(exec);
-      switch (input.action) {
-        case "search_knowledge":
-          return result(input.action, await dependencies.vault.search(cwd, input.request as never));
-        case "read_knowledge": {
-          const request = parsed(identifierSchema, input.request);
-          return result(input.action, await dependencies.vault.readConcept(cwd, request.id));
-        }
-        case "search_conversations": {
-          const request = parsed(conversationSearchSchema, input.request);
-          const all = request.scope === "all";
-          if (all) {
-            await approve(
-              dependencies,
-              exec,
-              "Search conversation history from every PKB workspace for this call.",
-            );
-          }
-          return result(
-            input.action,
-            await dependencies.archive.search(
-              cwd,
-              {
-                query: request.query,
-                ...(request.limit === undefined ? {} : { limit: request.limit }),
-                ...(request.scope === undefined ? {} : { scope: request.scope }),
-                ...(all ? { allAuthorized: true as const } : {}),
-              },
-              exec.signal,
-            ),
-          );
-        }
-        case "read_conversation": {
-          const request = parsed(captureSchema, input.request);
-          const all = request.scope === "all";
-          if (all) {
-            await approve(
-              dependencies,
-              exec,
-              `Read conversation ${request.sessionId}#${String(request.seq)} from any workspace for this call.`,
-            );
-          }
-          return result(
-            input.action,
-            await dependencies.archive.read(
-              cwd,
-              {
-                seq: request.seq,
-                sessionId: request.sessionId,
-                ...(all ? { allAuthorized: true as const } : {}),
-              },
-              exec.signal,
-            ),
-          );
-        }
-        case "capture_conversation": {
-          const request = parsed(captureSchema, input.request);
-          const all = request.scope === "all";
-          await approve(
-            dependencies,
-            exec,
-            all
-              ? `Save conversation ${request.sessionId}#${String(request.seq)} from any workspace as PKB evidence.`
-              : `Save conversation ${request.sessionId}#${String(request.seq)} as PKB evidence.`,
-          );
-          return result(
-            input.action,
-            await dependencies.archive.capture(
-              cwd,
-              {
-                seq: request.seq,
-                sessionId: request.sessionId,
-                ...(all ? { allAuthorized: true as const } : {}),
-              },
-              exec.signal,
-            ),
-          );
-        }
-        case "create_knowledge":
-          await approve(dependencies, exec, "Create one private PKB Markdown concept.");
-          return result(
-            input.action,
-            await dependencies.vault.createConcept(cwd, input.request as never),
-          );
-        case "update_knowledge":
-          await approve(dependencies, exec, "Update one private PKB Markdown concept.");
-          return result(
-            input.action,
-            await dependencies.vault.updateConcept(cwd, input.request as never),
-          );
-        case "deprecate_knowledge":
-          await approve(dependencies, exec, "Deprecate one private PKB Markdown concept.");
-          return result(
-            input.action,
-            await dependencies.vault.deprecateConcept(cwd, input.request as never),
-          );
+      const agent = exec.agent;
+      if (agent === undefined) {
+        throw new PkbError("PKB approval requires an owning agent", "AUTHORIZATION_REQUIRED");
       }
+      return executePkbOperation(dependencies, args, {
+        actorId: String(agent.id),
+        callId: String(exec.callId),
+        workspaceRoot: cwd,
+        signal: exec.signal,
+        approve: async (reason) =>
+          dependencies.approval.request({
+            agent,
+            callId: exec.callId,
+            reason,
+            signal: exec.signal,
+            toolName: "pkb",
+          }),
+      });
     },
     isConcurrencySafe: (args) => {
       const action = parsed(aggregateSchema, args).action;

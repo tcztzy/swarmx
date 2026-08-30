@@ -11,6 +11,10 @@
       "types": "./lib/types/index.d.ts",
       "default": "./lib/index.js"
     },
+    "./core": {
+      "types": "./lib/types/core.d.ts",
+      "default": "./lib/core.js"
+    },
     "./types": {
       "types": "./lib/types/contracts.d.ts",
       "default": "./lib/contracts.js"
@@ -30,6 +34,18 @@
     "./preset": {
       "types": "./lib/types/preset.d.ts",
       "default": "./lib/preset.js"
+    },
+    "./resource-id": {
+      "types": "./lib/types/resource-id.d.ts",
+      "default": "./lib/resource-id.js"
+    },
+    "./resource-resolver": {
+      "types": "./lib/types/resource-resolver.d.ts",
+      "default": "./lib/resource-resolver.js"
+    },
+    "./resource-view": {
+      "types": "./lib/types/resource-view.d.ts",
+      "default": "./lib/resource-view.js"
     },
     "./src/*": "./src/*",
     "./package.json": "./package.json",
@@ -65,12 +81,18 @@
   },
   "files": [
     "lib/index.js",
+    "lib/core.js",
+    "lib/core2.js",
     "lib/contracts.js",
     "lib/typert.js",
     "lib/remote.js",
     "lib/remote-contract.js",
     "lib/tools.js",
     "lib/preset.js",
+    "lib/resource-id.js",
+    "lib/resource-id2.js",
+    "lib/resource-resolver.js",
+    "lib/resource-view.js",
     "lib/types/**/*.d.ts",
     "bin",
     "src",

@@ -19,6 +19,7 @@ import type {
   UpdateSwarmTaskRequest,
   WaitForSwarmChangeRequest,
 } from "./contracts.js";
+import type { SwarmActor } from "./coordinator.js";
 import { SwarmError } from "./errors.js";
 
 export const SWARM_ACTIONS = [
@@ -78,93 +79,103 @@ const outputSchema: JsonSchemaNode = {
   required: ["action", "data"],
 };
 
-export interface SwarmToolService {
-  create(agent: Agent, request: CreateSwarmRequest, signal?: AbortSignal): Promise<SwarmSnapshot>;
-  snapshot(agent: Agent): Promise<SwarmSnapshot>;
+export interface SwarmToolService<Actor extends SwarmActor = SwarmActor> {
+  create(actor: Actor, request: CreateSwarmRequest, signal?: AbortSignal): Promise<SwarmSnapshot>;
+  snapshot(actor: Actor): Promise<SwarmSnapshot>;
   addMember(
-    agent: Agent,
+    actor: Actor,
     request: AddSwarmMemberRequest,
     signal?: AbortSignal,
   ): Promise<SwarmSnapshot>;
   sendMessage(
-    agent: Agent,
+    actor: Actor,
     request: SendSwarmMessageRequest,
     signal?: AbortSignal,
   ): Promise<{ id: string; status: "delivered" | "queued" | "uncertain" }>;
   createTask(
-    agent: Agent,
+    actor: Actor,
     request: CreateSwarmTaskRequest,
     signal?: AbortSignal,
   ): Promise<SwarmSnapshot>;
   updateTask(
-    agent: Agent,
+    actor: Actor,
     request: UpdateSwarmTaskRequest,
     signal?: AbortSignal,
   ): Promise<SwarmSnapshot>;
   submitTask(
-    agent: Agent,
+    actor: Actor,
     request: SubmitSwarmTaskRequest,
     signal?: AbortSignal,
   ): Promise<SwarmSnapshot>;
   startVerification(
-    agent: Agent,
+    actor: Actor,
     request: StartSwarmVerificationRequest,
     signal?: AbortSignal,
   ): Promise<SwarmSnapshot>;
   recordVerdict(
-    agent: Agent,
+    actor: Actor,
     request: RecordSwarmVerdictRequest,
     signal?: AbortSignal,
   ): Promise<SwarmSnapshot>;
   recordMonitorFinding(
-    agent: Agent,
+    actor: Actor,
     request: RecordSemanticFindingRequest,
     signal?: AbortSignal,
   ): Promise<SwarmSnapshot>;
   escalateTask(
-    agent: Agent,
+    actor: Actor,
     request: EscalateSwarmTaskRequest,
     signal?: AbortSignal,
   ): Promise<SwarmSnapshot>;
   reassignTask(
-    agent: Agent,
+    actor: Actor,
     request: ReassignSwarmTaskRequest,
     signal?: AbortSignal,
   ): Promise<SwarmSnapshot>;
   interruptMember(
-    agent: Agent,
+    actor: Actor,
     request: InterruptSwarmMemberRequest,
     signal?: AbortSignal,
   ): Promise<SwarmSnapshot>;
   admitKnowledge(
-    agent: Agent,
+    actor: Actor,
     request: AdmitKnowledgeRequest,
     callId: string,
     signal?: AbortSignal,
   ): Promise<unknown>;
   resolveEffect(
-    agent: Agent,
+    actor: Actor,
     request: ResolveSwarmEffectRequest,
     signal?: AbortSignal,
   ): Promise<SwarmSnapshot>;
   waitForChange(
-    agent: Agent,
+    actor: Actor,
     request: WaitForSwarmChangeRequest,
     signal: AbortSignal,
   ): Promise<SwarmSnapshot>;
-  archive(agent: Agent, signal?: AbortSignal): Promise<SwarmSnapshot>;
+  archive(actor: Actor, signal?: AbortSignal): Promise<SwarmSnapshot>;
 }
 
-function requireAgent(execution: ToolRunContext): Agent {
+export interface SwarmToolExecution<Actor extends SwarmActor = SwarmActor> {
+  readonly actor: Actor;
+  readonly callId: string;
+  readonly signal: AbortSignal;
+}
+
+export interface SwarmToolDefinition<Actor extends SwarmActor = SwarmActor> extends ToolDefinition {
+  invoke(args: unknown, execution: SwarmToolExecution<Actor>): Promise<unknown>;
+}
+
+function dshActor<Actor extends SwarmActor>(execution: ToolRunContext): Actor {
   if (!execution.agent) {
     throw new SwarmError("Swarm tools require an exact Agent carrier", "SWARM_UNAUTHORIZED");
   }
-  return execution.agent;
+  return execution.agent as unknown as Actor;
 }
 
-async function dispatch(
-  service: SwarmToolService,
-  agent: Agent,
+async function dispatch<Actor extends SwarmActor>(
+  service: SwarmToolService<Actor>,
+  actor: Actor,
   action: SwarmAction,
   request: unknown,
   signal: AbortSignal,
@@ -173,47 +184,68 @@ async function dispatch(
   signal.throwIfAborted();
   switch (action) {
     case "create":
-      return service.create(agent, request as CreateSwarmRequest, signal);
+      return service.create(actor, request as CreateSwarmRequest, signal);
     case "status":
-      return service.snapshot(agent);
+      return service.snapshot(actor);
     case "add_member":
-      return service.addMember(agent, request as AddSwarmMemberRequest, signal);
+      return service.addMember(actor, request as AddSwarmMemberRequest, signal);
     case "send_message":
-      return service.sendMessage(agent, request as SendSwarmMessageRequest, signal);
+      return service.sendMessage(actor, request as SendSwarmMessageRequest, signal);
     case "create_task":
-      return service.createTask(agent, request as CreateSwarmTaskRequest, signal);
+      return service.createTask(actor, request as CreateSwarmTaskRequest, signal);
     case "update_task":
-      return service.updateTask(agent, request as UpdateSwarmTaskRequest, signal);
+      return service.updateTask(actor, request as UpdateSwarmTaskRequest, signal);
     case "submit_task":
-      return service.submitTask(agent, request as SubmitSwarmTaskRequest, signal);
+      return service.submitTask(actor, request as SubmitSwarmTaskRequest, signal);
     case "start_verification":
-      return service.startVerification(agent, request as StartSwarmVerificationRequest, signal);
+      return service.startVerification(actor, request as StartSwarmVerificationRequest, signal);
     case "record_verdict":
-      return service.recordVerdict(agent, request as RecordSwarmVerdictRequest, signal);
+      return service.recordVerdict(actor, request as RecordSwarmVerdictRequest, signal);
     case "record_monitor_finding":
-      return service.recordMonitorFinding(agent, request as RecordSemanticFindingRequest, signal);
+      return service.recordMonitorFinding(actor, request as RecordSemanticFindingRequest, signal);
     case "escalate_task":
-      return service.escalateTask(agent, request as EscalateSwarmTaskRequest, signal);
+      return service.escalateTask(actor, request as EscalateSwarmTaskRequest, signal);
     case "reassign_task":
-      return service.reassignTask(agent, request as ReassignSwarmTaskRequest, signal);
+      return service.reassignTask(actor, request as ReassignSwarmTaskRequest, signal);
     case "interrupt_member":
-      return service.interruptMember(agent, request as InterruptSwarmMemberRequest, signal);
+      return service.interruptMember(actor, request as InterruptSwarmMemberRequest, signal);
     case "admit_knowledge":
-      return service.admitKnowledge(agent, request as AdmitKnowledgeRequest, callId, signal);
+      return service.admitKnowledge(actor, request as AdmitKnowledgeRequest, callId, signal);
     case "resolve_effect":
-      return service.resolveEffect(agent, request as ResolveSwarmEffectRequest, signal);
+      return service.resolveEffect(actor, request as ResolveSwarmEffectRequest, signal);
     case "wait":
-      return service.waitForChange(agent, request as WaitForSwarmChangeRequest, signal);
+      return service.waitForChange(actor, request as WaitForSwarmChangeRequest, signal);
     case "archive":
-      return service.archive(agent, signal);
+      return service.archive(actor, signal);
   }
 }
 
-export function createSwarmToolDefinition(service: SwarmToolService): ToolDefinition {
+export function createSwarmToolDefinition<Actor extends SwarmActor>(
+  service: SwarmToolService<Actor>,
+): SwarmToolDefinition<Actor> {
+  const invoke = async (args: unknown, execution: SwarmToolExecution<Actor>): Promise<unknown> => {
+    let input: z.infer<typeof inputSchema>;
+    try {
+      input = inputSchema.parse(args);
+    } catch (cause) {
+      throw new SwarmError("Invalid aggregate swarm tool request", "SWARM_INVALID_REQUEST", {
+        cause,
+      });
+    }
+    const data = await dispatch(
+      service,
+      execution.actor,
+      input.action,
+      input.request,
+      execution.signal,
+      execution.callId,
+    );
+    return { action: input.action, data };
+  };
   return {
     name: "swarm",
     description:
-      "Create and coordinate one durable DSH-native Team. Implementers submit bounded evidence; only an exact authorized verifier or lead records acceptance. Task actions require exact revisions, attempts, and submissions.",
+      "Create and coordinate one durable Team. Implementers submit bounded evidence; only an exact authorized verifier or lead records acceptance. Task actions require exact revisions, attempts, and submissions.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -248,31 +280,19 @@ export function createSwarmToolDefinition(service: SwarmToolService): ToolDefini
         ],
       };
     },
+    invoke,
     async execute(args, execution) {
-      const agent = requireAgent(execution);
-      let input: z.infer<typeof inputSchema>;
-      try {
-        input = inputSchema.parse(args);
-      } catch (cause) {
-        throw new SwarmError("Invalid aggregate swarm tool request", "SWARM_INVALID_REQUEST", {
-          cause,
-        });
-      }
-      const data = await dispatch(
-        service,
-        agent,
-        input.action,
-        input.request,
-        execution.signal,
-        execution.callId,
-      );
-      return { action: input.action, data };
+      return invoke(args, {
+        actor: dshActor<Actor>(execution),
+        callId: String(execution.callId),
+        signal: execution.signal,
+      });
     },
   };
 }
 
 interface SwarmToolContext {
-  readonly swarm: SwarmToolService;
+  readonly swarm: SwarmToolService<Agent>;
   readonly systemPrompt: {
     section(input: { readonly name: string; readonly order: number; readonly text: string }): void;
   };

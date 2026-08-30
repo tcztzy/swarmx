@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   type KnowledgeCommitter,
   SwarmCoordinator,
+  SwarmMemberStartupError,
   type SwarmRuntimeAdapter,
 } from "../src/coordinator.js";
 import { SwarmJournal } from "../src/journal.js";
@@ -40,7 +41,9 @@ function fixture(knowledge?: KnowledgeCommitter) {
   });
   const runtime: SwarmRuntimeAdapter = {
     exact: (candidate) => agents.get(candidate.id) === candidate,
-    getAgent: (id) => agents.get(id),
+    getActor: (id) => agents.get(id),
+    isSubagent: (candidate) => agents.get(candidate.id)?.session.header.origin === "subagent",
+    modelOptions: (candidate) => agents.get(candidate.id)?.options ?? {},
     workspaceKey: () => `swarmx--${"a".repeat(64)}`,
     inject,
     interrupt,
@@ -144,7 +147,7 @@ describe("Swarm coordinator", () => {
     );
     const cheap = value.coordinator.memberByName(value.lead, "cheap-impl");
     value.agents.delete(cheap.id);
-    expect(value.coordinator.memberProfileBySessionId(cheap.id)).toMatchObject({
+    expect(value.coordinator.memberProfileByActorId(cheap.id)).toMatchObject({
       role: "implementer",
       modelPolicy: { source: "requested", provider: "ollama", model: "qwen3:32b" },
     });
@@ -282,6 +285,35 @@ describe("Swarm coordinator", () => {
       coordinator.create(agent("nested", "subagent"), { name: "Nested team" }),
     ).rejects.toMatchObject({ code: "SWARM_UNAUTHORIZED" });
     journal.close();
+  });
+
+  it("V162/V224: rejects an exact actor outside the Team workspace", async () => {
+    const value = fixture();
+    await value.coordinator.create(value.lead, { name: "Workspace A team" });
+    vi.spyOn(value.runtime, "workspaceKey").mockReturnValue(`swarmx--${"b".repeat(64)}`);
+
+    await expect(value.coordinator.snapshot(value.lead)).resolves.toEqual({
+      kind: "inactive",
+      revision: 0,
+    });
+    await expect(value.coordinator.archive(value.lead)).rejects.toMatchObject({
+      code: "SWARM_NOT_FOUND",
+    });
+    value.journal.close();
+  });
+
+  it("V230: does not revoke a member after native interrupt rejection", async () => {
+    const value = await teamWithMembers();
+    const failure = new Error("native interrupt rejected");
+    value.interrupt.mockRejectedValueOnce(failure);
+
+    await expect(value.coordinator.interruptMember(value.lead, { target: "alpha" })).rejects.toBe(
+      failure,
+    );
+    expect(value.interrupt).toHaveBeenCalledOnce();
+    const member = value.coordinator.memberByName(value.lead, "alpha");
+    expect(value.coordinator.memberProfileByActorId(member.id).phase).toBe("active");
+    value.journal.close();
   });
 
   it("V164/V168: drains the actual child when provisioning changes the reserved identity", async () => {
@@ -490,6 +522,23 @@ describe("Swarm coordinator", () => {
     value.journal.close();
   });
 
+  it("V169: never records a rejected asynchronous runtime delivery as delivered", async () => {
+    const value = await teamWithMembers();
+    value.inject.mockRejectedValueOnce(new Error("native delivery failed"));
+
+    await expect(
+      value.coordinator.sendMessage(value.lead, {
+        content: "must remain uncertain",
+        delivery: "quiet",
+        target: "alpha",
+      }),
+    ).resolves.toMatchObject({ status: "uncertain" });
+    const message = value.journal.get(value.lead.id)?.messages.at(-1);
+    expect(message?.deliveryStartedAt).toEqual(expect.any(Number));
+    expect(message?.deliveredAt).toBeUndefined();
+    value.journal.close();
+  });
+
   it("V166/V173: waits for old-owner quiescence before reassignment and archival", async () => {
     const value = await teamWithMembers();
     const alpha = value.coordinator.memberByName(value.lead, "alpha");
@@ -525,12 +574,261 @@ describe("Swarm coordinator", () => {
     value.journal.close();
   });
 
-  it("V174/V177: keeps K cognitive work parallel but completes only through owner admission", async () => {
-    const commit = vi.fn().mockResolvedValue({
-      kind: "science_evidence",
-      entityId: "30000000-0000-4000-8000-000000000001",
-      journalSequence: 42,
+  it("V164/V173: fences an in-flight member admission until its native creation settles", async () => {
+    const value = fixture();
+    await value.coordinator.create(value.lead, { name: "Concurrent archive" });
+    let entered!: () => void;
+    let release!: () => void;
+    const started = new Promise<void>((resolve) => {
+      entered = resolve;
     });
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    vi.spyOn(value.runtime, "startContinuable").mockImplementation(async (_parent, request) => {
+      const child = agent(request.childId, "subagent");
+      value.agents.set(child.id, child);
+      entered();
+      await gate;
+      return child.id;
+    });
+
+    const adding = value.coordinator.addMember(value.lead, {
+      description: "Races archive",
+      name: "racing",
+      prompt: "Wait.",
+    });
+    await started;
+    const archiving = value.coordinator.archive(value.lead);
+    await vi.waitFor(() =>
+      expect(value.journal.get(value.lead.id)?.archiveStartedAt).toBeDefined(),
+    );
+    await new Promise<void>((resolve) => setTimeout(resolve, 25));
+    expect(value.journal.get(value.lead.id)).toMatchObject({
+      phase: "active",
+      members: expect.arrayContaining([
+        expect.objectContaining({ name: "racing", phase: "provisioning" }),
+      ]),
+    });
+    release();
+
+    await expect(adding).rejects.toMatchObject({ code: "SWARM_ARCHIVED" });
+    await expect(archiving).resolves.toMatchObject({ phase: "archived" });
+    expect(value.journal.get(value.lead.id)?.members).toEqual(
+      expect.arrayContaining([expect.objectContaining({ name: "racing", phase: "retired" })]),
+    );
+    value.journal.close();
+  });
+
+  it("V164/V173: drains a provisioning member whose native creation fails during archive", async () => {
+    const value = fixture();
+    await value.coordinator.create(value.lead, { name: "Failed concurrent archive" });
+    let entered!: () => void;
+    let release!: () => void;
+    const started = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    vi.spyOn(value.runtime, "startContinuable").mockImplementation(async () => {
+      entered();
+      await gate;
+      throw new SwarmMemberStartupError("Native creation failed", "absent");
+    });
+
+    const adding = value.coordinator.addMember(value.lead, {
+      description: "Fails while archive starts",
+      name: "failing",
+      prompt: "Fail.",
+    });
+    await started;
+    const archiving = value.coordinator.archive(value.lead);
+    await vi.waitFor(() =>
+      expect(value.journal.get(value.lead.id)?.archiveStartedAt).toBeDefined(),
+    );
+    await new Promise<void>((resolve) => setTimeout(resolve, 25));
+    expect(value.journal.get(value.lead.id)).toMatchObject({
+      phase: "active",
+      members: expect.arrayContaining([
+        expect.objectContaining({ name: "failing", phase: "provisioning" }),
+      ]),
+    });
+    release();
+
+    await expect(adding).rejects.toThrow("Native creation failed");
+    await expect(archiving).resolves.toMatchObject({ phase: "archived" });
+    expect(value.journal.get(value.lead.id)?.members).toEqual(
+      expect.arrayContaining([expect.objectContaining({ name: "failing", phase: "retired" })]),
+    );
+    value.journal.close();
+  });
+
+  it("V164/V173: does not infer no native handle from an ambiguous startup rejection", async () => {
+    const value = fixture();
+    await value.coordinator.create(value.lead, { name: "Ambiguous concurrent archive" });
+    let entered!: () => void;
+    let release!: () => void;
+    const started = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    vi.spyOn(value.runtime, "startContinuable").mockImplementation(async () => {
+      entered();
+      await gate;
+      throw new Error("Carrier disconnected after native creation may have started");
+    });
+
+    const adding = value.coordinator.addMember(value.lead, {
+      description: "May retain a native handle",
+      name: "ambiguous",
+      prompt: "Wait.",
+    });
+    await started;
+    const archiving = value.coordinator.archive(value.lead);
+    await vi.waitFor(() =>
+      expect(value.journal.get(value.lead.id)?.archiveStartedAt).toBeDefined(),
+    );
+    release();
+
+    await expect(adding).rejects.toThrow("Carrier disconnected");
+    await expect(archiving).rejects.toMatchObject({ code: "SWARM_CLOSED" });
+    expect(value.journal.get(value.lead.id)).toMatchObject({
+      archiveStartedAt: expect.any(Number),
+      phase: "active",
+      members: expect.arrayContaining([
+        expect.objectContaining({ name: "ambiguous", phase: "provisioning" }),
+      ]),
+    });
+    value.journal.close();
+  });
+
+  it("V164/V173: keeps an ambiguous failed admission fenced before a later archive", async () => {
+    const value = fixture();
+    await value.coordinator.create(value.lead, { name: "Later archive" });
+    vi.spyOn(value.runtime, "startContinuable").mockRejectedValue(
+      new Error("Carrier timed out while root creation may still be running"),
+    );
+
+    await expect(
+      value.coordinator.addMember(value.lead, {
+        description: "May still be created by the root carrier",
+        name: "still-creating",
+        prompt: "Wait.",
+      }),
+    ).rejects.toThrow("Carrier timed out");
+    expect(value.journal.get(value.lead.id)?.members).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: "still-creating", phase: "provisioning" }),
+      ]),
+    );
+
+    await expect(value.coordinator.archive(value.lead)).rejects.toMatchObject({
+      code: "SWARM_CLOSED",
+    });
+    expect(value.journal.get(value.lead.id)).toMatchObject({
+      archiveStartedAt: expect.any(Number),
+      phase: "active",
+    });
+    value.journal.close();
+  });
+
+  it("V164/V173: does not retire a provisioned native child when archival stop fails", async () => {
+    const value = fixture();
+    await value.coordinator.create(value.lead, { name: "Failed stop archive" });
+    let entered!: () => void;
+    let release!: () => void;
+    const started = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    vi.spyOn(value.runtime, "startContinuable").mockImplementation(async (_parent, request) => {
+      const child = agent(request.childId, "subagent");
+      value.agents.set(child.id, child);
+      entered();
+      await gate;
+      return child.id;
+    });
+    value.stopContinuable.mockRejectedValue(new Error("Native archive failed"));
+
+    const adding = value.coordinator.addMember(value.lead, {
+      description: "Cannot be retired without a native stop",
+      name: "unstopped",
+      prompt: "Wait.",
+    });
+    await started;
+    const archiving = value.coordinator.archive(value.lead);
+    await vi.waitFor(() =>
+      expect(value.journal.get(value.lead.id)?.archiveStartedAt).toBeDefined(),
+    );
+    release();
+    await expect(adding).rejects.toThrow();
+    await expect(archiving).rejects.toThrow("Native archive failed");
+
+    expect(value.journal.get(value.lead.id)).toMatchObject({
+      archiveStartedAt: expect.any(Number),
+      phase: "active",
+      members: expect.arrayContaining([
+        expect.objectContaining({
+          name: "unstopped",
+          phase: "provisioning",
+          runtimeReadyAt: expect.any(Number),
+        }),
+      ]),
+    });
+    value.journal.close();
+  });
+
+  it("V168/V173: revokes a submitted attempt before the archived edge", async () => {
+    const value = await teamWithMembers();
+    const alpha = value.coordinator.memberByName(value.lead, "alpha");
+    const created = await value.coordinator.createTask(value.lead, {
+      assignedTo: "alpha",
+      blockedBy: [],
+      description: "Await verification",
+      kind: "read",
+      subject: "Submitted archive",
+      writeScopes: [],
+    });
+    const active = value.coordinator.task(value.lead, created.id);
+    await value.coordinator.submitTask(alpha, {
+      attemptId: active.attemptId as string,
+      expectedRevision: active.revision,
+      taskId: active.id,
+      summary: "Ready for review.",
+      artifactLocators: [],
+      evidenceDigests: [],
+    });
+
+    await expect(value.coordinator.archive(value.lead)).resolves.toMatchObject({
+      phase: "archived",
+    });
+    expect(value.journal.get(value.lead.id)?.attempts.at(-1)).toMatchObject({
+      status: "interrupted",
+    });
+    expect(value.journal.get(value.lead.id)?.tasks.at(-1)).toMatchObject({
+      status: "needs_attention",
+    });
+    value.journal.close();
+  });
+
+  it("V174/V177: keeps K cognitive work parallel but completes only through owner admission", async () => {
+    const commit = vi
+      .fn()
+      .mockResolvedValueOnce({
+        kind: "science_evidence",
+        entityId: "30000000-0000-4000-8000-000000000001",
+        journalSequence: 42,
+      })
+      .mockResolvedValueOnce({
+        kind: "pkb_concept",
+        conceptId: "workspaces/project--abcdef123456/concepts/wrong.md",
+        revision: `sha256:${"c".repeat(64)}`,
+      });
     const value = fixture({ commit });
     await value.coordinator.create(value.lead, { name: "Research team" });
     await value.coordinator.addMember(value.lead, {
@@ -557,35 +855,83 @@ describe("Swarm coordinator", () => {
       }),
     ).rejects.toMatchObject({ code: "SWARM_UNAUTHORIZED" });
 
+    const admission = {
+      admissionId: "10000000-0000-4000-8000-000000000001",
+      sources: [
+        {
+          kind: "science_entity" as const,
+          entityId: "20000000-0000-4000-8000-000000000001",
+        },
+      ],
+      verification: {
+        status: "verified" as const,
+        method: "reproduced" as const,
+        verifiedAt: 1_000,
+      },
+      target: {
+        kind: "science_evidence" as const,
+        projectId: "40000000-0000-4000-8000-000000000001",
+        claimId: "50000000-0000-4000-8000-000000000001",
+        relation: "supports" as const,
+        title: "Reproduced result",
+        summary: "The registered result supports the claim.",
+        tags: ["verified"],
+      },
+    };
     await expect(
       value.coordinator.admitKnowledge(
         value.lead,
         {
-          admissionId: "10000000-0000-4000-8000-000000000001",
+          ...admission,
           taskId: active.id,
           expectedRevision: active.revision,
           attemptId: active.attemptId as string,
-          sources: [{ kind: "science_entity", entityId: "20000000-0000-4000-8000-000000000001" }],
-          verification: {
-            status: "verified",
-            method: "reproduced",
-            verifiedAt: 1_000,
-          },
-          target: {
-            kind: "science_evidence",
-            projectId: "40000000-0000-4000-8000-000000000001",
-            claimId: "50000000-0000-4000-8000-000000000001",
-            relation: "supports",
-            title: "Reproduced result",
-            summary: "The registered result supports the claim.",
-            tags: ["verified"],
-          },
         },
         { callId: "call-admit", signal: new AbortController().signal },
       ),
     ).resolves.toMatchObject({ kind: "science_evidence", journalSequence: 42 });
     expect(value.coordinator.task(value.lead, task.id).status).toBe("completed");
     expect(commit).toHaveBeenCalledTimes(1);
+
+    const nextTask = await value.coordinator.createTask(value.lead, {
+      assignedTo: "alpha",
+      blockedBy: [],
+      description: "Review another evidence candidate",
+      kind: "knowledge",
+      subject: "Review more evidence",
+      writeScopes: [],
+    });
+    const next = value.coordinator.task(value.lead, nextTask.id);
+    await expect(
+      value.coordinator.admitKnowledge(
+        value.lead,
+        {
+          ...admission,
+          taskId: next.id,
+          expectedRevision: next.revision,
+          attemptId: next.attemptId as string,
+        },
+        { callId: "call-cross-task", signal: new AbortController().signal },
+      ),
+    ).rejects.toMatchObject({ code: "SWARM_ADMISSION_CONFLICT" });
+    expect(commit).toHaveBeenCalledTimes(1);
+
+    await expect(
+      value.coordinator.admitKnowledge(
+        value.lead,
+        {
+          ...admission,
+          admissionId: "10000000-0000-4000-8000-000000000002",
+          taskId: next.id,
+          expectedRevision: next.revision,
+          attemptId: next.attemptId as string,
+        },
+        { callId: "call-wrong-receipt", signal: new AbortController().signal },
+      ),
+    ).rejects.toMatchObject({ code: "SWARM_ADMISSION_CONFLICT" });
+    const uncertainAdmission = value.journal.get(value.lead.id)?.admissions.at(-1);
+    expect(uncertainAdmission).toMatchObject({ status: "uncertain" });
+    expect(uncertainAdmission).not.toHaveProperty("receipt");
     value.journal.close();
   });
 
@@ -749,6 +1095,52 @@ describe("Swarm coordinator", () => {
     value.journal.close();
   });
 
+  it("V180/V230: keeps wakeup queued until its runtime parent is available", async () => {
+    const value = await teamWithMembers();
+    const alpha = value.coordinator.memberByName(value.lead, "alpha");
+    const beta = value.coordinator.memberByName(value.lead, "beta");
+    value.agents.delete(value.lead.id);
+
+    await expect(
+      value.coordinator.sendMessage(alpha, {
+        content: "deliver after parent resumes",
+        delivery: "wakeup",
+        target: "beta",
+      }),
+    ).resolves.toMatchObject({ status: "queued" });
+    expect(value.journal.get(value.lead.id)?.messages[0]?.deliveryStartedAt).toBeUndefined();
+
+    value.agents.set(value.lead.id, value.lead);
+    await expect(value.coordinator.recoverMember(beta)).resolves.toBe(1);
+    expect(value.journal.get(value.lead.id)?.messages[0]?.deliveredAt).toEqual(expect.any(Number));
+    value.journal.close();
+  });
+
+  it("V224/V230: leaves a member-created task pending when the lead carrier is absent", async () => {
+    const value = fixture();
+    await value.coordinator.create(value.lead, { name: "Split carrier team" });
+    await value.coordinator.addMember(value.lead, {
+      description: "Creates work from its own carrier",
+      name: "worker",
+      prompt: "Wait.",
+    });
+    const worker = value.coordinator.memberByName(value.lead, "worker");
+    value.agents.delete(value.lead.id);
+
+    const task = await value.coordinator.createTask(worker, {
+      assignedTo: "worker",
+      blockedBy: [],
+      description: "Wait for the lead carrier before delivery",
+      kind: "read",
+      subject: "Deferred delivery",
+      writeScopes: [],
+    });
+
+    expect(task.status).toBe("pending");
+    expect(value.journal.get(value.lead.id)?.attempts).toEqual([]);
+    value.journal.close();
+  });
+
   it("V189/V191: cancels an exhausted wall-clock attempt once and revokes its authority", async () => {
     const value = fixture();
     await value.coordinator.create(value.lead, { name: "Research team" });
@@ -771,9 +1163,9 @@ describe("Swarm coordinator", () => {
     const attempt = value.journal.get(value.lead.id)?.attempts[0];
     expect(attempt).toBeDefined();
 
-    expect(value.coordinator.runMonitor((attempt?.startedAt ?? 0) + 101, 10_000)).toEqual([
-      value.lead.id,
-    ]);
+    await expect(
+      value.coordinator.runMonitor((attempt?.startedAt ?? 0) + 101, 10_000),
+    ).resolves.toEqual([value.lead.id]);
     expect(owner.cancel).toHaveBeenCalledWith({
       kind: "hook",
       reason: "Swarm budget exhausted: attempt_wall_exhausted",
@@ -783,7 +1175,109 @@ describe("Swarm coordinator", () => {
       escalationReason: "Attempt exceeded its hard wall-clock deadline.",
     });
     expect(value.coordinator.hasActiveWriteAttempt(owner)).toBe(false);
-    expect(value.coordinator.runMonitor((attempt?.startedAt ?? 0) + 102, 10_000)).toEqual([]);
+    await expect(
+      value.coordinator.runMonitor((attempt?.startedAt ?? 0) + 102, 10_000),
+    ).resolves.toEqual([]);
+    value.journal.close();
+  });
+
+  it("V230: does not journal budget termination before asynchronous cancel acknowledgement", async () => {
+    const value = fixture();
+    await value.coordinator.create(value.lead, { name: "Research team" });
+    await value.coordinator.addMember(value.lead, {
+      description: "Bounded implementer",
+      name: "impl",
+      prompt: "Wait.",
+      role: "implementer",
+      budget: { maxWallMs: 100, warningFraction: 0.8 },
+    });
+    const owner = value.coordinator.memberByName(value.lead, "impl");
+    const task = await value.coordinator.createTask(value.lead, {
+      assignedTo: "impl",
+      blockedBy: [],
+      description: "Perform bounded work",
+      kind: "write",
+      subject: "Bounded work",
+      writeScopes: ["src"],
+    });
+    const attempt = value.journal.get(value.lead.id)?.attempts[0];
+    vi.mocked(owner.cancel).mockRejectedValueOnce(new Error("native interrupt rejected"));
+
+    await expect(
+      value.coordinator.runMonitor((attempt?.startedAt ?? 0) + 101, 10_000),
+    ).resolves.toEqual([value.lead.id]);
+    expect(value.coordinator.task(value.lead, task.id)).toMatchObject({ status: "in_progress" });
+    expect(value.coordinator.hasActiveWriteAttempt(owner)).toBe(true);
+    expect(value.journal.get(value.lead.id)?.findings.at(-1)).toMatchObject({
+      action: "lead_review",
+      code: "attempt_wall_exhausted",
+      summary: expect.stringContaining("could not acknowledge interruption"),
+    });
+    value.journal.close();
+  });
+
+  it("V230/V232: ignores foreign Teams with no runtime-owned actor", async () => {
+    const value = fixture();
+    await value.coordinator.create(value.lead, { name: "Foreign carrier team" });
+    await value.coordinator.addMember(value.lead, {
+      description: "Runs on another carrier",
+      name: "impl",
+      prompt: "Wait.",
+      role: "implementer",
+      budget: { maxWallMs: 100, warningFraction: 0.8 },
+    });
+    await value.coordinator.createTask(value.lead, {
+      assignedTo: "impl",
+      blockedBy: [],
+      description: "Must remain owned by the other carrier",
+      kind: "write",
+      subject: "Foreign work",
+      writeScopes: ["src"],
+    });
+    const before = value.journal.get(value.lead.id);
+    const attempt = before?.attempts[0];
+    value.agents.clear();
+
+    await expect(
+      value.coordinator.runMonitor((attempt?.startedAt ?? 0) + 101, 10_000),
+    ).resolves.toEqual([]);
+    expect(
+      value.coordinator.nextMonitorAt((attempt?.startedAt ?? 0) + 101, 10_000),
+    ).toBeUndefined();
+    expect(value.journal.get(value.lead.id)).toEqual(before);
+    value.journal.close();
+  });
+
+  it("V230: retains an exhausted attempt when its runtime actor is unavailable", async () => {
+    const value = fixture();
+    await value.coordinator.create(value.lead, { name: "Unavailable actor team" });
+    await value.coordinator.addMember(value.lead, {
+      description: "Bounded implementer",
+      name: "impl",
+      prompt: "Wait.",
+      role: "implementer",
+      budget: { maxWallMs: 100, warningFraction: 0.8 },
+    });
+    const owner = value.coordinator.memberByName(value.lead, "impl");
+    const task = await value.coordinator.createTask(value.lead, {
+      assignedTo: "impl",
+      blockedBy: [],
+      description: "Perform bounded work",
+      kind: "write",
+      subject: "Bounded work",
+      writeScopes: ["src"],
+    });
+    const attempt = value.journal.get(value.lead.id)?.attempts[0];
+    value.agents.delete(owner.id);
+
+    await expect(
+      value.coordinator.runMonitor((attempt?.startedAt ?? 0) + 101, 10_000),
+    ).resolves.toEqual([value.lead.id]);
+    expect(value.coordinator.task(value.lead, task.id).status).toBe("in_progress");
+    expect(value.journal.get(value.lead.id)?.findings.at(-1)).toMatchObject({
+      action: "lead_review",
+      summary: expect.stringContaining("could not acknowledge interruption"),
+    });
     value.journal.close();
   });
 
@@ -854,7 +1348,48 @@ describe("Swarm coordinator", () => {
     });
 
     await value.coordinator.recordMemberLifecycleFailure(owner.id);
-    expect(value.coordinator.memberProfileBySessionId(owner.id)).toMatchObject({ phase: "failed" });
+    expect(value.coordinator.memberProfileByActorId(owner.id)).toMatchObject({ phase: "failed" });
+    expect(value.coordinator.task(value.lead, task.id).status).toBe("needs_attention");
+    expect(value.journal.get(value.lead.id)?.attempts[0]).toMatchObject({
+      status: "interrupted",
+      terminalReason: "Host revoked the active attempt",
+    });
+    value.journal.close();
+  });
+
+  it("V191/V230: retries attempt revocation after a partial lifecycle failure", async () => {
+    const value = await teamWithMembers();
+    const owner = value.coordinator.memberByName(value.lead, "alpha");
+    const task = await value.coordinator.createTask(value.lead, {
+      assignedTo: "alpha",
+      blockedBy: [],
+      description: "Must converge after a transient journal failure",
+      kind: "write",
+      subject: "Retry lifecycle cleanup",
+      writeScopes: ["src"],
+    });
+    const append = value.journal.append.bind(value.journal);
+    let rejectAttemptEnd = true;
+    const appending = vi.spyOn(value.journal, "append").mockImplementation((teamId, event) => {
+      if (rejectAttemptEnd && event.type === "attempt/ended") {
+        rejectAttemptEnd = false;
+        throw new Error("transient revoke failure");
+      }
+      return append(teamId, event);
+    });
+
+    await expect(value.coordinator.recordMemberLifecycleFailure(owner.id)).rejects.toThrow(
+      "transient revoke failure",
+    );
+    expect(value.coordinator.memberProfileByActorId(owner.id)).toMatchObject({ phase: "active" });
+    expect(value.coordinator.task(value.lead, task.id).status).toBe("in_progress");
+
+    appending.mockRestore();
+    await expect(value.coordinator.recordMemberLifecycleFailure(owner.id)).resolves.toBeUndefined();
+    expect(value.coordinator.memberProfileByActorId(owner.id)).toMatchObject({
+      phase: "failed",
+      error: "Continuable member exited unexpectedly",
+    });
     expect(value.coordinator.task(value.lead, task.id).status).toBe("needs_attention");
     expect(value.journal.get(value.lead.id)?.attempts[0]).toMatchObject({
       status: "interrupted",

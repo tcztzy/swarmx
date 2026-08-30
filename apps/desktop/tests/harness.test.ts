@@ -49,7 +49,20 @@ beforeAll(async () => {
       2,
     )}\n`,
   );
-  writeFileSync(join(profileDir, "cordis.patch.yml"), "[]\n");
+  writeFileSync(
+    join(profileDir, "cordis.patch.yml"),
+    `- id: swarmx-science
+  config:
+    embedArtifactMetadata: false
+    maxArtifactBytes: 1048576
+- id: swarmx-pkb
+  config:
+    maxConceptBytes: 131072
+- id: swarmx-swarm
+  config:
+    monitorStallMs: 123456
+`,
+  );
   writeFileSync(join(profileDir, "pnpm-workspace.yaml"), "packages:\n  - .\n");
   writeFileSync(
     join(fixtureDir, "package.json"),
@@ -73,7 +86,7 @@ beforeAll(async () => {
     "globalThis.__SWARMX_PROFILE_FIXTURE__ = true;\nexport const name = 'profile-fixture';\nexport function apply() {}\n",
   );
   const { startHarness } = await import("../src/harness.js");
-  harness = await startHarness();
+  harness = await startHarness({ productHome: join(home, "swarmx") });
 }, 180_000);
 
 afterAll(async () => {
@@ -108,7 +121,7 @@ describe("harness boot", () => {
     expect(await response.text()).toContain("@swarmx/dsh-ui-conversation");
   });
 
-  it("loads out-of-tree bundles installed in the active profile", () => {
+  it("V225 loads out-of-tree bundles from the active profile dependency closure", () => {
     expect(
       (globalThis as { __SWARMX_PROFILE_FIXTURE__?: boolean }).__SWARMX_PROFILE_FIXTURE__,
     ).toBe(true);
@@ -167,6 +180,20 @@ describe("harness boot", () => {
     expect(harness.ctx.tools.get("science_export")).toBeUndefined();
     expect(harness.ctx.tools.get("literature_search")).toBeUndefined();
     expect(harness.ctx.get("spillStore")).toBeDefined();
+    expect(harness.scienceConfig).toMatchObject({
+      embedArtifactMetadata: false,
+      maxArtifactBytes: 1_048_576,
+    });
+    const entries = [...harness.ctx.loader.entries()] as Array<{
+      options: { config?: Record<string, unknown>; id?: string };
+    }>;
+    expect(
+      entries.find((entry) => entry.options.id === "swarmx-science")?.options.config,
+    ).toMatchObject({
+      embedArtifactMetadata: false,
+      maxArtifactBytes: 1_048_576,
+      root: join(home, "swarmx", "science"),
+    });
     const response = await fetch(harness.url);
     const html = await response.text();
     expect(html).toContain("@swarmx/dsh-ui-science");
@@ -181,8 +208,14 @@ describe("harness boot", () => {
     const pkbEntry = entries.find((entry) => entry.options.id === "swarmx-pkb");
     const expectedEntry = createRequire(import.meta.url).resolve("@swarmx/dsh-pkb");
     expect(pkbEntry?.options.name).toBe(realpathSync(expectedEntry));
-    expect(statSync(join(home, "pkb", "vault")).mode & 0o777).toBe(0o700);
-    expect(readFileSync(join(home, "pkb", "vault", "index.md"), "utf8")).toContain(
+    expect(
+      (pkbEntry?.options as { config?: Record<string, unknown> } | undefined)?.config,
+    ).toMatchObject({
+      maxConceptBytes: 131_072,
+      root: join(home, "swarmx", "pkb", "vault"),
+    });
+    expect(statSync(join(home, "swarmx", "pkb", "vault")).mode & 0o777).toBe(0o700);
+    expect(readFileSync(join(home, "swarmx", "pkb", "vault", "index.md"), "utf8")).toContain(
       'okf_version: "0.2"',
     );
   });
@@ -195,8 +228,8 @@ describe("harness boot", () => {
     expect(typert?.local.get("swarm/uiSnapshot")).toMatchObject({ service: "swarm" });
     expect(typert?.local.get("swarm/waitUi")).toMatchObject({ service: "swarm" });
     expect(harness.ctx.tools.get("swarm")).toBeUndefined();
-    expect(statSync(join(home, "swarm")).mode & 0o777).toBe(0o700);
-    expect(statSync(join(home, "swarm", "swarm.sqlite")).mode & 0o777).toBe(0o600);
+    expect(statSync(join(home, "swarmx", "swarm")).mode & 0o777).toBe(0o700);
+    expect(statSync(join(home, "swarmx", "swarm", "swarm.sqlite")).mode & 0o777).toBe(0o600);
 
     const entries = [...harness.ctx.loader.entries()] as Array<{
       options: { id?: string; name?: string };
@@ -204,6 +237,13 @@ describe("harness boot", () => {
     const swarmEntry = entries.find((entry) => entry.options.id === "swarmx-swarm");
     const swarmUiEntry = entries.find((entry) => entry.options.id === "swarmx-ui-swarm");
     expect(swarmEntry?.options.name).toBe("@swarmx/dsh-swarm");
+    expect(
+      (swarmEntry?.options as { config?: Record<string, unknown> } | undefined)?.config,
+    ).toMatchObject({
+      monitorStallMs: 123_456,
+      recoveryOwner: false,
+      root: join(home, "swarmx", "swarm"),
+    });
     expect(swarmUiEntry).toBeDefined();
     expect(entries.indexOf(swarmUiEntry as (typeof entries)[number])).toBeGreaterThan(
       entries.indexOf(swarmEntry as (typeof entries)[number]),

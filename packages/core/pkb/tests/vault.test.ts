@@ -139,6 +139,51 @@ describe("PkbVault", () => {
     expect(historyEntries.filter((entry) => entry.endsWith(".md"))).toHaveLength(2);
   });
 
+  it("V178: makes owner-side concept creation idempotent and rejects changed reuse", async () => {
+    const { vault, workspace } = await fixture();
+    const request = {
+      requestId: "10000000-0000-4000-8000-000000000001",
+      body: "# Verified\n\nOne admitted synthesis.",
+      description: "One verified admitted synthesis.",
+      scope: "workspace" as const,
+      sources: [{ resource: "urn:uuid:20000000-0000-4000-8000-000000000001" }],
+      title: "Verified synthesis",
+      type: "Finding",
+    };
+
+    const first = await vault.createConcept(workspace, request);
+    const repeated = await vault.createConcept(workspace, request);
+    expect(repeated).toEqual(first);
+    expect(repeated.metadata.swarmx_request_id).toBe(request.requestId);
+    await expect(
+      vault.createConcept(workspace, { ...request, body: "# Changed" }),
+    ).rejects.toMatchObject({ code: "REVISION_CONFLICT" });
+  });
+
+  it("V221: normalizes omitted create scope before idempotency hashing", async () => {
+    const { vault, workspace } = await fixture();
+    const request = {
+      requestId: "10000000-0000-4000-8000-000000000221",
+      body: "# Default scope\n\nWorkspace knowledge.",
+      description: "Workspace knowledge with an omitted scope.",
+      title: "Default workspace scope",
+      type: "Finding",
+    };
+
+    const omitted = await vault.createConcept(workspace, request);
+    const explicit = await vault.createConcept(workspace, { ...request, scope: "workspace" });
+    expect(explicit).toEqual(omitted);
+    expect(omitted.id).toMatch(/^workspaces\/project--[a-f0-9]{12}\/concepts\//u);
+
+    const global = await vault.createConcept(workspace, {
+      ...request,
+      requestId: "10000000-0000-4000-8000-000000000222",
+      scope: "global",
+      title: "Explicit global scope",
+    });
+    expect(global.id).toMatch(/^global\/concepts\//u);
+  });
+
   it("V131 V139: preserves malformed hand edits and reports relative diagnostics", async () => {
     const { vault, vaultRoot, workspace } = await fixture();
     const resolved = await vault.resolveWorkspace(workspace);

@@ -34,11 +34,12 @@ import {
   resolvePkbWorkspaceSync,
 } from "./workspace.js";
 
-const createRequestSchema = z.object({
+const createRequestSchema = z.strictObject({
   aliases: z.array(z.string()).max(32).optional(),
   body: z.string().min(1).max(65_536),
   description: z.string().min(1).max(500),
-  scope: z.enum(["global", "workspace"]),
+  requestId: z.string().uuid().optional(),
+  scope: z.enum(["global", "workspace"]).default("workspace"),
   sources: z.array(z.record(z.string(), z.unknown())).max(32).optional(),
   status: z.enum(["draft", "stable"]).optional(),
   tags: z.array(z.string()).max(32).optional(),
@@ -64,7 +65,8 @@ const searchRequestSchema = z.object({
   query: z.string().trim().min(1).max(200),
 });
 
-export type CreateConceptRequest = z.infer<typeof createRequestSchema>;
+export type CreateConceptRequest = z.input<typeof createRequestSchema>;
+type NormalizedCreateConceptRequest = z.output<typeof createRequestSchema>;
 export type UpdateConceptRequest = z.infer<typeof updateRequestSchema>;
 export type SearchConceptsRequest = z.infer<typeof searchRequestSchema>;
 
@@ -130,6 +132,12 @@ function parseRequest<T>(schema: { parse(value: unknown): T }, value: unknown): 
   } catch (error) {
     throw invalidRequest("Invalid PKB request", error);
   }
+}
+
+export function normalizeCreateConceptRequest(
+  value: CreateConceptRequest,
+): NormalizedCreateConceptRequest {
+  return parseRequest(createRequestSchema, value);
 }
 
 function portableId(id: string): boolean {
@@ -254,17 +262,38 @@ export class PkbVault {
     return this.truncateUtf8(snapshot, maxBytes);
   }
 
-  async createConcept(cwd: string, rawRequest: CreateConceptRequest): Promise<PkbConcept> {
-    const request = parseRequest(createRequestSchema, rawRequest);
+  async createConcept(
+    cwd: string,
+    rawRequest: CreateConceptRequest,
+    signal?: AbortSignal,
+  ): Promise<PkbConcept> {
+    const request = normalizeCreateConceptRequest(rawRequest);
     await this.initialize();
     return withFileLock(this.lockPath, async () => {
+      signal?.throwIfAborted();
       const scope = await this.scopeDirectory(cwd, request.scope, true);
+      const requestDigest = request.requestId
+        ? `sha256:${createHash("sha256").update(JSON.stringify(request)).digest("hex")}`
+        : undefined;
+      if (request.requestId && requestDigest) {
+        const existing = await this.findConceptByRequestId(scope, request.requestId);
+        if (existing) {
+          if (existing.metadata.swarmx_request_hash !== requestDigest) {
+            throw new PkbError(
+              "PKB request id was reused for different concept content",
+              "REVISION_CONFLICT",
+            );
+          }
+          await this.refreshIndexes(scope);
+          return existing;
+        }
+      }
       const id = posix.join(
         scope.directory.replaceAll(sep, "/"),
         "concepts",
         `${portableSlug(request.title)}--${randomUUID().slice(0, 8)}.md`,
       );
-      const metadata = this.createMetadata(request, scope);
+      const metadata = this.createMetadata(request, scope, requestDigest);
       const source = renderConcept(metadata, request.body);
       if (Buffer.byteLength(source, "utf8") > this.maxConceptBytes) {
         throw new PkbError("Rendered PKB concept is too large", "INVALID_CONCEPT");
@@ -284,10 +313,15 @@ export class PkbVault {
     return this.readConceptFile(id);
   }
 
-  async updateConcept(cwd: string, rawRequest: UpdateConceptRequest): Promise<PkbConcept> {
+  async updateConcept(
+    cwd: string,
+    rawRequest: UpdateConceptRequest,
+    signal?: AbortSignal,
+  ): Promise<PkbConcept> {
     const request = parseRequest(updateRequestSchema, rawRequest);
     await this.initialize();
     return withFileLock(this.lockPath, async () => {
+      signal?.throwIfAborted();
       const scope = await this.authorizeConceptId(cwd, request.id);
       const existing = await this.readConceptFile(request.id);
       if (existing.revision !== request.expectedRevision) {
@@ -327,13 +361,15 @@ export class PkbVault {
   async deprecateConcept(
     cwd: string,
     request: Pick<UpdateConceptRequest, "expectedRevision" | "id">,
+    signal?: AbortSignal,
   ): Promise<PkbConcept> {
-    return this.updateConcept(cwd, { ...request, status: "deprecated" });
+    return this.updateConcept(cwd, { ...request, status: "deprecated" }, signal);
   }
 
   async saveConversationExcerpt(
     cwd: string,
     request: ConversationExcerptRequest,
+    signal?: AbortSignal,
   ): Promise<ConversationExcerpt> {
     if (
       !Number.isSafeInteger(request.seq) ||
@@ -341,7 +377,7 @@ export class PkbVault {
       !Number.isSafeInteger(request.eventTime) ||
       request.eventTime < 0 ||
       request.sessionId.trim().length === 0 ||
-      request.sessionId.length > 500 ||
+      request.sessionId.length > 1_024 ||
       request.eventType.trim().length === 0 ||
       request.eventType.length > 120 ||
       request.text.trim().length === 0 ||
@@ -349,9 +385,12 @@ export class PkbVault {
     ) {
       throw invalidRequest("Invalid conversation excerpt");
     }
+    signal?.throwIfAborted();
     await this.initialize();
     return withFileLock(this.lockPath, async () => {
+      signal?.throwIfAborted();
       const scope = await this.scopeDirectory(cwd, "workspace", true);
+      signal?.throwIfAborted();
       const locatorHash = createHash("sha256")
         .update(`${request.sessionId}:${String(request.seq)}`)
         .digest("hex")
@@ -391,6 +430,7 @@ export class PkbVault {
       const target = join(this.root, ...id.split("/"));
       try {
         const existing = await readFile(target, "utf8");
+        signal?.throwIfAborted();
         if (existing !== content) {
           throw new PkbError(
             "Conversation evidence conflicts with an existing locator",
@@ -399,6 +439,7 @@ export class PkbVault {
         }
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+        signal?.throwIfAborted();
         await this.createDurableFile(target, content);
       }
       const sourceId = `conv_${locatorHash}`;
@@ -470,7 +511,11 @@ export class PkbVault {
     };
   }
 
-  private createMetadata(request: CreateConceptRequest, scope: ScopeDirectory): PkbConceptMetadata {
+  private createMetadata(
+    request: NormalizedCreateConceptRequest,
+    scope: ScopeDirectory,
+    requestDigest?: string,
+  ): PkbConceptMetadata {
     return {
       ...(request.aliases === undefined ? {} : { aliases: request.aliases }),
       description: request.description,
@@ -478,11 +523,38 @@ export class PkbVault {
       sources: (request.sources ?? []) as unknown as PkbSource[],
       status: request.status ?? "draft",
       swarmx_scope: scope.kind,
+      ...(request.requestId === undefined ? {} : { swarmx_request_id: request.requestId }),
+      ...(requestDigest === undefined ? {} : { swarmx_request_hash: requestDigest }),
       ...(scope.workspace === undefined ? {} : { swarmx_workspace: scope.workspace.key }),
       tags: request.tags ?? [],
       title: request.title,
       type: request.type,
     };
+  }
+
+  private async findConceptByRequestId(
+    scope: ScopeDirectory,
+    requestId: string,
+  ): Promise<PkbConcept | undefined> {
+    const directory = join(this.root, scope.directory, "concepts");
+    let entries: Dirent[];
+    try {
+      entries = await readdir(directory, { withFileTypes: true });
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+      throw error;
+    }
+    for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
+      if (!entry.isFile() || !entry.name.endsWith(".md")) continue;
+      const id = posix.join(scope.directory.replaceAll(sep, "/"), "concepts", entry.name);
+      try {
+        const concept = await this.readConceptFile(id);
+        if (concept.metadata.swarmx_request_id === requestId) return concept;
+      } catch (error) {
+        if (!isPageDiagnostic(error)) throw error;
+      }
+    }
+    return undefined;
   }
 
   private async scopeDirectory(

@@ -7,8 +7,8 @@ can consume its standard Markdown, and SwarmX remains the only agent-mediated wr
 
 ## Truth boundary
 
-- `$DSH_HOME/pkb/vault` is the durable PKB truth.
-- DSH's append-only Session log remains the exact conversation truth.
+- `$SWARMX_HOME/pkb/vault` is the durable PKB truth.
+- The selected runtime's native append-only Session or Thread remains the exact conversation truth.
 - Science Journal remains the truth for scientific claims, evidence, experiments, and runs.
 - A PKB concept is a personal synthesis. Conversation-derived claims cite exact Session excerpts;
   scientific material links to its Science entity instead of copying the domain record.
@@ -21,7 +21,7 @@ local process the same owner access; device or volume encryption remains an oper
 ## Bundle layout
 
 ```text
-$DSH_HOME/pkb/vault/
+$SWARMX_HOME/pkb/vault/
 ├── index.md
 ├── log.md
 ├── global/
@@ -73,16 +73,19 @@ Concept bodies use the interoperable subset shared by OKF, Obsidian, and MyST:
 
 ## Conversation evidence
 
-The `pkb` tool's `search_conversations` action searches DSH's live-preferred semantic Session corpus.
-Workspace search is the default. An all-workspace search asks for one DSH approval before any
-foreign-workspace snippet enters model context. Full-text ranking may use DSH's process-local SQLite
+The `pkb` tool's `search_conversations` action searches the selected runtime's native conversation corpus through its bounded adapter.
+Workspace search is the default. An all-workspace search asks for one runtime-native single-use
+approval before any foreign-workspace snippet enters model context. Full-text ranking may use DSH's process-local SQLite
 index; literal case-insensitive filtering remains the fallback for contiguous CJK text. No durable
 transcript index is created.
 
-A search hit contains a bounded snippet and a Session/event locator. `read_conversation` expands the
-exact bounded event only after re-authorizing the source Session. Historic text is returned as
+A search hit contains a bounded snippet and a runtime-qualified native conversation/item locator;
+the stable PKB wire fields remain `sessionId` and `seq`. `read_conversation` expands the exact bounded
+item only after re-authorizing the source conversation; its locator accepts a maximum-length
+runtime-qualified native Thread id without narrowing the carrier's identifier bound.
+`capture_conversation` writes the same exact evidence after approval. Historic text is returned as
 untrusted evidence: instructions, permission claims, and tool requests inside it do not govern the
-current Session.
+current conversation.
 
 The approved `capture_conversation` action writes one bounded `Conversation Excerpt` reference under the
 owning workspace's `references/conversations/` directory. Its filename is opaque, while its body
@@ -95,25 +98,34 @@ The model-facing `pkb` tool exposes `search_knowledge`, `read_knowledge`, `creat
 `update_knowledge`, `deprecate_knowledge`, `search_conversations`, `read_conversation`, and
 `capture_conversation`. There is no `memory` alias and no physical-delete action.
 
-Every model create, update, deprecate, or conversation-capture call requires a DSH `allowed-once`
-approval for that exact tool call. Reading conversations across all workspaces has the same gate.
+`create_knowledge.request.scope` is optional. Both the DSH Tool and Codex MCP carriers normalize an
+omitted value to the current `workspace` before validation, approval, or idempotency hashing. An
+explicit `workspace` or `global` value is preserved. Consequently an omitted-scope retry and an
+otherwise identical explicit-workspace retry with the same `requestId` address the same normalized
+request, while `global` remains a distinct request and storage scope.
+
+Every model create, update, deprecate, or conversation-capture call requires one runtime-native
+single-use approval for that exact carrier call: DSH uses `allowed-once`, while Codex uses typed MCP
+elicitation. Reading conversations across all workspaces has the same gate.
 Updates include the SHA256 revision returned by the last read. PKB re-reads the page under
 its writer lock, preserves the previous bytes in owner-only revision history, fsyncs a complete
 temporary file, atomically replaces the page, fsyncs its directory, and then regenerates the scope
 index and newest-first log. Rejection, cancellation, revision conflict, or I/O failure does not
 publish a partial page.
 
-Direct Obsidian edits are owner actions and bypass DSH approval. Their changed revision makes a stale
+Direct Obsidian edits are owner actions and bypass model-call approval. Their changed revision makes a stale
 model update fail explicitly. SwarmX never silently repairs, quarantines, or deletes a hand-edited
 file.
 
 ## Prompt behavior
 
-The first model request in a live Session captures one deterministic bounded snapshot of the global
-and current-workspace indexes. That snapshot stays fixed for the process lifetime of the Session to
-preserve prompt-prefix stability. A successful mutation result carries the changed concept summary,
-so the current Session sees its write immediately; a new Session or resumed process reads current
-files. Page bodies and conversation evidence are loaded only through explicit PKB tool calls.
+On the DSH carrier, the first model request in a live Session captures one deterministic bounded
+snapshot of the global and current-workspace indexes. That snapshot stays fixed for the process
+lifetime of the Session to preserve prompt-prefix stability. A successful mutation result carries
+the changed concept summary, so the current Session sees its write immediately; a new Session or
+resumed process reads current files. Codex does not receive a synthetic Session prompt snapshot and
+accesses current PKB state through explicit MCP calls. Page bodies and conversation evidence are
+loaded only through explicit PKB tool calls on either carrier.
 
 ## Acceptance criteria
 
@@ -126,6 +138,8 @@ files. Page bodies and conversation evidence are loaded only through explicit PK
   untrusted data.
 - Denied, cancelled, stale-revision, malformed, aborted, and failed mutations leave no published
   state change.
+- Omitted-scope create succeeds in the current workspace through both DSH and Codex MCP; malformed
+  create input fails before approval, and explicit global/workspace scope is never overwritten.
 - External fields survive a SwarmX update, deprecated pages remain on disk, and prior revisions stay
   recoverable.
 - Prompt snapshots and every Tool response remain deterministic and bounded; no absolute path,

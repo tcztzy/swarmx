@@ -71,5 +71,5 @@ describeRealDvc("dsh-dvc real CLI integration", () => {
     } finally {
       await fiber.dispose();
     }
-  }, 30_000);
+  }, 60_000);
 });

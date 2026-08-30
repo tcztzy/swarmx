@@ -1,13 +1,14 @@
-import type { Agent } from "@deepseek-ai/dsh-agent";
-import { SessionId } from "@deepseek-ai/dsh-session";
 import { describe, expect, it, vi } from "vitest";
 import { type AdmitKnowledgeRequest, evidenceSourceSchema } from "../src/contracts.js";
+import type { SwarmActor } from "../src/coordinator.js";
 import { OwnerKnowledgeCommitter } from "../src/knowledge.js";
 
 const lead = {
-  id: SessionId("session-lead"),
-  session: { header: { cwd: "/opaque/project" } },
-} as Agent;
+  id: "session-lead",
+  status: "idle",
+  cancel: vi.fn(),
+  whenIdle: vi.fn(async () => undefined),
+} satisfies SwarmActor;
 
 const base = {
   admissionId: "10000000-0000-4000-8000-000000000001",
@@ -41,6 +42,7 @@ describe("V177/V178 knowledge owner boundary", () => {
       approval: { request: vi.fn() },
       pkb: { vault: { createConcept: vi.fn() } },
       science: { linkEvidence },
+      workspaceRoot: () => "/opaque/project",
     });
     const request: AdmitKnowledgeRequest = {
       ...base,
@@ -88,6 +90,7 @@ describe("V177/V178 knowledge owner boundary", () => {
       approval,
       pkb: { vault: { createConcept } },
       science: { linkEvidence: vi.fn() },
+      workspaceRoot: () => "/opaque/project",
     });
     const request: AdmitKnowledgeRequest = {
       ...base,

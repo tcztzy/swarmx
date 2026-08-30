@@ -1,0 +1,261 @@
+.root {
+  display: grid;
+  grid-template-columns: minmax(190px, 24%) minmax(0, 1fr);
+  height: 100%;
+  min-height: 0;
+  color: var(--dsw-alias-text-primary, #202124);
+  background: var(--dsw-alias-bg-base, #fff);
+}
+
+.runtimeList {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  border-right: 1px solid var(--dsw-alias-border-l2, #ddd);
+  background: var(--dsw-alias-bg-subtle, #f7f7f7);
+}
+
+.runtimeHeader,
+.header,
+.turnHeader,
+.composerActions,
+.approvalActions,
+.itemActions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.runtimeHeader,
+.header {
+  min-height: 52px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--dsw-alias-border-l2, #ddd);
+}
+
+.runtimeName {
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.conversationList {
+  min-height: 0;
+  padding: 6px;
+  overflow: auto;
+}
+
+.conversationButton {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
+  padding: 9px 10px;
+  border: 0;
+  border-radius: 8px;
+  color: inherit;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.conversationButton:hover,
+.conversationButton[data-active] {
+  background: var(--dsw-alias-button-secondary-hover, #e9e9e9);
+}
+
+.conversationButton span,
+.conversationButton small,
+.header strong,
+.header small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.conversationButton small,
+.header small,
+.itemKind,
+.turnHeader {
+  color: var(--dsw-alias-text-secondary, #6c6c6c);
+  font-size: 11px;
+}
+
+.conversation {
+  display: grid;
+  min-width: 0;
+  min-height: 0;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+}
+
+.header > div {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.transcript {
+  min-height: 0;
+  padding: 20px clamp(16px, 5vw, 72px);
+  overflow: auto;
+}
+
+.turn {
+  max-width: 860px;
+  margin: 0 auto 20px;
+}
+
+.turnHeader {
+  margin-bottom: 8px;
+}
+
+.item {
+  margin: 8px 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--dsw-alias-bg-subtle, #f7f7f7);
+}
+
+.item[data-kind="user_message"] {
+  margin-left: 12%;
+  background: var(--dsw-alias-button-secondary-fill, #eee);
+}
+
+.item[data-kind="reasoning"],
+.item[data-kind="tool"] {
+  border-left: 2px solid var(--dsw-alias-border-l3, #bbb);
+  background: transparent;
+}
+
+.item[data-kind="error"],
+.error {
+  color: var(--dsw-alias-text-danger, #a21d1d);
+}
+
+.item p,
+.approval p {
+  margin: 4px 0 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.itemActions {
+  justify-content: flex-end;
+  margin-top: 6px;
+}
+
+.approval {
+  max-width: 860px;
+  margin: 16px auto;
+  padding: 14px;
+  border: 1px solid var(--dsw-alias-border-warning, #d3a332);
+  border-radius: 12px;
+  background: var(--dsw-alias-bg-warning, #fff8e3);
+}
+
+.approval label {
+  display: grid;
+  gap: 5px;
+  margin-top: 10px;
+  font-size: 12px;
+}
+
+.approval input,
+.composer textarea {
+  box-sizing: border-box;
+  width: 100%;
+  border: 1px solid var(--dsw-alias-border-l2, #ccc);
+  border-radius: 8px;
+  color: inherit;
+  background: var(--dsw-alias-bg-base, #fff);
+  font: inherit;
+}
+
+.editNotice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+  color: var(--dsw-alias-text-secondary, #6c6c6c);
+  font-size: 12px;
+}
+
+.approval input {
+  padding: 7px 9px;
+}
+
+.approvalActions {
+  justify-content: flex-end;
+  margin-top: 12px;
+}
+
+.composer {
+  padding: 10px clamp(16px, 5vw, 72px) 14px;
+  border-top: 1px solid var(--dsw-alias-border-l2, #ddd);
+}
+
+.composer textarea {
+  min-height: 68px;
+  padding: 10px 12px;
+  resize: vertical;
+}
+
+.composerActions {
+  justify-content: flex-end;
+  margin-top: 8px;
+}
+
+.primaryButton,
+.secondaryButton,
+.textButton {
+  padding: 6px 10px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  font: inherit;
+  cursor: pointer;
+}
+
+.primaryButton {
+  color: var(--dsw-alias-text-on-primary, #fff);
+  background: var(--dsw-alias-button-primary-fill, #315efb);
+}
+
+.secondaryButton {
+  color: inherit;
+  border-color: var(--dsw-alias-border-l2, #ccc);
+  background: var(--dsw-alias-button-secondary-fill, #eee);
+}
+
+.textButton {
+  padding: 2px 5px;
+  color: var(--dsw-alias-text-link, #315efb);
+  background: transparent;
+}
+
+.primaryButton:disabled,
+.secondaryButton:disabled,
+.textButton:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.error {
+  margin-bottom: 8px;
+  font-size: 12px;
+}
+
+@media (max-width: 760px) {
+  .root {
+    grid-template-columns: 120px minmax(0, 1fr);
+  }
+
+  .transcript,
+  .composer {
+    padding-right: 12px;
+    padding-left: 12px;
+  }
+}

@@ -9,7 +9,7 @@
 import { writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { pathToFileURL } from "node:url";
 import type { Context } from "@deepseek-ai/cordis";
 import {
   boot,
@@ -22,7 +22,12 @@ import {
 } from "@deepseek-ai/dsh-app-boot";
 import { provideCmdline } from "@deepseek-ai/dsh-cmdline";
 import { resolveDshHome } from "@deepseek-ai/dsh-home-paths";
+import type { Config as ScienceConfig } from "@swarmx/dsh-science/core";
 import * as MarkdownFileLinks from "./markdown-file-links.js";
+import {
+  projectScienceCarrierConfig,
+  type ScienceCarrierConfig,
+} from "./runtime/science-config.js";
 
 /** Diagnostic prefix on boot failures. */
 const BIN_NAME = "swarmx";
@@ -37,8 +42,14 @@ const HOST = "127.0.0.1";
 export interface Harness {
   /** Root Cordis context owning every mounted plugin. */
   ctx: Context;
+  /** Bounded composed Science settings shared with the Codex product carrier. */
+  scienceConfig: ScienceCarrierConfig;
   /** Loopback URL the renderer loads. */
   url: string;
+}
+
+export interface StartHarnessOptions {
+  productHome: string;
 }
 
 /**
@@ -48,11 +59,6 @@ export interface Harness {
  */
 function installAnchor(): string {
   return createRequire(import.meta.url).resolve("@deepseek-ai/dsh/package.json");
-}
-
-/** Desktop composition manifest owning every product plugin dependency. */
-function appAnchor(): string {
-  return join(dirname(dirname(fileURLToPath(import.meta.url))), "package.json");
 }
 
 /** Installed manifest for the SwarmX client extension and its dependency closure. */
@@ -270,7 +276,7 @@ const ROOT_CONFIG = `# SwarmX profile root — an empty entry list. The tree is 
  * owns the visible surface, so `--no-open` suppresses the Web profile's normal
  * handoff to the system browser.
  */
-export async function startHarness(): Promise<Harness> {
+export async function startHarness(options: StartHarnessOptions): Promise<Harness> {
   const home = resolveDshHome();
   const anchor = installAnchor();
   const conversationPackageAnchor = conversationAnchor();
@@ -326,13 +332,41 @@ export async function startHarness(): Promise<Harness> {
       profile,
     ),
   ];
-  // An id-targeted patch replaces the row's whole config, so the preset patch
-  // needs the composed row it is overriding. `composeEntries` resolves the same
-  // layers into the tree those patches produce, for reading only.
-  const presetRow = composeEntries(layers).find((row) => row.id === "agent-presets");
+  // An id-targeted patch replaces the row's whole config, so launcher-enforced
+  // values must extend the composed row rather than discard profile/home
+  // settings. `composeEntries` resolves the same layers into the tree those
+  // patches produce, for reading only.
+  const composedRows = composeEntries(layers);
+  const presetRow = composedRows.find((row) => row.id === "agent-presets");
+  const scienceRow = composedRows.find((row) => row.id === "swarmx-science");
+  const pkbRow = composedRows.find((row) => row.id === "swarmx-pkb");
+  const swarmRow = composedRows.find((row) => row.id === "swarmx-swarm");
+  const scienceConfig = {
+    ...((scienceRow?.config ?? {}) as Record<string, unknown>),
+    root: join(options.productHome, "science"),
+  } as ScienceConfig;
   const patches = structuredClone([
     ...layers.flat(),
     ...PORT_PATCH,
+    {
+      id: "swarmx-science",
+      config: scienceConfig,
+    },
+    {
+      id: "swarmx-pkb",
+      config: {
+        ...((pkbRow?.config ?? {}) as Record<string, unknown>),
+        root: join(options.productHome, "pkb", "vault"),
+      },
+    },
+    {
+      id: "swarmx-swarm",
+      config: {
+        ...((swarmRow?.config ?? {}) as Record<string, unknown>),
+        recoveryOwner: false,
+        root: join(options.productHome, "swarm"),
+      },
+    },
     ...(presetRow === undefined
       ? []
       : [
@@ -351,14 +385,18 @@ export async function startHarness(): Promise<Harness> {
       provideCmdline(hostCtx, { args: ["--no-open"], exit: () => {} });
       hostCtx.plugin(MarkdownFileLinks);
     },
-    bareModuleBaseUrl(appAnchor()),
+    bareModuleBaseUrl(join(profile.dir, "package.json")),
   );
   const port = ctx.get("webServer")?.port;
   if (port === undefined) {
     await ctx.fiber.dispose();
     throw new Error(`${BIN_NAME}: the web profile mounted without a web server`);
   }
-  return { ctx, url: `http://${HOST}:${String(port)}` };
+  return {
+    ctx,
+    scienceConfig: projectScienceCarrierConfig(scienceConfig),
+    url: `http://${HOST}:${String(port)}`,
+  };
 }
 
 /** Path of the user's patch layer for this profile, for documentation and errors. */

@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { mkdirSync, mkdtempSync, rmSync, statSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -7,7 +7,7 @@ import { Context } from "@deepseek-ai/cordis";
 import SessionStore, { type SessionId } from "@deepseek-ai/dsh-session";
 import LocalSubprocessRuntime from "@deepseek-ai/dsh-subprocess-local";
 import { afterEach, describe, expect, it } from "vitest";
-import ScienceService, { type ScienceError } from "../src/index.js";
+import ScienceService, { formatScienceResourceId, type ScienceError } from "../src/index.js";
 
 interface Fixture {
   context: Context;
@@ -150,6 +150,76 @@ describe("T13 Science Journal service", () => {
     ).toThrowError(expect.objectContaining<Partial<ScienceError>>({ code: "PROJECT_NOT_FOUND" }));
     expect(JSON.stringify(context.science.getWorkspace(sessionA))).not.toContain(workspaceA);
     expect(JSON.stringify(context.science.getWorkspace(sessionA))).not.toContain(workspaceB);
+  });
+
+  it("authorizes and validates bounded ID-addressed resource views through the live Session", async () => {
+    const { context, sessionA, sessionB, workspaceA, workspaceB } = await createFixture();
+    const project = context.science.createProject(sessionA, {
+      requestId: randomUUID(),
+      title: "Addressed project",
+    });
+    writeFileSync(join(workspaceA, "table.csv"), "gene,value\nA,1\nB,2\n");
+    const artifact = await context.science.registerArtifact(sessionA, {
+      requestId: randomUUID(),
+      projectId: project.id,
+      relativePath: "table.csv",
+      kind: "dataset",
+      title: "Expression table",
+      mime: "text/csv",
+      runId: null,
+      environment: {},
+      license: null,
+      sourceEntityIds: [],
+    });
+    const id = formatScienceResourceId("artifact", artifact.id);
+    const head = context.science.headResource(sessionA, { id });
+
+    expect(head).toMatchObject({
+      ref: { id, exactId: `${id}@1`, kind: "artifact", digest: artifact.digest },
+      capabilities: ["get", "select", "neighbors"],
+    });
+    expect(context.science.batchHeadResources(sessionA, { ids: [id, id] }).heads).toEqual([
+      head,
+      head,
+    ]);
+    expect(
+      context.science.getResource(sessionA, { id: head.ref.exactId, projection: "metadata" }),
+    ).toMatchObject({ ref: head.ref, metadata: { kind: "artifact", mime: "text/csv" } });
+    expect(
+      context.science.selectResource(sessionA, {
+        id: head.ref.exactId,
+        format: "table",
+        offset: 1,
+        limit: 1,
+        columns: ["value", "gene"],
+      }),
+    ).toMatchObject({
+      ref: head.ref,
+      kind: "table",
+      rows: [[2, "B"]],
+      returned: 1,
+    });
+    expect(context.science.getResourceNeighbors(sessionA, { id: head.ref.exactId })).toMatchObject({
+      ref: head.ref,
+      neighbors: expect.any(Array),
+    });
+    expect(() => context.science.headResource(sessionA, { id: `${id}@2` })).toThrowError(
+      expect.objectContaining({ code: "RESOURCE_REVISION_MISMATCH" }),
+    );
+    expect(() => context.science.headResource(sessionB, { id })).toThrowError(
+      expect.objectContaining({ code: "RESOURCE_NOT_FOUND" }),
+    );
+    expect(() =>
+      context.science.headResource("missing-session" as SessionId, {
+        id: "not-a-resource-id",
+      }),
+    ).toThrowError(expect.objectContaining({ code: "SESSION_NOT_FOUND" }));
+    const serialized = JSON.stringify({
+      head,
+      selected: context.science.selectResource(sessionA, { id, format: "table" }),
+    });
+    expect(serialized).not.toContain(workspaceA);
+    expect(serialized).not.toContain(workspaceB);
   });
 
   it("closes cleanly and reopens durable state on a replacement mount", async () => {

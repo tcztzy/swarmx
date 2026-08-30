@@ -64,6 +64,11 @@ export function apply(ctx: {
     order: 193,
     text: "For scientific publication discovery, use `literature_search` to search the user's running local Zotero library first. It returns citation-ready BibTeX and is distinct from `science_query`, which only reads Science workspace state. Do not substitute a web or cloud literature search unless the user explicitly requests online search.",
   });
+  ctx.systemPrompt.section({
+    name: "science:resource-addressing",
+    order: 194,
+    text: "For local Science state, call `science_query` with `head` first, then use only the needed `get`, `select`, or `neighbors` view and reuse the returned `exactId`. On `RESOURCE_REVISION_MISMATCH`, call `head` again and do not remove the revision guard. Never request a complete workspace or full entity.",
+  });
   return ctx.tools.guard((execution) => {
     if (execution.name !== "bash") return undefined;
     if (

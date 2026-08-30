@@ -1,23 +1,60 @@
 # SwarmX codebase map
 
-SwarmX is a thin Electron host around the published DeepSeek Harness Web profile, plus product-owned conversation, local-first science, durable DSH-native Swarm, and private PKB extensions composed after the published bundles and before user patches.
+SwarmX is one Electron product whose only application UI/plugin host is the published DeepSeek Harness Web profile. DSH and Codex App Server are peer conversation runtimes below a narrow Host Cordis service; local-first Science, durable Swarm, and private PKB policy are runtime-neutral, with DSH and Codex code confined to bottom carriers.
 
 ## Runtime flow
 
-`apps/desktop/src/main.ts` boots `apps/desktop/src/harness.ts`, then loads its loopback URL through the security boundary in `apps/desktop/src/window.ts`.
+`apps/desktop/src/main.ts` resolves the default runtime and canonical workspace through `runtime/platform.ts`. The platform always boots DSH Web, registers the available peer adapters on its existing `webServer`, then loads only the DSH Web URL through `apps/desktop/src/window.ts`.
 
-The Harness supplies the complete browser UI and `/api` transport. SwarmX has no renderer, preload, retained renderer assets, alternate session store, or model client.
+Each native Session/Thread is its only transcript truth. `ConversationRuntimeRegistry` multiplexes disposable projections through `/api/swarmx/conversation-runtimes` on the DSH listener; it serves no HTML and creates no synthetic DSH Session. DSH product features use Cordis carriers, while Codex receives the same Science/PKB/Swarm authorities through one owned required MCP stdio server.
 
 ## Authored source and tests
 
 | Path | Ownership |
 | --- | --- |
-| `apps/desktop/src/harness.ts` | Profile creation, profile-installed bundle resolution, DSH + Science + Swarm system-preset roots, patch composition, in-process Harness boot, loopback URL |
+| `apps/desktop/src/app-lifecycle.ts` | Electron single-primary ownership/focus plus once-only quit coordination, pending-exit fencing, and explicit cleanup-failure reporting |
+| `apps/desktop/src/harness.ts` | Profile creation, profile dependency-closure module resolution, DSH + Science + Swarm system-preset roots, patch composition, in-process Harness boot, loopback URL |
 | `apps/desktop/src/markdown-file-links.ts` | Exact rc.2 frontend asset route that adds trusted Markdown file-link resolution and rejects upstream seam drift |
-| `apps/desktop/src/main.ts` | Electron startup, window recreation, Harness shutdown |
+| `apps/desktop/src/main.ts` | Explicit runtime/workspace selection, shared-platform startup, window recreation, and ordered shutdown |
 | `apps/desktop/src/window.ts` | BrowserWindow construction, navigation and permission boundary |
+| `apps/desktop/src/runtime/approval.ts` | Runtime-qualified single-use pending approval registry and fail-closed disposal |
+| `apps/desktop/src/runtime/bridge.ts` | Token-authenticated loopback bridge granting bounded native operations and root-claiming newly created Codex member Threads before response publication |
+| `apps/desktop/src/runtime/contracts.ts` | Platform-neutral conversation, item, event, approval, workspace, and revision/lifecycle contracts |
+| `apps/desktop/src/runtime/controller.ts` | Runtime-neutral Retry/Edit revision and explicit Fork orchestration |
+| `apps/desktop/src/runtime/index.ts` | Shared runtime public exports |
+| `apps/desktop/src/runtime/platform.ts` | Always-on DSH Web host, selected peer adapters, workspace authority, product migration, bridge, protocol plugin, and teardown composition |
+| `apps/desktop/src/runtime/product-home.ts` | Owner-only `$SWARMX_HOME` resolution plus bounded verified one-time legacy Science/PKB/Swarm import |
+| `apps/desktop/src/runtime/selection.ts` | Strict CLI/environment `dsh|codex` selection without fallback |
+| `apps/desktop/src/runtime/registry.ts` | Exact peer-adapter registration, lookup, once-sequenced global event fanout, and once-only disposal |
+| `apps/desktop/src/runtime/science-config.ts` | Strict bounded projection of composed Science settings across the Host-to-Codex-MCP process boundary |
+| `apps/desktop/src/runtime/swarm-recovery-owner.ts` | Non-configurable product-lifetime cold/final recovery owner and exact provisional Codex-member claim authority outside the patchable Harness tree |
+| `apps/desktop/src/runtime/web-plugin.ts` | Host Cordis service registering the bounded runtime HTTP/SSE protocol on DSH Web's existing listener |
+| `apps/desktop/src/runtime/workspace.ts` | Canonical Host-minted workspace identity/token and descendant authorization |
+| `apps/desktop/src/runtime/dsh/runtime.ts` | Minimal Session/Agent/query adapter from DSH native state to `ConversationRuntime`; DSH Web retains its sole native approval path |
+| `apps/desktop/src/runtime/codex/connection.ts` | Bounded JSONL JSON-RPC App Server connection with structured protocol errors, allowlisted experimental initialization, pending-call, stderr, and child lifecycle |
+| `apps/desktop/src/runtime/codex/index.ts` | Codex process launch plus required SwarmX MCP configuration and secret-safe environment handoff |
+| `apps/desktop/src/runtime/codex/member-bindings.ts` | Exact transactional mapping from workspace member authority to native Codex Thread handles over owner-initialized storage |
+| `apps/desktop/src/runtime/codex/runtime.ts` | Thread/turn/item/approval adapter with cursor-bounded list, transient blank summaries, stored-thread resume, typed MCP elicitation validation, exact native fork boundaries, cascade archive cleanup, and same-thread last-turn revert |
+| `apps/desktop/src/runtime/codex/swarm-recovery.ts` | Root-runtime-only reconciliation of interrupted Codex provisioning and stale native member bindings |
+| `apps/desktop/src/runtime/codex/mcp-server.ts` | Required stdio Science/PKB/Swarm MCP carrier with carrier-exact schema projection plus shared strict validation, native-Thread/session/call-scoped identity, workspace bridge, native Codex member threads, and bounded image output |
+| `apps/desktop/tests/app-lifecycle.test.ts` | Single-primary focus/secondary exit plus once-only quit, successful continuation, and fail-loud cleanup rejection contract |
 | `apps/desktop/tests/harness.test.ts` | Real profile boot, profile-installed bundle resolution, Science preset discovery/scoping, browser-handoff and HTTP integration |
 | `apps/desktop/tests/markdown-file-links.test.ts` | Markdown seam transformation, native-link fallback, and upstream drift rejection contract |
+| `apps/desktop/tests/codex-connection.test.ts` | App Server handshake, framing bounds, malformed payload, pending-call, and process disposal contract |
+| `apps/desktop/tests/codex-member-bindings.test.ts` | Concurrent per-member binding claim/release, workspace isolation, validation, and owner-permission contract |
+| `apps/desktop/tests/codex-real.test.ts` | Installed real Codex App Server schema, stored-thread resume, required product MCP startup, and `SWARMX_CODEX_FULL_ACCEPTANCE=1` schema/approval/PKB scope/native-member restart/archive/lifecycle gate |
+| `apps/desktop/tests/codex-runtime.test.ts` | Codex history-mode selection, paged/transient list, resume, projection, exact native fork/revert revision, cascade cleanup, ordered events, approvals, questions, and elicitation contract |
+| `apps/desktop/tests/codex-swarm-recovery.test.ts` | Root-only Codex provisioning resume, fail-closed missing/transient/cancel classification, stale binding, and native orphan cleanup contract |
+| `apps/desktop/tests/dsh-runtime.test.ts` | DSH projection, native operations/forked revision, ordered events, and no-second-approval-handler contract |
+| `apps/desktop/tests/product-mcp.test.ts` | Shared product tool list, Science project/image path, exact identity, workspace recovery, concurrent native-member/mailbox ownership, live child lifecycle, and Swarm carrier contract |
+| `apps/desktop/tests/runtime-bridge.test.ts` | Bearer authorization, Host-owned workspace/model routing, and response-loss-safe root member-claim contract |
+| `apps/desktop/tests/runtime-contract.test.ts` | Shared Retry/Edit revision/Fork behavior contract |
+| `apps/desktop/tests/runtime-selection.test.ts` | Strict runtime CLI/environment selection and invalid/duplicate rejection |
+| `apps/desktop/tests/swarm-recovery-owner.test.ts` | Product-level cold/final recovery ownership independent of configurable Harness plugins |
+| `apps/desktop/tests/runtime-platform.test.ts` | Real DSH Web startup proving the runtime registry shares its origin and no second UI URL |
+| `apps/desktop/tests/runtime-registry.test.ts` | Peer registration, no-fallback lookup, qualified event multiplexing, and disposal contract |
+| `apps/desktop/tests/runtime-web-plugin.test.ts` | Existing-listener Cordis mount, strict runtime routes, origin rejection, and no-root ownership contract |
+| `apps/desktop/tests/workspace-platform.test.ts` | Canonical workspace containment plus bounded idempotent product-home migration contract |
 | `apps/desktop/tests/window.test.ts` | Window security regression tests |
 | `native/writing-preview-runtime/Cargo.toml` | Native semantic writing preview runtime dependency and release boundary; Typst is the initial engine |
 | `native/writing-preview-runtime/Cargo.lock` | Reproducible native writing runtime dependency graph |
@@ -37,7 +74,7 @@ The Harness supplies the complete browser UI and `/api` transport. SwarmX has no
 | `packages/core/pkb/src/errors.ts` | Stable PKB error taxonomy |
 | `packages/core/pkb/src/index.ts` | Public PKB package and default Cordis plugin entry |
 | `packages/core/pkb/src/markdown.ts` | Bounded OKF frontmatter, portable Markdown, provenance, and revision contract |
-| `packages/core/pkb/src/plugin.ts` | `ctx.pkb`, aggregate model tool, approval gates, and per-Agent frozen index context |
+| `packages/core/pkb/src/plugin.ts` | Runtime-neutral PKB operation executor plus thin DSH Tool/approval service and per-Agent frozen index carrier |
 | `packages/core/pkb/src/vault.ts` | Owner-only Markdown Vault, workspace authorization, idempotent admission creates, revisions, indexes, logs, and conversation references |
 | `packages/core/pkb/src/workspace.ts` | Salted canonical workspace identity without host-path disclosure |
 | `packages/core/pkb/tests/conversation.test.ts` | Cross-Session workspace isolation, all-scope authorization, CJK fallback, and exact evidence contract |
@@ -46,17 +83,17 @@ The Harness supplies the complete browser UI and `/api` transport. SwarmX has no
 | `packages/core/pkb/tests/vault.test.ts` | Vault permissions, isolation, admission idempotency, revision, history, malformed-page, and portability contract |
 | `packages/core/swarm/src/capabilities.ts` | Exact-participant role restrictions, member delegation/PKB denial, mutating-Tool classification, and active-write-attempt guard |
 | `packages/core/swarm/src/contracts.ts` | Strict bounded role/model/budget, attempt, submission/verdict, monitor, R/W/K task, mailbox, snapshot, and UI schemas |
-| `packages/core/swarm/src/coordinator.ts` | Exact-Agent authority, heterogeneous routing, attempt economics/budgets, submission/verdict fencing, mailbox delivery, evidence admission, and single-writer scheduling |
+| `packages/core/swarm/src/coordinator.ts` | Platform-neutral exact-actor authority, heterogeneous routing, attempt economics/budgets, submission/verdict fencing, mailbox delivery, evidence admission, and single-writer scheduling |
 | `packages/core/swarm/src/errors.ts` | Stable Swarm error taxonomy |
-| `packages/core/swarm/src/index.ts` | `ctx.swarm` Host service, DSH Session-usage reducer, event-driven budget monitor, role/model continuable setup, Tool-effect wrapper, revision wait, and disposal |
-| `packages/core/swarm/src/journal.ts` | Owner-only SQLite WAL v3 event/attempt ledger, deterministic projection rebuild, transactional migration, salted workspace identity, and unsafe-state recovery |
-| `packages/core/swarm/src/knowledge.ts` | Lead-only owner-preserving Science evidence and approved PKB commit adapter |
+| `packages/core/swarm/src/index.ts` | Thin `ctx.swarm` DSH carrier, Session-usage reducer, event-driven budget monitor, native continuable adapter, Tool-effect wrapper, revision wait, and disposal |
+| `packages/core/swarm/src/journal.ts` | Owner/client SQLite WAL v5 event/attempt/message ledger with atomic mailbox delivery, exact runtime-member claims, replayable archive fences, deterministic owner projection rebuild, serialized migration, salted workspace identity, and unsafe-state recovery |
+| `packages/core/swarm/src/knowledge.ts` | Platform-neutral lead-only owner-preserving Science evidence and approved PKB committer |
 | `packages/core/swarm/src/monitor.ts` | Pure deterministic budget, stall, mailbox, lifecycle, submission, verification, and usage finding evaluator |
 | `packages/core/swarm/src/privacy.ts` | Bounded absolute-path and credential-shaped text redaction for semantic-monitor and browser projections |
 | `packages/core/swarm/src/remote-contract.ts` | Strict read-only Swarm UI snapshot/wait invocation descriptors |
 | `packages/core/swarm/src/remote.ts` | Client Swarm Remote contribution and namespace typing |
-| `packages/core/swarm/src/routing.ts` | Durable per-member provider/model/max-token policy application for initial and resumed child requests |
-| `packages/core/swarm/src/tools.ts` | Preset-scoped aggregate `swarm` Tool and Team-mode prompt contract |
+| `packages/core/swarm/src/routing.ts` | Platform-neutral durable per-member provider/model/max-token policy application |
+| `packages/core/swarm/src/tools.ts` | Runtime-neutral aggregate operation invocation plus the preset-scoped DSH `swarm` Tool and Team-mode prompt carrier |
 | `packages/core/swarm/src/team-policy.ts` | Deterministic read/write DAG width, write-conflict, and Tool-density Team preflight |
 | `packages/core/swarm/src/typert.ts` | Host Swarm Typert contribution |
 | `packages/core/swarm/src/verification-model.ts` | Bounded executable state exploration and enforced-versus-prompt-only fault benchmark |
@@ -65,7 +102,7 @@ The Harness supplies the complete browser UI and `/api` transport. SwarmX has no
 | `packages/core/swarm/tests/build.test.ts` | Published entry and shared runtime chunk allowlist contract |
 | `packages/core/swarm/tests/coordinator.test.ts` | Exact identity, R/W/K attempts, Tool effects, evidence admission, mailbox idempotency, reassignment, and archival contract |
 | `packages/core/swarm/tests/contracts.test.ts` | Strict role/model/budget, acceptance/submission/verdict, legacy-default, and UI privacy schema contract |
-| `packages/core/swarm/tests/journal.test.ts` | Atomic replay, owner permissions, workspace identity, uncertain intent recovery, and archive contract |
+| `packages/core/swarm/tests/journal.test.ts` | Atomic replay/mailbox claims, v1–v5 migration, owner/client permissions, workspace identity, uncertain intent recovery, and fenced archive contract |
 | `packages/core/swarm/tests/knowledge.test.ts` | Science/PKB owner boundary, typed source, idempotency-key, and PKB approval contract |
 | `packages/core/swarm/tests/monitor.test.ts` | Deterministic bounded budget, stall, mailbox, lifecycle, and submission finding/dedupe contract |
 | `packages/core/swarm/tests/preset.test.ts` | Exact Science composition plus Swarm-only preset row and metadata contract |
@@ -128,7 +165,10 @@ The Harness supplies the complete browser UI and `/api` transport. SwarmX has no
 | `packages/client/ui-conversation/src/client/annotation-reference.ts` | Generic annotation codec and detached per-session composer occurrence operations |
 | `packages/client/ui-conversation/src/client/annotation-user-message.tsx` | Safe-Markdown user/steering renderer with bounded annotation cards |
 | `packages/client/ui-conversation/src/client/controller.ts` | Per-session Retry/Edit orchestration |
-| `packages/client/ui-conversation/src/client/index.ts` | Retry/Edit and generic Side View client registration |
+| `packages/client/ui-conversation/src/client/index.ts` | Retry/Edit, generic Side View, and selected peer-runtime Conversation registration |
+| `packages/client/ui-conversation/src/client/runtime-client.ts` | Same-origin list/read/revision/mutation/SSE client with completed-authoritative projection and typed approval form submission |
+| `packages/client/ui-conversation/src/client/runtime-conversation.tsx` | Runtime-neutral Conversation slot occupant with typed elicitation controls, submit-time Edit state, and an explicit metadata-failure surface, used only when the selected default is not native DSH |
+| `packages/client/ui-conversation/src/client/runtime-conversation.module.css` | DSH-frame-native layout for peer conversation list, transcript, edit composer, controls, and approvals |
 | `packages/client/ui-conversation/src/client/icons.ts` | Single semantic Edit/Retry icon mapping |
 | `packages/client/ui-conversation/src/client/message-selection.ts` | Same-message selection validation, durable source addressing, popover positioning, and note keyboard policy |
 | `packages/client/ui-conversation/src/client/slots.ts` | Injected action contract |
@@ -148,6 +188,8 @@ The Harness supplies the complete browser UI and `/api` transport. SwarmX has no
 | `packages/client/ui-conversation/tests/history-projection.test.ts` | Append-only branch and model-projection isolation |
 | `packages/client/ui-conversation/tests/message-selection.test.ts` | Selection eligibility, cross-session-ready source identity, positioning, and keyboard behavior |
 | `packages/client/ui-conversation/tests/rerun.test.ts` | Re-run orchestration behavior |
+| `packages/client/ui-conversation/tests/runtime-client.test.ts` | Runtime-qualified HTTP revision/operations, error handling, and SSE subscription contract |
+| `packages/client/ui-conversation/tests/runtime-registration.test.ts` | Native DSH preservation and Codex-only Conversation slot shadowing contract |
 | `packages/client/ui-conversation/tests/turn-origin.test.ts` | Turn lookup behavior |
 | `packages/client/ui-conversation/tests/user-edit-node.test.ts` | User-message Edit node behavior |
 | `packages/client/ui-conversation/tests/user-edit-layout.test.ts` | User-message clock, Copy, and Edit layout contract |
@@ -189,12 +231,13 @@ The Harness supplies the complete browser UI and `/api` transport. SwarmX has no
 | `packages/science/core/src/demo.ts` | Executable public-service tour through the complete first Science product loop |
 | `packages/science/core/src/errors.ts` | Stable Science service error codes |
 | `packages/science/core/src/figure.ts` | Figure code hashing, semantic object inference, and accepted-patch range remapping |
-| `packages/science/core/src/index.ts` | Workspace-scoped `ctx.science` service and Remote methods |
+| `packages/science/core/src/core.ts` | Platform-neutral workspace-scoped Science authority over journal, artifacts, notebooks, literature, writing, and resources |
+| `packages/science/core/src/index.ts` | Thin DSH Cordis/Typert service carrier over `ScienceCore` and default live-Session workspace resolution |
 | `packages/science/core/src/journal.ts` | WAL SQLite journal, v1–v5 migrations, replay, materialized operational views, and export receipts |
 | `packages/science/core/src/jupymcp-runtime.ts` | Official-SDK MCP stdio controller pool with one persistent Jupyter kernel and bounded canonical Notebook per workspace Notebook |
 | `packages/science/core/src/literature.ts` | Loopback-only Zotero v3 candidate retrieval, Zotero-to-BibTeX normalization, owner-only snapshot, deterministic local ranking, and bounded citation results |
 | `packages/science/core/src/artifact-metadata.ts` | Format routing plus deterministic PNG `iTXt`, SVG `metadata`, and PDF XMP reproducibility encoding/extraction |
-| `packages/science/core/src/python-runtime.ts` | Managed stateless Python execution over the DSH subprocess seam |
+| `packages/science/core/src/python-runtime.ts` | Managed stateless Python execution over the structural Science process seam |
 | `packages/science/core/src/preset.ts` | Preset-scoped Science annotation/literature/Typst prompt sections and direct Typst Bash guard |
 | `packages/science/core/src/tabular-preview.ts` | Papa Parse CSV/TSV and bounded scalar-record JSON adaptation for typed table previews |
 | `packages/science/core/src/writing-preview-runtime.ts` | Engine-identified strict NDJSON controller for the bundled semantic writing process and revision-bound point lookup |
@@ -205,8 +248,9 @@ The Harness supplies the complete browser UI and `/api` transport. SwarmX has no
 | `packages/science/core/src/resource-id.ts` | Canonical typed local `sx:` logical/exact ID formatter and strict parser |
 | `packages/science/core/src/resource-resolver.ts` | Pure workspace-snapshot typed resource index, revision assertion, digest mapping, and Host-only entity resolution |
 | `packages/science/core/src/resource-view.ts` | Strict bounded resource heads, metadata projections, verified Artifact preview selection, and explicit relation neighbors |
+| `packages/science/core/src/subprocess.ts` | Runtime-neutral managed-process structural contract and credential-scrubbed child environment |
 | `packages/science/core/src/typert.ts` | Host Typert contribution |
-| `packages/science/core/src/tools.ts` | Seven strict aggregate Science tools plus direct local literature search, preset-scoped registration, durable locators, and verified annotation image projection |
+| `packages/science/core/src/tools.ts` | Seven aggregate operation schemas plus direct literature search, with runtime-neutral invocation and DSH Tool rendering/registration carriers |
 | `packages/science/core/src/writing.ts` | Deterministic source hashing, format routing, structural checks, and scientific diagnostics |
 | `packages/science/core/tests/artifact-registry.test.ts` | Artifact security, deduplication, cancellation, migration, and replay contract |
 | `packages/science/core/tests/build.test.ts` | Deterministic shared-chunk and publish allowlist regression contract |
@@ -248,6 +292,10 @@ extension policy, and legacy-export rule.
 
 `docs/resource-addressing.md` defines canonical local Science IDs, revision assertions, bounded
 resource views, workspace authorization, and the external-identifier extension boundary.
+
+`docs/runtime-platform.md` records the audited DSH Web seam, shared conversation contract,
+DSH/Codex adapter boundary, native transcript ownership, protocol/approval rules, explicit capability
+differences, MCP carrier, workspace scope, and one-time product-state migration.
 
 `docs/reproducibility-metadata.md` defines the portable Figure PNG/SVG/PDF metadata schema,
 Python/R generation flow, source locators, security boundary, and opt-out semantics.
