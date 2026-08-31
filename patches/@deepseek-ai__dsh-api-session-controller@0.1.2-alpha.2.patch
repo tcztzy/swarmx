@@ -1,0 +1,66 @@
+diff --git a/lib/client.js b/lib/client.js
+--- a/lib/client.js
++++ b/lib/client.js
+@@ -1691,8 +1691,11 @@ window.__ModuleLoader__.load({
+-			* @param opts - target workspace or working directory, plus an optional caller-owned id.
++			* @param opts - target workspace or working directory, plus an optional caller-owned id and agent preset.
+ 			* @returns the create result.
+ 			*/
+ 			async create(opts = {}) {
+-				const shared = opts.sessionId === void 0 ? {} : { sessionId: opts.sessionId };
++				const shared = {
++					...opts.sessionId === void 0 ? {} : { sessionId: opts.sessionId },
++					...opts.agentPreset === void 0 ? {} : { agentPreset: opts.agentPreset }
++				};
+ 				const payload = opts.workspaceId !== void 0 ? {
+ 					workspaceId: opts.workspaceId,
+ 					...shared
+diff --git a/lib/types/client/contract/sessions.d.ts b/lib/types/client/contract/sessions.d.ts
+--- a/lib/types/client/contract/sessions.d.ts
++++ b/lib/types/client/contract/sessions.d.ts
+@@ -30,10 +30,11 @@ export interface ISessions {
+-     * @param opts - target workspace, directory, and optional preallocated identity.
++     * @param opts - target workspace, directory, preallocated identity, and agent preset.
+      * @returns the Session identity after its local binding is addressable.
+      */
+     create(opts?: {
+         workspaceId?: WorkspaceId;
+         cwd?: string;
+         sessionId?: SessionId;
++        agentPreset?: string;
+     }): Promise<SessionId>;
+     /**
+      * Select a session as current.
+diff --git a/lib/types/client/sessions/manager.d.ts b/lib/types/client/sessions/manager.d.ts
+--- a/lib/types/client/sessions/manager.d.ts
++++ b/lib/types/client/sessions/manager.d.ts
+@@ -175,10 +175,11 @@ export declare class SessionManager {
+-     * @param opts - target workspace or working directory, plus an optional caller-owned id.
++     * @param opts - target workspace or working directory, plus an optional caller-owned id and agent preset.
+      * @returns the create result.
+     */
+     create(opts?: {
+         workspaceId?: WorkspaceId;
+         cwd?: string;
+         sessionId?: SessionId;
++        agentPreset?: string;
+     }): Promise<RemoteResult<{
+         sessionId: SessionId;
+     }>>;
+diff --git a/lib/types/client/sessions/service.d.ts b/lib/types/client/sessions/service.d.ts
+--- a/lib/types/client/sessions/service.d.ts
++++ b/lib/types/client/sessions/service.d.ts
+@@ -243,11 +243,12 @@ export declare class ClientSessions implements ISessions {
+-     * @param opts - target workspace or directory and an optional preallocated id.
++     * @param opts - target workspace or directory, optional preallocated id, and agent preset.
+      * @returns the new session id.
+      * @throws {SessionCreateError} with the requested id.
+      */
+     create(opts?: {
+         workspaceId?: WorkspaceId;
+         cwd?: string;
+         sessionId?: SessionId;
++        agentPreset?: string;
+     }): Promise<SessionId>;
+     /**
+      * Fork a session from a completed-turn prefix of the source (same

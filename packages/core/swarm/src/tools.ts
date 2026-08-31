@@ -294,6 +294,7 @@ export function createSwarmToolDefinition<Actor extends SwarmActor>(
 interface SwarmToolContext {
   readonly swarm: SwarmToolService<Agent>;
   readonly systemPrompt: {
+    getSectionOrder(name: "TOOLS_SDK"): number;
     section(input: { readonly name: string; readonly order: number; readonly text: string }): void;
   };
   readonly tools: { register(definition: ToolDefinition): () => void };
@@ -312,7 +313,7 @@ export function apply(ctx: SwarmToolContext): void {
   };
   ctx.systemPrompt.section({
     name: "swarmx:team-mode",
-    order: 194,
+    order: ctx.systemPrompt.getSectionOrder("TOOLS_SDK") + 200,
     text: "Use the swarm tool as the only Team coordination surface. Classify tasks as read (R), write (W), or knowledge (K). The lead creates and administers the Team. Members act only within their durable role and current task attempt; they must not delegate or access PKB. A write task grants one effect-fenced mutation lane but does not replace ordinary approvals or sandbox policy. Implementers submit bounded artifacts and evidence; submission revokes mutation authority and is not completion. Only the exact assigned verifier or lead may start verification and record a verdict, with self-verification explicitly degraded. A semantic monitor is optional and event-triggered; it may only record a strict read-only monitor finding and never a command or task verdict. Tool timeout/error may mean an uncertain effect and must be resolved before retry. Task completion and messages are candidates, not knowledge; only lead-only admit_knowledge with verified sources can commit a K task through Science Journal or approved PKB ownership.",
   });
   effectContext.effect(() => registerSwarmTool(ctx), "dsh-swarm: register aggregate tool");

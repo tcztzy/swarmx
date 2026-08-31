@@ -30,8 +30,32 @@ describe("client build", () => {
       "@deepseek-ai/cordis",
       "@deepseek-ai/dsh-client-ui-slots",
       "@deepseek-ai/dsh-client-ui-primitives",
-      "@deepseek-ai/dsh-client-runtime/client",
     ]);
+  });
+
+  it("uses only alpha.2 split client services", () => {
+    const packageJson = JSON.parse(
+      readFileSync(new URL("../package.json", import.meta.url), "utf8"),
+    ) as {
+      readonly dsh: { readonly client: { readonly inject: readonly string[] } };
+      readonly peerDependencies: Readonly<Record<string, string>>;
+      readonly devDependencies: Readonly<Record<string, string>>;
+    };
+
+    expect(packageJson.dsh.client.inject).toEqual(
+      expect.arrayContaining([
+        "@deepseek-ai/dsh-api-session-controller",
+        "@deepseek-ai/dsh-api-workspace-controller",
+        "@deepseek-ai/dsh-client-ui-chat",
+        "@deepseek-ai/dsh-client-ui-renderer",
+      ]),
+    );
+    expect(packageJson.dsh.client.inject).not.toContain("@deepseek-ai/dsh-api-remotes");
+    expect(packageJson.dsh.client.inject).not.toContain("@deepseek-ai/dsh-client-runtime");
+    expect(packageJson.peerDependencies).not.toHaveProperty("@deepseek-ai/dsh-api-remotes");
+    expect(packageJson.peerDependencies).not.toHaveProperty("@deepseek-ai/dsh-client-runtime");
+    expect(packageJson.devDependencies).not.toHaveProperty("@deepseek-ai/dsh-api-remotes");
+    expect(packageJson.devDependencies).not.toHaveProperty("@deepseek-ai/dsh-client-runtime");
   });
 
   it("V96 resolves the shared annotation contract from emitted types during clean builds", () => {

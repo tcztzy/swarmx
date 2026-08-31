@@ -1,4 +1,4 @@
-import type { SessionId } from "@deepseek-ai/dsh-client-runtime/client";
+import type { SessionId } from "@deepseek-ai/dsh-session/types";
 
 export type SideViewMode = "inspect" | "workbench";
 

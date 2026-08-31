@@ -188,6 +188,20 @@ function diagnosticOutput(message: string, budget: OutputBudget): NotebookOutput
   };
 }
 
+function streamOutput(
+  outputs: readonly NotebookOutputBlock[],
+  name: "stdout" | "stderr",
+): BoundedText {
+  const blocks = outputs.filter(
+    (output): output is Extract<NotebookOutputBlock, { type: "stream" }> =>
+      output.type === "stream" && output.name === name,
+  );
+  return {
+    text: blocks.map((output) => output.text).join(""),
+    truncated: blocks.some((output) => output.truncated),
+  };
+}
+
 function normalizeContent(
   result: JupyMcpToolResult,
   maxOutputBytes: number,
@@ -296,25 +310,11 @@ function normalizeContent(
     outputs.push(diagnosticOutput("Unsupported JupyMCP content block", budget));
   }
 
-  const stdoutBlocks = outputs.filter(
-    (output): output is Extract<NotebookOutputBlock, { type: "stream" }> =>
-      output.type === "stream" && output.name === "stdout",
-  );
-  const stderrBlocks = outputs.filter(
-    (output): output is Extract<NotebookOutputBlock, { type: "stream" }> =>
-      output.type === "stream" && output.name === "stderr",
-  );
   return {
     outputs,
     status: "succeeded",
-    stderr: {
-      text: stderrBlocks.map((output) => output.text).join(""),
-      truncated: stderrBlocks.some((output) => output.truncated),
-    },
-    stdout: {
-      text: stdoutBlocks.map((output) => output.text).join(""),
-      truncated: stdoutBlocks.some((output) => output.truncated),
-    },
+    stderr: streamOutput(outputs, "stderr"),
+    stdout: streamOutput(outputs, "stdout"),
   };
 }
 
@@ -403,25 +403,11 @@ function normalizeCanonicalNotebook(
       });
     }
   }
-  const stdout = outputs.filter(
-    (output): output is Extract<NotebookOutputBlock, { type: "stream" }> =>
-      output.type === "stream" && output.name === "stdout",
-  );
-  const stderr = outputs.filter(
-    (output): output is Extract<NotebookOutputBlock, { type: "stream" }> =>
-      output.type === "stream" && output.name === "stderr",
-  );
   return {
     outputs,
     status: outputs.some((output) => output.type === "error") ? "failed" : "succeeded",
-    stdout: {
-      text: stdout.map((output) => output.text).join(""),
-      truncated: stdout.some((output) => output.truncated),
-    },
-    stderr: {
-      text: stderr.map((output) => output.text).join(""),
-      truncated: stderr.some((output) => output.truncated),
-    },
+    stdout: streamOutput(outputs, "stdout"),
+    stderr: streamOutput(outputs, "stderr"),
   };
 }
 

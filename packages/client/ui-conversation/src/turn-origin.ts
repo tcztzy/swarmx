@@ -1,25 +1,22 @@
 /** Resolve the user-authored text that opened one DSH turn. */
 
-import type { ConversationNode, UserMessageNode } from "@deepseek-ai/dsh-client-runtime/client";
-import type { TimelineTurn } from "./fork-boundary.js";
-
-/** Exact DSH conversation-node union consumed by the lookup. */
-export type LookupNode = ConversationNode;
+import type { ChatNode, ChatSnapshot } from "@deepseek-ai/dsh-client-ui-chat/client";
 
 /**
- * Find the first ordinary user message inside one turn's event boundaries.
+ * Find the first ordinary user message indexed under one turn.
  * Steering messages have their own node kind and are intentionally excluded.
  */
-export function turnTextOf(nodes: readonly LookupNode[], turn: TimelineTurn): string | undefined {
-  const start = turn.start?.seq;
-  if (start === undefined) return undefined;
-  const end = turn.end?.seq ?? Number.POSITIVE_INFINITY;
-  const opening = nodes.find(
-    (node): node is UserMessageNode => node.kind === "user" && node.seq > start && node.seq < end,
-  );
-  if (opening === undefined) return undefined;
-  const text = plainText(opening.content);
-  return text === "" ? undefined : text;
+export function turnTextOf(
+  chat: Pick<ChatSnapshot, "locations" | "nodes">,
+  turn: number,
+): string | undefined {
+  for (const key of chat.locations.getTurn(turn)) {
+    const node = chat.nodes.get(key) as ChatNode | undefined;
+    if (node?.kind !== "user") continue;
+    const text = plainText(node.data.content);
+    if (text !== "") return text;
+  }
+  return undefined;
 }
 
 /** Concatenate the text blocks of a message, dropping images and other forms. */

@@ -1,6 +1,6 @@
 /** Terminal failed-turn selection for the conversation turn-tail extension. */
 
-import type { TurnTailOwnerProps } from "@deepseek-ai/dsh-client-ui-conversation/client";
+import type { TurnTailOwnerProps } from "@deepseek-ai/dsh-client-ui-chat/client";
 
 /** Failure data rendered beside the retry icon. */
 export interface FailedTurn {

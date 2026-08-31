@@ -37,6 +37,38 @@ const STOPWORDS = new Set([
   "what",
   "with",
 ]);
+const BIB_TYPES: Readonly<Record<string, string>> = {
+  artwork: "misc",
+  audioRecording: "misc",
+  blogPost: "misc",
+  book: "book",
+  bookSection: "incollection",
+  conferencePaper: "inproceedings",
+  dictionaryEntry: "incollection",
+  document: "misc",
+  encyclopediaArticle: "incollection",
+  film: "misc",
+  forumPost: "misc",
+  hearing: "misc",
+  instantMessage: "misc",
+  interview: "misc",
+  journalArticle: "article",
+  letter: "misc",
+  magazineArticle: "article",
+  manuscript: "unpublished",
+  map: "misc",
+  newspaperArticle: "article",
+  patent: "misc",
+  podcast: "misc",
+  presentation: "misc",
+  radioBroadcast: "misc",
+  report: "techreport",
+  statute: "misc",
+  thesis: "phdthesis",
+  tvBroadcast: "misc",
+  videoRecording: "misc",
+  webpage: "misc",
+};
 
 const zoteroCreatorSchema = z
   .object({
@@ -217,42 +249,6 @@ function safeCitationKey(value: string | undefined, itemKey: string): string {
     : `zotero_${itemKey.toLocaleLowerCase("en-US")}`;
 }
 
-function bibType(itemType: string): string | null {
-  const types: Readonly<Record<string, string>> = {
-    artwork: "misc",
-    audioRecording: "misc",
-    blogPost: "misc",
-    book: "book",
-    bookSection: "incollection",
-    conferencePaper: "inproceedings",
-    dictionaryEntry: "incollection",
-    document: "misc",
-    encyclopediaArticle: "incollection",
-    film: "misc",
-    forumPost: "misc",
-    hearing: "misc",
-    instantMessage: "misc",
-    interview: "misc",
-    journalArticle: "article",
-    letter: "misc",
-    magazineArticle: "article",
-    manuscript: "unpublished",
-    map: "misc",
-    newspaperArticle: "article",
-    patent: "misc",
-    podcast: "misc",
-    presentation: "misc",
-    radioBroadcast: "misc",
-    report: "techreport",
-    statute: "misc",
-    thesis: "phdthesis",
-    tvBroadcast: "misc",
-    videoRecording: "misc",
-    webpage: "misc",
-  };
-  return types[itemType] ?? null;
-}
-
 function creators(item: ZoteroItem, kind: "author" | "editor"): string | undefined {
   const values = (item.data.creators ?? [])
     .filter((creator) => creator.creatorType === kind)
@@ -279,7 +275,7 @@ function itemEntry(
   hits: number,
   usedKeys: Set<string>,
 ): BibEntry | null {
-  const type = bibType(item.data.itemType);
+  const type = BIB_TYPES[item.data.itemType] ?? null;
   const title = item.data.title?.trim();
   if (!type || !title) return null;
   const baseKey = safeCitationKey(item.data.citationKey, item.key);

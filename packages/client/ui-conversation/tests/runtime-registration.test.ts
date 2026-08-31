@@ -1,4 +1,4 @@
-import type { ClientContext } from "@deepseek-ai/dsh-client-runtime/client";
+import type { Context } from "@deepseek-ai/cordis";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { RuntimeEvent } from "../src/client/runtime-client.js";
 import {
@@ -17,12 +17,13 @@ afterEach(() => {
 
 function context() {
   const register = vi.fn(() => vi.fn());
+  const inject = vi.fn((_name: string, install: () => () => void) => install());
   const disposers: Array<() => void> = [];
   const ctx = {
     effect: vi.fn((effect: () => () => void) => disposers.push(effect())),
-    slots: { register },
-  } as unknown as ClientContext;
-  return { ctx, disposers, register };
+    slots: { inject, register },
+  } as unknown as Context;
+  return { ctx, disposers, inject, register };
 }
 
 function metadata(defaultRuntimeKind: "dsh" | "codex") {
@@ -79,6 +80,7 @@ describe("peer runtime Conversation registration", () => {
     registerPeerRuntimeConversation(fixture.ctx);
     await vi.waitFor(() => expect(fixture.register).toHaveBeenCalledOnce());
 
+    expect(fixture.inject).toHaveBeenCalledWith("conversation", expect.any(Function));
     expect(fixture.register.mock.calls[0]?.[0]).toEqual({
       name: "conversation",
       priority: -10,
@@ -96,6 +98,7 @@ describe("peer runtime Conversation registration", () => {
     registerPeerRuntimeConversation(fixture.ctx);
     await vi.waitFor(() => expect(fixture.register).toHaveBeenCalledOnce());
 
+    expect(fixture.inject).toHaveBeenCalledWith("conversation", expect.any(Function));
     expect(fixture.register.mock.calls[0]?.[0]).toEqual({
       name: "conversation",
       priority: -10,

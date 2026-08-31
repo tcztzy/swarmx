@@ -295,7 +295,9 @@ export class ScienceJournal {
     ensureOpen(this.open);
     const hash = requestHash("project/created", workspaceKey, request);
     const existing = this.findRequest(request.requestId);
-    if (existing) return this.resolveIdempotentProject(existing, hash);
+    if (existing) {
+      return this.resolveIdempotent(existing, hash, "project/created", scienceProjectSchema);
+    }
 
     const entity = this.transaction(() => {
       const eventId = randomUUID();
@@ -344,14 +346,10 @@ export class ScienceJournal {
     ensureOpen(this.open);
     const hash = requestHash("notebook/created", workspaceKey, request);
     const existing = this.findRequest(request.requestId);
-    if (existing) return this.resolveIdempotentNotebook(existing, hash);
-
-    const project = this.database
-      .prepare("SELECT id FROM science_projects WHERE id = ? AND workspace_key = ?")
-      .get(request.projectId, workspaceKey);
-    if (!project) {
-      throw new ScienceError("Project not found in this workspace", "PROJECT_NOT_FOUND");
+    if (existing) {
+      return this.resolveIdempotent(existing, hash, "notebook/created", scienceNotebookSchema);
     }
+    this.requireProject(workspaceKey, request.projectId);
 
     return this.transaction(() => {
       const eventId = randomUUID();
@@ -403,14 +401,10 @@ export class ScienceJournal {
     ensureOpen(this.open);
     const hash = requestHash("document/created", workspaceKey, request);
     const existing = this.findRequest(request.requestId);
-    if (existing) return this.resolveIdempotentDocument(existing, hash, "document/created");
-
-    const project = this.database
-      .prepare("SELECT id FROM science_projects WHERE id = ? AND workspace_key = ?")
-      .get(request.projectId, workspaceKey);
-    if (!project) {
-      throw new ScienceError("Project not found in this workspace", "PROJECT_NOT_FOUND");
+    if (existing) {
+      return this.resolveIdempotent(existing, hash, "document/created", scienceDocumentSchema);
     }
+    this.requireProject(workspaceKey, request.projectId);
 
     return this.transaction(() => {
       const eventId = randomUUID();
@@ -475,14 +469,10 @@ export class ScienceJournal {
     ensureOpen(this.open);
     const hash = requestHash("figure/created", workspaceKey, request);
     const existing = this.findRequest(request.requestId);
-    if (existing) return this.resolveIdempotentFigure(existing, hash, "figure/created");
-
-    const project = this.database
-      .prepare("SELECT id FROM science_projects WHERE id = ? AND workspace_key = ?")
-      .get(request.projectId, workspaceKey);
-    if (!project) {
-      throw new ScienceError("Project not found in this workspace", "PROJECT_NOT_FOUND");
+    if (existing) {
+      return this.resolveIdempotent(existing, hash, "figure/created", scienceFigureSchema);
     }
+    this.requireProject(workspaceKey, request.projectId);
     if (request.artifactId) {
       const artifact = this.database
         .prepare(
@@ -939,7 +929,9 @@ export class ScienceJournal {
     ensureOpen(this.open);
     const hash = requestHash("document/modified", workspaceKey, request);
     const existing = this.findRequest(request.requestId);
-    if (existing) return this.resolveIdempotentDocument(existing, hash, "document/modified");
+    if (existing) {
+      return this.resolveIdempotent(existing, hash, "document/modified", scienceDocumentSchema);
+    }
 
     return this.transaction(() => {
       const row = this.database
@@ -1077,7 +1069,9 @@ export class ScienceJournal {
     ensureOpen(this.open);
     const hash = requestHash("figure/modified", workspaceKey, request);
     const existing = this.findRequest(request.requestId);
-    if (existing) return this.resolveIdempotentFigure(existing, hash, "figure/modified");
+    if (existing) {
+      return this.resolveIdempotent(existing, hash, "figure/modified", scienceFigureSchema);
+    }
 
     return this.transaction(() => {
       const row = this.database
@@ -1233,7 +1227,14 @@ export class ScienceJournal {
     ensureOpen(this.open);
     const hash = requestHash("notebook/cell-executed", workspaceKey, request);
     const existing = this.findRequest(request.requestId);
-    if (existing) return this.resolveIdempotentExecution(existing, hash);
+    if (existing) {
+      return this.resolveIdempotent(
+        existing,
+        hash,
+        "notebook/cell-executed",
+        notebookExecutionSchema,
+      );
+    }
     const notebook = this.database
       .prepare("SELECT id FROM science_notebooks WHERE id = ? AND workspace_key = ?")
       .get(request.notebookId, workspaceKey);
@@ -1252,7 +1253,14 @@ export class ScienceJournal {
     ensureOpen(this.open);
     const hash = requestHash("notebook/cell-executed", workspaceKey, request);
     const existing = this.findRequest(request.requestId);
-    if (existing) return this.resolveIdempotentExecution(existing, hash);
+    if (existing) {
+      return this.resolveIdempotent(
+        existing,
+        hash,
+        "notebook/cell-executed",
+        notebookExecutionSchema,
+      );
+    }
     if ((request.outputArtifact === null) !== (settled.capturedArtifact === undefined)) {
       throw new ScienceError("Notebook artifact capture did not settle", "ARTIFACT_IO_FAILED");
     }
@@ -1384,14 +1392,10 @@ export class ScienceJournal {
     ensureOpen(this.open);
     const hash = requestHash("artifact/registered", workspaceKey, identity);
     const existing = this.findRequest(request.requestId);
-    if (existing) return this.resolveIdempotentArtifact(existing, hash);
-
-    const project = this.database
-      .prepare("SELECT id FROM science_projects WHERE id = ? AND workspace_key = ?")
-      .get(request.projectId, workspaceKey);
-    if (!project) {
-      throw new ScienceError("Project not found in this workspace", "PROJECT_NOT_FOUND");
+    if (existing) {
+      return this.resolveIdempotent(existing, hash, "artifact/registered", scienceArtifactSchema);
     }
+    this.requireProject(workspaceKey, request.projectId);
     for (const sourceEntityId of request.sourceEntityIds) {
       if (!this.entityExists(workspaceKey, sourceEntityId)) {
         throw new ScienceError(
@@ -2103,74 +2107,6 @@ export class ScienceJournal {
     }
     const payload = JSON.parse(existing.payload_json) as { readonly record: unknown };
     return scienceResearchRecordSchema.parse(payload.record);
-  }
-
-  private resolveIdempotentProject(existing: RequestRow, hash: string): ScienceProject {
-    if (existing.type !== "project/created" || existing.request_hash !== hash) {
-      throw new ScienceError(
-        "Idempotency key was already used for a different science mutation",
-        "IDEMPOTENCY_CONFLICT",
-      );
-    }
-    return scienceProjectSchema.parse(JSON.parse(existing.payload_json));
-  }
-
-  private resolveIdempotentNotebook(existing: RequestRow, hash: string): ScienceNotebook {
-    if (existing.type !== "notebook/created" || existing.request_hash !== hash) {
-      throw new ScienceError(
-        "Idempotency key was already used for a different science mutation",
-        "IDEMPOTENCY_CONFLICT",
-      );
-    }
-    return scienceNotebookSchema.parse(JSON.parse(existing.payload_json));
-  }
-
-  private resolveIdempotentArtifact(existing: RequestRow, hash: string): ScienceArtifact {
-    if (existing.type !== "artifact/registered" || existing.request_hash !== hash) {
-      throw new ScienceError(
-        "Idempotency key was already used for a different science mutation",
-        "IDEMPOTENCY_CONFLICT",
-      );
-    }
-    return scienceArtifactSchema.parse(JSON.parse(existing.payload_json));
-  }
-
-  private resolveIdempotentExecution(existing: RequestRow, hash: string): NotebookExecution {
-    if (existing.type !== "notebook/cell-executed" || existing.request_hash !== hash) {
-      throw new ScienceError(
-        "Idempotency key was already used for a different science mutation",
-        "IDEMPOTENCY_CONFLICT",
-      );
-    }
-    return notebookExecutionSchema.parse(JSON.parse(existing.payload_json));
-  }
-
-  private resolveIdempotentDocument(
-    existing: RequestRow,
-    hash: string,
-    type: "document/created" | "document/modified",
-  ): ScienceDocument {
-    if (existing.type !== type || existing.request_hash !== hash) {
-      throw new ScienceError(
-        "Idempotency key was already used for a different science mutation",
-        "IDEMPOTENCY_CONFLICT",
-      );
-    }
-    return scienceDocumentSchema.parse(JSON.parse(existing.payload_json));
-  }
-
-  private resolveIdempotentFigure(
-    existing: RequestRow,
-    hash: string,
-    type: "figure/created" | "figure/modified",
-  ): ScienceFigure {
-    if (existing.type !== type || existing.request_hash !== hash) {
-      throw new ScienceError(
-        "Idempotency key was already used for a different science mutation",
-        "IDEMPOTENCY_CONFLICT",
-      );
-    }
-    return scienceFigureSchema.parse(JSON.parse(existing.payload_json));
   }
 
   private entityExists(workspaceKey: string, entityId: string): boolean {

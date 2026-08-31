@@ -1,10 +1,7 @@
-import type {
-  ConversationSnapshot,
-  SessionId,
-  ToolCallBlock,
-} from "@deepseek-ai/dsh-client-runtime/client";
+import type { ChatSnapshot, ToolCallBlock } from "@deepseek-ai/dsh-client-ui-chat/client";
 import { IconDataOutline16 } from "@deepseek-ai/dsh-client-ui-primitives";
 import type { PropsRuntime } from "@deepseek-ai/dsh-client-ui-slots";
+import type { SessionId } from "@deepseek-ai/dsh-session/types";
 import type { ScienceArtifact, ScienceArtifactPreview } from "@swarmx/dsh-science/types";
 import { useEffect, useMemo, useState } from "react";
 import css from "./science-conversation-artifacts.module.css";
@@ -26,14 +23,14 @@ function toolBlocks(root: ToolCallBlock): readonly ToolCallBlock[] {
 
 /** Recover ordered, same-Session artifact results from one public Chat turn. */
 export function scienceArtifactsInTurn(
-  snapshot: ConversationSnapshot,
+  snapshot: ChatSnapshot,
   turn: number,
   sessionId: SessionId,
 ): readonly ScienceArtifact[] {
   const artifacts: ScienceArtifact[] = [];
   const seen = new Set<string>();
-  for (const key of snapshot.chat.locations.getTurn(turn)) {
-    const root = rootFromNode(snapshot.chat.nodes.get(key));
+  for (const key of snapshot.locations.getTurn(turn)) {
+    const root = rootFromNode(snapshot.nodes.get(key));
     if (root === null) continue;
     for (const block of toolBlocks(root)) {
       const artifact = scienceArtifactFromToolCall(block, sessionId);
@@ -141,11 +138,11 @@ type ScienceConversationArtifactsProps = PropsRuntime<"conversation.chat.turnTai
 export function ScienceConversationArtifacts({
   turn,
   sessionId,
-  useSession,
+  useChat,
   loadPreview,
   openArtifact,
 }: ScienceConversationArtifactsProps) {
-  const snapshot = useSession((value) => value);
+  const snapshot = useChat((value: ChatSnapshot) => value);
   const artifacts = useMemo(
     () => scienceArtifactsInTurn(snapshot, turn, sessionId),
     [sessionId, snapshot, turn],

@@ -26,16 +26,10 @@ export class WorkspaceAuthority {
 
   resolve(scope: WorkspaceScope, relativePath: string): string {
     const owned = this.scopes.get(scope.id);
-    if (
-      owned === undefined ||
-      owned.token !== scope.token ||
-      owned.root !== scope.root ||
-      !relativePath ||
-      isAbsolute(relativePath)
-    ) {
-      if (owned === undefined || owned.token !== scope.token || owned.root !== scope.root) {
-        throw new Error("Unknown workspace scope.");
-      }
+    if (owned === undefined || owned.token !== scope.token || owned.root !== scope.root) {
+      throw new Error("Unknown workspace scope.");
+    }
+    if (!relativePath || isAbsolute(relativePath)) {
       throw new Error("Workspace resources require a non-empty relative path.");
     }
     const candidate = resolve(owned.root, relativePath);

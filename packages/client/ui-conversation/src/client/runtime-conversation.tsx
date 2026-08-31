@@ -1,4 +1,4 @@
-import type { ClientContext } from "@deepseek-ai/dsh-client-runtime/client";
+import type { Context } from "@deepseek-ai/cordis";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   type ApprovalDecision,
@@ -173,7 +173,7 @@ export class PendingOperationCounter {
 }
 
 /** Install the direct Conversation-slot boundary only for a non-DSH default runtime. */
-export function registerPeerRuntimeConversation(ctx: ClientContext): void {
+export function registerPeerRuntimeConversation(ctx: Context): void {
   ctx.effect(() => {
     const controller = new AbortController();
     const client = new ConversationRuntimeClient();
@@ -182,27 +182,31 @@ export function registerPeerRuntimeConversation(ctx: ClientContext): void {
       (metadata) => {
         if (controller.signal.aborted || metadata.defaultRuntimeKind === "dsh") return;
         const runtimeKind = metadata.defaultRuntimeKind;
-        unregister = ctx.slots.register(
-          { name: "conversation", priority: SHADOW_PRIORITY },
-          function PeerConversationEntry() {
-            return <RuntimeConversation client={client} runtimeKind={runtimeKind} />;
-          },
+        unregister = ctx.slots.inject("conversation", () =>
+          ctx.slots.register(
+            { name: "conversation", priority: SHADOW_PRIORITY },
+            function PeerConversationEntry() {
+              return <RuntimeConversation client={client} runtimeKind={runtimeKind} />;
+            },
+          ),
         );
       },
       (reason: unknown) => {
         if (controller.signal.aborted) return;
         const message = reason instanceof Error ? reason.message : String(reason);
-        unregister = ctx.slots.register(
-          { name: "conversation", priority: SHADOW_PRIORITY },
-          function RuntimeMetadataFailure() {
-            return (
-              <main className={css.root} aria-label="Conversation runtime unavailable">
-                <div className={css.error} role="alert">
-                  Conversation runtime metadata failed: {message}
-                </div>
-              </main>
-            );
-          },
+        unregister = ctx.slots.inject("conversation", () =>
+          ctx.slots.register(
+            { name: "conversation", priority: SHADOW_PRIORITY },
+            function RuntimeMetadataFailure() {
+              return (
+                <main className={css.root} aria-label="Conversation runtime unavailable">
+                  <div className={css.error} role="alert">
+                    Conversation runtime metadata failed: {message}
+                  </div>
+                </main>
+              );
+            },
+          ),
         );
       },
     );

@@ -1,7 +1,7 @@
 import type { ToolRunContext } from "@deepseek-ai/dsh-tools";
 import { describe, expect, it, vi } from "vitest";
 import type { SwarmActor } from "../src/coordinator.js";
-import { createSwarmToolDefinition, SWARM_ACTIONS } from "../src/tools.js";
+import { apply, createSwarmToolDefinition, SWARM_ACTIONS } from "../src/tools.js";
 
 function actor(): SwarmActor {
   return {
@@ -13,6 +13,25 @@ function actor(): SwarmActor {
 }
 
 describe("swarm aggregate tool", () => {
+  it("places Team guidance after the alpha.2 tool SDK section", () => {
+    const section = vi.fn();
+    const getSectionOrder = vi.fn(() => 5_000);
+    const register = vi.fn(() => vi.fn());
+
+    apply({
+      swarm: {},
+      systemPrompt: { getSectionOrder, section },
+      tools: { register },
+      effect: (install: () => () => void) => install(),
+    } as never);
+
+    expect(getSectionOrder).toHaveBeenCalledWith("TOOLS_SDK");
+    expect(section).toHaveBeenCalledWith(
+      expect.objectContaining({ name: "swarmx:team-mode", order: 5_200 }),
+    );
+    expect(register).toHaveBeenCalledOnce();
+  });
+
   it("V162/V170/V173: exposes one bounded aggregate surface with archive and no delete", async () => {
     const root = actor();
     const snapshot = vi.fn(() => Promise.resolve({ kind: "inactive", revision: 0 }));

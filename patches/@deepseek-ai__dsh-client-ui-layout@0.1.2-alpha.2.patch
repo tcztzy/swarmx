@@ -1,0 +1,90 @@
+diff --git a/lib/client.js b/lib/client.js
+--- a/lib/client.js
++++ b/lib/client.js
+@@ -33,7 +33,7 @@ window.__ModuleLoader__.load({
+ 		*/
+ 		function computeColumns(viewport, sidebar, details) {
+ 			const s = sidebar === 0 ? 56 : clampWidth(sidebar, 264, 420);
+-			const d0 = details === 0 ? 0 : clampWidth(details, 300, 520);
++			const d0 = details === 0 ? 0 : Math.max(300, Math.round(details));
+ 			if (s + d0 + 640 <= viewport) return {
+ 				sidebar: s,
+ 				center: viewport - s - d0,
+@@ -312,7 +312,7 @@ window.__ModuleLoader__.load({
+ 						d.sidebar = clampWidth(px, 264, 420);
+ 					},
+ 					setDetails: (d, px) => {
+-						d.details = clampWidth(px, 300, 520);
++						d.details = Math.max(300, Math.round(px));
+ 					},
+ 					toggleSidebar: (d) => {
+ 						if (d.narrow) d.narrowExpanded = !d.narrowExpanded;
+@@ -323,8 +323,8 @@ window.__ModuleLoader__.load({
+ 						d.narrow = narrow;
+ 						d.narrowExpanded = false;
+ 					},
+-					openDetails: (d) => {
+-						if (d.details === 0) d.details = 360;
++					openDetails: (d, preferredWidth) => {
++						if (d.details === 0) d.details = Math.max(300, Math.round(preferredWidth ?? 360));
+ 					},
+ 					closeDetails: (d) => {
+ 						d.details = 0;
+@@ -352,8 +352,8 @@ window.__ModuleLoader__.load({
+ 				this.#require().toggleSidebar();
+ 			}
+ 			/** Open the details panel (no-op when already open). */
+-			openDetails() {
+-				this.#require().openDetails();
++			openDetails(preferredWidth) {
++				this.#require().openDetails(preferredWidth);
+ 			}
+ 			/** Close the details panel. */
+ 			closeDetails() {
+diff --git a/lib/types/client/columns.d.ts b/lib/types/client/columns.d.ts
+--- a/lib/types/client/columns.d.ts
++++ b/lib/types/client/columns.d.ts
+@@ -34,8 +34,6 @@ export declare const SIDEBAR_COLLAPSED = 56;
+ export declare const SIDEBAR_AUTO_COLLAPSE = 1024;
+ /** Details drag clamp floor. */
+ export declare const DETAILS_MIN = 300;
+-/** Details drag clamp ceiling. */
+-export declare const DETAILS_MAX = 520;
+ /** Details width before any user drag. */
+ export declare const DETAILS_DEFAULT = 360;
+ /**
+diff --git a/lib/types/client/service.d.ts b/lib/types/client/service.d.ts
+--- a/lib/types/client/service.d.ts
++++ b/lib/types/client/service.d.ts
+@@ -21,8 +21,8 @@ export type PanelActions = BoundActions<ReturnType<typeof createLayoutStore>>;
+ export interface ILayout {
+     /** Toggle the sidebar panel (closed ⟷ contract default width). */
+     toggleSidebar(): void;
+     /** Open the details panel (no-op when already open). */
+-    openDetails(): void;
++    openDetails(preferredWidth?: number): void;
+     /** Close the details panel. */
+     closeDetails(): void;
+ }
+@@ -39,8 +39,8 @@ export declare class LayoutController implements ILayout {
+     attachPanels(actions: PanelActions): void;
+     /** Toggle the sidebar panel (closed ⟷ contract default width). */
+     toggleSidebar(): void;
+     /** Open the details panel (no-op when already open). */
+-    openDetails(): void;
++    openDetails(preferredWidth?: number): void;
+     /** Close the details panel. */
+     closeDetails(): void;
+ }
+diff --git a/lib/types/client/stores.d.ts b/lib/types/client/stores.d.ts
+--- a/lib/types/client/stores.d.ts
++++ b/lib/types/client/stores.d.ts
+@@ -30,7 +30,7 @@ type LayoutActions = {
+     setDetails: (draft: LayoutState, px: number) => void;
+     toggleSidebar: (draft: LayoutState) => void;
+     setNarrow: (draft: LayoutState, narrow: boolean) => void;
+-    openDetails: (draft: LayoutState) => void;
++    openDetails: (draft: LayoutState, preferredWidth?: number) => void;
+     closeDetails: (draft: LayoutState) => void;
+ };
+ /**

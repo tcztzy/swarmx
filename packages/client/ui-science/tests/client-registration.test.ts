@@ -34,21 +34,21 @@ const artifact = {
 };
 
 describe("V102/V122 Host-global deliverable contract", () => {
-  it("keeps only the generic Markdown file-link guidance global", () => {
+  it("keeps only the generic inline file-reference guidance global", () => {
     expect(pluginName).toBe("swarmx-ui-science");
     const sections: Array<{ name: string; order: number; text: string }> = [];
+    const getSectionOrder = vi.fn(() => 9_000);
     const result = applyHost({
-      systemPrompt: { section: (section) => sections.push(section) },
+      systemPrompt: { getSectionOrder, section: (section) => sections.push(section) },
     } as never) as unknown as () => void;
 
     expect(result).toBeUndefined();
     expect(sections.map((section) => section.name)).toEqual(["ui:deliverable-file-references"]);
     const deliverables = sections.find(({ name }) => name === "ui:deliverable-file-references");
-    expect(deliverables?.text).toContain("[filename](./workspace-relative/path)");
-    expect(deliverables?.text).toContain("Prefer this Markdown link");
-    expect(deliverables?.text).not.toContain(
-      "Format changed-file references as Markdown inline code",
-    );
+    expect(getSectionOrder).toHaveBeenCalledWith("DELIVERABLE_FILE_REFERENCES");
+    expect(deliverables?.order).toBe(9_000);
+    expect(deliverables?.text).toContain("Markdown inline code");
+    expect(deliverables?.text).not.toContain("[filename](./workspace-relative/path)");
     expect(deliverables?.text).not.toContain("typst compile");
     expect(deliverables?.text).not.toContain("science_query");
     expect(deliverables?.text).not.toContain("literature_search");
@@ -60,12 +60,14 @@ describe("V17/V57 Science client registration", () => {
     const registerConversationNode = vi.fn();
     const neverMounted = new Promise<never>(() => undefined);
     void apply({
-      conversationEvents: { register: registerConversationNode },
-      remote: { $mount: vi.fn(() => neverMounted) },
+      uiConversation: { events: { register: registerConversationNode } },
+      remote: {
+        $mount: vi.fn(() => neverMounted),
+        session: { openWorkspacePath: vi.fn() },
+      },
       sessions: { list: { getSnapshot: () => ({ current: undefined, byId: {} }) } },
       sideView: { open: vi.fn() },
       slots: { inject: vi.fn(), register: vi.fn() },
-      workspaces: { openPath: vi.fn() },
       provide: vi.fn(),
     } as never);
 
@@ -103,10 +105,13 @@ describe("V17/V57 Science client registration", () => {
     };
     const context = {
       conversation: { input: { for: vi.fn(() => input) } },
-      conversationEvents: { register: registerConversationNode },
+      uiConversation: { events: { register: registerConversationNode } },
       inject: injectService,
       remote: {
         $mount: mounted,
+        session: {
+          openWorkspacePath: vi.fn(() => Promise.resolve({ ok: true, value: undefined })),
+        },
         science: {
           previewArtifact: vi.fn(() =>
             Promise.resolve({
@@ -174,7 +179,6 @@ describe("V17/V57 Science client registration", () => {
       },
       sideView: { open: vi.fn() },
       slots: { inject: injectSlot, register },
-      workspaces: { openPath: vi.fn() },
     };
 
     const dispose = await apply(context as never);
@@ -206,6 +210,11 @@ describe("V17/V57 Science client registration", () => {
         }
       | undefined;
     if (!filesItem) throw new Error("Science Files turn-tail registration was not captured");
+    filesItem.inject("session-1").openFile("results/table.csv");
+    await Promise.resolve();
+    expect(context.remote.session.openWorkspacePath).toHaveBeenCalledWith({
+      path: "results/table.csv",
+    });
     filesItem.inject("session-1").openTypst("docs/paper.typ");
     expect(context.sideView.open).toHaveBeenCalledWith("session-1", {
       id: "science-typst:docs/paper.typ",

@@ -1,11 +1,7 @@
 import type { Context } from "@deepseek-ai/cordis";
 import type { AttachmentStore, ImageAttachmentRef } from "@deepseek-ai/dsh-attachment";
-import type {
-  JsonSchemaNode,
-  JsonValue,
-  ToolDefinition,
-  ToolRunContext,
-} from "@deepseek-ai/dsh-tools";
+import type { JsonSchemaNode, ToolDefinition, ToolRunContext } from "@deepseek-ai/dsh-tools";
+import type { JsonValue } from "@deepseek-ai/dsh-util-values";
 import { commentAnnotationSchema } from "@swarmx/annotation";
 import { z } from "zod";
 import { literatureSearchRequestSchema } from "./contracts.js";

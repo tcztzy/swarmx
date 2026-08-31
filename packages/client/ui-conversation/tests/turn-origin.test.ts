@@ -1,55 +1,71 @@
 import { describe, expect, it } from "vitest";
-import { type LookupNode, turnTextOf } from "../src/turn-origin.js";
+import { turnTextOf } from "../src/turn-origin.js";
 
-/** A user message node. */
-function user(seq: number, text: string): LookupNode {
-  return { kind: "user", seq, content: [{ type: "text", text }] };
+function chat(nodes: Record<string, unknown>, turnKeys = Object.keys(nodes)) {
+  return {
+    nodes: {
+      get: (key: string) => nodes[key],
+      values: () => Object.values(nodes),
+    },
+    locations: {
+      getTurn: () => turnKeys,
+      getStep: () => [],
+    },
+  } as never;
 }
 
-const TURN = { turn: 2, status: "closed" as const, start: { seq: 2 }, end: { seq: 5 } };
+function user(text: string) {
+  return { kind: "user", data: { content: [{ type: "text", text }] } };
+}
 
 describe("turnTextOf", () => {
-  it("resolves the user text inside the requested turn boundaries", () => {
-    expect(turnTextOf([user(1, "first"), user(3, "second")], TURN)).toBe("second");
+  it("resolves the user text indexed under the requested turn", () => {
+    expect(turnTextOf(chat({ first: user("first"), second: user("second") }, ["second"]), 2)).toBe(
+      "second",
+    );
   });
 
   it("joins multi-block text and trims it", () => {
-    const nodes: LookupNode[] = [
-      {
-        kind: "user",
-        seq: 1,
-        content: [
-          { type: "text", text: " a" },
-          { type: "text", text: "b " },
-        ],
-      },
-    ];
-    expect(turnTextOf(nodes, { ...TURN, start: { seq: 0 } })).toBe("ab");
+    expect(
+      turnTextOf(
+        chat({
+          user: {
+            kind: "user",
+            data: {
+              content: [
+                { type: "text", text: " a" },
+                { type: "text", text: "b " },
+              ],
+            },
+          },
+        }),
+        2,
+      ),
+    ).toBe("ab");
   });
 
   it("ignores non-text blocks such as images", () => {
-    const nodes: LookupNode[] = [
-      { kind: "user", seq: 1, content: [{ type: "image" }, { type: "text", text: "caption" }] },
-    ];
-    expect(turnTextOf(nodes, { ...TURN, start: { seq: 0 } })).toBe("caption");
+    const user = {
+      kind: "user",
+      data: { content: [{ type: "image" }, { type: "text", text: "caption" }] },
+    };
+    expect(turnTextOf(chat({ user }), 2)).toBe("caption");
   });
 
   it("returns undefined when the opening message is outside the window", () => {
-    expect(turnTextOf([user(1, "older")], TURN)).toBeUndefined();
+    expect(turnTextOf(chat({ older: user("older") }, []), 2)).toBeUndefined();
   });
 
   it("ignores steering messages inside the turn", () => {
-    const steering: LookupNode = {
+    const steering = {
       kind: "steering",
-      seq: 2,
-      messageId: "m1",
-      content: [{ type: "text", text: "queued" }],
+      data: { content: [{ type: "text", text: "queued" }] },
     };
-    expect(turnTextOf([user(1, "older"), steering], TURN)).toBeUndefined();
+    expect(turnTextOf(chat({ steering }), 2)).toBeUndefined();
   });
 
   it("returns undefined when the opening message has no text", () => {
-    const imageOnly: LookupNode = { kind: "user", seq: 1, content: [{ type: "image" }] };
-    expect(turnTextOf([imageOnly], { ...TURN, start: { seq: 0 } })).toBeUndefined();
+    const imageOnly = { kind: "user", data: { content: [{ type: "image" }] } };
+    expect(turnTextOf(chat({ imageOnly }), 2)).toBeUndefined();
   });
 });

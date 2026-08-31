@@ -1,6 +1,7 @@
 import type { Context } from "@deepseek-ai/cordis";
 import type {} from "@deepseek-ai/dsh-api-gateway/client";
-import type { SessionId } from "@deepseek-ai/dsh-client-runtime/client";
+import type {} from "@deepseek-ai/dsh-client-ui-renderer/client";
+import type { SessionId } from "@deepseek-ai/dsh-session/types";
 import type { DvcUiSnapshot } from "@swarmx/dsh-ui-dvc/contracts";
 import type {} from "@swarmx/dsh-ui-dvc/remote";
 import type { GitUiSnapshot } from "../contracts.js";
@@ -14,11 +15,9 @@ import {
 
 export const inject = ["remote", "sideView", "slots"];
 
-function remoteValue<T>(
-  result: { ok: true; value: T } | { ok: false; error: { message: string } },
-): T {
+function remoteValue<T>(result: { ok: true; value: T } | { ok: false; error: Error }): T {
   if (result.ok) return result.value;
-  throw new Error(result.error.message);
+  throw result.error;
 }
 
 /** Mount the read-only Git Remote and the shared Git/DVC Version Control presentation. */

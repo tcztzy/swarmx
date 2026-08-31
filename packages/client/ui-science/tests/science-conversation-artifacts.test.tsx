@@ -71,10 +71,8 @@ describe("V57 conversation Science artifacts", () => {
       ["node-3", { kind: "tool-call", data: { root: resultBlock(figure, "call-1") } }],
     ]);
     const snapshot = {
-      chat: {
-        nodes,
-        locations: { getTurn: (turn: number) => (turn === 3 ? [...nodes.keys()] : []) },
-      },
+      nodes,
+      locations: { getTurn: (turn: number) => (turn === 3 ? [...nodes.keys()] : []) },
     };
 
     expect(scienceArtifactsInTurn(snapshot as never, 3, "session-1" as never)).toEqual([

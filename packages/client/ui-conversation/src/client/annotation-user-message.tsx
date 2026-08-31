@@ -1,4 +1,4 @@
-import type { ChatNodeViewProps } from "@deepseek-ai/dsh-client-ui-conversation/client";
+import type { ChatNodeViewProps } from "@deepseek-ai/dsh-client-ui-chat/client";
 import {
   IconCheckOutline16,
   IconCopyOutline16,
@@ -161,7 +161,13 @@ const AnnotationUserMessage = memo(function AnnotationUserMessage({
             )}
             {projection.body !== "" && (
               <div className={css.body}>
-                <MarkdownText text={projection.body} />
+                <MarkdownText
+                  text={projection.body}
+                  labels={{
+                    code: { copyLabel: t("copy"), copiedLabel: t("copied") },
+                    footnotes: t("markdown.footnotes"),
+                  }}
+                />
               </div>
             )}
             {fallbackBlocks.map(({ key, value }) => (

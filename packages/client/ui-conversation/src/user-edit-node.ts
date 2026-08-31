@@ -1,12 +1,11 @@
 /** A tiny Chat contribution that places Edit immediately after a user message. */
 
+import type { ChatConversationViewNode } from "@deepseek-ai/dsh-client-ui-chat/client";
 import type {
-  ChatConversationViewNode,
   ConversationLocation,
   ConversationNodeContext,
   ConversationNodeDefinition,
-} from "@deepseek-ai/dsh-client-runtime/client";
-import type {} from "@deepseek-ai/dsh-client-ui-conversation/client";
+} from "@deepseek-ai/dsh-client-ui-conversation/client";
 import { plainText } from "./turn-origin.js";
 
 /** Renderer payload for one user-message Edit icon. */
@@ -15,7 +14,7 @@ export interface UserEditNodeData {
   readonly text: string;
 }
 
-declare module "@deepseek-ai/dsh-client-ui-conversation/client" {
+declare module "@deepseek-ai/dsh-client-ui-chat/client" {
   interface ChatNodeDataMap {
     /** Edit action associated with an ordinary user-authored message. */
     "swarmx-user-edit": UserEditNodeData;

@@ -1,0 +1,331 @@
+diff --git a/lib/client.js b/lib/client.js
+index 8bd06b8..da0f953 100644
+--- a/lib/client.js
++++ b/lib/client.js
+@@ -10351,7 +10351,7 @@ window.__ModuleLoader__.load({
+ 				switch (ev.type) {
+ 					case "draft-changed": return this.onDraftChanged(ev.draft);
+ 					case "claim": return this.onClaim(ev.claim);
+-					case "enter": return this.onEnter(ev.mode, ev.draft);
++					case "enter": return this.onEnter(ev.mode, ev.draft, ev.hasReferences);
+ 					case "adjudicated": return this.onAdjudicated(ev.attempt, ev.outcome);
+ 					case "adjudication-failed": return this.onAdjudicationFailed(ev.attempt, ev.message);
+ 					case "submit-settled": return this.onSubmitSettled(ev);
+@@ -10416,7 +10416,7 @@ window.__ModuleLoader__.load({
+ 					retainSuffixOf: attempt.draftSnapshot
+ 				}];
+ 			}
+-			onEnter(mode, draft) {
++			onEnter(mode, draft, hasReferences) {
+ 				if (this.phase === "adjudicating" || this.phase === "submitting") return [];
+ 				if (this.phase === "claimed" && this.claim !== void 0) {
+ 					const attempt = this.beginAttempt(mode, draft);
+@@ -10429,7 +10429,7 @@ window.__ModuleLoader__.load({
+ 					}];
+ 				}
+ 				const trimmed = draft.trim();
+-				if (trimmed === "") return [];
++				if (trimmed === "" && !hasReferences) return [];
+ 				if (trimmed.startsWith("/")) {
+ 					const attempt = this.beginAttempt(mode, draft);
+ 					this.phase = "adjudicating";
+@@ -11319,9 +11319,22 @@ window.__ModuleLoader__.load({
+ 			if (prev.occurrences.length !== next.occurrences.length) return true;
+ 			return next.occurrences.some((occ, i) => {
+ 				const old = prev.occurrences[i];
+-				return old === void 0 || old.occurrenceId !== occ.occurrenceId || old.invalid !== occ.invalid;
++				return old === void 0 || old.occurrenceId !== occ.occurrenceId || old.source !== occ.source || old.ref !== occ.ref || old.label !== occ.label || old.appearance !== occ.appearance || old.clipboardText !== occ.clipboardText || old.invalid !== occ.invalid;
+ 			});
+ 		}
++		function detachedOccurrence(occurrenceId, ref) {
++			return {
++				occurrenceId,
++				source: ref.source,
++				ref: ref.ref,
++				offset: 0,
++				length: 0,
++				label: ref.label,
++				...ref.appearance === void 0 ? {} : { appearance: ref.appearance },
++				placement: "detached",
++				clipboardText: ref.clipboardText
++			};
++		}
+ 		const EMPTY_QUEUE = [];
+ 		/** No-pipeline lexicon: zero text-ref decorations. */
+ 		const EMPTY_LEXICON$1 = /* @__PURE__ */ new Map();
+@@ -11375,6 +11388,8 @@ window.__ModuleLoader__.load({
+ 			/** Stable occurrence ids per chip NodeKey (undo restores keys, so ids survive it too). */
+ 			occurrenceIds = /* @__PURE__ */ new Map();
+ 			occurrenceSeq = 0;
++			/** Structured references serialized with the prompt but absent from Lexical draft geometry. */
++			detachedOccurrences = [];
+ 			unregister;
+ 			noticeSeq = 0;
+ 			lastMirroredDraft = "";
+@@ -11473,6 +11488,20 @@ window.__ModuleLoader__.load({
+ 				this.occurrenceIds.set(key, this.occurrenceSeq);
+ 				return this.occurrenceSeq;
+ 			}
++			get occurrences() {
++				return [...this.detachedOccurrences, ...this.projection.occurrences];
++			}
++			onDetachedChanged() {
++				this.rev += 1;
++				if (!this.restoringFailures && this.failedRestoreRev !== void 0) {
++					this.failedDetached.clear();
++					this.failedRestoreRev = void 0;
++				}
++				this.dispatchRun({
++					type: "draft-changed",
++					draft: this.projection.clipboardText
++				});
++			}
+ 			/**
+ 			* Replace the whole draft (persisted-draft seed and programmatic writes).
+ 			* Placeholder-sanitized; newlines split paragraphs; the caret lands at the
+@@ -11566,7 +11595,7 @@ window.__ModuleLoader__.load({
+ 			* dismisses and the menu tracks frozen.
+ 			*/
+ 			submit(mode = "queue") {
+-				if (this.snapshot.draft.trim() === "" && this.imageIds.length > 0) {
++				if (this.snapshot.draft.trim() === "" && this.occurrences.length === 0 && this.imageIds.length > 0) {
+ 					if (this.snapshot.phase === "plain") {
+ 						const imageIds = [...this.imageIds];
+ 						const controller = new AbortController();
+@@ -11598,7 +11627,8 @@ window.__ModuleLoader__.load({
+ 				this.dispatchRun({
+ 					type: "enter",
+ 					mode,
+-					draft: this.projection.clipboardText
++					draft: this.projection.clipboardText,
++					hasReferences: this.occurrences.length > 0
+ 				});
+ 				const phase = this.snapshot.phase;
+ 				if (phase === "adjudicating" || phase === "submitting") {
+@@ -11700,6 +11730,17 @@ window.__ModuleLoader__.load({
+ 				const phase = this.core.state.phase;
+ 				if (phase !== "plain" && phase !== "claimed") return false;
+ 				if (span.draftRev !== this.rev) return false;
++				if (ref.placement === "detached") {
++					let applied = false;
++					this.applyEdit(() => {
++						applied = $replaceDetectSpanWithText(span, "");
++					});
++					if (!applied) return false;
++					this.occurrenceSeq += 1;
++					this.detachedOccurrences = [...this.detachedOccurrences, detachedOccurrence(this.occurrenceSeq, ref)];
++					this.onDetachedChanged();
++					return true;
++				}
+ 				const tail = this.projection.detectText.slice(span.end, span.end + 1);
+ 				let applied = false;
+ 				this.applyEdit(() => {
+@@ -11707,6 +11748,54 @@ window.__ModuleLoader__.load({
+ 				});
+ 				return applied;
+ 			}
++			/** Replace one structured reference occurrence without changing its identity or placement. */
++			replaceReference(occurrenceId, ref) {
++				const phase = this.core.state.phase;
++				if (phase !== "plain" && phase !== "claimed") return false;
++				const detachedIndex = this.detachedOccurrences.findIndex((occurrence) => occurrence.occurrenceId === occurrenceId);
++				if (detachedIndex >= 0) {
++					this.detachedOccurrences = this.detachedOccurrences.map((occurrence, index) => index === detachedIndex ? detachedOccurrence(occurrenceId, ref) : occurrence);
++					this.onDetachedChanged();
++					return true;
++				}
++				let applied = false;
++				this.applyEdit(() => {
++					for (const [key, id] of this.occurrenceIds) {
++						if (id !== occurrenceId) continue;
++						const node = Ys(key);
++						if (!$isReferenceChipNode(node) || !node.isAttached()) continue;
++						const replacement = $createReferenceChipNode(ref);
++						this.occurrenceIds.set(replacement.getKey(), occurrenceId);
++						node.replace(replacement);
++						applied = true;
++						break;
++					}
++				});
++				return applied;
++			}
++			/** Remove one structured reference occurrence. */
++			removeReference(occurrenceId) {
++				const phase = this.core.state.phase;
++				if (phase !== "plain" && phase !== "claimed") return false;
++				const detached = this.detachedOccurrences.filter((occurrence) => occurrence.occurrenceId !== occurrenceId);
++				if (detached.length !== this.detachedOccurrences.length) {
++					this.detachedOccurrences = detached;
++					this.onDetachedChanged();
++					return true;
++				}
++				let applied = false;
++				this.applyEdit(() => {
++					for (const [key, id] of this.occurrenceIds) {
++						if (id !== occurrenceId) continue;
++						const node = Ys(key);
++						if (!$isReferenceChipNode(node) || !node.isAttached()) continue;
++						node.remove();
++						applied = true;
++						break;
++					}
++				});
++				return applied;
++			}
+ 			/**
+ 			* Consume one command token after business success (scoped consume-token
+ 			* event listener body). Span guard: revision CAS then splice; bare-token
+@@ -11874,7 +11963,8 @@ window.__ModuleLoader__.load({
+ 			sinkSerialized(attempt, draft, mode) {
+ 				const imageIds = [...this.imageIds];
+ 				this.imageIds = [];
+-				const occurrences = this.projection.occurrences;
++				const occurrences = this.occurrences;
++				this.detachedOccurrences = [];
+ 				const record = {
+ 					draft,
+ 					occurrences,
+@@ -11940,7 +12030,7 @@ window.__ModuleLoader__.load({
+ 				this.detachedDrafts.delete(attempt.seq);
+ 				this.restoreImages(record.imageIds);
+ 				this.failedDetached.set(attempt.seq, record);
+-				if (this.projection.clipboardText === "" || this.failedRestoreRev === this.rev) this.restoreFailedDrafts();
++				if (this.projection.clipboardText === "" && this.detachedOccurrences.length === 0 || this.failedRestoreRev === this.rev) this.restoreFailedDrafts();
+ 				this.dispatchRun({
+ 					type: "sink-settled",
+ 					attempt,
+@@ -11955,17 +12045,21 @@ window.__ModuleLoader__.load({
+ 				const separator = "\n\n";
+ 				let draft = "";
+ 				const occurrences = [];
++				const detached = [];
+ 				for (const record of records) {
+ 					const base = draft.length + (draft === "" ? 0 : 2);
+ 					if (draft !== "") draft += separator;
+ 					draft += record.draft;
+-					for (const occurrence of record.occurrences) occurrences.push({
++					for (const occurrence of record.occurrences) if (occurrence.placement === "detached") detached.push(occurrence);
++					else occurrences.push({
+ 						...occurrence,
+ 						offset: base + occurrence.offset
+ 					});
+ 				}
+ 				this.restoringFailures = true;
+ 				try {
++					const beforeRev = this.rev;
++					this.detachedOccurrences = detached;
+ 					this.editor.update(() => {
+ 						const root = nl();
+ 						root.clear();
+@@ -12001,6 +12095,7 @@ window.__ModuleLoader__.load({
+ 						tag: xo
+ 					});
+ 					this.editor.dispatchCommand(Nn$1, void 0);
++					if (this.rev === beforeRev) this.rev += 1;
+ 					this.failedRestoreRev = this.rev;
+ 				} finally {
+ 					this.restoringFailures = false;
+@@ -12095,7 +12190,7 @@ window.__ModuleLoader__.load({
+ 					draftRev: this.rev,
+ 					phase: core.phase,
+ 					...core.claim !== void 0 ? { claim: core.claim } : {},
+-					occurrences: this.projection.occurrences,
++					occurrences: this.occurrences,
+ 					queue: this.deps.queue?.getSnapshot() ?? EMPTY_QUEUE
+ 				};
+ 			}
+@@ -15105,7 +15200,7 @@ window.__ModuleLoader__.load({
+ 			const draft = input?.draft ?? "";
+ 			const editor = keyboard?.editor ?? null;
+ 			const attachments = (0, react.useMemo)(() => input === void 0 || draftImages === void 0 ? [] : draftImages(input.imageIds), [draftImages, input?.imageIds]);
+-			const empty = draft.trim() === "" && attachments.length === 0;
++			const empty = draft.trim() === "" && attachments.length === 0 && (input?.occurrences.length ?? 0) === 0;
+ 			const [toast, setToast] = (0, react.useState)(null);
+ 			const toastSeq = (0, react.useRef)(0);
+ 			const showToast = (0, react.useCallback)((text) => {
+@@ -16035,4 +16130,4 @@ window.__ModuleLoader__.load({
+ 	}
+ });
+ 
+-//# sourceMappingURL=client.js.map
+\ No newline at end of file
++//# sourceMappingURL=client.js.map
+diff --git a/lib/types/client/contract/input.d.ts b/lib/types/client/contract/input.d.ts
+index b7ae8e2..99442f3 100644
+--- a/lib/types/client/contract/input.d.ts
++++ b/lib/types/client/contract/input.d.ts
+@@ -49,6 +49,8 @@ export interface ReferenceInsert {
+     readonly ref: string;
+     readonly label: string;
+     readonly appearance?: 'session' | 'file' | 'folder';
++    /** Inline by default; detached references serialize without occupying draft geometry. */
++    readonly placement?: 'inline' | 'detached';
+     readonly clipboardText: string;
+ }
+ /** Result of trigger-source adjudication. */
+@@ -162,6 +164,10 @@ export interface InputTarget {
+ }
+ /** Per-session input facade owned by the conversation wiring layer. */
+ export interface SessionInput extends InputTarget {
++    /** Replace one structured reference occurrence without changing its identity or placement. */
++    replaceReference(occurrenceId: number, ref: ReferenceInsert): boolean;
++    /** Remove one structured reference occurrence. */
++    removeReference(occurrenceId: number): boolean;
+     /** Replace the whole draft (persisted-draft seed and programmatic writes). */
+     setDraft(text: string): void;
+     /** Append ordered browser-owned image ids; busy admission phases refuse. */
+@@ -286,6 +292,8 @@ export interface Occurrence {
+     readonly label: string;
+     /** Optional domain glyph (insert-time cache). */
+     readonly appearance?: ReferenceInsert['appearance'];
++    /** Inline by default; detached occurrences keep zero-length draft geometry. */
++    readonly placement?: ReferenceInsert['placement'];
+     /** Clipboard / persistence projection, e.g. `/name` (insert-time cache, never the model form). */
+     readonly clipboardText: string;
+     /** Owner-resolution failure flag: the chip renders the failure treatment. */
+@@ -348,6 +356,7 @@ export type InputEvent =
+     readonly type: 'enter';
+     readonly mode: InputSubmitMode;
+     readonly draft: string;
++    readonly hasReferences: boolean;
+ } | {
+     readonly type: 'adjudicated';
+     readonly attempt: SubmitAttempt;
+@@ -416,4 +425,4 @@ export type InputEffect = {
+     readonly type: 'commit-draft';
+     readonly retainSuffixOf: string | null;
+ };
+-//# sourceMappingURL=input.d.ts.map
+\ No newline at end of file
++//# sourceMappingURL=input.d.ts.map
+diff --git a/lib/types/client/input/facade.d.ts b/lib/types/client/input/facade.d.ts
+index 871a9ba..91c956a 100644
+--- a/lib/types/client/input/facade.d.ts
++++ b/lib/types/client/input/facade.d.ts
+@@ -70,6 +70,8 @@ export declare class SessionInputShell implements SessionInput {
+     /** Stable occurrence ids per chip NodeKey (undo restores keys, so ids survive it too). */
+     private readonly occurrenceIds;
+     private occurrenceSeq;
++    /** Structured references serialized with the prompt but absent from Lexical draft geometry. */
++    private detachedOccurrences;
+     private readonly unregister;
+     private noticeSeq;
+     private lastMirroredDraft;
+@@ -208,6 +210,10 @@ export declare class SessionInputShell implements SessionInput {
+      * @returns whether the edit applied.
+      */
+     insertReference(ref: ReferenceInsert, span: TokenSpan): boolean;
++    /** Replace one structured reference occurrence without changing its identity or placement. */
++    replaceReference(occurrenceId: number, ref: ReferenceInsert): boolean;
++    /** Remove one structured reference occurrence. */
++    removeReference(occurrenceId: number): boolean;
+     /**
+      * Consume one command token after business success (scoped consume-token
+      * event listener body). Span guard: revision CAS then splice; bare-token
+@@ -295,4 +301,4 @@ export declare class SessionInputShell implements SessionInput {
+     private compose;
+     private publish;
+ }
+-//# sourceMappingURL=facade.d.ts.map
+\ No newline at end of file
++//# sourceMappingURL=facade.d.ts.map

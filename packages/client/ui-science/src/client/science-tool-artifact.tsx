@@ -1,4 +1,5 @@
-import type { SessionId, ToolCallBlock } from "@deepseek-ai/dsh-client-runtime/client";
+import type { ToolCallBlock } from "@deepseek-ai/dsh-client-ui-chat/client";
+import type { SessionId } from "@deepseek-ai/dsh-session/types";
 import { type ScienceArtifact, scienceArtifactSchema } from "@swarmx/dsh-science/types";
 
 const MAX_SCIENCE_RESULT_CHARS = 100_000;

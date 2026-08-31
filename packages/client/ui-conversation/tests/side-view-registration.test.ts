@@ -7,7 +7,6 @@ describe("V48/V49/V99 Side View registration lifecycle", () => {
     const cleanups: Array<() => void> = [];
     const disposeService = vi.fn();
     const context = {
-      conversationEvents: { register: vi.fn() },
       effect: vi.fn((setup: () => undefined | (() => void)) => {
         const cleanup = setup();
         if (cleanup) cleanups.push(cleanup);
@@ -28,6 +27,7 @@ describe("V48/V49/V99 Side View registration lifecycle", () => {
     registerSideView(context as never);
 
     expect(context.reflect.provide).toHaveBeenCalledWith("sideView", expect.any(Object));
+    expect(context.slots.inject).toHaveBeenCalledWith("details", expect.any(Function));
     const details = registrations.find(({ options }) => options.name === "details");
     expect(details?.options).toEqual(
       expect.objectContaining({
@@ -48,6 +48,7 @@ describe("V48/V49/V99 Side View registration lifecycle", () => {
     );
     expect(turnTail?.options).toEqual(
       expect.objectContaining({
+        priority: Number.MAX_SAFE_INTEGER,
         children: {
           "conversation.chat.turnTail.items": { kind: "list", scope: "session" },
         },

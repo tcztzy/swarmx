@@ -1,17 +1,12 @@
-import type { ISessions, SessionId } from "@deepseek-ai/dsh-client-runtime/client";
-import type { IConversation } from "@deepseek-ai/dsh-client-ui-conversation/client";
+import type { ISessions } from "@deepseek-ai/dsh-api-session-controller/client";
 import type {
-  InputTriggerSource,
+  IConversation,
   ReferenceInsert,
-} from "@deepseek-ai/dsh-client-ui-input-trigger/client";
+} from "@deepseek-ai/dsh-client-ui-conversation/client";
+import type { InputTriggerSource } from "@deepseek-ai/dsh-client-ui-input-trigger/client";
+import type { SessionId } from "@deepseek-ai/dsh-session/types";
 import type { Annotation, MessageQuoteAnnotation, MessageTextTarget } from "@swarmx/annotation";
 import { annotationSchema, messageQuoteAnnotationSchema } from "@swarmx/annotation";
-
-declare module "@deepseek-ai/dsh-client-ui-input-trigger/client" {
-  interface ReferenceInsert {
-    readonly placement?: "inline" | "detached";
-  }
-}
 
 export const ANNOTATION_REFERENCE_SOURCE = "annotation";
 export const MAX_COMPOSER_ANNOTATIONS = 32;
@@ -134,8 +129,9 @@ export function insertAnnotationReference(
   const state = input.state.getSnapshot();
   if (state.phase === "adjudicating" || state.phase === "submitting") return false;
   if (
-    state.occurrences.filter(({ source }) => source === ANNOTATION_REFERENCE_SOURCE).length >=
-    MAX_COMPOSER_ANNOTATIONS
+    state.occurrences.filter(
+      ({ source }: { readonly source: string }) => source === ANNOTATION_REFERENCE_SOURCE,
+    ).length >= MAX_COMPOSER_ANNOTATIONS
   ) {
     return false;
   }

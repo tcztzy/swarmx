@@ -175,10 +175,7 @@ function parseLegacyEvent(type: SwarmEvent["type"], value: unknown): SwarmEvent 
   const admission = legacySwarmKnowledgeAdmissionSchema.parse(value);
   const receiptMatches =
     admission.receipt === undefined || admission.receipt.kind === admission.targetKind;
-  if (admission.status !== "committed" && receiptMatches) {
-    return { type, data: swarmKnowledgeAdmissionSchema.parse(admission) };
-  }
-  if (admission.status === "committed" && admission.receipt !== undefined && receiptMatches) {
+  if (receiptMatches && (admission.status !== "committed" || admission.receipt !== undefined)) {
     return { type, data: swarmKnowledgeAdmissionSchema.parse(admission) };
   }
   const { receipt: _receipt, ...rest } = admission;
@@ -262,11 +259,7 @@ function replaceTask(state: SwarmTeamState, task: SwarmTask): SwarmTask[] {
     throw new SwarmError("A new swarm task must start at revision 1", "SWARM_STALE_REVISION");
   }
   if (existing) {
-    if (
-      existing.sequence !== task.sequence ||
-      existing.createdAt !== task.createdAt ||
-      existing.id !== task.id
-    ) {
+    if (existing.sequence !== task.sequence || existing.createdAt !== task.createdAt) {
       throw new SwarmError("Swarm task identity is immutable", "SWARM_INVALID_REQUEST");
     }
     if (task.revision !== existing.revision + 1) {

@@ -3,7 +3,7 @@
  * that session. Later turns use a fork; the first uses a fresh sibling because
  * DSH's fork API cannot represent an empty completed-turn prefix.
  */
-import type { SessionId } from "@deepseek-ai/dsh-client-runtime/client";
+import type { SessionId } from "@deepseek-ai/dsh-session/types";
 import { resolveForkBoundary, type Timeline } from "./fork-boundary.js";
 
 /** The sessions-service subset a re-run needs. */
@@ -15,7 +15,7 @@ export interface RerunSessions {
   /** Make a session the active one. */
   open(sessionId: SessionId): void;
   /** Send text into a session as one user turn. */
-  prompt(sessionId: SessionId, text: string): Promise<unknown>;
+  prompt(sessionId: SessionId, text: string): Promise<void>;
 }
 
 /** What one re-run needs to know. */

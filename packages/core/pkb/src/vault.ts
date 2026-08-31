@@ -343,9 +343,8 @@ export class PkbVault {
         swarmx_scope: existing.metadata.swarmx_scope,
         ...(existing.metadata.swarmx_scope === "workspace"
           ? { swarmx_workspace: existing.metadata.swarmx_workspace }
-          : { swarmx_workspace: undefined }),
+          : {}),
       };
-      if (metadata.swarmx_workspace === undefined) delete metadata.swarmx_workspace;
       const source = renderConcept(metadata, request.body ?? existing.body);
       if (Buffer.byteLength(source, "utf8") > this.maxConceptBytes) {
         throw new PkbError("Rendered PKB concept is too large", "INVALID_CONCEPT");

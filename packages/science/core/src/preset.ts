@@ -38,6 +38,7 @@ function isManagedTypstCommand(command: string): boolean {
 /** Install the dsh-science-only prompt sections and managed Typst boundary. */
 export function apply(ctx: {
   systemPrompt: {
+    getSectionOrder(name: "TOOLS_SDK"): number;
     section(input: { readonly name: string; readonly order: number; readonly text: string }): void;
   };
   tools: {
@@ -49,24 +50,25 @@ export function apply(ctx: {
     ): () => void;
   };
 }): () => void {
+  const toolsSdkOrder = ctx.systemPrompt.getSectionOrder("TOOLS_SDK");
   ctx.systemPrompt.section({
     name: "science:typst-workflow",
-    order: 191,
-    text: "For `.typ` or `.typst`, finish after editing the source and return its Markdown file link. Do not call `typst compile` or `typst watch` through Bash or another tool; dsh-science owns compilation through its managed Host watcher.",
+    order: toolsSdkOrder + 100,
+    text: "For `.typ` or `.typst`, finish after editing the source and mention its exact workspace-relative path as Markdown inline code. Do not call `typst compile` or `typst watch` through Bash or another tool; dsh-science owns compilation through its managed Host watcher.",
   });
   ctx.systemPrompt.section({
     name: "science:annotations",
-    order: 192,
+    order: toolsSdkOrder + 101,
     text: "Treat each <dsh-annotation>{...}</dsh-annotation> object in user input as structured context. Its type follows the SwarmX annotation union, which contains OpenAI Responses citation/path objects unchanged plus type=comment and type=message_quote targets. For comment.target.type=image_point, call science_query with action=inspect_annotation and the complete comment object before discussing the protected image. For document_text or document_region, use the relative Typst source and rendered revision context to make the requested change; never infer a host path. A message_quote carries exact selected text plus its source Session/message locator and optional user note.",
   });
   ctx.systemPrompt.section({
     name: "science:literature-search",
-    order: 193,
+    order: toolsSdkOrder + 102,
     text: "For scientific publication discovery, use `literature_search` to search the user's running local Zotero library first. It returns citation-ready BibTeX and is distinct from `science_query`, which only reads Science workspace state. Do not substitute a web or cloud literature search unless the user explicitly requests online search.",
   });
   ctx.systemPrompt.section({
     name: "science:resource-addressing",
-    order: 194,
+    order: toolsSdkOrder + 103,
     text: "For local Science state, call `science_query` with `head` first, then use only the needed `get`, `select`, or `neighbors` view and reuse the returned `exactId`. On `RESOURCE_REVISION_MISMATCH`, call `head` again and do not remove the revision guard. Never request a complete workspace or full entity.",
   });
   return ctx.tools.guard((execution) => {
@@ -80,6 +82,6 @@ export function apply(ctx: {
     ) {
       return undefined;
     }
-    return "Typst compilation is managed automatically by dsh-science. Edit the .typ/.typst source and return its Markdown file link; do not run typst compile or typst watch.";
+    return "Typst compilation is managed automatically by dsh-science. Edit the .typ/.typst source and mention its exact workspace-relative path as Markdown inline code; do not run typst compile or typst watch.";
   });
 }

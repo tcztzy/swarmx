@@ -1,5 +1,5 @@
-import type { SessionId } from "@deepseek-ai/dsh-client-runtime/client";
 import type { PropsRuntime } from "@deepseek-ai/dsh-client-ui-slots";
+import type { SessionId } from "@deepseek-ai/dsh-session/types";
 import type { SwarmUiSnapshot } from "@swarmx/dsh-swarm/contracts";
 import { swarmUiSnapshotSchema } from "@swarmx/dsh-swarm/contracts";
 import type { SideViewContentOwnerProps, SideViewEntry } from "@swarmx/dsh-ui-conversation/client";

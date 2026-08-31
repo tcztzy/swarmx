@@ -4,13 +4,13 @@ SwarmX has one application UI and plugin host: the published DeepSeek Harness We
 
 ## Audited DSH Web seam
 
-The Host half is extensible through ordinary Cordis plugins: `ctx.webServer.register` can add bounded same-origin HTTP/SSE routes, and Typert/Remote can add business services. The browser conversation backend is not currently a registry seam. `@deepseek-ai/dsh-client-runtime` constructs one `SessionRuntime` directly over the DSH API connection and Mux frames; `conversationEvents` and `conversationViews` extend presentation of an already-open DSH Session, not list/create/read/start lifecycle.
+The Host half is extensible through ordinary Cordis plugins: `ctx.webServer.register` can add bounded same-origin HTTP/SSE routes, and Typert/Remote can add business services. The browser conversation backend is not a peer-runtime registry seam. In dsh 0.1.2-alpha.2, `@deepseek-ai/dsh-api-session-controller` owns Session lifecycle state, `uiConversation` assembles target-neutral event projections, and `@deepseek-ai/dsh-client-ui-chat` owns the Chat target. Those services extend an already-open DSH Session; they do not turn list/create/read/start into a replaceable runtime backend.
 
 Therefore Codex must not be implemented as a model provider, an `IApiClient`/Mux compatibility server, or a synthetic DSH `Session`. The minimum product-owned boundary is:
 
 1. a Host Cordis `conversationRuntimes` service that registers peer adapters and owns a narrow browser protocol on the existing DSH `webServer`;
 2. a product conversation client that consumes only that protocol and projects native items into the existing SwarmX conversation presentation;
-3. the unchanged DSH `SessionRuntime` below the DSH adapter, not above Codex.
+3. the unchanged DSH Session Controller and Conversation assembly below the DSH adapter, not above Codex.
 
 Replacing the existing DSH `sessions` service would require emulating unrelated workspace, subagent, projection, queue, command, attachment, and Agent-scope behavior. That is explicitly outside this seam.
 
@@ -56,7 +56,7 @@ before reporting the connection failure; a cleanup failure is reported alongside
 
 ## Browser protocol
 
-The Host Cordis plugin reuses DSH Web's loopback listener and same origin. Requests use strict bounded JSON schemas, always include `runtimeKind` where an address is ambiguous, derive workspace authority from the Host, and abort work when the browser disconnects. SSE events retain `runtimeKind`, native conversation/turn/item identities, adapter order, and the registry's global sequence. A completed item is authoritative in Host and browser projections; a later or duplicate delta cannot change its text or make it provisional again.
+The Host Cordis plugin reuses DSH Web's loopback listener and same origin. The desktop opens the launch URL produced by DSH's Connection service; its process token is exchanged at `/` for DSH's authority-bound browser-session cookie before the clean application URL loads. Requests use strict bounded JSON schemas, always include `runtimeKind` where an address is ambiguous, derive workspace authority from the Host, and abort work when the browser disconnects. SSE events retain `runtimeKind`, native conversation/turn/item identities, adapter order, and the registry's global sequence. A completed item is authoritative in Host and browser projections; a later or duplicate delta cannot change its text or make it provisional again.
 
 Protocol shutdown stops admission, aborts every ordinary request, and drains routes only to a fixed deadline before adapter teardown continues; a non-cooperative route is reported through the desktop fatal cleanup boundary. SSE consumers that stop accepting frames are disconnected instead of accumulating an unbounded response buffer.
 

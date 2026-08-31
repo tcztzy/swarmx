@@ -28,18 +28,6 @@ function layoutBundle(): string {
   return readFileSync(join(dirname(packagePath), "lib/client.js"), "utf8");
 }
 
-function markdownBundle(): { readonly runtime: string; readonly types: string } {
-  const requireFromScience = createRequire(resolve("packages/client/ui-science/package.json"));
-  const packagePath = requireFromScience.resolve(
-    "@deepseek-ai/dsh-client-ui-primitives/package.json",
-  );
-  const packageDirectory = dirname(packagePath);
-  return {
-    runtime: readFileSync(join(packageDirectory, "lib/index.js"), "utf8"),
-    types: readFileSync(join(packageDirectory, "lib/types/markdown/render.d.ts"), "utf8"),
-  };
-}
-
 function agentPresetBundle(): { readonly runtime: string; readonly types: string } {
   const requireFromDesktop = createRequire(resolve("apps/desktop/package.json"));
   const dshManifest = realpathSync(requireFromDesktop.resolve("@deepseek-ai/dsh/package.json"));
@@ -51,6 +39,25 @@ function agentPresetBundle(): { readonly runtime: string; readonly types: string
   return {
     runtime: readFileSync(join(packageDirectory, "lib/client.js"), "utf8"),
     types: readFileSync(join(packageDirectory, "lib/types/client/locales.d.ts"), "utf8"),
+  };
+}
+
+function sessionControllerBundle(): {
+  readonly runtime: string;
+  readonly types: readonly string[];
+} {
+  const requireFromClient = createRequire(resolve("packages/client/ui-conversation/package.json"));
+  const packagePath = requireFromClient.resolve(
+    "@deepseek-ai/dsh-api-session-controller/package.json",
+  );
+  const packageDirectory = dirname(packagePath);
+  return {
+    runtime: readFileSync(join(packageDirectory, "lib/client.js"), "utf8"),
+    types: [
+      "lib/types/client/contract/sessions.d.ts",
+      "lib/types/client/sessions/manager.d.ts",
+      "lib/types/client/sessions/service.d.ts",
+    ].map((path) => readFileSync(join(packageDirectory, path), "utf8")),
   };
 }
 
@@ -92,7 +99,7 @@ describe("workspace layout", () => {
     expect(desktop.dependencies?.["@swarmx/dsh-swarm"]).toBe("workspace:*");
     expect(desktop.dependencies?.["@swarmx/dsh-ui-science"]).toBe("workspace:*");
     expect(desktop.dependencies?.["@swarmx/dsh-ui-swarm"]).toBe("workspace:*");
-    expect(desktop.dependencies?.["@deepseek-ai/dsh-web-frontend"]).toBe("0.1.1-rc.2");
+    expect(desktop.dependencies?.["@deepseek-ai/dsh-web-frontend"]).toBe("0.1.2-alpha.2");
   });
 
   it("V141/V142 keeps the relocated PKB package rooted and package-bounded", () => {
@@ -176,54 +183,100 @@ describe("workspace layout", () => {
       "packages/science/core/package.json",
     ];
     const baseline = manifest(files[0] as string).dependencies?.["@deepseek-ai/dsh"];
-    expect(baseline).toBe("0.1.1-rc.2");
+    expect(baseline).toBe("0.1.2-alpha.2");
 
     for (const file of files) {
       const packageManifest = manifest(file);
+      expect(JSON.stringify(packageManifest), file).not.toContain("dsh-client-runtime");
       for (const dependencies of [packageManifest.dependencies, packageManifest.devDependencies]) {
         for (const [name, range] of Object.entries(dependencies ?? {})) {
           if (name.startsWith("@deepseek-ai/dsh")) {
             expect(range, `${name} in ${file}`).toBe(baseline);
+          } else if (name === "@deepseek-ai/cordis") {
+            expect(range, `${name} in ${file}`).toBe("4.0.2");
+          } else if (name === "@deepseek-ai/schemastery") {
+            expect(range, `${name} in ${file}`).toBe("^3.18.2");
           }
         }
       }
       for (const [name, range] of Object.entries(packageManifest.peerDependencies ?? {})) {
         if (name.startsWith("@deepseek-ai/dsh")) {
           expect(range, `${name} peer in ${file}`).toBe(`^${baseline}`);
+        } else if (name === "@deepseek-ai/cordis") {
+          expect(range, `${name} peer in ${file}`).toBe("^4.0.2");
         }
       }
     }
 
     const workspace = readFileSync("pnpm-workspace.yaml", "utf8");
+    expect(workspace).toContain("'@deepseek-ai/cordis-plugin-group': 1.0.2");
+    for (const name of [
+      "@deepseek-ai/dsh-authorization",
+      "@deepseek-ai/dsh-jobs",
+      "@deepseek-ai/dsh-session-persistence",
+      "@deepseek-ai/dsh-settings",
+    ]) {
+      expect(workspace).toContain(`'${name}': ${baseline}`);
+    }
     expect(workspace).toContain(`'@deepseek-ai/dsh-client-ui-layout@${baseline}'`);
     expect(workspace).toContain(`patches/@deepseek-ai__dsh-client-ui-layout@${baseline}.patch`);
-    expect(workspace).toContain(`'@deepseek-ai/dsh-client-ui-primitives@${baseline}'`);
-    expect(workspace).toContain(`patches/@deepseek-ai__dsh-client-ui-primitives@${baseline}.patch`);
     expect(workspace).toContain(`'@deepseek-ai/dsh-client-ui-agent-preset@${baseline}'`);
     expect(workspace).toContain(
       `patches/@deepseek-ai__dsh-client-ui-agent-preset@${baseline}.patch`,
     );
+    expect(workspace).toContain(`'@deepseek-ai/dsh-client-ui-conversation@${baseline}'`);
+    expect(workspace).toContain(
+      `patches/@deepseek-ai__dsh-client-ui-conversation@${baseline}.patch`,
+    );
+    expect(workspace).toContain(`'@deepseek-ai/dsh-api-session-controller@${baseline}'`);
+    expect(workspace).toContain(
+      `patches/@deepseek-ai__dsh-api-session-controller@${baseline}.patch`,
+    );
+    expect(workspace).toContain(`'@deepseek-ai/dsh-app-boot@${baseline}'`);
+    expect(workspace).toContain(`patches/@deepseek-ai__dsh-app-boot@${baseline}.patch`);
+    expect(workspace).not.toContain("dsh-client-ui-primitives");
 
     const patchFiles = readdirSync("patches")
       .filter((name) => name.endsWith(".patch"))
       .sort();
     expect(patchFiles).toEqual([
+      `@deepseek-ai__dsh-api-session-controller@${baseline}.patch`,
+      `@deepseek-ai__dsh-app-boot@${baseline}.patch`,
       `@deepseek-ai__dsh-client-ui-agent-preset@${baseline}.patch`,
       `@deepseek-ai__dsh-client-ui-conversation@${baseline}.patch`,
       `@deepseek-ai__dsh-client-ui-layout@${baseline}.patch`,
-      `@deepseek-ai__dsh-client-ui-primitives@${baseline}.patch`,
     ]);
 
     const lockfile = readFileSync("pnpm-lock.yaml", "utf8");
-    expect(lockfile).not.toMatch(/@deepseek-ai\/dsh[^\s']*@0\.1\.0-rc\.8/u);
-  });
-
-  it("keeps verified Markdown file destinations inside the produced-file resolver", () => {
-    const markdown = markdownBundle();
-
-    expect(markdown.runtime).toContain("context.fileMentions?.resolveLink?.(node.url)");
-    expect(markdown.runtime).toContain("className: css$19.fileMention");
-    expect(markdown.types).toContain("resolveLink?(value: string)");
+    expect(
+      new Set(
+        [...lockfile.matchAll(/^ {2}'@deepseek-ai\/dsh(?:-[^@']+)?@([^(']+)(?:\(|':)/gmu)].map(
+          (match) => match[1],
+        ),
+      ),
+    ).toEqual(new Set([baseline]));
+    expect(
+      new Set(
+        [...lockfile.matchAll(/^ {2}'@deepseek-ai\/cordis@([^(']+)(?:\(|':)/gmu)].map(
+          (match) => match[1],
+        ),
+      ),
+    ).toEqual(new Set(["4.0.2"]));
+    expect(
+      new Set(
+        [...lockfile.matchAll(/^ {2}'@deepseek-ai\/cordis-plugin-group@([^(']+)(?:\(|':)/gmu)].map(
+          (match) => match[1],
+        ),
+      ),
+    ).toEqual(new Set(["1.0.2"]));
+    expect(
+      new Set(
+        [...lockfile.matchAll(/^ {2}'@deepseek-ai\/schemastery@([^(']+)(?:\(|':)/gmu)].map(
+          (match) => match[1],
+        ),
+      ),
+    ).toEqual(new Set(["3.18.2"]));
+    expect(lockfile).not.toContain("dsh-client-runtime");
   });
 
   it("V124 localizes the dsh-science system preset with the active Web locale", () => {
@@ -242,6 +295,17 @@ describe("workspace layout", () => {
     expect(preset.runtime).toContain('description: "presetScienceDescription"');
     expect(preset.types).toContain("'presetScienceName'");
     expect(preset.types).toContain("'presetScienceDescription'");
+  });
+
+  it("V8 forwards the source agent preset through addressable session creation", () => {
+    const sessionController = sessionControllerBundle();
+
+    expect(sessionController.runtime).toContain(
+      "...opts.agentPreset === void 0 ? {} : { agentPreset: opts.agentPreset }",
+    );
+    for (const types of sessionController.types) {
+      expect(types).toContain("agentPreset?: string;");
+    }
   });
 
   it("keeps details width viewport-bound instead of fixed at 520px", () => {

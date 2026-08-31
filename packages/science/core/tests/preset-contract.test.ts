@@ -8,9 +8,10 @@ describe("V103/V111/V122 Science preset contract", () => {
       | ((execution: { readonly name: string; readonly arguments: unknown }) => string | undefined)
       | undefined;
     const disposeGuard = vi.fn();
+    const getSectionOrder = vi.fn(() => 5_000);
 
     const dispose = apply({
-      systemPrompt: { section: (section) => sections.push(section) },
+      systemPrompt: { getSectionOrder, section: (section) => sections.push(section) },
       tools: {
         guard: (candidate) => {
           guard = candidate;
@@ -26,6 +27,8 @@ describe("V103/V111/V122 Science preset contract", () => {
       "science:literature-search",
       "science:resource-addressing",
     ]);
+    expect(getSectionOrder).toHaveBeenCalledWith("TOOLS_SDK");
+    expect(sections.map((section) => section.order)).toEqual([5_100, 5_101, 5_102, 5_103]);
     expect(sections[0]?.text).toContain("Do not call `typst compile` or `typst watch`");
     expect(sections[1]?.text).toContain("science_query");
     expect(sections[2]?.text).toContain("`literature_search`");

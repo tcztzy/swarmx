@@ -439,9 +439,9 @@ export class SwarmCoordinator {
       team.tasks.filter((task) => task.status === "completed").map((task) => task.id),
     );
     const latestAttemptForTask = (taskId: string) =>
-      team.attempts.filter((attempt) => attempt.taskId === taskId).at(-1);
+      team.attempts.findLast((attempt) => attempt.taskId === taskId);
     const latestAttemptForMember = (memberId: string) =>
-      team.attempts.filter((attempt) => attempt.ownerId === memberId).at(-1);
+      team.attempts.findLast((attempt) => attempt.ownerId === memberId);
     return swarmSnapshotSchema.parse({
       kind: team.archiveStartedAt === undefined ? team.phase : "archived",
       memberName: caller.name,
@@ -1070,7 +1070,7 @@ export class SwarmCoordinator {
     if (!monitor || !lead) return false;
     const task = taskId ? team.tasks.find((candidate) => candidate.id === taskId) : undefined;
     const attempt = task
-      ? team.attempts.filter((candidate) => candidate.taskId === task.id).at(-1)
+      ? team.attempts.findLast((candidate) => candidate.taskId === task.id)
       : undefined;
     const triggerId = deterministicUuid(
       `${team.id}:${trigger}:${task?.id ?? "team"}:${task?.revision ?? team.revision}`,

@@ -39,15 +39,16 @@ newer source revision is compiling or invalid and exposes the current compiler d
 Each paper path owns a separate workbench lifecycle, so switching between Typst tabs cannot carry an
 unsaved draft, imported-source caret, conflict, or inverse-search request into another paper.
 
-The Host-global deliverable contract asks every preset for standard Markdown output links such as
-`[paper.typ](./papers/paper.typ)`, not bare or inline-code paths. The plugin resolves those links only
-against the closing turn's mutation evidence or explicit safe Typst references in Assistant prose and
-Tool arguments. History replay rebuilds the same ordered deduplicated row, so a Bash-authored paper
-does not depend on the model choosing Markdown syntax. Absolute and traversal candidates remain
-inert, and the Host authorizes the file when the workbench opens. The Host watcher owns initial
-compilation and every later source change. Only the `dsh-science` preset adds annotation/literature
-guidance and denies a model-requested Bash `typst compile` or `typst watch`; sibling presets receive
-neither Science tools nor that Science-specific contract.
+The Host-global deliverable contract asks every preset to cite completed output files as Markdown
+inline code, using the exact workspace-relative path or a unique basename. The plugin resolves those
+tokens only against the closing turn's mutation evidence or explicit safe Typst references in
+Assistant prose and Tool arguments. History replay rebuilds the same ordered deduplicated row, so a
+Bash-authored paper does not depend on the model choosing a particular final-answer path spelling.
+Absolute and traversal candidates remain inert, and the Host authorizes the file when the workbench
+opens. The Host watcher owns initial compilation and every later source change. Only the
+`dsh-science` preset adds annotation/literature guidance and denies a model-requested Bash
+`typst compile` or `typst watch`; sibling presets receive neither Science tools nor that
+Science-specific contract.
 
 PDF.js text layers make rendered prose selectable. Adding a selection to Chat preserves the current
 draft and inserts the same structured `annotation` reference with a
@@ -64,10 +65,8 @@ caret, and reveals it. A stale PDF/source revision is shown as an error and neve
 Dragging or double-clicking a text selection still opens the annotation flow, while figure clicks and
 double-clicks retain their annotation and dedicated-tab behavior.
 
-dsh 0.1.1-rc.2 publishes the final-response file-mention provider as a single service with no opener
-decorator and resolves only inline-code tokens. The SwarmX product patch therefore disables that one
-upstream client row, extends the safe Markdown resolver with an optional file-link seam, and lets this
-plugin own one behavior-equivalent `Files` row. Structured mutation paths retain ordinary Host opener
-behavior; only safe `.typ`/`.typst` references extend the vocabulary and enter the paper workbench.
-Legacy inline-code mentions and standard Markdown destinations share that opener when old turns are
-replayed.
+The alpha.2 conversation projection and file-mention resolver are used directly. This plugin
+registers its deliverables node through `uiConversation.events`, reconstructs mutating file-tool paths
+from validated call arguments, and delegates ordinary file opens to
+`remote.session.openWorkspacePath`. Only safe `.typ`/`.typst` references extend the vocabulary and
+enter the paper workbench.

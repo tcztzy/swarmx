@@ -64,6 +64,7 @@ function assign(state: ModelState, attempt: "a" | "b", mode: VerificationMode): 
 function transitions(state: ModelState, mode: VerificationMode): ModelState[] {
   const next: ModelState[] = [];
   const unresolved = state.effectStatus === "started" || state.effectStatus === "uncertain";
+  const coordinationWrite = mode === "enforced" ? 1 : 0;
   if (!state.crashed && (mode === "prompt-only" || !unresolved)) {
     next.push(assign(state, "a", mode), assign(state, "b", mode));
   }
@@ -79,7 +80,7 @@ function transitions(state: ModelState, mode: VerificationMode): ModelState[] {
             ? state.duplicateEffects + 1
             : state.duplicateEffects,
         staleEffects: state.staleEffects + (attempt === state.currentAttempt ? 0 : 1),
-        coordinationWrites: state.coordinationWrites + (mode === "enforced" ? 1 : 0),
+        coordinationWrites: state.coordinationWrites + coordinationWrite,
       });
     }
   }
@@ -88,20 +89,20 @@ function transitions(state: ModelState, mode: VerificationMode): ModelState[] {
       ...state,
       effectStatus: "succeeded",
       externalEffects: state.externalEffects + 1,
-      coordinationWrites: state.coordinationWrites + (mode === "enforced" ? 1 : 0),
+      coordinationWrites: state.coordinationWrites + coordinationWrite,
     });
     next.push({
       ...state,
       effectStatus: "uncertain",
       uncertainOccurred: true,
       externalEffects: state.externalEffects + 1,
-      coordinationWrites: state.coordinationWrites + (mode === "enforced" ? 1 : 0),
+      coordinationWrites: state.coordinationWrites + coordinationWrite,
     });
     next.push({
       ...state,
       effectStatus: "uncertain",
       uncertainOccurred: false,
-      coordinationWrites: state.coordinationWrites + (mode === "enforced" ? 1 : 0),
+      coordinationWrites: state.coordinationWrites + coordinationWrite,
     });
   }
   if (state.effectStatus === "uncertain") {
@@ -109,14 +110,14 @@ function transitions(state: ModelState, mode: VerificationMode): ModelState[] {
       next.push({
         ...state,
         effectStatus: "observed",
-        coordinationWrites: state.coordinationWrites + (mode === "enforced" ? 1 : 0),
+        coordinationWrites: state.coordinationWrites + coordinationWrite,
       });
     }
     if (mode === "prompt-only" || !state.uncertainOccurred) {
       next.push({
         ...state,
         effectStatus: "absent",
-        coordinationWrites: state.coordinationWrites + (mode === "enforced" ? 1 : 0),
+        coordinationWrites: state.coordinationWrites + coordinationWrite,
       });
     }
     if (mode === "prompt-only") {
@@ -133,7 +134,7 @@ function transitions(state: ModelState, mode: VerificationMode): ModelState[] {
     currentAttempt: null,
     authorizedAttempts: mode === "enforced" ? [] : state.authorizedAttempts,
     effectStatus: state.effectStatus === "started" ? "uncertain" : state.effectStatus,
-    coordinationWrites: state.coordinationWrites + (mode === "enforced" ? 1 : 0),
+    coordinationWrites: state.coordinationWrites + coordinationWrite,
   });
   if (state.crashed) {
     next.push({

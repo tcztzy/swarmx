@@ -78,7 +78,7 @@ Workspace papers produced by the agent use a separate, real Typst preview bounda
   workspace-relative `.typ`/`.typst` file and starts/reuses the bundled semantic Typst watcher.
 - the watcher retains one Typst document/world snapshot and exports the PDF from that exact snapshot;
   imported source and asset changes are observed automatically without a model tool call.
-- the paper entrypoint comes from a verified produced-file Markdown link or explicit DetailsPanel
+- the paper entrypoint comes from a verified alpha.2 inline-code file mention or explicit DetailsPanel
   open; after registration, the watcher observes source/import changes without another model turn.
 - the response contains bounded source plus its SHA256 revision, the latest bounded compiled PDF when
   available, the exact source revision that produced that PDF, and current bounded compiler

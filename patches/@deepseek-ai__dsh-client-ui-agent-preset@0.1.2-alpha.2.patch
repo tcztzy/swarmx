@@ -1,0 +1,43 @@
+diff --git a/lib/client.js b/lib/client.js
+--- a/lib/client.js
++++ b/lib/client.js
+@@ -25,6 +25,10 @@ window.__ModuleLoader__.load({
+ 			cordis: {
+ 				name: "presetCordisName",
+ 				description: "presetCordisDescription"
++			},
++			"dsh-science": {
++				name: "presetScienceName",
++				description: "presetScienceDescription"
+ 			}
+ 		};
+ 		/**
+@@ -66,6 +70,8 @@ window.__ModuleLoader__.load({
+ 			presetMinimalDescription: "Two-tool coding agent with persistent bash and str_replace_editor.",
+ 			presetCordisName: "Creator mode",
+ 			presetCordisDescription: "Built for creating custom agent presets, with all Standard mode capabilities plus runtime inspection, plugin experiments, and preset-authoring guidance.",
++			presetScienceName: "Science mode",
++			presetScienceDescription: "All Standard mode capabilities, with local-first scientific research tools, literature search, annotation understanding, and a managed Typst workflow.",
+ 			duplicate: "Duplicate",
+ 			duplicateUnavailable: "This deployment has no writable preset directory",
+ 			delete: "Delete",
+@@ -120,6 +126,8 @@ window.__ModuleLoader__.load({
+ 			presetMinimalDescription: "仅提供持久 bash 与 str_replace_editor 的双工具编码 Agent。",
+ 			presetCordisName: "创造模式",
+ 			presetCordisDescription: "用于创建自定义 Agent preset：具备标准模式的全部能力，并提供运行时检查、插件实验和 preset 创作指导。",
++			presetScienceName: "科学模式",
++			presetScienceDescription: "具备标准模式的全部能力，并提供本地优先的科学研究工具、文献检索、注释理解与托管 Typst 工作流。",
+ 			duplicate: "复制",
+ 			duplicateUnavailable: "此部署未配置可写的预设目录",
+ 			delete: "删除",
+diff --git a/lib/types/client/locales.d.ts b/lib/types/client/locales.d.ts
+--- a/lib/types/client/locales.d.ts
++++ b/lib/types/client/locales.d.ts
+@@ -1,6 +1,6 @@
+ /** Locale bundles for the agent-preset hero chip, header label, and management section. */
+ /** Locale keys these surfaces render. */
+-export type AgentPresetSettingsKey = 'error' | 'userTrust' | 'seatHint' | 'headerHint' | 'nav' | 'sectionIntro' | 'builtIn' | 'setDefault' | 'view' | 'presetStandardName' | 'presetStandardDescription' | 'presetPtcName' | 'presetPtcDescription' | 'presetMinimalName' | 'presetMinimalDescription' | 'presetCordisName' | 'presetCordisDescription' | 'duplicate' | 'duplicateUnavailable' | 'delete' | 'presetId' | 'presetIdPlaceholder' | 'copyOf' | 'displayName' | 'displayNamePlaceholder' | 'inUse' | 'noDescription' | 'builtInGroup' | 'customGroup' | 'brokenBadge' | 'brokenNoCopy' | 'switchRefused' | 'composition' | 'cancel' | 'close' | 'retry' | 'copyTitle' | 'copyIntro' | 'create' | 'creating' | 'creatorDraft' | 'openLocation' | 'showLocation' | 'revealedPathLabel' | 'idRequired' | 'idInvalid' | 'idTaken' | 'deleteTitle' | 'deleteDescription' | 'deleteConfirm' | 'deleting';
++export type AgentPresetSettingsKey = 'error' | 'userTrust' | 'seatHint' | 'headerHint' | 'nav' | 'sectionIntro' | 'builtIn' | 'setDefault' | 'view' | 'presetStandardName' | 'presetStandardDescription' | 'presetPtcName' | 'presetPtcDescription' | 'presetMinimalName' | 'presetMinimalDescription' | 'presetCordisName' | 'presetCordisDescription' | 'presetScienceName' | 'presetScienceDescription' | 'duplicate' | 'duplicateUnavailable' | 'delete' | 'presetId' | 'presetIdPlaceholder' | 'copyOf' | 'displayName' | 'displayNamePlaceholder' | 'inUse' | 'noDescription' | 'builtInGroup' | 'customGroup' | 'brokenBadge' | 'brokenNoCopy' | 'switchRefused' | 'composition' | 'cancel' | 'close' | 'retry' | 'copyTitle' | 'copyIntro' | 'create' | 'creating' | 'creatorDraft' | 'openLocation' | 'showLocation' | 'revealedPathLabel' | 'idRequired' | 'idInvalid' | 'idTaken' | 'deleteTitle' | 'deleteDescription' | 'deleteConfirm' | 'deleting';
+ /** English copy. */
+ export declare const en: Record<AgentPresetSettingsKey, string>;
+ /** Simplified Chinese copy. */

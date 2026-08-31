@@ -289,17 +289,15 @@ export async function createProductMcpHost(
 }
 
 export async function disposeInOrder(disposers: readonly (() => Promise<void>)[]): Promise<void> {
-  let firstError: unknown;
-  let failed = false;
+  const failures: unknown[] = [];
   for (const dispose of disposers) {
     try {
       await dispose();
     } catch (error) {
-      if (!failed) firstError = error;
-      failed = true;
+      failures.push(error);
     }
   }
-  if (failed) throw firstError;
+  if (failures.length > 0) throw failures[0];
 }
 
 export async function connectProductMcpTransport(

@@ -65,22 +65,7 @@ export class CodexMemberBindingStore {
         handle: binding.conversationId,
       });
     } catch (cause) {
-      const message = cause instanceof Error ? cause.message : String(cause);
-      if (message.includes("member already belongs")) {
-        throw new CodexMemberBindingConflictError(
-          "Codex Swarm member already belongs to another native Thread.",
-          "member",
-          { cause },
-        );
-      }
-      if (message.includes("runtime handle already belongs")) {
-        throw new CodexMemberBindingConflictError(
-          "Codex Swarm native Thread already belongs to another member.",
-          "handle",
-          { cause },
-        );
-      }
-      throw cause;
+      throw bindingConflict(cause);
     }
   }
 

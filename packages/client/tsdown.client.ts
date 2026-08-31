@@ -35,9 +35,6 @@ const require = createRequire(import.meta.url);
  */
 const SKIP_WORKSPACE_BUILD: UserConfig = { entry: "" };
 
-/** DSH preloads the client runtime factory before dependent plugin bundles. */
-const RUNTIME_STORE_EXEMPTION = "@deepseek-ai/dsh-client-runtime/client";
-
 /** Externals resolved from the DSH Web loader module table. */
 export const CLIENT_EXTERNALS: readonly string[] = [
   "react",
@@ -47,7 +44,6 @@ export const CLIENT_EXTERNALS: readonly string[] = [
   "@deepseek-ai/cordis",
   "@deepseek-ai/dsh-client-ui-slots",
   "@deepseek-ai/dsh-client-ui-primitives",
-  RUNTIME_STORE_EXEMPTION,
 ];
 
 const REPOSITORY_ROOT = fileURLToPath(new URL("../..", import.meta.url));

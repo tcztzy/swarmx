@@ -1,3 +1,4 @@
+import type { ChatSnapshot } from "@deepseek-ai/dsh-client-ui-chat/client";
 import {
   IconCloseOutline16,
   IconEditOutline16,
@@ -27,7 +28,7 @@ export interface AnnotationOccurrence {
   readonly occurrenceId: number;
   readonly source: string;
   readonly ref: string;
-  readonly placement?: "inline" | "detached";
+  readonly placement?: "inline" | "detached" | undefined;
 }
 
 export interface ComposerAnnotation {
@@ -215,13 +216,15 @@ function selectionStyle(candidate: MessageSelectionCandidate) {
 }
 
 export function AnnotationComposer({
-  session,
+  sessionId,
+  useChat,
   input,
   addAnnotation,
   replaceAnnotation,
   removeAnnotation,
   t,
 }: AnnotationComposerProps) {
+  const chat = useChat((snapshot: ChatSnapshot) => snapshot);
   const annotationT = t as AnnotationTranslate;
   const annotations = useMemo(
     () => composerAnnotations(input.occurrences, annotationT),
@@ -237,7 +240,9 @@ export function AnnotationComposer({
   const trayRef = useRef<HTMLDivElement | null>(null);
   const noteRef = useRef<HTMLTextAreaElement | null>(null);
   const target =
-    candidate === null ? null : messageSelectionTarget(session, candidate.nodeKey, candidate.text);
+    candidate === null
+      ? null
+      : messageSelectionTarget({ sessionId, chat }, candidate.nodeKey, candidate.text);
 
   useEffect(() => {
     const update = () => {

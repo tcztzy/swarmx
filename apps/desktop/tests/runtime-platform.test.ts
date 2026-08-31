@@ -8,8 +8,17 @@ import { type DesktopPlatform, startDesktopPlatform } from "../src/runtime/platf
 let root: string;
 let previousDshHome: string | undefined;
 let platform: DesktopPlatform;
+let fetchPlatform: (pathname?: string) => Promise<Response>;
 const codexCommand = process.env.SWARMX_CODEX_COMMAND ?? "codex";
 const codexAvailable = spawnSync(codexCommand, ["--version"], { encoding: "utf8" }).status === 0;
+
+async function authenticatedFetch(url: string): Promise<(pathname?: string) => Promise<Response>> {
+  const exchange = await fetch(url, { redirect: "manual" });
+  const setCookie = exchange.headers.get("set-cookie");
+  if (setCookie === null) throw new Error("Platform launch-token exchange did not set a cookie.");
+  const cookie = setCookie.split(";", 1)[0] as string;
+  return (pathname = "/") => fetch(new URL(pathname, url), { headers: { cookie } });
+}
 
 beforeAll(async () => {
   root = mkdtempSync(join(tmpdir(), "swarmx-platform-"));
@@ -21,6 +30,7 @@ beforeAll(async () => {
     productHome: join(root, "product"),
     legacyProductHome: join(root, "legacy"),
   });
+  fetchPlatform = await authenticatedFetch(platform.url);
 }, 180_000);
 
 afterAll(async () => {
@@ -34,11 +44,11 @@ describe("desktop runtime platform", () => {
   it("loads only DSH Web and mounts the runtime registry on its origin", async () => {
     expect(platform.defaultRuntimeKind).toBe("dsh");
     expect(platform.runtimes.kinds()).toEqual(["dsh"]);
-    const page = await fetch(platform.url);
+    const page = await fetchPlatform();
     expect(page.status).toBe(200);
     expect(await page.text()).toContain("__DSH_BOOT__");
 
-    const metadata = await fetch(new URL("/api/swarmx/conversation-runtimes", platform.url));
+    const metadata = await fetchPlatform("/api/swarmx/conversation-runtimes");
     expect(metadata.status).toBe(200);
     await expect(metadata.json()).resolves.toEqual({
       defaultRuntimeKind: "dsh",
@@ -59,9 +69,8 @@ describe("desktop runtime platform", () => {
       try {
         expect(codexPlatform.url).toMatch(/^http:\/\/127\.0\.0\.1:/u);
         expect(codexPlatform.runtimes.kinds()).toEqual(["dsh", "codex"]);
-        const metadata = await fetch(
-          new URL("/api/swarmx/conversation-runtimes", codexPlatform.url),
-        );
+        const fetchCodexPlatform = await authenticatedFetch(codexPlatform.url);
+        const metadata = await fetchCodexPlatform("/api/swarmx/conversation-runtimes");
         await expect(metadata.json()).resolves.toEqual({
           defaultRuntimeKind: "codex",
           runtimeKinds: ["dsh", "codex"],

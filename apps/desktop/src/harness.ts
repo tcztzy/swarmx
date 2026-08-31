@@ -1,9 +1,9 @@
 /**
- * Boots the DeepSeek Harness `web` profile inside this process and reports the
- * URL its server bound to. The profile is DSH's own shipped template
+ * Boots the DeepSeek Harness `web` profile inside this process and reports its
+ * authenticated browser launch URL. The profile is DSH's own shipped template
  * (`dsh-base` + `dsh-web-app`), so the entire browser surface — every
  * `dsh-client-ui-*` package — remains the baseline. Product-owned extensions,
- * exact-version package patches, and the Markdown file-link route stay explicit.
+ * exact-version package patches stay explicit.
  */
 
 import { writeFileSync } from "node:fs";
@@ -20,10 +20,10 @@ import {
   PROFILE_PATCH_FILENAME,
   type Profile,
 } from "@deepseek-ai/dsh-app-boot";
+import type {} from "@deepseek-ai/dsh-client-connection";
 import { provideCmdline } from "@deepseek-ai/dsh-cmdline";
 import { resolveDshHome } from "@deepseek-ai/dsh-home-paths";
 import type { Config as ScienceConfig } from "@swarmx/dsh-science/core";
-import * as MarkdownFileLinks from "./markdown-file-links.js";
 import {
   projectScienceCarrierConfig,
   type ScienceCarrierConfig,
@@ -44,7 +44,7 @@ export interface Harness {
   ctx: Context;
   /** Bounded composed Science settings shared with the Codex product carrier. */
   scienceConfig: ScienceCarrierConfig;
-  /** Loopback URL the renderer loads. */
+  /** Token-bearing loopback URL the renderer exchanges for DSH's browser-session cookie. */
   url: string;
 }
 
@@ -52,63 +52,14 @@ export interface StartHarnessOptions {
   productHome: string;
 }
 
-/**
- * Absolute path of the installed `dsh` package manifest. Profile bundle names
- * resolve two-anchored against this installation, so it must point at the real
- * dependency rather than at our own package.
- */
-function installAnchor(): string {
-  return createRequire(import.meta.url).resolve("@deepseek-ai/dsh/package.json");
+const moduleRequire = createRequire(import.meta.url);
+
+function packageAnchor(packageId: string): string {
+  return moduleRequire.resolve(`${packageId}/package.json`);
 }
 
-/** Installed manifest for the SwarmX client extension and its dependency closure. */
-function conversationAnchor(): string {
-  return createRequire(import.meta.url).resolve("@swarmx/dsh-ui-conversation/package.json");
-}
-
-/** Installed manifest for the read-only SwarmX Git status UI. */
-function gitUiAnchor(): string {
-  return createRequire(import.meta.url).resolve("@swarmx/dsh-ui-git/package.json");
-}
-
-/** Installed manifest for the Host-only SwarmX DVC capability. */
-function dvcAnchor(): string {
-  return createRequire(import.meta.url).resolve("@swarmx/dsh-dvc/package.json");
-}
-
-/** Installed manifest for the read-only SwarmX DVC status UI. */
-function dvcUiAnchor(): string {
-  return createRequire(import.meta.url).resolve("@swarmx/dsh-ui-dvc/package.json");
-}
-
-/** Installed manifest for the SwarmX science Host service. */
-function scienceAnchor(): string {
-  return createRequire(import.meta.url).resolve("@swarmx/dsh-science/package.json");
-}
-
-/** Installed manifest for the SwarmX private Personal Knowledge Base. */
-function pkbAnchor(): string {
-  return createRequire(import.meta.url).resolve("@swarmx/dsh-pkb/package.json");
-}
-
-/** Installed manifest for the SwarmX Science Chat and Side View client integration. */
-function scienceUiAnchor(): string {
-  return createRequire(import.meta.url).resolve("@swarmx/dsh-ui-science/package.json");
-}
-
-/** Installed manifest for the durable Swarm Host service and system preset. */
-function swarmAnchor(): string {
-  return createRequire(import.meta.url).resolve("@swarmx/dsh-swarm/package.json");
-}
-
-/** Installed manifest for the read-only Swarm activity client integration. */
-function swarmUiAnchor(): string {
-  return createRequire(import.meta.url).resolve("@swarmx/dsh-ui-swarm/package.json");
-}
-
-/** Module base anchoring in-box and SwarmX-owned bare plugin specifiers. */
-function bareModuleBaseUrl(anchor: string): string {
-  return pathToFileURL(anchor).href;
+function patchPath(anchor: string): string {
+  return join(dirname(anchor), "cordis.patch.yml");
 }
 
 /** Return the package name portion of one bare module specifier. */
@@ -123,6 +74,24 @@ function packageName(specifier: string): string | undefined {
   return specifier.split("/")[0];
 }
 
+function resolveEntryNames<T>(value: T, resolveName: (name: string) => string): T {
+  const resolved = structuredClone(value);
+  const visit = (current: unknown): void => {
+    if (Array.isArray(current)) {
+      for (const child of current) visit(child);
+      return;
+    }
+    if (current === null || typeof current !== "object") return;
+    const record = current as Record<string, unknown>;
+    if (typeof record.id === "string" && typeof record.name === "string") {
+      record.name = resolveName(record.name);
+    }
+    for (const child of Object.values(record)) visit(child);
+  };
+  visit(resolved);
+  return resolved;
+}
+
 /**
  * Electron cannot always obtain Node's internal ESM loader, so its fallback
  * dynamic import ignores the Loader base URL. Resolve only active bundle-owned
@@ -130,91 +99,19 @@ function packageName(specifier: string): string | undefined {
  * continue resolving from the installed app graph.
  */
 function resolveProfileBundleEntries<T>(value: T, profile: Profile): T {
-  const resolved = structuredClone(value);
   const bundleNames = new Set(profile.layers.map((layer) => layer.packageName));
   const profileRequire = createRequire(join(profile.dir, "package.json"));
-
-  const visit = (current: unknown): void => {
-    if (Array.isArray(current)) {
-      for (const child of current) visit(child);
-      return;
-    }
-    if (current === null || typeof current !== "object") return;
-    const record = current as Record<string, unknown>;
-    if (typeof record.id === "string" && typeof record.name === "string") {
-      const owner = packageName(record.name);
-      if (owner !== undefined && bundleNames.has(owner)) {
-        record.name = profileRequire.resolve(record.name);
-      }
-    }
-    for (const child of Object.values(record)) visit(child);
-  };
-
-  visit(resolved);
-  return resolved;
+  return resolveEntryNames(value, (name) => {
+    const owner = packageName(name);
+    return owner !== undefined && bundleNames.has(owner) ? profileRequire.resolve(name) : name;
+  });
 }
 
 /** Resolve one Host-only patch package without changing client-bearing package identities. */
 function resolveHostPatchEntries<T>(value: T, packageId: string, anchor: string): T {
-  const resolved = structuredClone(value);
-
-  const visit = (current: unknown): void => {
-    if (Array.isArray(current)) {
-      for (const child of current) visit(child);
-      return;
-    }
-    if (current === null || typeof current !== "object") return;
-    const record = current as Record<string, unknown>;
-    if (typeof record.id === "string" && typeof record.name === "string") {
-      if (packageName(record.name) === packageId) {
-        record.name = createRequire(anchor).resolve(record.name);
-      }
-    }
-    for (const child of Object.values(record)) visit(child);
-  };
-
-  visit(resolved);
-  return resolved;
-}
-
-/** Product-owned patch mounted after DSH bundles and before user overrides. */
-function conversationPatchPath(): string {
-  return join(dirname(conversationAnchor()), "cordis.patch.yml");
-}
-
-/** Read-only Git status service and client integration layer. */
-function gitUiPatchPath(): string {
-  return join(dirname(gitUiAnchor()), "cordis.patch.yml");
-}
-
-/** Host-only DVC status, pull, and isolated reproduction layer. */
-function dvcPatchPath(): string {
-  return join(dirname(dvcAnchor()), "cordis.patch.yml");
-}
-
-/** Read-only DVC status service and client integration layer. */
-function dvcUiPatchPath(): string {
-  return join(dirname(dvcUiAnchor()), "cordis.patch.yml");
-}
-
-/** Product-owned Science Journal service and client integration layer. */
-function sciencePatchPath(): string {
-  return join(dirname(scienceAnchor()), "cordis.patch.yml");
-}
-
-/** Product-owned PKB service, tool, and session-search activation layer. */
-function pkbPatchPath(): string {
-  return join(dirname(pkbAnchor()), "cordis.patch.yml");
-}
-
-/** Durable DSH-native Swarm roster, scheduler, mailbox, and lifecycle layer. */
-function swarmPatchPath(): string {
-  return join(dirname(swarmAnchor()), "cordis.patch.yml");
-}
-
-/** Read-only Swarm activity header and Side View layer. */
-function swarmUiPatchPath(): string {
-  return join(dirname(swarmUiAnchor()), "cordis.patch.yml");
+  return resolveEntryNames(value, (name) =>
+    packageName(name) === packageId ? createRequire(anchor).resolve(name) : name,
+  );
 }
 
 /**
@@ -278,27 +175,35 @@ const ROOT_CONFIG = `# SwarmX profile root — an empty entry list. The tree is 
  */
 export async function startHarness(options: StartHarnessOptions): Promise<Harness> {
   const home = resolveDshHome();
-  const anchor = installAnchor();
-  const conversationPackageAnchor = conversationAnchor();
-  const gitUiPackageAnchor = gitUiAnchor();
-  const dvcPackageAnchor = dvcAnchor();
-  const dvcUiPackageAnchor = dvcUiAnchor();
-  const pkbPackageAnchor = pkbAnchor();
-  const sciencePackageAnchor = scienceAnchor();
-  const scienceUiPackageAnchor = scienceUiAnchor();
-  const swarmPackageAnchor = swarmAnchor();
-  const swarmUiPackageAnchor = swarmUiAnchor();
-  healProfilesModuleFallback(anchor, home);
-  healProfilesModuleFallback(conversationPackageAnchor, home);
-  healProfilesModuleFallback(gitUiPackageAnchor, home);
-  healProfilesModuleFallback(dvcPackageAnchor, home);
-  healProfilesModuleFallback(dvcUiPackageAnchor, home);
-  healProfilesModuleFallback(pkbPackageAnchor, home);
-  healProfilesModuleFallback(sciencePackageAnchor, home);
-  healProfilesModuleFallback(scienceUiPackageAnchor, home);
-  healProfilesModuleFallback(swarmPackageAnchor, home);
-  healProfilesModuleFallback(swarmUiPackageAnchor, home);
+  const anchor = packageAnchor("@deepseek-ai/dsh");
+  const conversationPackageAnchor = packageAnchor("@swarmx/dsh-ui-conversation");
+  const gitUiPackageAnchor = packageAnchor("@swarmx/dsh-ui-git");
+  const dvcPackageAnchor = packageAnchor("@swarmx/dsh-dvc");
+  const dvcUiPackageAnchor = packageAnchor("@swarmx/dsh-ui-dvc");
+  const pkbPackageAnchor = packageAnchor("@swarmx/dsh-pkb");
+  const sciencePackageAnchor = packageAnchor("@swarmx/dsh-science");
+  const swarmPackageAnchor = packageAnchor("@swarmx/dsh-swarm");
+  const swarmUiPackageAnchor = packageAnchor("@swarmx/dsh-ui-swarm");
   const profile = loadProfile(BIN_NAME, PROFILE, anchor, home);
+  const productAnchor = moduleRequire.resolve("../package.json");
+  await healProfilesModuleFallback({
+    installAnchor: anchor,
+    // The desktop manifest is a closure-only profile root: alpha.2 reserves the
+    // exact DSH installation while projecting app-owned bare packages locally.
+    profile: {
+      ...profile,
+      layers: [
+        ...profile.layers,
+        {
+          packageName: "@swarmx/desktop",
+          packageDir: dirname(productAnchor),
+          patchPath: productAnchor,
+          patches: [],
+        },
+      ],
+    },
+    home,
+  });
   writeFileSync(join(profile.dir, ROOT_FILENAME), ROOT_CONFIG);
   // Layer order is the contract: DSH bundles, SwarmX product extensions, the
   // profile's user patch, the home-level one, then launcher overrides. Users
@@ -310,22 +215,22 @@ export async function startHarness(options: StartHarnessOptions): Promise<Harnes
       profile.layers.flatMap((layer) => layer.patches),
       profile,
     ),
-    loadOptionalPatches(BIN_NAME, conversationPatchPath()) ?? [],
-    loadOptionalPatches(BIN_NAME, gitUiPatchPath()) ?? [],
+    loadOptionalPatches(BIN_NAME, patchPath(conversationPackageAnchor)) ?? [],
+    loadOptionalPatches(BIN_NAME, patchPath(gitUiPackageAnchor)) ?? [],
     resolveHostPatchEntries(
-      loadOptionalPatches(BIN_NAME, dvcPatchPath()) ?? [],
+      loadOptionalPatches(BIN_NAME, patchPath(dvcPackageAnchor)) ?? [],
       "@swarmx/dsh-dvc",
       dvcPackageAnchor,
     ),
-    loadOptionalPatches(BIN_NAME, dvcUiPatchPath()) ?? [],
+    loadOptionalPatches(BIN_NAME, patchPath(dvcUiPackageAnchor)) ?? [],
     resolveHostPatchEntries(
-      loadOptionalPatches(BIN_NAME, pkbPatchPath()) ?? [],
+      loadOptionalPatches(BIN_NAME, patchPath(pkbPackageAnchor)) ?? [],
       "@swarmx/dsh-pkb",
       pkbPackageAnchor,
     ),
-    loadOptionalPatches(BIN_NAME, sciencePatchPath()) ?? [],
-    loadOptionalPatches(BIN_NAME, swarmPatchPath()) ?? [],
-    loadOptionalPatches(BIN_NAME, swarmUiPatchPath()) ?? [],
+    loadOptionalPatches(BIN_NAME, patchPath(sciencePackageAnchor)) ?? [],
+    loadOptionalPatches(BIN_NAME, patchPath(swarmPackageAnchor)) ?? [],
+    loadOptionalPatches(BIN_NAME, patchPath(swarmUiPackageAnchor)) ?? [],
     resolveProfileBundleEntries(profile.patches, profile),
     resolveProfileBundleEntries(
       loadOptionalPatches(BIN_NAME, join(home, PROFILE_PATCH_FILENAME)) ?? [],
@@ -383,19 +288,23 @@ export async function startHarness(options: StartHarnessOptions): Promise<Harnes
     patches,
     (hostCtx) => {
       provideCmdline(hostCtx, { args: ["--no-open"], exit: () => {} });
-      hostCtx.plugin(MarkdownFileLinks);
     },
-    bareModuleBaseUrl(join(profile.dir, "package.json")),
+    pathToFileURL(join(profile.dir, "package.json")).href,
   );
   const port = ctx.get("webServer")?.port;
   if (port === undefined) {
     await ctx.fiber.dispose();
     throw new Error(`${BIN_NAME}: the web profile mounted without a web server`);
   }
+  const connection = ctx.get("connection");
+  if (connection === undefined) {
+    await ctx.fiber.dispose();
+    throw new Error(`${BIN_NAME}: the web profile mounted without a browser connection`);
+  }
   return {
     ctx,
     scienceConfig: projectScienceCarrierConfig(scienceConfig),
-    url: `http://${HOST}:${String(port)}`,
+    url: connection.authenticatedUrl(`http://${HOST}:${String(port)}`),
   };
 }
 

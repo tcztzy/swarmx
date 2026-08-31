@@ -13,8 +13,7 @@ Each native Session/Thread is its only transcript truth. `ConversationRuntimeReg
 | Path | Ownership |
 | --- | --- |
 | `apps/desktop/src/app-lifecycle.ts` | Electron single-primary ownership/focus plus once-only quit coordination, pending-exit fencing, and explicit cleanup-failure reporting |
-| `apps/desktop/src/harness.ts` | Profile creation, profile dependency-closure module resolution, DSH + Science + Swarm system-preset roots, patch composition, in-process Harness boot, loopback URL |
-| `apps/desktop/src/markdown-file-links.ts` | Exact rc.2 frontend asset route that adds trusted Markdown file-link resolution and rejects upstream seam drift |
+| `apps/desktop/src/harness.ts` | Profile creation, profile dependency-closure module resolution, DSH + Science + Swarm system-preset roots, patch composition, in-process Harness boot, authenticated loopback launch URL |
 | `apps/desktop/src/main.ts` | Explicit runtime/workspace selection, shared-platform startup, window recreation, and ordered shutdown |
 | `apps/desktop/src/window.ts` | BrowserWindow construction, navigation and permission boundary |
 | `apps/desktop/src/runtime/approval.ts` | Runtime-qualified single-use pending approval registry and fail-closed disposal |
@@ -39,7 +38,6 @@ Each native Session/Thread is its only transcript truth. `ConversationRuntimeReg
 | `apps/desktop/src/runtime/codex/mcp-server.ts` | Required stdio Science/PKB/Swarm MCP carrier with carrier-exact schema projection plus shared strict validation, native-Thread/session/call-scoped identity, workspace bridge, native Codex member threads, and bounded image output |
 | `apps/desktop/tests/app-lifecycle.test.ts` | Single-primary focus/secondary exit plus once-only quit, successful continuation, and fail-loud cleanup rejection contract |
 | `apps/desktop/tests/harness.test.ts` | Real profile boot, profile-installed bundle resolution, Science preset discovery/scoping, browser-handoff and HTTP integration |
-| `apps/desktop/tests/markdown-file-links.test.ts` | Markdown seam transformation, native-link fallback, and upstream drift rejection contract |
 | `apps/desktop/tests/codex-connection.test.ts` | App Server handshake, framing bounds, malformed payload, pending-call, and process disposal contract |
 | `apps/desktop/tests/codex-member-bindings.test.ts` | Concurrent per-member binding claim/release, workspace isolation, validation, and owner-permission contract |
 | `apps/desktop/tests/codex-real.test.ts` | Installed real Codex App Server schema, stored-thread resume, required product MCP startup, and `SWARMX_CODEX_FULL_ACCEPTANCE=1` schema/approval/PKB scope/native-member restart/archive/lifecycle gate |
@@ -164,7 +162,7 @@ Each native Session/Thread is its only transcript truth. `ConversationRuntimeReg
 | `packages/client/ui-conversation/src/client/annotation-projection.ts` | Hidden `dsh-annotation` transport, legacy persisted projection, localized card metadata, and readable Copy text |
 | `packages/client/ui-conversation/src/client/annotation-reference.ts` | Generic annotation codec and detached per-session composer occurrence operations |
 | `packages/client/ui-conversation/src/client/annotation-user-message.tsx` | Safe-Markdown user/steering renderer with bounded annotation cards |
-| `packages/client/ui-conversation/src/client/controller.ts` | Per-session Retry/Edit orchestration |
+| `packages/client/ui-conversation/src/client/controller.ts` | Per-session Retry/Edit orchestration plus alpha.2 addressable first-turn sibling creation with source Workspace/cwd and agent-preset inheritance |
 | `packages/client/ui-conversation/src/client/index.ts` | Retry/Edit, generic Side View, and selected peer-runtime Conversation registration |
 | `packages/client/ui-conversation/src/client/runtime-client.ts` | Same-origin list/read/revision/mutation/SSE client with completed-authoritative projection and typed approval form submission |
 | `packages/client/ui-conversation/src/client/runtime-conversation.tsx` | Runtime-neutral Conversation slot occupant with typed elicitation controls, submit-time Edit state, and an explicit metadata-failure surface, used only when the selected default is not native DSH |
@@ -181,7 +179,7 @@ Each native Session/Thread is its only transcript truth. `ConversationRuntimeReg
 | `packages/client/ui-conversation/tests/annotation-locales.test.ts` | English/Chinese annotation namespace parity contract |
 | `packages/client/ui-conversation/tests/annotation-projection.test.ts` | `dsh-annotation` suppression, Markdown preservation, readable Copy, and legacy recovery contract |
 | `packages/client/ui-conversation/tests/annotation-reference.test.ts` | Detached codec, zero-draft-geometry insertion, source/destination isolation, edit, and removal contract |
-| `packages/client/ui-conversation/tests/controller.test.ts` | Controller behavior |
+| `packages/client/ui-conversation/tests/controller.test.ts` | Retry/Edit controller plus first-turn creation during an in-flight list refresh and ungrouped cwd adoption contract |
 | `packages/client/ui-conversation/tests/error-turn.test.ts` | Terminal failure selection behavior |
 | `packages/client/ui-conversation/tests/detached-reference-patch.test.ts` | Exact-baseline detached-reference runtime seam contract |
 | `packages/client/ui-conversation/tests/fork-boundary.test.ts` | Boundary behavior |
@@ -276,14 +274,15 @@ Each native Session/Thread is its only transcript truth. `ConversationRuntimeReg
 | `packages/science/core/tests/typst-integration.test.ts` | Real Typst CLI plus bundled semantic compile/inverse-search integration contract |
 | `packages/science/core/tests/typst-preview.test.ts` | Typst preview lifecycle, bounds, revisions, updates, and cleanup contract |
 | `packages/science/core/tests/writing-studio.test.ts` | Document validation, diagnostics, patch revision, cancellation, migration, and replay contract |
-| `patches/@deepseek-ai__dsh-client-ui-agent-preset@0.1.1-rc.2.patch` | Exact-baseline English/Chinese locale mapping for the system-owned `dsh-science` preset while retaining metadata fallback for unknown and user presets |
-| `patches/@deepseek-ai__dsh-client-ui-conversation@0.1.1-rc.2.patch` | Exact-baseline detached reference occurrences, annotation-only submission, and occurrence edit/remove operations |
-| `patches/@deepseek-ai__dsh-client-ui-layout@0.1.1-rc.2.patch` | Exact-baseline layout patch removing the fixed 520px details ceiling while retaining the 300px floor, preferred open width, and center-width concession |
-| `patches/@deepseek-ai__dsh-client-ui-primitives@0.1.1-rc.2.patch` | Exact-baseline optional Markdown destination resolver for verified produced-file buttons; unresolved relative and unsafe links remain inert |
+| `patches/@deepseek-ai__dsh-client-ui-agent-preset@0.1.2-alpha.2.patch` | Exact-baseline English/Chinese locale mapping for the system-owned `dsh-science` preset while retaining metadata fallback for unknown and user presets |
+| `patches/@deepseek-ai__dsh-api-session-controller@0.1.2-alpha.2.patch` | Exact-baseline agent-preset support through alpha.2's synchronously addressable client session creation object layer |
+| `patches/@deepseek-ai__dsh-app-boot@0.1.2-alpha.2.patch` | Exact-baseline shared module-fallback reconciliation that removes obsolete DSH-owned packages from previously populated homes |
+| `patches/@deepseek-ai__dsh-client-ui-conversation@0.1.2-alpha.2.patch` | Exact-baseline detached reference occurrences outside Lexical draft geometry, annotation-only submission, and occurrence edit/remove operations |
+| `patches/@deepseek-ai__dsh-client-ui-layout@0.1.2-alpha.2.patch` | Exact-baseline layout patch removing the fixed 520px details ceiling while retaining the 300px floor, preferred open width, and center-width concession |
 | `scripts/build-writing-preview-runtime.ts` | Builds and stages the current-platform semantic writing preview executable for the Science package |
 | `scripts/clean.ts` | Removes only known desktop, client-plugin, and staged native build outputs |
 | `scripts/check-codebase-docs.mjs` | Checks every authored source/test path is mapped here |
-| `scripts/workspace-layout.test.ts` | Grouped workspace, package-manager, development entry, root build-tool ownership, patched preset locale and safe Markdown seams, and viewport-bound details solver contract |
+| `scripts/workspace-layout.test.ts` | Grouped workspace, package-manager, development entry, root build-tool ownership, exact alpha.2 patch set, preset locale, and viewport-bound details solver contract |
 
 Generated `dist/`, `lib/`, native `target/`, and staged `packages/science/core/bin/` artifacts are not source. DSH does not publish its client tsdown preset; the local minimal preset is release-coupled to the DSH module table and guarded by `client-build.test.ts`.
 

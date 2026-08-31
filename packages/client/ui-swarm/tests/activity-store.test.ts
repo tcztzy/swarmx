@@ -1,4 +1,4 @@
-import type { SessionId } from "@deepseek-ai/dsh-client-runtime/client";
+import type { SessionId } from "@deepseek-ai/dsh-session/types";
 import { describe, expect, it, vi } from "vitest";
 import { SwarmActivityStore } from "../src/client/activity-store.js";
 

@@ -1,7 +1,8 @@
 import type { Context } from "@deepseek-ai/cordis";
 import type {} from "@deepseek-ai/dsh-api-gateway/client";
 import type {} from "@deepseek-ai/dsh-client-locale/client";
-import type { SessionId } from "@deepseek-ai/dsh-client-runtime/client";
+import type {} from "@deepseek-ai/dsh-client-ui-renderer/client";
+import type { SessionId } from "@deepseek-ai/dsh-session/types";
 import { TYPERT_REMOTE } from "@swarmx/dsh-swarm/remote";
 import { SwarmActivityStore } from "./activity-store.js";
 import { en, SWARM_LOCALE_NS, type SwarmLocaleKey, zh } from "./swarm-locales.js";
@@ -15,11 +16,9 @@ declare module "@deepseek-ai/dsh-client-ui-slots" {
   }
 }
 
-function remoteValue<T>(
-  result: { ok: true; value: T } | { ok: false; error: { message: string } },
-): T {
+function remoteValue<T>(result: { ok: true; value: T } | { ok: false; error: Error }): T {
   if (result.ok) return result.value;
-  throw new Error(result.error.message);
+  throw result.error;
 }
 
 /** Mount the strict read-only Swarm Remote and reuse the generic per-Session Side View. */

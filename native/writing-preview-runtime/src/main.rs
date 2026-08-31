@@ -199,30 +199,23 @@ fn compile(
     };
     let compiled = typst::compile::<PagedDocument>(&world);
     let warnings = diagnostics(&compiled.warnings);
-    let output = match compiled.output {
-        Ok(document) => match typst_pdf::pdf(&document, &PdfOptions::default()) {
-            Ok(pdf) => Some((document, pdf)),
-            Err(errors) => {
-                let _ = emit(json!({
-                    "type": "compile-error",
-                    "engine": ENGINE,
-                    "diagnostics": diagnostics(&errors),
-                }));
-                None
-            }
-        },
+    let output = compiled.output.and_then(|document| {
+        typst_pdf::pdf(&document, &PdfOptions::default()).map(|pdf| (document, pdf))
+    });
+    let mut dependencies = world.dependencies();
+    if dependencies.is_empty() {
+        dependencies.push(args.input.clone());
+    }
+    let (document, pdf) = match output {
+        Ok(output) => output,
         Err(errors) => {
             let _ = emit(json!({
                 "type": "compile-error",
                 "engine": ENGINE,
                 "diagnostics": diagnostics(&errors),
             }));
-            None
+            return (previous, dependencies);
         }
-    };
-    let dependencies = world.dependencies();
-    let Some((document, pdf)) = output else {
-        return (previous, dependencies);
     };
     if pdf.len() > args.max_pdf_bytes {
         let _ = emit(json!({
@@ -393,32 +386,24 @@ fn main() {
     let (tx, rx) = mpsc::channel();
     std::thread::spawn(move || {
         for line in io::stdin().lock().lines() {
-            match line {
+            let input = match line {
                 Ok(line) => match serde_json::from_str(&line) {
-                    Ok(request) => {
-                        if tx.send(Input::Request(request)).is_err() {
-                            return;
-                        }
-                    }
-                    Err(error) => {
-                        if tx.send(Input::Invalid(error.to_string())).is_err() {
-                            return;
-                        }
-                    }
+                    Ok(request) => Input::Request(request),
+                    Err(error) => Input::Invalid(error.to_string()),
                 },
                 Err(error) => {
                     let _ = tx.send(Input::Invalid(error.to_string()));
                     break;
                 }
+            };
+            if tx.send(input).is_err() {
+                return;
             }
         }
         let _ = tx.send(Input::Closed);
     });
 
     let (mut snapshot, mut dependencies) = compile(&args, Arc::clone(&fonts), None);
-    if dependencies.is_empty() {
-        dependencies.push(args.input.clone());
-    }
     let mut states = file_states(&dependencies);
     loop {
         match rx.recv_timeout(StdDuration::from_millis(75)) {
@@ -436,9 +421,6 @@ fn main() {
                 let next_states = file_states(&dependencies);
                 if next_states != states {
                     (snapshot, dependencies) = compile(&args, Arc::clone(&fonts), snapshot);
-                    if dependencies.is_empty() {
-                        dependencies.push(args.input.clone());
-                    }
                     states = file_states(&dependencies);
                 }
             }

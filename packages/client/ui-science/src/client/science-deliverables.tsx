@@ -1,15 +1,16 @@
 import type { Context } from "@deepseek-ai/cordis";
-import type {
-  ConversationNodeDefinition,
-  SessionId,
-  ToolResultNode,
-} from "@deepseek-ai/dsh-client-runtime/client";
+import type {} from "@deepseek-ai/dsh-api-remotes/client";
+import type {} from "@deepseek-ai/dsh-api-session-controller/client";
 import type {
   ChatFileMentions,
+  ChatSnapshot,
   TurnTailOwnerProps,
-} from "@deepseek-ai/dsh-client-ui-conversation/client";
+} from "@deepseek-ai/dsh-client-ui-chat/client";
+import type { ConversationNodeDefinition } from "@deepseek-ai/dsh-client-ui-conversation/client";
 import type { MarkdownFileMentions } from "@deepseek-ai/dsh-client-ui-primitives";
+import type {} from "@deepseek-ai/dsh-client-ui-renderer/client";
 import type { PropsRuntime } from "@deepseek-ai/dsh-client-ui-slots";
+import type { SessionId } from "@deepseek-ai/dsh-session/types";
 import { typstRelativePathSchema } from "@swarmx/dsh-science/types";
 import type { SideViewEntry } from "@swarmx/dsh-ui-conversation/client";
 import { useMemo } from "react";
@@ -25,7 +26,7 @@ export interface ScienceDeliverablesTurnData {
   readonly referenced: readonly ProducedPath[];
 }
 
-declare module "@deepseek-ai/dsh-client-runtime/client" {
+declare module "@deepseek-ai/dsh-client-ui-conversation/client" {
   interface ConversationTurnDataMap {
     deliverables: ScienceDeliverablesTurnData;
   }
@@ -33,7 +34,7 @@ declare module "@deepseek-ai/dsh-client-runtime/client" {
 
 interface DeliverablesState extends ScienceDeliverablesTurnData {
   readonly turn: number;
-  readonly calls: ReadonlyMap<string, ToolResultNode["callView"]>;
+  readonly calls: ReadonlyMap<string, string | null>;
 }
 
 interface TurnFilesProps {
@@ -62,13 +63,47 @@ function resolveWorkspacePath(cwd: string | undefined, path: string): string {
   return `${cwd.replace(/[/\\]+$/u, "")}/${path.replace(/^[/\\]+/u, "")}`;
 }
 
-function producedPaths(view: ToolResultNode["callView"]): readonly string[] {
-  if (view === null) return [];
-  if (view.card === "diff") return (view.locations ?? []).map(({ path }) => path);
-  if (view.card === "generic" && view.kind === "edit") {
-    return (view.locations ?? []).map(({ path }) => path);
+function mutationPath(name: string, argsRaw: string): string | null {
+  let args: unknown;
+  try {
+    args = JSON.parse(argsRaw);
+  } catch {
+    return null;
   }
-  return [];
+  if (typeof args !== "object" || args === null || Array.isArray(args)) return null;
+  const input = args as Record<string, unknown>;
+  const path = (value: unknown) =>
+    typeof value === "string" && value.trim().length > 0 ? value : null;
+  if (name === "write") return typeof input.content === "string" ? path(input.file_path) : null;
+  if (name === "edit") {
+    return typeof input.old_string === "string" &&
+      input.old_string.length > 0 &&
+      typeof input.new_string === "string" &&
+      input.old_string !== input.new_string &&
+      (input.replace_all === undefined || typeof input.replace_all === "boolean")
+      ? path(input.file_path)
+      : null;
+  }
+  if (name !== "str_replace_editor") return null;
+  const editorPath = path(input.path);
+  if (editorPath === null) return null;
+  if (input.command === "create") {
+    return typeof input.file_text === "string" ? editorPath : null;
+  }
+  if (input.command === "str_replace") {
+    return typeof input.old_str === "string" &&
+      input.old_str.length > 0 &&
+      (input.new_str === undefined || typeof input.new_str === "string")
+      ? editorPath
+      : null;
+  }
+  return input.command === "insert" &&
+    typeof input.insert_line === "number" &&
+    Number.isInteger(input.insert_line) &&
+    input.insert_line >= 0 &&
+    typeof input.new_str === "string"
+    ? editorPath
+    : null;
 }
 
 function normalizedReferencedTypstPath(value: string): string | null {
@@ -129,7 +164,7 @@ function assistantMessageText(message: unknown): string {
     .join("\n");
 }
 
-/** Behavior-equivalent rc.2 mutation-derived file accumulator with a public Typst opener. */
+/** Mutation-derived file accumulator with a public Typst opener. */
 export const scienceDeliverablesDefinition: ConversationNodeDefinition<DeliverablesState> = {
   kind: "deliverables",
   match: (event) => {
@@ -154,7 +189,7 @@ export const scienceDeliverablesDefinition: ConversationNodeDefinition<Deliverab
       const calls = new Map(context.state.calls);
       calls.set(
         String(match.event.data.callId),
-        match.view?.for === "call" ? match.view.view : null,
+        mutationPath(match.event.data.name, match.event.data.arguments),
       );
       const referenced = referencedTypstPaths(match.event.data.arguments).map((path) => ({
         seq: match.event.seq,
@@ -180,13 +215,13 @@ export const scienceDeliverablesDefinition: ConversationNodeDefinition<Deliverab
     if (match.event.type !== "tool/result") return context.state;
     if (match.event.data.message.content[0]?.isError === true) return context.state;
     const callId = String(match.event.data.message.source.callId);
-    const additions = producedPaths(context.state.calls.get(callId) ?? null).map((path) => ({
-      seq: match.event.seq,
-      path,
-    }));
-    return additions.length === 0
+    const path = context.state.calls.get(callId);
+    return path === null || path === undefined
       ? context.state
-      : { ...context.state, produced: [...context.state.produced, ...additions] };
+      : {
+          ...context.state,
+          produced: [...context.state.produced, { seq: match.event.seq, path }],
+        };
   },
   buildLocationData: (context, scope) =>
     scope !== "turn" || context.state === undefined
@@ -220,29 +255,6 @@ function safeRelativePath(path: string): boolean {
     !path.includes("\0") &&
     path.split("/").every((segment) => segment.length > 0 && segment !== "." && segment !== "..")
   );
-}
-
-function workspaceRelativeProducedPath(path: string, cwd?: string): string | null {
-  const normalized = path.replaceAll("\\", "/").replace(/^\.\//u, "");
-  if (safeRelativePath(normalized)) return normalized;
-  if (cwd === undefined) return null;
-  const root = cwd.replaceAll("\\", "/").replace(/\/$/u, "");
-  const prefix = `${root}/`;
-  if (!normalized.startsWith(prefix)) return null;
-  const relativePath = normalized.slice(prefix.length);
-  return safeRelativePath(relativePath) ? relativePath : null;
-}
-
-function markdownFileDestination(value: string): string | null {
-  let decoded: string;
-  try {
-    decoded = decodeURI(value);
-  } catch {
-    return null;
-  }
-  if (/^[A-Za-z][A-Za-z0-9+.-]*:/u.test(decoded) || /[?#]/u.test(decoded)) return null;
-  const relativePath = decoded.replace(/^\.\//u, "");
-  return safeRelativePath(relativePath) ? relativePath : null;
 }
 
 export function workspaceRelativeTypstPath(path: string, cwd?: string): string | null {
@@ -308,7 +320,6 @@ export function scienceTurnFileMentions(
   openTypst: (path: string) => void,
   openFile: (path: string) => void,
   label: (path: string) => string,
-  cwd?: string,
 ): MarkdownFileMentions {
   const mention = (path: string) => ({
     open: () => (isTypstPaperPath(path) ? openTypst(path) : openFile(path)),
@@ -318,17 +329,6 @@ export function scienceTurnFileMentions(
   return {
     resolve(value) {
       const path = paths.includes(value) ? value : onlyPathWithBasename(paths, value);
-      return path === undefined ? undefined : mention(path);
-    },
-    resolveLink(value) {
-      const destination = markdownFileDestination(value);
-      if (destination === null) return undefined;
-      const exact = paths.filter(
-        (path) => workspaceRelativeProducedPath(path, cwd) === destination,
-      );
-      if (exact.length === 1 && exact[0] !== undefined) return mention(exact[0]);
-      if (exact.length > 1 || destination.includes("/")) return undefined;
-      const path = onlyPathWithBasename(paths, destination);
       return path === undefined ? undefined : mention(path);
     },
   };
@@ -367,12 +367,12 @@ function ScienceTurnFiles({ paths, openFile, openTypst }: TurnFilesProps) {
 /** Rebuild one completed Turn's persistent Files row from public conversation evidence. */
 export function ScienceConversationFiles({
   turn,
-  useSession,
+  useChat,
   openFile,
   openTypst,
 }: ScienceConversationFilesProps) {
-  const data = useSession((snapshot) =>
-    snapshot.chat.timeline.turns.get(turn)?.data.get("deliverables"),
+  const data = useChat((snapshot: ChatSnapshot) =>
+    snapshot.timeline.turns.get(turn)?.data.get("deliverables"),
   );
   const paths = useMemo(() => filesForClosing(data), [data]);
   return paths.length === 0 ? null : (
@@ -384,9 +384,16 @@ function sessionCwd(ctx: Context, sessionId: SessionId): string | undefined {
   return ctx.sessions.list.getSnapshot().byId[sessionId]?.cwd;
 }
 
-/** Replace rc.2's non-decoratable deliverables client with behavior-equivalent Typst routing. */
+async function openWorkspacePath(ctx: Context, sessionId: SessionId, path: string): Promise<void> {
+  const result = await ctx.remote.session.openWorkspacePath({
+    path: resolveWorkspacePath(sessionCwd(ctx, sessionId), path),
+  });
+  if (!result.ok) throw result.error;
+}
+
+/** Register Typst-aware deliverable reconstruction and routing. */
 export function registerScienceDeliverables(ctx: Context): void {
-  ctx.conversationEvents.register(scienceDeliverablesDefinition);
+  ctx.uiConversation.events.register(scienceDeliverablesDefinition);
   const openTypst = (sessionId: SessionId, path: string): boolean => {
     const relativePath = workspaceRelativeTypstPath(path, sessionCwd(ctx, sessionId));
     if (relativePath === null) return false;
@@ -395,11 +402,11 @@ export function registerScienceDeliverables(ctx: Context): void {
   };
   const actions = (sessionId: SessionId) => ({
     openFile: (path: string) => {
-      void ctx.workspaces.openPath(resolveWorkspacePath(sessionCwd(ctx, sessionId), path));
+      void openWorkspacePath(ctx, sessionId, path);
     },
     openTypst: (path: string) => {
       if (!openTypst(sessionId, path)) {
-        void ctx.workspaces.openPath(resolveWorkspacePath(sessionCwd(ctx, sessionId), path));
+        void openWorkspacePath(ctx, sessionId, path);
       }
     },
   });
@@ -425,7 +432,6 @@ export function registerScienceDeliverables(ctx: Context): void {
         },
         owner.openFile,
         (path) => `Open ${path}`,
-        sessionCwd(ctx, sessionId),
       );
     },
   };

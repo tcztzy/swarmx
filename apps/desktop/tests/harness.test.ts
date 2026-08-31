@@ -4,22 +4,33 @@
  * scratch directory and the context is always disposed.
  */
 import {
+  existsSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   realpathSync,
   rmSync,
   statSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { healProfilesModuleFallback } from "@deepseek-ai/dsh-app-boot";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 let home: string;
 let harness: Awaited<ReturnType<typeof import("../src/harness.js").startHarness>>;
 let fixtureEntryPath: string;
+let browserCookie: string;
+let tokenExchange: Response;
+const moduleRequire = createRequire(import.meta.url);
+
+function fetchHarness(pathname = "/"): Promise<Response> {
+  return fetch(new URL(pathname, harness.url), { headers: { cookie: browserCookie } });
+}
 
 beforeAll(async () => {
   home = mkdtempSync(join(tmpdir(), "swarmx-harness-"));
@@ -27,6 +38,27 @@ beforeAll(async () => {
   const profileDir = join(home, "profiles", PROFILE_DIR);
   const fixtureDir = join(profileDir, "node_modules", "@fixture", "profile-plugin");
   fixtureEntryPath = join(fixtureDir, "index.js");
+  await healProfilesModuleFallback({
+    installAnchor: moduleRequire.resolve("@deepseek-ai/dsh/package.json"),
+    home,
+  });
+  const fallbackScope = join(home, "profiles", "node_modules", "@deepseek-ai");
+  mkdirSync(fallbackScope, { recursive: true });
+  for (const name of ["dsh-client-runtime", "dsh-host-apiproxy"]) {
+    const staleDir = join(home, "stale", name);
+    mkdirSync(staleDir, { recursive: true });
+    writeFileSync(
+      join(staleDir, "package.json"),
+      `${JSON.stringify({ name: `@deepseek-ai/${name}`, version: "0.1.0-rc.8" })}\n`,
+    );
+    symlinkSync(staleDir, join(fallbackScope, name), "junction");
+  }
+  const preservedFallback = join(home, "profiles", "node_modules", "preserved-package");
+  mkdirSync(preservedFallback);
+  writeFileSync(
+    join(preservedFallback, "package.json"),
+    `${JSON.stringify({ name: "preserved-package", version: "1.0.0" })}\n`,
+  );
   mkdirSync(fixtureDir, { recursive: true });
   writeFileSync(
     join(profileDir, "package.json"),
@@ -87,6 +119,10 @@ beforeAll(async () => {
   );
   const { startHarness } = await import("../src/harness.js");
   harness = await startHarness({ productHome: join(home, "swarmx") });
+  tokenExchange = await fetch(harness.url, { redirect: "manual" });
+  const setCookie = tokenExchange.headers.get("set-cookie");
+  if (setCookie === null) throw new Error("Harness launch-token exchange did not set a cookie.");
+  browserCookie = setCookie.split(";", 1)[0] as string;
 }, 180_000);
 
 afterAll(async () => {
@@ -96,28 +132,23 @@ afterAll(async () => {
 });
 
 describe("harness boot", () => {
-  it("binds an os-assigned loopback port", () => {
+  it("returns an authenticated launch URL on an os-assigned loopback port", () => {
     const url = new URL(harness.url);
     expect(url.hostname).toBe("127.0.0.1");
     expect(Number(url.port)).toBeGreaterThan(0);
+    expect(url.searchParams.has("token")).toBe(true);
+    expect(tokenExchange.status).toBe(303);
+    expect(tokenExchange.headers.get("location")).toBe("/");
   });
 
   it("serves the harness ui with its client boot graph", async () => {
-    const response = await fetch(harness.url);
+    const response = await fetchHarness();
     expect(response.status).toBe(200);
     expect(await response.text()).toContain("__DSH_BOOT__");
   });
 
-  it("serves trusted Markdown file-link resolution through the product route", async () => {
-    const index = await (await fetch(harness.url)).text();
-    const pathname = index.match(/src="(\/assets\/index-[^"]+\.js)"/u)?.[1];
-    expect(pathname).toBeDefined();
-    const module = await (await fetch(new URL(pathname as string, harness.url))).text();
-    expect(module).toContain("fileMentions?.resolveLink?.");
-  });
-
   it("loads the SwarmX conversation actions into the client boot graph", async () => {
-    const response = await fetch(harness.url);
+    const response = await fetchHarness();
     expect(await response.text()).toContain("@swarmx/dsh-ui-conversation");
   });
 
@@ -130,6 +161,34 @@ describe("harness boot", () => {
     }>;
     const fixtureEntry = entries.find((entry) => entry.options.id === "profile-fixture");
     expect(fixtureEntry?.options.name).toBe(realpathSync(fixtureEntryPath));
+  });
+
+  it("reconciles the exact alpha.2 DSH closure while resolving product subpaths", () => {
+    const profileRequire = createRequire(join(home, "profiles", PROFILE_DIR, "package.json"));
+    const subagentManifest = JSON.parse(
+      readFileSync(profileRequire.resolve("@deepseek-ai/dsh-tool-subagent/package.json"), "utf8"),
+    ) as { exports: Record<string, unknown>; version: string };
+    expect(subagentManifest.version).toBe("0.1.2-alpha.2");
+    expect(subagentManifest.exports).toHaveProperty("./model-selection-settings");
+    expect(profileRequire.resolve("@swarmx/dsh-science/preset")).toBe(
+      moduleRequire.resolve("@swarmx/dsh-science/preset"),
+    );
+    for (const scopeDir of [
+      join(home, "profiles", "node_modules", "@deepseek-ai"),
+      join(home, "profiles", PROFILE_DIR, ".dsh-module-fallback", "node_modules", "@deepseek-ai"),
+    ]) {
+      if (!existsSync(scopeDir)) continue;
+      for (const name of readdirSync(scopeDir).filter((entry) => entry.startsWith("dsh"))) {
+        const manifest = JSON.parse(readFileSync(join(scopeDir, name, "package.json"), "utf8")) as {
+          version: string;
+        };
+        expect(manifest.version, name).toBe("0.1.2-alpha.2");
+      }
+    }
+    for (const obsolete of ["@deepseek-ai/dsh-client-runtime", "@deepseek-ai/dsh-host-apiproxy"]) {
+      expect(() => profileRequire.resolve(`${obsolete}/package.json`)).toThrow();
+    }
+    expect(existsSync(join(home, "profiles", "node_modules", "preserved-package"))).toBe(true);
   });
 
   it("mounts read-only Git/DVC UIs and keeps DVC mutations off model tools", async () => {
@@ -149,14 +208,14 @@ describe("harness boot", () => {
     }>;
     const dvcEntry = entries.find((entry) => entry.options.id === "swarmx-dvc");
     const dvcUiEntry = entries.find((entry) => entry.options.id === "swarmx-ui-dvc");
-    const expectedDvc = createRequire(import.meta.url).resolve("@swarmx/dsh-dvc");
+    const expectedDvc = moduleRequire.resolve("@swarmx/dsh-dvc");
     expect(dvcEntry?.options.name).toBe(realpathSync(expectedDvc));
     expect(dvcUiEntry).toBeDefined();
     expect(entries.indexOf(dvcUiEntry as (typeof entries)[number])).toBeGreaterThan(
       entries.indexOf(dvcEntry as (typeof entries)[number]),
     );
 
-    const response = await fetch(harness.url);
+    const response = await fetchHarness();
     const html = await response.text();
     expect(html).toContain("@swarmx/dsh-ui-git");
     expect(html).toContain("@swarmx/dsh-ui-dvc");
@@ -194,7 +253,7 @@ describe("harness boot", () => {
       maxArtifactBytes: 1_048_576,
       root: join(home, "swarmx", "science"),
     });
-    const response = await fetch(harness.url);
+    const response = await fetchHarness();
     const html = await response.text();
     expect(html).toContain("@swarmx/dsh-ui-science");
   });
@@ -206,7 +265,7 @@ describe("harness boot", () => {
       options: { id?: string; name?: string };
     }>;
     const pkbEntry = entries.find((entry) => entry.options.id === "swarmx-pkb");
-    const expectedEntry = createRequire(import.meta.url).resolve("@swarmx/dsh-pkb");
+    const expectedEntry = moduleRequire.resolve("@swarmx/dsh-pkb");
     expect(pkbEntry?.options.name).toBe(realpathSync(expectedEntry));
     expect(
       (pkbEntry?.options as { config?: Record<string, unknown> } | undefined)?.config,
@@ -249,7 +308,7 @@ describe("harness boot", () => {
       entries.indexOf(swarmEntry as (typeof entries)[number]),
     );
 
-    const response = await fetch(harness.url);
+    const response = await fetchHarness();
     expect(await response.text()).toContain("@swarmx/dsh-ui-swarm");
   });
 

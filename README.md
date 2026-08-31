@@ -25,9 +25,8 @@ Consequences of that shape:
 
 - **No replacement renderer.** Published `dsh-client-ui-*` packages remain the
   baseline; local extensions enter through public conversation and details slots,
-  with two exact-version package patches kept explicit under `patches/`.
-  One exact Web-server route supplies the trusted Markdown file-link seam absent
-  from rc.2's prebuilt frontend and refuses to start if that upstream seam drifts.
+  with exact-version alpha.2 package patches kept explicit under `patches/`.
+  Produced-file prose uses alpha.2's native inline-code mention resolver.
 - **No second browser transport.** Runtime lifecycle routes are registered under
   `/api/swarmx/conversation-runtimes` on DSH Web; the browser never connects to app-server directly.
 - **No double harness.** Codex runs as its own app-server process below the UI, never inside the DSH Agent loop.
@@ -40,7 +39,6 @@ The desktop host keeps the UI and runtime composition explicit:
 | File | Role |
 | --- | --- |
 | `src/harness.ts` | Compose the profile's patch layers, boot, report the bound URL |
-| `src/markdown-file-links.ts` | Add trusted file-link resolution to the one rc.2 frontend asset |
 | `src/window.ts` | Create the window, fence navigation to the harness origin |
 | `src/main.ts` | Sequence startup and shutdown |
 | `src/runtime/platform.ts` | Register peer runtimes under the DSH Web host |
@@ -52,9 +50,10 @@ non-overlapping visual sequence. A failed turn keeps its error text visible and 
 a Retry icon even when no final assistant message exists. Retry prepares a
 separate session before the selected turn and sends the original text; Edit
 opens that session with the original prompt as a draft. Later turns use DSH's
-fork primitive; the first turn uses a fresh session in the same Workspace
-(adopting the source cwd when it was ungrouped) because DSH cannot fork an empty
-completed-turn prefix. Neither action mutates the source history.
+fork primitive; the first turn uses alpha.2's addressable session object layer to
+create a fresh session in the same Workspace (adopting the source cwd when it was
+ungrouped) with the source agent preset. DSH cannot fork an empty completed-turn
+prefix. Neither action mutates the source history.
 
 The same client plugin owns a per-Session Side View that reuses DSH's draggable right details
 column. Science artifacts and Typst papers open as deduplicated tabs through serializable locators;
@@ -78,12 +77,11 @@ managed local `typst watch`. PDF text selections and figure points can be added 
 structured annotations; double-activating a figure opens a deduplicated image tab for
 conversation-led editing.
 
-Final answers prefer standard workspace-relative Markdown links such as
-`[paper.typ](./papers/paper.typ)`. The Science plugin also recovers safe Typst references from closing
-prose and Tool arguments during history replay, so Bash writes and legacy inline-code paths retain a
-stable entry even when the model omits Markdown syntax. Opening a Typst entry registers it with the
-Host watcher. In the `dsh-science` preset, the model edits source but never spends a tool call on
-`typst compile` or `typst watch`.
+Final answers mention exact workspace-relative output paths as Markdown inline code, such as
+`papers/paper.typ`. Alpha.2's native file-mention resolver opens verified produced files, while the
+Science plugin also recovers safe Typst references from closing prose and Tool arguments during
+history replay. Opening a Typst entry registers it with the Host watcher. In the `dsh-science`
+preset, the model edits source but never spends a tool call on `typst compile` or `typst watch`.
 
 DSH Retry/Edit remain append-only branch operations. Codex threads created by
 SwarmX use legacy history by default because standalone App Server builds may
@@ -179,7 +177,8 @@ Add your own plugin row:
 Profile bundles can also be installed through DSH's published plugin command.
 SwarmX resolves the installed bundle from the active profile before falling
 back to its own dependency graph, including in Electron where Node's internal
-ESM loader is unavailable. For example, after cloning and building
+ESM loader is unavailable. That maintained fallback removes obsolete DSH-owned
+entries when the installed DSH dependency closure changes. For example, after cloning and building
 [dsh-cowork](https://github.com/Jesse-njx/dsh-cowork):
 
 ```shell

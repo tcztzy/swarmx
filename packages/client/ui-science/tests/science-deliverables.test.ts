@@ -52,12 +52,8 @@ describe("V94 Typst-aware produced file links", () => {
 
     mentions.resolve("main.typ")?.open();
     mentions.resolve("data/results.csv")?.open();
-    mentions.resolveLink?.("./papers/main.typ")?.open();
     expect(mentions.resolve("results.csv")).toBeUndefined();
-    expect(mentions.resolveLink?.("./results.csv")).toBeUndefined();
-    expect(mentions.resolveLink?.("./papers\\main.typ")).toBeUndefined();
-    expect(mentions.resolveLink?.("https://example.com/main.typ")).toBeUndefined();
-    expect(openTypst).toHaveBeenCalledTimes(2);
+    expect(openTypst).toHaveBeenCalledOnce();
     expect(openTypst).toHaveBeenLastCalledWith("papers/main.typ");
     expect(openFile).toHaveBeenCalledWith("data/results.csv");
     expect(basename("papers/main.typ")).toBe("main.typ");
@@ -129,5 +125,45 @@ describe("V94 Typst-aware produced file links", () => {
     expect(
       filesForClosing(location?.kind === "turn" ? (location.value as never) : undefined, 2),
     ).toEqual(["docs/swarmx-introduction.typ"]);
+  });
+
+  it("uses alpha.2 mutation arguments instead of removed call presentation views", () => {
+    const start = scienceDeliverablesDefinition.start(
+      {} as never,
+      { event: { type: "turn/start", seq: 0, data: { turn: 1 } } } as never,
+      {} as never,
+    );
+    const called = scienceDeliverablesDefinition.update(
+      { state: start } as never,
+      {
+        event: {
+          type: "tool/call",
+          seq: 1,
+          data: {
+            turn: 1,
+            callId: "call-1",
+            name: "write",
+            arguments: '{"file_path":"results.csv","content":"x,y"}',
+          },
+        },
+      } as never,
+    );
+    const settled = scienceDeliverablesDefinition.update(
+      { state: called } as never,
+      {
+        event: {
+          type: "tool/result",
+          seq: 2,
+          data: {
+            message: {
+              source: { callId: "call-1" },
+              content: [{ isError: false, content: [] }],
+            },
+          },
+        },
+      } as never,
+    );
+
+    expect(settled.produced).toEqual([{ seq: 2, path: "results.csv" }]);
   });
 });

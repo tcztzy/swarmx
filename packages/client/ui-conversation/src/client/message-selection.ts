@@ -1,4 +1,5 @@
-import type { ConversationSnapshot } from "@deepseek-ai/dsh-client-runtime/client";
+import type { ChatSnapshot } from "@deepseek-ai/dsh-client-ui-chat/client";
+import type { SessionId } from "@deepseek-ai/dsh-session/types";
 import type { MessageTextTarget } from "@swarmx/annotation";
 
 const MAX_MESSAGE_SELECTION = 8_000;
@@ -31,7 +32,7 @@ function record(value: unknown): Record<string, unknown> | null {
 }
 
 export function messageSelectionTarget(
-  session: Pick<ConversationSnapshot, "sessionId" | "chat">,
+  session: { readonly sessionId: SessionId; readonly chat: Pick<ChatSnapshot, "nodes"> },
   nodeKey: string,
   selectedText: string,
 ): MessageTextTarget | null {

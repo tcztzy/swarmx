@@ -1,5 +1,6 @@
 /** Icon actions for user-authored messages and terminal failed turns. */
 
+import type { ChatSnapshot } from "@deepseek-ai/dsh-client-ui-chat/client";
 import { Tooltip } from "@deepseek-ai/dsh-client-ui-primitives";
 import type { PropsRuntime } from "@deepseek-ai/dsh-client-ui-slots";
 import { type ReactNode, useCallback, useState } from "react";
@@ -54,9 +55,9 @@ type UserEditActionProps = PropsRuntime<"conversation.chat.node", "swarmx-user-e
   RerunActionsInjected;
 
 /** Edit icon visually composed into the user message's existing action row. */
-export function UserEditAction({ node, useSession, canRerun, beginEdit }: UserEditActionProps) {
+export function UserEditAction({ node, useChat, canRerun, beginEdit }: UserEditActionProps) {
   const { turn, text } = node.data;
-  useSession((snapshot) => snapshot.chat.timeline.turns.get(turn)?.status);
+  useChat((snapshot: ChatSnapshot) => snapshot.timeline.turns.get(turn)?.status);
   const run = useCallback(() => beginEdit(turn, text), [beginEdit, text, turn]);
   if (!canRerun(turn)) return null;
   return (
@@ -69,14 +70,12 @@ export function UserEditAction({ node, useSession, canRerun, beginEdit }: UserEd
 }
 
 /** Props for the failed-turn chain entry. */
-interface FailedTurnActionProps extends RerunActionsInjected {
-  readonly matched: FailedTurn;
-  readonly useSession: PropsRuntime<"conversation.chat.turnTail">["useSession"];
-}
+type FailedTurnActionProps = PropsRuntime<"conversation.chat.turnTail"> &
+  RerunActionsInjected & { readonly matched: FailedTurn };
 
 /** Persistent terminal failure plus an icon that retries that exact turn. */
-export function FailedTurnAction({ matched, useSession, canRerun, rerun }: FailedTurnActionProps) {
-  useSession((snapshot) => snapshot.chat.timeline.turns.get(matched.turn)?.status);
+export function FailedTurnAction({ matched, useChat, canRerun, rerun }: FailedTurnActionProps) {
+  useChat((snapshot: ChatSnapshot) => snapshot.timeline.turns.get(matched.turn)?.status);
   const run = useCallback(() => rerun(matched.turn), [matched.turn, rerun]);
   return (
     <div className={css.errorRow} role="status" data-failed-turn-action>
