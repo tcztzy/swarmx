@@ -3,6 +3,7 @@
   "references": [
     { "path": "./packages/core/annotation" },
     { "path": "./packages/core/pkb" },
+    { "path": "./packages/core/wikiskill" },
     { "path": "./packages/core/swarm" },
     { "path": "./packages/science/core" },
     { "path": "./packages/client/ui-conversation" },

@@ -32,6 +32,7 @@
     "@swarmx/dsh-ui-git": "workspace:*",
     "@swarmx/dsh-science": "workspace:*",
     "@swarmx/dsh-pkb": "workspace:*",
+    "@swarmx/dsh-wikiskill": "workspace:*",
     "@swarmx/dsh-ui-conversation": "workspace:*",
     "@swarmx/dsh-ui-science": "workspace:*",
     "@swarmx/dsh-swarm": "workspace:*",

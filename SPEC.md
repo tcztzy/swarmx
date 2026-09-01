@@ -17,6 +17,8 @@ SwarmX presents the existing DeepSeek Harness Web application as its single safe
 - Git and DVC integrations are optional Host capabilities over user-installed CLIs; desktop boot never installs, initializes, synchronizes, or contacts a remote implicitly.
 - SwarmX PKB uses owner-readable local plaintext Markdown so Obsidian can open it directly; no implicit network, publication, sync, or at-rest encryption claim.
 - PKB Wiki synthesizes durable personal knowledge; DSH session logs remain immutable conversation evidence and Science Journal remains scientific-domain truth.
+- WikiSkill evolution reuses DSH native Session logs as Raw, keeps PKB's current OKF Vault as Wiki, and owns only staged/active `SKILL.md` + `PURPOSE.md` artifacts; it creates no second transcript or parallel Wiki store.
+- WikiSkill proposal/evaluation is explicit and local-only; no background LLM, automatic PKB mutation, unvalidated cross-model activation, or candidate visibility in ordinary DSH skill catalogs.
 - Swarm members share one checkout; read-only tasks may overlap, while SwarmX admits at most one active workspace-mutating attempt per Team.
 - SwarmX-owned PKB and orchestration state stays owner-only under `$SWARMX_HOME`; an idempotent one-time import preserves existing `$DSH_HOME` product data, after which only the new location is authoritative. No workspace file or second conversation transcript becomes authoritative.
 - Heterogeneous Swarm routing is measurable capability, not claim of lower cost or higher quality; local-model wall time/compute remains economic input.
@@ -81,6 +83,11 @@ SwarmX presents the existing DeepSeek Harness Web application as its single safe
 - file: `$SWARMX_HOME/pkb/vault` → one owner-only Obsidian-openable OKF v0.2 Markdown bundle; `index.md` and `log.md` plus global/workspace concepts and bounded conversation-source excerpts.
 - api: `ctx.pkb.search/read/create/update/deprecate/searchConversations/readConversation/getVaultInfo` → workspace-authorized Wiki and cross-Session knowledge operations with exact revisions, cancellation, and bounded results.
 - tool: `pkb` → aggregate `search|read|create|update|deprecate|search_conversations|read_conversation|vault_info` actions; no `memory` compatibility alias.
+- package: `@swarmx/dsh-wikiskill` → DSH-raw/PKB-wiki/WikiSkill-skills evolution core plus exact-Agent active-skill provider registration; no model Tool or duplicate skill loader.
+- file: `$SWARMX_HOME/skills` → owner-only `staging/<proposal-id>` candidates and `active/<target-key>/<skill>/{SKILL.md,PURPOSE.md}`; only exact-target active roots are discoverable by DSH.
+- api: `DshRawTraceReader.read` → bounded exact DSH Session event window for Maintainer/Proposer use without persisting a Raw copy.
+- api: `WikiSkillStore.stage/resolve/readProposal/readActive/activeRoot` → single-skill proposal, strict target validation gate, revision-fenced promotion/rollback, and PKB-ready `SkillImpact` result.
+- adapter: `registerWikiSkillProvider(agentCtx, store)` → agent-scoped `@deepseek-ai/dsh-skill-filesystem` provider over only the active root matching the live DSH Agent's exact preset/model; existing DSH catalog/loader remains sole runtime consumer.
 - package: `@swarmx/dsh-swarm` → Host-owned Team roster, mailbox, task DAG, event journal, continuable-member lifecycle, scheduler, aggregate model tool, and strict UI Remote.
 - file: `$SWARMX_HOME/swarm/swarm.sqlite` → owner-only SQLite WAL event log plus replayable materialized Team projections; workspace contains no authoritative swarm state.
 - api: `ctx.swarm.create/addMember/sendMessage/createTask/updateTask/submitTask/startVerification/recordVerdict/escalateTask/reassignTask/interruptMember/admitKnowledge/resolveEffect/waitForChange/archive/snapshot` → exact-Agent-authorized R/W/K orchestration, role/model routing, attempt budgets/economics, independent verification, Tool-effect reconciliation, evidence admission, and Session-scoped read projection.
@@ -112,6 +119,8 @@ R34|Codex App Server|App Server is the supported integration surface for authent
 R35|Codex threads and turns|stable v2 methods include thread start/resume/read/list/fork and turn start/steer/interrupt; a client initializes once, then rebuilds UI from native thread items plus ordered notifications|https://developers.openai.com/codex/app-server
 R36|Codex approvals|command execution, file changes, permissions, MCP elicitation, and tool user-input arrive as server requests that the client must answer; approval policy is selected per turn and unresolved requests must not be silently accepted|https://developers.openai.com/codex/app-server
 R37|Codex MCP|Codex consumes configured MCP servers as its stable external tool extension surface; MCP carries SwarmX product tools but does not own conversation lifecycle, and experimental dynamic tool injection remains unnecessary|https://developers.openai.com/codex/mcp
+R38|WikiSkill method|WikiSkill separates immutable Raw traces, persistent Wiki patterns/impact, and `SKILL.md` + `PURPOSE.md`; each iteration proposes one skill change, validates against the current baseline, promotes only improvement, rolls back the skill otherwise, and retains Wiki learning|https://arxiv.org/html/2608.27454
+R39|WikiSkill transfer risk|WikiSkill reports large negative cross-model transfer and requires target-model validation; its ablation also favors Wiki access for Maintainer/Proposer rather than the ordinary Inference Agent|https://arxiv.org/html/2608.27454
 
 ## §V INVARIANTS
 
@@ -347,6 +356,12 @@ V229: ∀ Science image result over DSH or Codex MCP → fully decode the accept
 V230: ∀ runtime-owned asynchronous member delivery/interrupt/watch → journal success, terminal interruption, or idle only after native acknowledgement/observation, surface rejection without an unhandled Promise, retain authority when interruption is rejected, and fail/revoke a member when its native lifecycle can no longer be observed.
 V231: ∀ desktop quit after startup or shutdown begins → quit waits for any in-flight platform boot, then attempts every disposer including final Swarm recovery; success continues normal quit, while startup/cleanup failure is reported once and exits non-zero instead of leaking a late-created platform or hanging behind a rejected Promise.
 V232: ∀ desktop product-state lifetime → exactly one Electron primary instance owns `$SWARMX_HOME`, a non-configurable platform-level Swarm recovery owner, Harness, App Server, MCP children, and final recovery; the owner starts before configurable Harness plugins/App Server, stops after them, and DSH monitoring never scans a Team with no actor owned by that runtime; a secondary launch focuses the primary window and exits before booting any platform service.
+V233: ∀ WikiSkill Raw read → resolve one exact DSH Session through `ctx.sessionQuery`, return a bounded contiguous `[startSeq,endSeq]` event window, preserve native event order/identity, honor cancellation, and persist only Session/seq locators; `$SWARMX_HOME/skills` and PKB contain no copied Raw trace or model-private reasoning corpus.
+V234: ∀ WikiSkill Wiki fact → remain an ordinary current PKB `AgentPattern|SkillImpact` concept under V130–V140; existing workspace scope, provenance, approval, revision, history, index, and no-background-LLM behavior remain unchanged, and the skills layer may return a PKB-ready draft but never commits it implicitly.
+V235: ∀ WikiSkill proposal → exactly one create/patch of one kebab-case skill, one bounded valid `SKILL.md`, one non-empty `PURPOSE.md`, one exact target `preset+model`, ≥1 DSH Raw locator, ≥1 exact PKB concept id+revision, and the expected active revision enter owner-only staging; staging is idempotent by proposal id+digest and is never a DSH skill root.
+V236: ∀ WikiSkill resolution → same target/benchmark/task-set evaluates baseline and candidate with finite scores; accept iff candidate score is strictly greater, then recheck exact active revision and publish `PURPOSE.md` before atomically replacing the model-visible `SKILL.md`; reject/cancel/conflict changes no active skill or PKB concept, and every outcome returns a bounded `SkillImpact` draft with target, revisions, scores, verdict, and source locators.
+V237: ∀ DSH WikiSkill runtime view → register only through the existing `ctx.skills` registry inside the exact Agent scope, select only `$SWARMX_HOME/skills/active/<target-key>` matching that Agent's current preset+model, invalidate on target change, and delegate discovery/body loading to `@deepseek-ai/dsh-skill-filesystem`; no staging path, `PURPOSE.md` body, provider path, or other target enters the catalog, and `@deepseek-ai/dsh-tool-skill` remains sole model-facing catalog/loader.
+V238: ∀ WikiSkill storage mutation → strict boundary validation, owner-only directories/files, one cross-process writer lock, bounded input/output, cancellation recheck under lock, SHA256 proposal/active revisions, and no partial model-visible instruction replacement; unknown/malformed proposal or external active revision change fails closed.
 
 ## §T TASKS
 
@@ -397,6 +412,9 @@ T91|x|normalize PKB create scope before authorization/digest and prove DSH/Codex
 T92|x|harden global runtime event ordering, completed authority, typed elicitation, and exact browser approval submission|I.`ConversationRuntimeRegistry`,I.`/api/swarmx/conversation-runtimes/*`,V200,V201,V211,V222,V223
 T93|x|repair clean profile dependency resolution, zero-artifact build ordering, and selected-runtime failure surfaces|I.`pnpm build`,I.`pnpm start -- --runtime <dsh\|codex>`,V210,V225,V226,V227
 T94|x|synchronize docs/code maps and run focused, real-profile, full Codex, build, test, typecheck, lint, docs, diff, and orphan-process gates|V4,V15,V32,V212,V221,V222,V223,V224,V225,V226,V227,V228
+T95|x|document DSH Raw + existing PKB Wiki + WikiSkill Skills contract and add failing store/raw/provider tests|I.`@swarmx/dsh-wikiskill`,I.`$SWARMX_HOME/skills`,R38,R39,V233,V234,V235,V236,V237,V238
+T96|x|implement bounded DSH Raw reader, staged/active WikiSkill store, strict validation gate, rollback, and PKB-ready impact draft|I.`DshRawTraceReader.read`,I.`WikiSkillStore.stage/resolve/readProposal/readActive/activeRoot`,V233,V234,V235,V236,V238
+T97|x|register exact-Agent target skill provider, wire DSH create/resume, and synchronize package/build/code maps|I.`registerWikiSkillProvider(agentCtx, store)`,V4,V14,V15,V32,V226,V237,V238
 
 ## §B BUGS
 

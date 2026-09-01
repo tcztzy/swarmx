@@ -7,6 +7,7 @@ const outputs = [
   resolve(root, "packages/core/annotation/lib"),
   resolve(root, "packages/core/dvc/lib"),
   resolve(root, "packages/core/pkb/lib"),
+  resolve(root, "packages/core/wikiskill/lib"),
   resolve(root, "packages/core/swarm/lib"),
   resolve(root, "packages/client/ui-conversation/lib"),
   resolve(root, "packages/client/ui-dvc/lib"),

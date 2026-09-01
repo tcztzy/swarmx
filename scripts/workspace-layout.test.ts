@@ -77,6 +77,7 @@ describe("workspace layout", () => {
     expect(existsSync("packages/core/annotation/package.json")).toBe(true);
     expect(existsSync("packages/core/dvc/package.json")).toBe(true);
     expect(existsSync("packages/core/pkb/package.json")).toBe(true);
+    expect(existsSync("packages/core/wikiskill/package.json")).toBe(true);
     expect(existsSync("packages/core/swarm/package.json")).toBe(true);
     expect(existsSync("packages/science/core/package.json")).toBe(true);
     expect(existsSync("apps/desktop/package.json")).toBe(true);
@@ -95,6 +96,7 @@ describe("workspace layout", () => {
     expect(desktop.dependencies?.["@swarmx/dsh-ui-dvc"]).toBe("workspace:*");
     expect(desktop.dependencies?.["@swarmx/dsh-ui-git"]).toBe("workspace:*");
     expect(desktop.dependencies?.["@swarmx/dsh-pkb"]).toBe("workspace:*");
+    expect(desktop.dependencies?.["@swarmx/dsh-wikiskill"]).toBe("workspace:*");
     expect(desktop.dependencies?.["@swarmx/dsh-science"]).toBe("workspace:*");
     expect(desktop.dependencies?.["@swarmx/dsh-swarm"]).toBe("workspace:*");
     expect(desktop.dependencies?.["@swarmx/dsh-ui-science"]).toBe("workspace:*");
@@ -116,7 +118,7 @@ describe("workspace layout", () => {
     expect(patch).toContain("dshHomePath('pkb', 'vault')");
   });
 
-  it("V226 includes PKB in the clean client build graph", () => {
+  it("V226 includes host-only core packages in the clean client build graph", () => {
     const clientConfig = JSON.parse(readFileSync("tsconfig.client.json", "utf8")) as {
       readonly references?: readonly { readonly path?: string }[];
     };
@@ -125,9 +127,13 @@ describe("workspace layout", () => {
     expect(clientConfig.references?.map((reference) => reference.path)).toContain(
       "./packages/core/pkb",
     );
+    expect(clientConfig.references?.map((reference) => reference.path)).toContain(
+      "./packages/core/wikiskill",
+    );
     for (const output of [
       "packages/core/dvc/lib",
       "packages/core/pkb/lib",
+      "packages/core/wikiskill/lib",
       "packages/client/ui-dvc/lib",
       "packages/client/ui-git/lib",
     ]) {
@@ -179,6 +185,7 @@ describe("workspace layout", () => {
       "packages/core/annotation/package.json",
       "packages/core/dvc/package.json",
       "packages/core/pkb/package.json",
+      "packages/core/wikiskill/package.json",
       "packages/core/swarm/package.json",
       "packages/science/core/package.json",
     ];

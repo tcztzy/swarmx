@@ -1,3 +1,4 @@
+import { WikiSkillStore } from "@swarmx/dsh-wikiskill";
 import { describe, expect, it, vi } from "vitest";
 import { DshConversationRuntime, type DshRuntimeHost } from "../src/runtime/dsh/runtime.js";
 import type { ApprovalResponse, RuntimeEvent, WorkspaceScope } from "../src/runtime/index.js";
@@ -8,6 +9,7 @@ const workspace: WorkspaceScope = {
   root: "/workspace/swarmx",
   token: "host-token",
 };
+const wikiSkills = new WikiSkillStore("/product/skills");
 
 function userMessage(id: string, text: string) {
   return {
@@ -147,10 +149,27 @@ function createHost() {
   return { agent, create, host: host as unknown as DshRuntimeHost, listeners };
 }
 
+function wikiSkillAgentScope() {
+  const registerProvider = vi.fn(() => () => undefined);
+  const on = vi.fn(() => () => undefined);
+  return {
+    context: {
+      agent: {
+        options: { model: "model-a" },
+        session: { header: { agentPreset: "standard" } },
+      },
+      on,
+      skills: { registerProvider },
+    },
+    on,
+    registerProvider,
+  };
+}
+
 describe("DSH conversation adapter", () => {
   it("projects logical persisted/live sessions and drives native agents", async () => {
     const { agent, host } = createHost();
-    const runtime = new DshConversationRuntime(host);
+    const runtime = new DshConversationRuntime(host, wikiSkills);
 
     expect(await runtime.list()).toEqual([
       expect.objectContaining({
@@ -194,7 +213,7 @@ describe("DSH conversation adapter", () => {
 
   it("creates an empty child at the first turn and a native seeded child before later turns", async () => {
     const { create, host } = createHost();
-    const runtime = new DshConversationRuntime(host);
+    const runtime = new DshConversationRuntime(host, wikiSkills);
 
     await runtime.fork({ conversationId: "dsh:session-1", beforeTurnId: "dsh:session-1:turn:1" });
     await runtime.fork({ conversationId: "dsh:session-1", beforeTurnId: "dsh:session-1:turn:2" });
@@ -220,7 +239,7 @@ describe("DSH conversation adapter", () => {
 
   it("revises by branching before the selected turn and starting the replacement", async () => {
     const { agent, create, host } = createHost();
-    const runtime = new DshConversationRuntime(host);
+    const runtime = new DshConversationRuntime(host, wikiSkills);
 
     await expect(
       runtime.revise({
@@ -238,7 +257,7 @@ describe("DSH conversation adapter", () => {
   it("keeps archived sessions readable but hidden and rejects later native mutation", async () => {
     const { agent, create, host } = createHost();
     (host.workspaceRegistry.archivedSessionIds as string[]).push("session-1");
-    const runtime = new DshConversationRuntime(host);
+    const runtime = new DshConversationRuntime(host, wikiSkills);
 
     await expect(runtime.list()).resolves.toEqual([]);
     await expect(runtime.read("dsh:session-1")).resolves.toMatchObject({ archived: true });
@@ -257,7 +276,7 @@ describe("DSH conversation adapter", () => {
 
   it("rejects archive while a turn is running and preserves interrupt authority", async () => {
     const { agent, host } = createHost();
-    const runtime = new DshConversationRuntime(host);
+    const runtime = new DshConversationRuntime(host, wikiSkills);
     const started = await runtime.start({ conversationId: "dsh:session-1", text: "keep running" });
 
     await expect(runtime.archive("dsh:session-1")).rejects.toThrow(
@@ -281,7 +300,7 @@ describe("DSH conversation adapter", () => {
         persisted: true,
       })),
     );
-    const runtime = new DshConversationRuntime(host);
+    const runtime = new DshConversationRuntime(host, wikiSkills);
 
     await expect(runtime.list()).resolves.toHaveLength(1_000);
     expect(host.sessionQuery.readTitleSnapshots).toHaveBeenCalledOnce();
@@ -321,10 +340,42 @@ describe("DSH conversation adapter", () => {
       },
     ]);
 
-    await expect(new DshConversationRuntime(host).list()).resolves.toEqual([
+    await expect(new DshConversationRuntime(host, wikiSkills).list()).resolves.toEqual([
       expect.objectContaining({ conversationId: "dsh:session-2", title: "Healthy title" }),
       expect.objectContaining({ conversationId: "dsh:session-1", title: "New conversation" }),
     ]);
+  });
+
+  it("mounts the exact-target WikiSkill provider during create and resume setup", async () => {
+    const created = createHost();
+    const createRuntime = new DshConversationRuntime(created.host, wikiSkills);
+    await createRuntime.create({ model: "model-a", workspace });
+    const createSetup = created.create.mock.calls[0]?.[0]?.setup as
+      | ((context: unknown) => Promise<void>)
+      | undefined;
+    const createScope = wikiSkillAgentScope();
+    await createSetup?.(createScope.context);
+
+    expect(created.host.agentPresets.mount).toHaveBeenCalledWith(createScope.context, "standard");
+    expect(createScope.registerProvider).toHaveBeenCalledOnce();
+    expect(createScope.on).toHaveBeenCalledWith("agent/pre-step", expect.any(Function));
+    expect(vi.mocked(created.host.agentPresets.mount).mock.invocationCallOrder[0]).toBeLessThan(
+      createScope.registerProvider.mock.invocationCallOrder[0] as number,
+    );
+
+    const resumed = createHost();
+    vi.mocked(resumed.host.agents.get).mockReturnValue(undefined);
+    const resumeRuntime = new DshConversationRuntime(resumed.host, wikiSkills);
+    await resumeRuntime.start({ conversationId: "dsh:session-1", text: "resume" });
+    const resumeSetup = vi.mocked(resumed.host.agents.resume).mock.calls[0]?.[0]?.setup as
+      | ((context: unknown) => Promise<void>)
+      | undefined;
+    const resumeScope = wikiSkillAgentScope();
+    await resumeSetup?.(resumeScope.context);
+
+    expect(resumed.host.agentPresets.mount).toHaveBeenCalledWith(resumeScope.context, "standard");
+    expect(resumeScope.registerProvider).toHaveBeenCalledOnce();
+    expect(resumeScope.on).toHaveBeenCalledWith("agent/pre-step", expect.any(Function));
   });
 
   it("rechecks cancellation after ignored resume/read signals before native mutation", async () => {
@@ -336,7 +387,7 @@ describe("DSH conversation adapter", () => {
       startController.abort();
       return { agent: resumed.agent, dispose } as never;
     });
-    const startRuntime = new DshConversationRuntime(resumed.host);
+    const startRuntime = new DshConversationRuntime(resumed.host, wikiSkills);
 
     await expect(
       startRuntime.start(
@@ -356,7 +407,7 @@ describe("DSH conversation adapter", () => {
         events: events(),
       } as never;
     });
-    const forkRuntime = new DshConversationRuntime(forked.host);
+    const forkRuntime = new DshConversationRuntime(forked.host, wikiSkills);
     await expect(
       forkRuntime.fork(
         { conversationId: "dsh:session-1", beforeTurnId: "dsh:session-1:turn:2" },
@@ -384,7 +435,7 @@ describe("DSH conversation adapter", () => {
       createController.abort();
       return { attachSession } as never;
     });
-    const createRuntime = new DshConversationRuntime(created.host);
+    const createRuntime = new DshConversationRuntime(created.host, wikiSkills);
     await expect(createRuntime.create({ workspace }, createController.signal)).rejects.toThrow();
     expect(attachSession).not.toHaveBeenCalled();
     expect(createdHandleDispose).toHaveBeenCalledOnce();
@@ -392,7 +443,7 @@ describe("DSH conversation adapter", () => {
 
   it("emits ordered native events without registering a second DSH approval answerer", async () => {
     const { agent, host, listeners } = createHost();
-    const runtime = new DshConversationRuntime(host);
+    const runtime = new DshConversationRuntime(host, wikiSkills);
     const emitted: RuntimeEvent[] = [];
     runtime.subscribe((event) => emitted.push(event));
     const sessionListener = listeners.get("session/event");

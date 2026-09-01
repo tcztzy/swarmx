@@ -21,7 +21,7 @@ Each native Session/Thread is its only transcript truth. `ConversationRuntimeReg
 | `apps/desktop/src/runtime/contracts.ts` | Platform-neutral conversation, item, event, approval, workspace, and revision/lifecycle contracts |
 | `apps/desktop/src/runtime/controller.ts` | Runtime-neutral Retry/Edit revision and explicit Fork orchestration |
 | `apps/desktop/src/runtime/index.ts` | Shared runtime public exports |
-| `apps/desktop/src/runtime/platform.ts` | Always-on DSH Web host, selected peer adapters, workspace authority, product migration, bridge, protocol plugin, and teardown composition |
+| `apps/desktop/src/runtime/platform.ts` | Always-on DSH Web host, product-scoped WikiSkill store, selected peer adapters, workspace authority, product migration, bridge, protocol plugin, and teardown composition |
 | `apps/desktop/src/runtime/product-home.ts` | Owner-only `$SWARMX_HOME` resolution plus bounded verified one-time legacy Science/PKB/Swarm import |
 | `apps/desktop/src/runtime/selection.ts` | Strict CLI/environment `dsh|codex` selection without fallback |
 | `apps/desktop/src/runtime/registry.ts` | Exact peer-adapter registration, lookup, once-sequenced global event fanout, and once-only disposal |
@@ -29,7 +29,7 @@ Each native Session/Thread is its only transcript truth. `ConversationRuntimeReg
 | `apps/desktop/src/runtime/swarm-recovery-owner.ts` | Non-configurable product-lifetime cold/final recovery owner and exact provisional Codex-member claim authority outside the patchable Harness tree |
 | `apps/desktop/src/runtime/web-plugin.ts` | Host Cordis service registering the bounded runtime HTTP/SSE protocol on DSH Web's existing listener |
 | `apps/desktop/src/runtime/workspace.ts` | Canonical Host-minted workspace identity/token and descendant authorization |
-| `apps/desktop/src/runtime/dsh/runtime.ts` | Minimal Session/Agent/query adapter from DSH native state to `ConversationRuntime`; DSH Web retains its sole native approval path |
+| `apps/desktop/src/runtime/dsh/runtime.ts` | Minimal Session/Agent/query adapter from DSH native state to `ConversationRuntime`, with exact-Agent active WikiSkill registration after preset mount; DSH Web retains its sole native approval path |
 | `apps/desktop/src/runtime/codex/connection.ts` | Bounded JSONL JSON-RPC App Server connection with structured protocol errors, allowlisted experimental initialization, pending-call, stderr, and child lifecycle |
 | `apps/desktop/src/runtime/codex/index.ts` | Codex process launch plus required SwarmX MCP configuration and secret-safe environment handoff |
 | `apps/desktop/src/runtime/codex/member-bindings.ts` | Exact transactional mapping from workspace member authority to native Codex Thread handles over owner-initialized storage |
@@ -43,7 +43,7 @@ Each native Session/Thread is its only transcript truth. `ConversationRuntimeReg
 | `apps/desktop/tests/codex-real.test.ts` | Installed real Codex App Server schema, stored-thread resume, required product MCP startup, and `SWARMX_CODEX_FULL_ACCEPTANCE=1` schema/approval/PKB scope/native-member restart/archive/lifecycle gate |
 | `apps/desktop/tests/codex-runtime.test.ts` | Codex history-mode selection, paged/transient list, resume, projection, exact native fork/revert revision, cascade cleanup, ordered events, approvals, questions, and elicitation contract |
 | `apps/desktop/tests/codex-swarm-recovery.test.ts` | Root-only Codex provisioning resume, fail-closed missing/transient/cancel classification, stale binding, and native orphan cleanup contract |
-| `apps/desktop/tests/dsh-runtime.test.ts` | DSH projection, native operations/forked revision, ordered events, and no-second-approval-handler contract |
+| `apps/desktop/tests/dsh-runtime.test.ts` | DSH projection, native operations/forked revision, create/resume WikiSkill scope composition, ordered events, and no-second-approval-handler contract |
 | `apps/desktop/tests/product-mcp.test.ts` | Shared product tool list, Science project/image path, exact identity, workspace recovery, concurrent native-member/mailbox ownership, live child lifecycle, and Swarm carrier contract |
 | `apps/desktop/tests/runtime-bridge.test.ts` | Bearer authorization, Host-owned workspace/model routing, and response-loss-safe root member-claim contract |
 | `apps/desktop/tests/runtime-contract.test.ts` | Shared Retry/Edit revision/Fork behavior contract |
@@ -79,6 +79,16 @@ Each native Session/Thread is its only transcript truth. `ConversationRuntimeReg
 | `packages/core/pkb/tests/okf-fixture.test.ts` | Executable OKF, Obsidian, MyST, and conversation-footnote fixture contract |
 | `packages/core/pkb/tests/plugin.test.ts` | Aggregate tool approval and frozen prompt-index contract |
 | `packages/core/pkb/tests/vault.test.ts` | Vault permissions, isolation, admission idempotency, revision, history, malformed-page, and portability contract |
+| `packages/core/wikiskill/tsdown.config.ts` | Host-only WikiSkill evolution package artifact configuration |
+| `packages/core/wikiskill/src/contracts.ts` | Strict target, Raw locator, PKB source, proposal, evaluation, outcome, and SkillImpact draft schemas |
+| `packages/core/wikiskill/src/errors.ts` | Stable WikiSkill evolution error taxonomy |
+| `packages/core/wikiskill/src/index.ts` | Public WikiSkill evolution package exports |
+| `packages/core/wikiskill/src/provider.ts` | Exact-Agent preset/model active-root selection over the native DSH filesystem skill provider |
+| `packages/core/wikiskill/src/raw.ts` | Bounded contiguous DSH Session event-window reader without transcript copying |
+| `packages/core/wikiskill/src/store.ts` | Owner-only single-skill staging, strict evaluation, revision-fenced promotion/rollback, PURPOSE provenance, and PKB-ready impact draft |
+| `packages/core/wikiskill/tests/provider.test.ts` | Exact-target catalog isolation, target-change invalidation, and Agent-scoped registration contract |
+| `packages/core/wikiskill/tests/raw.test.ts` | Exact Session identity, bounds, contiguity, copying, and cancellation contract |
+| `packages/core/wikiskill/tests/store.test.ts` | Proposal validation/idempotency, strict improvement, rollback, isolation, revision fencing, permissions, and impact-draft contract |
 | `packages/core/swarm/src/capabilities.ts` | Exact-participant role restrictions, member delegation/PKB denial, mutating-Tool classification, and active-write-attempt guard |
 | `packages/core/swarm/src/contracts.ts` | Strict bounded role/model/budget, attempt, submission/verdict, monitor, R/W/K task, mailbox, snapshot, and UI schemas |
 | `packages/core/swarm/src/coordinator.ts` | Platform-neutral exact-actor authority, heterogeneous routing, attempt economics/budgets, submission/verdict fencing, mailbox delivery, evidence admission, and single-writer scheduling |
@@ -280,9 +290,9 @@ Each native Session/Thread is its only transcript truth. `ConversationRuntimeReg
 | `patches/@deepseek-ai__dsh-client-ui-conversation@0.1.2-alpha.2.patch` | Exact-baseline detached reference occurrences outside Lexical draft geometry, annotation-only submission, and occurrence edit/remove operations |
 | `patches/@deepseek-ai__dsh-client-ui-layout@0.1.2-alpha.2.patch` | Exact-baseline layout patch removing the fixed 520px details ceiling while retaining the 300px floor, preferred open width, and center-width concession |
 | `scripts/build-writing-preview-runtime.ts` | Builds and stages the current-platform semantic writing preview executable for the Science package |
-| `scripts/clean.ts` | Removes only known desktop, client-plugin, and staged native build outputs |
+| `scripts/clean.ts` | Removes only known desktop, core/client package, and staged native build outputs |
 | `scripts/check-codebase-docs.mjs` | Checks every authored source/test path is mapped here |
-| `scripts/workspace-layout.test.ts` | Grouped workspace, package-manager, development entry, root build-tool ownership, exact alpha.2 patch set, preset locale, and viewport-bound details solver contract |
+| `scripts/workspace-layout.test.ts` | Grouped workspace, host package build graph, package-manager, development entry, root build-tool ownership, exact alpha.2 patch set, preset locale, and viewport-bound details solver contract |
 
 Generated `dist/`, `lib/`, native `target/`, and staged `packages/science/core/bin/` artifacts are not source. DSH does not publish its client tsdown preset; the local minimal preset is release-coupled to the DSH module table and guarded by `client-build.test.ts`.
 
@@ -301,6 +311,9 @@ Python/R generation flow, source locators, security boundary, and opt-out semant
 
 `docs/pkb.md` defines the owner-only OKF v0.2 Vault, Obsidian/MyST compatibility profile,
 conversation evidence boundary, approval policy, and progressive-disclosure prompt behavior.
+
+`docs/wikiskill.md` defines DSH Sessions as Raw, the unchanged PKB Vault as Wiki, and isolated
+preset/model-scoped WikiSkill staging, evaluation, promotion, rollback, and runtime discovery.
 
 `docs/version-control.md` defines the read-only human Git/DVC UIs, Host-only DVC command capability,
 and package-private Git isolation boundary used for clean-HEAD DVC reproduction.

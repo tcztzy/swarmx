@@ -7,6 +7,7 @@ import { type ContentBlock, createUserMessage } from "@deepseek-ai/dsh-llm";
 import { type Session, type SessionEvent, SessionId } from "@deepseek-ai/dsh-session";
 import type { SessionQueryEngine } from "@deepseek-ai/dsh-session-query";
 import type { WorkspaceRegistry } from "@deepseek-ai/dsh-workspace";
+import { registerWikiSkillProvider, type WikiSkillStore } from "@swarmx/dsh-wikiskill";
 import type {
   ApprovalResponse,
   ConversationItem,
@@ -51,7 +52,10 @@ export class DshConversationRuntime implements ConversationRuntime {
   private seq = 0;
   private disposed = false;
 
-  constructor(private readonly ctx: DshRuntimeHost) {
+  constructor(
+    private readonly ctx: DshRuntimeHost,
+    private readonly wikiSkills: WikiSkillStore,
+  ) {
     this.disposers.push(
       ctx.on("session/event", (session, event) =>
         this.emitSessionEvent(session as unknown as Session, event as unknown as SessionEvent),
@@ -292,6 +296,7 @@ export class DshConversationRuntime implements ConversationRuntime {
       ...(options.signal === undefined ? {} : { signal: options.signal }),
       setup: async (agentCtx) => {
         await this.ctx.agentPresets.mount(agentCtx, preset);
+        registerWikiSkillProvider(agentCtx, this.wikiSkills);
       },
     });
     try {
@@ -334,6 +339,7 @@ export class DshConversationRuntime implements ConversationRuntime {
       ...(signal === undefined ? {} : { signal }),
       setup: async (agentCtx) => {
         await this.ctx.agentPresets.mount(agentCtx, preset);
+        registerWikiSkillProvider(agentCtx, this.wikiSkills);
       },
     });
     if (signal?.aborted === true) {

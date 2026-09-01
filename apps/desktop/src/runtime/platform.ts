@@ -1,4 +1,5 @@
 import { join } from "node:path";
+import { WikiSkillStore } from "@swarmx/dsh-wikiskill";
 import { type Harness, startHarness } from "../harness.js";
 import { type RuntimeBridge, startRuntimeBridge } from "./bridge.js";
 import { type StartCodexRuntimeOptions, startCodexRuntime } from "./codex/index.js";
@@ -51,7 +52,12 @@ export async function startDesktopPlatform(
   try {
     swarmRecoveryOwner = startSwarmRecoveryOwner(join(productHome, "swarm"));
     harness = await startHarness({ productHome });
-    adapters.push(new DshConversationRuntime(harness.ctx as DshRuntimeHost));
+    adapters.push(
+      new DshConversationRuntime(
+        harness.ctx as DshRuntimeHost,
+        new WikiSkillStore(join(productHome, "skills")),
+      ),
+    );
     if (options.runtime === "codex") {
       bridge = await startRuntimeBridge(workspace, swarmRecoveryOwner);
       const codex = await startCodexRuntime({

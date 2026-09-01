@@ -181,6 +181,9 @@ importers:
       '@swarmx/dsh-ui-swarm':
         specifier: workspace:*
         version: link:../../packages/client/ui-swarm
+      '@swarmx/dsh-wikiskill':
+        specifier: workspace:*
+        version: link:../../packages/core/wikiskill
       zod:
         specifier: ^4.4.3
         version: 4.4.3
@@ -553,6 +556,36 @@ importers:
         version: 3.18.2
       zod:
         specifier: ^4.4.3
+        version: 4.4.3
+
+  packages/core/wikiskill:
+    dependencies:
+      '@deepseek-ai/cordis':
+        specifier: 4.0.2
+        version: 4.0.2(@deepseek-ai/cordis-plugin-include@1.0.7)(@deepseek-ai/cordis-plugin-loader@1.0.3)
+      '@deepseek-ai/dsh-agent':
+        specifier: 0.1.2-alpha.2
+        version: 0.1.2-alpha.2(de969efc173e356795ed4d6dbfa9fb01)
+      '@deepseek-ai/dsh-atomic-write':
+        specifier: 0.1.2-alpha.2
+        version: 0.1.2-alpha.2(@deepseek-ai/cordis@4.0.2)(@deepseek-ai/dsh-invariants@0.1.2-alpha.2(@deepseek-ai/cordis@4.0.2))
+      '@deepseek-ai/dsh-session':
+        specifier: 0.1.2-alpha.2
+        version: 0.1.2-alpha.2(@deepseek-ai/cordis@4.0.2)(@deepseek-ai/dsh-invariants@0.1.2-alpha.2(@deepseek-ai/cordis@4.0.2))(@deepseek-ai/dsh-scope@0.1.2-alpha.2(@deepseek-ai/cordis@4.0.2)(@deepseek-ai/dsh-invariants@0.1.2-alpha.2(@deepseek-ai/cordis@4.0.2)))
+      '@deepseek-ai/dsh-session-query':
+        specifier: 0.1.2-alpha.2
+        version: 0.1.2-alpha.2(37230958b8a7ed25c36268adbbade705)
+      '@deepseek-ai/dsh-skill':
+        specifier: 0.1.2-alpha.2
+        version: 0.1.2-alpha.2(@deepseek-ai/cordis@4.0.2)(@deepseek-ai/dsh-invariants@0.1.2-alpha.2(@deepseek-ai/cordis@4.0.2))(@deepseek-ai/dsh-llm@0.1.2-alpha.2(@deepseek-ai/cordis@4.0.2)(@deepseek-ai/dsh-invariants@0.1.2-alpha.2(@deepseek-ai/cordis@4.0.2)))(@deepseek-ai/dsh-scope@0.1.2-alpha.2(@deepseek-ai/cordis@4.0.2)(@deepseek-ai/dsh-invariants@0.1.2-alpha.2(@deepseek-ai/cordis@4.0.2)))
+      '@deepseek-ai/dsh-skill-filesystem':
+        specifier: 0.1.2-alpha.2
+        version: 0.1.2-alpha.2(486ea9b4f34841243b2fb9428275474d)
+      yaml:
+        specifier: 2.9.0
+        version: 2.9.0
+      zod:
+        specifier: 4.4.3
         version: 4.4.3
 
   packages/science/core:
