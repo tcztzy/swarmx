@@ -81,7 +81,7 @@ function createHost() {
   const agent = {
     id: "session-1",
     status: "idle",
-    session: { id: "session-1", events: liveEvents },
+    session: { id: "session-1", snapshotEvents: () => liveEvents },
     followup,
     steer: vi.fn(),
     cancel: vi.fn(),
@@ -93,7 +93,7 @@ function createHost() {
       agent: {
         ...agent,
         id,
-        session: { id, events: (options.seed as unknown[] | undefined) ?? [] },
+        session: { id, snapshotEvents: () => (options.seed as unknown[] | undefined) ?? [] },
       },
       dispose: vi.fn(async () => undefined),
     };
@@ -426,7 +426,7 @@ describe("DSH conversation adapter", () => {
           agent: {
             ...created.agent,
             id: options.sessionId,
-            session: { id: options.sessionId, events: [] },
+            session: { id: options.sessionId, snapshotEvents: () => [] },
           },
           dispose: createdHandleDispose,
         }) as never,

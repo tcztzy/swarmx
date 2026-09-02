@@ -127,7 +127,7 @@ describe("V94 Typst-aware produced file links", () => {
     ).toEqual(["docs/swarmx-introduction.typ"]);
   });
 
-  it("uses alpha.2 mutation arguments instead of removed call presentation views", () => {
+  it("uses alpha.4 mutation arguments instead of removed call presentation views", () => {
     const start = scienceDeliverablesDefinition.start(
       {} as never,
       { event: { type: "turn/start", seq: 0, data: { turn: 1 } } } as never,

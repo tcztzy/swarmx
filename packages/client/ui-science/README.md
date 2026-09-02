@@ -65,7 +65,7 @@ caret, and reveals it. A stale PDF/source revision is shown as an error and neve
 Dragging or double-clicking a text selection still opens the annotation flow, while figure clicks and
 double-clicks retain their annotation and dedicated-tab behavior.
 
-The alpha.2 conversation projection and file-mention resolver are used directly. This plugin
+The alpha.4 conversation projection and file-mention resolver are used directly. This plugin
 registers its deliverables node through `uiConversation.events`, reconstructs mutating file-tool paths
 from validated call arguments, and delegates ordinary file opens to
 `remote.session.openWorkspacePath`. Only safe `.typ`/`.typst` references extend the vocabulary and

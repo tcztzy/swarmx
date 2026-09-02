@@ -4,7 +4,7 @@ SwarmX has one application UI and plugin host: the published DeepSeek Harness We
 
 ## Audited DSH Web seam
 
-The Host half is extensible through ordinary Cordis plugins: `ctx.webServer.register` can add bounded same-origin HTTP/SSE routes, and Typert/Remote can add business services. The browser conversation backend is not a peer-runtime registry seam. In dsh 0.1.2-alpha.2, `@deepseek-ai/dsh-api-session-controller` owns Session lifecycle state, `uiConversation` assembles target-neutral event projections, and `@deepseek-ai/dsh-client-ui-chat` owns the Chat target. Those services extend an already-open DSH Session; they do not turn list/create/read/start into a replaceable runtime backend.
+The Host half is extensible through ordinary Cordis plugins: `ctx.webServer.register` can add bounded same-origin HTTP/SSE routes, and Typert/Remote can add business services. The browser conversation backend is not a peer-runtime registry seam. In dsh 0.1.2-alpha.4, `@deepseek-ai/dsh-api-session-controller` owns Session lifecycle state, `uiConversation` assembles target-neutral event projections, and `@deepseek-ai/dsh-client-ui-chat` owns the Chat target. Those services extend an already-open DSH Session; they do not turn list/create/read/start into a replaceable runtime backend.
 
 Therefore Codex must not be implemented as a model provider, an `IApiClient`/Mux compatibility server, or a synthetic DSH `Session`. The minimum product-owned boundary is:
 

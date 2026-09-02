@@ -13,7 +13,7 @@ function actor(): SwarmActor {
 }
 
 describe("swarm aggregate tool", () => {
-  it("places Team guidance after the alpha.2 tool SDK section", () => {
+  it("places Team guidance after the alpha.4 tool SDK section", () => {
     const section = vi.fn();
     const getSectionOrder = vi.fn(() => 5_000);
     const register = vi.fn(() => vi.fn());

@@ -4,6 +4,7 @@ import type { Agent } from "@deepseek-ai/dsh-agent";
 import { createUserMessage } from "@deepseek-ai/dsh-llm";
 import { type SessionEvent, SessionId } from "@deepseek-ai/dsh-session";
 import type {} from "@deepseek-ai/dsh-subagent";
+import { queueHostSubagentPrompt } from "@deepseek-ai/dsh-subagent/internal";
 import type { ToolExecutionResult } from "@deepseek-ai/dsh-tools";
 import { TypertRemoteService } from "@deepseek-ai/dsh-typert-protocol";
 import s from "@deepseek-ai/schemastery";
@@ -230,7 +231,7 @@ export class SwarmService extends TypertRemoteService {
             content: [{ type: "text", text: content }],
             source: {
               form: "relay",
-              kind: "coordinator",
+              kind: "agent-message",
               senderSessionId: SessionId(senderId),
             },
           }),
@@ -240,18 +241,17 @@ export class SwarmService extends TypertRemoteService {
         if (parent === undefined) {
           throw new SwarmError("Swarm lead is inactive", "SWARM_MEMBER_NOT_FOUND");
         }
-        await ctx.subagents.followup(
+        await queueHostSubagentPrompt(
+          ctx.subagents,
           nativeActor(parent),
           SessionId(targetId),
           [{ type: "text", text: content }],
           {
-            signal: signal ?? this.lifetime.signal,
-            source: {
-              form: "relay",
-              kind: "coordinator",
-              senderSessionId: SessionId(senderId),
-            },
+            form: "relay",
+            kind: "agent-message",
+            senderSessionId: SessionId(senderId),
           },
+          signal ?? this.lifetime.signal,
         );
       },
       followupRoot: (target, content, senderId) => {
@@ -260,7 +260,7 @@ export class SwarmService extends TypertRemoteService {
             content: [{ type: "text", text: content }],
             source: {
               form: "relay",
-              kind: "coordinator",
+              kind: "agent-message",
               senderSessionId: SessionId(senderId),
             },
           }),
@@ -342,29 +342,17 @@ export class SwarmService extends TypertRemoteService {
       if (lead && team.phase === "active") this.ensureLeadBoundary(lead);
     }
 
-    ctx.effect(
-      () =>
-        ctx.subagents.registerContinuableSetup((childCtx: Context) => {
-          const member = childCtx.agent;
-          if (!member || !this.coordinator.isMemberIdentity(member.id)) return () => undefined;
-          const profile = this.coordinator.memberProfileByActorId(member.id);
-          const disposePolicy = childCtx.on("agent/request", async (_payload, next) =>
-            applyMemberModelPolicy(await next(), profile),
-          );
-          const disposeBoundary = this.registerEffectBoundary(childCtx, member, true);
-          return () => {
-            disposeBoundary();
-            disposePolicy();
-          };
-        }),
-      "dsh-swarm: guard continuable member capabilities",
-    );
     ctx.on("agent/created", ({ agent }) => {
       if (this.coordinator.isLeadIdentity(agent.id)) {
         this.ensureLeadBoundary(agent);
         return;
       }
       if (!this.coordinator.isMemberIdentity(agent.id)) return;
+      const profile = this.coordinator.memberProfileByActorId(agent.id);
+      agent.ctx.on("agent/request", async (_payload, next) =>
+        applyMemberModelPolicy(await next(), profile),
+      );
+      this.registerEffectBoundary(agent.ctx, agent, true);
       return this.track(async () => {
         await this.coordinator.recoverMember(agent);
         this.monitorAndArm();

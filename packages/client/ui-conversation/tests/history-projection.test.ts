@@ -35,7 +35,7 @@ async function failedSource(): Promise<{ context: Context; source: Session; pref
     { surfaceOp: "append" },
   );
   source.append("turn/end", { turn: 1, reason: { kind: "completed" } });
-  const prefixEnd = source.events.at(-1)?.seq;
+  const prefixEnd = source.snapshotEvents().at(-1)?.seq;
   if (prefixEnd === undefined) throw new Error("completed prefix is missing");
 
   source.append("turn/start", { turn: 2 });
@@ -74,7 +74,7 @@ async function failedSource(): Promise<{ context: Context; source: Session; pref
 describe("V11 append-only branch projections", () => {
   it("retains superseded input and failure events only in the source history", async () => {
     const { context, source, prefixEnd } = await failedSource();
-    const sourceBefore = structuredClone(source.events);
+    const sourceBefore = structuredClone(source.snapshotEvents());
     const child = context.sessions.fork(source, prefixEnd, "edited-child" as SessionId);
     child.append("turn/start", { turn: 2 });
     child.append(
@@ -86,16 +86,16 @@ describe("V11 append-only branch projections", () => {
       { surfaceOp: "append" },
     );
 
-    expect(source.events).toEqual(sourceBefore);
-    expect(source.events.some((event) => event.type === "llm/retry")).toBe(true);
-    expect(source.events.at(-1)).toMatchObject({
+    expect(source.snapshotEvents()).toEqual(sourceBefore);
+    expect(source.snapshotEvents().some((event) => event.type === "llm/retry")).toBe(true);
+    expect(source.snapshotEvents().at(-1)).toMatchObject({
       type: "turn/end",
       data: { reason: { kind: "error", error: { message: "Connection error" } } },
     });
     expect(child.header.parentSession).toBe(source.id);
     expect(textOf(child)).toEqual(["kept prefix", "edited prompt"]);
-    expect(JSON.stringify(child.events)).not.toContain("superseded prompt");
-    expect(JSON.stringify(child.events)).not.toContain("Connection error");
+    expect(JSON.stringify(child.snapshotEvents())).not.toContain("superseded prompt");
+    expect(JSON.stringify(child.snapshotEvents())).not.toContain("Connection error");
   });
 
   it("keeps retry failures out of the messages projected for an LLM request", async () => {

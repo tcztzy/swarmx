@@ -1,4 +1,4 @@
-import { SessionId } from "@deepseek-ai/dsh-session";
+import { SessionId, SessionSeq } from "@deepseek-ai/dsh-session";
 import {
   extractSessionEventText,
   type SessionEventReadRequest,
@@ -258,7 +258,7 @@ export class ConversationArchive {
       {
         after: 0,
         before: 0,
-        seq: locator.seq,
+        seq: SessionSeq(locator.seq),
         sessionId: SessionId(locator.sessionId),
       },
       signal,

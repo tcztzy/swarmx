@@ -188,7 +188,7 @@ export async function startHarness(options: StartHarnessOptions): Promise<Harnes
   const productAnchor = moduleRequire.resolve("../package.json");
   await healProfilesModuleFallback({
     installAnchor: anchor,
-    // The desktop manifest is a closure-only profile root: alpha.2 reserves the
+    // The desktop manifest is a closure-only profile root: alpha.4 reserves the
     // exact DSH installation while projecting app-owned bare packages locally.
     profile: {
       ...profile,

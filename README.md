@@ -25,8 +25,8 @@ Consequences of that shape:
 
 - **No replacement renderer.** Published `dsh-client-ui-*` packages remain the
   baseline; local extensions enter through public conversation and details slots,
-  with exact-version alpha.2 package patches kept explicit under `patches/`.
-  Produced-file prose uses alpha.2's native inline-code mention resolver.
+  with exact-version alpha.4 package patches kept explicit under `patches/`.
+  Produced-file prose uses alpha.4's native inline-code mention resolver.
 - **No second browser transport.** Runtime lifecycle routes are registered under
   `/api/swarmx/conversation-runtimes` on DSH Web; the browser never connects to app-server directly.
 - **No double harness.** Codex runs as its own app-server process below the UI, never inside the DSH Agent loop.
@@ -50,7 +50,7 @@ non-overlapping visual sequence. A failed turn keeps its error text visible and 
 a Retry icon even when no final assistant message exists. Retry prepares a
 separate session before the selected turn and sends the original text; Edit
 opens that session with the original prompt as a draft. Later turns use DSH's
-fork primitive; the first turn uses alpha.2's addressable session object layer to
+fork primitive; the first turn uses alpha.4's addressable session object layer to
 create a fresh session in the same Workspace (adopting the source cwd when it was
 ungrouped) with the source agent preset. DSH cannot fork an empty completed-turn
 prefix. Neither action mutates the source history.

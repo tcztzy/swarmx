@@ -133,7 +133,7 @@ export class DshConversationRuntime implements ConversationRuntime {
     this.assertNotArchiving(agent.id);
     signal?.throwIfAborted();
     const nativeSessionId = String(agent.id);
-    const observed = nextTurn(agent.session.events);
+    const observed = nextTurn(agent.session.snapshotEvents());
     const turn = Math.max(observed, this.nextTurns.get(nativeSessionId) ?? observed);
     this.nextTurns.set(nativeSessionId, turn + 1);
     agent.followup(
@@ -151,7 +151,7 @@ export class DshConversationRuntime implements ConversationRuntime {
     this.assertNotArchived(agent.id);
     this.assertNotArchiving(agent.id);
     signal?.throwIfAborted();
-    const open = openTurn(agent.session.events);
+    const open = openTurn(agent.session.snapshotEvents());
     const requested = nativeTurnId(String(agent.id), request.turnId);
     if (open !== requested) {
       throw new Error(
@@ -173,7 +173,7 @@ export class DshConversationRuntime implements ConversationRuntime {
     this.assertNotArchiving(agent.id);
     signal?.throwIfAborted();
     const requested = nativeTurnId(String(agent.id), request.turnId);
-    if (openTurn(agent.session.events) !== requested) {
+    if (openTurn(agent.session.snapshotEvents()) !== requested) {
       throw new Error(`DSH turn "${request.turnId}" is not active.`);
     }
     agent.cancel({ kind: "user" });
@@ -239,7 +239,8 @@ export class DshConversationRuntime implements ConversationRuntime {
     this.archiving.add(String(id));
     try {
       const live = this.handles.get(String(id))?.agent ?? this.ctx.agents.get(id);
-      const events = live?.session.events ?? (await this.ctx.sessionQuery.readSession(id)).events;
+      const events =
+        live?.session.snapshotEvents() ?? (await this.ctx.sessionQuery.readSession(id)).events;
       signal?.throwIfAborted();
       if (openTurn(events) !== undefined) {
         throw new Error(`Cannot archive running DSH conversation "${conversation}".`);
@@ -426,7 +427,7 @@ export class DshConversationRuntime implements ConversationRuntime {
     }
     if (event.type === "user/message" && event.surfaceOp === "append") {
       if (event.data.source.kind !== "user") return;
-      const turn = openTurnAt(session.events, event.seq);
+      const turn = openTurnAt(session.snapshotEvents(), event.seq);
       if (turn === undefined) return;
       this.emit({
         type: "item_completed",

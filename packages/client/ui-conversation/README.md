@@ -3,7 +3,7 @@
 Browser conversation extensions for SwarmX: non-destructive Retry/Edit, annotation-aware user
 messages, and the generic Side View.
 
-First-turn Retry/Edit uses alpha.2's session object layer to create an immediately addressable
+First-turn Retry/Edit uses alpha.4's session object layer to create an immediately addressable
 sibling in the source Workspace, preserving its agent preset and adopting its cwd when ungrouped.
 
 User messages shadow the upstream renderer only at a lower slot priority. The renderer extracts

@@ -25,12 +25,12 @@
   },
   "dependencies": {
     "@deepseek-ai/cordis": "4.0.2",
-    "@deepseek-ai/dsh-subprocess": "0.1.2-alpha.2",
+    "@deepseek-ai/dsh-subprocess": "0.1.2-alpha.4",
     "@deepseek-ai/schemastery": "^3.18.2",
     "zod": "^4.4.3"
   },
   "devDependencies": {
-    "@deepseek-ai/dsh-subprocess-local": "0.1.2-alpha.2"
+    "@deepseek-ai/dsh-subprocess-local": "0.1.2-alpha.4"
   },
   "files": [
     "lib/index.js",

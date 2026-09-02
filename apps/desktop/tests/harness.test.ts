@@ -163,12 +163,12 @@ describe("harness boot", () => {
     expect(fixtureEntry?.options.name).toBe(realpathSync(fixtureEntryPath));
   });
 
-  it("reconciles the exact alpha.2 DSH closure while resolving product subpaths", () => {
+  it("reconciles the exact alpha.4 DSH closure while resolving product subpaths", () => {
     const profileRequire = createRequire(join(home, "profiles", PROFILE_DIR, "package.json"));
     const subagentManifest = JSON.parse(
       readFileSync(profileRequire.resolve("@deepseek-ai/dsh-tool-subagent/package.json"), "utf8"),
     ) as { exports: Record<string, unknown>; version: string };
-    expect(subagentManifest.version).toBe("0.1.2-alpha.2");
+    expect(subagentManifest.version).toBe("0.1.2-alpha.4");
     expect(subagentManifest.exports).toHaveProperty("./model-selection-settings");
     expect(profileRequire.resolve("@swarmx/dsh-science/preset")).toBe(
       moduleRequire.resolve("@swarmx/dsh-science/preset"),
@@ -182,7 +182,7 @@ describe("harness boot", () => {
         const manifest = JSON.parse(readFileSync(join(scopeDir, name, "package.json"), "utf8")) as {
           version: string;
         };
-        expect(manifest.version, name).toBe("0.1.2-alpha.2");
+        expect(manifest.version, name).toBe("0.1.2-alpha.4");
       }
     }
     for (const obsolete of ["@deepseek-ai/dsh-client-runtime", "@deepseek-ai/dsh-host-apiproxy"]) {

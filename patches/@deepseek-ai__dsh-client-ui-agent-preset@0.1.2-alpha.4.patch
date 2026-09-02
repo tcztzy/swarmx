@@ -1,4 +1,5 @@
 diff --git a/lib/client.js b/lib/client.js
+index 7371c7c..3fe075b 100644
 --- a/lib/client.js
 +++ b/lib/client.js
 @@ -25,6 +25,10 @@ window.__ModuleLoader__.load({
@@ -31,6 +32,7 @@ diff --git a/lib/client.js b/lib/client.js
  			duplicateUnavailable: "此部署未配置可写的预设目录",
  			delete: "删除",
 diff --git a/lib/types/client/locales.d.ts b/lib/types/client/locales.d.ts
+index 8c26d19..19fadcb 100644
 --- a/lib/types/client/locales.d.ts
 +++ b/lib/types/client/locales.d.ts
 @@ -1,6 +1,6 @@

@@ -1,7 +1,11 @@
 diff --git a/lib/client.js b/lib/client.js
+index 1ed2102..7eb19e5 100644
 --- a/lib/client.js
 +++ b/lib/client.js
-@@ -1691,8 +1691,11 @@ window.__ModuleLoader__.load({
+@@ -1778,11 +1778,14 @@ window.__ModuleLoader__.load({
+ 			* Contract session.create; on success merge into summaries immediately (no
+ 			* wait for the next refresh). A created session is blank by definition
+ 			* (entity birth precedes the first message).
 -			* @param opts - target workspace or working directory, plus an optional caller-owned id.
 +			* @param opts - target workspace or working directory, plus an optional caller-owned id and agent preset.
  			* @returns the create result.
@@ -16,9 +20,13 @@ diff --git a/lib/client.js b/lib/client.js
  					workspaceId: opts.workspaceId,
  					...shared
 diff --git a/lib/types/client/contract/sessions.d.ts b/lib/types/client/contract/sessions.d.ts
+index 037b920..c57cf95 100644
 --- a/lib/types/client/contract/sessions.d.ts
 +++ b/lib/types/client/contract/sessions.d.ts
-@@ -30,10 +30,11 @@ export interface ISessions {
+@@ -27,13 +27,14 @@ export interface ISessions {
+     readonly searchResultLimit: number;
+     /**
+      * Create or adopt a Session on the Host.
 -     * @param opts - target workspace, directory, and optional preallocated identity.
 +     * @param opts - target workspace, directory, preallocated identity, and agent preset.
       * @returns the Session identity after its local binding is addressable.
@@ -32,9 +40,13 @@ diff --git a/lib/types/client/contract/sessions.d.ts b/lib/types/client/contract
      /**
       * Select a session as current.
 diff --git a/lib/types/client/sessions/manager.d.ts b/lib/types/client/sessions/manager.d.ts
+index f6f616a..3b8d99c 100644
 --- a/lib/types/client/sessions/manager.d.ts
 +++ b/lib/types/client/sessions/manager.d.ts
-@@ -175,10 +175,11 @@ export declare class SessionManager {
+@@ -172,13 +172,14 @@ export declare class SessionManager {
+      * Contract session.create; on success merge into summaries immediately (no
+      * wait for the next refresh). A created session is blank by definition
+      * (entity birth precedes the first message).
 -     * @param opts - target workspace or working directory, plus an optional caller-owned id.
 +     * @param opts - target workspace or working directory, plus an optional caller-owned id and agent preset.
       * @returns the create result.
@@ -48,15 +60,19 @@ diff --git a/lib/types/client/sessions/manager.d.ts b/lib/types/client/sessions/
          sessionId: SessionId;
      }>>;
 diff --git a/lib/types/client/sessions/service.d.ts b/lib/types/client/sessions/service.d.ts
+index e6fb2c6..26f7832 100644
 --- a/lib/types/client/sessions/service.d.ts
 +++ b/lib/types/client/sessions/service.d.ts
-@@ -243,11 +243,12 @@ export declare class ClientSessions implements ISessions {
+@@ -240,7 +240,7 @@ export declare class ClientSessions implements ISessions {
+      * draft hand-off) may address the scope synchronously, without waiting a
+      * notifier flush. The synchronous projection below makes this structural
+      * rather than an accident of microtask ordering.
 -     * @param opts - target workspace or directory and an optional preallocated id.
 +     * @param opts - target workspace or directory, optional preallocated id, and agent preset.
       * @returns the new session id.
       * @throws {SessionCreateError} with the requested id.
       */
-     create(opts?: {
+@@ -248,6 +248,7 @@ export declare class ClientSessions implements ISessions {
          workspaceId?: WorkspaceId;
          cwd?: string;
          sessionId?: SessionId;

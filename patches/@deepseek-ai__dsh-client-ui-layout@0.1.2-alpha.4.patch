@@ -1,4 +1,5 @@
 diff --git a/lib/client.js b/lib/client.js
+index 5fd8100..aec09d5 100644
 --- a/lib/client.js
 +++ b/lib/client.js
 @@ -33,7 +33,7 @@ window.__ModuleLoader__.load({
@@ -42,6 +43,7 @@ diff --git a/lib/client.js b/lib/client.js
  			/** Close the details panel. */
  			closeDetails() {
 diff --git a/lib/types/client/columns.d.ts b/lib/types/client/columns.d.ts
+index acab06d..7cb2511 100644
 --- a/lib/types/client/columns.d.ts
 +++ b/lib/types/client/columns.d.ts
 @@ -34,8 +34,6 @@ export declare const SIDEBAR_COLLAPSED = 56;
@@ -54,10 +56,10 @@ diff --git a/lib/types/client/columns.d.ts b/lib/types/client/columns.d.ts
  export declare const DETAILS_DEFAULT = 360;
  /**
 diff --git a/lib/types/client/service.d.ts b/lib/types/client/service.d.ts
+index e2a1a0c..37fe599 100644
 --- a/lib/types/client/service.d.ts
 +++ b/lib/types/client/service.d.ts
-@@ -21,8 +21,8 @@ export type PanelActions = BoundActions<ReturnType<typeof createLayoutStore>>;
- export interface ILayout {
+@@ -22,7 +22,7 @@ export interface ILayout {
      /** Toggle the sidebar panel (closed ⟷ contract default width). */
      toggleSidebar(): void;
      /** Open the details panel (no-op when already open). */
@@ -66,8 +68,7 @@ diff --git a/lib/types/client/service.d.ts b/lib/types/client/service.d.ts
      /** Close the details panel. */
      closeDetails(): void;
  }
-@@ -39,8 +39,8 @@ export declare class LayoutController implements ILayout {
-     attachPanels(actions: PanelActions): void;
+@@ -40,7 +40,7 @@ export declare class LayoutController implements ILayout {
      /** Toggle the sidebar panel (closed ⟷ contract default width). */
      toggleSidebar(): void;
      /** Open the details panel (no-op when already open). */
@@ -77,6 +78,7 @@ diff --git a/lib/types/client/service.d.ts b/lib/types/client/service.d.ts
      closeDetails(): void;
  }
 diff --git a/lib/types/client/stores.d.ts b/lib/types/client/stores.d.ts
+index a17c2e7..e3ecb2f 100644
 --- a/lib/types/client/stores.d.ts
 +++ b/lib/types/client/stores.d.ts
 @@ -30,7 +30,7 @@ type LayoutActions = {

@@ -33,7 +33,7 @@ describe("client build", () => {
     ]);
   });
 
-  it("uses only alpha.2 split client services", () => {
+  it("uses only alpha.4 split client services", () => {
     const packageJson = JSON.parse(
       readFileSync(new URL("../package.json", import.meta.url), "utf8"),
     ) as {

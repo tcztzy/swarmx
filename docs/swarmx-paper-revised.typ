@@ -518,13 +518,13 @@ not leave invisible half-committed state.
 // 中文：工件、溯源与可移植输出
 == Artifacts, provenance, and portable outputs
 
-// 中文：生成文件首先作为对话中的可见结果出现。Science 工具返回的工件定位符在同一完成回合中被恢复、去重和排序，并形成可点击卡片。侧栏预览只请求宿主授权、摘要校验且大小受限的文本、图像、表格或 PDF 表示。浏览器接收相对标识和有界内容，不接收绝对主机路径。最终回答使用 DSH alpha.2 原生解析的 Markdown 行内代码提及精确的工作区相对路径。
+// 中文：生成文件首先作为对话中的可见结果出现。Science 工具返回的工件定位符在同一完成回合中被恢复、去重和排序，并形成可点击卡片。侧栏预览只请求宿主授权、摘要校验且大小受限的文本、图像、表格或 PDF 表示。浏览器接收相对标识和有界内容，不接收绝对主机路径。最终回答使用 DSH alpha.4 原生解析的 Markdown 行内代码提及精确的工作区相对路径。
 Generated files first appear as visible conversational results. Artifact locators returned by
 Science tools are recovered, deduplicated, and ordered within the same completed turn and rendered
 as clickable cards. A side-view preview requests only Host-authorized, digest-verified, size-bounded
 text, image, table, or PDF representations. The browser receives relative identities and bounded
 content, not absolute Host paths. Final answers mention exact workspace-relative paths as Markdown
-inline code resolved by DSH alpha.2's native file-mention contract.
+inline code resolved by DSH alpha.4's native file-mention contract.
 
 // 中文：项目级导出使用 RO-Crate 1.3 Metadata Document 表达根项目、文件、软件、问题、主张、证据、实验、运行及创建/更新动作。RO-Crate 是交换和读取模型，而不是命令协议；内部关系表不会被宣称为新的私有标准。导出使用标准 Schema.org 关系并避免泄露会话身份和绝对路径。该选择使外部工具能够检查研究对象，而不必加载 SwarmX 的运行数据库 #cite(10) #cite(17)。
 Project-level export uses an RO-Crate 1.3 Metadata Document to describe the root project, files,

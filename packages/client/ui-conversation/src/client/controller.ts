@@ -9,7 +9,7 @@ import { canRerunTurn } from "../fork-boundary.js";
 import { prepareRerunSession, type RerunSessions, rerunTurn } from "../rerun.js";
 import { turnTextOf } from "../turn-origin.js";
 
-/** Create a source-adjacent session through the addressable alpha.2 object layer. */
+/** Create a source-adjacent session through the addressable alpha.4 object layer. */
 export async function createSibling(ctx: Context, sourceId: SessionId): Promise<SessionId> {
   const source = ctx.sessions.list.getSnapshot().byId[sourceId];
   if (source === undefined) throw new Error(`source session ${String(sourceId)} is unavailable`);

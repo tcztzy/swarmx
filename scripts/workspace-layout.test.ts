@@ -101,7 +101,7 @@ describe("workspace layout", () => {
     expect(desktop.dependencies?.["@swarmx/dsh-swarm"]).toBe("workspace:*");
     expect(desktop.dependencies?.["@swarmx/dsh-ui-science"]).toBe("workspace:*");
     expect(desktop.dependencies?.["@swarmx/dsh-ui-swarm"]).toBe("workspace:*");
-    expect(desktop.dependencies?.["@deepseek-ai/dsh-web-frontend"]).toBe("0.1.2-alpha.2");
+    expect(desktop.dependencies?.["@deepseek-ai/dsh-web-frontend"]).toBe("0.1.2-alpha.4");
   });
 
   it("V141/V142 keeps the relocated PKB package rooted and package-bounded", () => {
@@ -190,7 +190,7 @@ describe("workspace layout", () => {
       "packages/science/core/package.json",
     ];
     const baseline = manifest(files[0] as string).dependencies?.["@deepseek-ai/dsh"];
-    expect(baseline).toBe("0.1.2-alpha.2");
+    expect(baseline).toBe("0.1.2-alpha.4");
 
     for (const file of files) {
       const packageManifest = manifest(file);
@@ -219,9 +219,13 @@ describe("workspace layout", () => {
     expect(workspace).toContain("'@deepseek-ai/cordis-plugin-group': 1.0.2");
     for (const name of [
       "@deepseek-ai/dsh-authorization",
+      "@deepseek-ai/dsh-hook-protocol",
       "@deepseek-ai/dsh-jobs",
+      "@deepseek-ai/dsh-sdk-protocol",
       "@deepseek-ai/dsh-session-persistence",
       "@deepseek-ai/dsh-settings",
+      "@deepseek-ai/dsh-util-time",
+      "@deepseek-ai/dsh-util-workspace-path",
     ]) {
       expect(workspace).toContain(`'${name}': ${baseline}`);
     }
