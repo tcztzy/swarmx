@@ -2,22 +2,22 @@
 
 ## Contract
 
-`dsh-science` embeds one format-independent Figure generation record when a PNG, SVG, or PDF
+`@swarmx/science` embeds one format-independent Figure generation record when a PNG, SVG, or PDF
 enters the immutable Artifact Registry. The same canonical UTF-8 JSON is used by every adapter;
 format containers only transport the record and never execute it.
 
 | MIME | Owned container |
 | --- | --- |
-| `image/png` | uncompressed `iTXt` keyword `dsh-science.provenance` |
-| `image/svg+xml` | never-rendered `<metadata id="dsh-science.provenance">` with a DSH namespaced child |
-| `application/pdf` | Catalog XMP Metadata stream property `dsh:provenance` |
+| `image/png` | uncompressed `iTXt` keyword `swarmx.provenance` |
+| `image/svg+xml` | never-rendered `<metadata id="swarmx.provenance">` with a SwarmX-namespaced child |
+| `application/pdf` | Catalog XMP Metadata stream property `swarmx:provenance` |
 
 The decoded canonical JSON is capped at 1 MiB. Plotting code is capped at 200,000 characters. SVG
 and PDF store the JSON as canonical base64 text so XML metacharacters in code cannot become markup.
 
 ```json
 {
-  "schema": "dsh-science.figure-provenance",
+  "schema": "swarmx.figure-provenance",
   "version": 1,
   "generationId": "e6ab9d32-10b0-4f08-9d0e-98689b01e2d1",
   "generator": {
@@ -55,7 +55,7 @@ Source references have three stable forms:
   `/Users/...`, drive-letter paths, UNC paths, `..`, or a temporary materialization path. The Host
   verifies the live file and adds its SHA256; an optional caller digest is accepted only when it
   matches those bytes.
-- `artifact` stores a DSH Science Artifact/File Object id. The Host resolves it inside the current
+- `artifact` stores a Science Artifact id. The Host resolves it inside the current
   workspace and adds the immutable digest; a caller cannot supply or spoof that digest.
 - `s3` stores a credential-free `s3://bucket/key`. `versionId` and/or a SHA256 digest should be
   supplied when the exact historical object matters. Metadata injection performs no network call.
@@ -73,7 +73,7 @@ TypeScript consumers can call `await extractArtifactMetadata(bytes, mime)`, or t
    or application-owned S3 access.
 2. matplotlib `savefig(...)`, seaborn/matplotlib, R `ggsave(...)`, or Plotly writes an ordinary PNG,
    SVG, or PDF inside the workspace.
-3. `dsh-science` resolves Artifact sources and rejects unsafe relative/S3 references. Notebook
+3. Science resolves Artifact sources and rejects unsafe relative/S3 references. Notebook
    output fingerprints relative sources before execution and verifies them again afterward.
 4. The Artifact Store validates MIME against the actual file, replaces only its owned metadata,
    writes transformed bytes into owner-only staging, and computes SHA256 over the final bytes. The
@@ -83,9 +83,9 @@ TypeScript consumers can call `await extractArtifactMetadata(bytes, mime)`, or t
 PNG injection validates the chunk structure and inserts one `iTXt` immediately before `IEND`. SVG
 injection accepts bounded UTF-8 XML, preserves unrelated elements and metadata, and adds one
 foreign-namespace record under the root. PDF injection preserves unrelated XMP values and writes
-the DSH property into the document-level Catalog Metadata stream. Encrypted or signed PDFs are
+the SwarmX property into the document-level Catalog Metadata stream. Encrypted or signed PDFs are
 rejected because rewriting them would require credentials or invalidate a signature. PDF/A inputs
-must already declare the DSH custom XMP extension schema; no conformance claim is silently changed.
+must already declare the SwarmX custom XMP extension schema; no conformance claim is silently changed.
 
 The postprocessor belongs at capture rather than inside matplotlib or ggplot2. Python and R
 therefore share the schema, validation, opt-out behavior, and content hash.
@@ -144,7 +144,7 @@ await ctx.science.registerArtifact(sessionId, {
 
 ## Disable injection
 
-Set `embedArtifactMetadata: false` in the `dsh-science` service configuration to disable injection
+Set `embedArtifactMetadata: false` in the Science service configuration to disable injection
 for the installation. Set `reproducibilityMetadata: false` on one Figure output/registration to
 disable only that artifact. Either switch stores the generator bytes unchanged and does not inspect,
 remove, or rewrite existing owned metadata.

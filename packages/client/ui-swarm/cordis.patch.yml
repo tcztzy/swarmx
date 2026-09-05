@@ -1,5 +1,0 @@
-# Read-only Session-scoped Swarm activity UI.
-
-- insert:
-    - id: swarmx-ui-swarm
-      name: '@swarmx/dsh-ui-swarm'

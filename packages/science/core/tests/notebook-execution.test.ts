@@ -70,7 +70,7 @@ describe("T15 Python notebook execution", () => {
       source: [
         "import json, os",
         "from pathlib import Path",
-        'text = Path(os.environ["DSH_SCIENCE_INPUT_0"]).read_text()',
+        'text = Path(os.environ["SWARMX_SCIENCE_INPUT_0"]).read_text()',
         'Path("analysis.json").write_text(json.dumps({"lines": len(text.splitlines())}))',
         "print(text, end='')",
       ].join("\n"),

@@ -1,10 +1,11 @@
 # Packages
 
-Reusable SwarmX packages follow the DeepSeek Harness grouping convention at `packages/<group>/<package>`.
+Reusable, vendor-neutral code lives under `packages/`; the executable composition lives under
+`apps/desktop`.
 
-| Group | Purpose |
+| Package | Owner |
 | --- | --- |
-| [`client/`](client/README.md) | Browser-side extensions loaded by the DSH Web profile |
-| [`science/`](science/README.md) | Local-first scientific domain, journal, and Host services |
-
-Executable product assemblies live under `apps/`, not `packages/`.
+| `core/swarm` | recursive A2A Agent executor |
+| `core/knowledge-base` | private curated knowledge |
+| `core/dvc` | Git and DVC operations |
+| `science/core` | scientific records and artifacts |

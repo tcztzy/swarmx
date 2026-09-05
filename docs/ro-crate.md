@@ -46,5 +46,3 @@ Operational statuses use Schema.org `creativeWorkStatus` or `actionStatus`. Tags
 ## Extensions
 
 The projection uses standard terms and permitted textual `additionalType` values. It emits no SwarmX-specific Profile or ad-hoc compact JSON-LD keys.
-
-Persisted `dsh-science-project@1` export events remain replayable as immutable history. They do not define the current export contract: all newly requested exports use RO-Crate 1.3.

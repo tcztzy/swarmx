@@ -52,7 +52,7 @@ interface CollectedProcess {
   readonly stdout: { readonly text: string; readonly truncated: boolean };
 }
 
-/** Stateless Python cell runner over the DSH managed subprocess seam. */
+/** Stateless Python cell runner over the injected subprocess seam. */
 export class PythonRuntime {
   private readonly active = new Set<ScienceProcessHandle>();
   private open = true;

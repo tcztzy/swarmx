@@ -3,9 +3,8 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { Context } from "@deepseek-ai/cordis";
-import LocalSubprocessRuntime from "@deepseek-ai/dsh-subprocess-local";
 import { afterAll, describe, expect, it } from "vitest";
+import { NodeScienceProcessRuntime } from "../../../../apps/desktop/src/host/process-runner.js";
 import { TypstPreviewRuntime } from "../src/typst-preview.js";
 
 const typstAvailable = spawnSync("typst", ["--version"], { stdio: "ignore" }).status === 0;
@@ -39,9 +38,7 @@ describe("V89 real Typst integration", () => {
 PDF.js can select this sentence.
 `,
     );
-    const context = new Context();
-    await context.plugin(LocalSubprocessRuntime);
-    const runtime = new TypstPreviewRuntime(context.subprocess, {
+    const runtime = new TypstPreviewRuntime(new NodeScienceProcessRuntime(), {
       command: "typst",
       graceMs: 1_000,
       initialCompileTimeoutMs: 10_000,
@@ -65,7 +62,6 @@ PDF.js can select this sentence.
       expect(preview.pdfSize).toBeGreaterThan(1_000);
     } finally {
       await runtime.close();
-      await context.fiber.dispose();
     }
   });
 
@@ -83,9 +79,7 @@ PDF.js can select this sentence.
 `,
       );
       writeFileSync(join(workspace, "section.typ"), "= Included heading\n\nIncluded body text.\n");
-      const context = new Context();
-      await context.plugin(LocalSubprocessRuntime);
-      const runtime = new TypstPreviewRuntime(context.subprocess, {
+      const runtime = new TypstPreviewRuntime(new NodeScienceProcessRuntime(), {
         command: "typst",
         runtimeCommand: writingRuntimeCommand,
         graceMs: 1_000,
@@ -144,8 +138,8 @@ PDF.js can select this sentence.
         ).rejects.toMatchObject({ code: "REVISION_CONFLICT" });
       } finally {
         await runtime.close();
-        await context.fiber.dispose();
       }
     },
+    20_000,
   );
 });

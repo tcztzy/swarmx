@@ -286,7 +286,7 @@ function artifactMetadataDocument(input: {
   readonly sources: readonly NormalizedFigureSource[];
 }): FigureReproducibilityMetadata {
   return parseRequest(figureReproducibilityMetadataSchema, {
-    schema: "dsh-science.figure-provenance",
+    schema: "swarmx.figure-provenance",
     version: 1,
     generationId: input.generationId,
     generator: {
@@ -979,7 +979,7 @@ export class ScienceCore {
         : undefined;
     try {
       const inputEnvironment = Object.fromEntries(
-        (materialized?.paths ?? []).map((path, index) => [`DSH_SCIENCE_INPUT_${index}`, path]),
+        (materialized?.paths ?? []).map((path, index) => [`SWARMX_SCIENCE_INPUT_${index}`, path]),
       );
       const process =
         this.notebookRuntimeKind === "jupymcp"

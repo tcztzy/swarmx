@@ -1,5 +1,5 @@
 {
-  "name": "@swarmx/dsh-science",
+  "name": "@swarmx/science",
   "version": "0.1.0",
   "description": "Local-first scientific journal and domain service for SwarmX.",
   "license": "MIT",
@@ -11,29 +11,13 @@
       "types": "./lib/types/index.d.ts",
       "default": "./lib/index.js"
     },
-    "./core": {
-      "types": "./lib/types/core.d.ts",
-      "default": "./lib/core.js"
-    },
     "./types": {
       "types": "./lib/types/contracts.d.ts",
       "default": "./lib/contracts.js"
     },
-    "./typert": {
-      "types": "./lib/types/typert.d.ts",
-      "default": "./lib/typert.js"
-    },
-    "./remote": {
-      "types": "./lib/types/remote.d.ts",
-      "default": "./lib/remote.js"
-    },
     "./tools": {
       "types": "./lib/types/tools.d.ts",
       "default": "./lib/tools.js"
-    },
-    "./preset": {
-      "types": "./lib/types/preset.d.ts",
-      "default": "./lib/preset.js"
     },
     "./resource-id": {
       "types": "./lib/types/resource-id.d.ts",
@@ -48,13 +32,7 @@
       "default": "./lib/resource-view.js"
     },
     "./src/*": "./src/*",
-    "./package.json": "./package.json",
-    "./cordis.patch.yml": "./cordis.patch.yml"
-  },
-  "dsh": {
-    "bundle": {
-      "patch": "./cordis.patch.yml"
-    }
+    "./package.json": "./package.json"
   },
   "scripts": {
     "bundle": "tsdown",
@@ -62,14 +40,6 @@
   },
   "dependencies": {
     "@swarmx/annotation": "workspace:*",
-    "@deepseek-ai/cordis": "4.0.2",
-    "@deepseek-ai/dsh-attachment": "0.1.2-alpha.4",
-    "@deepseek-ai/dsh-session": "0.1.2-alpha.4",
-    "@deepseek-ai/dsh-subprocess": "0.1.2-alpha.4",
-    "@deepseek-ai/dsh-tools": "0.1.2-alpha.4",
-    "@deepseek-ai/dsh-typert-protocol": "0.1.2-alpha.4",
-    "@deepseek-ai/dsh-util-values": "0.1.2-alpha.4",
-    "@deepseek-ai/schemastery": "^3.18.2",
     "@xmldom/xmldom": "0.9.12",
     "@modelcontextprotocol/sdk": "^1.30.0",
     "papaparse": "^5.6.0",
@@ -77,19 +47,12 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
-    "@deepseek-ai/dsh-subprocess-local": "0.1.2-alpha.4",
     "@types/papaparse": "^5.5.2"
   },
   "files": [
     "lib/index.js",
-    "lib/core.js",
-    "lib/core2.js",
     "lib/contracts.js",
-    "lib/typert.js",
-    "lib/remote.js",
-    "lib/remote-contract.js",
     "lib/tools.js",
-    "lib/preset.js",
     "lib/resource-id.js",
     "lib/resource-id2.js",
     "lib/resource-resolver.js",
@@ -97,8 +60,6 @@
     "lib/types/**/*.d.ts",
     "bin",
     "src",
-    "demo",
-    "config/agent-presets",
-    "cordis.patch.yml"
+    "demo"
   ]
 }

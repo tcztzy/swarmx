@@ -1,19 +1,25 @@
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Context } from "@deepseek-ai/cordis";
-import SessionStore, { type SessionId } from "@deepseek-ai/dsh-session";
-import LocalSubprocessRuntime from "@deepseek-ai/dsh-subprocess-local";
-import ScienceService from "../src/index.js";
+import { NodeScienceProcessRuntime } from "../../../../apps/desktop/src/host/process-runner.js";
+import ScienceCore, { ScienceError } from "../src/index.js";
+
+interface ScienceTestContext {
+  science: ScienceCore;
+}
+
+interface ScienceTestFiber {
+  dispose(): Promise<void>;
+}
 
 export interface ScienceFixture {
-  readonly context: Context;
+  readonly context: ScienceTestContext;
   readonly databasePath: string;
   readonly root: string;
   readonly scratch: string;
-  readonly sessionA: SessionId;
-  readonly sessionB: SessionId;
-  scienceFiber: Awaited<ReturnType<Context["plugin"]>>;
+  readonly sessionA: string;
+  readonly sessionB: string;
+  scienceFiber: ScienceTestFiber;
   readonly workspaceA: string;
   readonly workspaceB: string;
   dispose(): Promise<void>;
@@ -41,31 +47,56 @@ export async function createScienceFixture(
   const workspaceB = join(scratch, "workspace-b");
   mkdirSync(workspaceA);
   mkdirSync(workspaceB);
-  const context = new Context();
-  await context.plugin(SessionStore);
-  await context.plugin(LocalSubprocessRuntime);
-  const sessionA = "science-t14-session-a" as SessionId;
-  const sessionB = "science-t14-session-b" as SessionId;
-  context.sessions.create(sessionA, { meta: { cwd: workspaceA } });
-  context.sessions.create(sessionB, { meta: { cwd: workspaceB } });
+  const sessionA = "science-t14-session-a";
+  const sessionB = "science-t14-session-b";
+  const workspaces = new Map([
+    [sessionA, { key: "workspace-a", root: workspaceA }],
+    [sessionB, { key: "workspace-b", root: workspaceB }],
+  ]);
   const options = typeof config === "number" ? { maxArtifactBytes: config } : config;
   const serviceConfig = { root, notebookRuntime: "isolated" as const, ...options };
+  const context = {} as ScienceTestContext;
+  const mount = (): ScienceTestFiber => {
+    const disposers: Array<() => Promise<void>> = [];
+    context.science = new ScienceCore(
+      {
+        subprocess: new NodeScienceProcessRuntime(),
+        onDispose: (dispose) => disposers.push(dispose),
+      },
+      serviceConfig,
+      (sessionId) => {
+        const workspace = workspaces.get(sessionId);
+        if (workspace === undefined) {
+          throw new ScienceError(`Session "${sessionId}" was not found.`, "SESSION_NOT_FOUND");
+        }
+        return workspace;
+      },
+    );
+    let disposed = false;
+    return {
+      async dispose() {
+        if (disposed) return;
+        disposed = true;
+        for (const dispose of disposers.reverse()) await dispose();
+      },
+    };
+  };
   const fixture: ScienceFixture = {
     context,
     databasePath: join(root, "science.sqlite"),
     root,
     scratch,
-    scienceFiber: await context.plugin(ScienceService, serviceConfig as never),
+    scienceFiber: mount(),
     sessionA,
     sessionB,
     workspaceA,
     workspaceB,
     async dispose() {
-      await context.fiber.dispose();
+      await fixture.scienceFiber.dispose();
       rmSync(scratch, { recursive: true, force: true });
     },
     async remount() {
-      fixture.scienceFiber = await context.plugin(ScienceService, serviceConfig as never);
+      fixture.scienceFiber = mount();
     },
   };
   return fixture;

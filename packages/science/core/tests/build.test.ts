@@ -14,14 +14,8 @@ describe("Science package build", () => {
 
     expect(packageJson.files).toEqual([
       "lib/index.js",
-      "lib/core.js",
-      "lib/core2.js",
       "lib/contracts.js",
-      "lib/typert.js",
-      "lib/remote.js",
-      "lib/remote-contract.js",
       "lib/tools.js",
-      "lib/preset.js",
       "lib/resource-id.js",
       "lib/resource-id2.js",
       "lib/resource-resolver.js",
@@ -30,8 +24,6 @@ describe("Science package build", () => {
       "bin",
       "src",
       "demo",
-      "config/agent-presets",
-      "cordis.patch.yml",
     ]);
   });
 });

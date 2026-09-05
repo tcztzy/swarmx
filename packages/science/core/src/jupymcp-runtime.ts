@@ -8,7 +8,7 @@ import type { NotebookOutputBlock } from "./contracts.js";
 import { ScienceError } from "./errors.js";
 import { scrubbedScienceEnvironment } from "./subprocess.js";
 
-const NOTEBOOK_PREFIX = ".dsh-science-notebook-";
+const NOTEBOOK_PREFIX = ".swarmx-science-notebook-";
 const NOTEBOOK_ID = /^[A-Za-z0-9_-]{1,200}$/u;
 const DISABLED_ENVIRONMENT_KEYS = [
   "ALL_PROXY",
@@ -93,7 +93,7 @@ function requestOptions(signal: AbortSignal | undefined, timeout: number) {
 }
 
 async function connectJupyMcp(options: JupyMcpConnectionOptions): Promise<JupyMcpPeer> {
-  const client = new Client({ name: "dsh-science", version: "0.1.0" }, { capabilities: {} });
+  const client = new Client({ name: "swarmx-science", version: "0.1.0" }, { capabilities: {} });
   const transport = new StdioClientTransport({
     args: [...options.args],
     command: options.command,
@@ -421,17 +421,17 @@ function notebookPath(notebookId: string): string {
 function environmentSetup(input: Readonly<Record<string, string>>): string {
   const keys = JSON.stringify(Object.keys(input));
   return [
-    "import os as _dsh_os",
-    "from IPython import get_ipython as _dsh_get_ipython",
-    `_dsh_os.environ.update(${JSON.stringify(input)})`,
-    `def _dsh_install_cleanup(_dsh_os=_dsh_os, _dsh_ip=_dsh_get_ipython(), _dsh_keys=${keys}):`,
-    "    def _dsh_cleanup(_dsh_result):",
-    "        for _dsh_key in _dsh_keys:",
-    "            _dsh_os.environ.pop(_dsh_key, None)",
-    '        _dsh_ip.events.unregister("post_run_cell", _dsh_cleanup)',
-    '    _dsh_ip.events.register("post_run_cell", _dsh_cleanup)',
-    "_dsh_install_cleanup()",
-    "del _dsh_install_cleanup, _dsh_get_ipython, _dsh_os",
+    "import os as _swarmx_os",
+    "from IPython import get_ipython as _swarmx_get_ipython",
+    `_swarmx_os.environ.update(${JSON.stringify(input)})`,
+    `def _swarmx_install_cleanup(_swarmx_os=_swarmx_os, _swarmx_ip=_swarmx_get_ipython(), _swarmx_keys=${keys}):`,
+    "    def _swarmx_cleanup(_swarmx_result):",
+    "        for _swarmx_key in _swarmx_keys:",
+    "            _swarmx_os.environ.pop(_swarmx_key, None)",
+    '        _swarmx_ip.events.unregister("post_run_cell", _swarmx_cleanup)',
+    '    _swarmx_ip.events.register("post_run_cell", _swarmx_cleanup)',
+    "_swarmx_install_cleanup()",
+    "del _swarmx_install_cleanup, _swarmx_get_ipython, _swarmx_os",
   ].join("\n");
 }
 

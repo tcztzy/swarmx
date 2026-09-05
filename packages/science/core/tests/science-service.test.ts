@@ -1,60 +1,19 @@
 import { randomUUID } from "node:crypto";
-import { mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { Context } from "@deepseek-ai/cordis";
-import SessionStore, { type SessionId } from "@deepseek-ai/dsh-session";
-import LocalSubprocessRuntime from "@deepseek-ai/dsh-subprocess-local";
 import { afterEach, describe, expect, it } from "vitest";
-import ScienceService, { formatScienceResourceId, type ScienceError } from "../src/index.js";
+import { formatScienceResourceId, type ScienceError } from "../src/index.js";
+import { createScienceFixture, type ScienceFixture } from "./fixture.js";
 
-interface Fixture {
-  context: Context;
-  databasePath: string;
-  root: string;
-  scienceFiber: Awaited<ReturnType<Context["plugin"]>>;
-  sessionA: SessionId;
-  sessionB: SessionId;
-  workspaceA: string;
-  workspaceB: string;
-}
-
-const fixtures: Fixture[] = [];
+const fixtures: ScienceFixture[] = [];
 
 afterEach(async () => {
-  const disposed = fixtures.splice(0);
-  await Promise.all(disposed.map((fixture) => fixture.context.fiber.dispose()));
-  for (const fixture of disposed) {
-    rmSync(join(fixture.root, ".."), { recursive: true, force: true });
-  }
+  await Promise.all(fixtures.splice(0).map((fixture) => fixture.dispose()));
 });
 
-async function createFixture(): Promise<Fixture> {
-  const scratch = mkdtempSync(join(tmpdir(), "swarmx-science-test-"));
-  const root = join(scratch, "science");
-  const workspaceA = join(scratch, "workspace-a");
-  const workspaceB = join(scratch, "workspace-b");
-  mkdirSync(workspaceA);
-  mkdirSync(workspaceB);
-  const context = new Context();
-  await context.plugin(SessionStore);
-  await context.plugin(LocalSubprocessRuntime);
-  const sessionA = "science-session-a" as SessionId;
-  const sessionB = "science-session-b" as SessionId;
-  context.sessions.create(sessionA, { meta: { cwd: workspaceA } });
-  context.sessions.create(sessionB, { meta: { cwd: workspaceB } });
-  const scienceFiber = await context.plugin(ScienceService, { root });
-  const fixture = {
-    context,
-    databasePath: join(root, "science.sqlite"),
-    root,
-    scienceFiber,
-    sessionA,
-    sessionB,
-    workspaceA,
-    workspaceB,
-  };
+async function createFixture(): Promise<ScienceFixture> {
+  const fixture = await createScienceFixture();
   fixtures.push(fixture);
   return fixture;
 }
@@ -98,7 +57,7 @@ describe("T13 Science Journal service", () => {
     database.exec("DELETE FROM science_projects");
     database.close();
 
-    fixture.scienceFiber = await fixture.context.plugin(ScienceService, { root: fixture.root });
+    await fixture.remount();
 
     expect(fixture.context.science.getWorkspace(fixture.sessionA).projects).toEqual([project]);
   });
@@ -210,7 +169,7 @@ describe("T13 Science Journal service", () => {
       expect.objectContaining({ code: "RESOURCE_NOT_FOUND" }),
     );
     expect(() =>
-      context.science.headResource("missing-session" as SessionId, {
+      context.science.headResource("missing-session", {
         id: "not-a-resource-id",
       }),
     ).toThrowError(expect.objectContaining({ code: "SESSION_NOT_FOUND" }));
@@ -235,7 +194,7 @@ describe("T13 Science Journal service", () => {
       expect.objectContaining<Partial<ScienceError>>({ code: "SCIENCE_CLOSED" }),
     );
 
-    fixture.scienceFiber = await fixture.context.plugin(ScienceService, { root: fixture.root });
+    await fixture.remount();
     expect(fixture.context.science.getWorkspace(fixture.sessionA).projects).toEqual([project]);
   });
 });

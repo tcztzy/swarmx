@@ -15,7 +15,7 @@ import {
 } from "./contracts.js";
 import { ScienceError } from "./errors.js";
 
-export const ARTIFACT_METADATA_KEYWORD = "dsh-science.provenance";
+export const ARTIFACT_METADATA_KEYWORD = "swarmx.provenance";
 export const MAX_ARTIFACT_METADATA_BYTES = 1024 * 1024;
 export const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 
@@ -26,7 +26,7 @@ export type ArtifactMetadataMime = (typeof ARTIFACT_METADATA_MIMES)[number];
 const PNG_METADATA_KEYWORD_BYTES = Buffer.from(ARTIFACT_METADATA_KEYWORD, "latin1");
 const PNG_CHUNK_TYPE = Buffer.from("iTXt", "ascii");
 const SVG_NAMESPACE = "http://www.w3.org/2000/svg";
-const DSH_NAMESPACE = "https://dsh-science.local/ns/provenance/1.0/";
+const SWARMX_NAMESPACE = "https://swarmx.local/ns/provenance/1.0/";
 const RDF_NAMESPACE = "http://www.w3.org/1999/02/22-rdf-syntax-ns#";
 const XMP_META_NAMESPACE = "adobe:ns:meta/";
 const PDFA_ID_NAMESPACE = "http://www.aiim.org/pdfa/ns/id/";
@@ -138,10 +138,10 @@ export function countPngMetadataChunks(content: Uint8Array): number {
 
 /** Decode the single owned metadata record for verification and portable tooling. */
 export function validatePngMetadataData(data: Uint8Array): FigureReproducibilityMetadata {
-  if (!isOwnedTextData(data)) throw pngError("PNG dsh-science metadata keyword is invalid");
+  if (!isOwnedTextData(data)) throw pngError("PNG SwarmX metadata keyword is invalid");
   let offset = PNG_METADATA_KEYWORD_BYTES.length + 1;
   if (data.length < offset + 4 || data[offset] !== 0 || data[offset + 1] !== 0) {
-    throw pngError("PNG dsh-science metadata must use uncompressed iTXt");
+    throw pngError("PNG SwarmX metadata must use uncompressed iTXt");
   }
   offset += 2;
   const languageEnd = data.indexOf(0, offset);
@@ -158,7 +158,7 @@ export function validatePngMetadataData(data: Uint8Array): FigureReproducibility
     const json = new TextDecoder("utf-8", { fatal: true }).decode(text);
     return figureReproducibilityMetadataSchema.parse(JSON.parse(json));
   } catch (error) {
-    throw pngError("PNG dsh-science metadata is invalid", error);
+    throw pngError("PNG SwarmX metadata is invalid", error);
   }
 }
 
@@ -167,7 +167,7 @@ export function extractPngMetadata(content: Uint8Array): FigureReproducibilityMe
     (chunk) => chunk.type === "iTXt" && isOwnedTextData(chunk.data),
   );
   if (owned.length === 0) return undefined;
-  if (owned.length !== 1) throw pngError("PNG contains duplicate dsh-science metadata chunks");
+  if (owned.length !== 1) throw pngError("PNG contains duplicate SwarmX metadata chunks");
   const data = owned[0]?.data;
   if (!data) return undefined;
   return validatePngMetadataData(data);
@@ -295,10 +295,9 @@ export function extractSvgMetadata(content: Uint8Array): FigureReproducibilityMe
   const document = parseSvg(content);
   const owned = ownedSvgMetadata(document);
   if (owned.length === 0) return undefined;
-  if (owned.length !== 1)
-    throw metadataError("SVG contains duplicate dsh-science metadata records");
-  const payloads = elementsByNamespace(owned[0] as Element, DSH_NAMESPACE, "provenance");
-  if (payloads.length !== 1) throw metadataError("SVG dsh-science metadata payload is invalid");
+  if (owned.length !== 1) throw metadataError("SVG contains duplicate SwarmX metadata records");
+  const payloads = elementsByNamespace(owned[0] as Element, SWARMX_NAMESPACE, "provenance");
+  if (payloads.length !== 1) throw metadataError("SVG SwarmX metadata payload is invalid");
   return decodeXmlMetadata(payloads[0]?.textContent ?? "");
 }
 
@@ -308,13 +307,13 @@ export function injectSvgMetadata(
 ): Buffer {
   const document = parseSvg(content);
   const owned = ownedSvgMetadata(document);
-  if (owned.length > 1) throw metadataError("SVG contains duplicate dsh-science metadata records");
+  if (owned.length > 1) throw metadataError("SVG contains duplicate SwarmX metadata records");
   owned[0]?.parentNode?.removeChild(owned[0]);
 
   const container = document.createElementNS(SVG_NAMESPACE, "metadata");
   container.setAttribute("id", ARTIFACT_METADATA_KEYWORD);
-  const payload = document.createElementNS(DSH_NAMESPACE, "dsh:provenance");
-  payload.setAttributeNS(XMLNS_NAMESPACE, "xmlns:dsh", DSH_NAMESPACE);
+  const payload = document.createElementNS(SWARMX_NAMESPACE, "swarmx:provenance");
+  payload.setAttributeNS(XMLNS_NAMESPACE, "xmlns:swarmx", SWARMX_NAMESPACE);
   payload.setAttribute("encoding", "base64-json");
   payload.appendChild(document.createTextNode(encodeXmlMetadata(metadata)));
   container.appendChild(payload);
@@ -406,16 +405,16 @@ function parseXmp(content: Uint8Array): Document {
 }
 
 function ownedXmpMetadata(document: Document): Element[] {
-  return elementsByNamespace(document, DSH_NAMESPACE, "provenance");
+  return elementsByNamespace(document, SWARMX_NAMESPACE, "provenance");
 }
 
 function assertPdfaExtension(document: Document): void {
   if (elementsByNamespace(document, PDFA_ID_NAMESPACE, "part").length === 0) return;
   const declared = elementsByNamespace(document, PDFA_SCHEMA_NAMESPACE, "namespaceURI").some(
-    (element) => element.textContent?.trim() === DSH_NAMESPACE,
+    (element) => element.textContent?.trim() === SWARMX_NAMESPACE,
   );
   if (!declared) {
-    throw metadataError("PDF/A requires a declared dsh-science XMP extension schema");
+    throw metadataError("PDF/A requires a declared SwarmX XMP extension schema");
   }
 }
 
@@ -426,14 +425,14 @@ function writeXmpMetadata(
   const document = parseXmp(content ?? Buffer.from(newXmpPacket()));
   assertPdfaExtension(document);
   const owned = ownedXmpMetadata(document);
-  if (owned.length > 1) throw metadataError("PDF contains duplicate dsh-science metadata records");
+  if (owned.length > 1) throw metadataError("PDF contains duplicate SwarmX metadata records");
   owned[0]?.parentNode?.removeChild(owned[0]);
   const rdf = elementsByNamespace(document, RDF_NAMESPACE, "RDF")[0];
   if (!rdf) throw metadataError("PDF XMP requires one rdf:RDF element");
   const description = document.createElementNS(RDF_NAMESPACE, "rdf:Description");
-  description.setAttributeNS(XMLNS_NAMESPACE, "xmlns:dsh", DSH_NAMESPACE);
+  description.setAttributeNS(XMLNS_NAMESPACE, "xmlns:swarmx", SWARMX_NAMESPACE);
   description.setAttributeNS(RDF_NAMESPACE, "rdf:about", "");
-  const payload = document.createElementNS(DSH_NAMESPACE, "dsh:provenance");
+  const payload = document.createElementNS(SWARMX_NAMESPACE, "swarmx:provenance");
   payload.setAttribute("encoding", "base64-json");
   payload.appendChild(document.createTextNode(encodeXmlMetadata(metadata)));
   description.appendChild(payload);
@@ -455,8 +454,7 @@ export async function extractPdfMetadata(
   if (!stream) return undefined;
   const owned = ownedXmpMetadata(parseXmp(decodePdfMetadataStream(stream)));
   if (owned.length === 0) return undefined;
-  if (owned.length !== 1)
-    throw metadataError("PDF contains duplicate dsh-science metadata records");
+  if (owned.length !== 1) throw metadataError("PDF contains duplicate SwarmX metadata records");
   return decodeXmlMetadata(owned[0]?.textContent ?? "");
 }
 

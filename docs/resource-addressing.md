@@ -52,9 +52,9 @@ Other entity kinds report `null` rather than assigning a hash with unclear seman
 
 ## Authorization and graph boundaries
 
-Each Host method validates the live DSH Session, derives its current workspace, loads only that
+Each Host method validates the native conversation, derives its authorized workspace, loads only that
 workspace's Science snapshot, and resolves the typed ID there. Knowing an ID from another workspace
-does not make it discoverable. Model-visible resource data contains no host path, Session identity,
+does not make it discoverable. Model-visible resource data contains no host path, conversation identity,
 unredacted environment, or raw Journal payload. Artifact bytes are read only through the existing
 owner-only, digest-verifying Artifact Store.
 

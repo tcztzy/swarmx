@@ -1,11 +1,7 @@
 import { chmodSync, mkdtempSync, realpathSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
-import type {
-  SubprocessHandle,
-  SubprocessOutcome,
-  SubprocessRuntime,
-} from "@deepseek-ai/dsh-subprocess";
+import type { ProcessHandle, ProcessOutcome, ProcessRunner } from "./process.js";
 
 const FULL_OBJECT_ID = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/iu;
 
@@ -61,7 +57,7 @@ export interface GitRuntimeConfig {
 }
 
 interface CommandResult {
-  readonly outcome: SubprocessOutcome;
+  readonly outcome: ProcessOutcome;
   readonly stderr: string;
   readonly stdout: string;
 }
@@ -187,12 +183,12 @@ function parseStatus(output: string): StatusSummary {
 
 /** Package-private Git identity and disposable-worktree runtime for DVC replay. */
 export class GitWorktreeRuntime {
-  private readonly active = new Set<SubprocessHandle>();
+  private readonly active = new Set<ProcessHandle>();
   private open = true;
   private readonly worktrees = new Set<WorktreeState>();
 
   constructor(
-    private readonly subprocess: SubprocessRuntime,
+    private readonly subprocess: ProcessRunner,
     private readonly config: GitRuntimeConfig,
   ) {}
 
@@ -378,7 +374,7 @@ export class GitWorktreeRuntime {
   ): Promise<CommandResult> {
     this.ensureOpen();
     signal?.throwIfAborted();
-    let handle: SubprocessHandle;
+    let handle: ProcessHandle;
     try {
       handle = this.subprocess.spawn({
         argv: [executable, ...args],
@@ -389,7 +385,7 @@ export class GitWorktreeRuntime {
           stderr: { maxBytes: this.config.maxOutputBytes },
         },
         graceMs: this.config.graceMs,
-        signal,
+        ...(signal === undefined ? {} : { signal }),
         env: { GIT_TERMINAL_PROMPT: "0", LC_ALL: "C" },
       });
     } catch (error) {

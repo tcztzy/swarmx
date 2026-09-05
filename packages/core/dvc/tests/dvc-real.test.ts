@@ -2,9 +2,8 @@ import { execFileSync, spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Context } from "@deepseek-ai/cordis";
-import LocalSubprocessRuntime from "@deepseek-ai/dsh-subprocess-local";
 import { afterEach, describe, expect, it } from "vitest";
+import { NodeProcessRunner } from "../../../../apps/desktop/src/host/process-runner.js";
 import DvcService from "../src/index.js";
 
 const DVC_ENV = { ...process.env, DVC_NO_ANALYTICS: "1", LC_ALL: "C" };
@@ -44,21 +43,19 @@ afterEach(() => {
   for (const path of scratch.splice(0)) rmSync(path, { recursive: true, force: true });
 });
 
-describeRealDvc("dsh-dvc real CLI integration", () => {
+describeRealDvc("DVC real CLI integration", () => {
   it("V157 resolves real relative roots and reproduces without mutating the source", async () => {
     expect(dvcAvailable, "DVC CLI is required by SWARMX_REQUIRE_REAL_DVC=1").toBe(true);
     const root = realRepository();
     const sourceHead = run(root, "git", "rev-parse", "HEAD");
-    const context = new Context();
-    await context.plugin(LocalSubprocessRuntime);
-    const fiber = await context.plugin(DvcService);
+    const dvc = new DvcService(new NodeProcessRunner());
     try {
-      const inspection = await context.dvc.inspect(root);
+      const inspection = await dvc.inspect(root);
       expect(inspection).toMatchObject({ root: ".", version: expect.stringMatching(/^3\./u) });
       expect(inspection.dvcYamlDigest).toMatch(/^sha256:[0-9a-f]{64}$/u);
       expect(inspection.dvcLockDigest).toMatch(/^sha256:[0-9a-f]{64}$/u);
 
-      const reproduction = await context.dvc.reproduce(root, { targets: ["build"] });
+      const reproduction = await dvc.reproduce(root, { targets: ["build"] });
       const disposablePath = reproduction.path;
       expect(reproduction.result.status).toBe("succeeded");
       expect(reproduction.source.git.head).toBe(sourceHead);
@@ -69,7 +66,7 @@ describeRealDvc("dsh-dvc real CLI integration", () => {
       await reproduction.dispose();
       expect(existsSync(disposablePath)).toBe(false);
     } finally {
-      await fiber.dispose();
+      await dvc.close();
     }
   }, 60_000);
 });

@@ -1,4 +1,4 @@
-# dsh-science demo
+# Science demo
 
 `runScienceDemo(ctx.science, sessionId, signal?)` runs one local-only tour through the public
 Science service:

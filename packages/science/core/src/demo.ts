@@ -1,5 +1,4 @@
 import { randomUUID } from "node:crypto";
-import type { SessionId } from "@deepseek-ai/dsh-session";
 import type {
   RoCrateMetadataDocument,
   ScienceDocument,
@@ -29,7 +28,7 @@ export interface ScienceDemoResult {
 /** One runnable, local-only tour through the public Science service. */
 export async function runScienceDemo(
   science: ScienceCore,
-  sessionId: SessionId,
+  sessionId: string,
   signal?: AbortSignal,
 ): Promise<ScienceDemoResult> {
   const project = science.createProject(

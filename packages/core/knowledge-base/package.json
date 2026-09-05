@@ -1,0 +1,40 @@
+{
+  "name": "@swarmx/knowledge-base",
+  "version": "0.1.0",
+  "description": "Private OKF Markdown knowledge base for SwarmX.",
+  "license": "MIT",
+  "type": "module",
+  "main": "lib/index.js",
+  "types": "lib/types/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/types/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "scripts": {
+    "bundle": "tsdown",
+    "test": "vitest run --root ../../.. packages/core/knowledge-base/tests"
+  },
+  "dependencies": {
+    "mdast-util-from-markdown": "^2.0.3",
+    "mdast-util-gfm-footnote": "^2.1.0",
+    "micromark-extension-gfm-footnote": "^2.1.0",
+    "proper-lockfile": "^4.1.2",
+    "unist-util-visit": "^5.1.0",
+    "write-file-atomic": "^7.0.0",
+    "yaml": "2.9.0",
+    "zod": "4.4.3"
+  },
+  "devDependencies": {
+    "@types/mdast": "^4.0.4",
+    "@types/proper-lockfile": "^4.1.4",
+    "@types/write-file-atomic": "^4.0.3"
+  },
+  "files": [
+    "lib/index.js",
+    "lib/types/**/*.d.ts",
+    "src"
+  ]
+}

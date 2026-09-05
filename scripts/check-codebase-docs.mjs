@@ -6,7 +6,10 @@ const extensions = new Set([".ts", ".tsx", ".js", ".mjs", ".cjs"]);
 
 function walk(directory) {
   return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
-    if (entry.isDirectory() && ["coverage", "dist", "lib", "node_modules"].includes(entry.name)) {
+    if (
+      entry.isDirectory() &&
+      ["coverage", "dist", "lib", "node_modules", "generated"].includes(entry.name)
+    ) {
       return [];
     }
     const path = join(directory, entry.name);
@@ -19,7 +22,11 @@ const sourceFiles = [join(root, "apps"), join(root, "packages"), join(root, "scr
   .flatMap((directory) => walk(directory))
   .sort();
 const map = readFileSync(join(root, "CODEBASE.md"), "utf8");
-const missing = sourceFiles.filter((file) => !map.includes(`\`${file}\``));
+const documented = [...map.matchAll(/`([^`]+)`/gu)].map((match) => match[1]);
+const missing = sourceFiles.filter(
+  (file) =>
+    !documented.some((path) => (path?.endsWith("/") ? file.startsWith(path) : path === file)),
+);
 
 if (missing.length > 0) {
   console.error("CODEBASE.md is missing authored source paths:");

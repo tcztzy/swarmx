@@ -111,7 +111,9 @@ describe("T29 JupyMCP Notebook Controller", () => {
         args: expect.objectContaining({
           code: "value = 40",
           kernel_id: "kernel-1",
-          path: ".dsh-science-notebook-notebook-a.ipynb",
+          path: ".swarmx-science-notebook-notebook-a.ipynb",
+          silent: false,
+          store_history: true,
           type: "ipynb",
         }),
       },
@@ -120,7 +122,9 @@ describe("T29 JupyMCP Notebook Controller", () => {
         args: expect.objectContaining({
           code: "print(value + 2)",
           kernel_id: "kernel-1",
-          path: ".dsh-science-notebook-notebook-a.ipynb",
+          path: ".swarmx-science-notebook-notebook-a.ipynb",
+          silent: false,
+          store_history: true,
           type: "ipynb",
         }),
       },
@@ -130,7 +134,9 @@ describe("T29 JupyMCP Notebook Controller", () => {
         args: expect.objectContaining({
           code: "print('isolated')",
           kernel_id: "kernel-2",
-          path: ".dsh-science-notebook-notebook-b.ipynb",
+          path: ".swarmx-science-notebook-notebook-b.ipynb",
+          silent: false,
+          store_history: true,
           type: "ipynb",
         }),
       },
@@ -314,10 +320,10 @@ describe("T29 JupyMCP Notebook Controller", () => {
 
     await current.execute({
       inputEnvironment: {
-        DSH_SCIENCE_INPUT_0: join(root, "staging", "input.csv"),
+        SWARMX_SCIENCE_INPUT_0: join(root, "staging", "input.csv"),
       },
       notebookId: "notebook-a",
-      source: "print(open(__import__('os').environ['DSH_SCIENCE_INPUT_0']).read())",
+      source: "print(open(__import__('os').environ['SWARMX_SCIENCE_INPUT_0']).read())",
       workspaceKey: "workspace",
       workspaceRoot: root,
     });
@@ -333,11 +339,11 @@ describe("T29 JupyMCP Notebook Controller", () => {
       silent: true,
       store_history: false,
     });
-    expect(currentPeer.calls[1]?.args.code).toContain("DSH_SCIENCE_INPUT_0");
+    expect(currentPeer.calls[1]?.args.code).toContain("SWARMX_SCIENCE_INPUT_0");
     expect(currentPeer.calls[1]?.args.code).toContain('events.register("post_run_cell"');
     expect(currentPeer.calls[2]?.args).toMatchObject({
       kernel_id: "kernel-1",
-      path: ".dsh-science-notebook-notebook-a.ipynb",
+      path: ".swarmx-science-notebook-notebook-a.ipynb",
       silent: false,
       store_history: true,
     });
@@ -354,7 +360,7 @@ describe("T29 JupyMCP Notebook Controller", () => {
 
     await expect(
       current.execute({
-        inputEnvironment: { DSH_SCIENCE_INPUT_0: join(root, "input.csv") },
+        inputEnvironment: { SWARMX_SCIENCE_INPUT_0: join(root, "input.csv") },
         notebookId: "notebook-a",
         source: "print('must not run')",
         workspaceKey: "workspace",
@@ -391,7 +397,7 @@ describe("T29 JupyMCP Notebook Controller", () => {
     const root = workspace();
 
     const first = current.execute({
-      inputEnvironment: { DSH_FIRST: join(root, "first.csv") },
+      inputEnvironment: { SWARMX_FIRST: join(root, "first.csv") },
       notebookId: "notebook-a",
       source: "first-visible",
       workspaceKey: "workspace",
@@ -399,7 +405,7 @@ describe("T29 JupyMCP Notebook Controller", () => {
     });
     await firstStarted;
     const second = current.execute({
-      inputEnvironment: { DSH_SECOND: join(root, "second.csv") },
+      inputEnvironment: { SWARMX_SECOND: join(root, "second.csv") },
       notebookId: "notebook-b",
       source: "second-visible",
       workspaceKey: "workspace",
@@ -408,7 +414,7 @@ describe("T29 JupyMCP Notebook Controller", () => {
     await new Promise((resolve) => setTimeout(resolve, 10));
 
     expect(currentPeer.calls.some((call) => call.args.code === "second-visible")).toBe(false);
-    expect(currentPeer.calls.some((call) => String(call.args.code).includes("DSH_SECOND"))).toBe(
+    expect(currentPeer.calls.some((call) => String(call.args.code).includes("SWARMX_SECOND"))).toBe(
       false,
     );
 

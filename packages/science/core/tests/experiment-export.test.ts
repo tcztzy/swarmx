@@ -286,40 +286,4 @@ describe("T18 project export", () => {
     expect(fixture.context.science.getWorkspace(fixture.sessionA).exports).toHaveLength(1);
     database.close();
   });
-
-  it("replays immutable pre-RO-Crate export records without making them the current format", async () => {
-    const { fixture, project } = await setup();
-    const exported = fixture.context.science.exportProject(fixture.sessionA, {
-      requestId: randomUUID(),
-      projectId: project.id,
-    });
-    if (exported.format !== "ro-crate@1.3") throw new Error("Expected current export format");
-    const legacy = {
-      id: exported.id,
-      projectId: exported.projectId,
-      kind: exported.kind,
-      format: "dsh-science-project@1",
-      digest: exported.digest,
-      bytes: exported.bytes,
-      counts: exported.counts,
-      createdAt: exported.createdAt,
-      revision: exported.revision,
-      provenance: exported.provenance,
-    };
-    const database = new DatabaseSync(fixture.databasePath);
-    database
-      .prepare("UPDATE science_journal SET payload_json = ? WHERE type = 'project/exported'")
-      .run(JSON.stringify(legacy));
-    database.close();
-
-    await fixture.scienceFiber.dispose();
-    await fixture.remount();
-    expect(fixture.context.science.getWorkspace(fixture.sessionA).exports).toEqual([legacy]);
-
-    const next = fixture.context.science.exportProject(fixture.sessionA, {
-      requestId: randomUUID(),
-      projectId: project.id,
-    });
-    expect(next.format).toBe("ro-crate@1.3");
-  });
 });

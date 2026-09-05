@@ -1,7 +1,7 @@
 {
-  "name": "@swarmx/dsh-dvc",
+  "name": "@swarmx/dvc",
   "version": "0.1.0",
-  "description": "Host-only DVC status, pull, and isolated reproduction service for SwarmX.",
+  "description": "Runtime-neutral DVC status, pull, and isolated reproduction service for SwarmX.",
   "license": "MIT",
   "type": "module",
   "main": "lib/index.js",
@@ -11,31 +11,18 @@
       "types": "./lib/types/index.d.ts",
       "default": "./lib/index.js"
     },
-    "./package.json": "./package.json",
-    "./cordis.patch.yml": "./cordis.patch.yml"
-  },
-  "dsh": {
-    "bundle": {
-      "patch": "./cordis.patch.yml"
-    }
+    "./package.json": "./package.json"
   },
   "scripts": {
     "bundle": "tsdown",
     "test": "vitest run --root ../../.. packages/core/dvc/tests"
   },
   "dependencies": {
-    "@deepseek-ai/cordis": "4.0.2",
-    "@deepseek-ai/dsh-subprocess": "0.1.2-alpha.4",
-    "@deepseek-ai/schemastery": "^3.18.2",
     "zod": "^4.4.3"
-  },
-  "devDependencies": {
-    "@deepseek-ai/dsh-subprocess-local": "0.1.2-alpha.4"
   },
   "files": [
     "lib/index.js",
     "lib/types/**/*.d.ts",
-    "src",
-    "cordis.patch.yml"
+    "src"
   ]
 }

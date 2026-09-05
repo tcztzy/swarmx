@@ -1,5 +1,6 @@
 # Dependencies and generated output
 node_modules/
+apps/desktop/src/agents/generated/
 dist/
 lib/
 native/writing-preview-runtime/target/
@@ -24,5 +25,4 @@ coverage/
 /rsi-*
 /review.json
 
-.dsh-science-notebook-*.ipynb
 kernel-*.json

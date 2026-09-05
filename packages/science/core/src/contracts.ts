@@ -511,7 +511,7 @@ const normalizedFigureSourceReferenceSchema = z.discriminatedUnion("kind", [
 ]);
 
 export const figureReproducibilityMetadataSchema = z.strictObject({
-  schema: z.literal("dsh-science.figure-provenance"),
+  schema: z.literal("swarmx.figure-provenance"),
   version: z.literal(1),
   generationId: z.string().uuid(),
   generator: z.strictObject({
@@ -727,19 +727,6 @@ export const projectExportCountsSchema = z.strictObject({
   runs: z.number().int().nonnegative(),
 });
 
-const legacyProjectExportRecordSchema = z.strictObject({
-  id: entityIdSchema,
-  projectId: entityIdSchema,
-  kind: z.literal("export"),
-  format: z.literal("dsh-science-project@1"),
-  digest: sha256DigestSchema,
-  bytes: z.number().int().nonnegative(),
-  counts: projectExportCountsSchema,
-  createdAt: z.number().int().nonnegative(),
-  revision: z.literal(1),
-  provenance: provenanceReceiptSchema,
-});
-
 const roCrateProjectExportRecordSchema = z.strictObject({
   id: entityIdSchema,
   projectId: entityIdSchema,
@@ -755,25 +742,14 @@ const roCrateProjectExportRecordSchema = z.strictObject({
   provenance: provenanceReceiptSchema,
 });
 
-export const projectExportRecordSchema = z.discriminatedUnion("format", [
-  legacyProjectExportRecordSchema,
-  roCrateProjectExportRecordSchema,
-]);
-
-const legacyScienceProjectExportSchema = legacyProjectExportRecordSchema.extend({
-  classification: z.literal("fact"),
-  content: z.string().max(10_000_000),
-});
+export const projectExportRecordSchema = roCrateProjectExportRecordSchema;
 
 const roCrateScienceProjectExportSchema = roCrateProjectExportRecordSchema.extend({
   classification: z.literal("fact"),
   content: z.string().max(10_000_000),
 });
 
-export const scienceProjectExportSchema = z.discriminatedUnion("format", [
-  legacyScienceProjectExportSchema,
-  roCrateScienceProjectExportSchema,
-]);
+export const scienceProjectExportSchema = roCrateScienceProjectExportSchema;
 
 export const createProjectRequestSchema = z.strictObject({
   requestId: z.string().uuid(),

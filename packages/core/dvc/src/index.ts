@@ -9,9 +9,6 @@ import {
   statSync,
 } from "node:fs";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
-import { type Context, Service } from "@deepseek-ai/cordis";
-import type { SubprocessHandle, SubprocessOutcome } from "@deepseek-ai/dsh-subprocess";
-import s from "@deepseek-ai/schemastery";
 import { z } from "zod";
 import {
   type GitPublicSnapshot,
@@ -20,6 +17,9 @@ import {
   type GitWorktreeHandle,
   GitWorktreeRuntime,
 } from "./git-worktree.js";
+import type { ProcessHandle, ProcessOutcome, ProcessRunner } from "./process.js";
+
+export * from "./process.js";
 
 const DEFAULT_GRACE_MS = 2_000;
 const DEFAULT_MAX_MANIFEST_BYTES = 4 * 1024 * 1024;
@@ -43,6 +43,23 @@ const SAFE_CATEGORIES = new Set([
   "uncommitted",
   "unchanged",
 ]);
+const ConfigSchema = z.strictObject({
+  command: z.string().min(1).optional(),
+  gitCommand: z.string().min(1).optional(),
+  graceMs: z.number().int().min(1).max(60_000).optional(),
+  maxManifestBytes: z
+    .number()
+    .int()
+    .min(1_024)
+    .max(16 * 1024 * 1024)
+    .optional(),
+  maxOutputBytes: z
+    .number()
+    .int()
+    .min(4_096)
+    .max(16 * 1024 * 1024)
+    .optional(),
+});
 
 export type DvcErrorCode =
   | "DVC_CLOSED"
@@ -139,7 +156,7 @@ interface ResolvedConfig {
 }
 
 interface CommandCapture {
-  readonly outcome: SubprocessOutcome;
+  readonly outcome: ProcessOutcome;
   readonly stderr: DvcCommandOutput;
   readonly stdout: DvcCommandOutput;
 }
@@ -153,12 +170,6 @@ interface DvcProject {
 interface ReproductionState {
   disposed: boolean;
   readonly worktree: GitWorktreeHandle;
-}
-
-declare module "@deepseek-ai/cordis" {
-  interface Context {
-    dvc: DvcService;
-  }
 }
 
 function successful(capture: CommandCapture): boolean {
@@ -342,45 +353,30 @@ function mapGitError(error: unknown): DvcError {
   });
 }
 
-export class DvcService extends Service {
-  static inject = ["subprocess"];
-  static Config = s.object({
-    command: s.string().default("dvc"),
-    gitCommand: s.string().default("git"),
-    graceMs: s.natural().min(1).max(60_000).default(DEFAULT_GRACE_MS),
-    maxManifestBytes: s
-      .natural()
-      .min(1_024)
-      .max(16 * 1024 * 1024)
-      .default(DEFAULT_MAX_MANIFEST_BYTES),
-    maxOutputBytes: s
-      .natural()
-      .min(4_096)
-      .max(16 * 1024 * 1024)
-      .default(DEFAULT_MAX_OUTPUT_BYTES),
-  });
-
-  private readonly active = new Set<SubprocessHandle>();
+export class DvcService {
+  private readonly active = new Set<ProcessHandle>();
   private readonly config: ResolvedConfig;
   private readonly git: GitWorktreeRuntime;
   private readonly mutations = new Map<string, Promise<void>>();
   private open = true;
   private readonly reproductions = new Set<ReproductionState>();
 
-  constructor(ctx: Context, config: Config) {
-    super(ctx, "dvc");
+  constructor(
+    private readonly subprocess: ProcessRunner,
+    config: Config = {},
+  ) {
+    const input = ConfigSchema.parse(config);
     this.config = {
-      command: config.command ?? "dvc",
-      graceMs: config.graceMs ?? DEFAULT_GRACE_MS,
-      maxManifestBytes: config.maxManifestBytes ?? DEFAULT_MAX_MANIFEST_BYTES,
-      maxOutputBytes: config.maxOutputBytes ?? DEFAULT_MAX_OUTPUT_BYTES,
+      command: input.command ?? "dvc",
+      graceMs: input.graceMs ?? DEFAULT_GRACE_MS,
+      maxManifestBytes: input.maxManifestBytes ?? DEFAULT_MAX_MANIFEST_BYTES,
+      maxOutputBytes: input.maxOutputBytes ?? DEFAULT_MAX_OUTPUT_BYTES,
     };
-    this.git = new GitWorktreeRuntime(ctx.subprocess, {
-      command: config.gitCommand ?? "git",
+    this.git = new GitWorktreeRuntime(subprocess, {
+      command: input.gitCommand ?? "git",
       graceMs: this.config.graceMs,
       maxOutputBytes: this.config.maxOutputBytes,
     });
-    ctx.effect(() => () => this.close(), "dsh-dvc: remove disposable reproductions");
   }
 
   async inspect(cwd: string, signal?: AbortSignal): Promise<DvcInspection> {
@@ -593,7 +589,7 @@ export class DvcService extends Service {
 
   private async resolveExecutable(signal?: AbortSignal): Promise<string> {
     try {
-      return await this.ctx.subprocess.resolveExecutable(this.config.command, {}, signal);
+      return await this.subprocess.resolveExecutable(this.config.command, {}, signal);
     } catch (error) {
       if (signal?.aborted) signal.throwIfAborted();
       throw new DvcError("Configured DVC executable is unavailable", "DVC_UNAVAILABLE", {
@@ -630,9 +626,9 @@ export class DvcService extends Service {
   ): Promise<CommandCapture> {
     this.ensureOpen();
     signal?.throwIfAborted();
-    let handle: SubprocessHandle;
+    let handle: ProcessHandle;
     try {
-      handle = this.ctx.subprocess.spawn({
+      handle = this.subprocess.spawn({
         argv: [executable, ...args],
         cwd,
         stdio: {
@@ -641,7 +637,7 @@ export class DvcService extends Service {
           stderr: { maxBytes: this.config.maxOutputBytes },
         },
         graceMs: this.config.graceMs,
-        signal,
+        ...(signal === undefined ? {} : { signal }),
         env: { DVC_NO_ANALYTICS: "1", GIT_TERMINAL_PROMPT: "0", LC_ALL: "C" },
       });
     } catch (error) {
@@ -694,7 +690,7 @@ export class DvcService extends Service {
     await state.worktree.dispose();
   }
 
-  private async close(): Promise<void> {
+  async close(): Promise<void> {
     if (!this.open) return;
     const active = [...this.active];
     for (const handle of active) handle.terminate();

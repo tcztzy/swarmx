@@ -60,7 +60,7 @@ export function scrubbedScienceEnvironment(): Record<string, string> {
     if (
       value !== undefined &&
       !SENSITIVE_ENVIRONMENT_NAME.test(key) &&
-      !key.toUpperCase().startsWith("DSH_")
+      !key.toUpperCase().startsWith("SWARMX_")
     ) {
       environment[key] = value;
     }

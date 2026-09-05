@@ -166,7 +166,7 @@ function streamPngWithMetadata(
     let crc = updatePngCrc(0xffffffff, header.subarray(4, 8));
     crc = updatePngCrc(crc, prefix);
     if (replaceOwned && length > MAX_ARTIFACT_METADATA_BYTES + 256) {
-      throw new ScienceError("PNG dsh-science metadata is too large", "ARTIFACT_IO_FAILED");
+      throw new ScienceError("PNG SwarmX metadata is too large", "ARTIFACT_IO_FAILED");
     }
     const ownedData = replaceOwned ? Buffer.allocUnsafe(length) : undefined;
     if (ownedData) prefix.copy(ownedData, 0);
@@ -190,7 +190,7 @@ function streamPngWithMetadata(
       ownedCount += 1;
       if (ownedCount > 1) {
         throw new ScienceError(
-          "PNG contains duplicate dsh-science metadata chunks",
+          "PNG contains duplicate SwarmX metadata chunks",
           "ARTIFACT_IO_FAILED",
         );
       }
@@ -550,8 +550,9 @@ export class ArtifactStore {
       );
     }
     try {
-      const source = realpathSync.native(resolve(workspaceRoot, requestedPath));
-      const contained = relative(workspaceRoot, source);
+      const canonicalRoot = realpathSync.native(workspaceRoot);
+      const source = realpathSync.native(resolve(canonicalRoot, requestedPath));
+      const contained = relative(canonicalRoot, source);
       if (
         contained === "" ||
         contained === ".." ||

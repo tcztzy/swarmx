@@ -139,7 +139,7 @@ describe("T36 reproducible artifact metadata", () => {
     expect(countPngMetadataChunks(stored)).toBe(1);
     expect(stored.includes(Buffer.from(ARTIFACT_METADATA_KEYWORD))).toBe(true);
     expect(extractPngMetadata(stored)).toEqual({
-      schema: "dsh-science.figure-provenance",
+      schema: "swarmx.figure-provenance",
       version: 1,
       generationId: expect.any(String),
       generator: {

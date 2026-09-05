@@ -1,14 +1,7 @@
 import { defineConfig } from "tsdown";
 
 export default defineConfig({
-  entry: {
-    index: "lib/types/index.js",
-    contracts: "lib/types/contracts.js",
-    remote: "lib/types/remote.js",
-    "remote-contract": "lib/types/remote-contract.js",
-    tools: "lib/types/tools.js",
-    typert: "lib/types/typert.js",
-  },
+  entry: { index: "lib/types/index.js" },
   outDir: "lib",
   format: ["esm"],
   platform: "node",

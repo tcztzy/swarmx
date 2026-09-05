@@ -1,7 +1,3 @@
-import type { Context } from "@deepseek-ai/cordis";
-import type { AttachmentStore, ImageAttachmentRef } from "@deepseek-ai/dsh-attachment";
-import type { JsonSchemaNode, ToolDefinition, ToolRunContext } from "@deepseek-ai/dsh-tools";
-import type { JsonValue } from "@deepseek-ai/dsh-util-values";
 import { commentAnnotationSchema } from "@swarmx/annotation";
 import { z } from "zod";
 import { literatureSearchRequestSchema } from "./contracts.js";
@@ -16,6 +12,44 @@ import {
   MAX_RESOURCE_SELECT_TEXT_CHARS,
   scienceResourceRelationSchema,
 } from "./resource-view.js";
+
+export type JsonValue =
+  | boolean
+  | number
+  | string
+  | null
+  | readonly JsonValue[]
+  | { readonly [key: string]: JsonValue };
+
+export interface ScienceImageAttachment {
+  readonly attachmentId: string;
+  readonly mediaType: "image/png" | "image/jpeg" | "image/gif" | "image/webp";
+  readonly bytes: number;
+  readonly name?: string;
+  readonly width?: number;
+  readonly height?: number;
+  readonly inlineData?: string;
+}
+
+export interface ScienceAttachmentStore {
+  saveImage(input: {
+    readonly data: Uint8Array;
+    readonly mediaType: ScienceImageAttachment["mediaType"];
+    readonly name?: string;
+  }): Promise<ScienceImageAttachment>;
+}
+
+export interface ScienceToolRenderItem {
+  readonly type: "image" | "text";
+  readonly attachment?: ScienceImageAttachment;
+  readonly text?: string;
+}
+
+export interface ScienceToolOutput {
+  readonly schema: Record<string, unknown>;
+  render(args: unknown, value: JsonValue): readonly ScienceToolRenderItem[];
+  presentationMeta(args: unknown, value: JsonValue): JsonValue;
+}
 
 export const SCIENCE_TOOL_NAMES = [
   "science_notebook",
@@ -33,7 +67,7 @@ const aggregateInputSchema = z.strictObject({
   request: z.unknown(),
 });
 
-const outputSchema: JsonSchemaNode = {
+const outputSchema: JsonSchemaRecord = {
   type: "object",
   additionalProperties: false,
   properties: {
@@ -264,33 +298,10 @@ const scienceQueryVariants: readonly JsonSchemaRecord[] = [
   ),
 ];
 
-const scienceQueryParameters = projectDshSchema({ oneOf: scienceQueryVariants });
+const scienceQueryParameters = { oneOf: scienceQueryVariants };
 const scienceQueryMcpParameters = { type: "object", oneOf: scienceQueryVariants };
 
-function projectDshSchema(value: unknown): ToolDefinition["parameters"] {
-  const unsupported = new Set([
-    "maximum",
-    "maxItems",
-    "maxLength",
-    "minimum",
-    "minItems",
-    "minLength",
-    "pattern",
-    "uniqueItems",
-  ]);
-  const project = (candidate: unknown): unknown => {
-    if (Array.isArray(candidate)) return candidate.map(project);
-    if (candidate === null || typeof candidate !== "object") return candidate;
-    return Object.fromEntries(
-      Object.entries(candidate)
-        .filter(([key]) => !unsupported.has(key))
-        .map(([key, nested]) => [key, project(nested)]),
-    );
-  };
-  return project(value) as ToolDefinition["parameters"];
-}
-
-const literatureSearchParameters: ToolDefinition["parameters"] = {
+const literatureSearchParameters: JsonSchemaRecord = {
   type: "object",
   additionalProperties: false,
   properties: {
@@ -351,22 +362,26 @@ export interface ScienceToolResult {
   readonly data: JsonValue;
 }
 
-/** Runtime-neutral authority supplied by either a DSH Tool or Codex MCP carrier. */
+/** Agent-neutral execution context supplied by a product-tool carrier. */
 export interface ScienceToolExecution {
   readonly actorId: string;
   readonly callId: string;
   readonly signal: AbortSignal;
 }
 
-export interface ScienceToolDefinition extends ToolDefinition {
+export interface ScienceToolDefinition {
+  readonly name: (typeof SCIENCE_TOOL_NAMES)[number];
+  readonly description: string;
+  readonly parameters: JsonSchemaRecord;
+  readonly output: ScienceToolOutput;
   readonly mcpParameters?: unknown;
   invoke(args: unknown, execution: ScienceToolExecution): Promise<ScienceToolResult>;
 }
 
-interface ScienceToolContext {
-  readonly attachments: Pick<AttachmentStore, "saveImage">;
+export interface ScienceToolContext {
+  readonly attachments: ScienceAttachmentStore;
   readonly science: ScienceCore;
-  readonly tools: { register(definition: ToolDefinition): () => void };
+  readonly tools: { register(definition: ScienceToolDefinition): () => void };
 }
 
 function parseInput(args: unknown, actions: readonly string[]) {
@@ -381,17 +396,6 @@ function parseInput(args: unknown, actions: readonly string[]) {
       cause: error,
     });
   }
-}
-
-function dshExecution(exec: ToolRunContext): ScienceToolExecution {
-  if (!exec.agent) {
-    throw new ScienceError("Science tools require an owning agent session", "SESSION_NOT_FOUND");
-  }
-  return {
-    actorId: String(exec.agent.id),
-    callId: String(exec.callId),
-    signal: exec.signal,
-  };
 }
 
 function session(exec: ScienceToolExecution): string {
@@ -469,10 +473,10 @@ function definition(
     exec: ScienceToolExecution,
   ) => Promise<ScienceToolResult>,
   science: ScienceCore,
-  render: ToolDefinition["output"]["render"] = (_args, value) => [
+  render: ScienceToolOutput["render"] = (_args, value) => [
     { type: "text", text: JSON.stringify(value) },
   ],
-  parameters?: ToolDefinition["parameters"],
+  parameters?: JsonSchemaRecord,
   mcpParameters?: unknown,
 ): ScienceToolDefinition {
   const invoke = async (args: unknown, exec: ScienceToolExecution): Promise<ScienceToolResult> => {
@@ -505,9 +509,6 @@ function definition(
       },
     },
     invoke,
-    execute(args, exec) {
-      return invoke(args, dshExecution(exec));
-    },
   };
 }
 
@@ -542,21 +543,18 @@ function literatureDefinition(science: ScienceCore): ScienceToolDefinition {
       },
     },
     invoke,
-    execute(args, exec) {
-      return invoke(args, dshExecution(exec));
-    },
   };
 }
 
-function annotationImage(value: JsonValue): ImageAttachmentRef | null {
+function annotationImage(value: JsonValue): ScienceImageAttachment | null {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
-  const data = value.data;
+  const data = (value as { readonly data?: JsonValue }).data;
   if (typeof data !== "object" || data === null || Array.isArray(data)) return null;
-  const attachment = data.attachment;
+  const attachment = (data as { readonly attachment?: JsonValue }).attachment;
   if (typeof attachment !== "object" || attachment === null || Array.isArray(attachment)) {
     return null;
   }
-  return attachment as unknown as ImageAttachmentRef;
+  return attachment as unknown as ScienceImageAttachment;
 }
 
 function scienceQueryRender(args: unknown, value: JsonValue) {
@@ -604,7 +602,7 @@ function parseImageAnnotation(request: unknown) {
 
 export function createScienceToolDefinitions(
   science: ScienceCore,
-  attachments: Pick<AttachmentStore, "saveImage">,
+  attachments: ScienceAttachmentStore,
 ): readonly ScienceToolDefinition[] {
   return [
     definition(
@@ -883,8 +881,3 @@ export function registerScienceTools(ctx: ScienceToolContext): () => void {
 }
 
 export const name = "swarmx-science-tools";
-export const inject = ["attachments", "science", "tools"];
-
-export function apply(ctx: Context): void {
-  ctx.effect(() => registerScienceTools(ctx), "dsh-science: register aggregate tools");
-}

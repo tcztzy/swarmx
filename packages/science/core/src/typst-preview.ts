@@ -177,7 +177,7 @@ export class TypstPreviewRuntime {
       throw new ScienceError("Typst source changed since it was opened", "REVISION_CONFLICT");
     }
     const sourceDirectory = dirname(paper.path);
-    const temporaryPath = join(sourceDirectory, `.dsh-science-${randomUUID()}.typ.tmp`);
+    const temporaryPath = join(sourceDirectory, `.swarmx-science-${randomUUID()}.typ.tmp`);
     let temporaryCreated = false;
     try {
       const existing = await lstat(paper.path);
@@ -340,7 +340,7 @@ export class TypstPreviewRuntime {
     }
     if (existing !== undefined) await this.disposeController(existing);
     await this.pruneControllers(key);
-    const outputDirectory = await mkdtemp(join(tmpdir(), "dsh-science-typst-"));
+    const outputDirectory = await mkdtemp(join(tmpdir(), "swarmx-science-typst-"));
     await chmod(outputDirectory, 0o700);
     await mkdir(join(outputDirectory, "packages"), { mode: 0o700 });
     await mkdir(join(outputDirectory, "package-cache"), { mode: 0o700 });

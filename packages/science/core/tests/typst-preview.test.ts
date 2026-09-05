@@ -1,9 +1,8 @@
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Context } from "@deepseek-ai/cordis";
-import LocalSubprocessRuntime from "@deepseek-ai/dsh-subprocess-local";
 import { afterEach, describe, expect, it } from "vitest";
+import { NodeScienceProcessRuntime } from "../../../../apps/desktop/src/host/process-runner.js";
 import {
   resolveTypstSourceAtPointRequestSchema,
   typstSourceTargetSchema,
@@ -48,9 +47,7 @@ process.on("SIGTERM", () => process.exit(0));
 `,
   );
   chmodSync(command, 0o700);
-  const context = new Context();
-  await context.plugin(LocalSubprocessRuntime);
-  const runtime = new TypstPreviewRuntime(context.subprocess, {
+  const runtime = new TypstPreviewRuntime(new NodeScienceProcessRuntime(), {
     command,
     graceMs: 200,
     initialCompileTimeoutMs: 3_000,
@@ -58,7 +55,7 @@ process.on("SIGTERM", () => process.exit(0));
     maxPdfBytes: 2 * 1024 * 1024,
     maxSourceBytes: 512 * 1024,
   });
-  return { context, runtime, scratch, workspace };
+  return { runtime, scratch, workspace };
 }
 
 async function waitForRevision(
@@ -107,7 +104,7 @@ describe("V89/V91 managed Typst preview runtime", () => {
   });
 
   it("watches one authorized paper, returns bounded PDF bytes, and atomically saves by revision", async () => {
-    const { context, runtime, workspace } = await setup();
+    const { runtime, workspace } = await setup();
     writeFileSync(join(workspace, "paper.typ"), "= First draft\n");
 
     const first = await runtime.preview({
@@ -148,11 +145,10 @@ describe("V89/V91 managed Typst preview runtime", () => {
 
     await runtime.close();
     expect(runtime.controllerCount()).toBe(0);
-    await context.fiber.dispose();
   });
 
   it("retains the last successful PDF with diagnostics after a broken source revision", async () => {
-    const { context, runtime, workspace } = await setup();
+    const { runtime, workspace } = await setup();
     writeFileSync(join(workspace, "paper.typ"), "= Valid\n");
     const first = await runtime.preview({
       workspaceKey: "workspace-a",
@@ -179,11 +175,10 @@ describe("V89/V91 managed Typst preview runtime", () => {
     expect(stale.diagnostics.join("\n")).toContain("broken source");
 
     await runtime.close();
-    await context.fiber.dispose();
   });
 
   it("rejects traversal, symlink escape, unsupported extensions, and stale source writes", async () => {
-    const { context, runtime, scratch, workspace } = await setup();
+    const { runtime, scratch, workspace } = await setup();
     writeFileSync(join(workspace, "paper.typ"), "= Safe\n");
     writeFileSync(join(scratch, "outside.typ"), "= Outside\n");
     symlinkSync(join(scratch, "outside.typ"), join(workspace, "escape.typ"));
@@ -210,6 +205,5 @@ describe("V89/V91 managed Typst preview runtime", () => {
     expect(preview.source).toBe("= Safe\n");
 
     await runtime.close();
-    await context.fiber.dispose();
   });
 });

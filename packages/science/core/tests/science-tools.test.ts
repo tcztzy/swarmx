@@ -1,12 +1,11 @@
 import { randomUUID } from "node:crypto";
-import type { ImageAttachmentRef } from "@deepseek-ai/dsh-attachment";
-import { assertSupportedJsonSchema } from "@deepseek-ai/dsh-tools";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import {
   createScienceToolDefinitions,
   registerScienceTools,
   SCIENCE_TOOL_NAMES,
+  type ScienceImageAttachment,
   type ScienceToolDefinition,
   type ScienceToolExecution,
 } from "../src/tools.js";
@@ -140,7 +139,6 @@ describe("Science model tools", () => {
     );
 
     expect(query.parameters.oneOf).toHaveLength(7);
-    expect(() => assertSupportedJsonSchema(query.parameters)).not.toThrow();
     expect(query.mcpParameters).toMatchObject({ type: "object", oneOf: expect.any(Array) });
     const publishedInput = z.fromJSONSchema(
       query.mcpParameters as Parameters<typeof z.fromJSONSchema>[0],
@@ -345,7 +343,7 @@ describe("Science model tools", () => {
       width: 1,
       height: 1,
       name: "point.png",
-    } as ImageAttachmentRef;
+    } as ScienceImageAttachment;
     const saveImage = vi.fn(() => Promise.resolve(attachment));
     const query = named(
       createScienceToolDefinitions(fixture.context.science, { saveImage } as never),
