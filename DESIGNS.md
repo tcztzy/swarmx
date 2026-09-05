@@ -9,7 +9,7 @@ MCP's `swarm` tool provides composition and delegation; no internal protocol con
 | Native messages, configuration, history, approvals | Codex, Claude, Hermes or OpenClaw |
 | Swarm membership | ProductServices, in memory |
 | Research entities, journal and artifacts | Science |
-| Curated Markdown knowledge | Knowledge Base |
+| Shared semantic memory in OKF Markdown | Memory |
 | Repository and data versions | Git and DVC |
 | ACP connections; A2A communication Tasks | Official protocol SDKs |
 | Rendering, interaction forms and trace waterfall | assistant-ui, transient |
@@ -29,7 +29,13 @@ native tool configuration. Swarm nesting does not inspect these provider differe
 
 The react-o11y waterfall derives IDs, hierarchy, status and observed timing from assistant-ui
 messages. It is not a durable audit log or evidence of an action's correctness. Science and
-Knowledge Base keep their existing domain records. No new transcript or logging database.
+Memory keep their existing domain records. No new transcript or logging database.
+
+Memory persists curated research knowledge across sessions and Agents through one scoped store.
+The Host exposes explicit search, read, create, update, deprecate, and lint operations. OKF is
+the storage format; semantic memory describes the store's role. Native runtimes retain their
+own history and context management. Deterministic validation checks structure and references,
+not factual truth or automatic learning.
 
 The Host binds a random loopback port. One-use launch tokens become HttpOnly Strict cookies.
 Host, Origin, session ownership, bearer authentication and canonical static paths are checked.

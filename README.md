@@ -20,6 +20,10 @@ pnpm dev
 Use `SWARMX_AGENT=claude|hermes|openclaw` or the Agent selector. Native setup and external
 ACP/A2A access: [Agent platform](docs/runtime-platform.md).
 
+[Memory](docs/memory.md) provides shared semantic memory in private OKF Markdown. Agents use the
+`memory` product tool to retrieve and curate research knowledge across sessions; native runtimes
+keep their own conversation histories. Existing vaults move to the current storage path on startup.
+
 ```sh
 pnpm typecheck
 pnpm test

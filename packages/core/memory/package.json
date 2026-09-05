@@ -1,7 +1,7 @@
 {
-  "name": "@swarmx/knowledge-base",
+  "name": "@swarmx/memory",
   "version": "0.1.0",
-  "description": "Private OKF Markdown knowledge base for SwarmX.",
+  "description": "Shared semantic memory in private OKF Markdown for SwarmX.",
   "license": "MIT",
   "type": "module",
   "main": "lib/index.js",
@@ -15,7 +15,7 @@
   },
   "scripts": {
     "bundle": "tsdown",
-    "test": "vitest run --root ../../.. packages/core/knowledge-base/tests"
+    "test": "vitest run --root ../../.. packages/core/memory/tests"
   },
   "dependencies": {
     "mdast-util-from-markdown": "^2.0.3",

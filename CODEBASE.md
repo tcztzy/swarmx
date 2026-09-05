@@ -21,7 +21,7 @@
 | --- | --- |
 | `packages/core/annotation/` | portable artifact annotations |
 | `packages/core/dvc/` | Git/DVC inspection and explicit operations |
-| `packages/core/knowledge-base/` | private OKF-shaped Markdown knowledge |
+| `packages/core/memory/` | shared semantic memory in private OKF Markdown |
 | `packages/core/swarm/` | protocol-neutral recursive Agent composition |
 | `packages/science/core/` | scientific journal, artifacts, tools, and previews |
 
@@ -29,8 +29,9 @@ Public packages do not depend on Electron, Renderer, AG-UI, ACP, A2A or provider
 
 ## Repository tooling
 
-`.pre-commit-config.yaml` checks staged TS/TSX with Biome, Rust with `cargo fmt --check`,
-and Python with the official Ruff hook. Checks never rewrite files. Install with `prefligit install`;
+`.pre-commit-config.yaml` uses official remote Biome and Ruff hooks for staged TS/TSX and Python.
+Checks never rewrite files. Install with `prefligit install`;
 verify with `prefligit run --all-files`.
 
-Build, cleanup, and documentation coverage utilities live under `scripts/`.
+Build, cleanup, documentation coverage, and manuscript-model utilities live under `scripts/`.
+Reproducible SoftwareX examples live under `examples/`; the manuscript is `swarmx.tex`.

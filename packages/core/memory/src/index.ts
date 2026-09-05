@@ -1,4 +1,5 @@
 export * from "./errors.js";
+export * from "./lint.js";
 export * from "./markdown.js";
 export * from "./plugin.js";
 export { default } from "./plugin.js";

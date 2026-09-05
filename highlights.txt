@@ -1,0 +1,5 @@
+- SwarmX links native agent histories to revisioned scientific records.
+- Durable task and effect rules coordinate concurrent research agents.
+- Science records export as content-addressed RO-Crate research objects.
+- Two client workflows expose provenance, verification, and knowledge reuse.
+- Depth-7 exploration checks six invariants across 1,030 guarded states.

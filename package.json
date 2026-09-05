@@ -12,7 +12,7 @@
   },
   "scripts": {
     "build": "pnpm clean && pnpm build:lib && pnpm build:renderer && pnpm build:desktop",
-    "build:lib": "pnpm build:writing-preview-runtime && tsc -b packages/core/annotation packages/core/dvc packages/core/knowledge-base packages/core/swarm packages/science/core && pnpm --filter './packages/**' -r bundle",
+    "build:lib": "pnpm build:writing-preview-runtime && tsc -b packages/core/annotation packages/core/dvc packages/core/memory packages/core/swarm packages/science/core && pnpm --filter './packages/**' -r bundle",
     "build:writing-preview-runtime": "tsx scripts/build-writing-preview-runtime.ts",
     "build:renderer": "vite build --config apps/desktop/vite.config.ts",
     "build:desktop": "pnpm agents:types && tsc -b apps/desktop",
@@ -22,6 +22,8 @@
     "dev": "pnpm start",
     "docs:check": "node scripts/check-codebase-docs.mjs",
     "lint": "biome check .",
+    "paper:demo": "node examples/softwarex/swarm-memory/scripts/verify.mjs",
+    "paper:model": "tsx scripts/run-swarm-model.ts 7",
     "test": "pnpm build:lib && vitest run",
     "start": "pnpm build && pnpm --filter @swarmx/desktop start:built",
     "typecheck": "pnpm agents:types && tsc -b tsconfig.host.json && tsc -p apps/desktop/tsconfig.renderer.json --noEmit"

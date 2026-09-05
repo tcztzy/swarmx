@@ -14,15 +14,20 @@ coverage/
 .DS_Store
 
 # Local research drafts and review artifacts
-/*.bib
 /*.csv
+/*.aux
+/*.bbl
+/*.blg
+/*.fdb_latexmk
+/*.fls
+/*.log
+/*.out
 /*.pdf
+/*.spl
 /*.synctex.gz
 /*.tex
+!/swarmx.tex
 /artifacts/
-/design-qa.md
-/harness-*
-/rsi-*
-/review.json
+/tmp/
 
 kernel-*.json

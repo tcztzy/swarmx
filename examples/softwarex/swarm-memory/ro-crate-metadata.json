@@ -1,0 +1,160 @@
+{
+  "@context": "https://w3id.org/ro/crate/1.3/context",
+  "@graph": [
+    {
+      "@id": "ro-crate-metadata.json",
+      "@type": "CreativeWork",
+      "about": {
+        "@id": "./"
+      },
+      "conformsTo": {
+        "@id": "https://w3id.org/ro/crate/1.3"
+      }
+    },
+    {
+      "@id": "./",
+      "@type": "Dataset",
+      "name": "SwarmX SoftwareX Swarm-to-Memory reproduction fixture",
+      "description": "Synthetic, deterministic fixture for evaluating multi-agent task orchestration, independent verification, recovery, and evidence-bearing memory admission.",
+      "datePublished": "2026-09-02",
+      "license": "https://spdx.org/licenses/MIT.html",
+      "version": "0.1.0",
+      "author": {
+        "@id": "#ziya-tang"
+      },
+      "hasPart": [
+        {
+          "@id": "README.md"
+        },
+        {
+          "@id": "SOURCES.md"
+        },
+        {
+          "@id": "data/germination.csv"
+        },
+        {
+          "@id": "scripts/summarize.mjs"
+        },
+        {
+          "@id": "scripts/verify.mjs"
+        },
+        {
+          "@id": "results/summary.json"
+        },
+        {
+          "@id": "results/summary.md"
+        },
+        {
+          "@id": "run/manifest.json"
+        },
+        {
+          "@id": "run/memory-concept.md"
+        }
+      ]
+    },
+    {
+      "@id": "#ziya-tang",
+      "@type": "Person",
+      "name": "Ziya Tang",
+      "affiliation": {
+        "@id": "https://ror.org/05td3s095"
+      }
+    },
+    {
+      "@id": "https://ror.org/05td3s095",
+      "@type": "Organization",
+      "name": "Nanjing Agricultural University"
+    },
+    {
+      "@id": "README.md",
+      "@type": "CreativeWork",
+      "name": "Reproduction instructions",
+      "encodingFormat": "text/markdown"
+    },
+    {
+      "@id": "SOURCES.md",
+      "@type": "CreativeWork",
+      "name": "Synthetic source declaration",
+      "encodingFormat": "text/markdown"
+    },
+    {
+      "@id": "data/germination.csv",
+      "@type": "Dataset",
+      "name": "Synthetic germination input",
+      "encodingFormat": "text/csv"
+    },
+    {
+      "@id": "scripts/summarize.mjs",
+      "@type": "SoftwareSourceCode",
+      "name": "Deterministic summarizer",
+      "programmingLanguage": "JavaScript",
+      "runtimePlatform": "Node.js"
+    },
+    {
+      "@id": "scripts/verify.mjs",
+      "@type": "SoftwareSourceCode",
+      "name": "Reproduction verifier",
+      "programmingLanguage": "JavaScript",
+      "runtimePlatform": "Node.js"
+    },
+    {
+      "@id": "results/summary.json",
+      "@type": "Dataset",
+      "name": "Machine-readable result",
+      "encodingFormat": "application/json"
+    },
+    {
+      "@id": "results/summary.md",
+      "@type": "CreativeWork",
+      "name": "Human-readable result",
+      "encodingFormat": "text/markdown"
+    },
+    {
+      "@id": "run/manifest.json",
+      "@type": "Dataset",
+      "name": "Sanitized Swarm run manifest",
+      "encodingFormat": "application/json"
+    },
+    {
+      "@id": "run/memory-concept.md",
+      "@type": "CreativeWork",
+      "name": "Committed memory concept",
+      "encodingFormat": "text/markdown"
+    },
+    {
+      "@id": "#analysis-action",
+      "@type": "CreateAction",
+      "name": "Generate synthetic germination summaries",
+      "instrument": {
+        "@id": "scripts/summarize.mjs"
+      },
+      "object": {
+        "@id": "data/germination.csv"
+      },
+      "result": [
+        {
+          "@id": "results/summary.json"
+        },
+        {
+          "@id": "results/summary.md"
+        }
+      ],
+      "actionStatus": "https://schema.org/CompletedActionStatus"
+    },
+    {
+      "@id": "#verification-action",
+      "@type": "CheckAction",
+      "name": "Verify outputs, provenance, and memory receipt",
+      "instrument": {
+        "@id": "scripts/verify.mjs"
+      },
+      "object": {
+        "@id": "run/manifest.json"
+      },
+      "result": {
+        "@id": "run/memory-concept.md"
+      },
+      "actionStatus": "https://schema.org/CompletedActionStatus"
+    }
+  ]
+}

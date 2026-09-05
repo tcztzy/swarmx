@@ -1,0 +1,20 @@
+{
+  "schema": "swarmx.softwarex.germination-summary.v1",
+  "input": {
+    "path": "data/germination.csv",
+    "rows": 6,
+    "sha256": "7c22c618bbd87c92777e76625a8e2225b10d30adfe4823ffdb986bd2bfd63838"
+  },
+  "treatments": {
+    "control": {
+      "replicates": 3,
+      "meanPercent": 79
+    },
+    "primed": {
+      "replicates": 3,
+      "meanPercent": 87
+    }
+  },
+  "differencePercentagePoints": 8,
+  "interpretation": "In this synthetic fixture, the primed rows have an 8 percentage-point higher mean germination rate than the control rows."
+}

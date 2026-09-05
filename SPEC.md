@@ -20,12 +20,16 @@ Local research Host; recursive Swarms; native Agents.
 - New sessions without a first native turn hydrate as empty, without reading an absent transcript.
 - Claude completes on its SDK idle notification after a result; queued native output is not truncated.
 - Swarm owns membership and delegation, not another transcript or transport state machine.
-- One Host-owned `ProductServices`: Science, Knowledge Base, Git and DVC; shared by REST and MCP.
+- One Host-owned `ProductServices`: Science, Memory, Git and DVC; shared by REST and MCP.
+- Memory is a shared semantic memory store of OKF research concepts, accessed through explicit
+  search/read/create/update/deprecate/lint operations. Native Agents own conversation history.
+- The storage upgrade moves the previous vault to `memory/vault` without changing stored bytes;
+  conflicting vaults fail closed. Current package and tool names have no aliases.
 - MCP carries product tool calls, never inter-Agent messages.
 - ACP/A2A gateways translate external requests into the same Swarm operations. A2A Task storage
   holds communication lifecycle and SDK-owned ingress messages; not native transcripts or research tasks.
 - Native events retain their provider identifiers; UI projections and react-o11y spans are
-  transient views, not audit evidence. Science/KB retain their own durable domain records.
+  transient views, not audit evidence. Science/Memory retain their own durable domain records.
 
 ## Interfaces and security
 

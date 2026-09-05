@@ -2,11 +2,11 @@ import { createHmac, randomBytes } from "node:crypto";
 import { readFileSync, realpathSync, statSync } from "node:fs";
 import { open, readFile, realpath, stat } from "node:fs/promises";
 import { basename, join } from "node:path";
-import { KnowledgeBaseError } from "./errors.js";
+import { MemoryError } from "./errors.js";
 
 const SALT_BYTES = 32;
 
-export interface KnowledgeBaseWorkspace {
+export interface MemoryWorkspace {
   readonly directory: string;
   readonly key: string;
   readonly label: string;
@@ -23,9 +23,9 @@ function safeName(value: string): string {
     .join("");
 }
 
-function workspaceFromCanonical(canonical: string, salt: Buffer): KnowledgeBaseWorkspace {
+function workspaceFromCanonical(canonical: string, salt: Buffer): MemoryWorkspace {
   if (salt.byteLength !== SALT_BYTES) {
-    throw new KnowledgeBaseError("knowledge base workspace salt is invalid", "IO_ERROR");
+    throw new MemoryError("memory workspace salt is invalid", "IO_ERROR");
   }
   const key = createHmac("sha256", salt).update(canonical).digest("hex").slice(0, 12);
   const label = basename(canonical) || "workspace";
@@ -55,41 +55,32 @@ export async function ensureSalt(path: string): Promise<Buffer> {
   }
 }
 
-export async function resolveKnowledgeBaseWorkspace(
+export async function resolveMemoryWorkspace(
   cwd: string,
   saltPath: string,
-): Promise<KnowledgeBaseWorkspace> {
+): Promise<MemoryWorkspace> {
   let canonical: string;
   try {
     canonical = await realpath(cwd);
     if (!(await stat(canonical)).isDirectory()) throw new Error("not a directory");
   } catch (error) {
-    throw new KnowledgeBaseError(
-      "knowledge base workspace is unavailable",
-      "WORKSPACE_UNAVAILABLE",
-      { cause: error },
-    );
+    throw new MemoryError("memory workspace is unavailable", "WORKSPACE_UNAVAILABLE", {
+      cause: error,
+    });
   }
   const salt = await ensureSalt(saltPath);
   return workspaceFromCanonical(canonical, salt);
 }
 
-export function resolveKnowledgeBaseWorkspaceSync(
-  cwd: string,
-  saltPath: string,
-): KnowledgeBaseWorkspace {
+export function resolveMemoryWorkspaceSync(cwd: string, saltPath: string): MemoryWorkspace {
   let canonical: string;
   try {
     canonical = realpathSync.native(cwd);
     if (!statSync(canonical).isDirectory()) throw new Error("not a directory");
   } catch (error) {
-    throw new KnowledgeBaseError(
-      "knowledge base workspace is unavailable",
-      "WORKSPACE_UNAVAILABLE",
-      {
-        cause: error,
-      },
-    );
+    throw new MemoryError("memory workspace is unavailable", "WORKSPACE_UNAVAILABLE", {
+      cause: error,
+    });
   }
   return workspaceFromCanonical(canonical, Buffer.from(readFileSync(saltPath, "utf8"), "hex"));
 }

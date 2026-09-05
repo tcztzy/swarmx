@@ -1,0 +1,86 @@
+{
+  "enforced": {
+    "mode": "enforced",
+    "statesExplored": 1030,
+    "violatingStates": 0,
+    "safetyViolationRate": 0,
+    "invariants": [
+      {
+        "name": "exclusive-attempt-authorization",
+        "violatingStates": 0,
+        "firstViolationDepth": null
+      },
+      {
+        "name": "current-attempt-effects",
+        "violatingStates": 0,
+        "firstViolationDepth": null
+      },
+      {
+        "name": "at-most-once-effects",
+        "violatingStates": 0,
+        "firstViolationDepth": null
+      },
+      {
+        "name": "recovery-does-not-replay",
+        "violatingStates": 0,
+        "firstViolationDepth": null
+      },
+      {
+        "name": "admission-backed-knowledge",
+        "violatingStates": 0,
+        "firstViolationDepth": null
+      },
+      {
+        "name": "at-most-once-messages",
+        "violatingStates": 0,
+        "firstViolationDepth": null
+      }
+    ],
+    "duplicateEffects": 0,
+    "recoveryReplays": 0,
+    "knowledgePollution": 0,
+    "coordinationWrites": 21
+  },
+  "unguarded": {
+    "mode": "unguarded",
+    "statesExplored": 10701,
+    "violatingStates": 9417,
+    "safetyViolationRate": 0.8800112139052425,
+    "invariants": [
+      {
+        "name": "exclusive-attempt-authorization",
+        "violatingStates": 5439,
+        "firstViolationDepth": 2
+      },
+      {
+        "name": "current-attempt-effects",
+        "violatingStates": 3736,
+        "firstViolationDepth": 3
+      },
+      {
+        "name": "at-most-once-effects",
+        "violatingStates": 2028,
+        "firstViolationDepth": 4
+      },
+      {
+        "name": "recovery-does-not-replay",
+        "violatingStates": 1144,
+        "firstViolationDepth": 4
+      },
+      {
+        "name": "admission-backed-knowledge",
+        "violatingStates": 3650,
+        "firstViolationDepth": 1
+      },
+      {
+        "name": "at-most-once-messages",
+        "violatingStates": 1171,
+        "firstViolationDepth": 2
+      }
+    ],
+    "duplicateEffects": 4,
+    "recoveryReplays": 2,
+    "knowledgePollution": 7,
+    "coordinationWrites": 7
+  }
+}

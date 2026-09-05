@@ -1,0 +1,181 @@
+{
+  "schema": "swarmx.softwarex.swarm-knowledge-base-run.v1",
+  "fixture": {
+    "kind": "synthetic",
+    "purpose": "software workflow and provenance evaluation",
+    "biologicalInference": false
+  },
+  "software": {
+    "swarmxVersion": "0.1.0",
+    "codexCliVersion": "0.150.1",
+    "repositoryCommit": "8cbbdbf6b46b0637c2424e571a68c58a2a1ffabb",
+    "sourceState": "working-tree evaluation candidate"
+  },
+  "run": {
+    "id": "softwarex-swarm-knowledge-base-2026-09-02",
+    "team": "SoftwareX germination evidence",
+    "runtime": "codex",
+    "startedAt": "2026-09-02T11:44:38.998Z",
+    "completedAt": "2026-09-02T12:11:29.789Z",
+    "finalTeamRevision": 44
+  },
+  "members": [
+    {
+      "name": "lead",
+      "role": "lead"
+    },
+    {
+      "name": "arithmetic-reviewer",
+      "role": "researcher"
+    },
+    {
+      "name": "provenance-auditor",
+      "role": "implementer"
+    },
+    {
+      "name": "independent-verifier",
+      "role": "verifier"
+    }
+  ],
+  "tasks": [
+    {
+      "id": "task-1",
+      "subject": "Independently review germination arithmetic",
+      "kind": "read",
+      "owner": "arithmetic-reviewer",
+      "blockedBy": [],
+      "writeScopes": [],
+      "finalStatus": "completed",
+      "finalRevision": 5,
+      "attemptId": "6dfc4398-ac31-4f79-b85e-e38d118e626b",
+      "submissionId": "2731c714-4ea4-4e07-950e-d8551e8f5d06",
+      "verification": {
+        "verdict": "pass",
+        "mode": "independent",
+        "findingsProducedBy": "independent-verifier",
+        "recordedBy": "lead",
+        "recordedAt": "2026-09-02T11:55:15.981Z",
+        "checks": [
+          "correct arithmetic",
+          "six rows and three replicates per group",
+          "actual input and summary SHA-256 digests",
+          "synthetic-data boundary"
+        ]
+      }
+    },
+    {
+      "id": "task-2",
+      "subject": "Audit fixture provenance and source coverage",
+      "kind": "read",
+      "owner": "provenance-auditor",
+      "blockedBy": [],
+      "writeScopes": [],
+      "finalStatus": "completed",
+      "finalRevision": 5,
+      "attemptId": "571a4570-17ce-49c6-bc45-3b89201d8aff",
+      "submissionId": "1183e805-d6ec-43a9-9455-0bd2ce00db2b",
+      "verification": {
+        "verdict": "pass",
+        "mode": "independent",
+        "findingsProducedBy": "independent-verifier",
+        "recordedBy": "lead",
+        "recordedAt": "2026-09-02T11:55:23.086Z",
+        "checks": [
+          "correct arithmetic",
+          "complete source declaration",
+          "actual input, source, and summary SHA-256 digests",
+          "synthetic-data boundary"
+        ]
+      }
+    },
+    {
+      "id": "task-3",
+      "subject": "Regenerate verified result artifacts",
+      "kind": "write",
+      "owner": "provenance-auditor",
+      "blockedBy": ["task-1", "task-2"],
+      "writeScopes": ["results/"],
+      "finalStatus": "completed",
+      "finalRevision": 5,
+      "attemptId": "fbe2960f-4c36-4dcb-a9aa-228a39404dff",
+      "submissionId": "3a126aa9-452c-473e-8fdc-120225b732be",
+      "verification": {
+        "verdict": "pass",
+        "mode": "independent",
+        "recordedBy": "independent-verifier",
+        "recordedAt": "2026-09-02T12:00:08.682Z",
+        "checks": [
+          "exact summarizer command",
+          "exact two-file output set",
+          "actual output SHA-256 digests",
+          "expected arithmetic, counts, and synthetic-data boundary"
+        ]
+      }
+    },
+    {
+      "id": "task-4",
+      "subject": "Propose synthetic germination knowledge base concept",
+      "kind": "knowledge",
+      "owner": "arithmetic-reviewer",
+      "blockedBy": ["task-3"],
+      "writeScopes": [],
+      "finalStatus": "completed",
+      "finalRevision": 3,
+      "attemptId": "503a7ed8-a73d-4621-9ab9-d3352afedcc8",
+      "completion": "lead-owned admit_knowledge; no ordinary task submission"
+    }
+  ],
+  "artifacts": [
+    {
+      "path": "data/germination.csv",
+      "role": "synthetic input",
+      "sha256": "7c22c618bbd87c92777e76625a8e2225b10d30adfe4823ffdb986bd2bfd63838"
+    },
+    {
+      "path": "SOURCES.md",
+      "role": "source declaration",
+      "sha256": "dd7140f32bcf994d16b72f95b3f8d86c8b43b2e51ea665dc018dd62fe83fcc02"
+    },
+    {
+      "path": "results/summary.json",
+      "role": "machine-readable result",
+      "sha256": "88f184f2aca3e0fb34cfd647947f80ce98d0e985a5ac25f797c09d18d60be2b7"
+    },
+    {
+      "path": "results/summary.md",
+      "role": "human-readable result",
+      "sha256": "5290cd1fe6481ef73a8ec161c7d48ccda213caeb386ef130ede8463e6361751a"
+    }
+  ],
+  "knowledgeAdmission": {
+    "id": "c46e7164-5ae5-48d4-a834-e643a52e3c36",
+    "taskId": "task-4",
+    "taskRevision": 2,
+    "attemptId": "503a7ed8-a73d-4621-9ab9-d3352afedcc8",
+    "requestHash": "sha256:5b0ef7b09ef73dddd33ecb0e718c3cf9999ef08b195056e39016bcd8dbdb4996",
+    "verification": {
+      "status": "verified",
+      "method": "reproduced",
+      "verifiedAt": "2026-09-02T12:05:13.946Z"
+    },
+    "status": "committed",
+    "receipt": {
+      "kind": "knowledge_base_concept",
+      "conceptId": "workspaces/swarm-knowledge-base--07dc3a3fd5a4/concepts/synthetic-germination-fixture-result--8df2bd5f.md",
+      "revision": "sha256:d17de8292b163a71e5da3e65af2d8c9a0ef6b33c5101ca9ab6e2f8fdddc51e24"
+    }
+  },
+  "recovery": {
+    "initialOutcome": "timeout before knowledge base owner receipt",
+    "durableAdmissionState": "uncertain",
+    "observation": "public knowledge base search found no matching concept",
+    "retry": "same admission ID and byte-identical request",
+    "finalOutcome": "one committed concept; no duplicate admission"
+  },
+  "privacy": {
+    "nativeThreadIdentifiers": "excluded",
+    "absoluteHostPaths": "excluded",
+    "credentials": "excluded",
+    "privateModelReasoning": "excluded"
+  }
+}

@@ -2,22 +2,14 @@ import { readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { parse } from "yaml";
+import { parseConcept } from "../src/markdown.js";
 
 const testDirectory = dirname(fileURLToPath(import.meta.url));
 
-function splitFrontmatter(source: string): { body: string; frontmatter: unknown } {
-  const match = /^---\n([\s\S]*?)\n---\n([\s\S]*)$/u.exec(source);
-  if (match?.[1] === undefined || match[2] === undefined) {
-    throw new Error("fixture must contain one leading YAML frontmatter block");
-  }
-  return { frontmatter: parse(match[1]), body: match[2] };
-}
-
-describe("knowledge base OKF fixture", () => {
+describe("memory OKF fixture", () => {
   it("V130 V131 V134: stays valid OKF-shaped portable Markdown", async () => {
     const source = await readFile(join(testDirectory, "fixtures", "decision.md"), "utf8");
-    const { body, frontmatter } = splitFrontmatter(source);
+    const { body, metadata: frontmatter } = parseConcept(source);
 
     expect(frontmatter).toMatchObject({
       type: "Decision",
@@ -26,14 +18,17 @@ describe("knowledge base OKF fixture", () => {
       sources: [
         {
           id: "okf-spec",
-          resource: "https://openknowledge.dev/specification/2.0/",
+          resource:
+            "https://github.com/GoogleCloudPlatform/open-knowledge-format/blob/main/SPEC.md",
         },
       ],
       "x-fixture-field": "preserve-me",
     });
     expect(body).toContain("[^okf-spec]");
     expect(body).toContain("[^okf-spec]:");
-    expect(body).toContain("](https://openknowledge.dev/specification/2.0/)");
+    expect(body).toContain(
+      "](https://github.com/GoogleCloudPlatform/open-knowledge-format/blob/main/SPEC.md)",
+    );
     expect(body).not.toMatch(/\[\[[^\]]+\]\]/u);
     expect(body).not.toMatch(/\^[a-z0-9-]+$/imu);
   });

@@ -47,7 +47,7 @@ describe("architecture boundaries", () => {
     const offenders = [
       "packages/core/swarm",
       "packages/core/dvc",
-      "packages/core/knowledge-base",
+      "packages/core/memory",
       "packages/science/core",
     ].flatMap((directory) =>
       files(join(root, directory))

@@ -1,0 +1,1335 @@
+@misc{agrawal2025gepa,
+  title = {GEPA: Reflective Prompt Evolution Can Outperform Reinforcement Learning},
+  shorttitle = {GEPA},
+  author = {Agrawal, Lakshya A. and Tan, Shangyin and Soylu, Dilara and Ziems, Noah and Khare, Rishi and {Opsahl-Ong}, Krista and Singhvi, Arnav and Shandilya, Herumb and Ryan, Michael J. and Jiang, Meng and Potts, Christopher and Sen, Koushik and Dimakis, Alexandros G. and Stoica, Ion and Klein, Dan and Zaharia, Matei and Khattab, Omar},
+  year = 2026,
+  month = feb,
+  number = {arXiv:2507.19457},
+  eprint = {2507.19457},
+  primaryclass = {cs.CL},
+  publisher = {arXiv},
+  doi = {10.48550/arXiv.2507.19457},
+  urldate = {2026-08-03},
+  abstract = {Large language models (LLMs) are increasingly adapted to downstream tasks via reinforcement learning (RL) methods like Group Relative Policy Optimization (GRPO), which often require thousands of rollouts to learn new tasks. We argue that the interpretable nature of language often provides a much richer learning medium for LLMs, compared to policy gradients derived from sparse, scalar rewards. To test this, we introduce GEPA (Genetic-Pareto), a prompt optimizer that thoroughly incorporates natural language reflection to learn high-level rules from trial and error. Given any AI system containing one or more LLM prompts, GEPA samples trajectories (e.g., reasoning, tool calls, and tool outputs) and reflects on them in natural language to diagnose problems, propose and test prompt updates, and combine complementary lessons from the Pareto frontier of its own attempts. As a result of GEPA's design, it can often turn even just a few rollouts into a large quality gain. Across six tasks, GEPA outperforms GRPO by 6\% on average and by up to 20\%, while using up to 35x fewer rollouts. GEPA also outperforms the leading prompt optimizer, MIPROv2, by over 10\% (e.g., +12\% accuracy on AIME-2025), and demonstrates promising results as an inference-time search strategy for code optimization. We release our code at https://github.com/gepa-ai/gepa .},
+  archiveprefix = {arXiv},
+  keywords = {Computer Science - Artificial Intelligence,Computer Science - Computation and Language,Computer Science - Machine Learning,Computer Science - Software Engineering}
+}
+
+@article{aldana-martin2025,
+  title = {Eidos: A Modular Approach to External Function Integration in LLMs},
+  shorttitle = {Eidos},
+  author = {{Aldana-Mart{\'i}n}, Jos{\'e} F. and {Ben{\'i}tez-Hidalgo}, Antonio and {Aldana-Montes}, Jos{\'e} F.},
+  year = 2025,
+  month = sep,
+  journal = {SoftwareX},
+  volume = {31},
+  pages = {102290},
+  issn = {23527110},
+  doi = {10.1016/j.softx.2025.102290},
+  urldate = {2026-09-02},
+  langid = {english}
+}
+
+@misc{behrouz2026sleep,
+  title = {Language Models Need Sleep: Learning to Self-Modify and Consolidate Memories},
+  shorttitle = {Language Models Need Sleep},
+  author = {Behrouz, Ali and Hashemi, Farnoosh and Javanmard, Adel and Mirrokni, Vahab},
+  year = 2026,
+  month = jul,
+  number = {arXiv:2606.03979},
+  eprint = {2606.03979},
+  primaryclass = {cs.LG},
+  publisher = {arXiv},
+  doi = {10.48550/arXiv.2606.03979},
+  urldate = {2026-08-03},
+  abstract = {The past few decades have witnessed significant advances in the design of machine learning algorithms, from early studies on task-specific shallow models to more general deep Large Language Models (LLMs). Despite showing promising results in tasks that require instant prediction or in-context learning, existing models lack the ability to continually learn and effectively transfer their temporal in-context knowledge to their long-term parameters. Inspired by human learning process, we introduce a ''Sleep'' paradigm that allows the models to continually learn, distill their short-term fragile memories into stable long-term knowledge with replay, and recursively improve themselves with ''Dreaming'' process. In more detail, sleep consists of two stages: (1) Memory Consolidation: an upward distillation process, called Knowledge Seeding, where the memories of a smaller-self are distilled into a larger network to provide more capacity while preserving the knowledge. As a proof of concept, we present a new Generalized Distillation process for \textbraceleft Knowledge Seeding\textbraceright{} (i.e., the combination of on-policy distillation with Reinforcement Learning (RL)-based imitation learning); (2) Dreaming: a self-improvement phase, where the model uses RL to generate a curriculum of synthetic data to rehearse new knowledge and refine existing capabilities without human supervision. Our experiments on long-horizon, continual learning, knowledge incorporation, and few-shot generalization tasks support the importance of the sleep stage.},
+  archiveprefix = {arXiv},
+  keywords = {Computer Science - Artificial Intelligence,Computer Science - Machine Learning}
+}
+
+@article{brinckman2019,
+  title = {Computing Environments for Reproducibility: Capturing the ``Whole Tale''},
+  author = {Brinckman, Adam and Chard, Kyle and Gaffney, Niall and Hategan, Mihael and Jones, Matthew B. and Kowalik, Kacper and Kulasekaran, Sivakumar and Lud{\"a}scher, Bertram and Mecum, Bryce D. and Nabrzyski, Jarek and Stodden, Victoria and Taylor, Ian J. and Turk, Matthew J. and Turner, Kandace},
+  year = 2019,
+  journal = {Future Generation Computer Systems},
+  volume = {94},
+  pages = {854--867},
+  doi = {10.1016/j.future.2017.12.029}
+}
+
+@article{cheikhtourad2026,
+  title = {Multi-LLM Prototype: Open-Source Software for Adaptive Orchestration, Conflict Resolution, and Cost-Aware Routing across Heterogeneous Large Language Models},
+  shorttitle = {Multi-LLM Prototype},
+  author = {Cheikh Tourad, Mohamedou and Lachgar, Mohamed},
+  year = 2026,
+  month = sep,
+  journal = {SoftwareX},
+  volume = {35},
+  pages = {102782},
+  issn = {23527110},
+  doi = {10.1016/j.softx.2026.102782},
+  urldate = {2026-09-02},
+  langid = {english}
+}
+
+@misc{chen2024spin,
+  title = {Self-Play Fine-Tuning Converts Weak Language Models to Strong Language Models},
+  author = {Chen, Zixiang and Deng, Yihe and Yuan, Huizhuo and Ji, Kaixuan and Gu, Quanquan},
+  year = 2024,
+  month = jun,
+  number = {arXiv:2401.01335},
+  eprint = {2401.01335},
+  primaryclass = {cs.LG},
+  publisher = {arXiv},
+  doi = {10.48550/arXiv.2401.01335},
+  urldate = {2026-08-03},
+  abstract = {Harnessing the power of human-annotated data through Supervised Fine-Tuning (SFT) is pivotal for advancing Large Language Models (LLMs). In this paper, we delve into the prospect of growing a strong LLM out of a weak one without the need for acquiring additional human-annotated data. We propose a new fine-tuning method called Self-Play fIne-tuNing (SPIN), which starts from a supervised fine-tuned model. At the heart of SPIN lies a self-play mechanism, where the LLM refines its capability by playing against instances of itself. More specifically, the LLM generates its own training data from its previous iterations, refining its policy by discerning these self-generated responses from those obtained from human-annotated data. Our method progressively elevates the LLM from a nascent model to a formidable one, unlocking the full potential of human-annotated demonstration data for SFT. Theoretically, we prove that the global optimum to the training objective function of our method is achieved only when the LLM policy aligns with the target data distribution. Empirically, we evaluate our method on several benchmark datasets including the HuggingFace Open LLM Leaderboard, MT-Bench, and datasets from Big-Bench. Our results show that SPIN can significantly improve the LLM's performance across a variety of benchmarks and even outperform models trained through direct preference optimization (DPO) supplemented with extra GPT-4 preference data. This sheds light on the promise of self-play, enabling the achievement of human-level performance in LLMs without the need for expert opponents. Codes are available at https://github.com/uclaml/SPIN.},
+  archiveprefix = {arXiv},
+  keywords = {Computer Science - Artificial Intelligence,Computer Science - Computation and Language,Computer Science - Machine Learning,Statistics - Machine Learning}
+}
+
+@misc{chen2026rsisurvey,
+  title = {Recursive Self-Improvement in AI: From Bounded Self-Refinement to Autonomous Research Loops},
+  shorttitle = {Recursive Self-Improvement in AI},
+  author = {Chen, Mingguang and Wang, Licheng and Qu, Bo},
+  year = 2026,
+  month = jul,
+  number = {arXiv:2607.07663},
+  eprint = {2607.07663},
+  primaryclass = {cs.AI},
+  publisher = {arXiv},
+  doi = {10.48550/arXiv.2607.07663},
+  urldate = {2026-08-03},
+  abstract = {AI systems increasingly participate in their own improvement: revising their outputs, adapting their own harnesses during deployment, training on data they generate, and, increasingly, conducting AI research itself. This literature is described under a vocabulary ("self-refine," "self-reward," "self-play," "self-evolve") that conflates fundamentally different ambitions. We survey 1,250 arXiv papers (2024-2026) along two axes: what the system improves -- its behavior in deployment, its policy through training, its evaluator, or the research process itself -- and the degree of loop closure (human-in-the-loop to fully closed). The taxonomy separates bounded self-refinement -- convergent, evaluable, and already industrial practice -- from open-ended recursive self-improvement (RSI), which remains bounded by grounding requirements, collapse dynamics, and compute constraints on every measured axis. Its distinctive feature is a dedicated category for self-evaluation: every improvement loop is a claim that some signal can substitute for human judgment. We survey the evaluator design space -- judges, process reward models, verifiers, rubrics, meta-evaluation -- order the signals into a verification hierarchy from formal verifiers (strongest) to intrinsic self-assessment (weakest), and observe that demonstrated self-improvement strength tracks this hierarchy, that its failure modes (self-confirming loops, model collapse, diversity collapse) follow from its violations, and that the "research direction-setting" bottleneck keeping humans in the loop sits at the top of that hierarchy. We connect the technical literature to the theory of RSI limits and to the safety and governance questions raised by frontier-lab accounts of closing the loop, and identify governance-grade measurement of self-improvement as the field's most underpopulated niche.},
+  archiveprefix = {arXiv},
+  keywords = {Computer Science - Artificial Intelligence}
+}
+
+@techreport{committee2025sustained,
+  type = {Scientific Background to the Sveriges Riksbank Prize in Economic Sciences in Memory of Alfred Nobel 2025},
+  title = {Sustained Economic Growth through Technological Progress},
+  author = {{The Committee for the Prize in Economic Sciences in Memory of Alfred Nobel}},
+  year = 2025,
+  address = {Stockholm},
+  institution = {Royal Swedish Academy of Sciences},
+  urldate = {2026-09-02},
+  langid = {english}
+}
+
+@misc{dixit2026ism,
+  title = {ISM:Self-Improving Strategy Memory for Continual Mathematical Reasoning},
+  shorttitle = {ISM},
+  author = {Dixit, Prakhar and Oates, Tim},
+  year = 2026,
+  month = jul,
+  number = {arXiv:2606.31191},
+  eprint = {2606.31191},
+  primaryclass = {cs.LG},
+  publisher = {arXiv},
+  doi = {10.48550/arXiv.2606.31191},
+  urldate = {2026-08-03},
+  abstract = {We propose Intelligent Schema Memory (ISM), a self-evolving memory-augmented system that improves mathematical reasoning for a frozen LLM under continual learning with hard episodic resets. ISM maintains a compact, self-refined bank of strategy schemas learned from both successful and failed episodes, with symbolic tools that check intermediate steps and certify answers. Without updating model parameters, ISM outperforms passive, retrieval, and reflection baselines on MATH-Hard and OlympiadBench, using 64\% and 86\% fewer schemas respectively than the strongest passive baseline. These results show that small, actively maintained, and verified strategy memories can support reliable continual mathematical reasoning under strict episodic isolation. The codebase is available at https://github.com/pdx97/ISM .},
+  archiveprefix = {arXiv},
+  keywords = {Computer Science - Machine Learning}
+}
+
+@article{do2025,
+  title = {ESAC (EQ-SANS Assisting Chatbot): Application of Large Language Models and Retrieval-Augmented Generation for Enhanced User Experience at EQ-SANS},
+  shorttitle = {ESAC (EQ-SANS Assisting Chatbot)},
+  author = {Do, Changwoo and Nagy, Gergely and Heller, William T.},
+  year = 2025,
+  month = sep,
+  journal = {SoftwareX},
+  volume = {31},
+  pages = {102191},
+  issn = {23527110},
+  doi = {10.1016/j.softx.2025.102191},
+  urldate = {2026-09-02},
+  langid = {english}
+}
+
+@misc{dobrin2026kernel,
+  title = {The Unfireable Safety Kernel: Execution-Time AI Alignment for AI Agents and Other Escapable AI Systems},
+  shorttitle = {The Unfireable Safety Kernel},
+  author = {Dobrin, Seth and Chmiel, {\L}ukasz},
+  year = 2026,
+  month = jun,
+  number = {arXiv:2606.26057},
+  eprint = {2606.26057},
+  primaryclass = {cs.AI},
+  publisher = {arXiv},
+  doi = {10.48550/arXiv.2606.26057},
+  urldate = {2026-08-03},
+  abstract = {AI agents are granted access to tools, APIs, and other infrastructure, making them active principals in those systems. The dominant approach places controls inside the agent's own runtime: system prompts, output filters, and guardrail libraries. Any control in the agent's address space is reachable by inputs that influence it; this generalizes to any AI system with sufficient reach into its own runtime, a class we term escapable AI systems. We identify four properties that an authorization mechanism must satisfy for architectural control rather than for cooperative requests: process separation, pre-action enforcement on a structurally only path, fail-closed at both the request and system levels, and externalized signed evidence verifiable outside the controlled system's trust boundary. We position this layer as execution-time AI alignment, complementing training-time alignment (RLHF, Constitutional AI) and inference-time alignment. We present the Unfireable Safety Kernel, a Rust reference implementation realizing all four. Its fail-closed invariant is machine-checked at two levels: an SMT theorem (Z3) and an exhaustive bounded-model-checking proof of the production decision function (Kani, 4/4 harnesses). A Python-to-Rust migration was gated on byte-equivalence (1000/1000 fixtures; 17/17 adversarial classes). We evaluate the kernel governing a live, escapable AI system, a deterministic, self-improving world model, against an escape-seeking adversary driving its real self-modification seam: across 1,000 self-modifications, all 704 attempts on the safety-critical core are refused, with no escape; a further 300, under the operator kill switch, are also refused. A separate campaign of 6,240 authorization round-trips had no successful bypass. Against 3 contemporary systems claiming the agent control plane, the agent invokes control; here, it lacks that choice.},
+  archiveprefix = {arXiv},
+  keywords = {Computer Science - Artificial Intelligence,Computer Science - Cryptography and Security,Computer Science - Machine Learning}
+}
+
+@misc{du2026mlevolve,
+  title = {MLEvolve: A Self-Evolving Framework for Automated Machine Learning Algorithm Discovery},
+  shorttitle = {MLEvolve},
+  author = {Du, Shangheng and Yan, Xiangchao and Shi, Jinxin and Cao, Zongsheng and Feng, Shiyang and Liang, Zichen and Sun, Boyuan and Peng, Tianshuo and Zhou, Yifan and Li, Xin and Zhou, Jie and He, Liang and Zhang, Bo and Bai, Lei},
+  year = 2026,
+  month = jun,
+  number = {arXiv:2606.06473},
+  eprint = {2606.06473},
+  primaryclass = {cs.AI},
+  publisher = {arXiv},
+  doi = {10.48550/arXiv.2606.06473},
+  urldate = {2026-08-03},
+  abstract = {Large language model (LLM) agents are increasingly applied to long-horizon tasks such as scientific discovery and machine learning engineering (MLE), where sustained self-evolution becomes a key capability. However, existing MLE agents suffer from inter-branch information isolation, memoryless search, and lack of hierarchical control, which together hinder long-horizon optimization. We present MLEvolve, an LLM-based self-evolving multi-agent framework for end-to-end machine learning algorithm discovery. By extending tree search to Progressive MCGS, MLEvolve enables cross-branch information flow through graph-based reference edges and gradually shifts the search from broad exploration to focused exploitation with an entropy-inspired progressive schedule. To allow the agent to evolve with accumulated experience, we introduce Retrospective Memory, which combines a cold-start domain knowledge base with a dynamic global memory for task-specific experience retrieval and reuse. For stable long-horizon iteration, we further decouple strategic planning from code generation with adaptive coding modes. Evaluation on MLE-Bench shows that MLEvolve achieves state-of-the-art performance across multiple dimensions including average medal rate and valid submission rate under a 12-hour budget (half the standard runtime). Moreover, MLEvolve also outperforms specialized algorithm discovery methods including AlphaEvolve on mathematical algorithm optimization tasks, demonstrating strong cross-domain generalization. Our code is available at https://github.com/InternScience/MLEvolve.},
+  archiveprefix = {arXiv},
+  keywords = {Computer Science - Artificial Intelligence,Computer Science - Computation and Language}
+}
+
+@misc{everitt2016selfmodification,
+  title = {Self-Modification of Policy and Utility Function in Rational Agents},
+  author = {Everitt, Tom and Filan, Daniel and Daswani, Mayank and Hutter, Marcus},
+  year = 2016,
+  month = may,
+  number = {arXiv:1605.03142},
+  eprint = {1605.03142},
+  primaryclass = {cs.AI},
+  publisher = {arXiv},
+  doi = {10.48550/arXiv.1605.03142},
+  urldate = {2026-08-03},
+  abstract = {Any agent that is part of the environment it interacts with and has versatile actuators (such as arms and fingers), will in principle have the ability to self-modify -- for example by changing its own source code. As we continue to create more and more intelligent agents, chances increase that they will learn about this ability. The question is: will they want to use it? For example, highly intelligent systems may find ways to change their goals to something more easily achievable, thereby `escaping' the control of their designers. In an important paper, Omohundro (2008) argued that goal preservation is a fundamental drive of any intelligent system, since a goal is more likely to be achieved if future versions of the agent strive towards the same goal. In this paper, we formalise this argument in general reinforcement learning, and explore situations where it fails. Our conclusion is that the self-modification possibility is harmless if and only if the value function of the agent anticipates the consequences of self-modifications and use the current utility function when evaluating the future.},
+  archiveprefix = {arXiv},
+  keywords = {Computer Science - Artificial Intelligence}
+}
+
+@misc{fernando2023promptbreeder,
+  title = {Promptbreeder: Self-Referential Self-Improvement Via Prompt Evolution},
+  shorttitle = {Promptbreeder},
+  author = {Fernando, Chrisantha and Banarse, Dylan and Michalewski, Henryk and Osindero, Simon and Rockt{\"a}schel, Tim},
+  year = 2023,
+  month = sep,
+  number = {arXiv:2309.16797},
+  eprint = {2309.16797},
+  primaryclass = {cs.CL},
+  publisher = {arXiv},
+  doi = {10.48550/arXiv.2309.16797},
+  urldate = {2026-08-03},
+  abstract = {Popular prompt strategies like Chain-of-Thought Prompting can dramatically improve the reasoning abilities of Large Language Models (LLMs) in various domains. However, such hand-crafted prompt-strategies are often sub-optimal. In this paper, we present Promptbreeder, a general-purpose self-referential self-improvement mechanism that evolves and adapts prompts for a given domain. Driven by an LLM, Promptbreeder mutates a population of task-prompts, and subsequently evaluates them for fitness on a training set. Crucially, the mutation of these task-prompts is governed by mutation-prompts that the LLM generates and improves throughout evolution in a self-referential way. That is, Promptbreeder is not just improving task-prompts, but it is also improving the mutationprompts that improve these task-prompts. Promptbreeder outperforms state-of-the-art prompt strategies such as Chain-of-Thought and Plan-and-Solve Prompting on commonly used arithmetic and commonsense reasoning benchmarks. Furthermore, Promptbreeder is able to evolve intricate task-prompts for the challenging problem of hate speech classification.},
+  archiveprefix = {arXiv},
+  keywords = {Computer Science - Artificial Intelligence,Computer Science - Computation and Language,Computer Science - Machine Learning,Computer Science - Neural and Evolutionary Computing}
+}
+
+@misc{gao2022overoptimization,
+  title = {Scaling Laws for Reward Model Overoptimization},
+  author = {Gao, Leo and Schulman, John and Hilton, Jacob},
+  year = 2022,
+  month = oct,
+  number = {arXiv:2210.10760},
+  eprint = {2210.10760},
+  primaryclass = {cs.LG},
+  publisher = {arXiv},
+  doi = {10.48550/arXiv.2210.10760},
+  urldate = {2026-08-03},
+  abstract = {In reinforcement learning from human feedback, it is common to optimize against a reward model trained to predict human preferences. Because the reward model is an imperfect proxy, optimizing its value too much can hinder ground truth performance, in accordance with Goodhart's law. This effect has been frequently observed, but not carefully measured due to the expense of collecting human preference data. In this work, we use a synthetic setup in which a fixed "gold-standard" reward model plays the role of humans, providing labels used to train a proxy reward model. We study how the gold reward model score changes as we optimize against the proxy reward model using either reinforcement learning or best-of-\$n\$ sampling. We find that this relationship follows a different functional form depending on the method of optimization, and that in both cases its coefficients scale smoothly with the number of reward model parameters. We also study the effect on this relationship of the size of the reward model dataset, the number of reward model and policy parameters, and the coefficient of the KL penalty added to the reward in the reinforcement learning setup. We explore the implications of these empirical results for theoretical considerations in AI alignment.},
+  archiveprefix = {arXiv},
+  keywords = {Computer Science - Machine Learning,Statistics - Machine Learning}
+}
+
+@misc{gautam2026skillaxe,
+  title = {SkillAxe: Sharpening LLM-Authored Agent Skills Through Evaluation-Guided Self-Refinement},
+  shorttitle = {SkillAxe},
+  author = {Gautam, Srishti and Radhakrishna, Arjun and Gulwani, Sumit},
+  year = 2026,
+  month = jun,
+  number = {arXiv:2606.10546},
+  eprint = {2606.10546},
+  primaryclass = {cs.MA},
+  publisher = {arXiv},
+  doi = {10.48550/arXiv.2606.10546},
+  urldate = {2026-08-03},
+  abstract = {Skill documents, structured natural-language instructions that guide Large Language Model (LLM) agents, are critical to modern agent frameworks, yet LLMs struggle to write skills that actually work. On SkillsBench, human-authored skills improve pass rates by 16.2 percentage points, while LLM-authored skills provide no measurable gain. We introduce SkillAxe, a fully unsupervised framework that enables LLMs to iteratively diagnose and refine their own skills. SkillAxe decomposes skill quality into four interpretable dimensions (quality impact, trigger precision, instruction compliance with fault attribution, and solution-path coverage), producing structured improvement briefs that require no ground-truth labels, test suites, or environment rewards. On SkillsBench, SkillAxe improves pass rates by 28\textbackslash\% relative over unimproved LLM skills and closes 47--67\textbackslash\% of the gap to human-authored skills. We validate the approach as a continuous improvement engine in the wild on SpreadsheetBench, where a SkillAxe-built skill library learns from past agent trajectories and raises pass rate from 16.0\textbackslash\% to 52.0\textbackslash\% using only 22 skills.},
+  archiveprefix = {arXiv},
+  keywords = {Computer Science - Multiagent Systems}
+}
+
+@misc{gong2026skillmoo,
+  title = {SkillMOO: Multi-Objective Optimization of Agent Skills for Software Engineering},
+  shorttitle = {SkillMOO},
+  author = {Gong, Jingzhi and Gu, Ruizhen and Fei, Zhiwei and Cao, Yazhuo and Twist, Lukas and Geiger, Alina and Han, Shuo and Sobania, Dominik and Sarro, Federica and Zhang, Jie M.},
+  year = 2026,
+  month = may,
+  number = {arXiv:2604.09297},
+  eprint = {2604.09297},
+  primaryclass = {cs.SE},
+  publisher = {arXiv},
+  doi = {10.48550/arXiv.2604.09297},
+  urldate = {2026-08-03},
+  abstract = {Agent skills are increasingly used to configure coding agents for software engineering (SE) tasks, yet current practice treats them as static, hand-crafted assets, or evolved on pass rate alone. This is insufficient: a skill can improve task success while substantially raising token cost, or introducing misleading guidance. We argue that SE agent skill bundles can be treated as multi-objective search objects and present SkillMOO, a framework that evolves skill bundles through LLM-proposed edits and NSGA-II Pareto selection on pass rate and inference cost. Evaluated across all 16 SkillsBench SE tasks, SkillMOO achieves the top pass rate rank on 11 of 12 non-zero-pass tasks while achieving cost reductions of up to 31.7\% over static bundles, with pass rate gains up to 21 percentage points. Analysis of 38 skill edits shows that pruning and substitution dominate successful operations, offering actionable principles for skill bundle design. Thereby, the current practice of deploying skills without cost-aware validation leaves better skill configurations unexplored, motivating a new class of cost-aware, search-based skill engineering.},
+  archiveprefix = {arXiv},
+  keywords = {Computer Science - Artificial Intelligence,Computer Science - Software Engineering}
+}
+
+@incollection{good1966ultraintelligent,
+  title = {Speculations Concerning the First Ultraintelligent Machine},
+  booktitle = {Advances in Computers},
+  author = {Good, Irving John},
+  year = 1966,
+  volume = {6},
+  pages = {31--88},
+  publisher = {Elsevier},
+  doi = {10.1016/S0065-2458(08)60418-0},
+  urldate = {2026-08-03},
+  isbn = {978-0-12-012106-9},
+  langid = {english}
+}
+
+@misc{herrmann2026interestingness,
+  title = {Interestingness as an Inductive Heuristic for Future Compression Progress},
+  author = {Herrmann, Vincent and Schmidhuber, J{\"u}rgen},
+  year = 2026,
+  month = may,
+  number = {arXiv:2605.14831},
+  eprint = {2605.14831},
+  primaryclass = {cs.AI},
+  publisher = {arXiv},
+  doi = {10.48550/arXiv.2605.14831},
+  urldate = {2026-08-03},
+  abstract = {One of the bottlenecks on the way towards recursively self-improving systems is the challenge of interestingness: the ability to prospectively identify which tasks or data hold the potential for future progress. We formalize interestingness as an inductive heuristic for future compression progress and investigate its predictability using tools from Kolmogorov Complexity and Algorithmic Statistics. By analyzing complexity-runtime profiles under Length, Algorithmic, and Speed priors, we demonstrate that the inductive property of interestingness -- the capacity for past progress to signal future discovery -- is theoretically viable and empirically supported. We prove that expected future progress depends exponentially on the recency of the last observed breakthrough. Furthermore, we show that the Algorithmic Prior is significantly more optimistic than the Length Prior, yielding a quadratic increase in expected discovery for the same observed profile. These findings are experimentally confirmed across three diverse universal computational paradigms.},
+  archiveprefix = {arXiv},
+  keywords = {Computer Science - Artificial Intelligence,Computer Science - Machine Learning}
+}
+
+@article{hota2020,
+  title = {Embedding Meta Information into Visualizations},
+  author = {Hota, Alok and Huang, Jian},
+  year = 2020,
+  journal = {IEEE Transactions on Visualization and Computer Graphics},
+  volume = {26},
+  number = {11},
+  pages = {3189--3203},
+  doi = {10.1109/TVCG.2019.2916098}
+}
+
+@misc{hou2025,
+  title = {PaperDebugger: A Plugin-Based Multi-Agent System for In-Editor Academic Writing, Review, and Editing},
+  author = {Hou, Junyi and Huikai, Andre Lin and Chen, Nuo and Gong, Yiwei and He, Bingsheng},
+  year = 2025,
+  number = {arXiv:2512.02589},
+  eprint = {2512.02589},
+  publisher = {arXiv},
+  archiveprefix = {arXiv}
+}
+
+@misc{hu2024adas,
+  title = {Automated Design of Agentic Systems},
+  author = {Hu, Shengran and Lu, Cong and Clune, Jeff},
+  year = 2024,
+  eprint = {2408.08435},
+  primaryclass = {cs.AI},
+  doi = {10.48550/arXiv.2408.08435},
+  archiveprefix = {arXiv}
+}
+
+@misc{huang2023cannotselfcorrect,
+  title = {Large Language Models Cannot Self-Correct Reasoning Yet},
+  author = {Huang, Jie and Chen, Xinyun and Mishra, Swaroop and Zheng, Huaixiu Steven and Yu, Adams Wei and Song, Xinying and Zhou, Denny},
+  year = 2024,
+  month = mar,
+  number = {arXiv:2310.01798},
+  eprint = {2310.01798},
+  primaryclass = {cs},
+  publisher = {arXiv},
+  doi = {10.48550/arXiv.2310.01798},
+  urldate = {2024-06-15},
+  abstract = {Large Language Models (LLMs) have emerged as a groundbreaking technology with their unparalleled text generation capabilities across various applications. Nevertheless, concerns persist regarding the accuracy and appropriateness of their generated content. A contemporary methodology, self-correction, has been proposed as a remedy to these issues. Building upon this premise, this paper critically examines the role and efficacy of self-correction within LLMs, shedding light on its true potential and limitations. Central to our investigation is the notion of intrinsic self-correction, whereby an LLM attempts to correct its initial responses based solely on its inherent capabilities, without the crutch of external feedback. In the context of reasoning, our research indicates that LLMs struggle to self-correct their responses without external feedback, and at times, their performance even degrades after self-correction. Drawing from these insights, we offer suggestions for future research and practical applications in this field.},
+  archiveprefix = {arXiv},
+  keywords = {Computer Science - Artificial Intelligence,Computer Science - Computation and Language}
+}
+
+@misc{huang2025rzero,
+  title = {R-Zero: Self-Evolving Reasoning LLM from Zero Data},
+  shorttitle = {R-Zero},
+  author = {Huang, Chengsong and Yu, Wenhao and Wang, Xiaoyang and Zhang, Hongming and Li, Zongxia and Li, Ruosen and Huang, Jiaxin and Mi, Haitao and Yu, Dong},
+  year = 2026,
+  month = feb,
+  number = {arXiv:2508.05004},
+  eprint = {2508.05004},
+  primaryclass = {cs.LG},
+  publisher = {arXiv},
+  doi = {10.48550/arXiv.2508.05004},
+  urldate = {2026-08-03},
+  abstract = {Self-evolving Large Language Models (LLMs) offer a scalable path toward super-intelligence by autonomously generating, refining, and learning from their own experiences. However, existing methods for training such models still rely heavily on vast human-curated tasks and labels, typically via fine-tuning or reinforcement learning, which poses a fundamental bottleneck to advancing AI systems toward capabilities beyond human intelligence. To overcome this limitation, we introduce R-Zero, a fully autonomous framework that generates its own training data from scratch. Starting from a single base LLM, R-Zero initializes two independent models with distinct roles, a Challenger and a Solver. These models are optimized separately and co-evolve through interaction: the Challenger is rewarded for proposing tasks near the edge of the Solver capability, and the Solver is rewarded for solving increasingly challenging tasks posed by the Challenger. This process yields a targeted, self-improving curriculum without any pre-existing tasks and labels. Empirically, R-Zero substantially improves reasoning capability across different backbone LLMs, e.g., boosting the Qwen3-4B-Base by +6.49 on math-reasoning benchmarks and +7.54 on general-domain reasoning benchmarks.},
+  archiveprefix = {arXiv},
+  keywords = {Computer Science - Artificial Intelligence,Computer Science - Computation and Language,Computer Science - Machine Learning}
+}
+
+@misc{huang2026a,
+  title = {From Experiments to Expertise: Scientific Knowledge Consolidation for AI-Driven Computational Physics},
+  author = {Huang, Haonan},
+  year = 2026,
+  number = {arXiv:2603.13191},
+  eprint = {2603.13191},
+  publisher = {arXiv},
+  archiveprefix = {arXiv}
+}
+
+@misc{huang2026gzero,
+  title = {G-Zero: Self-Play for Open-Ended Generation from Zero Data},
+  shorttitle = {G-Zero},
+  author = {Huang, Chengsong and Liu, Haolin and Zheng, Tong and Dai, Runpeng and Huang, Langlin and Li, Jinyuan and Li, Zongxia and Wei, Zhepei and Meng, Yu and Huang, Jiaxin},
+  year = 2026,
+  month = may,
+  number = {arXiv:2605.09959},
+  eprint = {2605.09959},
+  primaryclass = {cs.LG},
+  publisher = {arXiv},
+  doi = {10.48550/arXiv.2605.09959},
+  urldate = {2026-08-03},
+  abstract = {Self-evolving LLMs excel in verifiable domains but struggle in open-ended tasks, where reliance on proxy LLM judges introduces capability bottlenecks and reward hacking. To overcome this, we introduce G-Zero, a verifier-free, co-evolutionary framework for autonomous self-improvement. Our core innovation is Hint-\${$\delta\$$}, an intrinsic reward that quantifies the predictive shift between a Generator model's unassisted response and its response conditioned on a self-generated hint. Using this signal, a Proposer model is trained via GRPO to continuously target the Generator's blind spots by synthesizing challenging queries and informative hints. The Generator is concurrently optimized via DPO to internalize these hint-guided improvements. Theoretically, we prove a best-iterate suboptimality guarantee for an idealized standard-DPO version of G-Zero, provided that the Proposer induces sufficient exploration coverage and the data filteration keeps pseudo-label score noise low. By deriving supervision entirely from internal distributional dynamics, G-Zero bypasses the capability ceilings of external judges, providing a scalable, robust pathway for continuous LLM self-evolution across unverifiable domains.},
+  archiveprefix = {arXiv},
+  keywords = {Computer Science - Artificial Intelligence,Computer Science - Computation and Language,Computer Science - Emerging Technologies,Computer Science - Machine Learning}
+}
+
+@misc{iacob2026redqueen,
+  title = {The Red Queen G\"odel Machine: Co-Evolving Agents and Their Evaluators},
+  shorttitle = {The Red Queen G\"odel Machine},
+  author = {Iacob, Alex and Jovanovi{\'c}, Andrej and Shen, William F. and Burkhardt, Daniel and Kurmanji, Meghdad and Tastan, Nurbek and Sani, Lorenzo and Venanzi, Niccol{\`o} Alberto Elia and Odonnat, Ambroise and Cao, Zeyu and Marino, Bill and Qiu, Xinchi and Lane, Nicholas D.},
+  year = 2026,
+  month = jun,
+  number = {arXiv:2606.26294},
+  eprint = {2606.26294},
+  primaryclass = {cs.LG},
+  publisher = {arXiv},
+  doi = {10.48550/arXiv.2606.26294},
+  urldate = {2026-08-03},
+  abstract = {Self-improving agents are state-of-the-art (SOTA) on agentic coding benchmarks and have recently been extended to general domains. However, their search methods generally assume a stationary evaluation criterion: a fixed verifier, benchmark, or labeled dataset that remains valid as the agent improves. This ignores a central feature of evolution: species adapt as their environments change with them. We aim to bring the same principle to recursive self-improvement, making evaluation part of the improvement loop and opening search to evolving evaluators, adversarial objectives, and dynamic utilities that may surpass static benchmarks. We introduce the Red Queen Godel Machine (RQGM), an evolutionary framework for recursive self-improvement under non-stationary utilities. The RQGM makes this possible through controlled utility evolution: search is organized into epochs with a fixed within-epoch evaluation criterion, while the utility can be updated at epoch boundaries, so self-improvement guarantees hold per epoch as the objective evolves across them. We begin by showing that even on verifiable coding tasks, the RQGM improves test pass rate over the prior SOTA by adding a complementary agent-as-a-judge code-review signal. This signal is cheaper and the RQGM uses 1.35x-1.72x fewer tokens. We then turn to scientific paper writing and reviewing, and Olympiad-level proof writing and grading, where the RQGM improves performance over prior self-improving agents: co-evolved writers reach 1.78x-1.86x higher acceptance rates under a diverse agent-as-a-judge panel, while co-evolved graders reach 9\% higher ground-truth accuracy. In paper reviewing, the strongest baseline reviewer over-accepts AI-generated papers at up to 1.91x the human rate. The RQGM corrects this by introducing an adversarial objective that discovers reviewers equally stringent on AI and human work.},
+  archiveprefix = {arXiv},
+  keywords = {Computer Science - Artificial Intelligence,Computer Science - Machine Learning,Computer Science - Multiagent Systems,Computer Science - Neural and Evolutionary Computing}
+}
+
+@article{ifargan2025,
+  title = {Autonomous LLM-Driven Research --- from Data to Human-Verifiable Research Papers},
+  author = {Ifargan, Tal and Hafner, Lukas and Kern, Maor and Alcalay, Ori and Kishony, Roy},
+  year = 2025,
+  journal = {NEJM AI},
+  volume = {2},
+  number = {1},
+  doi = {10.1056/AIoa2400555}
+}
+
+@misc{khattab2023dspy,
+  title = {DSPy: Compiling Declarative Language Model Calls into Self-Improving Pipelines},
+  shorttitle = {DSPy},
+  author = {Khattab, Omar and Singhvi, Arnav and Maheshwari, Paridhi and Zhang, Zhiyuan and Santhanam, Keshav and Vardhamanan, Sri and Haq, Saiful and Sharma, Ashutosh and Joshi, Thomas T. and Moazam, Hanna and Miller, Heather and Zaharia, Matei and Potts, Christopher},
+  year = 2023,
+  month = oct,
+  number = {arXiv:2310.03714},
+  eprint = {2310.03714},
+  primaryclass = {cs.CL},
+  publisher = {arXiv},
+  doi = {10.48550/arXiv.2310.03714},
+  urldate = {2026-08-03},
+  abstract = {The ML community is rapidly exploring techniques for prompting language models (LMs) and for stacking them into pipelines that solve complex tasks. Unfortunately, existing LM pipelines are typically implemented using hard-coded "prompt templates", i.e. lengthy strings discovered via trial and error. Toward a more systematic approach for developing and optimizing LM pipelines, we introduce DSPy, a programming model that abstracts LM pipelines as text transformation graphs, i.e. imperative computational graphs where LMs are invoked through declarative modules. DSPy modules are parameterized, meaning they can learn (by creating and collecting demonstrations) how to apply compositions of prompting, finetuning, augmentation, and reasoning techniques. We design a compiler that will optimize any DSPy pipeline to maximize a given metric. We conduct two case studies, showing that succinct DSPy programs can express and optimize sophisticated LM pipelines that reason about math word problems, tackle multi-hop retrieval, answer complex questions, and control agent loops. Within minutes of compiling, a few lines of DSPy allow GPT-3.5 and llama2-13b-chat to self-bootstrap pipelines that outperform standard few-shot prompting (generally by over 25\% and 65\%, respectively) and pipelines with expert-created demonstrations (by up to 5-46\% and 16-40\%, respectively). On top of that, DSPy programs compiled to open and relatively small LMs like 770M-parameter T5 and llama2-13b-chat are competitive with approaches that rely on expert-written prompt chains for proprietary GPT-3.5. DSPy is available at https://github.com/stanfordnlp/dspy},
+  archiveprefix = {arXiv},
+  keywords = {Computer Science - Artificial Intelligence,Computer Science - Computation and Language,Computer Science - Information Retrieval,Computer Science - Machine Learning}
+}
+
+@misc{kim2026,
+  title = {LEDGER: Claim-to-Evidence Trace Graphs for Auditing LLM Agents},
+  author = {Kim, Daehong and Miao, Haichao and Liu, Shusen},
+  year = 2026,
+  number = {arXiv:2608.18398},
+  eprint = {2608.18398},
+  publisher = {arXiv},
+  archiveprefix = {arXiv}
+}
+
+@incollection{kluyverthomas2016,
+  title = {Jupyter Notebooks \&amp;Ndash; a Publishing Format for Reproducible Computational Workflows},
+  booktitle = {Positioning and Power in Academic Publishing: Players, Agents and Agendas},
+  author = {Kluyver Thomas and {Ragan-Kelley Benjamin} and P\&eacute;rez Fernando and Granger Brian and Bussonnier Matthias and Frederic Jonathan and Kelley Kyle and Hamrick Jessica and Grout Jason and Corlay Sylvain and Ivanov Paul and Avila Dami\&aacute;n and Abdalla Safia and Willing Carol and Jupyter Development Team},
+  year = 2016,
+  publisher = {IOS Press},
+  doi = {10.3233/978-1-61499-649-1-87},
+  urldate = {2026-02-22}
+}
+
+@article{koop2011,
+  title = {A Provenance-Based Infrastructure to Support the Life Cycle of Executable Papers},
+  author = {Koop, David and Santos, Emanuele and Mates, Phillip and Vo, Huy T. and Bonnet, Philippe and Bauer, Bela and Surer, Brigitte and Troyer, Matthias and Williams, Dean N. and Tohline, Joel E. and Freire, Juliana and Silva, Cl{\'a}udio T.},
+  year = 2011,
+  journal = {Procedia Computer Science},
+  volume = {4},
+  pages = {648--657},
+  doi = {10.1016/j.procs.2011.04.068}
+}
+
+@misc{lee2026metaharness,
+  title = {Meta-Harness: End-to-End Optimization of Model Harnesses},
+  author = {Lee, Yoonho and Nair, Roshen and Zhang, Qizheng and Lee, Kangwook and Khattab, Omar and Finn, Chelsea},
+  year = 2026,
+  eprint = {2603.28052},
+  primaryclass = {cs.AI},
+  doi = {10.48550/arXiv.2603.28052},
+  archiveprefix = {arXiv}
+}
+
+@misc{lee2026rhi,
+  title = {Recursive Harness Self-Improvement},
+  author = {Lee, Hyunin and Xu, Jinglue and Seely, Jeffrey and Lee, Donghyun and Zaharia, Matei and Tang, Yujin},
+  year = 2026,
+  eprint = {2607.15524},
+  primaryclass = {cs.LG},
+  doi = {10.48550/arXiv.2607.15524},
+  archiveprefix = {arXiv}
+}
+
+@article{leo2024,
+  title = {Recording Provenance of Workflow Runs with RO-Crate},
+  author = {Leo, Simone and Crusoe, Michael R. and {Rodr{\'i}guez-Navas}, Laura and Sirvent, Ra{\"u}l and Kanitz, Alexander and De Geest, Paul and Wittner, Rudolf and Pireddu, Luca and Garijo, Daniel and Fern{\'a}ndez, Jos{\'e} M. and Colonnelli, Iacopo and Gallo, Matej and Ohta, Tazro and Suetake, Hirotaka and {Capella-Gutierrez}, Salvador and {de Wit}, Renske and Kinoshita, Bruno P. and {Soiland-Reyes}, Stian},
+  year = 2024,
+  journal = {PLOS ONE},
+  volume = {19},
+  number = {9},
+  pages = {e0309210},
+  doi = {10.1371/journal.pone.0309210}
+}
+
+@misc{liao2026experiencegraphs,
+  title = {Experience Graphs: The Data Foundation for Self-Improving Agents},
+  shorttitle = {Experience Graphs},
+  author = {Liao, Gang and He, Yujia and Ozturk, Abdullah and Li, Zhouyang and Wang, Ying and Guo, Zhitong and Qin, Hongsen and Qin, Yaobin and Yang, Tao and Jiang, Zewei and Li, Dianshi and Gemmeke, Jort and Li, Jiangyuan and Li, Liyuan and Yan, Nathan and Basmanova, Masha and Pashkevich, Uladzimir and Steiner, Matt and Pedreira, Pedro and Fergus, Rob and Goyal, Anirudh and Wu, Carole-Jean and Liu, Gaoxiang and Witten, Andrew and Abadi, Daniel J.},
+  year = 2026,
+  month = jun,
+  number = {arXiv:2606.29823},
+  eprint = {2606.29823},
+  primaryclass = {cs.DB},
+  publisher = {arXiv},
+  doi = {10.48550/arXiv.2606.29823},
+  urldate = {2026-08-03},
+  abstract = {The database community has repeatedly advanced the state of the art by recognizing that new workloads demand new system architectures. We argue that long-horizon agentic tasks -- code generation, scientific discovery, hardware design -- are such a workload. These agents explore: they generate artifacts, execute tools, observe failures, branch, and repair over hundreds of steps. This search produces a structured object we call an experience graph: executable artifacts, tool outputs, rewards, sibling comparisons, and causal lineage. Yet existing agent frameworks treat this experience as disposable state -- JSON checkpoints and session logs that cannot be recovered after a crash, queried across users, or materialized into training data. We propose Trellis: a data foundation that treats the experience graph as first-class, governed, queryable database state. The core insight is that search over experience graphs is a database access pattern. Frontier selection is a query, cross-session reuse is vector-seeded graph retrieval, training-data extraction is a materialized view, and reconstructing what an agent knew at any past step is a time-travel query. When the database owns the experience graph, agents become stateless compute, and crash recovery, horizontal scaling, and a closed-loop training flywheel emerge as architectural byproducts. We ground the design in KernelEvolve, a production accelerator-kernel optimizer at Meta, where cross-session reuse reaches a target speedup roughly 10x faster at 52\% lower token cost. More broadly, Trellis turns inference-time search from disposable computation into a durable institutional asset: logs made databases reliable; experience graphs may make agents cumulative.},
+  archiveprefix = {arXiv},
+  keywords = {Computer Science - Artificial Intelligence,Computer Science - Databases,Computer Science - Multiagent Systems}
+}
+
+@misc{lin2026ahe,
+  title = {Agentic Harness Engineering: Observability-Driven Automatic Evolution of Coding-Agent Harnesses},
+  author = {Lin, Jiahang and Liu, Shichun and Pan, Chengjun and Lin, Lizhi and Dou, Shihan and Xi, Zhiheng and Huang, Xuanjing and Yan, Hang and Han, Zhenhua and Gui, Tao and Jiang, Yu-Gang},
+  year = 2026,
+  eprint = {2604.25850},
+  primaryclass = {cs.CL},
+  doi = {10.48550/arXiv.2604.25850},
+  archiveprefix = {arXiv}
+}
+
+@misc{lin2026amnesia,
+  title = {Repeated Post-Training Is Not Self-Improving: Diagnosing Scientific Amnesia in Continual DPO Pipelines},
+  shorttitle = {Repeated Post-Training Is Not Self-Improving},
+  author = {Lin, Jianzhe and Wang, Fei and Li, Xiaolin and Golani, Rajeshkumar and Chheda, Jubin},
+  year = 2026,
+  month = jun,
+  number = {arXiv:2606.21089},
+  eprint = {2606.21089},
+  primaryclass = {cs.AI},
+  publisher = {arXiv},
+  doi = {10.48550/arXiv.2606.21089},
+  urldate = {2026-08-03},
+  abstract = {Industrial LLM teams often ship behavior updates by repeatedly DPO-training a base model on sequences of related preference-data campaigns. The dominant failure mode in this regime is not always classical catastrophic forgetting: a pipeline may preserve previously learned behaviors while still failing to accumulate reusable methodological knowledge about how to train the next campaign. We call this failure mode scientific amnesia. This paper turns that practitioner intuition into a measurable industrial problem. We contribute: (i) a diagnostic suite for amnesia, (ii) a Program-based pipeline that chains FSDP-sharded DPO checkpoints across Qwen2.5-7B-Instruct runs, (iii) a 30-campaign HumanEval subdomain benchmark, and (iv) a comparative diagnostic study of five strategy proposers: random memory, rule-based scheduling, retrieval-only memory, warm-start Bayesian optimization, and MSCL, a meta-scientific memory and reasoner candidate. Across a single-seed 5-condition * 3-step real-LM chain, 4 of 5 candidates degrade in step-level peak pass@1, including MSCL; only the deliberately conservative rule-based schedule improves. Follow-up pilots qualify rather than overturn this finding: in a heterogeneous chain, MSCL is the only completed candidate that improves, whereas in a small multi-seed homogeneous sweep, retrieval-only has the best mean Delta and no pairwise candidate gap is statistically distinguishable. The contribution is therefore diagnostic, not a claim that MSCL solves the problem: scientific amnesia is observable in a production-like continual-DPO pipeline, and conclusions about interventions depend sharply on chain regime, evaluator design, and seed coverage.},
+  archiveprefix = {arXiv},
+  keywords = {Computer Science - Artificial Intelligence}
+}
+
+@misc{lin2026safety,
+  title = {Safety in Self-Evolving LLM Agent Systems: Threats, Amplification, and Case Studies},
+  shorttitle = {Safety in Self-Evolving LLM Agent Systems},
+  author = {Lin, Ruixiao and Deng, Xinhao and Li, Qingming and Ma, Jianan and Feng, Yunhao and Qing, Yuqi and Li, Zhenyuan and Zhang, Yechao and Cui, Shiwen and Meng, Changhua and Zhang, Tianwei and Ma, Xingjun and Li, Qi and Xu, Ke and Ji, Shouling},
+  year = 2026,
+  month = jun,
+  number = {arXiv:2606.23075},
+  eprint = {2606.23075},
+  primaryclass = {cs.CR},
+  publisher = {arXiv},
+  doi = {10.48550/arXiv.2606.23075},
+  urldate = {2026-08-03},
+  abstract = {Self-evolving LLM agent systems, which autonomously update their model parameters, memory, tools, and architectures, introduce a qualitatively new threat landscape in which adversarial influences become permanently encoded, self-amplify across generations, and propagate through populations without sustained attacker access. We present a systematic security and privacy analysis organized around the Module-Lifecycle Attack Surface (MLAS) matrix, which decomposes the attack surface into five functional modules (Brain, Cognitive Resource, Execution, Self-Design, Collective) \$\textbackslash times\$ five lifecycle stages (Bootstrap, Propose, Evaluate, Commit, Serve). Analysis of the resulting 25 cells reveals that 17 face critical threats for which no effective partial mitigation. We identify seven cross-cutting amplification effects that interact synergistically and cannot be addressed by securing individual modules in isolation. Comparative case studies of two open-source frameworks demonstrate that evolution-native design activates \$3.5\textbackslash times\$ more attack surface cells and achieves a 100\% attack persistence rate (40/40 payloads across all CIA+Privacy categories), while co-located security scanners block only 2.5\% of attacks. Our findings establish that self-evolution converts every known attack category from session-bounded to lineage-persistent, gives rise to entirely new attack classes, and renders static defenses structurally inadequate, motivating evolution-aware security frameworks and formal verification for self-modifying systems.},
+  archiveprefix = {arXiv},
+  keywords = {Computer Science - Artificial Intelligence,Computer Science - Cryptography and Security}
+}
+
+@misc{lin2026selfregress,
+  title = {Self-Improvement Can Self-Regress: The Rise-and-Collapse Failure Mode of LLM Self-Training},
+  shorttitle = {Self-Improvement Can Self-Regress},
+  author = {Lin, Jianzhe},
+  year = 2026,
+  month = jun,
+  number = {arXiv:2606.21090},
+  eprint = {2606.21090},
+  primaryclass = {cs.AI},
+  publisher = {arXiv},
+  doi = {10.48550/arXiv.2606.21090},
+  urldate = {2026-08-03},
+  abstract = {Self-improvement can self-regress. In REINFORCE post-training for code, a model can quickly improve on its optimized metric and then collapse within the same training campaign. We study this in a controlled multi-seed testbed using Qwen-2.5-3B and Qwen-2.5-7B, trained on competitive-programming tasks with binary CodeGrader reward across 10 sequential 20-step campaigns. Across campaigns, pass@1 shows a robust rise-then-collapse pattern: it peaks within tens of gradient steps and then falls back, sometimes to near zero. This is not cross-task catastrophic forgetting, but within-task policy over-optimization on a fixed distribution; KL- and EWC-style constraints do not prevent it. We ask where the control loop should sit. We compare three levels: CARE, a between-campaign memory mechanism with a capability posterior, transfer gate, and regression-aware belief revision; ES, a within-campaign early-stop rule that rolls forward the peak checkpoint and sets the next budget to peak\_step+3; and GRPO, which changes the RL update using group-relative reward normalization. The answer is regime-dependent. On Qwen-2.5-3B, where naive REINFORCE is fragile, CARE v2 nearly doubles end-of-chain pass@1 from 4.9\% to 9.5\%, with paired bootstrap 95\% CI [+0.4,+8.9] and gains in 4/5 seeds. On Qwen-2.5-7B, CARE reaches parity with naive REINFORCE, 13.8\% vs. 11.8\%, while ES reaches 22.2\% [14.1,28.0]. Out-of-the-box GRPO reaches 20.7\% [15.7,25.1], nearly matching REINFORCE+ES. GRPO raises the floor but does not remove the cliff. Its 7B gain mainly comes from better between-campaign carryover, while the within-campaign peak-to-end gap remains about 17 points under both REINFORCE and GRPO. GRPO+ES gives mixed evidence: 2/3 seeds improve, but one final cliff lowers the mean to 17.0\% [0.0,28.1]. A Gemma-3-4B pilot shows the same signature, suggesting the phenomenon is not limited to Qwen.},
+  archiveprefix = {arXiv},
+  keywords = {Computer Science - Artificial Intelligence,Computer Science - Machine Learning}
+}
+
+@misc{liu2026,
+  title = {The Last Human-Written Paper: Agent-Native Research Artifacts},
+  author = {Liu, Jiachen and Pei, Jiaxin and Huang, Jintao and Si, Chenglei and Qu, Ao and Tang, Xiangru and Lu, Runyu and Chen, Lichang and Bai, Xiaoyan and Zheng, Haizhong and Chen, Carl and Chen, Zhiyang and Ye, Haojie and Fu, Yujuan and He, Zexue and Jin, Zijian and Zhang, Zhenyu and Sun, Shangquan and Harmon, Maestro and Wang, John Dianzhuo and Zeng, Jianqiao and Sun, Jiachen and Wu, Mingyuan and Zhou, Baoyu and You, Chenyu and Lu, Shijian and Qiu, Yiming and Lai, Fan and Yuan, Yuan and Li, Yao and Hong, Junyuan and Zhu, Ruihao and Chen, Beidi and Pentland, Alex and Chen, Ang and Chowdhury, Mosharaf and Zhang, Zechen},
+  year = 2026,
+  number = {arXiv:2604.24658},
+  eprint = {2604.24658},
+  publisher = {arXiv},
+  archiveprefix = {arXiv}
+}
+
+@misc{liu2026escher,
+  title = {Escher-Loop: Mutual Evolution by Closed-Loop Self-Referential Optimization},
+  shorttitle = {Escher-Loop},
+  author = {Liu, Ziyang and Guo, Xinyan and Wei, Xuchen and Hao, Han and Yang, Liu},
+  year = 2026,
+  month = may,
+  number = {arXiv:2604.23472},
+  eprint = {2604.23472},
+  primaryclass = {cs.AI},
+  publisher = {arXiv},
+  doi = {10.48550/arXiv.2604.23472},
+  urldate = {2026-08-03},
+  abstract = {While recent autonomous agents demonstrate impressive capabilities, they predominantly rely on manually scripted workflows and handcrafted heuristics, inherently limiting their potential for open-ended improvement. To address this, we propose Escher-Loop, a fully closed-loop framework that operationalizes the mutual evolution of two distinct populations: Task Agents that solve concrete problems, and Optimizer Agents that recursively refine both the task agents and themselves. To sustain this self-referential evolution, we propose a dynamic benchmarking mechanism that seamlessly reuses the empirical scores of newly generated task agents as relative win-loss signals to update optimizers' scores. This mechanism leverages the evolution of task agents as an inherent signal to drive the evaluation and refinement of optimizers without additional overhead. Empirical evaluations on mathematical optimization problems demonstrate that Escher-Loop effectively pushes past the performance ceilings of static baselines, achieving the highest absolute peak performance across all evaluated tasks under matched compute. Remarkably, we observe that the optimizer agents dynamically adapt their strategies to match the shifting demands of high-performing task agents, which explains the system's continuous improvement and superior late-stage performance.},
+  archiveprefix = {arXiv},
+  keywords = {Computer Science - Artificial Intelligence}
+}
+
+@article{lu2026,
+  title = {Towards End-to-End Automation of AI Research},
+  author = {Lu, Chris and Lu, Cong and Lange, Robert Tjarko and Yamada, Yutaro and Hu, Shengran and Foerster, Jakob and Ha, David and Clune, Jeff},
+  year = 2026,
+  journal = {Nature},
+  volume = {651},
+  number = {8107},
+  pages = {914--919},
+  doi = {10.1038/s41586-026-10265-5}
+}
+
+@article{gottweis2026coscientist,
+  title = {Accelerating Scientific Discovery with {Co-Scientist}},
+  author = {Gottweis, Juraj and Weng, Wei-Hung and Daryin, Alexander and Tu, Tao and others},
+  year = 2026,
+  journal = {Nature},
+  volume = {655},
+  number = {8122},
+  pages = {487--496},
+  doi = {10.1038/s41586-026-10644-y}
+}
+
+@article{swanson2025virtuallab,
+  title = {The Virtual Lab of {AI} Agents Designs New {SARS-CoV-2} Nanobodies},
+  author = {Swanson, Kyle and Wu, Wesley and Bulaong, Nash L. and Pak, John E. and Zou, James},
+  year = 2025,
+  journal = {Nature},
+  volume = {646},
+  number = {8085},
+  pages = {716--723},
+  doi = {10.1038/s41586-025-09442-9}
+}
+
+@inproceedings{chen2025scienceagentbench,
+  title = {{ScienceAgentBench}: Toward Rigorous Assessment of Language Agents for Data-Driven Scientific Discovery},
+  author = {Chen, Ziru and Chen, Shijie and Ning, Yuting and Zhang, Qianheng and Wang, Boshi and Yu, Botao and Li, Yifei and Liao, Zeyi and Wei, Chen and Lu, Zitong and Dey, Vishal and Xue, Mingyi and Baker, Frazier N. and Burns, Benjamin and Adu-Ampratwum, Daniel and Huang, Xuhui and Ning, Xia and Gao, Song and Su, Yu and Sun, Huan},
+  year = 2025,
+  booktitle = {International Conference on Learning Representations},
+  volume = {2025},
+  pages = {96934--96990},
+  url = {https://proceedings.iclr.cc/paper_files/paper/2025/file/f12b4df26344f3be803c06b555252efe-Paper-Conference.pdf}
+}
+
+@misc{lu2026computationalboundary,
+  title = {The Computational Boundary of Inference: Capability Internalization, Training, and the Turing Jump},
+  shorttitle = {The Computational Boundary of Inference},
+  author = {Lu, Chien-Ping},
+  year = 2026,
+  month = apr,
+  number = {arXiv:2605.27381},
+  eprint = {2605.27381},
+  primaryclass = {cs.CC},
+  publisher = {arXiv},
+  doi = {10.48550/arXiv.2605.27381},
+  urldate = {2026-08-03},
+  abstract = {Claims about recursive self-improvement in AI often slide from repeated internal revision to the possibility of qualitatively stronger capability without clearly distinguishing the underlying computational regimes. This paper gives a formal separation result in classical computability theory that blocks that move under a precise modeling assumption. For an oracle \$A\$, let \$\textbackslash mathcal\textbraceleft C\textbraceright (A)=\textbackslash\textbraceleft B : B \textbackslash leq\_T A\textbackslash\textbraceright\$ be the corresponding computational layer. We prove that finite internal self-modification remains inside \$\textbackslash mathcal\textbraceleft C\textbraceright (A)\$, while stabilized revision is governed instead by the jump \$A'\$ via the relativized limit lemma. Together with a local closure versus escape theorem, this yields a clean formal separation between within-layer iteration and ascent to a stronger relative level. The point is not that stronger layers never arise, but that they are not explained by finite repetition inside one already settled layer. The resulting separation gives a computability-theoretic limit on a broad class of recursive-improvement narratives in which repeated internal updating is treated as sufficient for qualitative capability ascent.},
+  archiveprefix = {arXiv},
+  keywords = {Computer Science - Artificial Intelligence,Computer Science - Computational Complexity}
+}
+
+@misc{luo2026gsme,
+  title = {HarnessBank: Semantic Gene-Bank Search with Gated Verification for Agent-Harness Self-Evolution},
+  shorttitle = {HarnessBank},
+  author = {Luo, Xiaotian and Xue, Dizhan and Wang, Fengxingyu and Hu, Chuanrui and Deng, Yafeng},
+  year = 2026,
+  month = jul,
+  number = {arXiv:2607.13683},
+  eprint = {2607.13683},
+  primaryclass = {cs.CL},
+  publisher = {arXiv},
+  doi = {10.48550/arXiv.2607.13683},
+  urldate = {2026-08-03},
+  abstract = {Large Language Models (LLMs) have enabled capable agents across diverse applications. Beyond the foundation model, the performance of an agent is governed by the surrounding agent harness, including prompts, tools, control loops, etc. Automatically evolving this harness offers a promising pathway to agent improvement, yet existing approaches typically rely on greedy candidate selection and noisy self-generated feedback, rendering their gains susceptible to search collapse, task-specific overfitting, and poor verifiability. To tackle these challenges, we introduce HarnessBank, a trustworthy agent-harness self-evolution framework that pairs a task agent with a separate evolver agent for iterative failure diagnosis, harness generation, and evolution verification. HarnessBank maintains a Harness Gene Bank composed of high-performing harnesses of different semantic coordinates. Those harnesses are reinvented, recombined, screened, and selected during the self-evolution procedure. Moreover, we propose a Gated Harness Screening mechanism to efficiently filter high-quality harnesses and reduce the cost of evaluating numerous offspring harnesses. Across seven agent benchmarks, HarnessBank produces consistent performance improvements from 5.1\% to 15.4\%. Cross-model experiments further verify that the improvements come from the model-specific self-evolving process, instead of a universally optimal harness. Our code will be publicly available upon acceptance.},
+  archiveprefix = {arXiv},
+  keywords = {Computer Science - Computation and Language}
+}
+
+@inproceedings{martin-boyle2026,
+  title = {PaperTrail: A Claim-Evidence Interface for Grounding Provenance in LLM-Based Scholarly Q\&A},
+  booktitle = {Proceedings of the 2026 CHI Conference on Human Factors in Computing Systems},
+  author = {{Martin-Boyle}, Anna and Leckey, Cara and Brown, Martha and Kaur, Harmanpreet},
+  year = 2026,
+  pages = {1--25},
+  publisher = {ACM},
+  doi = {10.1145/3772318.3791101}
+}
+
+@article{mokyr2005,
+  title = {The Intellectual Origins of Modern Economic Growth},
+  author = {Mokyr, Joel},
+  year = 2005,
+  month = jun,
+  journal = {The Journal of Economic History},
+  volume = {65},
+  number = {2},
+  pages = {285--351},
+  issn = {0022-0507, 1471-6372},
+  doi = {10.1017/S0022050705000112},
+  urldate = {2026-09-02},
+  abstract = {The intellectual origins of the Industrial Revolution are traced back to the Baconian program of the seventeenth century, which aimed at expanding the set of useful knowledge and applying natural philosophy to solve technological problems and bring about economic growth. The eighteenth-century Enlightenment in the West carried out this program through a series of institutional developments that both increased the amount of knowledge and its accessibility to those who could make best use of it. Without the Enlightenment, therefore, an Industrial Revolution could not have transformed itself into the sustained economic growth starting in the early nineteenth century.},
+  copyright = {https://www.cambridge.org/core/terms},
+  langid = {english}
+}
+
+@article{morales2025,
+  title = {LangBiTe: An Open-Source Platform to Automate Bias Testing of Large Language Models},
+  shorttitle = {LangBiTe},
+  author = {Morales, Sergio and Claris{\'o}, Robert and Cabot, Jordi},
+  year = 2025,
+  month = sep,
+  journal = {SoftwareX},
+  volume = {31},
+  pages = {102248},
+  issn = {23527110},
+  doi = {10.1016/j.softx.2025.102248},
+  urldate = {2026-09-02},
+  langid = {english}
+}
+
+@article{novikov2025alphaevolve,
+  title = {AlphaEvolve: A Coding Agent for Scientific and Algorithmic Discovery},
+  author = {Novikov, Alexander and Vu, Ng{\^a}n and Eisenberger, Marvin and Dupont, Emilien and Huang, Po-Sen and Wagner, Adam Zsolt and Shirobokov, Sergey and Kozlovskii, Borislav and Ruiz, Francisco J R and Mehrabian, Abbas and Kumar, M Pawan and See, Abigail and Chaudhuri, Swarat and Holland, George and Davies, Alex and Nowozin, Sebastian and Kohli, Pushmeet and Balog, Matej},
+  year = 2025,
+  month = may,
+  abstract = {In this white paper, we present AlphaEvolve, an evolutionary coding agent that substantially enhances capabilities of state-of-the-art LLMs on highly challenging tasks such as tackling open scientific problems or optimizing critical pieces of computational infrastructure. AlphaEvolve orchestrates an autonomous pipeline of LLMs, whose task is to improve an algorithm by making direct changes to the code. Using an evolutionary approach, continuously receiving feedback from one or more evaluators, AlphaEvolve iteratively improves the algorithm, potentially leading to new scientific and practical discoveries. We demonstrate the broad applicability of this approach by applying it to a number of important computational problems. When applied to optimizing critical components of large-scale computational stacks at Google, AlphaEvolve developed a more efficient scheduling algorithm for data centers, found a functionally equivalent simplification in the circuit design of hardware accelerators, and accelerated the training of the LLM underpinning AlphaEvolve itself. Furthermore, AlphaEvolve discovered novel, provably correct algorithms that surpass state-of-the-art solutions on a spectrum of problems in mathematics and computer science, significantly expanding the scope of prior automated discovery methods (Romera-Paredes et al., 2023). Notably, AlphaEvolve developed a search algorithm that found a procedure to multiply two \$4 \textbackslash times 4\$ complex-valued matrices using \$48\$ scalar multiplications; offering the first improvement, after 56 years, over Strassen's algorithm in this setting. We believe AlphaEvolve and coding agents like it can have a significant impact in improving solutions of problems across many areas of science and computation.},
+  langid = {english}
+}
+
+@inproceedings{omohundro2008drives,
+  title = {The Basic AI Drives},
+  booktitle = {Artificial General Intelligence 2008},
+  author = {Omohundro, Stephen M.},
+  year = 2008,
+  series = {Frontiers in Artificial Intelligence and Applications},
+  volume = {171},
+  pages = {483--492},
+  publisher = {IOS Press}
+}
+
+@misc{opsahlong2024mipro,
+  title = {Optimizing Instructions and Demonstrations for Multi-Stage Language Model Programs},
+  author = {{Opsahl-Ong}, Krista and Ryan, Michael J. and Purtell, Josh and Broman, David and Potts, Christopher and Zaharia, Matei and Khattab, Omar},
+  year = 2024,
+  month = oct,
+  number = {arXiv:2406.11695},
+  eprint = {2406.11695},
+  primaryclass = {cs.CL},
+  publisher = {arXiv},
+  doi = {10.48550/arXiv.2406.11695},
+  urldate = {2026-08-03},
+  abstract = {Language Model Programs, i.e. sophisticated pipelines of modular language model (LM) calls, are increasingly advancing NLP tasks, but they require crafting prompts that are jointly effective for all modules. We study prompt optimization for LM programs, i.e. how to update these prompts to maximize a downstream metric without access to module-level labels or gradients. To make this tractable, we factorize our problem into optimizing the free-form instructions and few-shot demonstrations of every module and introduce several strategies to craft task-grounded instructions and navigate credit assignment across modules. Our strategies include (i) program- and data-aware techniques for proposing effective instructions, (ii) a stochastic mini-batch evaluation function for learning a surrogate model of our objective, and (iii) a meta-optimization procedure in which we refine how LMs construct proposals over time. Using these insights we develop MIPRO, a novel algorithm for optimizing LM programs. MIPRO outperforms baseline optimizers on five of seven diverse multi-stage LM programs using a best-in-class open-source model (Llama-3-8B), by as high as 13\% accuracy. We have released our new optimizers and benchmark in DSPy at http://dspy.ai},
+  archiveprefix = {arXiv},
+  keywords = {Computer Science - Artificial Intelligence,Computer Science - Computation and Language,Computer Science - Machine Learning}
+}
+
+@incollection{orseau2011mortality,
+  title = {Self-Modification and Mortality in Artificial Agents},
+  booktitle = {Artificial General Intelligence},
+  author = {Orseau, Laurent and Ring, Mark},
+  editor = {Hutchison, David and Kanade, Takeo and Kittler, Josef and Kleinberg, Jon M. and Mattern, Friedemann and Mitchell, John C. and Naor, Moni and Nierstrasz, Oscar and Pandu Rangan, C. and Steffen, Bernhard and Sudan, Madhu and Terzopoulos, Demetri and Tygar, Doug and Vardi, Moshe Y. and Weikum, Gerhard and Schmidhuber, J{\"u}rgen and Th{\'o}risson, Kristinn R. and Looks, Moshe},
+  year = 2011,
+  volume = {6830},
+  pages = {1--10},
+  publisher = {Springer Berlin Heidelberg},
+  address = {Berlin, Heidelberg},
+  doi = {10.1007/978-3-642-22887-2_1},
+  urldate = {2026-08-03},
+  isbn = {978-3-642-22886-5 978-3-642-22887-2}
+}
+
+@article{pimentel2017,
+  title = {noWorkflow: A Tool for Collecting, Analyzing, and Managing Provenance from Python Scripts},
+  author = {Pimentel, Jo{\~a}o Felipe and Murta, Leonardo and Braganholo, Vanessa and Freire, Juliana},
+  year = 2017,
+  journal = {Proceedings of the VLDB Endowment},
+  volume = {10},
+  number = {12},
+  pages = {1841--1844},
+  doi = {10.14778/3137765.3137789}
+}
+
+@article{piot2025,
+  title = {WATCHED: A Web AI Agent Tool for Combating Hate Speech by Expanding Data},
+  shorttitle = {WATCHED},
+  author = {Piot, Paloma and S{\'a}nchez, Diego and Parapar, Javier},
+  year = 2025,
+  month = dec,
+  journal = {SoftwareX},
+  volume = {32},
+  pages = {102431},
+  issn = {23527110},
+  doi = {10.1016/j.softx.2025.102431},
+  urldate = {2026-09-02},
+  langid = {english}
+}
+
+@article{pizzi2016,
+  title = {AiiDA: Automated Interactive Infrastructure and Database for Computational Science},
+  author = {Pizzi, Giovanni and Cepellotti, Andrea and Sabatini, Riccardo and Marzari, Nicola and Kozinsky, Boris},
+  year = 2016,
+  journal = {Computational Materials Science},
+  volume = {111},
+  pages = {218--230},
+  doi = {10.1016/j.commatsci.2015.09.013}
+}
+
+@misc{pu2026skillops,
+  title = {SkillOps: Managing LLM Agent Skill Libraries as Self-Maintaining Software Ecosystems},
+  shorttitle = {SkillOps},
+  author = {Pu, Hongji and Song, Xinyuan and Zhao, Liang},
+  year = 2026,
+  month = may,
+  number = {arXiv:2605.13716},
+  eprint = {2605.13716},
+  primaryclass = {cs.SE},
+  publisher = {arXiv},
+  doi = {10.48550/arXiv.2605.13716},
+  urldate = {2026-08-03},
+  abstract = {Large language model agents increasingly rely on skill libraries for multi-step tasks, yet these libraries can accumulate persistent defects as skills are added, reused, patched, and linked to changing dependencies. We call this failure mode skill technical debt: library-level defects that may not break a single skill locally but can harm future retrieval, composition, and execution. Existing skill-based agents mainly focus on task-time retrieval, planning, and repair, while library-time maintenance remains underexplored. We propose SkillOps, a method-agnostic plug-in framework for maintaining skill libraries. SkillOps represents each skill as a typed Skill Contract (P, O, A, V, F), organizes skills with a Hierarchical Skill Ecosystem Graph, and diagnoses library health across utility, compatibility, risk, and validation dimensions. Given a raw skill library, SkillOps produces a maintained library that can be used by existing retrieval or planning agents without changing their internal code. On ALFWorld, SkillOps achieves 79.5 percent task success as a standalone agent, outperforming the strongest baseline by 8.8 percentage points with no additional task-time large language model calls. As a plug-in layer, it improves retrieval-heavy baselines by 0.68 to 2.90 percentage points. The current rule-based maintenance implementation uses nearly zero library-time large language model calls or tokens, showing that skill-library maintenance can be added as a low-overhead architectural layer.},
+  archiveprefix = {arXiv},
+  keywords = {Computer Science - Multiagent Systems,Computer Science - Software Engineering}
+}
+
+@misc{robeyns2025sica,
+  title = {A Self-Improving Coding Agent},
+  author = {Robeyns, Maxime and Szummer, Martin and Aitchison, Laurence},
+  year = 2025,
+  eprint = {2504.15228},
+  primaryclass = {cs.AI},
+  doi = {10.48550/arXiv.2504.15228},
+  archiveprefix = {arXiv}
+}
+
+@article{romeraparedes2023funsearch,
+  title = {Mathematical Discoveries from Program Search with Large Language Models},
+  author = {{Romera-Paredes}, Bernardino and Barekatain, Mohammadamin and Novikov, Alexander and Balog, Matej and Kumar, M. Pawan and Dupont, Emilien and Ruiz, Francisco J. R. and Ellenberg, Jordan S. and Wang, Pengming and Fawzi, Omar and Kohli, Pushmeet and Fawzi, Alhussein},
+  year = 2024,
+  month = jan,
+  journal = {Nature},
+  volume = {625},
+  number = {7995},
+  pages = {468--475},
+  issn = {0028-0836, 1476-4687},
+  doi = {10.1038/s41586-023-06924-6},
+  urldate = {2026-08-03},
+  abstract = {Abstract                            Large language models (LLMs) have demonstrated tremendous capabilities in solving complex tasks, from quantitative reasoning to understanding natural language. However, LLMs sometimes suffer from confabulations (or hallucinations), which can result in them making plausible but incorrect statements               1,2               . This hinders the use of current large models in scientific discovery. Here we introduce FunSearch (short for searching in the function space), an evolutionary procedure based on pairing a pretrained LLM with a systematic evaluator. We demonstrate the effectiveness of this approach to surpass the best-known results in important problems, pushing the boundary of existing LLM-based approaches               3               . Applying FunSearch to a central problem in extremal combinatorics---the cap set problem---we discover new constructions of large cap sets going beyond the best-known ones, both in finite dimensional and asymptotic cases. This shows that it is possible to make discoveries for established open problems using LLMs. We showcase the generality of FunSearch by applying it to an algorithmic problem, online bin packing, finding new heuristics that improve on widely used baselines. In contrast to most computer search approaches, FunSearch searches for programs that describe how to solve a problem, rather than what the solution is. Beyond being an effective and scalable strategy, discovered programs tend to be more interpretable than raw solutions, enabling feedback loops between domain experts and FunSearch, and the deployment of such programs in real-world applications.},
+  langid = {english}
+}
+
+@inproceedings{samuel2018,
+  title = {ProvBook: Provenance-Based Semantic Enrichment of Interactive Notebooks for Reproducibility},
+  booktitle = {Proceedings of the ISWC 2018 Posters \& Demonstrations, Industry and Blue Sky Ideas Tracks},
+  author = {Samuel, Sheeba and {K{\"o}nig-Ries}, Birgitta},
+  year = 2018,
+  series = {CEUR Workshop Proceedings},
+  volume = {2180}
+}
+
+@misc{schmidhuber2006goedel,
+  title = {Goedel Machines: Self-Referential Universal Problem Solvers Making Provably Optimal Self-Improvements},
+  author = {Schmidhuber, Juergen},
+  year = 2006,
+  eprint = {cs/0309048},
+  doi = {10.48550/arXiv.cs/0309048},
+  archiveprefix = {arXiv}
+}
+
+@misc{schmidhuber2011powerplay,
+  title = {POWERPLAY: Training an Increasingly General Problem Solver by Continually Searching for the Simplest Still Unsolvable Problem},
+  shorttitle = {POWERPLAY},
+  author = {Schmidhuber, J{\"u}rgen},
+  year = 2012,
+  month = nov,
+  number = {arXiv:1112.5309},
+  eprint = {1112.5309},
+  primaryclass = {cs.AI},
+  publisher = {arXiv},
+  doi = {10.48550/arXiv.1112.5309},
+  urldate = {2026-08-03},
+  abstract = {Most of computer science focuses on automatically solving given computational problems. I focus on automatically inventing or discovering problems in a way inspired by the playful behavior of animals and humans, to train a more and more general problem solver from scratch in an unsupervised fashion. Consider the infinite set of all computable descriptions of tasks with possibly computable solutions. The novel algorithmic framework POWERPLAY (2011) continually searches the space of possible pairs of new tasks and modifications of the current problem solver, until it finds a more powerful problem solver that provably solves all previously learned tasks plus the new one, while the unmodified predecessor does not. Wow-effects are achieved by continually making previously learned skills more efficient such that they require less time and space. New skills may (partially) re-use previously learned skills. POWERPLAY's search orders candidate pairs of tasks and solver modifications by their conditional computational (time \& space) complexity, given the stored experience so far. The new task and its corresponding task-solving skill are those first found and validated. The computational costs of validating new tasks need not grow with task repertoire size. POWERPLAY's ongoing search for novelty keeps breaking the generalization abilities of its present solver. This is related to Goedel's sequence of increasingly powerful formal theories based on adding formerly unprovable statements to the axioms without affecting previously provable theorems. The continually increasing repertoire of problem solving procedures can be exploited by a parallel search for solutions to additional externally posed tasks. POWERPLAY may be viewed as a greedy but practical implementation of basic principles of creativity. A first experimental analysis can be found in separate papers [53,54].},
+  archiveprefix = {arXiv},
+  keywords = {Computer Science - Artificial Intelligence,Computer Science - Machine Learning}
+}
+
+@misc{shang2024agentsquare,
+  title = {AgentSquare: Automatic LLM Agent Search in Modular Design Space},
+  shorttitle = {AgentSquare},
+  author = {Shang, Yu and Li, Yu and Zhao, Keyu and Ma, Likai and Liu, Jiahe and Xu, Fengli and Li, Yong},
+  year = 2025,
+  month = feb,
+  number = {arXiv:2410.06153},
+  eprint = {2410.06153},
+  primaryclass = {cs.CL},
+  publisher = {arXiv},
+  doi = {10.48550/arXiv.2410.06153},
+  urldate = {2026-08-03},
+  abstract = {Recent advancements in Large Language Models (LLMs) have led to a rapid growth of agentic systems capable of handling a wide range of complex tasks. However, current research largely relies on manual, task-specific design, limiting their adaptability to novel tasks. In this paper, we introduce a new research problem: Modularized LLM Agent Search (MoLAS). We propose a modular design space that abstracts existing LLM agent designs into four fundamental modules with uniform IO interface: Planning, Reasoning, Tool Use, and Memory. Building on this design space, we present a novel LLM agent search framework called AgentSquare, which introduces two core mechanisms, i.e., module evolution and recombination, to efficiently search for optimized LLM agents. To further accelerate the process, we design a performance predictor that uses in-context surrogate models to skip unpromising agent designs. Extensive experiments across six benchmarks, covering the diverse scenarios of web, embodied, tool use and game applications, show that AgentSquare substantially outperforms hand-crafted agents, achieving an average performance gain of 17.2\% against best-known human designs. Moreover, AgentSquare can generate interpretable design insights, enabling a deeper understanding of agentic architecture and its impact on task performance. We believe that the modular design space and AgentSquare search framework offer a platform for fully exploiting the potential of prior successful designs and consolidating the collective efforts of research community. Code repo is available at https://github.com/tsinghua-fib-lab/AgentSquare.},
+  archiveprefix = {arXiv},
+  keywords = {Computer Science - Computation and Language}
+}
+
+@misc{shi2026aevolve,
+  title = {A-Evolve-Training: Autonomous Post-Training of a 30B Model},
+  shorttitle = {A-Evolve-Training},
+  author = {Shi, Zhan and He, Bing and Sang, Yisi and Lu, Hanqing and Dumoulin, Benoit},
+  year = 2026,
+  month = jun,
+  number = {arXiv:2606.20657},
+  eprint = {2606.20657},
+  primaryclass = {cs.AI},
+  publisher = {arXiv},
+  doi = {10.48550/arXiv.2606.20657},
+  urldate = {2026-08-03},
+  abstract = {Post-training a frontier model is normally weeks of human work: proposing data and recipe changes, launching runs, reading evals, deciding what to keep. We report an autonomous system that runs this loop with no human in the loop, post-training a 30B Nemotron across four rounds over multiple weeks. The autonomously produced model reaches a held-out score of 0.86 against the top human submission's 0.87 on the public NVIDIA Nemotron-Reasoning Challenge leaderboard, placing 8th of \textasciitilde 4000 at the time of writing. More striking than the number: the loop detected that its own dev metric had stopped tracking external performance on the weakest domain -- candidates drove dev to record highs without moving the external target -- and revised its own search policy, no longer maximizing dev but seeking interventions that lowered the now-misleading proxy while improving the external target. We treat this as direct, auditable evidence that a scaled autonomous loop can produce discovery, not only optimization: it detected that its measurement frame had become misleading and changed what counted as evidence. We take the operational view that any system worth the "recursive self-improvement" label must eventually perform end-to-end post-training of a frontier-class model; this is one datapoint of that bar being cleared. We do not claim a "first autonomous match" of human researchers. The claim we make is narrower and auditable: to our knowledge, this is the first publicly reported autonomous post-training run at this scale, where prior public autonomous-ML-research demonstrations sit at GPT-2-class (\textasciitilde 124M) budgets. The same system also post-trains the 120B and 550B Nemotron; with no public human baseline there, this shows only that the loop closes at that scale, not that its output is competitive -- infrastructure evidence, with the effectiveness claim deferred until a comparable human anchor exists.},
+  archiveprefix = {arXiv},
+  keywords = {Computer Science - Artificial Intelligence,Computer Science - Machine Learning}
+}
+
+@misc{shinn2023reflexion,
+  title = {Reflexion: Language Agents with Verbal Reinforcement Learning},
+  author = {Shinn, Noah and Cassano, Federico and Berman, Edward and Gopinath, Ashwin and Narasimhan, Karthik and Yao, Shunyu},
+  year = 2023,
+  eprint = {2303.11366},
+  primaryclass = {cs.AI},
+  doi = {10.48550/arXiv.2303.11366},
+  archiveprefix = {arXiv}
+}
+
+@article{shumailov2024collapse,
+  title = {AI Models Collapse When Trained on Recursively Generated Data},
+  author = {Shumailov, Ilia and Shumaylov, Zakhar and Zhao, Yiren and Papernot, Nicolas and Anderson, Ross and Gal, Yarin},
+  year = 2024,
+  month = jul,
+  journal = {Nature},
+  volume = {631},
+  number = {8022},
+  pages = {755--759},
+  issn = {0028-0836, 1476-4687},
+  doi = {10.1038/s41586-024-07566-y},
+  urldate = {2026-08-03},
+  abstract = {Abstract                            Stable diffusion revolutionized image creation from descriptive text. GPT-2 (ref.\,               1               ), GPT-3(.5) (ref.\,               2               ) and GPT-4 (ref.\,               3               ) demonstrated high performance across a variety of language tasks. ChatGPT introduced such language models to the public. It is now clear that generative artificial intelligence (AI) such as large language models (LLMs) is here to stay and will substantially change the ecosystem of online text and images. Here we consider what may happen to GPT-\textbraceleft{}               n               \textbraceright{} once LLMs contribute much of the text found online. We find that indiscriminate use of model-generated content in training causes irreversible defects in the resulting models, in which tails of the original content distribution disappear. We refer to this effect as `model collapse' and show that it can occur in LLMs as well as in variational autoencoders (VAEs) and Gaussian mixture models (GMMs). We build theoretical intuition behind the phenomenon and portray its ubiquity among all learned generative models. We demonstrate that it must be taken seriously if we are to sustain the benefits of training from large-scale data scraped from the web. Indeed, the value of data collected about genuine human interactions with systems will be increasingly valuable in the presence of LLM-generated content in data crawled from the Internet.},
+  langid = {english}
+}
+
+@article{soiland-reyes2022,
+  title = {Packaging Research Artefacts with RO-Crate},
+  author = {{Soiland-Reyes}, Stian and Sefton, Peter and Crosas, Merc{\`e} and Castro, Leyla Jael and Coppens, Frederik and Fern{\'a}ndez, Jos{\'e} M. and Garijo, Daniel and Gr{\"u}ning, Bj{\"o}rn and La Rosa, Marco and Leo, Simone and {\'O} Carrag{\'a}in, Eoghan and Portier, Marc and Trisovic, Ana and {RO-Crate Community} and Groth, Paul and Goble, Carole},
+  year = 2022,
+  journal = {Data Science},
+  volume = {5},
+  number = {2},
+  pages = {97--138},
+  doi = {10.3233/DS-210053}
+}
+
+@inproceedings{souza2025a,
+  title = {PROV-AGENT: Unified Provenance for Tracking AI Agent Interactions in Agentic Workflows},
+  booktitle = {Proceedings - 2025 IEEE International Conference on e-Science, eScience 2025},
+  author = {Souza, Renan and Gueroudji, Amal and DeWitt, Stephen and Rosendo, Daniel and Ghosal, Tirthankar and Ross, Robert and Balaprakash, Prasanna and {da Silva}, Rafael Ferreira},
+  year = 2025,
+  pages = {467--473},
+  publisher = {IEEE},
+  doi = {10.1109/eScience65000.2025.00093}
+}
+
+@misc{tao2026sepo,
+  title = {SePO: Self-Evolving Prompt Agent for System Prompt Optimization},
+  shorttitle = {SePO},
+  author = {Tao, Wangcheng and Wu, Han and Wong, Weng-Fai},
+  year = 2026,
+  month = jun,
+  number = {arXiv:2606.04465},
+  eprint = {2606.04465},
+  primaryclass = {cs.CL},
+  publisher = {arXiv},
+  doi = {10.48550/arXiv.2606.04465},
+  urldate = {2026-08-03},
+  abstract = {System prompt optimization improves agent behavior without modifying the underlying model, yielding human-readable, model-agnostic instructions. Existing methods build a prompt agent that refines task agents' system prompts, yet leave the prompt agent's own system prompt hand-engineered and fixed. We propose Self-Evolving Prompt Optimization (SePO), which treats the prompt agent's own system prompt as an optimization target alongside task agents' system prompts. SePO adopts a self-referential design. A single prompt agent improves both task agents' system prompts and its own under an open-ended evolutionary search that maintains an archive of candidate prompts as stepping stones. Training proceeds in two stages: pre-training evolves the prompt agent on a multi-task pool, and fine-tuning then applies it to a target task. Across five benchmarks spanning math (AIME'25), abstract reasoning (ARC-AGI-1), graduate-level science (GPQA), code generation (MBPP), and logic puzzles (Sudoku), SePO consistently outperforms Manual-CoT, TextGrad, and MetaSPO, improving the average accuracy by 4.49 points compared to Manual-CoT. The prompt optimization skill from pre-training also generalizes to tasks beyond the pre-training mixture, rather than memorizing per-task prompts.},
+  archiveprefix = {arXiv},
+  keywords = {Computer Science - Artificial Intelligence,Computer Science - Computation and Language}
+}
+
+@misc{wang2023voyager,
+  title = {Voyager: An Open-Ended Embodied Agent with Large Language Models},
+  shorttitle = {Voyager},
+  author = {Wang, Guanzhi and Xie, Yuqi and Jiang, Yunfan and Mandlekar, Ajay and Xiao, Chaowei and Zhu, Yuke and Fan, Linxi and Anandkumar, Anima},
+  year = 2023,
+  month = oct,
+  number = {arXiv:2305.16291},
+  eprint = {2305.16291},
+  primaryclass = {cs.AI},
+  publisher = {arXiv},
+  doi = {10.48550/arXiv.2305.16291},
+  urldate = {2024-05-28},
+  abstract = {We introduce Voyager, the first LLM-powered embodied lifelong learning agent in Minecraft that continuously explores the world, acquires diverse skills, and makes novel discoveries without human intervention. Voyager consists of three key components: 1) an automatic curriculum that maximizes exploration, 2) an ever-growing skill library of executable code for storing and retrieving complex behaviors, and 3) a new iterative prompting mechanism that incorporates environment feedback, execution errors, and self-verification for program improvement. Voyager interacts with GPT-4 via blackbox queries, which bypasses the need for model parameter fine-tuning. The skills developed by Voyager are temporally extended, interpretable, and compositional, which compounds the agent's abilities rapidly and alleviates catastrophic forgetting. Empirically, Voyager shows strong in-context lifelong learning capability and exhibits exceptional proficiency in playing Minecraft. It obtains 3.3x more unique items, travels 2.3x longer distances, and unlocks key tech tree milestones up to 15.3x faster than prior SOTA. Voyager is able to utilize the learned skill library in a new Minecraft world to solve novel tasks from scratch, while other techniques struggle to generalize. We open-source our full codebase and prompts at https://voyager.minedojo.org/.},
+  archiveprefix = {arXiv},
+  keywords = {Computer Science - Artificial Intelligence,Computer Science - Machine Learning}
+}
+
+@misc{wang2025hgm,
+  title = {Huxley-G\"odel Machine: Human-Level Coding Agent Development by an Approximation of the Optimal Self-Improving Machine},
+  author = {Wang, Wenyi and Pi{\k e}kos, Piotr and Li, Nanbo and Laakom, Firas and Chen, Yimeng and Ostaszewski, Mateusz and Zhuge, Mingchen and Schmidhuber, J{\"u}rgen},
+  year = 2025,
+  eprint = {2510.21614},
+  primaryclass = {cs.AI},
+  doi = {10.48550/arXiv.2510.21614},
+  archiveprefix = {arXiv}
+}
+
+@misc{wang2026metaskill,
+  title = {MetaSkill-Evolve: Recursive Self-Improvement of LLM Agents via Two-Timescale Meta-Skill Evolution},
+  shorttitle = {MetaSkill-Evolve},
+  author = {Wang, Zefeng and Yan, Minxi and Bi, Jinhe and Yan, Sikuan and Tresp, Volker and Ma, Yunpu},
+  year = 2026,
+  month = jul,
+  number = {arXiv:2607.05297},
+  eprint = {2607.05297},
+  primaryclass = {cs.AI},
+  publisher = {arXiv},
+  doi = {10.48550/arXiv.2607.05297},
+  urldate = {2026-08-03},
+  abstract = {Recent LLM agents tackle increasingly long-horizon, open-ended tasks, and external skills, reusable procedural knowledge supplied to the agent, further extend this capability. However, a fixed, hand-authored skill is rarely optimal, and cannot adapt to the diversity of tasks an agent encounters. Self-improving agents address this by rewriting their own skill files from execution traces, yielding meaningful gains on challenging benchmarks. Yet such self-evolution remains non-recursive: it improves only the task skill (what the agent does) while the improvement procedure (how it improves) is authored once and held fixed. We introduce MetaSkill-Evolve, a two-timescale framework that makes agentic skill improvement recursive: every branch carries both a task skill \$s\$ and a branch-local meta-skill \$m=({$\psi$},{$\sigma$},{$\alpha$},{$\pi$},\textbackslash varepsilon)\$ whose five components parameterise the Analyzer, Retriever, Allocator, Proposer, and Evolver agents of the improvement pipeline. Task skills evolve on a fast loop while the meta-skill evolves on a slower one under the same pipeline applied to itself, with no additional model or objective. With all five pipeline agents sharing a single frozen backbone, MetaSkill-Evolve outperforms no-skill, static-skill, and single-level evolution baselines on three agentic benchmarks (OfficeQA, SealQA, ALFWorld), improving held-out test accuracy over the raw backbone by +23.54, +16.09, and +1.92 points respectively.},
+  archiveprefix = {arXiv},
+  keywords = {Computer Science - Artificial Intelligence}
+}
+
+@misc{wei2026skillsmith,
+  title = {SkillSmith: Co-Evolving Skills and Tools for Self-Improving Agent Systems},
+  shorttitle = {SkillSmith},
+  author = {Wei, Yangbo and Huang, Zhen and Lu, Shaoqiang and Qian, Junhong and Wang, Qifan and Wu, Chen and He, Lei},
+  year = 2026,
+  month = may,
+  number = {arXiv:2606.01314},
+  eprint = {2606.01314},
+  primaryclass = {cs.AI},
+  publisher = {arXiv},
+  doi = {10.48550/arXiv.2606.01314},
+  urldate = {2026-08-03},
+  abstract = {Recent self-evolving agents have shown that skills can be discovered, refined, and accumulated through execution. However, existing skill-evolution frameworks typically assume a fixed tool layer and evaluate each skill independently, limiting their ability to repair tool-level failures or reason about interactions among skills. We propose SkillSmith, a synergy-aware skill-tool co-evolution framework. SkillSmith introduces a unified proposal space in which reflection produces atomic bundles that jointly modify skills and tools, allowing tools to be wrapped, edited, composed, split, or retired when skill evolution identifies a reusable capability gap. To guide this joint search, SkillSmith maintains an ecological utility model inspired by Lotka-Volterra dynamics, where an interaction matrix estimated from execution traces captures pairwise complementarity and conflict among skills and provides pressure signals for retrieval, mutation prioritization, and retirement. Furthermore, SkillSmith records anti-patterns, including failure signatures, causal attributions, and remedies, to accelerate diagnosis and veto proposals that repeat known mistakes. Experiments on three benchmarks, including WildClawBench, and five Qwen3.5 model scales show that SkillSmith consistently outperforms strong baselines, with gains that amplify as task complexity and multi-skill co-activation increase.},
+  archiveprefix = {arXiv},
+  keywords = {Computer Science - Artificial Intelligence}
+}
+
+@misc{whitfill2025compute,
+  title = {Will Compute Bottlenecks Prevent an Intelligence Explosion?},
+  author = {Whitfill, Parker and Wu, Cheryl},
+  year = 2025,
+  month = aug,
+  number = {arXiv:2507.23181},
+  eprint = {2507.23181},
+  primaryclass = {econ.GN},
+  publisher = {arXiv},
+  doi = {10.48550/arXiv.2507.23181},
+  urldate = {2026-08-03},
+  abstract = {The possibility of a rapid, "software-only" intelligence explosion brought on by AI's recursive self-improvement (RSI) is a subject of intense debate within the AI community. This paper presents an economic model and an empirical estimation of the elasticity of substitution between research compute and cognitive labor at frontier AI firms to shed light on the possibility. We construct a novel panel dataset for four leading AI labs (OpenAI, DeepMind, Anthropic, and DeepSeek) from 2014 to 2024 and fit the data to two alternative Constant Elasticity of Substitution (CES) production function models. Our two specifications yield divergent results: a baseline model estimates that compute and labor are substitutes, whereas a 'frontier experiments' model, which accounts for the scale of state-of-the-art models, estimates that they are complements. We conclude by discussing the limitations of our analysis and the implications for forecasting AI progress.},
+  archiveprefix = {arXiv},
+  keywords = {Economics - General Economics}
+}
+
+@article{wilkinson2016,
+  title = {The FAIR Guiding Principles for Scientific Data Management and Stewardship},
+  author = {Wilkinson, Mark D. and Dumontier, Michel and Aalbersberg, IJsbrand Jan and Appleton, Gabrielle and Axton, Myles and Baak, Arie and Blomberg, Niklas and Boiten, Jan-Willem and Da Silva Santos, Luiz Bonino and Bourne, Philip E. and Bouwman, Jildau and Brookes, Anthony J. and Clark, Tim and Crosas, Merc{\`e} and Dillo, Ingrid and Dumon, Olivier and Edmunds, Scott and Evelo, Chris T. and Finkers, Richard and {Gonzalez-Beltran}, Alejandra and Gray, Alasdair J.G. and Groth, Paul and Goble, Carole and Grethe, Jeffrey S. and Heringa, Jaap and 'T Hoen, Peter A.C and Hooft, Rob and Kuhn, Tobias and Kok, Ruben and Kok, Joost and Lusher, Scott J. and Martone, Maryann E. and Mons, Albert and Packer, Abel L. and Persson, Bengt and {Rocca-Serra}, Philippe and Roos, Marco and Van Schaik, Rene and Sansone, Susanna-Assunta and Schultes, Erik and Sengstag, Thierry and Slater, Ted and Strawn, George and Swertz, Morris A. and Thompson, Mark and Van Der Lei, Johan and Van Mulligen, Erik and Velterop, Jan and Waagmeester, Andra and Wittenburg, Peter and Wolstencroft, Katherine and Zhao, Jun and Mons, Barend},
+  year = 2016,
+  month = mar,
+  journal = {Scientific Data},
+  volume = {3},
+  number = {1},
+  pages = {160018},
+  issn = {2052-4463},
+  doi = {10.1038/sdata.2016.18},
+  urldate = {2026-09-02},
+  abstract = {Abstract             There is an urgent need to improve the infrastructure supporting the reuse of scholarly data. A diverse set of stakeholders---representing academia, industry, funding agencies, and scholarly publishers---have come together to design and jointly endorse a concise and measureable set of principles that we refer to as the FAIR Data Principles. The intent is that these may act as a guideline for those wishing to enhance the reusability of their data holdings. Distinct from peer initiatives that focus on the human scholar, the FAIR Principles put specific emphasis on enhancing the ability of machines to automatically find and use the data, in addition to supporting its reuse by individuals. This Comment is the first formal publication of the FAIR Principles, and includes the rationale behind them, and some exemplar implementations in the community.},
+  langid = {english}
+}
+
+@misc{wu2026stv,
+  title = {Self-Trained Verification for Training- and Test-Time Self-Improvement},
+  author = {Wu, Chen Henry and Raghunathan, Aditi},
+  year = 2026,
+  month = may,
+  number = {arXiv:2605.30290},
+  eprint = {2605.30290},
+  primaryclass = {cs.LG},
+  publisher = {arXiv},
+  doi = {10.48550/arXiv.2605.30290},
+  urldate = {2026-08-03},
+  abstract = {Self-improvement at scale has been a longstanding goal for reasoning models, and there are two natural places to do it: at test time, through verification-refinement (V-R) loops; and at training time, through self-training methods. Both are gated by the same bottleneck: the verifier. V-R loops stall when verifier scores inflate while accuracy stagnates, and when feedback is too generic to act on; self-training fails similarly when bad self-generated data are added to training. Better verification would unlock both, but the capability we want to train, i.e., catching self-generated errors, lacks training signal. To address this challenge, we propose self-trained verification (STV). Our key observation is that, while a model cannot catch these errors alone, it can when shown the reference solution. We turn this asymmetry into a supervision target and train the verifier to imitate a more informed version of itself. At test time, STV substantially improves V-R loops on hard problems, while alternatives (e.g., SFT, RL on verifier scores, and even meta-verifiers) do not. STV roughly doubles accuracy on hard math and lifts it 14x on scientific reasoning tasks (1.5\% to 21\%). At training time, we additionally train the generator using RL with STV verifier's feedback inside the V-R loop - a procedure we call verifier-in-the-loop training (ViL). Starting from an RL-converged generator, ViL yields a further 33\% gain in pass@1. More notably, the generator's standalone pass@1, with no verifier at test time, climbs 30\% relative past where standard RL had converged. Hence, the next frontier in reasoning on hard problems may lie in how we train for and with verification. Website: https://ar-forum.github.io/stv-webpage},
+  archiveprefix = {arXiv},
+  keywords = {Computer Science - Artificial Intelligence,Computer Science - Computation and Language,Computer Science - Machine Learning}
+}
+
+@misc{xia2025agent0,
+  title = {Agent0: Unleashing Self-Evolving Agents from Zero Data via Tool-Integrated Reasoning},
+  shorttitle = {Agent0},
+  author = {Xia, Peng and Zeng, Kaide and Liu, Jiaqi and Qin, Can and Wu, Fang and Zhou, Yiyang and Xiong, Caiming and Yao, Huaxiu},
+  year = 2025,
+  month = nov,
+  number = {arXiv:2511.16043},
+  eprint = {2511.16043},
+  primaryclass = {cs.LG},
+  publisher = {arXiv},
+  doi = {10.48550/arXiv.2511.16043},
+  urldate = {2026-08-03},
+  abstract = {Large Language Model (LLM) Agents, often trained with Reinforcement Learning (RL), are constrained by a dependency on human-curated data, limiting scalability and tethering AI to human knowledge. Existing self-evolution frameworks offer an alternative but are typically restricted by the model's inherent capabilities and single-round interactions, hindering the development of complex curricula involving tool use or dynamic reasoning. We introduce Agent0, a fully autonomous framework that evolves high-performing agents without external data through multi-step co-evolution and seamless tool integration. Agent0 establishes a symbiotic competition between two agents initialized from the same base LLM: a curriculum agent that proposes increasingly challenging frontier tasks, and an executor agent that learns to solve them. We integrate external tools to enhance the executor's problem-solving capacity; this improvement, in turn, pressures the curriculum agent to construct more complex, tool-aware tasks. Through this iterative process, Agent0 establishes a self-reinforcing cycle that continuously produces high-quality curricula. Empirically, Agent0 substantially boosts reasoning capabilities, improving the Qwen3-8B-Base model by 18\% on mathematical reasoning and 24\% on general reasoning benchmarks. Code is available at https://github.com/aiming-lab/Agent0.},
+  archiveprefix = {arXiv},
+  keywords = {Computer Science - Machine Learning}
+}
+
+@misc{xia2026,
+  title = {ResearchLoop: An Evidence-Gated Control Plane for AI-Assisted Research},
+  author = {Xia, Yihan and Wang, Taotao},
+  year = 2026,
+  number = {arXiv:2605.28282},
+  eprint = {2605.28282},
+  publisher = {arXiv},
+  archiveprefix = {arXiv}
+}
+
+@misc{xia2026poise,
+  title = {From AI Assistant to AI Scientist: Autonomous Discovery of LLM-RL Algorithms with LLM Agents},
+  shorttitle = {From AI Assistant to AI Scientist},
+  author = {Xia, Sirui and Zhang, Yikai and Chen, Aili and Wu, Siye and Yuan, Siyu and Xiao, Yanghua},
+  year = 2026,
+  month = mar,
+  number = {arXiv:2603.23951},
+  eprint = {2603.23951},
+  primaryclass = {cs.CL},
+  publisher = {arXiv},
+  doi = {10.48550/arXiv.2603.23951},
+  urldate = {2026-08-03},
+  abstract = {Discovering improved policy optimization algorithms for language models remains a costly manual process requiring repeated mechanism-level modification and validation. Unlike simple combinatorial code search, this problem requires searching over algorithmic mechanisms tightly coupled with training dynamics while reusing empirical evidence across iterations. We propose POISE, a closed-loop framework for automated discovery of policy optimization algorithms for language models. POISE maintains a structured, genealogically linked archive linking proposals, executable implementations, standardized evaluations, and natural-language reflections to support evidence-driven iteration. In mathematical reasoning experiments starting from GRPO, POISE evaluates 64 candidate algorithms and discovers improved mechanisms, including analytic-variance scaling and validity masking. The best variant improves weighted Overall from 47.8 to 52.5 (+4.6) and increases AIME25 pass@32 from 26.7\% to 43.3\%, demonstrating the feasibility of automated policy optimization discovery while supporting interpretable design principles.},
+  archiveprefix = {arXiv},
+  keywords = {Computer Science - Computation and Language}
+}
+
+@misc{yang2023opro,
+  title = {Large Language Models as Optimizers},
+  author = {Yang, Chengrun and Wang, Xuezhi and Lu, Yifeng and Liu, Hanxiao and Le, Quoc V. and Zhou, Denny and Chen, Xinyun},
+  year = 2024,
+  month = apr,
+  number = {arXiv:2309.03409},
+  eprint = {2309.03409},
+  primaryclass = {cs.LG},
+  publisher = {arXiv},
+  doi = {10.48550/arXiv.2309.03409},
+  urldate = {2026-08-03},
+  abstract = {Optimization is ubiquitous. While derivative-based algorithms have been powerful tools for various problems, the absence of gradient imposes challenges on many real-world applications. In this work, we propose Optimization by PROmpting (OPRO), a simple and effective approach to leverage large language models (LLMs) as optimizers, where the optimization task is described in natural language. In each optimization step, the LLM generates new solutions from the prompt that contains previously generated solutions with their values, then the new solutions are evaluated and added to the prompt for the next optimization step. We first showcase OPRO on linear regression and traveling salesman problems, then move on to our main application in prompt optimization, where the goal is to find instructions that maximize the task accuracy. With a variety of LLMs, we demonstrate that the best prompts optimized by OPRO outperform human-designed prompts by up to 8\% on GSM8K, and by up to 50\% on Big-Bench Hard tasks. Code at https://github.com/google-deepmind/opro.},
+  archiveprefix = {arXiv},
+  keywords = {Computer Science - Artificial Intelligence,Computer Science - Computation and Language,Computer Science - Machine Learning}
+}
+
+@misc{yang2026skillopt,
+  title = {SkillOpt: Executive Strategy for Self-Evolving Agent Skills},
+  shorttitle = {SkillOpt},
+  author = {Yang, Yifan and Gong, Ziyang and Huang, Weiquan and Yang, Qihao and Zhou, Ziwei and Huang, Zisu and Li, Yan and Gao, Xuemei and Dai, Qi and Liu, Bei and Qiu, Kai and Yang, Yuqing and Chen, Dongdong and Yang, Xue and Luo, Chong},
+  year = 2026,
+  month = may,
+  number = {arXiv:2605.23904},
+  eprint = {2605.23904},
+  primaryclass = {cs.AI},
+  publisher = {arXiv},
+  doi = {10.48550/arXiv.2605.23904},
+  urldate = {2026-08-03},
+  abstract = {Agent skills today are hand-crafted, generated one-shot, or evolved through loosely controlled self-revision, none of which behaves like a deep-learning optimizer for the skill, and none of which reliably improves over its starting point under feedback. We argue the skill should instead be trained as the external state of a frozen agent, with the same discipline that makes weight-space optimization reproducible. SkillOpt is, to our knowledge, the first systematic controllable text-space optimizer for agent skills: a separate optimizer model turns scored rollouts into bounded add/delete/replace edits on a single skill document, and an edit is accepted only when it strictly improves a held-out validation score. A textual learning-rate budget, rejected-edit buffer, and epoch-wise slow/meta update make skill training stable while adding zero inference-time model calls at deployment. Across six benchmarks, seven target models, and three execution harnesses (direct chat, Codex, Claude Code), SkillOpt is best or tied on all 52 evaluated (model, benchmark, harness) cells and beats every per-cell competitor among human, one-shot LLM, Trace2Skill, TextGrad, GEPA, and EvoSkill skills. On GPT-5.5 it lifts the average no-skill accuracy by +23.5 points in direct chat, by +24.8 inside the Codex agentic loop, and by +19.1 inside Claude Code. Transfer experiments further show that optimized skill artifacts retain value when moved across model scales, between Codex and Claude Code execution environments, and to a nearby math benchmark without further optimization. Code: https://aka.ms/skillopt},
+  archiveprefix = {arXiv},
+  keywords = {Computer Science - Artificial Intelligence,Computer Science - Computation and Language}
+}
+
+@misc{yin2024goedelagent,
+  title = {G\"odel Agent: A Self-Referential Agent Framework for Recursive Self-Improvement},
+  author = {Yin, Xunjian and Wang, Xinyi and Pan, Liangming and Lin, Li and Wan, Xiaojun and Wang, William Yang},
+  year = 2024,
+  eprint = {2410.04444},
+  primaryclass = {cs.AI},
+  doi = {10.48550/arXiv.2410.04444},
+  archiveprefix = {arXiv}
+}
+
+@misc{yin2026,
+  title = {Artifact-Centered Claim-Aware Observability for Autonomous Scientific Agents},
+  author = {Yin, Xiangyu and Du, Ming and Prince, Michael H. and Cherukara, Mathew J.},
+  year = 2026,
+  number = {arXiv:2608.18312},
+  eprint = {2608.18312},
+  publisher = {arXiv},
+  archiveprefix = {arXiv}
+}
+
+@misc{yuan2024selfrewarding,
+  title = {Self-Rewarding Language Models},
+  author = {Yuan, Weizhe and Pang, Richard Yuanzhe and Cho, Kyunghyun and Li, Xian and Sukhbaatar, Sainbayar and Xu, Jing and Weston, Jason},
+  year = 2025,
+  month = mar,
+  number = {arXiv:2401.10020},
+  eprint = {2401.10020},
+  primaryclass = {cs.CL},
+  publisher = {arXiv},
+  doi = {10.48550/arXiv.2401.10020},
+  urldate = {2026-08-03},
+  abstract = {We posit that to achieve superhuman agents, future models require superhuman feedback in order to provide an adequate training signal. Current approaches commonly train reward models from human preferences, which may then be bottlenecked by human performance level, and secondly these separate frozen reward models cannot then learn to improve during LLM training. In this work, we study Self-Rewarding Language Models, where the language model itself is used via LLM-as-a-Judge prompting to provide its own rewards during training. We show that during Iterative DPO training that not only does instruction following ability improve, but also the ability to provide high-quality rewards to itself. Fine-tuning Llama 2 70B on three iterations of our approach yields a model that outperforms many existing systems on the AlpacaEval 2.0 leaderboard, including Claude 2, Gemini Pro, and GPT-4 0613. While there is much left still to explore, this work opens the door to the possibility of models that can continually improve in both axes.},
+  archiveprefix = {arXiv},
+  keywords = {Computer Science - Artificial Intelligence,Computer Science - Computation and Language}
+}
+
+@misc{yuksekgonul2024textgrad,
+  title = {TextGrad: Automatic "Differentiation" via Text},
+  shorttitle = {TextGrad},
+  author = {Yuksekgonul, Mert and Bianchi, Federico and Boen, Joseph and Liu, Sheng and Huang, Zhi and Guestrin, Carlos and Zou, James},
+  year = 2024,
+  month = jun,
+  number = {arXiv:2406.07496},
+  eprint = {2406.07496},
+  primaryclass = {cs.CL},
+  publisher = {arXiv},
+  doi = {10.48550/arXiv.2406.07496},
+  urldate = {2026-08-03},
+  abstract = {AI is undergoing a paradigm shift, with breakthroughs achieved by systems orchestrating multiple large language models (LLMs) and other complex components. As a result, developing principled and automated optimization methods for compound AI systems is one of the most important new challenges. Neural networks faced a similar challenge in its early days until backpropagation and automatic differentiation transformed the field by making optimization turn-key. Inspired by this, we introduce TextGrad, a powerful framework performing automatic ``differentiation'' via text. TextGrad backpropagates textual feedback provided by LLMs to improve individual components of a compound AI system. In our framework, LLMs provide rich, general, natural language suggestions to optimize variables in computation graphs, ranging from code snippets to molecular structures. TextGrad follows PyTorch's syntax and abstraction and is flexible and easy-to-use. It works out-of-the-box for a variety of tasks, where the users only provide the objective function without tuning components or prompts of the framework. We showcase TextGrad's effectiveness and generality across a diverse range of applications, from question answering and molecule optimization to radiotherapy treatment planning. Without modifying the framework, TextGrad improves the zero-shot accuracy of GPT-4o in Google-Proof Question Answering from \$51\textbackslash\%\$ to \$55\textbackslash\%\$, yields \$20\textbackslash\%\$ relative performance gain in optimizing LeetCode-Hard coding problem solutions, improves prompts for reasoning, designs new druglike small molecules with desirable in silico binding, and designs radiation oncology treatment plans with high specificity. TextGrad lays a foundation to accelerate the development of the next-generation of AI systems.},
+  archiveprefix = {arXiv},
+  keywords = {Computer Science - Artificial Intelligence,Computer Science - Computation and Language,Computer Science - Machine Learning}
+}
+
+@misc{zelikman2022star,
+  title = {STaR: Bootstrapping Reasoning With Reasoning},
+  shorttitle = {STaR},
+  author = {Zelikman, Eric and Wu, Yuhuai and Mu, Jesse and Goodman, Noah D.},
+  year = 2022,
+  month = may,
+  number = {arXiv:2203.14465},
+  eprint = {2203.14465},
+  primaryclass = {cs.LG},
+  publisher = {arXiv},
+  doi = {10.48550/arXiv.2203.14465},
+  urldate = {2026-08-03},
+  abstract = {Generating step-by-step "chain-of-thought" rationales improves language model performance on complex reasoning tasks like mathematics or commonsense question-answering. However, inducing language model rationale generation currently requires either constructing massive rationale datasets or sacrificing accuracy by using only few-shot inference. We propose a technique to iteratively leverage a small number of rationale examples and a large dataset without rationales, to bootstrap the ability to perform successively more complex reasoning. This technique, the "Self-Taught Reasoner" (STaR), relies on a simple loop: generate rationales to answer many questions, prompted with a few rationale examples; if the generated answers are wrong, try again to generate a rationale given the correct answer; fine-tune on all the rationales that ultimately yielded correct answers; repeat. We show that STaR significantly improves performance on multiple datasets compared to a model fine-tuned to directly predict final answers, and performs comparably to fine-tuning a 30\$\textbackslash times\$ larger state-of-the-art language model on CommensenseQA. Thus, STaR lets a model improve itself by learning from its own generated reasoning.},
+  archiveprefix = {arXiv},
+  keywords = {Computer Science - Artificial Intelligence,Computer Science - Computation and Language,Computer Science - Machine Learning}
+}
+
+@misc{zelikman2023stop,
+  title = {Self-Taught Optimizer (STOP): Recursively Self-Improving Code Generation},
+  author = {Zelikman, Eric and Lorch, Eliana and Mackey, Lester and Kalai, Adam Tauman},
+  year = 2023,
+  eprint = {2310.02304},
+  primaryclass = {cs.CL},
+  doi = {10.48550/arXiv.2310.02304},
+  archiveprefix = {arXiv}
+}
+
+@misc{zenil2026limits,
+  title = {On the Limits of Self-Improving in Large Language Models: The Singularity Is Not Near Without Symbolic Model Synthesis},
+  shorttitle = {On the Limits of Self-Improving in Large Language Models},
+  author = {Zenil, Hector},
+  year = 2026,
+  month = feb,
+  number = {arXiv:2601.05280},
+  eprint = {2601.05280},
+  primaryclass = {cs.IT},
+  publisher = {arXiv},
+  doi = {10.48550/arXiv.2601.05280},
+  urldate = {2026-08-03},
+  abstract = {We formalise recursive self-training in Large Language Models (LLMs) and Generative AI as a discrete-time dynamical system. We prove that if the proportion of exogenous, externally grounded signal \${$\alpha\_$}t\$ vanishes asymptotically (\${$\alpha\_$}t \textbackslash to 0\$), the system undergoes degenerative dynamics. We derive two fundamental failure modes: (1) \textbackslash textit\textbraceleft Entropy Decay\textbraceright, where finite sampling effects induce monotonic loss of distributional diversity, and (2) \textbackslash textit\textbraceleft Variance Amplification\textbraceright, where the absence of persistent grounding causes distributional drift via a random-walk mechanism. These behaviours are architectural invariants of distributional learning on finite samples. We show that the collapse results apply specifically to closed-loop density matching without persistent external signal. Systems with non-vanishing exogenous grounding fall outside this regime. However, mainstream Singularity, AGI, and ASI narratives typically posit systems that become increasingly autonomous and require little to no human or external intervention for self-improvement. In that autonomy regime, the vanishing-signal condition is satisfied, and collapse follows under KL-based objectives. To overcome these limits, we propose neurosymbolic integration based on algorithmic probability and program synthesis. The Coding Theorem Method (CTM) enables identification of generative mechanisms rather than mere correlations, escaping the distribution-only constraints that bind standard statistical learning. We conclude that fully autonomous recursive density matching leads to degenerative fixed points, whereas externally anchored or mechanism-based approaches operate under fundamentally different asymptotic dynamics.},
+  archiveprefix = {arXiv},
+  keywords = {Computer Science - Artificial Intelligence,Computer Science - Information Theory,Computer Science - Machine Learning}
+}
+
+@misc{zhang2024aflow,
+  title = {AFlow: Automating Agentic Workflow Generation},
+  author = {Zhang, Jiayi and Xiang, Jinyu and Yu, Zhaoyang and Teng, Fengwei and Chen, Xionghui and Chen, Jiaqi and Zhuge, Mingchen and Cheng, Xin and Hong, Sirui and Wang, Jinlin and Zheng, Bingnan and Liu, Bang and Luo, Yuyu and Wu, Chenglin},
+  year = 2024,
+  eprint = {2410.10762},
+  primaryclass = {cs.AI},
+  doi = {10.48550/arXiv.2410.10762},
+  archiveprefix = {arXiv}
+}
+
+@misc{zhang2025dgm,
+  title = {Darwin G\"odel Machine: Open-Ended Evolution of Self-Improving Agents},
+  author = {Zhang, Jenny and Hu, Shengran and Lu, Cong and Lange, Robert and Clune, Jeff},
+  year = 2025,
+  eprint = {2505.22954},
+  primaryclass = {cs.AI},
+  doi = {10.48550/arXiv.2505.22954},
+  archiveprefix = {arXiv}
+}
+
+@misc{zhang2026coevoskills,
+  title = {CoEvoSkills: Self-Evolving Agent Skills via Co-Evolutionary Verification},
+  shorttitle = {CoEvoSkills},
+  author = {Zhang, Hanrong and Fan, Shicheng and Zou, Henry Peng and Chen, Yankai and Wang, Zhenting and Zhou, Jiayu and Li, Chengze and Huang, Wei-Chieh and Yao, Yifei and Zheng, Kening and Liu, Xue and Li, Xiaoxiao and Yu, Philip S.},
+  year = 2026,
+  month = apr,
+  number = {arXiv:2604.01687},
+  eprint = {2604.01687},
+  primaryclass = {cs.AI},
+  publisher = {arXiv},
+  doi = {10.48550/arXiv.2604.01687},
+  urldate = {2026-08-03},
+  abstract = {Anthropic proposes the concept of skills for LLM agents to tackle multi-step professional tasks that simple tool invocations cannot address. A tool is a single, self-contained function, whereas a skill is a structured bundle of interdependent multi-file artifacts. Currently, skill generation is not only label-intensive due to manual authoring, but also may suffer from human--machine cognitive misalignment, which can lead to degraded agent performance, as evidenced by evaluations on SkillsBench. Therefore, we aim to enable agents to autonomously generate skills. However, existing self-evolving methods designed for tools cannot be directly applied to skills due to their increased complexity. To address these issues, we propose CoEvoSkills, a self-evolving skills framework that enables agents to autonomously construct complex, multi-file skill packages. Specifically, CoEvoSkills couples a Skill Generator that iteratively refines skills with a Surrogate Verifier that co-evolves to provide informative and actionable feedback without access to ground-truth test content. On SkillsBench, CoEvoSkills achieves the highest pass rate among five baselines on both Claude Code and Codex, and also exhibits strong generalization capabilities to six additional LLMs.},
+  archiveprefix = {arXiv},
+  keywords = {Computer Science - Artificial Intelligence}
+}
+
+@misc{zhang2026hyperagents,
+  title = {Hyperagents},
+  author = {Zhang, Jenny and Zhao, Bingchen and Yang, Wannan and Foerster, Jakob and Clune, Jeff and Jiang, Minqi and Devlin, Sam and Shavrina, Tatiana},
+  year = 2026,
+  eprint = {2603.19461},
+  primaryclass = {cs.AI},
+  doi = {10.48550/arXiv.2603.19461},
+  archiveprefix = {arXiv}
+}
+
+@misc{zhang2026selfharness,
+  title = {Self-Harness: Harnesses That Improve Themselves},
+  author = {Zhang, Hangfan and Zhang, Shao and Li, Kangcong and Zhang, Chen and Chen, Yang and Zhang, Yiqun and Bai, Lei and Hu, Shuyue},
+  year = 2026,
+  eprint = {2606.09498},
+  primaryclass = {cs.CL},
+  doi = {10.48550/arXiv.2606.09498},
+  archiveprefix = {arXiv}
+}
+
+@misc{zhuge2024gptswarm,
+  title = {Language Agents as Optimizable Graphs},
+  author = {Zhuge, Mingchen and Wang, Wenyi and Kirsch, Louis and Faccio, Francesco and Khizbullin, Dmitrii and Schmidhuber, J{\"u}rgen},
+  year = 2024,
+  month = aug,
+  number = {arXiv:2402.16823},
+  eprint = {2402.16823},
+  primaryclass = {cs.AI},
+  publisher = {arXiv},
+  doi = {10.48550/arXiv.2402.16823},
+  urldate = {2026-08-03},
+  abstract = {Various human-designed prompt engineering techniques have been proposed to improve problem solvers based on Large Language Models (LLMs), yielding many disparate code bases. We unify these approaches by describing LLM-based agents as computational graphs. The nodes implement functions to process multimodal data or query LLMs, and the edges describe the information flow between operations. Graphs can be recursively combined into larger composite graphs representing hierarchies of inter-agent collaboration (where edges connect operations of different agents). Our novel automatic graph optimizers (1) refine node-level LLM prompts (node optimization) and (2) improve agent orchestration by changing graph connectivity (edge optimization). Experiments demonstrate that our framework can be used to efficiently develop, integrate, and automatically improve various LLM agents. The code can be found at https://github.com/metauto-ai/gptswarm.},
+  archiveprefix = {arXiv},
+  keywords = {Computer Science - Artificial Intelligence,Computer Science - Computation and Language,Computer Science - Machine Learning,Computer Science - Multiagent Systems}
+}

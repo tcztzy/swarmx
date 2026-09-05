@@ -3,7 +3,7 @@
   "references": [
     { "path": "./packages/core/annotation" },
     { "path": "./packages/core/dvc" },
-    { "path": "./packages/core/knowledge-base" },
+    { "path": "./packages/core/memory" },
     { "path": "./packages/core/swarm" },
     { "path": "./packages/science/core" },
     { "path": "./apps/desktop" }

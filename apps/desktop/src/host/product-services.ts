@@ -1,11 +1,15 @@
 import { createHash } from "node:crypto";
+import { lstatSync } from "node:fs";
+import { mkdir, rename, rmdir } from "node:fs/promises";
 import { join } from "node:path";
 import { DvcService } from "@swarmx/dvc";
-import { KNOWLEDGE_BASE_ACTIONS, KnowledgeBaseService } from "@swarmx/knowledge-base";
+import { MEMORY_ACTIONS, MemoryService } from "@swarmx/memory";
 import {
   createScienceToolDefinitions,
+  parseScienceResourceId,
   type ScienceAttachmentStore,
   ScienceCore,
+  ScienceError,
   type ScienceToolDefinition,
 } from "@swarmx/science";
 import { createSwarm } from "@swarmx/swarm";
@@ -31,8 +35,8 @@ const SwarmCall = z.discriminatedUnion("action", [
   }),
   z.strictObject({ action: z.literal("cancel"), agentId: Id, sessionId: Id }),
 ]);
-const KnowledgeCall = z.strictObject({
-  action: z.enum(KNOWLEDGE_BASE_ACTIONS),
+const MemoryCall = z.strictObject({
+  action: z.enum(MEMORY_ACTIONS),
   request: z.unknown(),
   approved: z.boolean().optional(),
 });
@@ -56,7 +60,7 @@ export interface ProductServicesOptions {
 
 export class ProductServices {
   readonly dvc = new DvcService(new NodeProcessRunner());
-  readonly knowledgeBase: KnowledgeBaseService;
+  readonly memory: MemoryService;
   readonly science: ScienceCore;
   readonly toolManifest: readonly ToolManifestEntry[];
 
@@ -88,8 +92,37 @@ export class ProductServices {
       { ...options.scienceConfig, root: join(options.productHome, "science") },
       () => ({ key: options.workspace.id, root: options.workspace.root }),
     );
-    this.knowledgeBase = new KnowledgeBaseService({
-      root: join(options.productHome, "knowledge-base", "vault"),
+    this.memory = new MemoryService({
+      root: join(options.productHome, "memory", "vault"),
+      checkResource: (resource) => {
+        try {
+          parseScienceResourceId(resource);
+          this.science.headResource(options.workspace.id, { id: resource });
+          return undefined;
+        } catch (error) {
+          if (!(error instanceof ScienceError)) throw error;
+          if (error.code === "INVALID_RESOURCE_ID") {
+            return {
+              ruleId: "source.invalid",
+              severity: "error",
+              message: "Invalid Science resource address.",
+            };
+          }
+          if (
+            ["RESOURCE_NOT_FOUND", "RESOURCE_KIND_MISMATCH", "RESOURCE_REVISION_MISMATCH"].includes(
+              error.code,
+            )
+          ) {
+            return {
+              ruleId: "source.unresolved",
+              severity: "warning",
+              message:
+                "Science source is unavailable in this workspace or its revision has changed.",
+            };
+          }
+          throw error;
+        }
+      },
     });
     const definitions = createScienceToolDefinitions(this.science, attachments);
     this.scienceDefinitions = new Map(definitions.map((tool) => [tool.name, tool]));
@@ -100,13 +133,14 @@ export class ProductServices {
         inputSchema: (tool.mcpParameters ?? tool.parameters) as Record<string, unknown>,
       })),
       {
-        name: "knowledge-base",
-        description: "Search or curate the private SwarmX knowledge base.",
+        name: "memory",
+        description:
+          "Search, read, curate, or lint the private SwarmX memory. lint_memory accepts optional id and ISO datetime now; search_memory accepts includeDeprecated.",
         inputSchema: {
           type: "object",
           additionalProperties: false,
           properties: {
-            action: { type: "string", enum: [...KNOWLEDGE_BASE_ACTIONS] },
+            action: { type: "string", enum: [...MEMORY_ACTIONS] },
             request: { type: "object" },
             approved: { type: "boolean" },
           },
@@ -122,8 +156,22 @@ export class ProductServices {
   }
 
   static async create(options: ProductServicesOptions): Promise<ProductServices> {
+    const previousDirectory = join(options.productHome, "knowledge-base");
+    const previousVault = join(previousDirectory, "vault");
+    if (lstatSync(previousVault, { throwIfNoEntry: false })) {
+      const directory = join(options.productHome, "memory");
+      const vault = join(directory, "vault");
+      if (lstatSync(vault, { throwIfNoEntry: false })) {
+        throw new Error(
+          "Both previous and current Memory vaults exist; consolidate them before starting SwarmX.",
+        );
+      }
+      await mkdir(directory, { mode: 0o700, recursive: true });
+      await rename(previousVault, vault);
+      await rmdir(previousDirectory);
+    }
     const services = new ProductServices(options);
-    await services.knowledgeBase.initialize();
+    await services.memory.initialize();
     return services;
   }
 
@@ -197,9 +245,9 @@ export class ProductServices {
     const science = this.scienceDefinitions.get(name);
     if (science !== undefined) return science.invoke(args, context);
     if (name === "swarm") return this.callSwarm(args, context.signal);
-    if (name === "knowledge-base") {
-      const call = KnowledgeCall.parse(args);
-      return this.knowledgeBase.execute(
+    if (name === "memory") {
+      const call = MemoryCall.parse(args);
+      return this.memory.execute(
         { action: call.action, request: call.request },
         {
           ...context,

@@ -86,9 +86,9 @@ importers:
       '@swarmx/dvc':
         specifier: workspace:*
         version: link:../../packages/core/dvc
-      '@swarmx/knowledge-base':
+      '@swarmx/memory':
         specifier: workspace:*
-        version: link:../../packages/core/knowledge-base
+        version: link:../../packages/core/memory
       '@swarmx/science':
         specifier: workspace:*
         version: link:../../packages/science/core
@@ -142,7 +142,7 @@ importers:
         specifier: ^4.4.3
         version: 4.4.3
 
-  packages/core/knowledge-base:
+  packages/core/memory:
     dependencies:
       mdast-util-from-markdown:
         specifier: ^2.0.3

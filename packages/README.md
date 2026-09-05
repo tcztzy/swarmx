@@ -6,6 +6,6 @@ Reusable, vendor-neutral code lives under `packages/`; the executable compositio
 | Package | Owner |
 | --- | --- |
 | `core/swarm` | recursive A2A Agent executor |
-| `core/knowledge-base` | private curated knowledge |
+| `core/memory` | shared semantic memory in private OKF Markdown |
 | `core/dvc` | Git and DVC operations |
 | `science/core` | scientific records and artifacts |

@@ -26,7 +26,7 @@
     "@openclaw/gateway-client": "2026.9.1",
     "@openclaw/gateway-protocol": "2026.9.1",
     "@swarmx/dvc": "workspace:*",
-    "@swarmx/knowledge-base": "workspace:*",
+    "@swarmx/memory": "workspace:*",
     "@swarmx/science": "workspace:*",
     "@swarmx/swarm": "workspace:*",
     "json-rpc-2.0": "1.8.0",

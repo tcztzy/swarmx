@@ -6,7 +6,7 @@ const outputs = [
   resolve(root, "apps/desktop/dist"),
   resolve(root, "packages/core/annotation/lib"),
   resolve(root, "packages/core/dvc/lib"),
-  resolve(root, "packages/core/knowledge-base/lib"),
+  resolve(root, "packages/core/memory/lib"),
   resolve(root, "packages/core/swarm/lib"),
   resolve(root, "packages/science/core/lib"),
   resolve(root, "packages/science/core/bin"),

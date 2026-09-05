@@ -1,17 +1,9 @@
 repos:
-  - repo: local
+  - repo: https://github.com/biomejs/pre-commit
+    rev: v2.5.9
     hooks:
-      - id: biome
-        name: Biome
-        entry: node node_modules/@biomejs/biome/bin/biome check
-        language: system
+      - id: biome-ci
         types_or: [ts, tsx]
-      - id: rustfmt
-        name: rustfmt
-        entry: cargo fmt --manifest-path native/writing-preview-runtime/Cargo.toml --check
-        language: system
-        types: [rust]
-        pass_filenames: false
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.16.6
     hooks:
