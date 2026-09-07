@@ -2,4 +2,4 @@
 - Recursive delegation supports task-dependent multi-agent workflows.
 - Shared memory combines source links, revision checks, and explicit curation.
 - Memory complements RAG; factual verification remains an evidence-review task.
-- Current tests and retained prototype records have distinct validation scopes.
+- A current workflow links computation, delegated checks, provenance, and recall.

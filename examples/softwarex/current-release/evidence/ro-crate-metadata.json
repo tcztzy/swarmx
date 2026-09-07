@@ -1,0 +1,381 @@
+{
+  "@context": "https://w3id.org/ro/crate/1.3/context",
+  "@graph": [
+    {
+      "@id": "ro-crate-metadata.json",
+      "@type": "CreativeWork",
+      "about": {
+        "@id": "urn:uuid:70f02f8f-0be8-4830-886e-2bbc78845c4e"
+      },
+      "conformsTo": {
+        "@id": "https://w3id.org/ro/crate/1.3"
+      }
+    },
+    {
+      "@id": "urn:uuid:70f02f8f-0be8-4830-886e-2bbc78845c4e",
+      "@type": "Dataset",
+      "datePublished": "2026-09-07T06:17:04.705Z",
+      "description": "Research Object for Synthetic germination analysis",
+      "hasPart": [
+        {
+          "@id": "urn:uuid:606fe505-8f2c-45ab-b84d-7c38acf44a22"
+        },
+        {
+          "@id": "urn:uuid:00f99b5c-99d6-4089-91db-e48628a761ad"
+        },
+        {
+          "@id": "urn:uuid:4116cf00-848c-4bb6-bf0a-c486ae028fc8"
+        },
+        {
+          "@id": "urn:uuid:27629674-285a-449d-97ee-8862e595492c"
+        },
+        {
+          "@id": "urn:uuid:caae207a-11c2-4aa2-873f-198b678d81c2"
+        },
+        {
+          "@id": "urn:uuid:3cad1825-d2ff-4999-bfa8-caa9443bdb91"
+        },
+        {
+          "@id": "urn:uuid:f328cf00-80f5-4dcb-9e60-c37cae858339"
+        }
+      ],
+      "license": "All rights reserved",
+      "name": "Synthetic germination analysis",
+      "version": 1,
+      "mentions": [
+        {
+          "@id": "#rating-f328cf00-80f5-4dcb-9e60-c37cae858339"
+        },
+        {
+          "@id": "#action-df3109f9-8fc0-4b36-9ed4-cb96f8c53fa8"
+        },
+        {
+          "@id": "#action-f3d5e44b-4000-4d34-af38-6a51f42dfde6"
+        },
+        {
+          "@id": "#action-843d4e23-9934-492c-8403-798ab42ff3a2"
+        },
+        {
+          "@id": "#action-2351ca45-1a3c-4b6a-872c-a40f5cc07398"
+        },
+        {
+          "@id": "#action-fd2934ef-d90b-430b-b041-199d3482474f"
+        },
+        {
+          "@id": "#action-eeb9def2-e286-43c0-a3f4-4ee5613d68d0"
+        },
+        {
+          "@id": "#action-4a4fef25-d2c5-4e38-a6c6-5884dfc57206"
+        }
+      ]
+    },
+    {
+      "@id": "urn:uuid:606fe505-8f2c-45ab-b84d-7c38acf44a22",
+      "@type": "SoftwareSourceCode",
+      "dateCreated": "2026-09-07T06:18:06.793Z",
+      "dateModified": "2026-09-07T06:18:37.540Z",
+      "description": "Science notebook with 2 recorded cells",
+      "isBasedOn": [
+        {
+          "@id": "urn:uuid:4116cf00-848c-4bb6-bf0a-c486ae028fc8"
+        }
+      ],
+      "isPartOf": {
+        "@id": "urn:uuid:70f02f8f-0be8-4830-886e-2bbc78845c4e"
+      },
+      "name": "Germination figure",
+      "version": 2
+    },
+    {
+      "@id": "urn:uuid:00f99b5c-99d6-4089-91db-e48628a761ad",
+      "@type": "SoftwareSourceCode",
+      "dateCreated": "2026-09-07T06:19:59.224Z",
+      "dateModified": "2026-09-07T06:22:01.344Z",
+      "description": "Science notebook with 2 recorded cells",
+      "isBasedOn": [
+        {
+          "@id": "urn:uuid:4116cf00-848c-4bb6-bf0a-c486ae028fc8"
+        }
+      ],
+      "isPartOf": {
+        "@id": "urn:uuid:70f02f8f-0be8-4830-886e-2bbc78845c4e"
+      },
+      "name": "Germination arithmetic and digest check",
+      "version": 2
+    },
+    {
+      "@id": "urn:uuid:4116cf00-848c-4bb6-bf0a-c486ae028fc8",
+      "@type": ["MediaObject", "Dataset"],
+      "contentSize": "136",
+      "dateCreated": "2026-09-07T06:17:04.714Z",
+      "dateModified": "2026-09-07T06:17:04.714Z",
+      "encodingFormat": "text/csv",
+      "isPartOf": {
+        "@id": "urn:uuid:70f02f8f-0be8-4830-886e-2bbc78845c4e"
+      },
+      "name": "germination.csv",
+      "sha256": "7c22c618bbd87c92777e76625a8e2225b10d30adfe4823ffdb986bd2bfd63838",
+      "version": 1
+    },
+    {
+      "@id": "urn:uuid:27629674-285a-449d-97ee-8862e595492c",
+      "@type": ["MediaObject", "ImageObject"],
+      "contentSize": "44299",
+      "dateCreated": "2026-09-07T06:18:37.540Z",
+      "dateModified": "2026-09-07T06:18:37.540Z",
+      "encodingFormat": "image/png",
+      "isBasedOn": [
+        {
+          "@id": "urn:uuid:606fe505-8f2c-45ab-b84d-7c38acf44a22"
+        },
+        {
+          "@id": "urn:uuid:4116cf00-848c-4bb6-bf0a-c486ae028fc8"
+        }
+      ],
+      "isPartOf": {
+        "@id": "urn:uuid:70f02f8f-0be8-4830-886e-2bbc78845c4e"
+      },
+      "license": "CC0-1.0",
+      "name": "Synthetic germination: 79% versus 87%",
+      "sha256": "098333128c7c6e7832e094aaa51fda2ec335465bbd3ab0b0cd4320ac540ad453",
+      "version": 1
+    },
+    {
+      "@id": "urn:uuid:caae207a-11c2-4aa2-873f-198b678d81c2",
+      "@type": "Question",
+      "creativeWorkStatus": "open",
+      "dateCreated": "2026-09-07T06:17:04.716Z",
+      "dateModified": "2026-09-07T06:17:04.716Z",
+      "description": "Compute synthetic group means and preserve input, figure, verification and a sourced finding.",
+      "isPartOf": {
+        "@id": "urn:uuid:70f02f8f-0be8-4830-886e-2bbc78845c4e"
+      },
+      "keywords": ["synthetic", "provenance"],
+      "name": "Can a descriptive result be traced and retrieved?",
+      "text": "Compute synthetic group means and preserve input, figure, verification and a sourced finding.",
+      "version": 1
+    },
+    {
+      "@id": "urn:uuid:3cad1825-d2ff-4999-bfa8-caa9443bdb91",
+      "@type": "Claim",
+      "creativeWorkStatus": "supported",
+      "dateCreated": "2026-09-07T06:22:49.906Z",
+      "dateModified": "2026-09-07T06:22:49.906Z",
+      "description": "The synthetic dataset has mean germination of 79% for control and 87% for primed, with n = 3 replicates per group; primed minus control is 8 percentage points. A separate notebook recomputed the values and verified the input SHA256. These results support only this synthetic publication and provenance demonstration; no biological inference is made.",
+      "isPartOf": {
+        "@id": "urn:uuid:70f02f8f-0be8-4830-886e-2bbc78845c4e"
+      },
+      "keywords": ["synthetic"],
+      "name": "Synthetic group means differ by 8 percentage points",
+      "text": "The synthetic dataset has mean germination of 79% for control and 87% for primed, with n = 3 replicates per group; primed minus control is 8 percentage points. A separate notebook recomputed the values and verified the input SHA256. These results support only this synthetic publication and provenance demonstration; no biological inference is made.",
+      "version": 1
+    },
+    {
+      "@id": "urn:uuid:f328cf00-80f5-4dcb-9e60-c37cae858339",
+      "@type": "Review",
+      "creativeWorkStatus": "accepted",
+      "dateCreated": "2026-09-07T06:23:14.315Z",
+      "dateModified": "2026-09-07T06:23:14.315Z",
+      "description": "A separate delegated notebook (00f99b5c-99d6-4089-91db-e48628a761ad; successful run 336a4362-a00b-4a21-abd6-a849d30df8dd, exit code 0, outputArtifact null) recomputed control percentages [78, 80, 79] and primed percentages [86, 88, 87], means 79% and 87%, an 8 percentage point difference, and n = 3 in each group. All numerical assertions passed. The input digest matched sha256:7c22c618bbd87c92777e76625a8e2225b10d30adfe4823ffdb986bd2bfd63838. The figure notebook executed the supplied code successfully and registered germination.png with code and input provenance. This evidence supports the synthetic demonstration result only; no biological inference is made.",
+      "isBasedOn": [
+        {
+          "@id": "urn:uuid:4116cf00-848c-4bb6-bf0a-c486ae028fc8"
+        },
+        {
+          "@id": "urn:uuid:27629674-285a-449d-97ee-8862e595492c"
+        },
+        {
+          "@id": "urn:uuid:606fe505-8f2c-45ab-b84d-7c38acf44a22"
+        },
+        {
+          "@id": "urn:uuid:00f99b5c-99d6-4089-91db-e48628a761ad"
+        }
+      ],
+      "isPartOf": {
+        "@id": "urn:uuid:70f02f8f-0be8-4830-886e-2bbc78845c4e"
+      },
+      "itemReviewed": {
+        "@id": "urn:uuid:3cad1825-d2ff-4999-bfa8-caa9443bdb91"
+      },
+      "keywords": ["synthetic"],
+      "name": "Recomputed input and registered figure",
+      "reviewRating": {
+        "@id": "#rating-f328cf00-80f5-4dcb-9e60-c37cae858339"
+      },
+      "text": "A separate delegated notebook (00f99b5c-99d6-4089-91db-e48628a761ad; successful run 336a4362-a00b-4a21-abd6-a849d30df8dd, exit code 0, outputArtifact null) recomputed control percentages [78, 80, 79] and primed percentages [86, 88, 87], means 79% and 87%, an 8 percentage point difference, and n = 3 in each group. All numerical assertions passed. The input digest matched sha256:7c22c618bbd87c92777e76625a8e2225b10d30adfe4823ffdb986bd2bfd63838. The figure notebook executed the supplied code successfully and registered germination.png with code and input provenance. This evidence supports the synthetic demonstration result only; no biological inference is made.",
+      "version": 1
+    },
+    {
+      "@id": "#rating-f328cf00-80f5-4dcb-9e60-c37cae858339",
+      "@type": "Rating",
+      "bestRating": 1,
+      "name": "supports",
+      "ratingValue": 1,
+      "worstRating": -1
+    },
+    {
+      "@id": "https://github.com/tcztzy/swarmx",
+      "@type": "SoftwareApplication",
+      "name": "SwarmX"
+    },
+    {
+      "@id": "#action-df3109f9-8fc0-4b36-9ed4-cb96f8c53fa8",
+      "@type": "CreateAction",
+      "actionStatus": {
+        "@id": "https://schema.org/CompletedActionStatus"
+      },
+      "endTime": "2026-09-07T06:17:04.705Z",
+      "identifier": "science-journal:1",
+      "instrument": {
+        "@id": "https://github.com/tcztzy/swarmx"
+      },
+      "name": "Create Science project",
+      "result": [
+        {
+          "@id": "urn:uuid:70f02f8f-0be8-4830-886e-2bbc78845c4e"
+        }
+      ]
+    },
+    {
+      "@id": "#action-f3d5e44b-4000-4d34-af38-6a51f42dfde6",
+      "@type": "UpdateAction",
+      "actionStatus": {
+        "@id": "https://schema.org/CompletedActionStatus"
+      },
+      "endTime": "2026-09-07T06:18:37.540Z",
+      "identifier": "science-journal:5",
+      "instrument": {
+        "@id": "https://github.com/tcztzy/swarmx"
+      },
+      "name": "Execute notebook cell",
+      "object": [
+        {
+          "@id": "urn:uuid:4116cf00-848c-4bb6-bf0a-c486ae028fc8"
+        },
+        {
+          "@id": "urn:uuid:606fe505-8f2c-45ab-b84d-7c38acf44a22"
+        }
+      ],
+      "result": [
+        {
+          "@id": "urn:uuid:606fe505-8f2c-45ab-b84d-7c38acf44a22"
+        },
+        {
+          "@id": "urn:uuid:27629674-285a-449d-97ee-8862e595492c"
+        }
+      ]
+    },
+    {
+      "@id": "#action-843d4e23-9934-492c-8403-798ab42ff3a2",
+      "@type": "UpdateAction",
+      "actionStatus": {
+        "@id": "https://schema.org/CompletedActionStatus"
+      },
+      "endTime": "2026-09-07T06:22:01.344Z",
+      "identifier": "science-journal:7",
+      "instrument": {
+        "@id": "https://github.com/tcztzy/swarmx"
+      },
+      "name": "Execute notebook cell",
+      "object": [
+        {
+          "@id": "urn:uuid:4116cf00-848c-4bb6-bf0a-c486ae028fc8"
+        }
+      ],
+      "result": [
+        {
+          "@id": "urn:uuid:00f99b5c-99d6-4089-91db-e48628a761ad"
+        }
+      ]
+    },
+    {
+      "@id": "#action-2351ca45-1a3c-4b6a-872c-a40f5cc07398",
+      "@type": "CreateAction",
+      "actionStatus": {
+        "@id": "https://schema.org/CompletedActionStatus"
+      },
+      "endTime": "2026-09-07T06:17:04.714Z",
+      "identifier": "science-journal:2",
+      "instrument": {
+        "@id": "https://github.com/tcztzy/swarmx"
+      },
+      "name": "Register research artifact",
+      "result": [
+        {
+          "@id": "urn:uuid:4116cf00-848c-4bb6-bf0a-c486ae028fc8"
+        }
+      ]
+    },
+    {
+      "@id": "#action-fd2934ef-d90b-430b-b041-199d3482474f",
+      "@type": "CreateAction",
+      "actionStatus": {
+        "@id": "https://schema.org/CompletedActionStatus"
+      },
+      "endTime": "2026-09-07T06:17:04.716Z",
+      "identifier": "science-journal:3",
+      "instrument": {
+        "@id": "https://github.com/tcztzy/swarmx"
+      },
+      "name": "Record research question",
+      "result": [
+        {
+          "@id": "urn:uuid:caae207a-11c2-4aa2-873f-198b678d81c2"
+        }
+      ]
+    },
+    {
+      "@id": "#action-eeb9def2-e286-43c0-a3f4-4ee5613d68d0",
+      "@type": "CreateAction",
+      "actionStatus": {
+        "@id": "https://schema.org/CompletedActionStatus"
+      },
+      "endTime": "2026-09-07T06:22:49.906Z",
+      "identifier": "science-journal:8",
+      "instrument": {
+        "@id": "https://github.com/tcztzy/swarmx"
+      },
+      "name": "Record research claim",
+      "result": [
+        {
+          "@id": "urn:uuid:3cad1825-d2ff-4999-bfa8-caa9443bdb91"
+        }
+      ]
+    },
+    {
+      "@id": "#action-4a4fef25-d2c5-4e38-a6c6-5884dfc57206",
+      "@type": "CreateAction",
+      "actionStatus": {
+        "@id": "https://schema.org/CompletedActionStatus"
+      },
+      "endTime": "2026-09-07T06:23:14.315Z",
+      "identifier": "science-journal:9",
+      "instrument": {
+        "@id": "https://github.com/tcztzy/swarmx"
+      },
+      "name": "Record research evidence",
+      "object": [
+        {
+          "@id": "urn:uuid:4116cf00-848c-4bb6-bf0a-c486ae028fc8"
+        },
+        {
+          "@id": "urn:uuid:27629674-285a-449d-97ee-8862e595492c"
+        },
+        {
+          "@id": "urn:uuid:606fe505-8f2c-45ab-b84d-7c38acf44a22"
+        },
+        {
+          "@id": "urn:uuid:00f99b5c-99d6-4089-91db-e48628a761ad"
+        },
+        {
+          "@id": "urn:uuid:3cad1825-d2ff-4999-bfa8-caa9443bdb91"
+        }
+      ],
+      "result": [
+        {
+          "@id": "urn:uuid:f328cf00-80f5-4dcb-9e60-c37cae858339"
+        }
+      ]
+    }
+  ]
+}

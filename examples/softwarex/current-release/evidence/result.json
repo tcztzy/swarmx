@@ -1,0 +1,319 @@
+{
+  "sourceRevision": "9e1e818acd438dcbf30fb9dc46d758495d24d094",
+  "dataKind": "synthetic",
+  "result": {
+    "controlMeanPercent": 79,
+    "primedMeanPercent": 87,
+    "differencePercentagePoints": 8,
+    "replicatesPerGroup": 3
+  },
+  "projectId": "70f02f8f-0be8-4830-886e-2bbc78845c4e",
+  "questionId": "caae207a-11c2-4aa2-873f-198b678d81c2",
+  "inputArtifact": {
+    "id": "4116cf00-848c-4bb6-bf0a-c486ae028fc8",
+    "projectId": "70f02f8f-0be8-4830-886e-2bbc78845c4e",
+    "kind": "dataset",
+    "title": "germination.csv",
+    "digest": "sha256:7c22c618bbd87c92777e76625a8e2225b10d30adfe4823ffdb986bd2bfd63838",
+    "mime": "text/csv",
+    "size": 136,
+    "creator": {
+      "kind": "session",
+      "sessionId": "renderer"
+    },
+    "runId": null,
+    "environment": {},
+    "license": null,
+    "sourceEntityIds": [],
+    "createdAt": 1788761824714,
+    "updatedAt": 1788761824714,
+    "revision": 1,
+    "provenance": {
+      "eventId": "2351ca45-1a3c-4b6a-872c-a40f5cc07398",
+      "journalSeq": 2,
+      "sessionId": "renderer"
+    }
+  },
+  "figureArtifact": {
+    "id": "27629674-285a-449d-97ee-8862e595492c",
+    "projectId": "70f02f8f-0be8-4830-886e-2bbc78845c4e",
+    "kind": "figure",
+    "title": "Synthetic germination: 79% versus 87%",
+    "digest": "sha256:098333128c7c6e7832e094aaa51fda2ec335465bbd3ab0b0cd4320ac540ad453",
+    "mime": "image/png",
+    "size": 44299,
+    "creator": {
+      "kind": "session",
+      "sessionId": "codex:01a07a83-8b7a-75e3-96aa-50abb5d86b7e"
+    },
+    "runId": "6d8abfcc-0105-40ca-b7e3-53110ebfa9d2",
+    "environment": {
+      "packageSetHash": "sha256:26c3d197ad0864e7147f9aeb62ae09bd1c4eb3bd25babf0e15779f75c730b396",
+      "pythonImplementation": "CPython",
+      "pythonVersion": "3.13.15",
+      "runtimeImage": "sha256:5d1866eade6dea04a05f5b856a297f9a2f73fa3b79da54cb87acd638713639bf",
+      "runtimePolicy": "workspace-write;network=none;cpus=2;memoryMb=2048;timeoutSeconds=300"
+    },
+    "license": "CC0-1.0",
+    "sourceEntityIds": [
+      "606fe505-8f2c-45ab-b84d-7c38acf44a22",
+      "4116cf00-848c-4bb6-bf0a-c486ae028fc8"
+    ],
+    "createdAt": 1788761917540,
+    "updatedAt": 1788761917540,
+    "revision": 1,
+    "provenance": {
+      "eventId": "f3d5e44b-4000-4d34-af38-6a51f42dfde6",
+      "journalSeq": 5,
+      "sessionId": "codex:01a07a83-8b7a-75e3-96aa-50abb5d86b7e"
+    }
+  },
+  "executions": [
+    {
+      "id": "336a4362-a00b-4a21-abd6-a849d30df8dd",
+      "notebookId": "00f99b5c-99d6-4089-91db-e48628a761ad",
+      "cellId": "62d18913-f7d9-4607-99c8-5f0d699f6049",
+      "executionCount": 1,
+      "status": "succeeded",
+      "stdout": {
+        "text": "{\n  \"row_germination_percentages\": [\n    {\n      \"row\": 1,\n      \"group\": \"control\",\n      \"germination_percent\": 78.0\n    },\n    {\n      \"row\": 2,\n      \"group\": \"control\",\n      \"germination_percent\": 80.0\n    },\n    {\n      \"row\": 3,\n      \"group\": \"control\",\n      \"germination_percent\": 79.0\n    },\n    {\n      \"row\": 4,\n      \"group\": \"primed\",\n      \"germination_percent\": 86.0\n    },\n    {\n      \"row\": 5,\n      \"group\": \"primed\",\n      \"germination_percent\": 88.0\n    },\n    {\n      \"row\": 6,\n      \"group\": \"primed\",\n      \"germination_percent\": 87.0\n    }\n  ],\n  \"arithmetic_group_means_percent\": {\n    \"control\": 79.0,\n    \"primed\": 87.0\n  },\n  \"primed_minus_control_percentage_points\": 8.0,\n  \"counts_per_group\": {\n    \"control\": 3,\n    \"primed\": 3\n  },\n  \"input_digest\": \"sha256:7c22c618bbd87c92777e76625a8e2225b10d30adfe4823ffdb986bd2bfd63838\",\n  \"expected_input_digest\": \"sha256:7c22c618bbd87c92777e76625a8e2225b10d30adfe4823ffdb986bd2bfd63838\",\n  \"comparisons\": {\n    \"control_mean_equals_79_percent\": true,\n    \"primed_mean_equals_87_percent\": true,\n    \"primed_minus_control_equals_8_percentage_points\": true,\n    \"control_count_equals_3\": true,\n    \"primed_count_equals_3\": true,\n    \"input_digest_matches_expected\": true\n  },\n  \"scope\": \"synthetic demonstration; no biological inference\"\n}\n",
+        "truncated": false
+      },
+      "stderr": {
+        "text": "",
+        "truncated": false
+      },
+      "outputs": [
+        {
+          "type": "stream",
+          "name": "stdout",
+          "text": "{\n  \"row_germination_percentages\": [\n    {\n      \"row\": 1,\n      \"group\": \"control\",\n      \"germination_percent\": 78.0\n    },\n    {\n      \"row\": 2,\n      \"group\": \"control\",\n      \"germination_percent\": 80.0\n    },\n    {\n      \"row\": 3,\n      \"group\": \"control\",\n      \"germination_percent\": 79.0\n    },\n    {\n      \"row\": 4,\n      \"group\": \"primed\",\n      \"germination_percent\": 86.0\n    },\n    {\n      \"row\": 5,\n      \"group\": \"primed\",\n      \"germination_percent\": 88.0\n    },\n    {\n      \"row\": 6,\n      \"group\": \"primed\",\n      \"germination_percent\": 87.0\n    }\n  ],\n  \"arithmetic_group_means_percent\": {\n    \"control\": 79.0,\n    \"primed\": 87.0\n  },\n  \"primed_minus_control_percentage_points\": 8.0,\n  \"counts_per_group\": {\n    \"control\": 3,\n    \"primed\": 3\n  },\n  \"input_digest\": \"sha256:7c22c618bbd87c92777e76625a8e2225b10d30adfe4823ffdb986bd2bfd63838\",\n  \"expected_input_digest\": \"sha256:7c22c618bbd87c92777e76625a8e2225b10d30adfe4823ffdb986bd2bfd63838\",\n  \"comparisons\": {\n    \"control_mean_equals_79_percent\": true,\n    \"primed_mean_equals_87_percent\": true,\n    \"primed_minus_control_equals_8_percentage_points\": true,\n    \"control_count_equals_3\": true,\n    \"primed_count_equals_3\": true,\n    \"input_digest_matches_expected\": true\n  },\n  \"scope\": \"synthetic demonstration; no biological inference\"\n}\n",
+          "truncated": false
+        }
+      ],
+      "exitCode": 0,
+      "signal": null,
+      "durationMs": 226,
+      "environment": {
+        "packageSetHash": "sha256:26c3d197ad0864e7147f9aeb62ae09bd1c4eb3bd25babf0e15779f75c730b396",
+        "pythonImplementation": "CPython",
+        "pythonVersion": "3.13.15",
+        "runtimeImage": "sha256:5d1866eade6dea04a05f5b856a297f9a2f73fa3b79da54cb87acd638713639bf",
+        "runtimePolicy": "workspace-write;network=none;cpus=2;memoryMb=2048;timeoutSeconds=300"
+      },
+      "inputArtifactIds": ["4116cf00-848c-4bb6-bf0a-c486ae028fc8"],
+      "artifact": null,
+      "provenance": {
+        "eventId": "843d4e23-9934-492c-8403-798ab42ff3a2",
+        "journalSeq": 7,
+        "sessionId": "codex:01a07a85-4be9-7300-9f00-2a0e404fa8e7"
+      }
+    },
+    {
+      "id": "6d8abfcc-0105-40ca-b7e3-53110ebfa9d2",
+      "notebookId": "606fe505-8f2c-45ab-b84d-7c38acf44a22",
+      "cellId": "3fd7bf31-5d9e-49bf-aa31-3790d2ad8368",
+      "executionCount": 1,
+      "status": "succeeded",
+      "stdout": {
+        "text": "{\"controlMeanPercent\": 79.0, \"primedMeanPercent\": 87.0, \"differencePercentagePoints\": 8.0, \"replicatesPerGroup\": 3, \"scope\": \"synthetic demonstration; no biological inference\"}\n",
+        "truncated": false
+      },
+      "stderr": {
+        "text": "",
+        "truncated": false
+      },
+      "outputs": [
+        {
+          "type": "stream",
+          "name": "stdout",
+          "text": "{\"controlMeanPercent\": 79.0, \"primedMeanPercent\": 87.0, \"differencePercentagePoints\": 8.0, \"replicatesPerGroup\": 3, \"scope\": \"synthetic demonstration; no biological inference\"}\n",
+          "truncated": false
+        }
+      ],
+      "exitCode": 0,
+      "signal": null,
+      "durationMs": 2395,
+      "environment": {
+        "packageSetHash": "sha256:26c3d197ad0864e7147f9aeb62ae09bd1c4eb3bd25babf0e15779f75c730b396",
+        "pythonImplementation": "CPython",
+        "pythonVersion": "3.13.15",
+        "runtimeImage": "sha256:5d1866eade6dea04a05f5b856a297f9a2f73fa3b79da54cb87acd638713639bf",
+        "runtimePolicy": "workspace-write;network=none;cpus=2;memoryMb=2048;timeoutSeconds=300"
+      },
+      "inputArtifactIds": ["4116cf00-848c-4bb6-bf0a-c486ae028fc8"],
+      "artifact": {
+        "id": "27629674-285a-449d-97ee-8862e595492c",
+        "projectId": "70f02f8f-0be8-4830-886e-2bbc78845c4e",
+        "kind": "figure",
+        "title": "Synthetic germination: 79% versus 87%",
+        "digest": "sha256:098333128c7c6e7832e094aaa51fda2ec335465bbd3ab0b0cd4320ac540ad453",
+        "mime": "image/png",
+        "size": 44299,
+        "creator": {
+          "kind": "session",
+          "sessionId": "codex:01a07a83-8b7a-75e3-96aa-50abb5d86b7e"
+        },
+        "runId": "6d8abfcc-0105-40ca-b7e3-53110ebfa9d2",
+        "environment": {
+          "packageSetHash": "sha256:26c3d197ad0864e7147f9aeb62ae09bd1c4eb3bd25babf0e15779f75c730b396",
+          "pythonImplementation": "CPython",
+          "pythonVersion": "3.13.15",
+          "runtimeImage": "sha256:5d1866eade6dea04a05f5b856a297f9a2f73fa3b79da54cb87acd638713639bf",
+          "runtimePolicy": "workspace-write;network=none;cpus=2;memoryMb=2048;timeoutSeconds=300"
+        },
+        "license": "CC0-1.0",
+        "sourceEntityIds": [
+          "606fe505-8f2c-45ab-b84d-7c38acf44a22",
+          "4116cf00-848c-4bb6-bf0a-c486ae028fc8"
+        ],
+        "createdAt": 1788761917540,
+        "updatedAt": 1788761917540,
+        "revision": 1,
+        "provenance": {
+          "eventId": "f3d5e44b-4000-4d34-af38-6a51f42dfde6",
+          "journalSeq": 5,
+          "sessionId": "codex:01a07a83-8b7a-75e3-96aa-50abb5d86b7e"
+        }
+      },
+      "provenance": {
+        "eventId": "f3d5e44b-4000-4d34-af38-6a51f42dfde6",
+        "journalSeq": 5,
+        "sessionId": "codex:01a07a83-8b7a-75e3-96aa-50abb5d86b7e"
+      }
+    }
+  ],
+  "nativeRunCount": 3,
+  "delegatedRunCount": 1,
+  "approval": "author approved through authenticated browser",
+  "memory": {
+    "id": "workspaces/workspace--d7f3d118571c/concepts/synthetic-germination-fixture-result--3bd4cb1d.md",
+    "revision": "sha256:b5fe63019b55d73d95dbfacbc7fd9f718074ae810afddc9497e6fcb01a056a93"
+  },
+  "recall": "Warning: Skill descriptions were shortened to fit the skills context budget. Codex can still see every skill, but some descriptions are shorter. Disable unused skills or plugins to leave more room for the rest.\n\nI’ll read the full saved concept using memory and report the recorded result.\nThe full saved concept, “Synthetic germination fixture result,” records:\n\n- **Control mean:** 79%\n- **Primed mean:** 87%\n- **Difference (primed − control):** 8 percentage points\n- **Replicates:** n = 3 per group\n- **Input artifact:** `4116cf00-848c-4bb6-bf0a-c486ae028fc8`\n- **Input digest:** `sha256:7c22c618bbd87c92777e76625a8e2225b10d30adfe4823ffdb986bd2bfd63838`\n- **Scientific limitation:** Synthetic publication and provenance demonstration only; **no biological inference**.\n\nRetrieved from memory without rerunning analysis or changing records.",
+  "codeUnmodified": true,
+  "notebooks": [
+    {
+      "id": "606fe505-8f2c-45ab-b84d-7c38acf44a22",
+      "projectId": "70f02f8f-0be8-4830-886e-2bbc78845c4e",
+      "kind": "notebook",
+      "title": "Germination figure",
+      "cells": [
+        {
+          "id": "3fd7bf31-5d9e-49bf-aa31-3790d2ad8368",
+          "kind": "code",
+          "source": "import os, json, pandas as pd, matplotlib.pyplot as plt\ndata = pd.read_csv(os.environ['SWARMX_SCIENCE_INPUT_0'])\ndata['percent'] = 100 * data.germinated / data.total\nmeans = data.groupby('treatment').percent.mean()\nassert means['control'] == 79 and means['primed'] == 87\nfig, ax = plt.subplots(figsize=(6.4, 4.2), layout='constrained')\nax.bar([0, 1], [means['control'], means['primed']], width=0.52, color=['#9ca3af', '#374151'])\nfor i, group in enumerate(['control', 'primed']):\n    ax.scatter([i-0.08, i, i+0.08], data.loc[data.treatment == group, 'percent'], s=22, color='white', edgecolor='black', zorder=3)\n    ax.text(i, means[group]+4, f'{means[group]:.0f}%', ha='center', fontsize=13)\nax.set(xticks=[0, 1], xticklabels=['Control (n = 3)', 'Primed (n = 3)'], ylabel='Germination (%)', ylim=(0, 100), title='Synthetic germination fixture')\nax.spines[['top', 'right']].set_visible(False)\nfig.supxlabel('Difference: 8 percentage points | Demonstration data only', fontsize=9)\nfig.savefig('germination.png', dpi=180)\nplt.close(fig)\nprint(json.dumps({'controlMeanPercent': float(means['control']), 'primedMeanPercent': float(means['primed']), 'differencePercentagePoints': float(means['primed']-means['control']), 'replicatesPerGroup': 3, 'scope': 'synthetic demonstration; no biological inference'}))",
+          "executionCount": 1,
+          "executionTimeMs": 2395,
+          "inputArtifactIds": ["4116cf00-848c-4bb6-bf0a-c486ae028fc8"],
+          "outputArtifactIds": ["27629674-285a-449d-97ee-8862e595492c"],
+          "runtimeEnvironment": {
+            "packageSetHash": "sha256:26c3d197ad0864e7147f9aeb62ae09bd1c4eb3bd25babf0e15779f75c730b396",
+            "pythonImplementation": "CPython",
+            "pythonVersion": "3.13.15",
+            "runtimeImage": "sha256:5d1866eade6dea04a05f5b856a297f9a2f73fa3b79da54cb87acd638713639bf",
+            "runtimePolicy": "workspace-write;network=none;cpus=2;memoryMb=2048;timeoutSeconds=300"
+          },
+          "relatedClaimIds": [],
+          "relatedExperimentIds": [],
+          "outputs": []
+        },
+        {
+          "id": "c3356271-0b64-41ff-89df-c2b9e051e918",
+          "kind": "output",
+          "source": "{\"controlMeanPercent\": 79.0, \"primedMeanPercent\": 87.0, \"differencePercentagePoints\": 8.0, \"replicatesPerGroup\": 3, \"scope\": \"synthetic demonstration; no biological inference\"}\n",
+          "executionCount": 1,
+          "executionTimeMs": 2395,
+          "inputArtifactIds": ["4116cf00-848c-4bb6-bf0a-c486ae028fc8"],
+          "outputArtifactIds": ["27629674-285a-449d-97ee-8862e595492c"],
+          "runtimeEnvironment": {
+            "packageSetHash": "sha256:26c3d197ad0864e7147f9aeb62ae09bd1c4eb3bd25babf0e15779f75c730b396",
+            "pythonImplementation": "CPython",
+            "pythonVersion": "3.13.15",
+            "runtimeImage": "sha256:5d1866eade6dea04a05f5b856a297f9a2f73fa3b79da54cb87acd638713639bf",
+            "runtimePolicy": "workspace-write;network=none;cpus=2;memoryMb=2048;timeoutSeconds=300"
+          },
+          "relatedClaimIds": [],
+          "relatedExperimentIds": [],
+          "outputs": [
+            {
+              "type": "stream",
+              "name": "stdout",
+              "text": "{\"controlMeanPercent\": 79.0, \"primedMeanPercent\": 87.0, \"differencePercentagePoints\": 8.0, \"replicatesPerGroup\": 3, \"scope\": \"synthetic demonstration; no biological inference\"}\n",
+              "truncated": false
+            }
+          ]
+        }
+      ],
+      "createdAt": 1788761886793,
+      "updatedAt": 1788761917540,
+      "revision": 2,
+      "provenance": {
+        "eventId": "f3d5e44b-4000-4d34-af38-6a51f42dfde6",
+        "journalSeq": 5,
+        "sessionId": "codex:01a07a83-8b7a-75e3-96aa-50abb5d86b7e"
+      }
+    },
+    {
+      "id": "00f99b5c-99d6-4089-91db-e48628a761ad",
+      "projectId": "70f02f8f-0be8-4830-886e-2bbc78845c4e",
+      "kind": "notebook",
+      "title": "Germination arithmetic and digest check",
+      "cells": [
+        {
+          "id": "62d18913-f7d9-4607-99c8-5f0d699f6049",
+          "kind": "code",
+          "source": "import csv\nimport hashlib\nimport json\n\nprefix = b'SWARMX_SCIENCE_INPUT_0='\nwith open('/proc/self/environ', 'rb') as handle:\n    input_paths = [entry[len(prefix):].decode('utf-8') for entry in handle.read().split(b'\\0') if entry.startswith(prefix)]\nassert len(input_paths) == 1, 'Expected exactly one SWARMX_SCIENCE_INPUT_0 path'\nwith open(input_paths[0], 'rb') as handle:\n    original_bytes = handle.read()\ninput_digest = 'sha256:' + hashlib.sha256(original_bytes).hexdigest()\nreader = csv.DictReader(original_bytes.decode('utf-8-sig').splitlines(keepends=True))\nassert reader.fieldnames, 'Expected a CSV header'\nassert len(set(reader.fieldnames)) == len(reader.fieldnames), 'CSV headers must be unique'\ncolumns = {}\nfor role, accepted_names in {\n    'group': ('group', 'treatment', 'condition'),\n    'germinated': ('germinated', 'germinated_seeds', 'seeds_germinated', 'germinated_count'),\n    'total': ('total', 'total_seeds', 'seeds_total', 'seeds_sown', 'sown', 'total_count'),\n}.items():\n    matches = [name for name in reader.fieldnames if name.strip().lower().replace(' ', '_') in accepted_names]\n    assert len(matches) == 1, 'Expected one unambiguous CSV column for ' + role\n    columns[role] = matches[0]\n\npercentages = {'control': [], 'primed': []}\nrow_percentages = []\nfor row_number, row in enumerate(reader, start=1):\n    assert None not in row and all(value is not None for value in row.values()), 'CSV row width must match header'\n    group = row[columns['group']].strip().lower()\n    assert group in percentages, 'Expected control or primed group'\n    germinated = int(row[columns['germinated']])\n    total = int(row[columns['total']])\n    assert total > 0 and 0 <= germinated <= total, 'Invalid germination counts'\n    percent = 100 * germinated / total\n    percentages[group].append(percent)\n    row_percentages.append({'row': row_number, 'group': group, 'germination_percent': percent})\nassert all(percentages.values()), 'Both groups must contain rows'\ncounts = {group: len(values) for group, values in percentages.items()}\nmeans = {group: sum(values) / len(values) for group, values in percentages.items()}\ndifference = means['primed'] - means['control']\nexpected_digest = 'sha256:7c22c618bbd87c92777e76625a8e2225b10d30adfe4823ffdb986bd2bfd63838'\ncomparisons = {\n    'control_mean_equals_79_percent': means['control'] == 79,\n    'primed_mean_equals_87_percent': means['primed'] == 87,\n    'primed_minus_control_equals_8_percentage_points': difference == 8,\n    'control_count_equals_3': counts['control'] == 3,\n    'primed_count_equals_3': counts['primed'] == 3,\n    'input_digest_matches_expected': input_digest == expected_digest,\n}\nprint(json.dumps({\n    'row_germination_percentages': row_percentages,\n    'arithmetic_group_means_percent': means,\n    'primed_minus_control_percentage_points': difference,\n    'counts_per_group': counts,\n    'input_digest': input_digest,\n    'expected_input_digest': expected_digest,\n    'comparisons': comparisons,\n    'scope': 'synthetic demonstration; no biological inference',\n}, indent=2), flush=True)\nfor comparison, matches in comparisons.items():\n    assert matches, comparison + ' failed'\n",
+          "executionCount": 1,
+          "executionTimeMs": 226,
+          "inputArtifactIds": ["4116cf00-848c-4bb6-bf0a-c486ae028fc8"],
+          "outputArtifactIds": [],
+          "runtimeEnvironment": {
+            "packageSetHash": "sha256:26c3d197ad0864e7147f9aeb62ae09bd1c4eb3bd25babf0e15779f75c730b396",
+            "pythonImplementation": "CPython",
+            "pythonVersion": "3.13.15",
+            "runtimeImage": "sha256:5d1866eade6dea04a05f5b856a297f9a2f73fa3b79da54cb87acd638713639bf",
+            "runtimePolicy": "workspace-write;network=none;cpus=2;memoryMb=2048;timeoutSeconds=300"
+          },
+          "relatedClaimIds": [],
+          "relatedExperimentIds": [],
+          "outputs": []
+        },
+        {
+          "id": "28116cbb-f314-4ec6-b24e-2b5a2f60693c",
+          "kind": "output",
+          "source": "{\n  \"row_germination_percentages\": [\n    {\n      \"row\": 1,\n      \"group\": \"control\",\n      \"germination_percent\": 78.0\n    },\n    {\n      \"row\": 2,\n      \"group\": \"control\",\n      \"germination_percent\": 80.0\n    },\n    {\n      \"row\": 3,\n      \"group\": \"control\",\n      \"germination_percent\": 79.0\n    },\n    {\n      \"row\": 4,\n      \"group\": \"primed\",\n      \"germination_percent\": 86.0\n    },\n    {\n      \"row\": 5,\n      \"group\": \"primed\",\n      \"germination_percent\": 88.0\n    },\n    {\n      \"row\": 6,\n      \"group\": \"primed\",\n      \"germination_percent\": 87.0\n    }\n  ],\n  \"arithmetic_group_means_percent\": {\n    \"control\": 79.0,\n    \"primed\": 87.0\n  },\n  \"primed_minus_control_percentage_points\": 8.0,\n  \"counts_per_group\": {\n    \"control\": 3,\n    \"primed\": 3\n  },\n  \"input_digest\": \"sha256:7c22c618bbd87c92777e76625a8e2225b10d30adfe4823ffdb986bd2bfd63838\",\n  \"expected_input_digest\": \"sha256:7c22c618bbd87c92777e76625a8e2225b10d30adfe4823ffdb986bd2bfd63838\",\n  \"comparisons\": {\n    \"control_mean_equals_79_percent\": true,\n    \"primed_mean_equals_87_percent\": true,\n    \"primed_minus_control_equals_8_percentage_points\": true,\n    \"control_count_equals_3\": true,\n    \"primed_count_equals_3\": true,\n    \"input_digest_matches_expected\": true\n  },\n  \"scope\": \"synthetic demonstration; no biological inference\"\n}\n",
+          "executionCount": 1,
+          "executionTimeMs": 226,
+          "inputArtifactIds": ["4116cf00-848c-4bb6-bf0a-c486ae028fc8"],
+          "outputArtifactIds": [],
+          "runtimeEnvironment": {
+            "packageSetHash": "sha256:26c3d197ad0864e7147f9aeb62ae09bd1c4eb3bd25babf0e15779f75c730b396",
+            "pythonImplementation": "CPython",
+            "pythonVersion": "3.13.15",
+            "runtimeImage": "sha256:5d1866eade6dea04a05f5b856a297f9a2f73fa3b79da54cb87acd638713639bf",
+            "runtimePolicy": "workspace-write;network=none;cpus=2;memoryMb=2048;timeoutSeconds=300"
+          },
+          "relatedClaimIds": [],
+          "relatedExperimentIds": [],
+          "outputs": [
+            {
+              "type": "stream",
+              "name": "stdout",
+              "text": "{\n  \"row_germination_percentages\": [\n    {\n      \"row\": 1,\n      \"group\": \"control\",\n      \"germination_percent\": 78.0\n    },\n    {\n      \"row\": 2,\n      \"group\": \"control\",\n      \"germination_percent\": 80.0\n    },\n    {\n      \"row\": 3,\n      \"group\": \"control\",\n      \"germination_percent\": 79.0\n    },\n    {\n      \"row\": 4,\n      \"group\": \"primed\",\n      \"germination_percent\": 86.0\n    },\n    {\n      \"row\": 5,\n      \"group\": \"primed\",\n      \"germination_percent\": 88.0\n    },\n    {\n      \"row\": 6,\n      \"group\": \"primed\",\n      \"germination_percent\": 87.0\n    }\n  ],\n  \"arithmetic_group_means_percent\": {\n    \"control\": 79.0,\n    \"primed\": 87.0\n  },\n  \"primed_minus_control_percentage_points\": 8.0,\n  \"counts_per_group\": {\n    \"control\": 3,\n    \"primed\": 3\n  },\n  \"input_digest\": \"sha256:7c22c618bbd87c92777e76625a8e2225b10d30adfe4823ffdb986bd2bfd63838\",\n  \"expected_input_digest\": \"sha256:7c22c618bbd87c92777e76625a8e2225b10d30adfe4823ffdb986bd2bfd63838\",\n  \"comparisons\": {\n    \"control_mean_equals_79_percent\": true,\n    \"primed_mean_equals_87_percent\": true,\n    \"primed_minus_control_equals_8_percentage_points\": true,\n    \"control_count_equals_3\": true,\n    \"primed_count_equals_3\": true,\n    \"input_digest_matches_expected\": true\n  },\n  \"scope\": \"synthetic demonstration; no biological inference\"\n}\n",
+              "truncated": false
+            }
+          ]
+        }
+      ],
+      "createdAt": 1788761999224,
+      "updatedAt": 1788762121344,
+      "revision": 2,
+      "provenance": {
+        "eventId": "843d4e23-9934-492c-8403-798ab42ff3a2",
+        "journalSeq": 7,
+        "sessionId": "codex:01a07a85-4be9-7300-9f00-2a0e404fa8e7"
+      }
+    }
+  ]
+}

@@ -59,4 +59,5 @@ Build, cleanup, documentation coverage, and manuscript-model utilities live unde
 `scripts/dev.ts` compiles watched backend changes and owns the development Electron child process;
 the Host serves Vite middleware on its authenticated origin in development.
 Reproducible SoftwareX examples live under `examples/`; the manuscript is `swarmx.tex`.
+`examples/softwarex/current-release/` contains the current native workflow driver and offline evidence verifier.
 The pinned Jupyter Data Science container recipe lives under `apps/desktop/resources/python/`.
