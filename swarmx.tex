@@ -297,8 +297,8 @@ The client displays records retained by the runtimes and services.}
 Native runtimes retain conversation histories, context and session-resumption state. A Host-owned
 append-only SQLite execution journal independently preserves observed agent events, requested settings, reported generation
 metadata, interaction decisions, and product-tool results. Causal event identifiers connect
-delegated executions; tool results retain scientific revisions and Journal locators. Missing
-provider metadata remains unknown. Science and Memory store their respective domain records.
+delegated executions; tool results retain scientific revisions and Journal locators.
+Science and Memory store their respective domain records.
 The current client exposes the conversation
 alongside Assets and an Observe view containing executions and the research-object graph.
 
@@ -395,7 +395,8 @@ Agent and its provider configuration. Python notebook and figure execution uses 
 Docker image derived from the pinned Jupyter Data Science stack. The Host records the resolved
 image, platform, Python and package versions. Each execution has no network, a read-only root
 filesystem, dropped capabilities, bounded resources, and mounts limited to its workspace and
-declared immutable inputs. Failed executions cannot register stale outputs as successful figures.
+declared immutable inputs. If a plotting run fails, outputs from earlier runs are not registered
+as its results.
 The bundled Typst compiler
 and explicit Git/DVC operations retain their host-process boundary; Zotero requires a configured
 local service. Native agents execute under their own runtime permissions.
@@ -421,7 +422,7 @@ and 87. These are demonstration values, not observations from a biological exper
 
 A reproduction driver creates a fresh filesystem project, imports the CSV as an immutable
 artifact and configures the bundled Docker environment. It supplies the lead Codex Agent with
-the analysis code, dataset identity, exact tool argument shapes and the required workflow.
+the analysis code, dataset identity, tool-call specifications and the required workflow.
 Automatic memory review is disabled and write approval is enabled for the run. Native permissions
 retain the installed runtime configuration. The example evaluates a guided integration workflow.
 
@@ -573,8 +574,8 @@ SwarmX is available under the MIT License in the
 \href{https://github.com/tcztzy/swarmx/tree/9e1e818acd438dcbf30fb9dc46d758495d24d094}{versioned source repository}.
 Table~\ref{tab:code-metadata} fixes the implementation revision. The
 \href{https://github.com/tcztzy/swarmx/tree/d564ae641a839564a11b41d8aa3b61617556e625/examples/softwarex/current-release}{versioned reproduction materials}
-include the workflow driver, required credentials and Docker setup instructions, and checks of
-the exported evidence. This later snapshot adds the example without changing the implementation.
+include the workflow driver, instructions for configuring credentials and Docker, and checks of
+the exported evidence.
 
 \section*{Data availability}
 
