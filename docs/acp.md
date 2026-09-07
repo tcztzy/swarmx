@@ -8,7 +8,8 @@ SwarmX permission extension. That extension acknowledges the trusted Host's own 
 not the native process's sandbox. Ordinary native modes and approvals retain their upstream
 semantics. Native slash commands and automatic title generation stay available; model allowlists
 cover Host-dispatched model selection, not every call a native harness can make internally.
-Only background reviews disable native tools, delegation, ambient MCP and title-model calls.
+Background reviews request native restrictions and reject observed tools and approvals; upstream
+adapters remain authoritative for internal execution, title calls and session persistence.
 Each child gets a separately registered, revocable MCP bearer credential. It never receives the
 Host's general bearer token and cannot select another execution by changing URL parameters.
 

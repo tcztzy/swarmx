@@ -56,7 +56,9 @@ Local research Host; recursive Swarms; native Agents.
   responses cannot approve ended runs. ACP carries requests and responses, not filesystem isolation.
   A Plan mode does not narrow a child's Host grant; YOLO does not expand one. SwarmX does not promise
   a filesystem permission ceiling across harnesses. Background memory reviews retain a separate
-  restricted, tool-free execution boundary and never inherit an ordinary task's YOLO selection.
+  Host boundary rejecting observed tools and approvals and never inherit an ordinary task's YOLO
+  selection. Requested native review restrictions follow unmodified upstream behavior; no
+  cross-harness tool-free, title-suppression or ephemeral-session guarantee is claimed.
 - Permissions follow each conversation across messages, aliases and Host restarts, including empty
   sessions. Creation and admitted-run grants are persisted in the execution journal and intersected
   on reuse. Grants can only narrow; omitted arguments, failed turns and broader project settings

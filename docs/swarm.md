@@ -57,7 +57,8 @@ Ordinary tasks retain native modes, tools, hooks, delegation, MCP configuration 
 ACP advertises native mode choices; the Host does not manufacture a cross-harness ranking.
 Selecting Plan or Full access does not alter Host grants. These grants authorize Host APIs;
 they do not prevent a native process from accessing the same data directly through its own tools.
-Only the separately restricted background-review path forces tool-free execution.
+The separate background-review path rejects observed tools and approvals and requests native
+restrictions; upstream internal execution is not covered by a cross-harness tool-free guarantee.
 See [Permissions and native execution](permissions.md) for boundaries, examples and legacy data.
 
 `createSwarm(name, connectLead)` returns an official ACP Agent app. Its connector opens a downstream

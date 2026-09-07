@@ -25,8 +25,9 @@ separate roles. Native skills remain owned by their runtimes; the vault adds exp
   journal and UI; no claim is made that an LLM will extract every important fact correctly.
   The user chooses a configured Codex or Claude runtime for review (Codex by default); the
   foreground chat may use any supported runtime. Reviews time out after two minutes and are
-  cancelled on Host shutdown. Native tools/MCP/plugins are disabled for the review, with a
-  read-only sandbox and denied interactions as additional boundaries. The review uses existing
+  cancelled on Host shutdown. Reviews receive no Host product MCP credential and reject observed
+  tool calls and interactions. The Host requests native restrictions; unmodified upstream adapters
+  determine their effect, including internal title calls and session persistence. The review uses existing
   credentials and consumes model usage. It sees bounded snapshots of up to 30 messages, 30 observed
   tool events and 20 concepts; oversized entries are omitted intact, not silently summarized.
   It may update short notes and supplied workspace concepts or create draft concepts. New concepts

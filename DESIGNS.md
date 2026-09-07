@@ -28,7 +28,7 @@ supports in-process connections as well as stdio; SwarmX-specific permissions an
 metadata use negotiated ACP extensions, not a second network protocol. See `docs/acp.md`.
 Harness translation belongs to upstream ACP adapters. SwarmX starts their stdio servers and
 maps standard ACP sessions/events to Host state; third-party servers need no SwarmX handshake.
-Temporary upstream fixes live in `patches/`, applied by pnpm rather than a parallel native implementation.
+Packaged adapters use unmodified upstream releases pinned by the lockfile.
 Each prompted adapter process receives a unique MCP endpoint bound to its Host run; the endpoint is
 revoked and the process closed on completion. Later turns resume the same native conversation.
 A2A JSON-RPC is an external entry point into the same Swarm. A2A stores SDK-owned

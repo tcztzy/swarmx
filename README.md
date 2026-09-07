@@ -11,7 +11,7 @@ Electron / Browser → assistant-ui + AG-UI → Host → ACP → Swarm → ACP �
 Codex ACP is the default. The Host uses `@agentclientprotocol/codex-acp`,
 `@agentclientprotocol/claude-agent-acp`, `hermes acp` and `openclaw acp` over stdio.
 Adapters load lazily; startup failure never selects another Agent. DSH, ZCode and Kimi are deferred.
-The lockfile pins the packaged adapters and applies the reviewed fixes in `patches/`. Native login is
+The lockfile pins the unmodified upstream adapters. Native login is
 needed for conversation, not for configuring an environment or inspecting research objects.
 
 Install Node.js and pnpm matching `package.json`, Rust stable with a C/C++ linker (the bundled

@@ -64,10 +64,11 @@ Cancellation settles pending approvals, and late responses do not authorize ende
 
 ## Restricted background reviews
 
-Memory reviews are a distinct internal operation: permitted model only, no product MCP, no native
-tools/delegation, no automatic title-model calls, no approval grants, cancellable temporary native
-sessions. Review restrictions do not affect ordinary task modes. Their upstream compatibility
-patches and validation are documented in `patches/README.md`.
+Memory reviews are a distinct internal operation: an admitted model, no Host product MCP credential,
+rejected observed tool calls and approvals, and cancellation. The Host requests additional native
+restrictions, but unmodified upstream adapters own title calls, session persistence and internal
+execution. No cross-harness tool-free or ephemeral guarantee is claimed. Review configuration does
+not affect ordinary task modes.
 
 ## Previous permission data
 

@@ -127,10 +127,10 @@ hooks, internal delegation and title-model calls remain governed by the harness.
 allowlist controls Host launches, not every autonomous native model call. A Host tool grant is not
 a machine filesystem boundary. See `permissions.md` for inheritance and examples.
 
-Background memory reviews are separately constrained: admitted model, no product MCP or native
-tools/delegation/hooks, denied approvals, temporary sessions and disabled title-model calls.
-These restrictions apply only to reviews. pnpm patches retain independent ephemeral/session-ID
-fixes and the review-specific restrictions; see `patches/README.md` for scope and removal criteria.
+Background memory reviews use an admitted model, receive no Host product MCP credential,
+and reject observed tool calls and approval requests. The Host requests native restrictions;
+unmodified upstream adapters determine their effect, including title calls and session persistence.
+These requests do not establish a cross-harness tool-free or ephemeral execution guarantee.
 Old settings that contain `policy.approval` reject with an explicit update instruction. Historical
 filesystem grants stay readable but cannot authorize new execution under the Host-only semantics.
 User-originated research edits and Host bookkeeping are distinct from Agent API grants.
