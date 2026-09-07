@@ -1,5 +1,5 @@
 - SwarmX links native agent histories to revisioned scientific records.
 - Recursive delegation supports task-dependent multi-agent workflows.
 - Shared memory combines source links, revision checks, and explicit curation.
-- Memory complements RAG; factual verification remains an evidence-review task.
-- A current workflow links computation, delegated checks, provenance, and recall.
+- Approved memory retains source revisions for retrieval in later sessions.
+- A guided workflow links computation, delegated checks, provenance, and recall.

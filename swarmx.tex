@@ -1,6 +1,6 @@
 % SwarmX manuscript prepared for submission to SoftwareX.
 % Bibliography: Better BibTeX export plus manuscript-local vetted additions.
-\documentclass[preprint,12pt]{elsarticle}
+\documentclass[preprint,12pt,a4paper]{elsarticle}
 
 \usepackage[T1]{fontenc}
 \usepackage{booktabs}
@@ -17,6 +17,7 @@
 \pdfstringdefDisableCommands{\def\corref#1{}}
 \hypersetup{pdfauthor={Ziya Tang and Xiangchao Gan}}
 \usepackage{microtype}
+\setlength{\parindent}{0pt}
 
 \journal{SoftwareX}
 \biboptions{sort&compress}
@@ -44,19 +45,15 @@
 }
 
 \begin{abstract}
-Agent-assisted research fragments state across conversations, computations, artifacts, team actions,
-and reusable knowledge. SwarmX is open-source orchestration software that connects these records while
-preserving their authoritative owners. Runtime adapters retain native histories; Science manages
-revisioned research entities and content-addressed artifacts; Swarm supports recursive delegation;
-and shared semantic memory retains sourced knowledge under explicit revision and approval controls.
-The software supports both individual agents and workflows that benefit from separate contexts and
-review responsibilities. A guided synthetic-data workflow connects native delegation, separate
-recomputation, an isolated plotting execution, a source-linked claim, approved memory and retrieval
-in a later session. Current tests exercise the software's persistence and protocol boundaries.
-SwarmX combines these services into an inspectable research record compatible with
-retrieval-augmented generation. Its validation establishes software behavior and artifact integrity;
-comparative multi-agent benefits, scientific error detection, and efficiency gains from accumulated
-experience remain to be evaluated.
+Agent-assisted research produces records across conversations, computations, files and later
+knowledge use. SwarmX is open-source software that links these records while preserving native
+agent sessions. It provides revisioned research records, content-addressed artifacts, recursive
+delegation and source-linked memory with configurable write approval. A guided synthetic-data
+example connects figure generation, recomputation in a separate session, a recorded claim,
+approved memory and retrieval in a later session. Integration tests and artifact checks validate
+the recorded workflow and persistence boundaries. SwarmX supports inspection and reuse of research
+records across sessions; the example demonstrates software integration rather than scientific
+discovery or comparative agent performance.
 \end{abstract}
 
 % 中文：关键词：科研软件；大语言模型智能体；科研工作流；多智能体编排；科研溯源；RO-Crate
@@ -68,9 +65,10 @@ research software \sep LLM agents \sep scientific workflows \sep multi-agent orc
 \end{frontmatter}
 
 % 中文：代码元数据
-\section*{Code metadata}
+\section*{Required Metadata}
+\section*{Current code version}
 
-% 中文：软件描述对应当前固定版本；早期工作流单独标注。
+% 中文：软件描述、实例和截图对应固定实现版本。
 Table~\ref{tab:code-metadata} identifies the frozen implementation used for the current
 workflow and screenshots in Section~\ref{sec:examples}.
 
@@ -85,13 +83,13 @@ workflow and screenshots in Section~\ref{sec:examples}.
 \textbf{ID} & \textbf{Code metadata description} & \textbf{Metadata} \\
 \midrule
 C1 & Current code version & \texttt{0.1.0} \\
-C2 & Permanent link to code/repository used for this code version &
+C2 & Permanent GitHub link to code/repository used for this code version &
 \href{https://github.com/tcztzy/swarmx/tree/9e1e818acd438dcbf30fb9dc46d758495d24d094}{Source revision \texttt{9e1e818}} \\
-C3 & Legal code license & MIT License \\
+C3 & Legal Code License & MIT License \\
 C4 & Code versioning system used & Git \\
 C5 & Software code languages, tools, and services used & TypeScript, Node.js, Electron, SQLite, Rust/Typst, upstream ACP adapters, Docker/Jupyter Data Science, Zotero, Git, and DVC \\
-C6 & Compilation requirements, operating environments, and dependencies & Node.js and pnpm as declared in the pinned manifests; stable Rust and a C/C++ linker for the bundled Typst runtime; Docker for Python execution. macOS requires Xcode command-line tools. Native conversation requires the selected Agent's credentials; literature and versioned-data features require separately configured Zotero and Git/DVC. Linux and macOS are CI targets; Windows is unvalidated. \\
-C7 & If available, link to developer documentation/manual & \href{https://github.com/tcztzy/swarmx}{Repository README} and the versioned \texttt{CODEBASE.md}, \texttt{DESIGNS.md}, \texttt{SPEC.md}, and \texttt{docs/} documentation \\
+C6 & Compilation requirements, operating environments \& dependencies & Node.js and pnpm as declared in the pinned manifests; stable Rust and a C/C++ linker for the bundled Typst runtime; Docker for Python execution. macOS requires Xcode command-line tools. Native conversation requires provider credentials; literature and versioned-data features require Zotero and Git/DVC. Linux and macOS are CI targets. \\
+C7 & If available Link to developer documentation/manual & \href{https://github.com/tcztzy/swarmx}{Repository README} and versioned developer documentation \\
 C8 & Support email for questions & \href{mailto:gan@njau.edu.cn}{gan@njau.edu.cn} \\
 \bottomrule
 \end{tabularx}
@@ -105,92 +103,72 @@ LLM agents can search literature, run code, edit files, invoke instruments and s
 work, and draft manuscripts. A single research result may consequently depend on a native
 conversation history, several notebook or command executions, mutable workspace files, an
 experiment record, review decisions, and knowledge carried into later sessions. These records have
-different owners and lifecycles. A transcript records interaction but does not establish which
+different storage locations and lifecycles. A transcript records interaction but does not establish which
 artifact version entered a claim; a file tree retains outputs but not the decision that admitted
 them; and a workflow log does not by itself preserve the research question or later knowledge use.
 The resulting fragmentation makes agent-assisted research difficult to inspect, resume, and
 transfer.
 
-These problems also occur with a single agent, which can use the same scientific records and
-memory. Multi-agent execution is useful when a workflow has separable research branches, needs
-distinct tool contexts, or assigns result production and review to different actors. Separate
-contexts let an analyst examine data while a reviewer inspects original sources; explicit
-delegation makes their responsibilities visible. This is a conditional design rationale, not a
-claim that more agents are inherently more capable. A single agent can call tools concurrently
-and check its own results, while a team adds communication and integration costs. Independent
-review requires an additional evidence check, such as recomputation from the original input;
-different role names alone do not establish independent errors. SwarmX supplies composition and
-record ownership without prescribing how many agents a task should use.
+These problems also occur with a single agent. Multi-agent execution is useful when a workflow
+has separable research branches, needs distinct tool contexts, or assigns production and review
+to different actors. Separate contexts let an analyst examine data while a reviewer inspects
+original sources, and explicit delegation makes their responsibilities visible. Teams also add
+communication and integration costs. SwarmX supports both arrangements through shared scientific
+records and memory, with the number of agents chosen for the task.
 
-The peer-reviewed AI Scientist automates computational
+The AI Scientist automates computational
 machine-learning research from ideation through manuscript review; Co-Scientist uses an
 asynchronous multi-agent process to generate and refine biomedical hypotheses; and the Virtual Lab
 combines an AI principal investigator and specialist agents with human feedback and wet-laboratory
 validation~\cite{lu2026,gottweis2026,swanson2025}. ScienceAgentBench instead
-evaluates 102 executable tasks drawn from 44 peer-reviewed papers and shows that current agents
+evaluates 102 executable tasks drawn from 44 peer-reviewed papers and shows that the evaluated agents
 solve only a minority, even when expert knowledge is supplied~\cite{chen2025b}.
-SwarmX addresses the infrastructure below these research policies: durable ownership,
-coordination, and linkage of the records produced by native agent runtimes and scientific tools.
+SwarmX provides infrastructure for such workflows by coordinating native agent runtimes and
+linking the records produced by their scientific tools.
 
 Computational-provenance systems supply essential parts of this infrastructure. Whole Tale captures
 reproducible environments, AiiDA manages computational workflows, noWorkflow captures Python
 execution, and ProvBook enriches notebooks~\cite{brinckman2019,pizzi2016,pimentel2017,samuel2018}.
 Workflow Run RO-Crate packages workflow executions, and PROV-AGENT represents agent interactions
 ~\cite{leo2024,souza2025a}. The FAIR principles and RO-Crate provide the exchange layer for
-discoverable, reusable research objects~\cite{wilkinson2016,soiland-reyes2022}. SwarmX composes
-these ideas around a cross-owner operational record rather than a new universal store.
+discoverable, reusable research objects~\cite{wilkinson2016,soiland-reyes2022}. SwarmX applies
+these ideas to connect records stored by native runtimes, scientific services and knowledge stores.
 
-Contemporary agent systems increasingly make claims and evidence first-class. ResearchLoop records
-questions, evidence, claim ledgers, and closeouts in a repository-backed control plane; LEDGER
-builds claim-to-evidence trace graphs over agent sessions; artifact-centered observability connects
-scientific claims, artifacts, evaluations, and lineage; and PaperTrail presents claim-level
-provenance for scholarly review~\cite{xia2026,kim2026,yin2026,martin-boyle2026}. Table~\ref{tab:related}
-locates SwarmX within this landscape. Its software boundary combines service-owned research
-records, recursive agent delegation, and explicitly curated shared memory.
-
-SwarmX represents claims as first-class Science entities backed by the append-only Journal;
-typed evidence relations connect a claim to a run, dataset or figure. Science exports this graph
-as RO-Crate 1.3, providing an exchange point for external control planes and review interfaces.
-Imports into ResearchLoop, PaperTrail, LEDGER or the Yin et al.\ observability profile have not
-been tested. These systems address related tasks, and the export alone does not establish
-interoperability with a particular consumer.
+Contemporary agent systems increasingly represent claims and evidence explicitly. ResearchLoop
+uses repository-backed task contracts and evidence gates to control claim admission; LEDGER
+constructs audit graphs from observed agent sessions~\cite{xia2026,kim2026}. Artifact-centered
+observability specifies claim-aware lineage, and PaperTrail presents claim-level provenance for
+scholarly review~\cite{yin2026,martin-boyle2026}. SwarmX focuses on connecting the running workflow
+to persistent research and knowledge records: native runtimes retain sessions, scientific services
+store revisioned entities and artifacts, and curated memory carries sourced findings into later
+sessions. Table~\ref{tab:related} summarizes these different emphases.
 
 Retrieval-augmented generation (RAG) uses external knowledge to support generation
 ~\cite{lewis2020rag}, and Self-RAG combines retrieval with critique~\cite{asai2023selfrag}.
 Experience reuse also has established precedents: Reflexion retains textual feedback, Voyager
 accumulates executable skills, and Agent Workflow Memory extracts reusable procedures
-~\cite{shinn2023reflexion,wang2023voyager,wang2024workflowmemory}. SwarmX's contribution is the
-integration of source-linked scientific records with scoped, revision-controlled memory operations
-across native agents. It does not introduce a new retrieval or experience-learning algorithm.
-RAG can use this store as its knowledge source; retrieval and knowledge curation are complementary
-functions. Other RAG systems can also provide provenance and lifecycle controls, so their presence
-alone does not establish comparative superiority. The relevant evaluation is whether this
-integration makes evidence easier to inspect and reduces incorrect or stale knowledge use.
+~\cite{shinn2023reflexion,wang2023voyager,wang2024workflowmemory}. SwarmX integrates source-linked
+scientific records with scoped, revision-controlled memory operations across native agents.
+This store can supply curated knowledge to retrieval-augmented workflows.
 
 Mokyr's useful-knowledge framework~\cite{mokyr2005} gives a broader rationale for joining
 explanation and procedure. The framework distinguishes propositional knowledge about why a
-technique works from prescriptive knowledge about how it is performed; it is one of the
-influences drawn on in the scientific background for the 2025 Prize in Economic
-Sciences~\cite{committee2025sustained}, where sustained progress is linked to lowering the
-costs of finding, storing, transmitting, and verifying knowledge.
+technique works from prescriptive knowledge about how it is performed.
 Applied to computational research, questions, hypotheses, claims, and evidence form the explanatory
 record, while code, executions, configurations, workflows, and skills form the procedural record.
 Their links allow a later researcher or agent to recover both the basis of a result and the process
 that produced it.
 
-We use these ideas with the FAIR principles as an institutional design lens for AI-assisted
-science~\cite{mokyr2005,wilkinson2016}:
-a durable knowledge substrate and commons boundary, interoperability infrastructure, epistemic
-quality control, and governance and incentives. This four-layer organization is a synthesis used in
-this article, not a taxonomy proposed by Mokyr. It separates the functions that software can supply
-locally from the public archives, shared facilities, and incentive institutions on which cumulative
-science also depends.
+We use this distinction and the FAIR principles as design guidance~\cite{mokyr2005,wilkinson2016}.
+Figure~\ref{fig:architecture} groups the supporting functions into knowledge storage,
+interoperability, quality control, and governance and incentives. This organization is our design
+view; the implementation supplies local record management and workflow controls.
 
 This article makes three contributions. First, it presents an architecture independent of a
 particular client that connects native agent runtimes to append-only research records, content-addressed artifacts,
-recursive delegation, sourced memory, and portable exports. Second, it specifies the boundary
-between deterministic knowledge validation and scientific judgment, including explicit revision
-and deprecation. Third, it provides executable artifact checks, current integration tests and a
+recursive delegation, sourced memory, and portable exports. Second, it implements source validation,
+revision checks and configurable approval for knowledge creation, revision and deprecation.
+Third, it provides executable artifact checks, current integration tests and a
 recorded workflow linking native delegation, scientific artifacts and a subsequently retrieved finding.
 
 \begin{table}[!htbp]
@@ -203,13 +181,13 @@ recorded workflow linking native delegation, scientific artifacts and a subseque
 \toprule
 \textbf{Work} & \textbf{Primary object} & \textbf{Principal capability} & \textbf{Connection to SwarmX} \\
 \midrule
-AI-scientist systems and evaluation~\cite{lu2026,gottweis2026,swanson2025,chen2025b} & Pipelines, AI--human teams, and executable tasks & Automated ideation, hypothesis refinement, computation, experimental validation, and task-level assessment & SwarmX links actions, artifacts, and evidence but does not replace scientific-validity evaluation \\
+AI-scientist systems and evaluation~\cite{lu2026,gottweis2026,swanson2025,chen2025b} & Pipelines, AI--human teams, and executable tasks & Automated ideation, hypothesis refinement, computation, experimental validation, and task-level assessment & SwarmX supplies record management and delegation for user-defined workflows \\
 Whole Tale; AiiDA; noWorkflow; ProvBook~\cite{brinckman2019,pizzi2016,pimentel2017,samuel2018} & Environment, workflow, script, or notebook & Reproducible computation and execution provenance & Science links computational outputs to research entities, claims, and agent sessions \\
 Workflow Run RO-Crate; PROV-AGENT~\cite{leo2024,souza2025a} & Portable provenance graph & Workflow-run packaging and agent-interaction semantics & SwarmX exports RO-Crate and connects it to live research revisions and memory curation \\
-ResearchLoop~\cite{xia2026} & Repository-backed research state & Evidence-gated claims and project closeout & SwarmX connects native runtime state, service-owned records, delegation, and memory \\
-LEDGER; artifact-centered observability; PaperTrail~\cite{kim2026,yin2026,martin-boyle2026} & Audit graph or review interface & Claim--evidence inspection and artifact lineage & SwarmX provides source-linked scientific records for later inspection \\
+ResearchLoop~\cite{xia2026} & Task contracts and claim ledger & Evidence-gated claim admission and project closeout & SwarmX records claims and evidence through service APIs, with separately curated memory \\
+LEDGER; artifact-centered observability; PaperTrail~\cite{kim2026,yin2026,martin-boyle2026} & Audit graph, event profile or review interface & Claim--evidence inspection and artifact lineage & SwarmX connects live delegation and scientific execution to records retained for review and later retrieval \\
 RAG; Self-RAG~\cite{lewis2020rag,asai2023selfrag} & Retrieved passages & Retrieval with generation and critique & SwarmX provides scope, revision, and curation controls \\
-Agent memory systems~\cite{shinn2023reflexion,wang2023voyager,wang2024workflowmemory} & Feedback, skills, workflows & Accumulating and reusing experience & SwarmX exposes curation operations; automatic learning remains unevaluated \\
+Agent memory systems~\cite{shinn2023reflexion,wang2023voyager,wang2024workflowmemory} & Feedback, skills, workflows & Accumulating and reusing experience & SwarmX links curated knowledge to scientific source revisions and explicit write controls \\
 \bottomrule
 \end{tabularx}
 \end{table}
@@ -219,35 +197,27 @@ Agent memory systems~\cite{shinn2023reflexion,wang2023voyager,wang2024workflowme
 \section{Software description}
 \label{sec:software}
 
-% 中文：架构；制度功能分层与运行所有权分层是两个正交视图。
+% 中文：架构；功能设计视角与实际组件职责。
 \subsection{Software architecture}
 \label{sec:architecture}
 
-Figure~\ref{fig:architecture} presents two orthogonal views. The institutional-function view is a
-directional constraint: L1 preserves explanatory and procedural knowledge; L2 connects scientific
-resources; L3 makes results inspectable and contestable; and L4 governs authority and scarce
-resources. The current release provides a local substrate, native integrations, deterministic
-record checks, and explicit write approval. It does not itself constitute a public knowledge
-commons or a funding, compute-allocation, credit, and reputation system; the dashed L4 boundary
-marks this partial scope.
-
-The operational-ownership view describes the implemented system: a client, native conversation
-runtimes, SwarmX services, and user-controlled resources with portable outputs. The local Host
+The system comprises a client, native conversation runtimes, SwarmX services, and user-controlled
+resources with portable outputs (Figure~\ref{fig:architecture}b). The local Host
 presents conversations and research objects to an Electron or browser client. It launches
 unmodified upstream Codex ACP and Claude Agent ACP adapters, or the native Hermes and OpenClaw ACP
-commands. Official ACP SDK connections carry session discovery, creation, reading, execution,
+commands. Agent Client Protocol (ACP) connections carry session discovery, creation, reading, execution,
 configuration and cancellation; recursive Swarms act as an ACP Agent upstream and ACP Client
 downstream. Only the selected native integration loads. Native runtimes retain their histories,
 agent loops, tools, authentication and permission semantics. The Host projects their reported
 events into the client without taking ownership of native execution.
 
-Each registered filesystem project owns its services, research records, execution journal,
-settings and workspace memory. Product tools use Model Context Protocol (MCP); Codex, Claude and
-Hermes receive the Host endpoint through their ACP session configuration, while OpenClaw retains
-its gateway configuration. MCP carries tool calls, and ACP carries inter-Agent delegation.
-External ACP and A2A entry points reach the same composition; the client uses AG-UI events.
-Native histories and service-owned records remain authoritative. Renderer state and timing views
-are transient projections.
+Each registered filesystem project has separate services, research records, an execution journal,
+settings and workspace memory. Model Context Protocol (MCP) carries product-tool calls, and ACP
+carries agent delegation. External ACP and Agent2Agent (A2A) entry points expose the same services;
+the client receives Agent--User Interaction (AG-UI) events. Native runtimes and services retain
+their records; the client displays transient projections. Figure~\ref{fig:architecture}a relates
+these components to the design functions: persistent records, interoperability, review support
+and workflow permissions. Resource allocation and institutional rewards remain external.
 
 \begin{figure}[!t]
 \centering
@@ -313,23 +283,23 @@ are transient projections.
 \draw[line] (client) -- (runtimes);
 \draw[line] (runtimes) -- (services);
 \draw[line] (services) -- (resources);
-\node[note, below=2mm of resources] {Protocols connect owners; authority does not move.};
+\node[note, below=2mm of resources] {Runtimes and services retain their records.};
 \end{tikzpicture}
-\caption{Two orthogonal views of SwarmX. (a) Institutional functions guide development from a
-durable knowledge substrate through interoperability and epistemic control to governance; the
-dashed L4 boundary is only partly implemented at workflow scale. (b) Operational ownership fixes
-the authoritative client, runtime, service, and resource boundaries in the current implementation.}
+\caption{Design functions and component responsibilities in SwarmX. (a) Upward arrows show how
+storage and interoperability support review and governance. The dashed L4 box separates workflow
+controls from external institutional functions. (b) Downward arrows summarize use relationships:
+the client accesses native agents, agents call services, and services access resources.
+The client displays records retained by the runtimes and services.}
 \label{fig:architecture}
 \end{figure}
 
 % 中文：原生运行时保有恢复与上下文状态；统一执行日志保留观测事件，并通过工具结果连接科研记录。
-Native transcripts own runtime resume and context. A Host-owned append-only SQLite execution
-journal independently preserves observed agent events, requested settings, reported generation
+Native runtimes retain conversation histories, context and session-resumption state. A Host-owned
+append-only SQLite execution journal independently preserves observed agent events, requested settings, reported generation
 metadata, interaction decisions, and product-tool results. Causal event identifiers connect
 delegated executions; tool results retain scientific revisions and Journal locators. Missing
-provider metadata remains unknown, and recorded observations do not imply complete access to a
-model's internal execution or establish scientific validity. Science and Memory remain the
-authoritative owners of their domain records. The current client exposes the conversation
+provider metadata remains unknown. Science and Memory store their respective domain records.
+The current client exposes the conversation
 alongside Assets and an Observe view containing executions and the research-object graph.
 
 % 中文：可追溯科研与智能体协调
@@ -337,7 +307,7 @@ alongside Assets and an Observe view containing executions and the research-obje
 \label{sec:coordination}
 
 % 中文：解释记录与过程记录通过版本、摘要与证据关系连接。
-SwarmX operationalizes the useful-knowledge framework by linking rather than merging two families
+SwarmX applies the useful-knowledge distinction by linking two families
 of records. Questions, hypotheses, claims, and evidence form the explanatory chain; notebook cells,
 experiment runs, artifact-generation records, code, and documented procedures form the procedural chain.
 Revisioned locators, content digests, and explicit evidence relations connect the two across
@@ -355,22 +325,19 @@ content address. Canonical, revisioned \texttt{sx:} addresses connect conversati
 objects, and a project graph exports as RO-Crate 1.3. Figures can additionally record a
 plotting-code digest, redacted execution environment, and verified input sources.
 
-% 中文：当前 Swarm 是递归组合与显式委派；不提供旧原型的持久任务图与知识接纳状态机。
+% 中文：Swarm 提供递归组合与显式委派；执行关系可供事后检查。
 A Swarm exposes the same Agent interface as its lead, which may itself be another Swarm. The Host
 provides explicit creation, status, session, message, and cancellation operations, with membership
 held in memory. Delegation returns results while native agents retain their transcripts and
-approval boundaries. The current implementation does not provide a durable research-task graph,
-effect-recovery scheduler, enforced independent verdicts, or automatic knowledge admission.
-Recorded parent--child execution links support inspection after a run; they are not a scheduler
-that recovers unfinished scientific work. A delegated reviewer may recompute from the original
-input, but separate role names alone do not establish independent errors.
+approval boundaries. Recorded parent--child execution links support inspection after a run;
+in-memory membership does not provide automatic recovery of unfinished tasks.
 
 \subsubsection{Knowledge curation and retrieval}
 \label{sec:memory}
 
 % 中文：Memory 通过显式整理积累知识；检索实现与知识治理相互独立。
-SwarmX provides shared semantic memory implemented as owner-readable Open Knowledge Format
-0.2 Markdown concepts. The store persists curated research knowledge across sessions and exposes
+SwarmX stores curated findings and procedures as readable Open Knowledge Format 0.2 Markdown
+concepts in shared semantic memory. The store persists this knowledge across sessions and exposes
 explicit search, read, create, update, deprecate, and lint operations through the Host's Memory
 tool. Global and workspace scopes bound access; native agents retain ownership of conversation
 histories and context management.
@@ -380,28 +347,23 @@ the previously read revision. The Host authorizes writes from a user-owned works
 per-write approval is optional and off by default. When enabled, writes become durable pending
 proposals that only an authenticated browser action can approve or reject. A model-supplied
 approval flag is rejected. Deterministic validation checks document structure, citations and
-workspace-scoped Science references; it does not establish scientific truth.
+workspace-scoped Science references.
 
 Knowledge accumulates through explicit authoring and optional background review. A user or agent
 records an outcome and its sources; review can propose notes or concepts from bounded conversation
 and tool-event snapshots. Automatic review is enabled by default, after ten successful prompts
-or ten tool calls in one turn, and can be disabled per workspace. The Host rejects observed review
-tool calls and approvals and supplies no product-tool credential. Requested native restrictions
-follow the unmodified upstream adapter; title suppression, ephemeral storage and complete internal
-tool isolation are not cross-harness guarantees. Review candidates pass the same validation,
-revision and configured write-approval checks. Updates preserve previous bytes and append to the
-change log. Neither automatic extraction nor acceptance demonstrates generalizable learning,
-and model weights are unchanged.
+or ten tool calls in one turn, and can be disabled per workspace. Review candidates pass the same
+validation, revision and configured write-approval checks. Updates preserve previous bytes and
+append to the change log.
 
 Search ranks textual matches in titles, tags, descriptions and bodies; a subsequent read returns
 the concept and revision. Bounded user/workspace notes and a vault navigation index are frozen
 when a session is initialized. Existing sessions retain that snapshot across restart; new
 sessions see updated notes and index entries. Full concepts are retrieved on demand. Explicit,
 revision-pinned prerequisite edges reject cycles and support ordered loading. Upstream changes
-mark dependent concepts stale. These controls support retrieval-augmented workflows without
-claiming a new retrieval algorithm or superiority to dense retrieval.
+mark dependent concepts stale.
 
-\subsubsection{Error detection and correction}
+\subsubsection{Record validation and revision}
 \label{sec:knowledge-quality}
 
 Deterministic checks detect malformed documents, unresolved citations, scope violations, and
@@ -410,22 +372,17 @@ review diagnostics. These checks establish structural consistency and source ide
 a cited paper supports a statement or whether its underlying finding is correct. Warnings may
 remain in saved drafts; approval records permission to write, not certification of truth.
 
-Scientific review needs additional evidence. For literature-derived knowledge, the reviewer must
-check the original passage, study conditions, corrections or retractions, and relevant conflicting
-evidence; repeated citations to one source are not independent confirmation. For execution-derived
-knowledge, successful process termination is insufficient: recomputation, expected-output tests,
-unit checks, and examination of inferential scope can reveal silent errors. SwarmX records inputs,
-outputs, and evidence links for such review, but supplies neither a general scientific-truth test
-nor automatic surveillance of external literature. Agreement among agents does not replace these
-checks.
+Scientific review requires examination of the underlying evidence. SwarmX retains source
+references, inputs and outputs so that a reviewer can inspect an original passage or recompute
+a result, as illustrated in Section~\ref{sec:examples}.
 
 When an error is established, a curator can revise or deprecate the concept. Deprecation retains
 its history and excludes it from default search; explicit inspection can still recover the failed
 claim and its correction. Failed outcomes can thus remain useful negative experience without
 remaining accepted guidance. Expiration is exposed as a stale flag rather than automatic removal.
 Changes to revision-pinned prerequisites propagate stale flags through the concept graph.
-This is a dependency check, not a scientific re-evaluation: reassessing support, revising dependent
-claims and recomputing previously generated outputs still require explicit action.
+Reassessing support, revising dependent claims and recomputing previously generated outputs
+require explicit action.
 
 % 中文：执行环境与安全边界
 \subsection{Execution environment and safeguards}
@@ -438,23 +395,20 @@ Agent and its provider configuration. Python notebook and figure execution uses 
 Docker image derived from the pinned Jupyter Data Science stack. The Host records the resolved
 image, platform, Python and package versions. Each execution has no network, a read-only root
 filesystem, dropped capabilities, bounded resources, and mounts limited to its workspace and
-declared immutable inputs. Missing setup fails explicitly without host-Python fallback. Failed
-execution cannot register an old output as a newly successful figure. The bundled Typst compiler
+declared immutable inputs. Failed executions cannot register stale outputs as successful figures.
+The bundled Typst compiler
 and explicit Git/DVC operations retain their host-process boundary; Zotero requires a configured
-local service. Native Agents are not claimed to share the research container's isolation.
+local service. Native agents execute under their own runtime permissions.
 
 % 中文：宿主限制工作区与资源访问；原生运行时控制执行权限。
-The Electron renderer has no preload or Node integration, runs with context isolation and
-sandboxing, and limits in-app navigation to the loopback origin. Browser permissions are denied
-except for the configured same-origin clipboard-write operation. The Host and resource services
-enforce project scope, canonical paths, session ownership and revision preconditions. Host grants
-for Memory/Science reads and writes, harness/model admission and delegation intersect at each
-delegation and persist with conversations. A native permission mode cannot widen those grants.
-These checks govern Host APIs; native filesystem access and internal tools remain governed by the
-selected runtime. They do not establish a cross-harness filesystem ceiling or an external-effect
-recovery guarantee. Native approvals reach the connected user with their original options.
+The Electron client uses context isolation and sandboxing. The Host enforces project scope,
+session ownership and revision preconditions. Grants for Memory/Science access, runtime and model
+selection, and delegation persist with conversations; delegated agents receive only the
+intersection of the applicable grants. These controls govern Host APIs, while native filesystem
+access and internal tools follow the selected runtime's permissions. Native approval requests
+reach the connected user with their original options.
 
-\section{Illustrative example and validation}
+\section{Illustrative examples}
 \label{sec:examples}
 
 The current example connects native delegation, Docker computation, a registered figure,
@@ -468,33 +422,28 @@ and 87. These are demonstration values, not observations from a biological exper
 A reproduction driver creates a fresh filesystem project, imports the CSV as an immutable
 artifact and configures the bundled Docker environment. It supplies the lead Codex Agent with
 the analysis code, dataset identity, exact tool argument shapes and the required workflow.
-This is a guided integration example; it does not evaluate autonomous experimental design
-or discovery of undocumented APIs. Automatic memory review is disabled and write approval is
-enabled for the run. Native permissions retain the installed harness configuration; the driver
-can answer only the enumerated SwarmX product-tool confirmation forms.
+Automatic memory review is disabled and write approval is enabled for the run. Native permissions
+retain the installed runtime configuration. The example evaluates a guided integration workflow.
 
 The lead executes the supplied Pandas/Matplotlib analysis through the Science notebook tool.
 It obtains means of 79\% and 87\%, a difference of eight percentage points, and registers the
 figure with its code, input digest and execution environment. A separately delegated Codex
 session recomputes the values from the same immutable input using Python's standard library
 and checks its SHA-256 identity. Both computations run through the isolated Science runtime.
-The separate computation checks the arithmetic in this fixture; it is not a measurement of
-independent model errors or a comparison against a single-agent baseline.
+The separate computation checks the arithmetic and input identity in this fixture.
 
 The lead records the descriptive claim and links its evidence to the input, generated figure
 and notebooks. It then proposes a sourced Memory finding and exports the Science project as
 RO-Crate. Figure~\ref{fig:desktop-record} shows the current browser client with the completed
 analysis and registered figure. Figure~\ref{fig:desktop-provenance} shows the subsequent
-retrieval beside the recorded computations. The images were captured from this run, not from the
-earlier prototype.
+retrieval beside the recorded computations.
 
 \begin{figure}[!htbp]
 \centering
 \includegraphics[width=\textwidth]{docs/figures/swarmx-current-science.png}
-\caption{Current SwarmX client after the guided synthetic-data workflow. The conversation
-reports the 79\% and 87\% means and their eight-percentage-point difference; the adjacent
-Assets view displays the registered figure. The example establishes a traceable software
-workflow and supports no biological inference.}
+\caption{SwarmX client after the synthetic-data analysis, with the memory proposal awaiting
+approval. The conversation reports the 79\% and 87\% means and their eight-percentage-point
+difference; the adjacent Assets view displays the registered figure.}
 \label{fig:desktop-record}
 \end{figure}
 
@@ -503,19 +452,18 @@ workflow and supports no biological inference.}
 \includegraphics[width=\textwidth]{docs/figures/swarmx-current-provenance.png}
 \caption{A new session retrieves the approved finding while the Observe view shows the two
 successful notebook computations and the plotting execution's recorded output. The retrieved
-answer retains the input identity and synthetic-data limitation. Successful execution and
-persistence do not establish scientific validity.}
+answer retains the input identity and synthetic-data limitation.}
 \label{fig:desktop-provenance}
 \end{figure}
 
+\FloatBarrier
 \subsection{Approved finding and later retrieval}
 
 The Memory write remains pending until an authenticated browser action approves it.
 After approval, a new native session searches and reads the saved concept and reports the
 group means, difference, input identity and synthetic-data limitation without executing the
 analysis again. The concept cites the exact registered figure revision, connecting retrieval
-to the Science record. This demonstrates persistence and retrieval of this particular finding,
-not transfer of an analysis strategy to a new scientific problem.
+to the Science record.
 
 \begin{table}[!htbp]
 \centering
@@ -536,23 +484,16 @@ Memory and recall & Approve the pending finding; read it in a new session & Sour
 \end{table}
 \FloatBarrier
 
-The reproduction materials in \texttt{examples/softwarex/current-release/} separate the native
-workflow driver from offline evidence checks.
-The driver requires configured Codex credentials and Docker. The offline verifier recomputes
-the fixture arithmetic, checks the published file hashes and inspects the exported record;
-it does not rerun a model or measure the probability of completing the workflow.
-
-Earlier prototype records remain available as historical fixtures. The existing
-\texttt{pnpm paper:demo} command recomputes their two summaries and checks four recorded
-artifacts, four tasks, one committed admission and ten checksums. That saved workflow used a
-different task/admission mechanism and does not establish guarantees of the current recursive
-Swarm. It is not the source of the updated screenshots.
+The accompanying reproduction materials separate the native workflow driver from offline
+evidence checks. The driver requires configured Codex credentials and Docker. The offline verifier
+recomputes the fixture arithmetic, checks the published file hashes and inspects the exported
+record without rerunning a model.
 
 \subsection{Test suite and integration checks}
 \label{sec:tests}
 
-Checks were run on 7~September~2026 on macOS~26.6.2 arm64 with Node.js~26.7.0 and the
-repository's pinned pnpm configuration. The current full Vitest suite passed 345 tests with
+On 7~September~2026, checks were run on macOS~26.6.2 arm64 using Node.js~26.7.0 and the
+repository's pinned pnpm configuration. The full Vitest suite passed 345 tests with
 seven conditional skips across 51 files. The six tests in the research-environment file also
 passed with Docker enabled, including actual environment setup, versioned figure execution,
 confinement and cancellation. Type checking, lint, documentation coverage, the complete
@@ -562,69 +503,39 @@ The automated suite covers recursive delegation and cancellation, persistent Hos
 native failure propagation, journal ownership, memory revision and approval boundaries,
 project isolation and the renderer interactions. The recorded example additionally exercises
 authenticated Codex and the current browser client. These checks establish software behavior
-and artifact integrity. They do not establish authenticated coverage of Claude, Hermes or
-OpenClaw, researcher productivity, scientific error-detection rates or comparative task quality.
+and artifact integrity.
 
 \section{Impact}
 \label{sec:impact}
 
-This article reports an author-run integration example, not a third-party adoption or
-user-productivity study. The impact discussion therefore describes enabled research questions.
+For agent-assisted projects, SwarmX provides continuity of research records. Science entities
+and Memory concepts persist independently of a client session. In the example, a later session
+retrieves the approved finding and its figure revision without rerunning the analysis. A reviewer
+can follow that revision to the recorded input and computation. The same record and retrieval
+mechanisms are available to an individual agent across sessions.
 
-By making ownership, revision, and curation explicit, SwarmX enables research on how heterogeneous
-agents preserve scientific rationale and reuse sourced outcomes without copying private native
-transcripts. Persistent memory also benefits a single agent across sessions; its value is not
-conditional on using a team.
-
-Mokyr's framework~\cite{mokyr2005} maps onto the knowledge costs addressed by SwarmX. Project
-queries and canonical locators support finding records; bounded reads and portable formats support
-acquisition and transmission; revisions, content digests, and evidence relations support
-verification. Researchers can therefore follow a result across a conversation, computation,
-registered artifact, claim, manuscript, and later knowledge entry. Markdown, content-addressed
-files, and RO-Crate keep the durable record inspectable outside the client.
-
-The institutional stack makes the corresponding division of labor explicit. SwarmX contributes
-local components at L1, concrete interfaces at L2, and inspectable evidence and diagnostics at L3;
-native approvals and scoped curation provide a limited workflow form of L4. Public repositories and preservation
-services must make the L1 substrate discoverable and accessible, facilities must supply authorized
-compute or instrument endpoints at L2, scientific communities must perform independent criticism
-and reproduction at L3, and funders and institutions must provide the allocation and reward
-mechanisms at L4. Portable SwarmX records can inform those institutions but do not replace them.
+Project queries and revisioned locators connect conversations, computations, registered artifacts,
+claims and later knowledge entries. Markdown, content-addressed files and RO-Crate also make the
+record inspectable outside the client. This combination supports workflows in which one researcher
+or agent produces an artifact and another checks its sources or reuses a documented finding.
 
 The architecture also gives research-software developers narrow integration points. A disciplinary
 tool can retain ownership of its simulator, database, or instrument while registering selected
 inputs and outputs with Science. A conversation runtime connects through ACP without
 reimplementing the scientific services. A collaborative workflow can use Swarm's recursive Agent
-interface and explicit delegation. These separations allow user interfaces,
-agent runtimes, and domain tools to evolve without migrating the research record into a single
-application database.
-
-For agent-assisted projects, the practical benefit is continuity of research records. Science
-entities and Memory concepts persist independently of a client session, and a reviewer can inspect
-the artifact and evidence revision behind a claim. Native sessions follow their runtime's
-persistence contract; in-memory Swarm membership does not provide durable task recovery.
+interface and explicit delegation. These interfaces are intended to let user interfaces, agent runtimes and domain tools evolve
+independently while preserving links to research records. Reported use is currently limited to
+the author-run example; third-party adoption and productivity have not been measured.
 
 \subsection{Experience reuse and its evaluation}
 \label{sec:reuse}
 
-Correct, applicable experience could reduce repeated literature searches, avoid previously failed
-approaches, and replace repeated code generation with an already checked procedure. These
-mechanisms reduce the amount of work needed for a task rather than making each model inference
-intrinsically faster. Reuse still requires checking applicability and evidence revisions; a result
-computed for one input cannot be treated as the answer for a different input. Experience-memory
-methods provide precedents for such gains~\cite{wang2023voyager,wang2024workflowmemory}, but their
-results do not establish a benefit for SwarmX. Net savings must exceed the costs of extracting,
-retrieving, checking, and maintaining the experience.
-
-Three comparisons are needed to test these benefits. First, compare a single agent allowed to
-self-check with a multi-agent workflow using the same models, tools, records, and total inference
-budget; report result quality, latency, and total cost. Second, introduce known arithmetic,
-citation-support, version, and applicability errors and measure missed errors, false rejections,
-incorrect knowledge acceptance, and correction of dependent outputs. Third, evaluate a chronological
-sequence of related new tasks using no memory, raw-history retrieval, and curated experience,
-holding the retrieval mechanism constant where applicable. Include curation and review costs,
-prevent future-task answer leakage, and report failures as well as successes. These are proposed
-evaluations, not results of the current synthetic examples.
+The software supports investigation of whether curated findings and procedures reduce repeated
+searches or failed approaches in later tasks. Experience-memory methods provide precedents for
+reuse~\cite{wang2023voyager,wang2024workflowmemory}; evaluating it in SwarmX requires checking
+applicability to new inputs and accounting for retrieval, review and maintenance costs. Future
+studies can compare curated memory with raw-history retrieval and no memory, and measure how
+source and revision checks affect incorrect knowledge reuse under matched tools and budgets.
 
 \subsection{Scope and limitations}
 \label{sec:scope-limitations}
@@ -636,49 +547,40 @@ versioned-data operations require Git/DVC; the Typst preview runtime is bundled.
 installers, Windows deployment and import into named external provenance consumers are not
 validated. An RO-Crate metadata export does not itself include every referenced data file.
 
-The owner-held substrate is local and portable rather than a public scientific commons, and its
-default export policy does not imply publication, open licensing, or archival preservation.
-Likewise, provenance establishes lineage rather than scientific validity. Scoped access and
-explicit approval do not provide institutional funding, compute allocation, credit, or reputation.
-Claims about those outcomes require separate infrastructure and evaluation.
+Local exports require separate publication, licensing and archival arrangements for public reuse.
+Native sessions follow their runtime's persistence contract, and Swarm membership is not durable.
 
-The examples use fixed synthetic data to isolate record and provenance behavior. They do not
-establish multi-agent superiority, automatic scientific error removal, generalization of saved
-experience, or reduced inference cost. Broader evaluation should examine disciplinary workflows,
-independent users, and the comparisons in Section~\ref{sec:reuse}. Background review and dependency
-staleness checks are implemented, but their availability does not establish accurate extraction,
-scientific error detection or automatic correction of dependent results.
+The guided example uses fixed synthetic data to examine record and provenance behavior. It does
+not establish autonomous discovery, multi-agent superiority, scientific error-detection rates,
+generalization of saved experience or reduced inference cost. Background review and dependency
+checks support curation, but the accuracy of extracted knowledge and correction of dependent
+results require further evaluation on disciplinary workflows and independent users.
 
 \section{Conclusions}
 \label{sec:conclusions}
 
 SwarmX connects native agent conversations, scientific computation, recursive delegation,
-artifacts, manuscripts, and shared semantic memory through explicit ownership and revisioned links.
+artifacts, manuscripts, and shared semantic memory through revisioned links.
 The implementation provides append-only Science records, content-addressed artifacts, explicit
 memory curation, and portable Markdown and RO-Crate outputs. It supports individual agents as well
-as task-dependent multi-agent arrangements, and its memory can serve retrieval-augmented workflows.
-Current tests establish software boundaries, and the guided example links a current native
-execution to registered evidence and later retrieval. Scientific correctness still requires evidence review, and stored outcomes
-must not be equated with learned, generalizable experience. The next empirical question is whether
-this combination reduces incorrect knowledge reuse and the total cost of subsequent research tasks.
+as task-dependent multi-agent arrangements. Integration tests and the guided example demonstrate
+the path from native execution to registered evidence, approved knowledge and subsequent retrieval,
+providing an inspectable record across research sessions.
 
 \section*{Code availability}
 
 SwarmX is available under the MIT License in the
 \href{https://github.com/tcztzy/swarmx/tree/9e1e818acd438dcbf30fb9dc46d758495d24d094}{versioned source repository}.
-Table~\ref{tab:code-metadata} fixes the implementation revision. The accompanying reproduction
-instructions describe the current workflow driver, native credentials, Docker environment and
-separate checks of the exported evidence. Standard validation uses \texttt{pnpm typecheck},
-\texttt{pnpm test}, \texttt{pnpm build}, \texttt{pnpm lint} and \texttt{pnpm docs:check}.
-The retained prototype fixture is checked separately with \texttt{pnpm paper:demo}; it does not
-replay native Agents or validate the current delegation implementation.
+Table~\ref{tab:code-metadata} fixes the implementation revision. The
+\href{https://github.com/tcztzy/swarmx/tree/d564ae641a839564a11b41d8aa3b61617556e625/examples/softwarex/current-release}{versioned reproduction materials}
+include the workflow driver, required credentials and Docker setup instructions, and checks of
+the exported evidence. This later snapshot adds the example without changing the implementation.
 
 \section*{Data availability}
 
 The synthetic input, plotting and verification code, exported figure, memory concept, RO-Crate
 metadata, run summary and current screenshots accompany the manuscript. Private native
-transcripts and credentials are excluded. Earlier prototype records remain separately identified
-in the repository. No external or human-participant research data were used.
+transcripts and credentials are excluded. No external or human-participant research data were used.
 
 \section*{CRediT authorship contribution statement}
 
