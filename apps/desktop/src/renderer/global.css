@@ -1,1 +1,211 @@
 @import "tailwindcss";
+
+.research-side-view {
+  position: absolute;
+  inset: 0;
+  z-index: 10;
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  border-left: 1px solid #e5e5e5;
+  background: white;
+}
+@media (min-width: 1024px) {
+  .research-side-view {
+    position: static;
+    width: 52%;
+    max-width: 900px;
+    flex-shrink: 0;
+  }
+}
+
+@layer base {
+  body {
+    @apply m-0 antialiased;
+  }
+  button,
+  summary,
+  select {
+    @apply cursor-pointer;
+  }
+  button:disabled {
+    @apply cursor-not-allowed;
+  }
+  button:focus-visible,
+  summary:focus-visible,
+  select:focus-visible,
+  input:focus-visible {
+    @apply outline-2 outline-offset-2 outline-neutral-500;
+  }
+  summary {
+    @apply list-none;
+  }
+  summary::-webkit-details-marker {
+    display: none;
+  }
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-neutral-300) transparent;
+  }
+}
+
+@layer components {
+  .eyebrow {
+    @apply text-[10px] font-medium tracking-[0.14em] text-neutral-400;
+  }
+  .secondary-button {
+    @apply inline-flex items-center justify-center gap-2 rounded-lg border border-neutral-200 bg-white px-3 py-2 text-xs font-medium text-neutral-700 hover:bg-neutral-50 disabled:opacity-40;
+  }
+  .field-label {
+    @apply flex flex-col gap-2 text-xs font-medium text-neutral-600;
+  }
+  .settings-section {
+    @apply grid gap-5 border-t border-neutral-200 pt-6 md:grid-cols-[220px_1fr] md:gap-9;
+  }
+  .settings-section h3 {
+    @apply font-semibold;
+  }
+  .settings-section p {
+    @apply mt-2 text-xs leading-6 text-neutral-500;
+  }
+  .metadata-list {
+    @apply grid grid-cols-[72px_1fr] gap-x-3 gap-y-3 text-xs;
+  }
+  .metadata-list dt {
+    @apply text-neutral-400;
+  }
+  .metadata-list dd {
+    @apply min-w-0;
+  }
+  .status-pill {
+    @apply inline-flex rounded-md bg-neutral-100 px-2 py-1 text-[10px] font-medium text-neutral-500;
+  }
+  .code-panel {
+    @apply max-h-72 overflow-auto rounded-lg bg-neutral-50 p-3 font-mono text-[11px] leading-6 whitespace-pre-wrap break-words;
+  }
+  .workbench-alert {
+    @apply rounded-lg border border-neutral-300 bg-neutral-50 p-3 text-xs leading-6 break-words;
+  }
+  .workspace-nav {
+    @apply flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2.5 text-left text-xs font-medium hover:bg-neutral-200 aria-[current=page]:bg-neutral-200;
+  }
+  .research-tab {
+    @apply border-b-2 border-transparent px-3 py-3 text-xs text-neutral-500 aria-selected:border-neutral-900 aria-selected:text-neutral-950;
+  }
+  .entity-row {
+    @apply flex w-full items-center gap-3 border-b border-neutral-100 px-2 py-4 text-left text-xs hover:bg-neutral-50;
+  }
+  .composer-control {
+    @apply inline-flex h-7 min-w-0 items-center justify-center gap-1.5 rounded-full px-2 text-xs text-neutral-700 transition-colors hover:bg-neutral-100 data-[state=open]:bg-neutral-100 disabled:opacity-40;
+  }
+  .composer-menu {
+    @apply z-50 w-64 max-w-[calc(100vw-24px)] overflow-y-auto rounded-2xl border border-neutral-200 bg-white p-1.5 text-sm text-neutral-800 shadow-lg;
+    max-height: min(24rem, var(--radix-popper-available-height));
+  }
+  .menu-label {
+    @apply px-2 py-1.5 text-xs leading-5 text-neutral-400;
+  }
+  .composer-menu-item {
+    @apply flex min-h-8 cursor-pointer items-center gap-3 rounded-lg px-2 py-1.5 text-[13px] outline-none data-[highlighted]:bg-neutral-100;
+  }
+  .model-menu {
+    @apply z-50 w-72 max-w-[calc(100vw-24px)] overflow-hidden rounded-xl border border-neutral-200 bg-white text-neutral-900 shadow-md;
+  }
+  .model-menu-list {
+    @apply overflow-y-auto p-1;
+    max-height: min(18rem, calc(var(--radix-popover-content-available-height) - 5rem));
+  }
+  .icon-button {
+    @apply inline-flex min-h-8 min-w-8 items-center justify-center rounded-lg text-neutral-500 transition-colors hover:bg-neutral-200/60 hover:text-neutral-900 disabled:opacity-40;
+  }
+  .primary-button {
+    @apply inline-flex items-center justify-center rounded-lg bg-neutral-900 px-4 py-2.5 text-sm font-medium text-white hover:bg-neutral-700 disabled:opacity-40;
+  }
+  .interaction-input {
+    @apply min-h-10 rounded-lg border border-neutral-300 bg-white px-3 py-2;
+  }
+  .suggestion-card {
+    @apply flex items-center gap-2.5 rounded-xl border border-neutral-200 p-3 text-left text-xs text-neutral-500 transition-colors hover:bg-neutral-50 hover:text-neutral-900;
+  }
+  .activity-card {
+    @apply my-3 rounded-lg border border-neutral-200 px-3 text-neutral-500;
+  }
+  .activity-card > summary {
+    @apply flex min-h-10 items-center gap-2 text-sm;
+  }
+  .activity-card[open] {
+    @apply pb-3;
+  }
+  .activity-card[open] .activity-chevron {
+    @apply rotate-90;
+  }
+  .subagent-card[open] > summary .subagent-chevron {
+    @apply rotate-90;
+  }
+  .message-markdown {
+    @apply break-words;
+  }
+  .message-markdown > :first-child {
+    @apply mt-0;
+  }
+  .message-markdown p,
+  .message-markdown ul,
+  .message-markdown ol {
+    @apply my-3;
+  }
+  .message-markdown h1,
+  .message-markdown h2,
+  .message-markdown h3 {
+    @apply mt-6 mb-3 font-semibold tracking-tight;
+  }
+  .message-markdown h1 {
+    @apply text-2xl;
+  }
+  .message-markdown h2 {
+    @apply text-xl;
+  }
+  .message-markdown h3 {
+    @apply text-lg;
+  }
+  .message-markdown ul {
+    @apply list-disc pl-6;
+  }
+  .message-markdown ol {
+    @apply list-decimal pl-6;
+  }
+  .message-markdown li {
+    @apply my-1;
+  }
+  .message-markdown a {
+    @apply underline decoration-neutral-400 underline-offset-4;
+  }
+  .message-markdown pre {
+    @apply my-4 overflow-x-auto rounded-xl border border-neutral-200 bg-neutral-50 p-4 text-[13px] leading-6;
+  }
+  .message-markdown :not(pre) > code {
+    @apply rounded bg-neutral-100 px-1.5 py-0.5 text-[13px];
+  }
+  .message-markdown table {
+    @apply my-4 block max-w-full overflow-auto border-collapse text-sm;
+  }
+  .message-markdown th,
+  .message-markdown td {
+    @apply border border-neutral-200 px-3 py-2 text-left;
+  }
+  .message-markdown th {
+    @apply bg-neutral-50 font-medium;
+  }
+  .message-markdown blockquote {
+    @apply my-4 border-neutral-300 border-l-2 pl-4 text-neutral-500;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none;
+    transition: none;
+    scroll-behavior: auto;
+  }
+}

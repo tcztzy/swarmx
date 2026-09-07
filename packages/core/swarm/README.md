@@ -1,7 +1,9 @@
 # @swarmx/swarm
 
-Protocol-neutral `Agent<Observer>` and `createSwarm(name, lead)`.
+Recursive ACP composition through `createSwarm(name, connectLead)`.
 
-A Swarm delegates native session operations to its lead through the same in-process interface.
-Leads may themselves be Swarms. The package has no runtime dependencies, provider imports,
-wire types, transcript storage, or UI code. External protocol gateways belong to the Host.
+A Swarm is an official SDK Agent app upstream and Client downstream. Its connector accepts a
+Client app and returns an SDK connection, allowing another Swarm, a leaf app or an ACP stream.
+Requests and cancellation travel down; updates, approvals and forms travel up. Create a fresh
+Swarm app per connection. Closing either side closes the other. The Host owns permission policy,
+native adapters and gateway projections. This package has no provider, transcript or UI code.

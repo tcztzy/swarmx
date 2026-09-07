@@ -3,6 +3,7 @@ import { mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { PDFDocument, PDFName } from "pdf-lib";
 import { afterEach, describe, expect, it } from "vitest";
+import { injectSvgMetadata } from "../src/artifact-metadata.js";
 import type { ScienceError } from "../src/errors.js";
 import {
   ARTIFACT_METADATA_KEYWORD,
@@ -24,6 +25,38 @@ const MINIMAL_SVG = Buffer.from(
   `<svg xmlns="http://www.w3.org/2000/svg" xmlns:dc="http://purl.org/dc/elements/1.1/" viewBox="0 0 10 10"><metadata id="author-metadata"><dc:title>Existing title</dc:title></metadata><circle cx="5" cy="5" r="4"/></svg>`,
 );
 const fixtures: ScienceFixture[] = [];
+
+it("accepts matplotlib's standard SVG prologue without resolving a DTD or allowing entities", () => {
+  const doctype =
+    '<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN"\n  "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">';
+  const metadata = {
+    schema: "swarmx.figure-provenance" as const,
+    version: 1 as const,
+    generationId: randomUUID(),
+    generator: {
+      library: "matplotlib" as const,
+      code: "fig.savefig('figure.svg')",
+      codeHash: `sha256:${"0".repeat(64)}`,
+    },
+    sources: [],
+    environment: {},
+  };
+  const rendered = injectSvgMetadata(
+    Buffer.from(`<?xml version="1.0" encoding="utf-8"?>\n${doctype}\n${MINIMAL_SVG}`),
+    metadata,
+  );
+  expect(extractSvgMetadata(rendered)).toEqual(metadata);
+  expect(rendered.toString()).not.toContain("<!DOCTYPE");
+  for (const invalid of [
+    doctype.replace("www.w3.org", "example.invalid"),
+    doctype.replace(">", ' [<!ENTITY injected "secret">]>'),
+    `${doctype}\n<!DOCTYPE svg>`,
+  ]) {
+    expect(() => injectSvgMetadata(Buffer.from(`${invalid}${MINIMAL_SVG}`), metadata)).toThrow(
+      /declaration/,
+    );
+  }
+});
 
 function xmpPacket(description: string): string {
   return [

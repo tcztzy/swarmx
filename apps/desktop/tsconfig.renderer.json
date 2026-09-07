@@ -4,8 +4,15 @@
     "jsx": "react-jsx",
     "lib": ["ES2024", "DOM", "DOM.Iterable"],
     "noEmit": true,
-    "rootDir": "src/renderer",
+    "rootDir": "src",
     "types": ["vite/client"]
   },
-  "include": ["src/renderer/**/*.ts", "src/renderer/**/*.tsx"]
+  "include": [
+    "src/renderer/**/*.ts",
+    "src/renderer/**/*.tsx",
+    "src/execution-record.ts",
+    "src/settings.ts",
+    "src/permissions.ts",
+    "src/memory.ts"
+  ]
 }

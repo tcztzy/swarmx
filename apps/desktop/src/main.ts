@@ -35,6 +35,7 @@ if (!app.requestSingleInstanceLock()) {
     .whenReady()
     .then(async () => {
       const workspaceRoot = process.env.SWARMX_WORKSPACE ?? process.cwd();
+      const development = !app.isPackaged && process.env.SWARMX_DEV === "1";
       const { values } = parseArgs({
         options: { agent: { type: "string" } },
         strict: false,
@@ -43,7 +44,8 @@ if (!app.requestSingleInstanceLock()) {
       platformBoot = startDesktopPlatform({
         workspaceRoot,
         agentId: selectedAgent(typeof values.agent === "string" ? values.agent : undefined),
-        rendererRoot: fileURLToPath(new URL("./renderer", import.meta.url)),
+        rendererRoot: fileURLToPath(new URL(development ? "../" : "./renderer", import.meta.url)),
+        development,
       });
       const started = await platformBoot;
       try {
@@ -67,6 +69,8 @@ if (!app.requestSingleInstanceLock()) {
   });
 
   app.on("window-all-closed", () => app.quit());
+  process.on("SIGINT", () => app.quit());
+  process.on("SIGTERM", () => app.quit());
 
   app.on("before-quit", (event) => {
     if (quitting) return;

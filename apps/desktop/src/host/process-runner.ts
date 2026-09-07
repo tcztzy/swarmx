@@ -57,7 +57,7 @@ interface SpawnedProcess {
   terminate(): void;
 }
 
-function spawnProcess(spec: SpawnSpec): SpawnedProcess {
+export function spawnProcess(spec: SpawnSpec): SpawnedProcess {
   const command = spec.argv[0];
   if (command === undefined) throw new Error("Process command is missing.");
   spec.signal?.throwIfAborted();
@@ -89,7 +89,7 @@ function spawnProcess(spec: SpawnSpec): SpawnedProcess {
   spec.signal?.addEventListener("abort", aborted, { once: true });
   const done = new Promise<ProcessOutcome>((resolveDone, reject) => {
     child.once("error", reject);
-    child.once("exit", (exitCode, signal) => resolveDone({ exitCode, signal }));
+    child.once("close", (exitCode, signal) => resolveDone({ exitCode, signal }));
   }).finally(() => {
     if (killTimer !== undefined) clearTimeout(killTimer);
     spec.signal?.removeEventListener("abort", aborted);
@@ -150,7 +150,7 @@ export class NodeScienceProcessRuntime implements ScienceProcessRuntime {
     return resolveExecutable(command, { ...process.env, ...environment }, signal);
   }
 
-  spawn(spec: ScienceProcessSpec): ScienceProcessHandle {
+  async spawn(spec: ScienceProcessSpec): Promise<ScienceProcessHandle> {
     const spawned = spawnProcess({
       argv: spec.argv,
       cwd: spec.cwd,

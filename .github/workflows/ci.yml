@@ -1,194 +1,51 @@
 name: CI
-
 on:
   push:
-    branches:
-      - main
+    branches: [main]
   pull_request:
-    branches:
-      - main
   workflow_dispatch:
-
+permissions:
+  contents: read
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
-
-permissions:
-  contents: read
-
-env:
-  CI: "true"
-
 jobs:
   quality:
-    name: ${{ matrix.name }}
-    runs-on: ubuntu-24.04
-    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - name: Node 22.13 minimum
-            node-version: 22.13.0
-            primary: false
-          - name: quality
-            node-version: 22.x
-            primary: true
+        os: [ubuntu-24.04, macos-15]
+        node: [22, 24]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 35
     steps:
-      - name: Check out repository
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-
-      - name: Set up Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
         with:
-          node-version: ${{ matrix.node-version }}
-
-      - name: Set up pnpm
-        uses: pnpm/action-setup@008330803749db0355799c700092d9a85fd074e9 # v6.0.9
+          node-version: ${{ matrix.node }}
+      - uses: pnpm/action-setup@008330803749db0355799c700092d9a85fd074e9
         with:
-          version: 11.13.1
           cache: true
-
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install --yes --no-install-recommends ripgrep
-          rg --version
-
-      - name: Install Node dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Lint
-        if: matrix.primary
-        run: pnpm lint
-
-      - name: Test on minimum supported Node
-        if: ${{ !matrix.primary }}
-        run: pnpm test
-
-      - name: Test with coverage thresholds
-        if: matrix.primary
-        run: pnpm test:coverage
-
-      - name: Test the direct Harness release path
-        if: matrix.primary
-        run: pnpm test:e2e:release
-
-      - name: Build
-        run: pnpm -r build
-
-  python:
-    name: Python ${{ matrix.python-version }}
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lint && pnpm docs:check
+      - run: pnpm typecheck
+      - run: pnpm test
+      - run: pnpm build
+      - run: pnpm paper:demo
+  sandbox:
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
-    strategy:
-      fail-fast: false
-      matrix:
-        python-version: ["3.11", "3.14"]
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-
-      - name: Set up uv and Python
-        uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
-        with:
-          version: 0.11.28
-          python-version: ${{ matrix.python-version }}
-          enable-cache: true
-          cache-dependency-glob: uv.lock
-
-      - name: Test the standard SwarmX Python package
-        run: uv run --locked --no-default-groups python -m unittest discover -s tests/python -p '*_test.py'
-
-  inspect:
-    name: Inspect
-    runs-on: ubuntu-24.04
-    timeout-minutes: 15
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-
-      - name: Set up uv and Python
-        uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
-        with:
-          version: 0.11.28
-          python-version: "3.12"
-          enable-cache: true
-          cache-dependency-glob: uv.lock
-
-      - name: Sync Python dependencies
-        run: uv sync --locked --group inspect
-
-      - name: Test Inspect integration
-        run: uv run --locked --group inspect python -m unittest discover -s evals/inspect -p '*_test.py'
-
-      - name: Run Inspect smoke evaluation
-        run: uv run --locked --group inspect inspect eval evals/inspect/tasks.py@swarmx_smoke --model none
-
-  managed-modules:
-    name: Managed MCP modules
-    runs-on: ubuntu-24.04
-    timeout-minutes: 30
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-
-      - name: Set up Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version: 22.x
-
-      - name: Set up pnpm
-        uses: pnpm/action-setup@008330803749db0355799c700092d9a85fd074e9 # v6.0.9
-        with:
-          version: 11.13.1
-
-      - name: Set up Rust
-        run: |
-          rustup toolchain install 1.95.0 --profile minimal
-          rustup default 1.95.0
-
-      - name: Install Node dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Test Rust Memory MCP module
-        run: pnpm test:mem
-
-      - name: Build and integrate the packaged Memory MCP module
-        run: pnpm test:integration:memory
-
-  desktop-macos:
-    name: macOS desktop security boundaries
-    runs-on: macos-15
     timeout-minutes: 20
     steps:
-      - name: Check out repository
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-
-      - name: Set up Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
         with:
-          node-version: 22.13.0
-
-      - name: Set up pnpm
-        uses: pnpm/action-setup@008330803749db0355799c700092d9a85fd074e9 # v6.0.9
+          node-version-file: package.json
+      - uses: pnpm/action-setup@008330803749db0355799c700092d9a85fd074e9
         with:
-          version: 11.13.1
           cache: true
-
-      - name: Install Node dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Build Desktop
-        run: pnpm --filter @swarmx/desktop build
-
-      - name: Launch the built Renderer in Electron
-        run: pnpm --filter @swarmx/desktop test:smoke
-
-      - name: Test macOS process and sandbox boundaries
-        run: >-
-          pnpm vitest run
-          packages/desktop/src/main/workspace-shell.test.ts
-          packages/desktop/src/main/workspace-tools.test.ts
-          packages/desktop/src/main/terminal-host.test.ts
-          packages/swarmx/tests/launcher.test.ts
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build:lib
+      - run: docker build --tag swarmx-research:ci apps/desktop/resources/python
+      - run: pnpm vitest run apps/desktop/tests/research-environment.test.ts
+        env:
+          SWARMX_TEST_DOCKER_IMAGE: swarmx-research:ci

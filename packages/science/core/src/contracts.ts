@@ -1187,6 +1187,7 @@ export const notebookExecutionSchema = z.strictObject({
   notebook: scienceNotebookSchema,
   provenance: provenanceReceiptSchema,
 });
+export const notebookExecutionSummarySchema = notebookExecutionSchema.omit({ notebook: true });
 
 const literatureYearFilterSchema = z
   .strictObject({

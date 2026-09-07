@@ -11,7 +11,9 @@ import {
   RunAgentInputSchema,
 } from "@ag-ui/core";
 import { EventEncoder } from "@ag-ui/encoder";
+import type { PromptResponse } from "@swarmx/swarm";
 import type { Interaction, NativeAgent, Observer } from "../agents/types.js";
+import { RunOptionsSchema } from "../agents/types.js";
 
 export const parseAgUiInput = (raw: unknown): RunAgentInput => RunAgentInputSchema.parse(raw);
 
@@ -39,7 +41,10 @@ export class AgUiBridge {
         if (message?.role !== "user") throw new Error("An AG-UI run must end with a user message.");
         const text = messageText(message);
         if (!text.trim()) throw new Error("The user message cannot be empty.");
-        turn = new Turn(stream, (observer) => this.agent.start(input.threadId, text, observer));
+        const options = RunOptionsSchema.optional().parse(input.forwardedProps);
+        turn = new Turn(stream, (observer) =>
+          this.agent.start(input.threadId, text, observer, options),
+        );
         this.turns.set(input.threadId, turn);
         void turn.completed.then(() => this.turns.delete(input.threadId));
       }
@@ -50,7 +55,7 @@ export class AgUiBridge {
       turn.projection = undefined;
       if (outcome.kind === "interaction") stream.interrupt(outcome.interrupt);
       else if (outcome.kind === "error") stream.error(outcome.error);
-      else stream.success();
+      else stream.complete(outcome.result);
     } catch (error) {
       stream.error(error);
     } finally {
@@ -66,18 +71,20 @@ export class AgUiBridge {
 }
 
 class Turn implements Observer {
-  readonly completed: Promise<{ kind: "complete" } | { kind: "error"; error: unknown }>;
+  readonly completed: Promise<
+    { kind: "complete"; result: PromptResponse } | { kind: "error"; error: unknown }
+  >;
   signal = Promise.withResolvers<Interrupt>();
-  private pending: { id: string; resolve(value: unknown): void } | undefined;
+  private readonly pending: { interrupt: Interrupt; resolve(value: unknown): void }[] = [];
 
   constructor(
     public projection: Projection | undefined,
-    start: (observer: Observer) => Promise<void>,
+    start: (observer: Observer) => Promise<PromptResponse>,
   ) {
     this.completed = Promise.resolve()
       .then(() => start(this))
       .then(
-        () => ({ kind: "complete" }),
+        (result) => ({ kind: "complete", result }),
         (error: unknown) => ({ kind: "error", error }),
       );
   }
@@ -90,30 +97,42 @@ class Turn implements Observer {
   raw(event: unknown) {
     this.projection?.send({ type: EventType.CUSTOM, name: "native", value: event });
   }
-  interact(request: Interaction): Promise<unknown> {
-    if (this.pending) throw new Error("A native interaction is already pending.");
+  interact(request: Interaction, signal?: AbortSignal): Promise<unknown> {
+    if (signal?.aborted) return Promise.resolve(undefined);
     const answer = Promise.withResolvers<unknown>();
-    this.pending = { id: request.id, resolve: answer.resolve };
-    this.signal.resolve({
+    const interrupt: Interrupt = {
       id: request.id,
       reason: "input_required",
       message: request.title,
       responseSchema: request.schema,
-    });
-    return answer.promise;
+    };
+    const pending = { interrupt, resolve: answer.resolve };
+    const cancel = () => {
+      const index = this.pending.indexOf(pending);
+      if (index !== -1) this.pending.splice(index, 1);
+      answer.resolve(undefined);
+      if (index === 0) {
+        this.signal = Promise.withResolvers<Interrupt>();
+        if (this.pending[0]) this.signal.resolve(this.pending[0].interrupt);
+      }
+    };
+    signal?.addEventListener("abort", cancel, { once: true });
+    this.pending.push(pending);
+    if (this.pending.length === 1) this.signal.resolve(interrupt);
+    return answer.promise.finally(() => signal?.removeEventListener("abort", cancel));
   }
   resume(entries: ResumeEntry[]) {
-    if (!this.pending || entries.length !== 1 || entries[0]?.interruptId !== this.pending.id)
+    const pending = this.pending[0];
+    if (!pending || entries.length !== 1 || entries[0]?.interruptId !== pending.interrupt.id)
       throw new Error("AG-UI resume must answer the pending native interaction.");
     const entry = entries[0];
-    const pending = this.pending;
-    this.pending = undefined;
+    this.pending.shift();
     this.signal = Promise.withResolvers<Interrupt>();
+    if (this.pending[0]) this.signal.resolve(this.pending[0].interrupt);
     pending.resolve(entry.status === "cancelled" ? undefined : entry.payload);
   }
   cancelInteraction() {
-    this.pending?.resolve(undefined);
-    this.pending = undefined;
+    for (const pending of this.pending.splice(0)) pending.resolve(undefined);
   }
 }
 
@@ -183,13 +202,14 @@ class Projection {
     });
     this.close();
   }
-  success() {
+  complete(result: PromptResponse) {
     this.endPart();
     this.send({
       type: EventType.RUN_FINISHED,
       threadId: this.threadId,
       runId: this.runId,
-      outcome: { type: "success" },
+      result,
+      ...(result.stopReason === "end_turn" ? { outcome: { type: "success" as const } } : {}),
     });
     this.close();
   }

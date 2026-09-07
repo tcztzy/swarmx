@@ -49,7 +49,7 @@ export interface ScienceProcessRuntime {
     env?: Readonly<Record<string, string>>,
     signal?: AbortSignal,
   ): Promise<string>;
-  spawn(spec: ScienceProcessSpec): ScienceProcessHandle;
+  spawn(spec: ScienceProcessSpec): Promise<ScienceProcessHandle>;
 }
 
 const SENSITIVE_ENVIRONMENT_NAME = /KEY|PASSWORD|SECRET|TOKEN/iu;

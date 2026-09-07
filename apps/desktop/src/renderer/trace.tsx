@@ -2,58 +2,85 @@ import type { ThreadMessage } from "@assistant-ui/react";
 import { type SpanData, SpanPrimitive, SpanResource } from "@assistant-ui/react-o11y";
 import { AuiConfig, AuiProvider, useAuiState } from "@assistant-ui/store";
 import { useMemo } from "react";
+import { t, useTranslation } from "./i18n.js";
 
 export function TracePanel() {
+  const { t } = useTranslation();
   const messages = useAuiState((state) => state.thread.messages);
-  const spans = useMemo(() => traceSpans(messages), [messages]);
+  const spans = useMemo(
+    () =>
+      traceSpans(messages).map((span) => ({
+        ...span,
+        name:
+          span.name === "Swarm response"
+            ? t("Swarm 回复")
+            : span.name === "Agent response"
+              ? t("Agent 回复")
+              : span.name,
+      })),
+    [messages, t],
+  );
   const config = useMemo(() => AuiConfig({ span: SpanResource({ spans }) }), [spans]);
-  if (spans.length === 0) return null;
+  if (spans.length === 0)
+    return (
+      <p className="px-3 py-10 text-center text-sm text-neutral-500">
+        {t("任务开始后，执行轨迹会显示在这里。")}
+      </p>
+    );
   return (
-    <details
-      className="mx-auto mb-7 max-w-5xl overflow-hidden rounded-xl border border-neutral-200 bg-white"
-      open
-    >
+    <details className="overflow-hidden rounded-xl border border-neutral-200 bg-white" open>
       <summary className="flex cursor-pointer justify-between px-3.5 py-2.5 font-bold text-neutral-700">
-        <span>执行轨迹</span>
-        <small className="font-normal text-neutral-500">{spans.length} spans</small>
+        <span>{t("运行与调用")}</span>
+        <small className="font-normal text-neutral-500">
+          {t("{{count}} 项", { count: spans.length })}
+        </small>
       </summary>
       <AuiProvider config={config} extends={null}>
         <SpanPrimitive.Timeline
-          className="max-h-60 overflow-auto border-neutral-200 border-t"
+          className="overflow-auto border-neutral-200 border-t"
           paddingEnd={0.04}
         >
           <SpanPrimitive.Children>
             {({ span }) => (
-              <SpanPrimitive.Root className="group grid min-h-8 min-w-[640px] grid-cols-[minmax(420px,3fr)_minmax(140px,2fr)] border-neutral-100 border-b">
+              <SpanPrimitive.Root
+                className="group grid min-h-11 min-w-[280px] grid-cols-[minmax(200px,3fr)_minmax(60px,1fr)] border-neutral-100 border-b"
+                title={`${span.id} · ${span.type} · ${span.status}`}
+              >
                 <SpanPrimitive.Indent
                   baseIndent={8}
-                  className="grid min-w-0 grid-cols-[18px_8px_auto_minmax(90px,1fr)_auto_minmax(110px,auto)_auto] items-center gap-2 pr-2"
-                  indentPerLevel={14}
+                  className="grid min-w-0 grid-cols-[12px_6px_minmax(60px,1fr)_auto] items-center gap-1.5 pr-1"
+                  indentPerLevel={10}
                 >
                   {span.hasChildren ? (
                     <SpanPrimitive.CollapseToggle
-                      aria-label={`折叠 ${span.name}`}
+                      aria-label={t("折叠 {{name}}", { name: span.name })}
                       className="border-0 bg-transparent p-0 text-neutral-500 group-data-[collapsed=true]:-rotate-90"
                       type="button"
                     >
                       ▾
                     </SpanPrimitive.CollapseToggle>
                   ) : (
-                    <span className="w-4.5" />
+                    <span />
                   )}
                   <SpanPrimitive.StatusIndicator className="h-2 w-2 rounded-full bg-neutral-500 data-[span-status=failed]:rounded-none data-[span-status=running]:animate-pulse" />
-                  <SpanPrimitive.TypeBadge className="rounded border border-neutral-300 px-1 text-[10px] text-neutral-500" />
-                  <SpanPrimitive.Name className="overflow-hidden text-ellipsis whitespace-nowrap text-xs" />
-                  <span className="text-[10px] text-neutral-500">{span.status}</span>
-                  <code
-                    className="overflow-hidden text-ellipsis whitespace-nowrap text-[10px] text-neutral-500"
-                    title={span.id}
-                  >
-                    {span.id}
-                  </code>
+                  <div className="min-w-0 py-1.5">
+                    <SpanPrimitive.Name className="block truncate text-xs" />
+                    <span className="text-[10px] text-neutral-500">
+                      {t(
+                        (
+                          {
+                            running: "运行中",
+                            completed: "已完成",
+                            failed: "失败",
+                            skipped: "已停止",
+                          } as Record<string, string>
+                        )[span.status] ?? span.status,
+                      )}
+                    </span>
+                  </div>
                   <time className="text-[10px] text-neutral-500">{duration(span.latencyMs)}</time>
                 </SpanPrimitive.Indent>
-                <div className="relative m-3 rounded-full bg-neutral-200">
+                <div className="relative mx-2 my-5 rounded-full bg-neutral-200">
                   <SpanPrimitive.TimelineBar className="inset-y-0 rounded-full bg-black [--span-timeline-min-width:4px] data-[span-type=agent]:bg-neutral-500" />
                 </div>
               </SpanPrimitive.Root>
@@ -142,7 +169,7 @@ function messageEnd(
 }
 
 function duration(milliseconds: number | null): string {
-  if (milliseconds === null) return "进行中";
+  if (milliseconds === null) return t("进行中");
   return milliseconds < 1_000
     ? `${String(Math.round(milliseconds))} ms`
     : `${(milliseconds / 1_000).toFixed(1)} s`;

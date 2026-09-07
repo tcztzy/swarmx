@@ -1,6 +1,7 @@
 import type { AgentOptions, NativeAgent, Observer } from "./agents/types.js";
+import { HarnessSchema } from "./permissions.js";
 
-export const AGENT_IDS = ["codex", "claude", "hermes", "openclaw"] as const;
+export const AGENT_IDS = HarnessSchema.options;
 export type AgentId = (typeof AGENT_IDS)[number];
 
 export function selectedAgent(value = process.env.SWARMX_AGENT ?? "codex"): AgentId {
@@ -8,18 +9,9 @@ export function selectedAgent(value = process.env.SWARMX_AGENT ?? "codex"): Agen
   return value as AgentId;
 }
 
-const loaders = {
-  codex: async (options: AgentOptions) => (await import("./agents/codex.js")).createCodex(options),
-  claude: async (options: AgentOptions) =>
-    (await import("./agents/claude.js")).createClaude(options),
-  hermes: async (options: AgentOptions) =>
-    (await import("./agents/hermes.js")).createHermes(options),
-  openclaw: async (_options: AgentOptions) =>
-    (await import("./agents/openclaw.js")).createOpenClaw(),
-};
-
 export async function loadAgent(id: AgentId, options: AgentOptions): Promise<NativeAgent> {
-  const agent = scopeSessions(id, await loaders[id](options));
+  const { createAcpHarness } = await import("./agents/acp-harness.js");
+  const agent = scopeSessions(id, await createAcpHarness(id, options));
   try {
     await agent.list();
     return agent;
@@ -31,6 +23,7 @@ export async function loadAgent(id: AgentId, options: AgentOptions): Promise<Nat
 
 /** Browser/external session ids cannot be reused against another native Agent. */
 export function scopeSessions(id: string, agent: NativeAgent): NativeAgent {
+  const restore = agent.restoreEmptySessions?.bind(agent);
   const known = new Set<string>();
   const remember = (native: string) => {
     const scoped = `${id}:${native}`;
@@ -44,14 +37,31 @@ export function scopeSessions(id: string, agent: NativeAgent): NativeAgent {
   };
   return {
     name: agent.name,
+    capabilities: agent.capabilities,
+    ...(restore
+      ? {
+          restoreEmptySessions(ids: readonly string[]) {
+            restore(
+              ids.map((session) => {
+                if (!session.startsWith(`${id}:`))
+                  throw new Error("Invalid restored session owner.");
+                remember(session.slice(id.length + 1));
+                return nativeId(session);
+              }),
+            );
+          },
+        }
+      : {}),
+    models: (session) => agent.models(session === undefined ? undefined : nativeId(session)),
     list: async () =>
       (await agent.list()).map((session) => ({
         ...session,
         sessionId: remember(session.sessionId),
       })),
-    create: async () => remember(await agent.create()),
+    create: async (options) => remember(await agent.create(options)),
     read: (session: string, observer: Observer) => agent.read(nativeId(session), observer),
-    start: (session, text, observer) => agent.start(nativeId(session), text, observer),
+    start: (session, text, observer, options) =>
+      agent.start(nativeId(session), text, observer, options),
     steer: (session, text) => agent.steer(nativeId(session), text),
     interrupt: (session) => agent.interrupt(nativeId(session)),
     dispose: () => agent.dispose(),

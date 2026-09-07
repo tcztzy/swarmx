@@ -13,6 +13,7 @@ export type ProductToolHandler = (
   name: string,
   args: unknown,
   signal: AbortSignal,
+  meta: Record<string, unknown> | undefined,
 ) => Promise<unknown>;
 
 export function createProductMcpServer(
@@ -27,7 +28,7 @@ export function createProductMcpServer(
         description: tool.description,
         inputSchema: z.fromJSONSchema(tool.inputSchema as never),
       },
-      async (args, extra) => result(await call(tool.name, args, extra.signal)),
+      async (args, extra) => result(await call(tool.name, args, extra.signal, extra._meta)),
     );
   }
   return server;
@@ -53,6 +54,8 @@ function result(value: unknown) {
   return {
     content: [{ type: "text" as const, text: JSON.stringify(value) }],
     structuredContent:
-      typeof value === "object" && value !== null ? (value as Record<string, unknown>) : { value },
+      typeof value === "object" && value !== null && !Array.isArray(value)
+        ? (value as Record<string, unknown>)
+        : { value },
   };
 }

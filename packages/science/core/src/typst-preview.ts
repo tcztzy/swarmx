@@ -407,7 +407,7 @@ export class TypstPreviewRuntime {
         request.signal,
       );
       request.signal?.throwIfAborted();
-      controller.handle = this.subprocess.spawn({
+      controller.handle = await this.subprocess.spawn({
         argv: [
           executable,
           "watch",

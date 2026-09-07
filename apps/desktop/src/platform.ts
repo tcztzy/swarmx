@@ -1,11 +1,11 @@
-import { createHash } from "node:crypto";
-import { mkdir, realpath, stat } from "node:fs/promises";
+import { mkdir } from "node:fs/promises";
 import { homedir } from "node:os";
-import { basename, join, resolve } from "node:path";
+import { join, resolve } from "node:path";
 import { type AgentId, selectedAgent } from "./agent.js";
 import type { NativeAgent } from "./agents/types.js";
-import { ProductServices, type Workspace } from "./host/product-services.js";
+import { ProductServices } from "./host/product-services.js";
 import { type SwarmXHost, startHost } from "./host/server.js";
+import { ProjectStore, resolveWorkspace } from "./host/workspace-settings.js";
 
 export interface DesktopPlatform {
   readonly url: string;
@@ -21,16 +21,29 @@ export async function startDesktopPlatform(options: {
   readonly rendererRoot: string;
   readonly productHome?: string;
   readonly agentId?: AgentId;
+  readonly development?: boolean;
 }): Promise<DesktopPlatform> {
-  const workspace = await resolveWorkspace(options.workspaceRoot);
   const productHome = resolve(
     options.productHome ?? process.env.SWARMX_HOME ?? join(homedir(), ".swarmx"),
   );
   await mkdir(productHome, { recursive: true });
+  const catalog = new ProjectStore(productHome);
+  const saved = catalog.read();
+  const workspace =
+    saved.activeId === null
+      ? catalog.register(await resolveWorkspace(options.workspaceRoot))
+      : catalog.get(saved.activeId);
+  if ((await resolveWorkspace(workspace.root)).root !== workspace.root)
+    throw new Error("Project directory changed. Add its current directory as a project.");
   const products = await ProductServices.create({ productHome, workspace });
   let host: SwarmXHost | undefined;
   try {
-    host = await startHost({ products, rendererRoot: options.rendererRoot, workspace });
+    host = await startHost({
+      products,
+      rendererRoot: options.rendererRoot,
+      workspace,
+      development: options.development,
+    });
     await products.attachAgents(
       host.internalUrl,
       host.internalToken,
@@ -39,9 +52,13 @@ export async function startDesktopPlatform(options: {
     );
     return {
       url: host.issueLaunchUrl(),
-      agent: products.rootAgent,
-      workspaceRoot: workspace.root,
-      a2aUrl: `${host.internalUrl}/a2a/swarm`,
+      get agent() {
+        return host?.products.rootAgent ?? failClosed();
+      },
+      get workspaceRoot() {
+        return host?.products.options.workspace.root ?? failClosed();
+      },
+      a2aUrl: `${host.internalUrl}/projects/${workspace.id}/a2a/swarm`,
       issueLaunchUrl: () => host?.issueLaunchUrl() ?? failClosed(),
       dispose: () => dispose(host, products),
     };
@@ -51,20 +68,9 @@ export async function startDesktopPlatform(options: {
   }
 }
 
-async function resolveWorkspace(path: string): Promise<Workspace> {
-  const root = await realpath(resolve(path));
-  if (!(await stat(root)).isDirectory()) throw new Error("Workspace is not a directory.");
-  return {
-    root,
-    label: basename(root),
-    id: createHash("sha256").update(root).digest("hex").slice(0, 12),
-  };
-}
-
 async function dispose(host: SwarmXHost | undefined, products: ProductServices): Promise<void> {
-  const results = await Promise.allSettled([host?.dispose(), products.dispose()]);
-  const failure = results.find((result) => result.status === "rejected");
-  if (failure?.status === "rejected") throw failure.reason;
+  if (host) await host.dispose();
+  else await products.dispose();
 }
 
 function failClosed(): never {

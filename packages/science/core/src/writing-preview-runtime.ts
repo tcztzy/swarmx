@@ -116,7 +116,7 @@ export class WritingPreviewRuntimeProcess {
   ): Promise<WritingPreviewRuntimeProcess> {
     const executable = await subprocess.resolveExecutable(config.command, {}, config.signal);
     config.signal?.throwIfAborted();
-    const handle = subprocess.spawn({
+    const handle = await subprocess.spawn({
       argv: [
         executable,
         "--root",

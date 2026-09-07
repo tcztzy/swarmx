@@ -69,6 +69,12 @@ TypeScript consumers can call `await extractArtifactMetadata(bytes, mime)`, or t
 
 ## Generation flow
 
+Desktop notebook records additionally capture the immutable Docker image ID and the actual
+network/filesystem/resource policy alongside the Python/package-set fingerprint. The environment
+settings export includes platform, recipe digest and every installed package version. A failed
+cell never registers a declared output, even if an old file exists at that path. Image edits
+append new outputs while the original immutable bytes remain available.
+
 1. Code reads input through a workspace-relative path, an authorized materialized Artifact input,
    or application-owned S3 access.
 2. matplotlib `savefig(...)`, seaborn/matplotlib, R `ggsave(...)`, or Plotly writes an ordinary PNG,
@@ -82,7 +88,9 @@ TypeScript consumers can call `await extractArtifactMetadata(bytes, mime)`, or t
 
 PNG injection validates the chunk structure and inserts one `iTXt` immediately before `IEND`. SVG
 injection accepts bounded UTF-8 XML, preserves unrelated elements and metadata, and adds one
-foreign-namespace record under the root. PDF injection preserves unrelated XMP values and writes
+foreign-namespace record under the root. The exact standard SVG 1.1 public declaration used by
+matplotlib is removed before parsing; no DTD is fetched. Other doctypes and entity declarations
+remain rejected. PDF injection preserves unrelated XMP values and writes
 the SwarmX property into the document-level Catalog Metadata stream. Encrypted or signed PDFs are
 rejected because rewriting them would require credentials or invalidate a signature. PDF/A inputs
 must already declare the SwarmX custom XMP extension schema; no conformance claim is silently changed.

@@ -1,238 +1,42 @@
 name: Release
-
 on:
   push:
-    tags:
-      - "v*"
+    tags: ["v*"]
   workflow_dispatch:
     inputs:
       tag:
-        description: Existing v<version> tag to package
+        description: Existing version tag to prepare as a draft release
         required: true
         type: string
-
 permissions:
-  contents: write
-
+  contents: read
 env:
-  CI: "true"
   RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
-
 jobs:
-  quality:
-    name: Quality gate
+  source:
     runs-on: ubuntu-24.04
     timeout-minutes: 35
     permissions:
-      contents: read
+      contents: write
     steps:
-      - name: Check out tagged commit
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
         with:
           ref: ${{ env.RELEASE_TAG }}
-
-      - name: Set up Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
         with:
-          node-version: 22.x
-
-      - name: Set up pnpm
-        uses: pnpm/action-setup@008330803749db0355799c700092d9a85fd074e9 # v6.0.9
+          node-version-file: package.json
+      - uses: pnpm/action-setup@008330803749db0355799c700092d9a85fd074e9
         with:
-          version: 11.13.1
           cache: true
-
-      - name: Set up uv and Python
-        uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
-        with:
-          version: 0.11.28
-          python-version: "3.12"
-          enable-cache: true
-          cache-dependency-glob: uv.lock
-
-      - name: Set up Rust
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lint && pnpm docs:check && pnpm typecheck && pnpm test && pnpm build
+      - run: pnpm paper:demo
+      - name: Archive the reviewed source
         run: |
-          rustup toolchain install 1.95.0 --profile minimal
-          rustup default 1.95.0
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Lint, test, and build
-        run: pnpm run ci
-
-      - name: Audit production dependencies
-        run: pnpm run audit:prod
-
-  macos:
-    name: macOS ${{ matrix.arch }}
-    needs: quality
-    runs-on: ${{ matrix.runner }}
-    timeout-minutes: 45
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - arch: arm64
-            runner: macos-15
-          - arch: x64
-            runner: macos-15-intel
-    steps:
-      - name: Check out tagged commit
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-        with:
-          ref: ${{ env.RELEASE_TAG }}
-
-      - name: Restore current release automation for manual retry
-        if: github.event_name == 'workflow_dispatch'
+          node --input-type=module -e 'import { readFileSync } from "node:fs"; const version = JSON.parse(readFileSync("apps/desktop/package.json")).version; if (process.env.RELEASE_TAG !== `v${version}`) throw new Error("Tag must match the desktop manifest version")'
+          git archive --format=tar.gz --prefix="swarmx-${RELEASE_TAG}/" --output="swarmx-${RELEASE_TAG}.tar.gz" HEAD
+          sha256sum "swarmx-${RELEASE_TAG}.tar.gz" > SHA256SUMS
+      - name: Prepare draft release for author review
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_AUTOMATION_SHA: ${{ github.sha }}
-        run: |
-          gh api --method GET \
-            -H "Accept: application/vnd.github.raw+json" \
-            "/repos/$GITHUB_REPOSITORY/contents/packages/desktop/scripts/build-macos-artifacts.mjs" \
-            -f ref="$RELEASE_AUTOMATION_SHA" \
-            > "$RUNNER_TEMP/build-macos-artifacts.mjs"
-          cp "$RUNNER_TEMP/build-macos-artifacts.mjs" packages/desktop/scripts/build-macos-artifacts.mjs
-          gh api --method GET \
-            -H "Accept: application/vnd.github.raw+json" \
-            "/repos/$GITHUB_REPOSITORY/contents/packages/desktop/scripts/build-mem-runtime.mjs" \
-            -f ref="$RELEASE_AUTOMATION_SHA" \
-            > "$RUNNER_TEMP/build-mem-runtime.mjs"
-          cp "$RUNNER_TEMP/build-mem-runtime.mjs" packages/desktop/scripts/build-mem-runtime.mjs
-
-      - name: Set up Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version: 22.x
-
-      - name: Set up pnpm
-        uses: pnpm/action-setup@008330803749db0355799c700092d9a85fd074e9 # v6.0.9
-        with:
-          version: 11.13.1
-          cache: true
-
-      - name: Set up Rust
-        run: |
-          rustup toolchain install 1.95.0 --profile minimal
-          rustup default 1.95.0
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Verify tag and package versions
-        run: |
-          node --input-type=module <<'NODE'
-          import { readFileSync } from "node:fs";
-
-          const manifests = [
-            "package.json",
-            "packages/core/package.json",
-            "packages/runtime/package.json",
-            "packages/acp-server/package.json",
-            "packages/cli/package.json",
-            "packages/desktop/package.json",
-            "packages/swarmx/package.json",
-          ];
-          const versions = manifests.map((path) => JSON.parse(readFileSync(path, "utf8")).version);
-          const expected = process.env.RELEASE_TAG?.replace(/^v/, "");
-          if (!expected || versions.some((version) => version !== expected)) {
-            throw new Error(`Tag/package version mismatch: ${process.env.RELEASE_TAG} vs ${versions.join(", ")}`);
-          }
-          NODE
-
-      - name: Build workspace
-        run: pnpm -r build
-
-      - name: Build macOS packages
-        env:
-          SWARMX_MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
-          SWARMX_MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
-          SWARMX_APPLE_ID: ${{ secrets.APPLE_ID }}
-          SWARMX_APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-          SWARMX_APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        run: |
-          builder_args=(--arch ${{ matrix.arch }})
-          if [[ -n "$SWARMX_MACOS_CERTIFICATE" ]]; then
-            export CSC_LINK="$SWARMX_MACOS_CERTIFICATE"
-            export CSC_KEY_PASSWORD="$SWARMX_MACOS_CERTIFICATE_PASSWORD"
-          fi
-          if [[ -n "$SWARMX_APPLE_ID" && -n "$SWARMX_APPLE_APP_SPECIFIC_PASSWORD" && -n "$SWARMX_APPLE_TEAM_ID" ]]; then
-            export APPLE_ID="$SWARMX_APPLE_ID"
-            export APPLE_APP_SPECIFIC_PASSWORD="$SWARMX_APPLE_APP_SPECIFIC_PASSWORD"
-            export APPLE_TEAM_ID="$SWARMX_APPLE_TEAM_ID"
-            builder_args+=("--notarize")
-          fi
-          node packages/desktop/scripts/build-macos-artifacts.mjs "${builder_args[@]}"
-          artifact_base="packages/desktop/release/SwarmX-${RELEASE_TAG#v}-${{ matrix.arch }}"
-          hdiutil verify "${artifact_base}.dmg"
-          unzip -tq "${artifact_base}.zip"
-
-      - name: Upload macOS packages
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
-        with:
-          name: macos-${{ matrix.arch }}
-          path: |
-            packages/desktop/release/*.dmg
-            packages/desktop/release/*.zip
-          if-no-files-found: error
-
-  npm:
-    name: npm
-    if: github.event_name == 'push'
-    needs: macos
-    runs-on: ubuntu-24.04
-    permissions:
-      contents: read
-      id-token: write
-    steps:
-      - name: Check out tagged commit
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-        with:
-          ref: ${{ env.RELEASE_TAG }}
-
-      - name: Set up Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version: 22.x
-          registry-url: https://registry.npmjs.org
-          package-manager-cache: false
-
-      - name: Set up npm trusted publishing
-        run: npm install --global npm@11.17.0
-
-      - name: Set up pnpm
-        uses: pnpm/action-setup@008330803749db0355799c700092d9a85fd074e9 # v6.0.9
-        with:
-          version: 11.13.1
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Build workspace
-        run: pnpm -r build
-
-      - name: Publish npm packages
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: node scripts/publish-npm.mjs
-
-  github-release:
-    name: GitHub Release
-    needs: [macos, npm]
-    if: ${{ always() && needs.macos.result == 'success' && (needs.npm.result == 'success' || needs.npm.result == 'skipped') }}
-    runs-on: ubuntu-24.04
-    steps:
-      - name: Download macOS packages
-        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
-        with:
-          pattern: macos-*
-          path: release-artifacts
-          merge-multiple: true
-
-      - name: Publish GitHub Release
-        env:
-          GH_REPO: ${{ github.repository }}
-          GH_TOKEN: ${{ github.token }}
-        run: gh release create "$RELEASE_TAG" release-artifacts/* --verify-tag --generate-notes --title "SwarmX ${RELEASE_TAG#v}"
+        run: gh release create "$RELEASE_TAG" "swarmx-${RELEASE_TAG}.tar.gz" SHA256SUMS --verify-tag --draft --generate-notes --title "SwarmX $RELEASE_TAG"

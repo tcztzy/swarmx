@@ -1,7 +1,7 @@
 {
   "name": "@swarmx/swarm",
   "version": "0.1.0",
-  "description": "Protocol-neutral recursive Agent composition for SwarmX.",
+  "description": "Recursive ACP Agent composition for SwarmX.",
   "license": "MIT",
   "type": "module",
   "main": "lib/index.js",
@@ -16,6 +16,10 @@
   "scripts": {
     "bundle": "tsdown",
     "test": "vitest run --root ../../.. packages/core/swarm/tests"
+  },
+  "dependencies": {
+    "@agentclientprotocol/sdk": "1.4.0",
+    "zod": "4.4.3"
   },
   "files": [
     "lib/index.js",

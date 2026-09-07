@@ -1,0 +1,16 @@
+cff-version: 1.2.0
+message: "If you use SwarmX, cite the archived software release used in your research."
+title: "SwarmX: Traceable Orchestration for Scientific Agent Workflows"
+type: software
+authors:
+  - family-names: Tang
+    given-names: Ziya
+  - family-names: Gan
+    given-names: Xiangchao
+repository-code: "https://github.com/tcztzy/swarmx"
+license: MIT
+keywords:
+  - research software
+  - provenance
+  - scientific agents
+  - RO-Crate

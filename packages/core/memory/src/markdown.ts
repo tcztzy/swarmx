@@ -7,6 +7,20 @@ import { inspectMarkdown, positionAt } from "./markdown-body.js";
 export const DEFAULT_MAX_CONCEPT_BYTES = 128 * 1024;
 
 export const memoryDateTimeSchema = z.iso.datetime({ offset: true });
+export const memoryDependencySchema = z.strictObject({
+  id: z
+    .string()
+    .max(1_024)
+    .regex(/^(?:global|workspaces\/[^/]+--[a-f0-9]{12})\/concepts\/[^/\\\0]+\.md$/u),
+  revision: z.string().regex(/^sha256:[a-f0-9]{64}$/u),
+});
+export const memoryDependenciesSchema = z
+  .array(memoryDependencySchema)
+  .max(64)
+  .refine(
+    (values) => new Set(values.map(({ id }) => id)).size === values.length,
+    "Duplicate memory dependency.",
+  );
 const sourceId = /^[a-z0-9][a-z0-9_-]{0,63}$/u;
 const workspaceKey = /^[a-f0-9]{12}$/u;
 
@@ -37,6 +51,7 @@ const metadataSchema = z
     stale_after: memoryDateTimeSchema.optional(),
     verified: z.union([generatedSchema, z.array(generatedSchema).min(1)]).optional(),
     swarmx_scope: z.enum(["global", "workspace"]),
+    swarmx_dependencies: memoryDependenciesSchema.optional(),
     swarmx_workspace: z.string().regex(workspaceKey).optional(),
     tags: z.array(z.string().trim().min(1).max(80)).max(32).optional(),
     title: z.string().trim().min(1).max(500),

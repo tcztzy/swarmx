@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import type { Dirent, Stats } from "node:fs";
-import { readFileSync } from "node:fs";
+import { lstatSync, readFileSync, realpathSync } from "node:fs";
 import type { FileHandle } from "node:fs/promises";
 import {
   chmod,
@@ -18,6 +18,7 @@ import lockfile from "proper-lockfile";
 import writeFileAtomic from "write-file-atomic";
 import { z } from "zod";
 import { MemoryError } from "./errors.js";
+import { dependencyOrder, memoryGraph } from "./graph.js";
 import {
   lintMemory,
   type MemoryLintDiagnostic,
@@ -30,6 +31,7 @@ import {
   type MemoryConceptMetadata,
   type MemorySource,
   memoryDateTimeSchema,
+  memoryDependenciesSchema,
   type ParsedConcept,
   renderConcept,
 } from "./markdown.js";
@@ -40,7 +42,8 @@ import {
   resolveMemoryWorkspaceSync,
 } from "./workspace.js";
 
-const createRequestSchema = z.strictObject({
+export const createRequestSchema = z.strictObject({
+  dependencies: memoryDependenciesSchema.optional(),
   aliases: z.array(z.string()).max(32).optional(),
   body: z.string().min(1).max(65_536),
   description: z.string().min(1).max(500),
@@ -53,7 +56,8 @@ const createRequestSchema = z.strictObject({
   type: z.string().min(1).max(120),
 });
 
-const updateRequestSchema = z.object({
+export const updateRequestSchema = z.strictObject({
+  dependencies: memoryDependenciesSchema.optional(),
   aliases: z.array(z.string()).max(32).optional(),
   body: z.string().min(1).max(65_536).optional(),
   description: z.string().min(1).max(500).optional(),
@@ -68,8 +72,8 @@ const updateRequestSchema = z.object({
 
 const searchRequestSchema = z.object({
   includeDeprecated: z.boolean().optional(),
-  limit: z.number().int().min(1).max(20).optional(),
-  query: z.string().trim().min(1).max(200),
+  limit: z.number().int().min(1).max(2_048).optional(),
+  query: z.string().trim().max(200),
 });
 
 const lintRequestSchema = z.strictObject({
@@ -317,6 +321,7 @@ export class MemoryVault {
         ...parseScopedConcept(id, source, this.maxConceptBytes, this.checkResource),
         id,
       };
+      await this.validateDependencies(cwd, concept, request.dependencies !== undefined);
       await this.createDurableFile(target, source);
       await this.refreshIndexes(scope);
       await this.appendLog("Creation", concept);
@@ -346,6 +351,9 @@ export class MemoryVault {
       }
       const metadata: MemoryConceptMetadata = {
         ...existing.metadata,
+        ...(request.dependencies === undefined
+          ? {}
+          : { swarmx_dependencies: request.dependencies }),
         ...(request.aliases === undefined ? {} : { aliases: request.aliases }),
         ...(request.description === undefined ? {} : { description: request.description }),
         ...(request.sources === undefined
@@ -369,6 +377,7 @@ export class MemoryVault {
         ...parseScopedConcept(request.id, source, this.maxConceptBytes, this.checkResource),
         id: request.id,
       };
+      await this.validateDependencies(cwd, concept, request.dependencies !== undefined);
       await this.preserveRevision(existing);
       await this.writeDurableAtomic(join(this.root, ...request.id.split("/")), source);
       await this.refreshIndexes(scope);
@@ -440,6 +449,63 @@ export class MemoryVault {
       diagnostics,
       items: matches.slice(0, request.limit ?? 20).map(({ concept }) => resultItem(concept, now)),
     };
+  }
+
+  async graph(cwd: string) {
+    const results = await this.search(cwd, { query: "", includeDeprecated: true, limit: 2_048 });
+    if (results.diagnostics.length)
+      throw new MemoryError(
+        "Cannot build a complete memory graph: fix invalid concepts or the scan limit.",
+        "INVALID_CONCEPT",
+      );
+    const concepts = await Promise.all(results.items.map(({ id }) => this.readConcept(cwd, id)));
+    return memoryGraph(concepts);
+  }
+
+  async load(cwd: string, id: string) {
+    const concept = await this.readConcept(cwd, id);
+    const concepts = await this.dependencyClosure(cwd, concept);
+    return { concepts: dependencyOrder(concepts, [id]), graph: memoryGraph(concepts) };
+  }
+
+  private async dependencyClosure(cwd: string, root: MemoryConcept) {
+    const concepts = new Map([[root.id, root]]);
+    let bytes = Buffer.byteLength(renderConcept(root.metadata, root.body));
+    for (const concept of concepts.values()) {
+      for (const dependency of concept.metadata.swarmx_dependencies ?? []) {
+        if (concept.id.startsWith("global/") && !dependency.id.startsWith("global/"))
+          throw new MemoryError(
+            "Global memory cannot depend on workspace memory.",
+            "INVALID_CONCEPT",
+          );
+        if (concepts.has(dependency.id)) continue;
+        if (concepts.size >= 64)
+          throw new MemoryError(
+            "Memory dependency closure exceeds 64 concepts.",
+            "INVALID_CONCEPT",
+          );
+        const target = await this.readConcept(cwd, dependency.id);
+        bytes += Buffer.byteLength(renderConcept(target.metadata, target.body));
+        if (bytes > 128 * 1024)
+          throw new MemoryError("Memory dependency closure exceeds 128 KiB.", "INVALID_CONCEPT");
+        concepts.set(target.id, target);
+      }
+    }
+    return [...concepts.values()];
+  }
+
+  private async validateDependencies(cwd: string, concept: MemoryConcept, changed: boolean) {
+    const concepts = await this.dependencyClosure(cwd, concept);
+    dependencyOrder(concepts, [concept.id]);
+    if (!changed) return;
+    for (const dependency of concept.metadata.swarmx_dependencies ?? []) {
+      const target = concepts.find(({ id }) => id === dependency.id);
+      if (target?.metadata.status === "deprecated" || target?.revision !== dependency.revision)
+        throw new MemoryError(
+          "Read the current, non-deprecated dependency before linking it.",
+          "REVISION_CONFLICT",
+        );
+    }
   }
 
   async lint(
@@ -547,6 +613,7 @@ export class MemoryVault {
     return {
       ...(request.aliases === undefined ? {} : { aliases: request.aliases }),
       description: request.description,
+      ...(request.dependencies === undefined ? {} : { swarmx_dependencies: request.dependencies }),
       generated: { at: new Date().toISOString(), by: this.actor },
       sources: (request.sources ?? []) as unknown as MemorySource[],
       status: request.status ?? "draft",
@@ -821,6 +888,15 @@ export class MemoryVault {
 
   private readIndexSync(path: string): string {
     try {
+      const info = lstatSync(path);
+      if (
+        !info.isFile() ||
+        info.isSymbolicLink() ||
+        realpathSync(path) !== join(realpathSync(this.root), relative(this.root, path))
+      )
+        throw new MemoryError("Memory index is redirected or unsafe.", "UNSAFE_PATH");
+      if (info.size > this.maxConceptBytes)
+        throw new MemoryError("Memory index exceeds its byte limit.", "INVALID_CONCEPT");
       return readFileSync(path, "utf8").trim();
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === "ENOENT") return "";

@@ -6,10 +6,10 @@ import type {
 } from "./subprocess.js";
 
 const PROBE_SOURCE = [
-  "import hashlib, importlib.metadata, json, platform",
+  "import hashlib, importlib.metadata, json, platform, os",
   'packages = sorted((distribution.metadata.get("Name", ""), distribution.version) for distribution in importlib.metadata.distributions())',
   'package_bytes = json.dumps(packages, ensure_ascii=True, separators=(",", ":")).encode("utf-8")',
-  'print(json.dumps({"packageSetHash": "sha256:" + hashlib.sha256(package_bytes).hexdigest(), "pythonImplementation": platform.python_implementation(), "pythonVersion": platform.python_version()}, sort_keys=True))',
+  'print(json.dumps({"packageSetHash": "sha256:" + hashlib.sha256(package_bytes).hexdigest(), "pythonImplementation": platform.python_implementation(), "pythonVersion": platform.python_version(), "runtimeImage": os.environ.get("SWARMX_RUNTIME_IMAGE", "host-process"), "runtimePolicy": os.environ.get("SWARMX_RUNTIME_POLICY", "host-process")}, sort_keys=True))',
 ].join("\n");
 const CELL_RUNNER_SOURCE = [
   "import sys",
@@ -107,6 +107,8 @@ export class PythonRuntime {
         packageSetHash: value.packageSetHash,
         pythonImplementation: value.pythonImplementation,
         pythonVersion: value.pythonVersion,
+        runtimeImage: String(value.runtimeImage),
+        runtimePolicy: String(value.runtimePolicy),
       };
     } catch (error) {
       throw new ScienceError(
@@ -158,7 +160,7 @@ export class PythonRuntime {
     signal?.throwIfAborted();
     let handle: ScienceProcessHandle;
     try {
-      handle = this.subprocess.spawn({
+      handle = await this.subprocess.spawn({
         argv: spec.argv,
         cwd: spec.cwd,
         stdio: {

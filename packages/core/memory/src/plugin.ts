@@ -10,6 +10,8 @@ export const MEMORY_ACTIONS = [
   "update_memory",
   "deprecate_memory",
   "lint_memory",
+  "graph_memory",
+  "load_memory",
 ] as const;
 
 const RequestSchema = z.strictObject({
@@ -54,6 +56,13 @@ export async function executeMemoryOperation(
     case "lint_memory":
       return result(
         await vault.lint(context.workspaceRoot, input.request as never, context.signal),
+      );
+    case "graph_memory":
+      parsed(z.strictObject({}), input.request);
+      return result(await vault.graph(context.workspaceRoot));
+    case "load_memory":
+      return result(
+        await vault.load(context.workspaceRoot, parsed(IdentifierSchema, input.request).id),
       );
     case "create_memory":
       await approved(context, "Create one private memory concept.");

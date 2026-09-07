@@ -22,6 +22,7 @@ import {
   type ModifyFigureCodeRequest,
   type NotebookExecution,
   notebookExecutionSchema,
+  notebookExecutionSummarySchema,
   type ProjectExportCounts,
   type ProjectExportRecord,
   projectExportRecordSchema,
@@ -1261,7 +1262,11 @@ export class ScienceJournal {
         notebookExecutionSchema,
       );
     }
-    if ((request.outputArtifact === null) !== (settled.capturedArtifact === undefined)) {
+    if (
+      (settled.status === "succeeded" &&
+        (request.outputArtifact === null) !== (settled.capturedArtifact === undefined)) ||
+      (settled.status !== "succeeded" && settled.capturedArtifact !== undefined)
+    ) {
       throw new ScienceError("Notebook artifact capture did not settle", "ARTIFACT_IO_FAILED");
     }
 
@@ -1564,6 +1569,16 @@ export class ScienceJournal {
       runs,
       exports,
     };
+  }
+
+  getNotebookExecutions(workspaceKey: string, projectId: string) {
+    ensureOpen(this.open);
+    return this.database
+      .prepare(
+        "SELECT json_remove(payload_json, '$.notebook') AS execution_json FROM science_journal WHERE workspace_key = ? AND type = 'notebook/cell-executed' AND json_extract(payload_json, '$.notebook.projectId') = ? ORDER BY seq DESC LIMIT 100",
+      )
+      .all(workspaceKey, projectId)
+      .map((row) => notebookExecutionSummarySchema.parse(JSON.parse(row.execution_json as string)));
   }
 
   journalCount(): number {

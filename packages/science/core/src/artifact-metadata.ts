@@ -34,6 +34,8 @@ const PDFA_SCHEMA_NAMESPACE = "http://www.aiim.org/pdfa/ns/schema#";
 const XMLNS_NAMESPACE = "http://www.w3.org/2000/xmlns/";
 const CANONICAL_BASE64 = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/u;
 const FORBIDDEN_XML_DECLARATION = /<!DOCTYPE|<!ENTITY/iu;
+const SVG_PUBLIC_DOCTYPE =
+  /<!DOCTYPE svg PUBLIC "-\/\/W3C\/\/DTD SVG 1\.1\/\/EN"\s+"http:\/\/www\.w3\.org\/Graphics\/SVG\/1\.1\/DTD\/svg11\.dtd">/u;
 
 interface PngChunk {
   readonly data: Buffer;
@@ -233,7 +235,8 @@ function decodeXmlMetadata(value: string): FigureReproducibilityMetadata {
 
 function decodeXml(content: Uint8Array, format: "PDF XMP" | "SVG"): string {
   try {
-    const xml = new TextDecoder("utf-8", { fatal: true }).decode(content);
+    let xml = new TextDecoder("utf-8", { fatal: true }).decode(content);
+    if (format === "SVG") xml = xml.replace(SVG_PUBLIC_DOCTYPE, "");
     if (FORBIDDEN_XML_DECLARATION.test(xml)) {
       throw metadataError(`${format} may not contain a document type or entity declaration`);
     }

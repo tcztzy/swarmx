@@ -63,3 +63,4 @@ describe("Renderer observability", () => {
     ]);
   });
 });
+// @vitest-environment jsdom

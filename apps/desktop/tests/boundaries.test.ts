@@ -31,19 +31,19 @@ describe("architecture boundaries", () => {
       .map((path) => readFileSync(path, "utf8"))
       .join("\n");
     expect(source).not.toMatch(
-      /@deepseek-ai|codex-acp|claude-agent-acp|ConversationController|cordis/iu,
+      /@deepseek-ai|ConversationController|cordis|tui_gateway|json-rpc-2\.0|gateway-client/iu,
     );
     const renderer = files(join(root, "apps/desktop/src/renderer"))
       .map((path) => readFileSync(path, "utf8"))
       .join("\\n");
     expect(renderer).not.toMatch(
-      /@openai|@anthropic|@openclaw|@agentclientprotocol|@a2a-js|Retry|Fork|Revision|@theme/u,
+      /@openai|@anthropic|@openclaw|@agentclientprotocol|@a2a-js|Retry|Fork|@theme/u,
     );
   });
 
   it("keeps public packages free of providers and UI protocols", () => {
     const forbidden =
-      /@deepseek-ai|cordis|@openai|@anthropic|@openclaw|@agentclientprotocol|@a2a-js|@ag-ui|assistant-ui|electron/iu;
+      /@deepseek-ai|cordis|@openai|@anthropic|@openclaw|@a2a-js|@ag-ui|assistant-ui|electron/iu;
     const offenders = [
       "packages/core/swarm",
       "packages/core/dvc",
@@ -52,7 +52,13 @@ describe("architecture boundaries", () => {
     ].flatMap((directory) =>
       files(join(root, directory))
         .filter((path) => [".ts", ".tsx", ".json"].includes(extname(path)))
-        .filter((path) => forbidden.test(readFileSync(path, "utf8")))
+        .filter((path) => {
+          const source = readFileSync(path, "utf8");
+          return (
+            forbidden.test(source) ||
+            (directory !== "packages/core/swarm" && source.includes("@agentclientprotocol"))
+          );
+        })
         .map((path) => relative(root, path)),
     );
     expect(offenders).toEqual([]);
@@ -72,7 +78,8 @@ describe("architecture boundaries", () => {
     expect(manifest.dependencies).toMatchObject({
       "@a2a-js/sdk": "1.1.0",
       "@anthropic-ai/claude-agent-sdk": expect.any(String),
-      "@openclaw/gateway-client": expect.any(String),
+      "@agentclientprotocol/codex-acp": expect.any(String),
+      "@agentclientprotocol/claude-agent-acp": expect.any(String),
       "@agentclientprotocol/sdk": "1.4.0",
       "@assistant-ui/react-o11y": "0.0.42",
       "@assistant-ui/store": "0.3.12",
@@ -88,9 +95,14 @@ describe("architecture boundaries", () => {
     const swarm = JSON.parse(
       readFileSync(join(root, "packages/core/swarm/package.json"), "utf8"),
     ) as { dependencies?: Record<string, string> };
-    expect(swarm.dependencies).toBeUndefined();
+    expect(swarm.dependencies).toEqual({
+      "@agentclientprotocol/sdk": manifest.dependencies?.["@agentclientprotocol/sdk"],
+      zod: expect.any(String),
+    });
     expect(
-      names.some((name) => /codex-acp|claude-agent-acp|dsh|cordis|kimi|zcode/u.test(name)),
+      names.some((name) =>
+        /gateway-client|gateway-protocol|json-rpc-2\.0|dsh|cordis|kimi|zcode/u.test(name),
+      ),
     ).toBe(false);
   });
 

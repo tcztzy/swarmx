@@ -3,6 +3,7 @@ import type { Root } from "mdast";
 import { isMap, parseDocument } from "yaml";
 import { z } from "zod";
 import { MemoryError, type MemoryIssue } from "./errors.js";
+import { dependencyOrder } from "./graph.js";
 import {
   conceptRevision,
   DEFAULT_MAX_CONCEPT_BYTES,
@@ -114,6 +115,8 @@ export function parseScopedConcept(
     ...link,
     offset: bodyOffset + link.offset,
   }));
+  for (const dependency of concept.metadata.swarmx_dependencies ?? [])
+    references.push({ url: `/${dependency.id}`, offset: 0, title: "" });
   for (const entry of concept.metadata.sources) {
     references.push({ url: entry.resource, offset: 0, title: "" });
   }
@@ -223,6 +226,34 @@ export function lintMemory(
     }
   }
 
+  const concepts = [...documents].flatMap(([id, document]) =>
+    document.concept ? [{ ...document.concept, id }] : [],
+  );
+  for (const concept of concepts) {
+    for (const dependency of concept.metadata.swarmx_dependencies ?? []) {
+      const target = documents.get(dependency.id)?.concept;
+      if (!target)
+        emit(
+          concept.id,
+          "dependency.missing",
+          "error",
+          "Prerequisite concept is missing or unavailable.",
+        );
+      else if (target.revision !== dependency.revision || target.metadata.status === "deprecated")
+        warn(
+          concept.id,
+          "dependency.stale",
+          "Prerequisite changed or was deprecated; review this concept before reuse.",
+        );
+    }
+    try {
+      dependencyOrder(concepts, [concept.id]);
+    } catch (error) {
+      if (!(error instanceof MemoryError)) throw error;
+      if (error.message.includes("cycle"))
+        emit(concept.id, "dependency.cycle", "error", error.message);
+    }
+  }
   const linked = new Map<string, Set<string>>();
   for (const [path, { source, body, tree, concept }] of documents) {
     const bodyOffset = source.length - body.length;

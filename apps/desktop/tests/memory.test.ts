@@ -8,7 +8,7 @@ import { formatScienceResourceId } from "@swarmx/science";
 import { expect, it } from "vitest";
 import { ProductServices } from "../src/host/product-services.js";
 
-it("exposes the Memory tool and persists its six operations across Host restarts", async () => {
+it("exposes Memory operations, rejects model approvals and persists across Host restarts", async () => {
   const root = await mkdtemp(join(tmpdir(), "swarmx-memory-host-"));
   const options = {
     productHome: join(root, "product"),
@@ -29,6 +29,11 @@ it("exposes the Memory tool and persists its six operations across Host restarts
                 "update_memory",
                 "deprecate_memory",
                 "lint_memory",
+                "graph_memory",
+                "load_memory",
+                "read_core_memory",
+                "update_core_memory",
+                "search_sessions",
               ],
             },
           },
@@ -49,10 +54,10 @@ it("exposes the Memory tool and persists its six operations across Host restarts
       ),
     ).rejects.toThrow("Unknown SwarmX product tool");
     await expect(
-      products.callTool("memory", { action: "create_memory", request }, context),
-    ).rejects.toMatchObject({ code: "AUTHORIZATION_REQUIRED" });
-    await expect(
       products.callTool("memory", { action: "create_memory", request, approved: true }, context),
+    ).rejects.toThrow();
+    await expect(
+      products.callTool("memory", { action: "create_memory", request }, context),
     ).resolves.toMatchObject({
       action: "create_memory",
       data: { metadata: { title: request.title } },
@@ -74,7 +79,6 @@ it("exposes the Memory tool and persists its six operations across Host restarts
       "memory",
       {
         action: "update_memory",
-        approved: true,
         request: {
           id: entry.id,
           expectedRevision: entry.revision,
@@ -88,7 +92,6 @@ it("exposes the Memory tool and persists its six operations across Host restarts
       "memory",
       {
         action: "deprecate_memory",
-        approved: true,
         request: { id: entry.id, expectedRevision: updated.revision },
       },
       context,
@@ -185,7 +188,6 @@ it("checks Memory Science sources with the current workspace resolver", async ()
       "memory",
       {
         action: "create_memory",
-        approved: true,
         request: {
           title: "Evidence",
           type: "Finding",

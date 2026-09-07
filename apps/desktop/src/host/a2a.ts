@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { A2A_PROTOCOL_VERSION, AgentCard, type Artifact, type Task, TaskState } from "@a2a-js/sdk";
 import {
   AgentEvent,
@@ -10,7 +11,9 @@ import {
   ServerCallContext,
   validateVersion,
 } from "@a2a-js/sdk/server";
+import { EventType } from "@ag-ui/core";
 import type { NativeAgent } from "../agents/types.js";
+import type { ExecutionJournal } from "./execution-journal.js";
 
 interface Endpoint {
   readonly card: AgentCard;
@@ -63,20 +66,53 @@ export class A2AEndpoints {
 
 /** Adapts the optional external A2A task lifecycle to one native Swarm. */
 export class SwarmA2AExecutor implements AgentExecutor {
-  private readonly contexts = new Map<string, string>();
-  private readonly active = new Map<string, { sessionId: string; cancelled: boolean }>();
+  private readonly contexts: Map<string, string>;
+  private readonly creating = new Map<string, Promise<string>>();
+  private readonly active = new Map<string, { sessionId: string }>();
 
-  constructor(private readonly agent: NativeAgent) {}
+  constructor(
+    private readonly agent: NativeAgent,
+    private readonly journal: ExecutionJournal,
+    private readonly agentId: string,
+  ) {
+    this.contexts = journal.conversationBindings(agentId);
+  }
+
+  private async session(contextId: string): Promise<string> {
+    const existing = this.contexts.get(contextId);
+    if (existing) return existing;
+    let pending = this.creating.get(contextId);
+    if (!pending) {
+      pending = this.agent.create().then((sessionId) => {
+        this.journal.append(
+          { sessionId, runId: randomUUID(), causedBy: null, attributes: {} },
+          {
+            type: EventType.CUSTOM,
+            name: "swarmx.a2a.context.bound",
+            value: { agentId: this.agentId, contextId, sessionId },
+          },
+        );
+        this.contexts.set(contextId, sessionId);
+        return sessionId;
+      });
+      this.creating.set(contextId, pending);
+    }
+    try {
+      return await pending;
+    } finally {
+      if (this.creating.get(contextId) === pending) this.creating.delete(contextId);
+    }
+  }
 
   async execute(context: RequestContext, events: ExecutionEventBus): Promise<void> {
     try {
-      const sessionId = this.contexts.get(context.contextId) ?? (await this.agent.create());
-      this.contexts.set(context.contextId, sessionId);
-      const active = { sessionId, cancelled: false };
+      const prompt = input(context);
+      const sessionId = await this.session(context.contextId);
+      const active = { sessionId };
       this.active.set(context.taskId, active);
       events.publish(AgentEvent.task(task(context, TaskState.TASK_STATE_WORKING)));
       const text: string[] = [];
-      await this.agent.start(sessionId, input(context), {
+      const result = await this.agent.start(sessionId, prompt, {
         text: (_id, value, role = "assistant") => {
           if (role === "assistant") text.push(value);
         },
@@ -88,9 +124,12 @@ export class SwarmA2AExecutor implements AgentExecutor {
           );
         },
       });
-      const state = active.cancelled
-        ? TaskState.TASK_STATE_CANCELED
-        : TaskState.TASK_STATE_COMPLETED;
+      if (result.stopReason !== "end_turn" && result.stopReason !== "cancelled")
+        throw new Error(`Agent stopped: ${result.stopReason}`);
+      const state =
+        result.stopReason === "cancelled"
+          ? TaskState.TASK_STATE_CANCELED
+          : TaskState.TASK_STATE_COMPLETED;
       if (text.length > 0)
         events.publish(AgentEvent.artifactUpdate(artifact(context, text.join(""))));
       events.publish(AgentEvent.statusUpdate(statusUpdate(context, state)));
@@ -110,7 +149,6 @@ export class SwarmA2AExecutor implements AgentExecutor {
   async cancelTask(taskId: string, _events: ExecutionEventBus): Promise<void> {
     const active = this.active.get(taskId);
     if (active === undefined) throw new Error(`A2A task "${taskId}" is not running.`);
-    active.cancelled = true;
     await this.agent.interrupt(active.sessionId);
   }
 }

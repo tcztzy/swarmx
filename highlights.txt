@@ -1,5 +1,5 @@
 - SwarmX links native agent histories to revisioned scientific records.
-- Durable task and effect rules coordinate concurrent research agents.
-- Science records export as content-addressed RO-Crate research objects.
-- Two client workflows expose provenance, verification, and knowledge reuse.
-- Depth-7 exploration checks six invariants across 1,030 guarded states.
+- Recursive delegation supports task-dependent multi-agent workflows.
+- Shared memory combines source links, revision checks, and explicit curation.
+- Memory complements RAG; factual verification remains an evidence-review task.
+- Current tests and retained prototype records have distinct validation scopes.

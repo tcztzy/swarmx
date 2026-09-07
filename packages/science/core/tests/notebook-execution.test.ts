@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { readdirSync, readFileSync } from "node:fs";
+import { readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it } from "vitest";
@@ -33,6 +33,37 @@ function notebook(current: ScienceFixture) {
 }
 
 describe("T15 Python notebook execution", () => {
+  it("records failed code without capturing an old declared output", async () => {
+    const current = await fixture();
+    const { notebook: created } = notebook(current);
+    writeFileSync(join(current.workspaceA, "result.json"), '{"stale":true}');
+    const result = await current.context.science.executeNotebookCell(current.sessionA, {
+      requestId: randomUUID(),
+      notebookId: created.id,
+      source: "raise ValueError('analysis failed')",
+      outputArtifact: {
+        relativePath: "result.json",
+        kind: "dataset",
+        title: "Result",
+        mime: "application/json",
+        license: null,
+      },
+    });
+    expect(result.status).toBe("failed");
+    expect(result.artifact).toBeNull();
+    expect(result.stderr.text).toContain("analysis failed");
+    expect(current.context.science.getWorkspace(current.sessionA).artifacts).toEqual([]);
+    const history = current.context.science.getNotebookExecutions(current.sessionA, {
+      projectId: created.projectId,
+    });
+    expect(history).toMatchObject([{ id: result.id, status: "failed", artifact: null }]);
+    expect(history[0]).not.toHaveProperty("notebook");
+    expect(() =>
+      current.context.science.getNotebookExecutions(current.sessionB, {
+        projectId: created.projectId,
+      }),
+    ).toThrow(/not found/);
+  });
   it("V72 reports a missing configured JupyMCP server without an execution fact", async () => {
     const current = await fixture({
       jupymcpCommand: "swarmx-test-missing-jupymcp-command",
@@ -169,6 +200,8 @@ describe("T15 Python notebook execution", () => {
       artifact: null,
     });
     expect(execution.environment).toEqual({
+      runtimeImage: "host-process",
+      runtimePolicy: "host-process",
       packageSetHash: expect.stringMatching(/^sha256:[0-9a-f]{64}$/u),
       pythonImplementation: expect.any(String),
       pythonVersion: expect.stringMatching(/^\d+\.\d+\.\d+/u),

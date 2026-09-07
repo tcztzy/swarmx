@@ -169,6 +169,7 @@ export type ScienceWorkspaceResolver = (sessionId: string) => ScienceWorkspace;
 
 export interface ScienceRuntime {
   readonly subprocess: ScienceProcessRuntime;
+  readonly documentSubprocess?: ScienceProcessRuntime;
   onDispose(dispose: () => Promise<void>): void;
 }
 
@@ -178,7 +179,13 @@ export const DEFAULT_MAX_EXPORT_BYTES = 5 * 1024 * 1024;
 export const DEFAULT_MAX_NOTEBOOK_DOCUMENT_BYTES = 5 * 1024 * 1024;
 const MAX_IMAGE_PREVIEW_BYTES = 2 * 1024 * 1024;
 const MAX_NOTEBOOK_INPUT_BYTES = 32 * 1024 * 1024;
-const IMAGE_PREVIEW_MIME = new Set(["image/png", "image/jpeg", "image/gif", "image/webp"]);
+const IMAGE_PREVIEW_MIME = new Set([
+  "image/png",
+  "image/jpeg",
+  "image/gif",
+  "image/webp",
+  "image/svg+xml",
+]);
 export const DEFAULT_PROCESS_GRACE_MS = 2_000;
 export const DEFAULT_JUPYMCP_COMMAND = "jupymcp";
 export const DEFAULT_JUPYMCP_REQUEST_TIMEOUT_MS = 60_000;
@@ -345,7 +352,7 @@ export class ScienceCore {
             maxOutputBytes: config.maxCellOutputBytes ?? DEFAULT_MAX_CELL_OUTPUT_BYTES,
           });
     this.maxExportBytes = config.maxExportBytes ?? DEFAULT_MAX_EXPORT_BYTES;
-    this.typstRuntime = new TypstPreviewRuntime(runtime.subprocess, {
+    this.typstRuntime = new TypstPreviewRuntime(runtime.documentSubprocess ?? runtime.subprocess, {
       command: config.typstCommand ?? DEFAULT_TYPST_COMMAND,
       runtimeCommand:
         config.writingPreviewRuntimeCommand ?? DEFAULT_WRITING_PREVIEW_RUNTIME_COMMAND,
@@ -776,6 +783,22 @@ export class ScienceCore {
     );
   }
 
+  getNotebookExecutions(
+    sessionId: string,
+    request: GetResearchObjectRequest,
+    signal?: AbortSignal,
+  ) {
+    const parsed = parseRequest(getResearchObjectRequestSchema, request);
+    const workspace = this.workspace(sessionId);
+    if (
+      !this.getWorkspace(sessionId, signal).projects.some(
+        (project) => project.id === parsed.projectId,
+      )
+    )
+      throw new ScienceError("Project not found in this workspace", "PROJECT_NOT_FOUND");
+    return this.journal.getNotebookExecutions(workspace.key, parsed.projectId);
+  }
+
   previewArtifact(
     sessionId: string,
     request: PreviewArtifactRequest,
@@ -825,6 +848,16 @@ export class ScienceCore {
           };
     }
     return { kind: "unavailable", ...identity, reason: "unsupported" };
+  }
+
+  readArtifactContent(sessionId: string, request: PreviewArtifactRequest, signal?: AbortSignal) {
+    const parsed = parseRequest(previewArtifactRequestSchema, request);
+    const artifact = this.getWorkspace(sessionId, signal).artifacts.find(
+      (item) => item.id === parsed.artifactId,
+    );
+    if (!artifact)
+      throw new ScienceError("Artifact not found in this workspace", "ARTIFACT_NOT_FOUND");
+    return { artifact, bytes: this.artifacts.readBytes(artifact.digest, 32 * 1024 * 1024, signal) };
   }
 
   async previewTypstDocument(
@@ -1050,16 +1083,17 @@ export class ScienceCore {
               sources: metadataSources,
             })
           : undefined;
-      const capturedArtifact = request.outputArtifact
-        ? await this.artifacts.capture(
-            workspace.root,
-            request.outputArtifact.relativePath,
-            signal,
-            metadata && isArtifactMetadataMime(request.outputArtifact.mime)
-              ? { metadata, mime: request.outputArtifact.mime }
-              : undefined,
-          )
-        : undefined;
+      const capturedArtifact =
+        request.outputArtifact && process.status === "succeeded"
+          ? await this.artifacts.capture(
+              workspace.root,
+              request.outputArtifact.relativePath,
+              signal,
+              metadata && isArtifactMetadataMime(request.outputArtifact.mime)
+                ? { metadata, mime: request.outputArtifact.mime }
+                : undefined,
+            )
+          : undefined;
       signal?.throwIfAborted();
       return this.journal.recordNotebookExecution(workspace.key, sessionId, request, {
         capturedArtifact,
