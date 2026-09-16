@@ -10,18 +10,9 @@ export function dependencyOrder(concepts: readonly MemoryConcept[], roots: reado
     if (active.has(id)) throw new MemoryError("Memory dependency cycle.", "INVALID_CONCEPT");
     if (visited.has(id)) return;
     const concept = byId.get(id);
-    if (!concept)
-      throw new MemoryError(
-        "Memory dependency is missing or outside this workspace.",
-        "INVALID_CONCEPT",
-      );
+    if (!concept) throw new MemoryError("Memory dependency is missing.", "INVALID_CONCEPT");
     active.add(id);
     for (const dependency of concept.metadata.swarmx_dependencies ?? []) {
-      if (id.startsWith("global/") && !dependency.id.startsWith("global/"))
-        throw new MemoryError(
-          "Global memory cannot depend on workspace memory.",
-          "INVALID_CONCEPT",
-        );
       visit(dependency.id);
     }
     active.delete(id);
@@ -64,7 +55,6 @@ export function memoryGraph(concepts: readonly MemoryConcept[], now = Date.now()
       title: metadata.title,
       description: metadata.description,
       type: metadata.type,
-      scope: metadata.swarmx_scope,
       status: metadata.status,
       stale: stale.has(id),
     })),

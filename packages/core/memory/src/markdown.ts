@@ -11,7 +11,7 @@ export const memoryDependencySchema = z.strictObject({
   id: z
     .string()
     .max(1_024)
-    .regex(/^(?:global|workspaces\/[^/]+--[a-f0-9]{12})\/concepts\/[^/\\\0]+\.md$/u),
+    .regex(/^[^/\\\0]+\.md$/u),
   revision: z.string().regex(/^sha256:[a-f0-9]{64}$/u),
 });
 export const memoryDependenciesSchema = z
@@ -22,7 +22,6 @@ export const memoryDependenciesSchema = z
     "Duplicate memory dependency.",
   );
 const sourceId = /^[a-z0-9][a-z0-9_-]{0,63}$/u;
-const workspaceKey = /^[a-f0-9]{12}$/u;
 
 const generatedSchema = z
   .object({
@@ -50,9 +49,7 @@ const metadataSchema = z
     status: z.enum(["draft", "stable", "deprecated"]).optional(),
     stale_after: memoryDateTimeSchema.optional(),
     verified: z.union([generatedSchema, z.array(generatedSchema).min(1)]).optional(),
-    swarmx_scope: z.enum(["global", "workspace"]),
     swarmx_dependencies: memoryDependenciesSchema.optional(),
-    swarmx_workspace: z.string().regex(workspaceKey).optional(),
     tags: z.array(z.string().trim().min(1).max(80)).max(32).optional(),
     title: z.string().trim().min(1).max(500),
     type: z.string().trim().min(1).max(120),
@@ -82,13 +79,6 @@ function normalizeMetadata(input: unknown): MemoryConceptMetadata {
     parsed = metadataSchema.parse(input);
   } catch (error) {
     throw invalid("Invalid memory concept frontmatter", error);
-  }
-
-  if (parsed.swarmx_scope === "workspace" && parsed.swarmx_workspace === undefined) {
-    throw invalid("Workspace memory concept requires swarmx_workspace");
-  }
-  if (parsed.swarmx_scope === "global" && parsed.swarmx_workspace !== undefined) {
-    throw invalid("Global memory concept must not carry swarmx_workspace");
   }
 
   return {

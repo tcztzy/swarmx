@@ -1,6 +1,7 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { describe, expect, it, vi } from "vitest";
+import manifest from "../package.json";
 import { createProductMcpServer } from "../src/host/mcp.js";
 
 describe("ProductServices MCP", () => {
@@ -25,6 +26,7 @@ describe("ProductServices MCP", () => {
       const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
       try {
         await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+        expect(client.getServerVersion()?.version).toBe(manifest.version);
         await expect(client.listTools()).resolves.toMatchObject({ tools: [{ name: "swarm" }] });
         const metadata = {
           callId: "call",

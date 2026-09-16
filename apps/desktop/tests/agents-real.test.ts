@@ -9,17 +9,16 @@ import { ProductServices } from "../src/host/product-services.js";
 import { startHost } from "../src/host/server.js";
 
 it.runIf(process.env.SWARMX_REAL_CODEX === "1")(
-  "real upstream Codex ACP history and MCP execution provenance across turns",
+  "real Codex App Server history and MCP execution provenance across turns",
   async () => {
     const root = await realpath(await mkdtemp(join(tmpdir(), "swarmx-native-codex-")));
     const products = await ProductServices.create({
       productHome: join(root, "product"),
-      workspace: { id: "live", label: "Live", root },
+      cwd: root,
     });
     const host = await startHost({
       products,
-      rendererRoot: root,
-      workspace: products.options.workspace,
+      agentId: "codex",
     });
     const invoke = products.callTool.bind(products);
     const statusCall = vi.spyOn(products, "callTool").mockImplementation((name, args, context) => {
@@ -28,7 +27,6 @@ it.runIf(process.env.SWARMX_REAL_CODEX === "1")(
       return invoke(name, args, context);
     });
     try {
-      await products.attachAgents(host.internalUrl, host.internalToken, undefined, "codex");
       const id = await products.rootAgent.create();
       const output: string[] = [];
       const toolResults: unknown[] = [];
@@ -86,19 +84,16 @@ it.runIf(process.env.SWARMX_REAL_CODEX === "1")(
 );
 
 it.runIf(Boolean(process.env.SWARMX_HERMES_PYTHON))(
-  "real Hermes ACP session lifecycle (no model request)",
+  "real Hermes TUI Gateway session discovery (no model request)",
   async () => {
     const root = await realpath(await mkdtemp(join(tmpdir(), "swarmx-native-hermes-")));
     const agent = await loadAgent("hermes", {
       cwd: root,
-      mcp: { url: "http://127.0.0.1:1/mcp", headers: {} },
+      mcp: { command: "node", args: ["/bridge.js"], env: {} },
     });
     try {
       expect(Array.isArray(await agent.list())).toBe(true);
-      const id = await agent.create();
-      expect(id).toMatch(/^hermes:/);
-      await agent.read(id, { text() {}, tool() {}, raw() {}, interact: async () => undefined });
-      await agent.interrupt(id);
+      expect((await agent.models()).models.length).toBeGreaterThan(0);
     } finally {
       await agent.dispose();
       await rm(root, { recursive: true, force: true });

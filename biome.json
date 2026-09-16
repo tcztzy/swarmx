@@ -15,6 +15,18 @@
       "!**/coverage"
     ]
   },
+  "overrides": [
+    {
+      "includes": [
+        "apps/desktop/src/renderer/components/**",
+        "apps/desktop/src/renderer/hooks/use-copy-to-clipboard.ts",
+        "apps/desktop/src/renderer/lib/utils.ts"
+      ],
+      "formatter": { "enabled": false },
+      "linter": { "enabled": false },
+      "assist": { "enabled": false }
+    }
+  ],
   "assist": { "actions": { "source": { "organizeImports": "on" } } },
   "formatter": {
     "enabled": true,
@@ -32,6 +44,10 @@
     "rules": {
       "preset": "recommended",
       "a11y": {
+        "noLabelWithoutControl": {
+          "level": "error",
+          "options": { "inputComponents": ["Input", "Textarea", "NativeSelect"] }
+        },
         "noNoninteractiveElementToInteractiveRole": "off",
         "noNoninteractiveTabindex": "off",
         "noStaticElementInteractions": "off",

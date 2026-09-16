@@ -1,5 +1,7 @@
-import type { Agent, AgentCapabilities, PromptResponse, RunOptions } from "@swarmx/swarm";
+import type { Agent, AgentCapabilities, RunOptions, RunResult } from "@swarmx/swarm";
 import { z } from "zod";
+import type { ToolManifestEntry } from "../host/mcp.js";
+import type { Activity } from "../message-activity.js";
 import type { AgentPermissions, PermissionRequest } from "../permissions.js";
 import type { ExecutionPolicy } from "../settings.js";
 
@@ -24,10 +26,16 @@ export interface Interaction {
   readonly id: string;
   readonly title: string;
   readonly schema: Record<string, unknown>;
-  readonly permission?: {
-    readonly toolCall: import("@agentclientprotocol/sdk").RequestPermissionRequest["toolCall"];
-    readonly options: import("@agentclientprotocol/sdk").PermissionOption[];
-    readonly answers: Record<string, unknown>;
+  /** Deliver the response to the native caller without persisting its contents. */
+  readonly sensitive?: boolean;
+  readonly approval?: {
+    readonly toolId: string;
+    readonly choices: readonly {
+      readonly id: string;
+      readonly label: string;
+      readonly kind: "allow_once" | "allow_always" | "reject_once" | "reject_always";
+      readonly answer: unknown;
+    }[];
   };
 }
 
@@ -45,6 +53,7 @@ export interface Observer {
   text(id: string, text: string, role?: "user" | "assistant" | "reasoning"): void;
   tool(id: string, name: string, input: unknown, output?: unknown): void;
   raw(event: unknown, attributes?: EventAttributes): void;
+  activity?(event: Activity): void;
   interact(request: Interaction, signal?: AbortSignal): Promise<unknown>;
 }
 
@@ -63,66 +72,16 @@ export interface NativeAgent extends Omit<Agent<Observer>, "start" | "create"> {
     text: string,
     observer: Observer,
     options?: NativeRunOptions,
-  ): Promise<PromptResponse>;
+  ): Promise<RunResult>;
 }
 
 export const HARNESS_CAPABILITIES = {
-  codex: {
-    loadSession: true,
-    sessionCapabilities: { list: {}, resume: {} },
-    _meta: {
-      swarmx: {
-        version: 2,
-        permissions: true,
-        steer: true,
-        emptySessionResume: false,
-        activeRunResume: false,
-        interactionResume: false,
-      },
-    },
-  },
-  claude: {
-    loadSession: true,
-    sessionCapabilities: { list: {}, resume: {} },
-    _meta: {
-      swarmx: {
-        version: 2,
-        permissions: true,
-        steer: true,
-        emptySessionResume: true,
-        activeRunResume: false,
-        interactionResume: false,
-      },
-    },
-  },
-  hermes: {
-    loadSession: true,
-    sessionCapabilities: { list: {}, resume: {} },
-    _meta: {
-      swarmx: {
-        version: 2,
-        permissions: true,
-        steer: true,
-        emptySessionResume: false,
-        activeRunResume: false,
-        interactionResume: false,
-      },
-    },
-  },
-  openclaw: {
-    loadSession: true,
-    sessionCapabilities: { list: {}, resume: {} },
-    _meta: {
-      swarmx: {
-        version: 2,
-        permissions: true,
-        steer: true,
-        emptySessionResume: false,
-        activeRunResume: false,
-        interactionResume: false,
-      },
-    },
-  },
+  pi: { history: true, list: true, resume: true, steer: true, emptySessionResume: true },
+  codex: { history: true, list: true, resume: true, steer: true, emptySessionResume: false },
+  claude: { history: true, list: true, resume: true, steer: true, emptySessionResume: true },
+  hermes: { history: true, list: true, resume: true, steer: true, emptySessionResume: false },
+  openclaw: { history: true, list: true, resume: true, steer: true, emptySessionResume: false },
+  dsh: { history: true, list: true, resume: false, steer: false, emptySessionResume: false },
 } as const satisfies Record<string, AgentCapabilities>;
 
 export function memoryContextSuffix(instructions: string) {
@@ -131,9 +90,18 @@ export function memoryContextSuffix(instructions: string) {
 
 export interface AgentOptions {
   readonly cwd: string;
-  readonly mcp: { readonly url: string; readonly headers: Record<string, string> };
+  readonly productHome?: string;
+  readonly mcp: {
+    readonly command: string;
+    readonly args: readonly string[];
+    readonly env: Record<string, string>;
+  };
   readonly executionPolicy?: () => ExecutionPolicy;
   readonly reviewOnly?: boolean;
+  readonly productTools?: {
+    readonly definitions: readonly ToolManifestEntry[];
+    call(name: string, args: unknown, callId: string, signal: AbortSignal): Promise<unknown>;
+  };
   /** The child receives only its own revocable MCP credential. */
   readonly registerMcp?: (token: string) => {
     bind(sessionId: string, runId: string): void;

@@ -1,7 +1,8 @@
 import { scienceArtifactPreviewSchema } from "@swarmx/science/types";
 import { useEffect, useState } from "react";
 import type { z } from "zod";
-import { api } from "./api.js";
+import { bridge } from "./bridge.js";
+import { Button } from "./components/ui/radix/button.js";
 import { t, useTranslation } from "./i18n.js";
 import { Icon } from "./icon.js";
 
@@ -11,19 +12,20 @@ export function ArtifactPreview({ id, compact = false }: { id: string; compact?:
   const [error, setError] = useState("");
   const [zoom, setZoom] = useState(false);
   useEffect(() => {
-    const controller = new AbortController();
+    let current = true;
     setPreview(undefined);
     setError("");
-    void api(
-      `/api/v1/artifact-preview?id=${encodeURIComponent(id)}`,
-      scienceArtifactPreviewSchema,
-      { signal: controller.signal },
-    )
-      .then(setPreview)
+    void bridge()
+      .science.artifactPreview({ id })
+      .then((value) => {
+        if (current) setPreview(scienceArtifactPreviewSchema.parse(value));
+      })
       .catch((cause: Error) => {
-        if (!controller.signal.aborted) setError(cause.message);
+        if (current) setError(cause.message);
       });
-    return () => controller.abort();
+    return () => {
+      current = false;
+    };
   }, [id]);
   if (error)
     return (
@@ -50,13 +52,15 @@ export function ArtifactPreview({ id, compact = false }: { id: string; compact?:
           }
         />
         {!compact && (
-          <button
-            className="secondary-button m-2"
+          <Button
+            variant="outline"
+            size="sm"
+            className="m-2"
             type="button"
             onClick={() => setZoom((value) => !value)}
           >
             {zoom ? t("适应宽度") : t("原始大小")}
-          </button>
+          </Button>
         )}
       </div>
     );

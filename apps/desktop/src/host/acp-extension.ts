@@ -4,7 +4,7 @@ import {
   narrowPermissions,
   type PermissionRequest,
   PermissionRequestSchema,
-  projectPermissions,
+  policyPermissions,
 } from "../permissions.js";
 
 export const SwarmxCapability = z.object({ version: z.literal(2), permissions: z.literal(true) });
@@ -21,5 +21,5 @@ export function acknowledgedPermissions(
   const { permissions } = z
     .object({ version: z.literal(2), permissions: AgentPermissionsSchema })
     .parse(meta?.swarmx);
-  return narrowPermissions(projectPermissions(requested), permissions);
+  return narrowPermissions(policyPermissions(requested), permissions);
 }

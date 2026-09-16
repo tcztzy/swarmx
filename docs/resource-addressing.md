@@ -31,7 +31,7 @@ entity is acceptable.
   result but are resolved once.
 - `get` currently accepts only the `metadata` projection. It returns bounded decision-making fields,
   counts, and capped reference/key/tag lists, never full Notebook cells, document source, figure
-  code, experiment protocol, environment, provenance payload, or a workspace snapshot.
+  code, experiment protocol, environment, provenance payload, or a full Science snapshot.
 - `select` works only for text and tabular Artifacts already accepted by the existing verified
   Artifact preview. A table window contains at most 100 rows and 32 requested columns. A text window
   contains at most 16 KiB of characters. Unknown or ambiguous table columns fail explicitly.
@@ -52,8 +52,8 @@ Other entity kinds report `null` rather than assigning a hash with unclear seman
 
 ## Authorization and graph boundaries
 
-Each Host method validates the native conversation, derives its authorized workspace, loads only that
-workspace's Science snapshot, and resolves the typed ID there. Knowing an ID from another workspace
+Each Host method validates the native conversation, derives its authorized execution directory,
+loads that directory's Science snapshot, and resolves the typed ID there. Knowing an ID from another directory
 does not make it discoverable. Model-visible resource data contains no host path, conversation identity,
 unredacted environment, or raw Journal payload. Artifact bytes are read only through the existing
 owner-only, digest-verifying Artifact Store.

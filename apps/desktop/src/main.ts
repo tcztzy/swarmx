@@ -1,12 +1,14 @@
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
 import { app, BrowserWindow } from "electron";
 import { selectedAgent } from "./agent.js";
+import { registerIpc } from "./ipc.js";
 import { type DesktopPlatform, startDesktopPlatform } from "./platform.js";
 import { createWindow } from "./window.js";
 
 let platform: DesktopPlatform | undefined;
 let platformBoot: Promise<DesktopPlatform> | undefined;
+let renderer = "";
 let failureReported = false;
 let quitting = false;
 let shutdownStarted = false;
@@ -18,6 +20,14 @@ function failLoud(error: unknown): void {
     `swarmx: ${error instanceof Error ? (error.stack ?? error.message) : String(error)}\n`,
   );
   app.exit(1);
+}
+
+function rendererLocation(development: boolean): string {
+  if (!development)
+    return pathToFileURL(fileURLToPath(new URL("./renderer/index.html", import.meta.url))).href;
+  const url = process.env.SWARMX_RENDERER_URL;
+  if (!url) throw new Error("SWARMX_RENDERER_URL is required when SWARMX_DEV=1.");
+  return url;
 }
 
 if (!app.requestSingleInstanceLock()) {
@@ -34,22 +44,23 @@ if (!app.requestSingleInstanceLock()) {
   void app
     .whenReady()
     .then(async () => {
-      const workspaceRoot = process.env.SWARMX_WORKSPACE ?? process.cwd();
+      const cwd = process.env.SWARMX_CWD ?? process.cwd();
       const development = !app.isPackaged && process.env.SWARMX_DEV === "1";
+      renderer = rendererLocation(development);
       const { values } = parseArgs({
         options: { agent: { type: "string" } },
         strict: false,
         allowPositionals: true,
       });
-      platformBoot = startDesktopPlatform({
-        workspaceRoot,
+      const boot = startDesktopPlatform({
+        cwd,
         agentId: selectedAgent(typeof values.agent === "string" ? values.agent : undefined),
-        rendererRoot: fileURLToPath(new URL(development ? "../" : "./renderer", import.meta.url)),
-        development,
       });
-      const started = await platformBoot;
+      platformBoot = boot;
+      const started = await boot;
+      registerIpc(started);
       try {
-        createWindow(started.url);
+        createWindow(renderer);
       } catch (error) {
         await started.dispose();
         throw error;
@@ -61,7 +72,7 @@ if (!app.requestSingleInstanceLock()) {
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0 && platform !== undefined) {
       try {
-        createWindow(platform.issueLaunchUrl());
+        createWindow(renderer);
       } catch (error) {
         failLoud(error);
       }

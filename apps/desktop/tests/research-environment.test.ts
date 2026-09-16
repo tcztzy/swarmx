@@ -7,7 +7,7 @@ import { promisify } from "node:util";
 import { afterEach, describe, expect, it } from "vitest";
 import { ProductServices } from "../src/host/product-services.js";
 import { ResearchEnvironment } from "../src/host/research-environment.js";
-import { SettingsStore } from "../src/host/workspace-settings.js";
+import { SettingsStore } from "../src/host/settings-store.js";
 import { DEFAULT_POLICY, EnvironmentSchema } from "../src/settings.js";
 
 const roots: string[] = [];
@@ -19,14 +19,14 @@ afterEach(async () => {
 async function fixture() {
   const root = await mkdtemp(join(tmpdir(), "swarmx-environment-"));
   roots.push(root);
-  const workspace = join(root, "workspace");
+  const cwd = join(root, "research");
   const staging = join(root, "staging");
-  await mkdir(workspace);
+  await mkdir(cwd);
   await mkdir(staging);
-  const settings = new SettingsStore(root, "workspace");
-  const runtime = new ResearchEnvironment(settings, workspace, staging);
+  const settings = new SettingsStore(root);
+  const runtime = new ResearchEnvironment(settings, cwd, staging);
   runtimes.push(runtime);
-  return { root, workspace, staging, settings, runtime };
+  return { root, cwd, staging, settings, runtime };
 }
 
 describe("research settings", () => {
@@ -39,7 +39,7 @@ describe("research settings", () => {
       environment: null,
     });
     await writeFile(settings.path, legacy);
-    expect(() => new SettingsStore(root, "workspace")).toThrow(
+    expect(() => new SettingsStore(root)).toThrow(
       "Remove policy.approval and set policy.tools explicitly",
     );
     expect(await readFile(settings.path, "utf8")).toBe(legacy);
@@ -47,13 +47,13 @@ describe("research settings", () => {
   it("persists bounded policy and rejects corrupt or widened configuration", async () => {
     const { root, settings } = await fixture();
     settings.write({ policy: { ...DEFAULT_POLICY, filesystem: "read-only" }, environment: null });
-    expect(new SettingsStore(root, "workspace").read().policy.filesystem).toBe("read-only");
-    expect(new SettingsStore(root, "other").read().policy.filesystem).toBe("workspace-write");
+    expect(new SettingsStore(root).read().policy.filesystem).toBe("read-only");
+    expect(new SettingsStore(join(root, "other")).read().policy.filesystem).toBe("workspace-write");
     expect(() =>
       settings.write({ ...settings.read(), policy: { ...DEFAULT_POLICY, cpus: 0 } }),
     ).toThrow();
     await writeFile(settings.path, '{"policy":"unrestricted"}');
-    expect(() => new SettingsStore(root, "workspace")).toThrow();
+    expect(() => new SettingsStore(root)).toThrow();
   });
 
   it("fails closed without an environment", async () => {
@@ -75,10 +75,10 @@ describe.skipIf(!process.env.SWARMX_TEST_DOCKER_IMAGE)("real Docker research bou
     expect(runtime.status()).toMatchObject({ state: "ready", activeProcesses: 0 });
   }, 120000);
   it("replays an imported dataset into versioned figures with inspectable code, image and RO-Crate evidence", async () => {
-    const { root, workspace } = await fixture();
+    const { root, cwd } = await fixture();
     const products = await ProductServices.create({
       productHome: root,
-      workspace: { id: "research", label: "Research", root: workspace },
+      cwd,
     });
     try {
       const inspected = await promisify(execFile)("docker", [
@@ -175,7 +175,7 @@ describe.skipIf(!process.env.SWARMX_TEST_DOCKER_IMAGE)("real Docker research bou
   }, 90000);
 
   it("confines reads, writes, network and credentials; preserves declared inputs and kills children", async () => {
-    const { root, workspace, staging, settings, runtime } = await fixture();
+    const { root, cwd, staging, settings, runtime } = await fixture();
     const exec = promisify(execFile);
     const inspected = await exec("docker", [
       "image",
@@ -198,13 +198,13 @@ describe.skipIf(!process.env.SWARMX_TEST_DOCKER_IMAGE)("real Docker research bou
         packages: [],
       },
     });
-    await writeFile(join(root, "secret"), "outside workspace");
+    await writeFile(join(root, "secret"), "outside directory");
     await writeFile(join(staging, "input.csv"), "value\n42\n");
-    await symlink(root, join(workspace, "escape"));
+    await symlink(root, join(cwd, "escape"));
     const run = async (source: string, signal?: AbortSignal) =>
       runtime.spawn({
         argv: ["python3", "-c", source],
-        cwd: workspace,
+        cwd,
         env: {
           OPENAI_API_KEY: "must-not-enter",
           SWARMX_SCIENCE_INPUT_0: join(staging, "input.csv"),
@@ -226,14 +226,14 @@ describe.skipIf(!process.env.SWARMX_TEST_DOCKER_IMAGE)("real Docker research bou
       ].join("\n"),
     );
     expect(await execution.done).toMatchObject({ exitCode: 0 });
-    expect(await readFile(join(workspace, "result.txt"), "utf8")).toBe("isolated");
+    expect(await readFile(join(cwd, "result.txt"), "utf8")).toBe("isolated");
     settings.write({ ...settings.read(), policy: { ...DEFAULT_POLICY, filesystem: "read-only" } });
     const readonly = await run("open('blocked','w').write('bad')");
     expect((await readonly.done).exitCode).not.toBe(0);
     await expect(
       runtime.spawn({
         argv: ["python3"],
-        cwd: join(workspace, "escape"),
+        cwd: join(cwd, "escape"),
         graceMs: 100,
         stdio: { stdin: "ignore", stdout: "pipe", stderr: "pipe" },
       }),
@@ -247,7 +247,7 @@ describe.skipIf(!process.env.SWARMX_TEST_DOCKER_IMAGE)("real Docker research bou
     controller.abort();
     await running.done;
     expect(runtime.status().activeProcesses).toBe(0);
-    const containers = await exec("docker", ["ps", "-aq", "--filter", `volume=${workspace}`]);
+    const containers = await exec("docker", ["ps", "-aq", "--filter", `volume=${cwd}`]);
     expect(containers.stdout.trim()).toBe("");
   }, 60000);
 });

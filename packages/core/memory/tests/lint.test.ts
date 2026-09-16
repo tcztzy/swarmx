@@ -2,16 +2,13 @@ import { describe, expect, it } from "vitest";
 import { lintMemory } from "../src/lint.js";
 import { conceptRevision, parseConcept, renderConcept } from "../src/markdown.js";
 
-const workspaceDirectory = "workspaces/project--83bd29e31a4c";
-const path = `${workspaceDirectory}/concepts/finding.md`;
+const path = "finding.md";
 const now = "2026-09-05T00:00:00Z";
 const metadata = {
   type: "Finding",
   title: "Finding",
   description: "A reproducible finding.",
   generated: { by: "swarmx/test", at: now },
-  swarmx_scope: "workspace" as const,
-  swarmx_workspace: "83bd29e31a4c",
   status: "draft" as const,
   sources: [{ id: "paper", resource: "https://example.org/paper" }],
   tags: [],
@@ -22,7 +19,7 @@ function source(body = "# Finding\n\nResult.[^paper]\n\n[^paper]: Source paper."
 }
 
 function lint(text: string | Uint8Array, extra: ReadonlyMap<string, string> = new Map()) {
-  return lintMemory(new Map([[path, text], ...extra]), { workspaceDirectory, now });
+  return lintMemory(new Map([[path, text], ...extra]), { now });
 }
 
 describe("memory validation", () => {
@@ -111,70 +108,60 @@ describe("memory validation", () => {
       "---\nokf_version: *unknown\n---\n\n# Index\n",
       "---\n- invalid\n---\n\n# Index\n",
     ]) {
-      expect(
-        lintMemory(new Map([["index.md", index]]), { workspaceDirectory, now }),
-      ).toContainEqual(
+      expect(lintMemory(new Map([["index.md", index]]), { now })).toContainEqual(
         expect.objectContaining({ ruleId: "reserved.frontmatter", severity: "error" }),
       );
     }
     expect(
-      lintMemory(new Map([["index.md", "# Index\n\n* [Link](global/) <script>bad()</script>\n"]]), {
-        workspaceDirectory,
-        now,
-      }),
+      lintMemory(
+        new Map([["index.md", "# Index\n\n* [Link](./example.md) <script>bad()</script>\n"]]),
+        { now },
+      ),
     ).toContainEqual(expect.objectContaining({ ruleId: "markdown.executable", severity: "error" }));
   });
 
-  it("rejects forged scope metadata and foreign or escaping local links", () => {
-    expect(
-      lint(source().replace("swarmx_workspace: 83bd29e31a4c", "swarmx_workspace: aaaaaaaaaaaa")),
-    ).toContainEqual(expect.objectContaining({ ruleId: "scope.mismatch", severity: "error" }));
-    for (const url of [
-      "/workspaces/other--aaaaaaaaaaaa/concepts/secret.md",
-      "../../../../secret.md",
-    ]) {
+  it("rejects escaping and hidden local links", () => {
+    for (const url of [".private/hidden.md", "../../../../secret.md"]) {
       expect(lint(source(`# Link\n\n[Secret](${url})`))).toContainEqual(
-        expect.objectContaining({ ruleId: "link.scope", severity: "error" }),
+        expect.objectContaining({ ruleId: "link.path", severity: "error" }),
       );
     }
   });
 
   it("checks links and index descriptions against one file snapshot", () => {
     const text = source("# Finding\n\n[Missing](./missing.md)\n\n`[Example](./literal.md)`");
-    const index = `${workspaceDirectory}/index.md`;
     const diagnostics = lint(
       text,
-      new Map([[index, "# Project\n\n* [Old](./concepts/finding.md) - Old summary\n"]]),
+      new Map([["index.md", "# SwarmX Memory\n\n* [Old](./finding.md) - Old summary\n"]]),
     );
     expect(diagnostics.filter((item) => item.ruleId === "link.broken")).toHaveLength(1);
     expect(diagnostics).toContainEqual(
-      expect.objectContaining({ ruleId: "index.stale", path: index }),
+      expect.objectContaining({ ruleId: "index.stale", path: "index.md" }),
     );
     expect(lint(text)).toContainEqual(expect.objectContaining({ ruleId: "index.missing" }));
   });
 
-  it("validates reserved documents and excludes internal history and foreign workspaces", () => {
+  it("validates the reserved index and excludes documents outside the root", () => {
     const files = new Map([
       [path, source()],
-      ["index.md", '---\nokf_version: "0.2"\n---\n\n# Knowledge\n'],
-      ["log.md", "# Log\n\n## 2026-02-30\n\n* Updated.\n"],
-      [".swarmx/history/old.md", "invalid"],
-      ["workspaces/other--aaaaaaaaaaaa/concepts/private.md", "invalid"],
+      ["index.md", '---\nokf_version: "0.2"\n---\n\n# Knowledge\n\nInvalid index paragraph.\n'],
+      [".private/hidden.md", "invalid"],
+      ["nested/private.md", "invalid"],
+      ["README.md", "not a concept"],
+      ["USER.md", "not a concept"],
     ]);
-    const diagnostics = lintMemory(files, { workspaceDirectory, now });
+    const diagnostics = lintMemory(files, { now });
     expect(diagnostics).toContainEqual(
-      expect.objectContaining({ ruleId: "log.date", severity: "error" }),
+      expect.objectContaining({ ruleId: "index.structure", severity: "error" }),
     );
-    expect(
-      diagnostics.some((item) => item.path.includes("private") || item.path.includes("history")),
-    ).toBe(false);
+    expect(diagnostics.some((item) => item.path !== "index.md" && item.path !== path)).toBe(false);
   });
 
   it("uses an explicit clock and reports stable positions and content revisions", () => {
     const text = renderConcept({ ...metadata, stale_after: now }, "# Finding");
     const files = new Map([[path, text]]);
-    const diagnostics = lintMemory(files, { workspaceDirectory, now });
-    expect(diagnostics).toEqual(lintMemory(files, { workspaceDirectory, now }));
+    const diagnostics = lintMemory(files, { now });
+    expect(diagnostics).toEqual(lintMemory(files, { now }));
     expect(diagnostics).toContainEqual(
       expect.objectContaining({
         ruleId: "lifecycle.stale",
@@ -186,7 +173,7 @@ describe("memory validation", () => {
       }),
     );
     expect(
-      lintMemory(files, { workspaceDirectory, now: "2026-09-04T23:59:59Z" }).some(
+      lintMemory(files, { now: "2026-09-04T23:59:59Z" }).some(
         (item) => item.ruleId === "lifecycle.stale",
       ),
     ).toBe(false);

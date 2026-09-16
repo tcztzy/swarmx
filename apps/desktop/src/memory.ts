@@ -8,7 +8,6 @@ export const MemorySettingsSchema = z.strictObject({
   reviewHarness: z.enum(["codex", "claude"]).default("codex"),
 });
 export const MemoryNoteSchema = z.strictObject({
-  target: z.enum(["user", "workspace"]),
   content: z.string(),
   revision: z.string(),
   limit: z.number(),
@@ -21,7 +20,6 @@ export const MemoryGraphSchema = z.strictObject({
       title: z.string(),
       description: z.string(),
       type: z.string(),
-      scope: z.enum(["global", "workspace"]),
       status: z.enum(["draft", "stable", "deprecated"]),
       stale: z.boolean(),
     }),
@@ -37,7 +35,7 @@ export const MemoryGraphSchema = z.strictObject({
 });
 export const MemoryStatusSchema = z.strictObject({
   settings: MemorySettingsSchema,
-  notes: z.array(MemoryNoteSchema),
+  note: MemoryNoteSchema,
   pending: z.array(
     z.strictObject({
       id: z.string().uuid(),
@@ -53,7 +51,6 @@ export const MemoryStatusSchema = z.strictObject({
         ]),
         request: z
           .object({
-            target: z.enum(["user", "workspace"]).optional(),
             title: z.string().optional(),
             content: z.string().optional(),
             body: z.string().optional(),

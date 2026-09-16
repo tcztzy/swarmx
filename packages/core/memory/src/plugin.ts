@@ -23,7 +23,6 @@ const IdentifierSchema = z.strictObject({ id: z.string().min(1).max(1_024) });
 export interface MemoryOperationContext {
   readonly actorId: string;
   readonly callId: string;
-  readonly workspaceRoot: string;
   readonly signal: AbortSignal;
   approve(reason: string): Promise<string>;
 }
@@ -44,45 +43,34 @@ export async function executeMemoryOperation(
   const result = (data: unknown) => ({ action: input.action, data });
   const edited = async (concept: MemoryConcept) => ({
     ...result(concept),
-    diagnostics: await vault.lint(context.workspaceRoot, {}, context.signal),
+    diagnostics: await vault.lint({}, context.signal),
   });
   switch (input.action) {
     case "search_memory":
-      return result(await vault.search(context.workspaceRoot, input.request as never));
+      return result(await vault.search(input.request as never));
     case "read_memory":
-      return result(
-        await vault.readConcept(context.workspaceRoot, parsed(IdentifierSchema, input.request).id),
-      );
+      return result(await vault.readConcept(parsed(IdentifierSchema, input.request).id));
     case "lint_memory":
-      return result(
-        await vault.lint(context.workspaceRoot, input.request as never, context.signal),
-      );
+      return result(await vault.lint(input.request as never, context.signal));
     case "graph_memory":
       parsed(z.strictObject({}), input.request);
-      return result(await vault.graph(context.workspaceRoot));
+      return result(await vault.graph());
     case "load_memory":
-      return result(
-        await vault.load(context.workspaceRoot, parsed(IdentifierSchema, input.request).id),
-      );
+      return result(await vault.load(parsed(IdentifierSchema, input.request).id));
     case "create_memory":
       await approved(context, "Create one private memory concept.");
       return edited(
         await vault.createConcept(
-          context.workspaceRoot,
           normalizeCreateConceptRequest(input.request as never),
           context.signal,
         ),
       );
     case "update_memory":
       await approved(context, "Update one private memory concept.");
-      return edited(
-        await vault.updateConcept(context.workspaceRoot, input.request as never, context.signal),
-      );
+      return edited(await vault.updateConcept(input.request as never, context.signal));
     case "deprecate_memory":
       await approved(context, "Deprecate one private memory concept.");
-      return edited(
-        await vault.deprecateConcept(context.workspaceRoot, input.request as never, context.signal),
-      );
+      return edited(await vault.deprecateConcept(input.request as never, context.signal));
   }
 }
 

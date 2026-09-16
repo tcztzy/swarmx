@@ -5,12 +5,29 @@ import { MemoryStatusSchema } from "../src/memory.js";
 import { i18n, t } from "../src/renderer/i18n.js";
 import { MemorySettings } from "../src/renderer/memory.js";
 
+interface Call {
+  readonly name: string;
+  readonly args: { action: string; request: unknown };
+}
+
+let calls: Call[] = [];
+let handler: (call: Call) => Promise<unknown> = async () => {
+  throw new Error("Unexpected tool call");
+};
+
+vi.mock("../src/renderer/bridge.js", () => ({
+  tool: (
+    name: string,
+    args: { action: string; request: unknown },
+    schema: { parse(value: unknown): unknown },
+  ) => handler({ name, args }).then((data) => schema.parse(data)),
+}));
 vi.mock("../src/renderer/research-graph.js", () => ({
   GraphView: ({ label }: { label: string }) => <div aria-label={label} />,
 }));
 afterEach(() => {
   cleanup();
-  vi.unstubAllGlobals();
+  calls = [];
 });
 
 it.each(["zh", "en"])(
@@ -21,7 +38,7 @@ it.each(["zh", "en"])(
     const id = "11111111-1111-4111-8111-111111111111";
     const status = MemoryStatusSchema.parse({
       settings: {},
-      notes: [{ target: "workspace", content: "Chinese first", revision, limit: 2200 }],
+      note: { content: "Chinese first", revision, limit: 1375 },
       pending: [
         {
           id,
@@ -31,7 +48,6 @@ it.each(["zh", "en"])(
           operation: {
             action: "update_core_memory",
             request: {
-              target: "workspace",
               content: "Use pinned dependencies",
               expectedRevision: revision,
             },
@@ -40,56 +56,71 @@ it.each(["zh", "en"])(
       ],
       review: { state: "idle", message: "", sessionId: null },
     });
-    const nodes = ["environment", "analysis"].map((id) => ({
-      id,
+    const nodes = ["environment", "analysis"].map((nodeId) => ({
+      id: nodeId,
       revision,
-      title: id,
-      description: id,
+      title: nodeId,
+      description: nodeId,
       type: "Playbook",
-      scope: "workspace",
       status: "draft",
-      stale: id === "analysis",
+      stale: nodeId === "analysis",
     }));
     const graph = {
       nodes,
       edges: [{ source: "analysis", target: "environment", revision, stale: true }],
     };
     let conflict = true;
-    const fetchMock = vi.fn<typeof fetch>(async (path, init) => {
-      if (String(path).includes("/pending/")) {
-        if (conflict)
-          return Response.json(
-            { error: "Core memory changed; read it again before editing." },
-            { status: 409 },
-          );
-        status.pending = [];
-        return Response.json({ action: "approve" });
+    handler = async ({ args }) => {
+      calls.push({ name: "memory", args });
+      switch (args.action) {
+        case "memory_status":
+          return status;
+        case "graph_memory":
+          return graph;
+        case "load_memory":
+          return {
+            graph,
+            concepts: nodes.map((node) => ({
+              id: node.id,
+              revision,
+              metadata: node,
+              body: `${node.id} source`,
+            })),
+          };
+        case "update_core_memory":
+          return { content: "Prefer bilingual explanations", revision, limit: 1375 };
+        case "memory_review":
+          status.review = { state: "completed", sessionId: "codex:test", message: "0" };
+          return { state: "running" };
+        case "memory_decide":
+          if (conflict) throw new Error("Core memory changed; read it again before editing.");
+          status.pending = [];
+          return { decision: "approve" };
+        default:
+          throw new Error(`Unexpected memory action ${args.action}`);
       }
-      if (path === "/api/v1/memory/notes") return Response.json({});
-      if (path === "/api/v1/memory/settings") return Response.json(JSON.parse(String(init?.body)));
-      if (path === "/api/v1/memory/review") {
-        status.review = { state: "completed", sessionId: "codex:test", message: "0" };
-        return Response.json({ state: "running" }, { status: 202 });
-      }
-      if (path === "/api/v1/memory/graph") return Response.json(graph);
-      if (String(path).startsWith("/api/v1/memory/concept?"))
-        return Response.json({
-          graph,
-          concepts: nodes.map((node) => ({
-            id: node.id,
-            revision,
-            metadata: node,
-            body: `${node.id} source`,
-          })),
-        });
-      if (path === "/api/v1/memory") return Response.json(status);
-      throw new Error(`Unexpected request: ${path}`);
-    });
-    vi.stubGlobal("fetch", fetchMock);
-    render(<MemorySettings scope="project" sessionId="codex:test" />);
+    };
+
+    render(<MemorySettings sessionId="codex:test" />);
     await screen.findByRole("heading", {
       name: language === "zh" ? "记忆与知识" : "Memory and knowledge",
     });
+    fireEvent.change(await screen.findByLabelText(t("用户偏好")), {
+      target: { value: "Prefer bilingual explanations" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: t("保存笔记") }));
+    await waitFor(() =>
+      expect(calls).toContainEqual({
+        name: "memory",
+        args: {
+          action: "update_core_memory",
+          request: {
+            content: "Prefer bilingual explanations",
+            expectedRevision: revision,
+          },
+        },
+      }),
+    );
     await screen.findByText("Use pinned dependencies");
     expect(
       screen.getByText(
@@ -98,23 +129,6 @@ it.each(["zh", "en"])(
         ),
       ),
     ).toBeTruthy();
-    fireEvent.change(screen.getByLabelText(t("工作区笔记")), {
-      target: { value: "Prefer bilingual explanations" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: t("保存笔记") }));
-    await waitFor(() =>
-      expect(fetchMock).toHaveBeenCalledWith(
-        "/api/v1/memory/notes",
-        expect.objectContaining({
-          method: "PUT",
-          body: JSON.stringify({
-            target: "workspace",
-            content: "Prefer bilingual explanations",
-            expectedRevision: revision,
-          }),
-        }),
-      ),
-    );
     await waitFor(() =>
       expect(
         (screen.getByRole("button", { name: t("批准保存") }) as HTMLButtonElement).disabled,

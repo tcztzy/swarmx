@@ -8,7 +8,7 @@ import { ProductServices } from "../src/host/product-services.js";
 import {
   narrowPermissions,
   type PermissionRequest,
-  projectPermissions,
+  policyPermissions,
 } from "../src/permissions.js";
 
 const cleanups: (() => Promise<void>)[] = [];
@@ -27,7 +27,7 @@ async function fixture() {
   const root = await mkdtemp(join(tmpdir(), "swarmx-permissions-"));
   const products = await ProductServices.create({
     productHome: join(root, "product"),
-    workspace: { id: "test", label: "Test", root },
+    cwd: root,
   });
   let counter = 0;
   const start = vi.fn<NativeAgent["start"]>(async () => {
@@ -50,7 +50,7 @@ async function fixture() {
     interrupt: async () => {},
     dispose: async () => {},
   };
-  await products.attachAgents("http://localhost", "test", native);
+  await products.attachAgents("http://localhost", native, "codex");
   cleanups.push(async () => {
     await products.dispose();
     await rm(root, { recursive: true, force: true });
@@ -64,7 +64,7 @@ async function fixture() {
       await products.dispose();
       const reopened = await ProductServices.create(products.options);
       cleanups.push(() => reopened.dispose());
-      await reopened.attachAgents("http://localhost", "test", native);
+      await reopened.attachAgents("http://localhost", native, "codex");
       return reopened;
     },
     call: (args: unknown) => products.callTool("swarm", args, context),
@@ -72,7 +72,7 @@ async function fixture() {
 }
 
 it("rejects every form of explicitly widened authority", () => {
-  const parent = projectPermissions({
+  const parent = policyPermissions({
     tools: ["memory.read", "science.read"],
     delegation: false,
     harnesses: { codex: ["small"] },
@@ -102,11 +102,7 @@ it("checks each Host tool family before dispatch even without a parent execution
     await expect(products.callTool(name, args, context)).rejects.toThrow(grant);
   products.updatePolicy({ ...products.settings.read().policy, tools: ["memory.read"] });
   await expect(
-    products.callTool(
-      "memory",
-      { action: "read_core_memory", request: { target: "user" } },
-      context,
-    ),
+    products.callTool("memory", { action: "read_core_memory", request: {} }, context),
   ).resolves.toBeDefined();
 });
 
@@ -191,7 +187,7 @@ it("persists an empty conversation's grant across restart and native/Swarm alias
   await native.start(id, "continue", observer, { model: "small" });
 });
 
-it("retains turn restrictions after failure, later messages and project permission expansion", async () => {
+it("retains turn restrictions after failure, later messages and Host permission expansion", async () => {
   const { products, start, reopen } = await fixture();
   const id = await products.rootAgent.create();
   start.mockRejectedValueOnce(new Error("Native failure"));
@@ -310,7 +306,7 @@ it("carries read-only grants through nested Swarms, direct native aliases and bo
     });
 });
 
-it("checks project revocation and model admission on cached Agents and resumed sessions", async () => {
+it("checks Host revocation and model admission on cached Agents and resumed sessions", async () => {
   const { products, start, call } = await fixture();
   const cached = await products.agent("codex");
   products.updatePolicy({ ...products.settings.read().policy, harnesses: { codex: ["small"] } });
@@ -376,7 +372,7 @@ it("denies re-delegation before creating sessions and keeps cancellation availab
   expect(create).not.toHaveBeenCalled();
 });
 
-it("keeps parallel sibling grants isolated and does not let an old Swarm escape a tightened project", async () => {
+it("keeps parallel sibling grants isolated and does not let an old Swarm escape a tightened Host policy", async () => {
   const { products, call, start } = await fixture();
   await call({ action: "create", id: "writer", leadAgentId: "codex" });
   const observed = new Map<string, string[] | undefined>();

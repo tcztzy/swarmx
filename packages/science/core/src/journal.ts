@@ -1571,14 +1571,27 @@ export class ScienceJournal {
     };
   }
 
-  getNotebookExecutions(workspaceKey: string, projectId: string) {
+  getNotebookExecutions(workspaceKey: string, projectId: string, includeArtifactId?: string) {
     ensureOpen(this.open);
     return this.database
       .prepare(
-        "SELECT json_remove(payload_json, '$.notebook') AS execution_json FROM science_journal WHERE workspace_key = ? AND type = 'notebook/cell-executed' AND json_extract(payload_json, '$.notebook.projectId') = ? ORDER BY seq DESC LIMIT 100",
+        `SELECT json_remove(payload_json, '$.notebook') AS execution_json,
+          (SELECT json_extract(value, '$.source')
+           FROM json_each(payload_json, '$.notebook.cells')
+           WHERE json_extract(value, '$.id') = json_extract(payload_json, '$.cellId')) AS source
+         FROM science_journal
+         WHERE workspace_key = ? AND type = 'notebook/cell-executed'
+           AND json_extract(payload_json, '$.notebook.projectId') = ?
+         ORDER BY CASE WHEN json_extract(payload_json, '$.artifact.id') = ? THEN 0 ELSE 1 END,
+           seq DESC LIMIT 100`,
       )
-      .all(workspaceKey, projectId)
-      .map((row) => notebookExecutionSummarySchema.parse(JSON.parse(row.execution_json as string)));
+      .all(workspaceKey, projectId, includeArtifactId ?? null)
+      .map((row) =>
+        notebookExecutionSummarySchema.parse({
+          ...JSON.parse(row.execution_json as string),
+          source: row.source,
+        }),
+      );
   }
 
   journalCount(): number {

@@ -1,7 +1,6 @@
 import { posix } from "node:path";
 import type { Root } from "mdast";
 import { isMap, parseDocument } from "yaml";
-import { z } from "zod";
 import { MemoryError, type MemoryIssue } from "./errors.js";
 import { dependencyOrder } from "./graph.js";
 import {
@@ -24,25 +23,23 @@ export type MemoryResourceCheck = (
 ) => Pick<MemoryIssue, "ruleId" | "severity" | "message"> | undefined;
 
 export interface MemoryLintOptions {
-  readonly workspaceDirectory: string;
   readonly now: string;
   readonly maxBytes?: number;
   readonly checkResource?: MemoryResourceCheck;
 }
 
-export function memoryPathIsVisible(path: string, workspace: string): boolean {
-  return (
-    path === "index.md" ||
-    path === "log.md" ||
-    ["global", workspace].some(
-      (directory) =>
-        path === `${directory}/index.md` ||
-        path === `${directory}/log.md` ||
-        (path.startsWith(`${directory}/concepts/`) &&
-          !path.slice(`${directory}/concepts/`.length).includes("/") &&
-          path.endsWith(".md")),
-    )
-  );
+export const RESERVED_MEMORY_FILES: ReadonlySet<string> = new Set([
+  "index.md",
+  "readme.md",
+  "user.md",
+]);
+
+export function isReservedMemoryName(name: string): boolean {
+  return RESERVED_MEMORY_FILES.has(name.toLocaleLowerCase("en-US"));
+}
+
+export function memoryPathIsVisible(path: string): boolean {
+  return posix.dirname(path) === "." && path.endsWith(".md") && !path.startsWith(".");
 }
 
 function localTarget(path: string, url: string): string | null {
@@ -74,21 +71,16 @@ function localReferenceIssue(
     target.includes("\0") ||
     target === ".." ||
     target.startsWith("../") ||
-    target === ".swarmx" ||
-    target.startsWith(".swarmx/")
+    target.split("/").some((segment) => segment.startsWith("."))
   ) {
-    return { ruleId: "link.scope", message: "Local reference escapes live memory." };
-  }
-  if (
-    path.includes("/concepts/") &&
-    target.startsWith("workspaces/") &&
-    (path.startsWith("global/") || !target.startsWith(`${posix.dirname(posix.dirname(path))}/`))
-  ) {
-    return { ruleId: "link.scope", message: "Local reference belongs to a different scope." };
+    return {
+      ruleId: "link.path",
+      message: "Local reference escapes the Memory root or is hidden.",
+    };
   }
 }
 
-export function parseScopedConcept(
+export function parseMemoryConcept(
   path: string,
   bytes: string | Uint8Array,
   maxBytes?: number,
@@ -96,20 +88,7 @@ export function parseScopedConcept(
 ): ParsedConcept {
   const concept = parseConcept(bytes, maxBytes);
   const source = decodeConcept(bytes);
-  const global = path.startsWith("global/");
   const issues: MemoryIssue[] = [];
-  if (
-    concept.metadata.swarmx_scope !== (global ? "global" : "workspace") ||
-    (!global && concept.metadata.swarmx_workspace !== posix.dirname(posix.dirname(path)).slice(-12))
-  ) {
-    issues.push({
-      ruleId: "scope.mismatch",
-      severity: "error",
-      line: 1,
-      column: 1,
-      message: "Concept scope does not match its directory.",
-    });
-  }
   const bodyOffset = source.length - concept.body.length;
   const references = inspectMarkdown(concept.body).links.map((link) => ({
     ...link,
@@ -127,7 +106,7 @@ export function parseScopedConcept(
     }
   }
   if (issues.length > 0)
-    throw new MemoryError("Invalid memory scope or reference.", "INVALID_CONCEPT", {
+    throw new MemoryError("Invalid memory concept reference.", "INVALID_CONCEPT", {
       issues,
     });
   return concept;
@@ -139,10 +118,6 @@ export function lintMemory(
   options: MemoryLintOptions,
 ): MemoryLintDiagnostic[] {
   const now = Date.parse(memoryDateTimeSchema.parse(options.now));
-  const workspace = z
-    .string()
-    .regex(/^workspaces\/[^/]+--[a-f0-9]{12}$/u)
-    .parse(options.workspaceDirectory);
   const diagnostics: MemoryLintDiagnostic[] = [];
   const documents = new Map<
     string,
@@ -171,16 +146,18 @@ export function lintMemory(
     emit(path, rule, "warning", message, offset);
 
   for (const [path, bytes] of [...files].sort(([a], [b]) => a.localeCompare(b))) {
-    if (!memoryPathIsVisible(path, workspace)) continue;
+    if (!memoryPathIsVisible(path)) continue;
+    const name = posix.basename(path);
+    if (isReservedMemoryName(name) && name.toLocaleLowerCase("en-US") !== "index.md") continue;
     try {
       if (Buffer.byteLength(bytes) > (options.maxBytes ?? DEFAULT_MAX_CONCEPT_BYTES)) {
         emit(path, "document.size", "error", "Memory document exceeds its byte limit.");
         continue;
       }
       const source = decodeConcept(bytes);
-      const reserved = ["index.md", "log.md"].includes(posix.basename(path));
+      const reserved = name.toLocaleLowerCase("en-US") === "index.md";
       if (!reserved) {
-        const concept = parseScopedConcept(path, bytes, options.maxBytes, options.checkResource);
+        const concept = parseMemoryConcept(path, bytes, options.maxBytes, options.checkResource);
         const { tree } = inspectMarkdown(concept.body);
         documents.set(path, { source, body: concept.body, tree, concept });
       } else {
@@ -190,7 +167,7 @@ export function lintMemory(
           const header =
             match?.[1] === undefined ? undefined : parseDocument(match[1], { uniqueKeys: true });
           if (
-            path !== "index.md" ||
+            name.toLocaleLowerCase("en-US") !== "index.md" ||
             !header ||
             header.errors.length > 0 ||
             !isMap(header.contents) ||
@@ -268,21 +245,6 @@ export function lintMemory(
       }
       const target = localTarget(path, url);
       if (target === null) return;
-      if (
-        target.startsWith("workspaces/") &&
-        target !== "workspaces/" &&
-        (!target.startsWith(`${workspace}/`) || path.startsWith("global/"))
-      ) {
-        if (concept)
-          emit(
-            path,
-            "link.scope",
-            "error",
-            "Local reference belongs to a different scope.",
-            offset,
-          );
-        return;
-      }
       targets.add(target);
       const exists =
         files.has(target) ||
@@ -317,11 +279,7 @@ export function lintMemory(
           const issue = options.checkResource?.(entry.resource);
           if (issue) emit(path, issue.ruleId, issue.severity, issue.message);
           if (!options.checkResource)
-            warn(
-              path,
-              "source.unchecked",
-              "Science reference requires the workspace Science resolver.",
-            );
+            warn(path, "source.unchecked", "Science reference requires a Science resolver.");
         } else if (/^(?:\.{0,2}\/|[^\s]+\.md(?:[?#]|$))/u.test(entry.resource)) {
           checkLink(entry.resource, 0);
         }
@@ -343,40 +301,13 @@ export function lintMemory(
       continue;
     }
 
-    const index = posix.basename(path) === "index.md";
-    let dated = false;
     if (!tree.children.some((node) => node.type === "heading")) {
-      emit(
-        path,
-        index ? "index.structure" : "log.structure",
-        "error",
-        "Reserved document needs a heading.",
-      );
+      emit(path, "index.structure", "error", "Index needs a heading.");
     }
     for (const node of tree.children) {
       const offset = bodyOffset + (node.position?.start.offset ?? 0);
-      if (node.type === "heading") {
-        if (!index && node.depth > 1) {
-          dated = z.iso.date().safeParse(markdownText(node)).success;
-          if (!dated)
-            emit(
-              path,
-              "log.date",
-              "error",
-              "Log date headings must be valid YYYY-MM-DD dates.",
-              offset,
-            );
-        }
-      } else if (node.type === "list") {
-        if (!index && !dated)
-          emit(
-            path,
-            "log.structure",
-            "error",
-            "Log entries need a preceding date heading.",
-            offset,
-          );
-        if (!index) continue;
+      if (node.type === "heading") continue;
+      if (node.type === "list") {
         for (const item of node.children) {
           const paragraph = item.children[0];
           const link = paragraph?.type === "paragraph" ? paragraph.children[0] : undefined;
@@ -416,9 +347,9 @@ export function lintMemory(
       } else {
         emit(
           path,
-          index ? "index.structure" : "log.structure",
+          "index.structure",
           "error",
-          "Reserved documents contain headings and list entries.",
+          "Indexes contain headings and list entries.",
           offset,
         );
       }
@@ -426,9 +357,8 @@ export function lintMemory(
   }
   for (const [path, { concept }] of documents) {
     if (!concept) continue;
-    const index = `${posix.dirname(posix.dirname(path))}/index.md`;
-    if (!linked.get(index)?.has(path))
-      warn(path, "index.missing", "Concept is absent from its scope index.");
+    if (!linked.get("index.md")?.has(path))
+      warn(path, "index.missing", "Concept is absent from the root index.");
   }
   return diagnostics.sort(
     (a, b) =>

@@ -1,6 +1,6 @@
 {
   "name": "@swarmx/memory",
-  "version": "0.1.0",
+  "version": "3.3.0",
   "description": "Shared semantic memory in private OKF Markdown for SwarmX.",
   "license": "MIT",
   "type": "module",
@@ -30,7 +30,8 @@
   "devDependencies": {
     "@types/mdast": "^4.0.4",
     "@types/proper-lockfile": "^4.1.4",
-    "@types/write-file-atomic": "^4.0.3"
+    "@types/write-file-atomic": "^4.0.3",
+    "mdast-util-to-markdown": "^2.1.2"
   },
   "files": [
     "lib/index.js",

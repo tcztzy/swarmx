@@ -14,7 +14,6 @@ describe("memory OKF fixture", () => {
     expect(frontmatter).toMatchObject({
       type: "Decision",
       status: "draft",
-      swarmx_scope: "workspace",
       sources: [
         {
           id: "okf-spec",

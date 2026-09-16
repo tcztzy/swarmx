@@ -39,7 +39,7 @@ export class ExecutionJournal {
 
   constructor(
     root: string,
-    private readonly workspaceId: string,
+    private readonly directoryKey: string,
   ) {
     if (!isAbsolute(root)) throw new Error("Execution journal root must be absolute.");
     mkdirSync(root, { recursive: true, mode: 0o700 });
@@ -83,7 +83,7 @@ export class ExecutionJournal {
         CREATE TRIGGER IF NOT EXISTS execution_cause_workspace BEFORE INSERT ON execution_events
           WHEN NEW.caused_by IS NOT NULL AND NOT EXISTS (
             SELECT 1 FROM execution_events WHERE id = NEW.caused_by AND workspace_id = NEW.workspace_id
-          ) BEGIN SELECT RAISE(ABORT, 'Execution cause belongs to another workspace or is missing'); END;
+          ) BEGIN SELECT RAISE(ABORT, 'Execution cause belongs to another directory or is missing'); END;
         PRAGMA user_version = 1;
         COMMIT;
       `);
@@ -118,7 +118,7 @@ export class ExecutionJournal {
         seq,
         id: randomUUID(),
         observedAt: observedAt.toISOString(),
-        workspaceId: this.workspaceId,
+        workspaceId: this.directoryKey,
         sessionId: context?.sessionId ?? null,
         runId: context?.runId ?? null,
         causedBy: context?.causedBy ?? null,
@@ -173,11 +173,11 @@ export class ExecutionJournal {
       ORDER BY seq LIMIT ?
     `)
       .all(
-        this.workspaceId,
+        this.directoryKey,
         session ?? null,
-        this.workspaceId,
+        this.directoryKey,
         Number(descendants),
-        this.workspaceId,
+        this.directoryKey,
         after,
         session ?? null,
         run ?? null,
@@ -199,7 +199,7 @@ export class ExecutionJournal {
       .prepare(`SELECT record_json FROM execution_events
       WHERE workspace_id = ? AND json_extract(record_json, '$.event.name') = ?
       AND (? IS NULL OR session_id = ?) ORDER BY seq DESC LIMIT 1`)
-      .get(this.workspaceId, name, sessionId ?? null, sessionId ?? null) as
+      .get(this.directoryKey, name, sessionId ?? null, sessionId ?? null) as
       | { record_json: string }
       | undefined;
     return row ? ExecutionRecordSchema.parse(JSON.parse(row.record_json)) : undefined;
@@ -213,7 +213,7 @@ export class ExecutionJournal {
         AND json_extract(decision.record_json, '$.event.name') IN ('swarmx.memory.accepted', 'swarmx.memory.rejected')
         AND json_extract(decision.record_json, '$.event.value.proposalId') = proposal.id)
       ORDER BY proposal.seq LIMIT 100`)
-      .all(this.workspaceId) as { record_json: string }[];
+      .all(this.directoryKey) as { record_json: string }[];
     return rows.map(({ record_json }) => ExecutionRecordSchema.parse(JSON.parse(record_json)));
   }
 
@@ -224,7 +224,7 @@ export class ExecutionJournal {
       AND json_extract(record_json, '$.event.type') = 'RUN_FINISHED'
       AND COALESCE(json_extract(record_json, '$.event.result.interruptionRequested'), 0) = 0
       AND COALESCE(json_extract(record_json, '$.event.result.stopReason'), 'end_turn') = 'end_turn'`)
-      .get(this.workspaceId, sessionId, after) as { count: number };
+      .get(this.directoryKey, sessionId, after) as { count: number };
     return row.count;
   }
 
@@ -235,7 +235,7 @@ export class ExecutionJournal {
       AND json_extract(created.record_json, '$.attributes."swarmx.harness.name"') = ?
       AND NOT EXISTS (SELECT 1 FROM execution_events started WHERE started.workspace_id = created.workspace_id
         AND started.session_id = created.session_id AND json_extract(started.record_json, '$.event.type') = 'RUN_STARTED')`)
-      .all(this.workspaceId, harness) as { session_id: string }[];
+      .all(this.directoryKey, harness) as { session_id: string }[];
     return rows.map((row) => row.session_id);
   }
 
@@ -244,7 +244,7 @@ export class ExecutionJournal {
       .prepare(`SELECT record_json FROM execution_events
       WHERE workspace_id = ? AND json_extract(record_json, '$.event.name') = 'swarmx.a2a.context.bound'
       AND json_extract(record_json, '$.event.value.agentId') = ? ORDER BY seq`)
-      .all(this.workspaceId, agentId) as { record_json: string }[];
+      .all(this.directoryKey, agentId) as { record_json: string }[];
     return new Map(
       rows.map(({ record_json }) => {
         const record = ExecutionRecordSchema.parse(JSON.parse(record_json));
@@ -264,7 +264,7 @@ export class ExecutionJournal {
       WHERE workspace_id = ? AND session_id = ?
       AND json_extract(record_json, '$.event.type') IN ('TOOL_CALL_CHUNK', 'TOOL_CALL_RESULT')
       ORDER BY seq DESC LIMIT 30`)
-      .all(this.workspaceId, sessionId) as { record_json: string }[];
+      .all(this.directoryKey, sessionId) as { record_json: string }[];
     let remaining = 20_000;
     return rows
       .filter(({ record_json }) => {
@@ -294,7 +294,7 @@ export class ExecutionJournal {
         json_extract(record_json, '$.event.input.messages[0].content') FROM execution_events e
       WHERE workspace_id = ? AND json_extract(record_json, '$.event.type') = 'RUN_STARTED'
       AND NOT EXISTS (SELECT 1 FROM memory_messages m WHERE m.rowid = e.seq)`)
-      .run(this.workspaceId);
+      .run(this.directoryKey);
     this.database
       .prepare(`WITH messages AS (
       SELECT MIN(seq) AS first_seq, workspace_id, session_id, run_id, GROUP_CONCAT(delta, '') AS text FROM (
@@ -309,7 +309,7 @@ export class ExecutionJournal {
       SELECT m.first_seq, m.workspace_id, m.session_id, m.run_id, 'assistant', original.id, m.text
       FROM messages m JOIN execution_events original ON original.seq = m.first_seq
       WHERE NOT EXISTS (SELECT 1 FROM memory_messages stored WHERE stored.rowid = m.first_seq)`)
-      .run(this.workspaceId);
+      .run(this.directoryKey);
     const query = input.query ?? "";
     const useFts = Array.from(query).length >= 3;
     const rows = this.database
@@ -318,7 +318,7 @@ export class ExecutionJournal {
         AND ${useFts ? "text MATCH ?" : "instr(lower(text), lower(?)) > 0"}
       ORDER BY rowid DESC LIMIT ?`)
       .all(
-        this.workspaceId,
+        this.directoryKey,
         input.sessionId ?? null,
         input.sessionId ?? null,
         useFts ? `"${query.replaceAll('"', '""')}"` : query,
@@ -349,7 +349,7 @@ export class ExecutionJournal {
              json_extract(record_json, '$.event.name') = 'swarmx.session.created'
            )`,
         )
-        .all(this.workspaceId) as { session_id: string }[]
+        .all(this.directoryKey) as { session_id: string }[]
     ).map(({ session_id }) => session_id);
   }
 
@@ -366,7 +366,7 @@ export class ExecutionJournal {
           AND json_type(record_json, '$.event.value.permissions') IS NOT NULL)
       ) ORDER BY seq
     `)
-      .all(this.workspaceId, sessionId) as { permissions: string }[];
+      .all(this.directoryKey, sessionId) as { permissions: string }[];
     let permissions: AgentPermissions | undefined;
     for (const row of rows) {
       const raw: unknown = JSON.parse(row.permissions);
@@ -393,7 +393,7 @@ export class ExecutionJournal {
         json_type(record_json, '$.event.input.forwardedProps.permissions.filesystem') IS NOT NULL OR
         json_type(record_json, '$.event.value.permissions.filesystem') IS NOT NULL
       ) LIMIT 1`)
-      .get(this.workspaceId, sessionId);
+      .get(this.directoryKey, sessionId);
     if (legacy)
       throw new Error(
         "This conversation has legacy filesystem permissions. Its history remains available; create a new conversation and select its native mode. See docs/permissions.md.",
@@ -411,7 +411,7 @@ export class ExecutionJournal {
           (json_extract(record_json, '$.event.type') = 'RAW'
           AND json_type(record_json, '$.attributes."swarmx.native.mode"') = 'text'))
         ORDER BY seq DESC LIMIT 1`)
-      .get(this.workspaceId, sessionId) as { mode: string } | undefined;
+      .get(this.directoryKey, sessionId) as { mode: string } | undefined;
     return row?.mode;
   }
 

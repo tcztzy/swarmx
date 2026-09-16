@@ -59,6 +59,15 @@ Test: public behavior, boundary rejection, cancellation, persistence, security-s
 
 Always state whether tests, lint, builds passed or were skipped. Never claim tests passed without running them.
 
+## Behavioral Acceptance
+
+- Bind each acceptance conclusion to its scope and candidate: record HEAD and the staged/unstaged diff identity. On re-acceptance, reconcile previous unresolved findings with current evidence as closed, still failing, or unverified. Do not carry a passing conclusion across changed candidates.
+- Derive cases from the existing contract across affected implementations, not just the latest reported symptom. For lifecycle changes, trace the actual runtime's directly affected transitions, including asynchronous preparation inside SDK calls, dispatch, acknowledgements, queued work, terminal events and cleanup. Use this to identify missing cases; avoid exhaustive combinations or unrelated audits.
+- Place deterministic pauses at the relevant asynchronous boundaries. For cancellation before dispatch, release the pause after Stop returns and assert zero subsequent provider/tool calls as well as a cancelled outcome. A cancelled status alone does not prove execution stopped. For completion, verify accepted follow-up work finishes before resources are released.
+- Verify native behavior against the installed SDK or matching upstream source. Prefer the real SDK with a local provider substitute for lifecycle regressions. A mock must preserve the relevant ordering, ownership and persistence constraints; using a real SDK alone does not prove the tested timing covers the failure.
+- Promote confirmed regressions into the normal test suite when fixing them. Demonstrate failure before the fix and success after it. Preserve the behavioral assertion; justify fixture changes with native-contract evidence. A reproduction only in ignored `runs/` is not a durable regression guard.
+- Report previous findings closed, new blockers and unverified scope separately. Distinguish a targeted fix passing from the whole candidate passing. A green suite proves its assertions, not missing contract coverage; neither test counts nor speculative, unreachable scenarios justify the acceptance decision.
+
 ## Documentation
 
 - `SPEC.md` — durable product requirements (keep short)

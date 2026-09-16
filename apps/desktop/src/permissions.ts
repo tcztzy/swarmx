@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-export const HarnessSchema = z.enum(["codex", "claude", "hermes", "openclaw"]);
+export const HarnessSchema = z.enum(["pi", "codex", "claude", "hermes", "openclaw", "dsh"]);
 export const HarnessAccessSchema = z.partialRecord(
   HarnessSchema,
   z.array(z.string().min(1).max(512)).nullable(),
@@ -20,10 +20,17 @@ export type PermissionRequest = z.infer<typeof PermissionRequestSchema>;
 export const AgentPermissionsSchema = PermissionRequestSchema.required();
 export type AgentPermissions = z.infer<typeof AgentPermissionsSchema>;
 
-export function projectPermissions(policy: PermissionRequest): AgentPermissions {
+export function policyPermissions(policy: PermissionRequest): AgentPermissions {
   return {
     tools: policy.tools ?? [...ToolGrantSchema.options],
-    harnesses: policy.harnesses ?? { codex: null, claude: null, hermes: null, openclaw: null },
+    harnesses: policy.harnesses ?? {
+      pi: null,
+      codex: null,
+      claude: null,
+      hermes: null,
+      openclaw: null,
+      dsh: null,
+    },
     delegation: policy.delegation ?? true,
   };
 }

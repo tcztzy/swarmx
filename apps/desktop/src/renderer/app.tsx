@@ -1,41 +1,28 @@
 import { lazy, Suspense, useEffect, useState } from "react";
-import { z } from "zod";
-import { LanguageSchema, ProjectSchema } from "../settings.js";
+import type { z } from "zod";
+import { BootstrapSchema, SessionCreateSchema, SessionListSchema } from "../bridge-contract.js";
 import { HarnessPicker } from "./agent-controls.js";
-import { projectFetch as fetch } from "./api.js";
+import { bridge } from "./bridge.js";
 import { ConversationSurface } from "./chat.js";
+import { Button } from "./components/ui/radix/button.js";
+import { Input } from "./components/ui/radix/input.js";
 import { i18n, t, useTranslation } from "./i18n.js";
 import { Icon } from "./icon.js";
-import { ProjectNav } from "./projects.js";
 import { SettingsPage } from "./settings.js";
+import type { SourceReference } from "./source-inspection.js";
 import { TracePanel } from "./trace.js";
 
 const ResearchPanel = lazy(() =>
   import("./research.js").then(({ ResearchPanel }) => ({ default: ResearchPanel })),
 );
 
-const Sessions = z.array(
-  z.object({
-    sessionId: z.string(),
-    title: z.string().nullish(),
-    updatedAt: z.string().nullish(),
-  }),
-);
-const Bootstrap = z.strictObject({
-  agents: z.array(z.string()),
-  defaultHarness: z.string(),
-  language: LanguageSchema.nullable(),
-  sessions: Sessions,
-  sessionError: z.string().optional(),
-  workspace: ProjectSchema,
-  projects: z.array(ProjectSchema),
-});
+type Sessions = z.infer<typeof SessionListSchema>;
 
 export function App() {
   useTranslation();
-  const [bootstrap, setBootstrap] = useState<z.infer<typeof Bootstrap>>();
+  const [bootstrap, setBootstrap] = useState<z.infer<typeof BootstrapSchema>>();
   const [error, setError] = useState<string>();
-  const [sessions, setSessions] = useState<z.infer<typeof Sessions>>([]);
+  const [sessions, setSessions] = useState<Sessions>([]);
   const [selected, setSelected] = useState("");
   const [sessionRequest, setSessionRequest] = useState({ agentId: "swarm" });
   const { agentId } = sessionRequest;
@@ -44,13 +31,19 @@ export function App() {
   const [creating, setCreating] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(() => matchMedia("(min-width: 768px)").matches);
   const [panel, setPanel] = useState<"assets" | "observe">();
-  const [target, setTarget] = useState<{ artifactId?: string; projectId?: string }>();
-  const [page, setPage] = useState<"chat" | "settings" | "project-settings">("chat");
+  const [target, setTarget] = useState<{
+    artifactId?: string;
+    projectId?: string;
+    source?: SourceReference;
+  }>();
+  const [page, setPage] = useState<"chat" | "settings">("chat");
   useEffect(() => {
     const open = (event: Event) => {
       setPage("chat");
-      setPanel("assets");
-      setTarget((event as CustomEvent).detail);
+      const detail = (event as CustomEvent).detail as typeof target;
+      setPanel(detail?.source ? "observe" : "assets");
+      setTarget(detail);
+      if (detail?.source) setSidebarOpen(false);
     };
     window.addEventListener("swarmx:open-research", open);
     return () => window.removeEventListener("swarmx:open-research", open);
@@ -62,24 +55,25 @@ export function App() {
     setLoading(true);
     setError(undefined);
     const load = async () => {
-      const response = await fetch(
-        agentId === "swarm"
-          ? "/api/v1/bootstrap"
-          : `/api/v1/sessions?agent=${encodeURIComponent(agentId)}`,
-      );
-      if (!response.ok) throw new Error(await response.text());
-      const data: unknown = await response.json();
-      const bootstrap = agentId === "swarm" ? Bootstrap.parse(data) : undefined;
-      const sessions = bootstrap?.sessions ?? Sessions.parse(data);
-      if (!current) return;
-      if (bootstrap !== undefined) {
-        if (bootstrap.language) await i18n.changeLanguage(bootstrap.language);
-        setBootstrap(bootstrap);
-        setError(bootstrap.sessionError);
+      if (agentId !== "swarm") {
+        const listed = SessionListSchema.parse(await bridge().sessions.list({ agent: agentId }));
+        if (!current) return;
+        setSessions(listed);
+        setSelected((id) =>
+          listed.some((session) => session.sessionId === id) ? id : (listed[0]?.sessionId ?? ""),
+        );
+        return;
       }
-      setSessions(sessions);
+      const bootstrap = BootstrapSchema.parse(await bridge().bootstrap());
+      if (!current) return;
+      if (bootstrap.language) await i18n.changeLanguage(bootstrap.language);
+      setBootstrap(bootstrap);
+      setError(bootstrap.sessionError);
+      setSessions(bootstrap.sessions);
       setSelected((id) =>
-        sessions.some((session) => session.sessionId === id) ? id : (sessions[0]?.sessionId ?? ""),
+        bootstrap.sessions.some((session) => session.sessionId === id)
+          ? id
+          : (bootstrap.sessions[0]?.sessionId ?? ""),
       );
     };
     void load()
@@ -104,11 +98,7 @@ export function App() {
     setCreating(true);
     setError(undefined);
     try {
-      const response = await fetch(`/api/v1/sessions?agent=${encodeURIComponent(agentId)}`, {
-        method: "POST",
-      });
-      if (!response.ok) throw new Error(await response.text());
-      const session = z.object({ sessionId: z.string() }).parse(await response.json());
+      const session = SessionCreateSchema.parse(await bridge().sessions.create({ agent: agentId }));
       setSessions((items) => [{ ...session, title: t("新任务") }, ...items]);
       setQuery("");
       select(session.sessionId);
@@ -119,6 +109,7 @@ export function App() {
     }
   };
 
+  const refresh = () => setSessionRequest((request) => ({ agentId: request.agentId }));
   const changeHarness = (id: string) => {
     setSessionRequest({ agentId: id });
     setSelected("");
@@ -140,13 +131,14 @@ export function App() {
               <p role="alert" className="break-words text-sm">
                 {error}
               </p>
-              <button
-                className="primary-button"
+              <Button
+                variant="default"
+                size="default"
                 type="button"
                 onClick={() => setSessionRequest({ agentId })}
               >
                 {t("重新连接")}
-              </button>
+              </Button>
             </>
           )}
         </div>
@@ -194,16 +186,13 @@ export function App() {
       {page !== "chat" && (
         <section className="flex min-w-0 flex-1 flex-col" aria-label={t("设置")}>
           <header className="flex h-16 shrink-0 items-center gap-3 border-b border-neutral-200 px-5">
-            <button className="secondary-button" type="button" onClick={() => setPage("chat")}>
+            <Button variant="outline" size="sm" type="button" onClick={() => setPage("chat")}>
               <Icon name="sidebar" />
               {t("返回对话")}
-            </button>
-            <h1 className="font-medium">{page === "settings" ? t("通用设置") : t("项目设置")}</h1>
+            </Button>
+            <h1 className="font-medium">{t("设置")}</h1>
           </header>
-          <SettingsPage
-            project={page === "project-settings" ? bootstrap.workspace : undefined}
-            sessionId={selected || undefined}
-          />
+          <SettingsPage sessionId={selected || undefined} />
         </section>
       )}
       <div hidden={page !== "chat"} className={page !== "chat" ? "hidden" : "flex min-w-0 flex-1"}>
@@ -234,7 +223,7 @@ export function App() {
               </button>
               <label className="mt-2 flex items-center gap-2 rounded-lg bg-neutral-200/50 px-2.5 text-neutral-500 focus-within:ring-1 focus-within:ring-neutral-400">
                 <Icon name="search" />
-                <input
+                <Input
                   aria-label={t("搜索任务")}
                   className="min-w-0 flex-1 bg-transparent py-2 outline-none placeholder:text-neutral-500"
                   type="search"
@@ -243,30 +232,22 @@ export function App() {
                   onChange={(event) => setQuery(event.target.value)}
                 />
               </label>
-              <ProjectNav
-                projects={bootstrap.projects}
-                current={bootstrap.workspace.id}
-                onSettings={() => setPage("project-settings")}
-              />
               <div className="mt-7 mb-2 flex items-center justify-between px-2 text-xs text-neutral-500">
-                <span>{t("任务")}</span>
-                <button
+                <span>
+                  {t("任务")} · {sessions.length}
+                </span>
+                <Button
                   aria-label={t("刷新任务")}
                   title={t("刷新任务")}
-                  className="icon-button size-7"
+                  variant="ghost"
+                  size="icon-sm"
+                  className="size-7"
                   disabled={loading || creating}
-                  onClick={() => setSessionRequest({ agentId })}
+                  onClick={refresh}
                   type="button"
                 >
                   <Icon name="refresh" className={`size-3.5 ${loading ? "animate-spin" : ""}`} />
-                </button>
-              </div>
-              <div className="mb-1 flex items-center gap-2 px-2.5 py-2 font-medium">
-                <Icon name="folder" className="size-4 text-neutral-500" />
-                <span className="truncate">{bootstrap.workspace.label}</span>
-                <span className="ml-auto text-xs font-normal text-neutral-500">
-                  {sessions.length}
-                </span>
+                </Button>
               </div>
               <nav
                 aria-label={t("任务列表")}
@@ -308,9 +289,9 @@ export function App() {
               </nav>
               <footer className="mt-3 border-neutral-200 border-t pt-3">
                 <button
-                  className="workspace-nav w-full gap-2.5 py-3 text-left"
+                  className="settings-nav w-full gap-2.5 py-3 text-left"
                   type="button"
-                  aria-label={t("通用设置")}
+                  aria-label={t("设置")}
                   onClick={() => setPage("settings")}
                 >
                   <span className="grid size-8 shrink-0 place-items-center rounded-full bg-white text-xs font-semibold">
@@ -318,7 +299,7 @@ export function App() {
                   </span>
                   <span className="flex min-w-0 flex-1 flex-col gap-0.5">
                     <span className="font-medium">SwarmX</span>
-                    <span className="text-[10px] text-neutral-500">{t("通用设置")}</span>
+                    <span className="text-[10px] text-neutral-500">{t("设置")}</span>
                   </span>
                   <Icon name="settings" />
                 </button>
@@ -327,48 +308,51 @@ export function App() {
           </>
         )}
         <section className="flex min-w-0 flex-1 flex-col">
-          <header className="flex h-16 shrink-0 items-center gap-3 border-neutral-100 border-b px-4">
-            <button
+          <header className="conversation-header">
+            <Button
               aria-controls="task-sidebar"
               aria-expanded={sidebarOpen}
               aria-label={sidebarOpen ? t("收起侧栏") : t("展开侧栏")}
               title={sidebarOpen ? t("收起侧栏") : t("展开侧栏")}
-              className="icon-button"
+              variant="ghost"
+              size="icon-sm"
               type="button"
               onClick={() => setSidebarOpen((open) => !open)}
             >
               <Icon name="sidebar" />
-            </button>
-            <span className="hidden truncate text-neutral-500 sm:inline">
-              {bootstrap.workspace.label}
-            </span>
-            <span aria-hidden="true" className="hidden text-neutral-300 sm:inline">
-              /
-            </span>
-            <h1 className="min-w-0 truncate font-medium">{title}</h1>
+            </Button>
+            <span aria-hidden="true" className="header-divider" />
+            <h1 title={title}>{title}</h1>
             <div className="ml-auto flex items-center gap-1">
-              <button
-                className="secondary-button border-transparent px-2.5 aria-expanded:bg-neutral-100"
+              <Button
+                variant="outline"
+                size="sm"
+                className="border-transparent px-2.5 aria-expanded:bg-neutral-100"
                 aria-label={t("科研资产")}
                 aria-expanded={panel === "assets"}
                 aria-controls="research-side-view"
                 type="button"
                 onClick={() => setPanel(panel === "assets" ? undefined : "assets")}
               >
-                <Icon name="image" />
+                <Icon name="folder" className="size-6" />
                 <span className="hidden sm:inline">{t("科研资产")}</span>
-              </button>
-              <button
-                className="secondary-button border-transparent px-2.5 aria-expanded:bg-neutral-100"
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="border-transparent px-2.5 aria-expanded:bg-neutral-100"
                 aria-label={t("观测与溯源")}
                 aria-expanded={panel === "observe"}
                 aria-controls="research-side-view"
                 type="button"
-                onClick={() => setPanel(panel === "observe" ? undefined : "observe")}
+                onClick={() => {
+                  setTarget(undefined);
+                  setPanel(panel === "observe" && !target?.source ? undefined : "observe");
+                }}
               >
-                <Icon name="trace" />
+                <Icon name="eye" className="size-6" />
                 <span className="hidden sm:inline">{t("观测与溯源")}</span>
-              </button>
+              </Button>
             </div>
           </header>
           {error !== undefined && (
@@ -392,18 +376,20 @@ export function App() {
                     <br />
                     {t("SwarmX 与你一起推进。")}
                   </p>
-                  <button
-                    className="primary-button mt-1 gap-2"
+                  <Button
+                    variant="default"
+                    size="default"
+                    className="mt-1 gap-2"
                     disabled={loading || creating}
                     onClick={() => void create()}
                     type="button"
                   >
                     <Icon name="plus" />
                     {loading ? t("正在加载任务…") : creating ? t("正在创建…") : t("开始一个任务")}
-                  </button>
+                  </Button>
                   <span className="mt-2 flex items-center gap-1.5 text-xs text-neutral-400">
                     <Icon name="folder" className="size-3.5" />
-                    {bootstrap.workspace.label}
+                    {bootstrap.cwd}
                   </span>
                   <HarnessPicker {...harnessProps} disabled={creating} />
                 </div>
@@ -418,9 +404,9 @@ export function App() {
                 {...harnessProps}
                 harnessDisabled={creating}
                 threadId={selected}
-                workspace={bootstrap.workspace.label}
                 sidePanel={sidePanel}
                 panelOpen={!!panel}
+                source={panel === "observe" ? target?.source : undefined}
               />
             )}
           </div>

@@ -19,7 +19,7 @@ async function fixture(reviewer: MemoryReviewer = async () => '{"operations":[]}
   const root = await mkdtemp(join(tmpdir(), "swarmx-learning-"));
   const options = {
     productHome: join(root, "product"),
-    workspace: { id: "123456abcdef", label: "Research", root },
+    cwd: root,
   };
   const products = await ProductServices.create(options);
   const memory = new AgentMemory(
@@ -61,21 +61,87 @@ async function fixture(reviewer: MemoryReviewer = async () => '{"operations":[]}
   };
 }
 
+it("instructs every Agent authoring path while preserving local names and mixed-language bodies", async () => {
+  const request = {
+    title: "ふるさと納税",
+    description: "A checklist for Japan's local government donation program.",
+    type: "Playbook",
+    tags: ["Japan", "taxation"],
+    body: "# ふるさと納税\n\n先核对官方资料。Keep the source links. 手順を確認する。",
+  };
+  const reviewer = vi
+    .fn<MemoryReviewer>()
+    .mockResolvedValue(JSON.stringify({ operations: [{ action: "create_memory", request }] }));
+  const { agent, start, memory, products } = await fixture(reviewer);
+  await agent.start("codex:authoring", "Save the research", sink);
+  memory.review("codex:authoring");
+  await vi.waitFor(async () => expect((await memory.status()).review.state).toBe("completed"));
+
+  for (const instructions of [
+    start.mock.calls[0]?.[3]?.instructions,
+    products.toolManifest.find((tool) => tool.name === "memory")?.description,
+    reviewer.mock.calls[0]?.[0],
+  ]) {
+    expect(instructions).toContain(
+      "Store durable user- or research-specific knowledge that adds value beyond public sources",
+    );
+    expect(instructions).toContain(
+      "if there is no durable added value, do not save an encyclopedia summary",
+    );
+    expect(instructions).toContain(
+      "Do not put migration notes, curation history, source-scope bookkeeping or self-commentary in memory content",
+    );
+    expect(instructions).toContain(
+      "Do not create standalone current concepts or first-level index/navigation/disambiguation entries for merged or obsolete topics",
+    );
+    expect(instructions).toContain(
+      "These are Memory operating rules, not user preferences; do not copy them into core notes or vault concepts",
+    );
+    expect(instructions).toContain("Use concise, unambiguous concept titles");
+    expect(instructions).toContain("without hashes, UUIDs or timestamps");
+    expect(instructions).toContain("Store concept pages directly at the memory root");
+    expect(instructions).toContain("Do not add folders");
+    expect(instructions).toContain("no separate Markdown change log");
+    expect(instructions).toContain("Write natural-language Memory metadata in American English");
+    expect(instructions).toContain("language community, culture or institution");
+    expect(instructions).toContain("法定节假日调休, ふるさと納税, 전세");
+    expect(instructions).toContain("Body content may use any language or mix languages");
+    expect(instructions).toContain("Preserve IDs, URLs, hashes, timestamps");
+  }
+
+  const [entry] = (await products.memory.vault.search({ query: request.title })).items;
+  expect(entry).toBeDefined();
+  if (!entry) throw new Error("The reviewed concept is missing.");
+  const concept = await products.memory.vault.readConcept(entry.id);
+  expect(concept.metadata).toMatchObject({
+    title: request.title,
+    description: request.description,
+    tags: request.tags,
+  });
+  expect(concept.body.trim()).toBe(request.body);
+});
+
 it("freezes notes per session across reloads while new sessions receive updates", async () => {
   const { agent, start, memory, products, options } = await fixture();
-  const empty = await memory.core.read("user");
-  await memory.edit({
-    action: "update_core_memory",
-    request: { target: "user", content: "Prefer Chinese", expectedRevision: empty.revision },
-  });
+  const empty = await memory.core.read();
+  await memory.call(
+    {
+      action: "update_core_memory",
+      request: { content: "Prefer Chinese", expectedRevision: empty.revision },
+    },
+    { actorId: "user", callId: "note-one", signal: new AbortController().signal },
+  );
   await agent.start("codex:one", "First task", sink);
   const first = start.mock.calls[0]?.[3]?.instructions;
   expect(first).toContain("Prefer Chinese");
-  const saved = await memory.core.read("user");
-  await memory.edit({
-    action: "update_core_memory",
-    request: { target: "user", content: "Prefer English", expectedRevision: saved.revision },
-  });
+  const saved = await memory.core.read();
+  await memory.call(
+    {
+      action: "update_core_memory",
+      request: { content: "Prefer English", expectedRevision: saved.revision },
+    },
+    { actorId: "user", callId: "note-two", signal: new AbortController().signal },
+  );
   const reopened = new AgentMemory(
     options,
     products.memory,
@@ -90,7 +156,7 @@ it("freezes notes per session across reloads while new sessions receive updates"
   await reopened.close();
 });
 
-it("recalls complete streamed Chinese messages with original event references and workspace isolation", async () => {
+it("recalls complete streamed Chinese messages with original event references and directory isolation", async () => {
   const { agent, products, options } = await fixture();
   await agent.start("codex:one", "记住科研方案", sink);
   const matches = products.journal.recall({ query: "科研方案" });
@@ -111,15 +177,15 @@ it("recalls complete streamed Chinese messages with original event references an
 it("stages writes durably, rejects self-approval, and retains a conflicting proposal for review", async () => {
   const { products, memory, options } = await fixture();
   products.settings.writeMemory({ ...products.settings.readMemory(), writeApproval: true });
-  const empty = await memory.core.read("user");
+  const empty = await memory.core.read();
   const operation = {
     action: "update_core_memory",
-    request: { target: "user", content: "Prefer Chinese", expectedRevision: empty.revision },
+    request: { content: "Prefer Chinese", expectedRevision: empty.revision },
   };
   await expect(memory.call({ ...operation, approved: true }, context)).rejects.toThrow();
   const proposed = await memory.call(operation, context);
   expect(proposed).toMatchObject({ staged: true });
-  expect((await memory.core.read("user")).content).toBe("");
+  expect((await memory.core.read()).content).toBe("");
   const reopened = new AgentMemory(
     options,
     products.memory,
@@ -130,7 +196,7 @@ it("stages writes durably, rejects self-approval, and retains a conflicting prop
   const pending = (await reopened.status()).pending[0];
   if (!pending) throw new Error("Missing pending memory change");
   await reopened.decide(pending.id, "approve");
-  expect((await memory.core.read("user")).content).toBe("Prefer Chinese");
+  expect((await memory.core.read()).content).toBe("Prefer Chinese");
   expect((await reopened.status()).pending).toEqual([]);
   await expect(reopened.decide(pending.id, "approve")).rejects.toThrow("not found");
   await memory.call(operation, context);
@@ -145,14 +211,13 @@ it("stages writes durably, rejects self-approval, and retains a conflicting prop
 it("triggers a real review boundary at the configured threshold and records validated writes", async () => {
   const reviewer = vi.fn<MemoryReviewer>();
   const { agent, memory, products } = await fixture(reviewer);
-  const note = await memory.core.read("workspace");
+  const note = await memory.core.read();
   reviewer.mockResolvedValue(
     JSON.stringify({
       operations: [
         {
           action: "update_core_memory",
           request: {
-            target: "workspace",
             content: "Use reproducible environments",
             expectedRevision: note.revision,
           },
@@ -166,7 +231,7 @@ it("triggers a real review boundary at the configured threshold and records vali
   await agent.start("codex:one", "Second", sink);
   await vi.waitFor(async () => expect((await memory.status()).review.state).toBe("completed"));
   expect(reviewer).toHaveBeenCalledTimes(1);
-  expect((await memory.core.read("workspace")).content).toBe("Use reproducible environments");
+  expect((await memory.core.read()).content).toBe("Use reproducible environments");
   expect(products.journal.memoryEvent("swarmx.memory.saved")?.event).toMatchObject({
     value: { origin: "review" },
   });
@@ -178,7 +243,7 @@ it("surfaces invalid review output and never treats a cancelled review as a succ
   await agent.start("codex:one", "Work", sink);
   memory.review("codex:one");
   await vi.waitFor(async () => expect((await memory.status()).review.state).toBe("failed"));
-  expect((await memory.core.read("user")).content).toBe("");
+  expect((await memory.core.read()).content).toBe("");
   reviewer.mockImplementation(
     async (_prompt, signal) =>
       new Promise((_resolve, reject) =>

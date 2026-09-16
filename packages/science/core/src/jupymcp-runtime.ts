@@ -93,7 +93,7 @@ function requestOptions(signal: AbortSignal | undefined, timeout: number) {
 }
 
 async function connectJupyMcp(options: JupyMcpConnectionOptions): Promise<JupyMcpPeer> {
-  const client = new Client({ name: "swarmx-science", version: "0.1.0" }, { capabilities: {} });
+  const client = new Client({ name: "swarmx-science", version: "3.3.0" }, { capabilities: {} });
   const transport = new StdioClientTransport({
     args: [...options.args],
     command: options.command,

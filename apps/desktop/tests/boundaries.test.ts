@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { extname, join, relative } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -16,6 +17,33 @@ function files(directory: string): string[] {
 }
 
 describe("architecture boundaries", () => {
+  it.runIf(existsSync(join(root, "apps/desktop/dist/agents/openclaw.js")))(
+    "loads built native entries in Node without starting runtimes",
+    () => {
+      execFileSync(
+        process.execPath,
+        [
+          "--input-type=module",
+          "--eval",
+          'for (const name of ["pi", "codex", "claude", "dsh", "hermes", "openclaw"]) await import("./apps/desktop/dist/agents/" + name + ".js")',
+        ],
+        { cwd: root, stdio: "pipe" },
+      );
+    },
+  );
+
+  it("keeps ACP imports only at the external gateway boundary", () => {
+    const imports = files(join(root, "apps/desktop/src"))
+      .filter(
+        (path) =>
+          extname(path) === ".ts" && readFileSync(path, "utf8").includes("@agentclientprotocol/"),
+      )
+      .map((path) => relative(root, path))
+      .sort();
+    expect(imports).toEqual(["apps/desktop/src/acp-main.ts", "apps/desktop/src/host/acp.ts"]);
+    for (const name of ["acp-harness", "acp-process"])
+      expect(existsSync(join(root, `apps/desktop/src/agents/${name}.ts`))).toBe(false);
+  });
   it("contains no old runtime or deleted UI paths", () => {
     for (const path of [
       "apps/desktop/src/runtime",
@@ -30,20 +58,18 @@ describe("architecture boundaries", () => {
       .filter((path) => [".ts", ".tsx", ".json"].includes(extname(path)))
       .map((path) => readFileSync(path, "utf8"))
       .join("\n");
-    expect(source).not.toMatch(
-      /@deepseek-ai|ConversationController|cordis|tui_gateway|json-rpc-2\.0|gateway-client/iu,
-    );
+    expect(source).not.toMatch(/ConversationController|dsh-web|dsh-client-ui|cordis-web/iu);
     const renderer = files(join(root, "apps/desktop/src/renderer"))
       .map((path) => readFileSync(path, "utf8"))
       .join("\\n");
     expect(renderer).not.toMatch(
-      /@openai|@anthropic|@openclaw|@agentclientprotocol|@a2a-js|Retry|Fork|@theme/u,
+      /@earendil-works|@openai|@anthropic|@openclaw|@deepseek-ai|@agentclientprotocol|@a2a-js|\b(?:Retry|Fork)\b/u,
     );
   });
 
   it("keeps public packages free of providers and UI protocols", () => {
     const forbidden =
-      /@deepseek-ai|cordis|@openai|@anthropic|@openclaw|@a2a-js|@ag-ui|assistant-ui|electron/iu;
+      /@earendil-works|@deepseek-ai|cordis|@openai|@anthropic|@openclaw|@agentclientprotocol|@a2a-js|@ag-ui|assistant-ui|electron/iu;
     const offenders = [
       "packages/core/swarm",
       "packages/core/dvc",
@@ -54,32 +80,35 @@ describe("architecture boundaries", () => {
         .filter((path) => [".ts", ".tsx", ".json"].includes(extname(path)))
         .filter((path) => {
           const source = readFileSync(path, "utf8");
-          return (
-            forbidden.test(source) ||
-            (directory !== "packages/core/swarm" && source.includes("@agentclientprotocol"))
-          );
+          return forbidden.test(source);
         })
         .map((path) => relative(root, path)),
     );
     expect(offenders).toEqual([]);
   });
 
-  it("ships native integrations, official protocols and unconfigured Tailwind", () => {
+  it("ships native integrations, official protocols and Tailwind Demo styles", () => {
     const manifest = JSON.parse(readFileSync(join(root, "apps/desktop/package.json"), "utf8")) as {
       dependencies?: Record<string, string>;
       devDependencies?: Record<string, string>;
     };
     const names = Object.keys(manifest.dependencies ?? {});
     expect(names).not.toContain("@openai/codex");
-    expect(names.filter((name) => name.startsWith("@deepseek-ai/"))).toEqual([]);
+    expect(names.filter((name) => name.startsWith("@deepseek-ai/"))).toEqual([
+      "@deepseek-ai/dsh-sdk-client",
+    ]);
+    expect(names).not.toContain("@agentclientprotocol/codex-acp");
+    expect(names).not.toContain("@agentclientprotocol/claude-agent-acp");
     expect(names).not.toContain("@swarmx/agent");
     expect(names).not.toContain("assistant-cloud");
     expect(names).not.toContain("@deepseek-ai/cordis");
     expect(manifest.dependencies).toMatchObject({
+      "@earendil-works/pi-coding-agent": expect.any(String),
       "@a2a-js/sdk": "1.1.0",
       "@anthropic-ai/claude-agent-sdk": expect.any(String),
-      "@agentclientprotocol/codex-acp": expect.any(String),
-      "@agentclientprotocol/claude-agent-acp": expect.any(String),
+      "@openclaw/gateway-client": expect.any(String),
+      "@openclaw/gateway-protocol": expect.any(String),
+      "json-rpc-2.0": expect.any(String),
       "@agentclientprotocol/sdk": "1.4.0",
       "@assistant-ui/react-o11y": "0.0.42",
       "@assistant-ui/store": "0.3.12",
@@ -95,15 +124,8 @@ describe("architecture boundaries", () => {
     const swarm = JSON.parse(
       readFileSync(join(root, "packages/core/swarm/package.json"), "utf8"),
     ) as { dependencies?: Record<string, string> };
-    expect(swarm.dependencies).toEqual({
-      "@agentclientprotocol/sdk": manifest.dependencies?.["@agentclientprotocol/sdk"],
-      zod: expect.any(String),
-    });
-    expect(
-      names.some((name) =>
-        /gateway-client|gateway-protocol|json-rpc-2\.0|dsh|cordis|kimi|zcode/u.test(name),
-      ),
-    ).toBe(false);
+    expect(swarm.dependencies).toBeUndefined();
+    expect(names.some((name) => /cordis|kimi|zcode/u.test(name))).toBe(false);
   });
 
   it.runIf(existsSync(join(root, "apps/desktop/dist/renderer")))(

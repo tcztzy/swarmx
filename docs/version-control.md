@@ -1,8 +1,9 @@
 # Git and DVC
 
-The Host-owned `ProductServices` instance owns one `DvcService` and its Git status projection for
-the authorized workspace. Renderer REST reads Git/DVC state and may request bounded DVC pull or
-reproduce operations. Native Agents reach the same owner through product MCP carriers.
+`@swarmx/dvc` exposes `DvcService` for Git/DVC inspection, bounded pulls and reproduction in
+disposable Git worktrees. Callers supply an execution directory and a process runner, and retain
+the returned reproduction handle until they have finished inspecting its outputs.
 
 The package is vendor-neutral and receives no Agent transcript, A2A state, AG-UI event, or renderer
-type. Workspace authorization and subprocess cancellation are enforced at the Host boundary.
+type. Callers authorize the directory and operations; the service propagates cancellation to
+its owned subprocesses and cleans up reproduction worktrees.

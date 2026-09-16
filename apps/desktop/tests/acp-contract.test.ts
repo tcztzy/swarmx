@@ -3,12 +3,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import * as acp from "@agentclientprotocol/sdk";
 import { afterEach, expect, it, vi } from "vitest";
+import manifest from "../package.json";
 import { HARNESS_CAPABILITIES, type Interaction, type NativeAgent } from "../src/agents/types.js";
 import { acpAgent } from "../src/host/acp.js";
-import { acpClient } from "../src/host/acp-client.js";
 import { acknowledgedPermissions } from "../src/host/acp-extension.js";
 import { ProductServices } from "../src/host/product-services.js";
-import { projectPermissions } from "../src/permissions.js";
+import { policyPermissions } from "../src/permissions.js";
 
 const cleanups: (() => Promise<void>)[] = [];
 afterEach(async () => {
@@ -25,15 +25,63 @@ const question: Interaction = {
   id: "tool",
   title: "Write?",
   schema: {},
-  permission: {
-    toolCall: { toolCallId: "tool", title: "Write?" },
-    options: [
-      { optionId: "yes", name: "Allow once", kind: "allow_once" },
-      { optionId: "no", name: "Reject", kind: "reject_once" },
+  approval: {
+    toolId: "tool",
+    choices: [
+      { id: "yes", label: "Allow once", kind: "allow_once", answer: { allow: true } },
+      { id: "no", label: "Reject", kind: "reject_once", answer: { allow: false } },
     ],
-    answers: { yes: { allow: true }, no: { allow: false } },
   },
 };
+
+it("projects native activity to external ACP chunks without reversing a failed tool status", async () => {
+  const { root, native, connect } = await fixture();
+  native.read = async (_id, output) => {
+    output.activity?.({
+      type: "message",
+      turnId: "turn",
+      messageId: "answer",
+      phase: "final_answer",
+      durationMs: 1234,
+    });
+    output.text("answer", "Answer");
+    output.activity?.({ type: "tool", toolCallId: "command", kind: "execute", status: "failed" });
+    output.tool(
+      "command",
+      "commandExecution",
+      { command: "false" },
+      { aggregatedOutput: "Failed", exitCode: 1 },
+    );
+  };
+  const updates: acp.SessionUpdate[] = [];
+  const remote = connect(
+    acp.client().onNotification(acp.methods.client.session.update, ({ params }) => {
+      updates.push(params.update);
+    }),
+  );
+  await remote.request(acp.methods.agent.initialize, { protocolVersion: acp.PROTOCOL_VERSION });
+  const session = await remote.request(acp.methods.agent.session.new, {
+    cwd: root,
+    mcpServers: [],
+  });
+  await remote.request(acp.methods.agent.session.load, {
+    cwd: root,
+    sessionId: session.sessionId,
+    mcpServers: [],
+  });
+  expect(updates).toContainEqual(
+    expect.objectContaining({
+      sessionUpdate: "agent_message_chunk",
+      messageId: "answer",
+      _meta: { codex: { phase: "final_answer" }, swarmx: { turnId: "turn", durationMs: 1234 } },
+    }),
+  );
+  const toolUpdates = updates.filter((update) => "toolCallId" in update);
+  expect(toolUpdates).toMatchObject([
+    { sessionUpdate: "tool_call", toolCallId: "command", kind: "execute", status: "failed" },
+    { sessionUpdate: "tool_call_update", toolCallId: "command", kind: "execute", status: "failed" },
+  ]);
+});
 
 it("relays native modes through nested Swarms and preserves the choice when selecting a model", async () => {
   const { products, native, root, start } = await fixture();
@@ -84,7 +132,7 @@ it("relays native modes through nested Swarms and preserves the choice when sele
       prompt: [{ type: "text", text: "work" }],
     });
     expect(start.mock.lastCall?.[3]).toMatchObject({ mode: "full", model: "small" });
-    expect(products.journal.sessionPermissions(session.sessionId)).toEqual(projectPermissions({}));
+    expect(products.journal.sessionPermissions(session.sessionId)).toEqual(policyPermissions({}));
     await expect(
       connection.agent.request(acp.methods.agent.session.setMode, {
         sessionId: session.sessionId,
@@ -96,7 +144,7 @@ it("relays native modes through nested Swarms and preserves the choice when sele
   }
 });
 
-it("opens every recursive edge through ACP and isolates concurrent connection authorities", async () => {
+it("uses direct recursive calls and isolates concurrent execution authorities", async () => {
   const { products, start } = await fixture();
   const context = { actorId: "test", callId: "create", signal: new AbortController().signal };
   for (const [id, leadAgentId] of [
@@ -135,9 +183,9 @@ it("opens every recursive edge through ACP and isolates concurrent connection au
       outer.start(restricted, "read", observer),
       products.rootAgent.start(writable, "write", observer),
     ]);
-    expect(connect).toHaveBeenCalledTimes(6); // outer → middle → inner → leaf, root → leaf
+    expect(connect).not.toHaveBeenCalled();
     expect(seen.get(restricted)).toEqual(["memory.read", "science.read"]);
-    expect(seen.get(writable)).toEqual(projectPermissions({}).tools);
+    expect(seen.get(writable)).toEqual(policyPermissions({}).tools);
     expect(observer.raw).toHaveBeenCalledWith(
       { sessionId: restricted },
       { "rpc.method": "native", "gen_ai.response.id": undefined },
@@ -152,40 +200,6 @@ it("opens every recursive edge through ACP and isolates concurrent connection au
     connect.mockRestore();
   }
 });
-
-it.each(["unsupported", "missing", "wider"])(
-  "internal ACP clients reject %s permission acknowledgements",
-  async (failure) => {
-    const create = vi.fn(() => ({
-      sessionId: "native",
-      ...(failure === "missing"
-        ? {}
-        : { _meta: { swarmx: { version: 2, permissions: projectPermissions({}) } } }),
-    }));
-    const client = acpClient(
-      "test",
-      HARNESS_CAPABILITIES.codex,
-      "/workspace",
-      (app) =>
-        app.connect(
-          acp
-            .agent()
-            .onRequest(acp.methods.agent.initialize, () => ({
-              protocolVersion: acp.PROTOCOL_VERSION,
-              agentCapabilities:
-                failure === "unsupported"
-                  ? {}
-                  : { _meta: { swarmx: { version: 2, permissions: true } } },
-            }))
-            .onRequest(acp.methods.agent.session.new, create),
-        ),
-      () => projectPermissions({ tools: ["memory.read", "science.read"] }),
-    );
-    await expect(client.create()).rejects.toThrow();
-    expect(create).toHaveBeenCalledTimes(failure === "unsupported" ? 0 : 1);
-    await client.dispose();
-  },
-);
 
 it("closing the upstream ACP connection cancels its native prompt", async () => {
   const { products, native, root, start } = await fixture();
@@ -218,7 +232,7 @@ it("closing the upstream ACP connection cancels its native prompt", async () => 
   expect(native.interrupt).toHaveBeenCalled();
 });
 
-it("cancels during ACP model configuration before native dispatch", async () => {
+it("cancels during native model validation before dispatch", async () => {
   const { products, native, start } = await fixture();
   const entered = Promise.withResolvers<void>();
   const release = Promise.withResolvers<void>();
@@ -240,7 +254,7 @@ async function fixture() {
   const root = await mkdtemp(join(tmpdir(), "swarmx-acp-contract-"));
   const products = await ProductServices.create({
     productHome: join(root, "home"),
-    workspace: { id: "acp", label: "ACP", root },
+    cwd: root,
   });
   let counter = 0;
   const start = vi.fn<NativeAgent["start"]>(async () => ({ stopReason: "end_turn" }));
@@ -256,7 +270,7 @@ async function fixture() {
     interrupt: vi.fn(async () => {}),
     dispose: async () => {},
   };
-  await products.attachAgents("http://localhost", "test", native);
+  await products.attachAgents("http://localhost", native, "codex");
   cleanups.push(async () => {
     await products.dispose();
     await rm(root, { recursive: true, force: true });
@@ -286,6 +300,7 @@ it("negotiates and acknowledges persistent permissions with the official ACP cli
     clientCapabilities: negotiated,
   });
   expect(init.agentCapabilities?._meta?.swarmx).toMatchObject({ version: 2, permissions: true });
+  expect(init.agentInfo?.version).toBe(manifest.version);
   const session = await client.request(acp.methods.agent.session.new, {
     cwd: root,
     mcpServers: [],
@@ -332,6 +347,10 @@ it("negotiates and acknowledges persistent permissions with the official ACP cli
 
   const standard = connect();
   await standard.request(acp.methods.agent.initialize, { protocolVersion: acp.PROTOCOL_VERSION });
+  await standard.request(acp.methods.agent.session.resume, {
+    sessionId: session.sessionId,
+    cwd: root,
+  });
   await standard.request(acp.methods.agent.session.prompt, {
     sessionId: session.sessionId,
     prompt: [{ type: "text", text: "continue" }],

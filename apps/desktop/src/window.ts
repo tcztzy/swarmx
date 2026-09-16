@@ -1,9 +1,10 @@
+import { fileURLToPath } from "node:url";
 import { BrowserWindow, shell, type WebContents } from "electron";
 
 const WIDTH = 1280;
 const HEIGHT = 860;
 
-export function createWindow(url: string): BrowserWindow {
+export function createWindow(renderer: string): BrowserWindow {
   const window = new BrowserWindow({
     width: WIDTH,
     height: HEIGHT,
@@ -14,13 +15,16 @@ export function createWindow(url: string): BrowserWindow {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
+      preload: fileURLToPath(new URL("../preload.cjs", import.meta.url)),
     },
   });
-  const origin = new URL(url).origin;
-  fenceNavigation(window, origin);
-  setRendererPermissionPolicy(window, origin);
+  const location = new URL(renderer);
+  const local = (target: URL) =>
+    location.protocol === "file:" ? target.protocol === "file:" : target.origin === location.origin;
+  fenceNavigation(window, local);
+  setRendererPermissionPolicy(window, local);
   window.once("ready-to-show", () => window.show());
-  void window.loadURL(url).catch((error: unknown) => {
+  void window.loadURL(renderer).catch((error: unknown) => {
     process.stderr.write(
       `swarmx: failed to load the SwarmX surface: ${error instanceof Error ? error.message : String(error)}\n`,
     );
@@ -29,17 +33,17 @@ export function createWindow(url: string): BrowserWindow {
   return window;
 }
 
-function fenceNavigation(window: BrowserWindow, origin: string): void {
+function fenceNavigation(window: BrowserWindow, local: (target: URL) => boolean): void {
   const { webContents } = window;
   webContents.on("will-navigate", (event, target) => {
-    const external = webUrl(target);
-    if (external?.origin === origin) return;
+    const destination = new URL(target);
+    if (local(destination)) return;
     event.preventDefault();
-    if (external !== undefined) openExternal(target);
+    if (destination.protocol === "http:" || destination.protocol === "https:") openExternal(target);
   });
   webContents.setWindowOpenHandler(({ url: target }) => {
-    const external = webUrl(target);
-    if (external !== undefined) openExternal(target);
+    const destination = webUrl(target);
+    if (destination !== undefined) openExternal(target);
     return { action: "deny" };
   });
 }
@@ -63,7 +67,7 @@ function openExternal(target: string): void {
 
 function isRendererClipboardWrite(
   window: BrowserWindow,
-  origin: string,
+  local: (target: URL) => boolean,
   webContents: WebContents | null,
   permission: string,
   requestingUrl: string,
@@ -77,18 +81,18 @@ function isRendererClipboardWrite(
     return false;
   }
   try {
-    return new URL(requestingUrl).origin === origin;
+    return local(new URL(requestingUrl));
   } catch {
     return false;
   }
 }
 
-function setRendererPermissionPolicy(window: BrowserWindow, origin: string): void {
+function setRendererPermissionPolicy(window: BrowserWindow, local: (target: URL) => boolean): void {
   const { session } = window.webContents;
   session.setPermissionCheckHandler((webContents, permission, requestingOrigin, details) =>
     isRendererClipboardWrite(
       window,
-      origin,
+      local,
       webContents,
       permission,
       requestingOrigin,
@@ -99,7 +103,7 @@ function setRendererPermissionPolicy(window: BrowserWindow, origin: string): voi
     callback(
       isRendererClipboardWrite(
         window,
-        origin,
+        local,
         webContents,
         permission,
         details.requestingUrl,

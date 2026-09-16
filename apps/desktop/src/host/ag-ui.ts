@@ -1,5 +1,4 @@
 import { randomUUID } from "node:crypto";
-import type { IncomingMessage, ServerResponse } from "node:http";
 import {
   type AGUIEvent,
   EventSchemas,
@@ -10,30 +9,35 @@ import {
   type RunAgentInput,
   RunAgentInputSchema,
 } from "@ag-ui/core";
-import { EventEncoder } from "@ag-ui/encoder";
-import type { PromptResponse } from "@swarmx/swarm";
+import type { RunResult } from "@swarmx/swarm";
 import type { Interaction, NativeAgent, Observer } from "../agents/types.js";
 import { RunOptionsSchema } from "../agents/types.js";
+import {
+  type Activity,
+  type HistoryMessage,
+  type MessageActivity,
+  readMessageActivity,
+  readToolActivity,
+  type ToolActivity,
+} from "../message-activity.js";
 
 export const parseAgUiInput = (raw: unknown): RunAgentInput => RunAgentInputSchema.parse(raw);
+
+export interface AgUiSink {
+  event(event: AGUIEvent): void;
+}
 
 export class AgUiBridge {
   private readonly turns = new Map<string, Turn>();
   constructor(private readonly agent: NativeAgent) {}
 
-  async handle(request: IncomingMessage, response: ServerResponse): Promise<void> {
-    const input = parseAgUiInput(await readJson(request));
-    const stream = new Projection(response, input.threadId, input.runId);
-    const abort = () => {
-      if (!stream.finished) void this.cancel(input.threadId);
-    };
-    request.once("aborted", abort);
-    response.once("close", abort);
+  async run(input: RunAgentInput, sink: AgUiSink): Promise<void> {
+    const stream = new AgUiStream(sink, input.threadId, input.runId);
     try {
       let turn = this.turns.get(input.threadId);
       if (input.resume) {
         if (!turn) throw new Error("No pending interaction.");
-        turn.projection = stream;
+        turn.stream = stream;
         turn.resume(input.resume);
       } else {
         if (turn) throw new Error("Session is busy.");
@@ -52,50 +56,52 @@ export class AgUiBridge {
         turn.completed,
         turn.signal.promise.then((interrupt) => ({ kind: "interaction", interrupt }) as const),
       ]);
-      turn.projection = undefined;
+      turn.stream = undefined;
       if (outcome.kind === "interaction") stream.interrupt(outcome.interrupt);
       else if (outcome.kind === "error") stream.error(outcome.error);
       else stream.complete(outcome.result);
     } catch (error) {
       stream.error(error);
-    } finally {
-      request.off("aborted", abort);
-      response.off("close", abort);
     }
   }
 
   async cancel(id: string): Promise<void> {
-    this.turns.get(id)?.cancelInteraction();
+    const turn = this.turns.get(id);
+    if (!turn) return;
+    turn.cancelInteraction();
     await this.agent.interrupt(id);
   }
 }
 
 class Turn implements Observer {
   readonly completed: Promise<
-    { kind: "complete"; result: PromptResponse } | { kind: "error"; error: unknown }
+    { kind: "complete"; result: RunResult } | { kind: "error"; error: unknown }
   >;
   signal = Promise.withResolvers<Interrupt>();
   private readonly pending: { interrupt: Interrupt; resolve(value: unknown): void }[] = [];
 
   constructor(
-    public projection: Projection | undefined,
-    start: (observer: Observer) => Promise<PromptResponse>,
+    public stream: AgUiStream | undefined,
+    start: (observer: Observer) => Promise<RunResult>,
   ) {
     this.completed = Promise.resolve()
       .then(() => start(this))
       .then(
-        (result) => ({ kind: "complete", result }),
-        (error: unknown) => ({ kind: "error", error }),
+        (result) => ({ kind: "complete" as const, result }),
+        (error: unknown) => ({ kind: "error" as const, error }),
       );
   }
   text(id: string, text: string, role: "user" | "assistant" | "reasoning" = "assistant") {
-    if (role !== "user") this.projection?.text(id, text, role);
+    if (role !== "user") this.stream?.text(id, text, role);
   }
   tool(id: string, name: string, input: unknown, output?: unknown) {
-    this.projection?.tool(id, name, input, output);
+    this.stream?.tool(id, name, input, output);
+  }
+  activity(event: Activity) {
+    this.stream?.send({ type: EventType.CUSTOM, name: "swarmx.activity", value: event });
   }
   raw(event: unknown) {
-    this.projection?.send({ type: EventType.CUSTOM, name: "native", value: event });
+    this.stream?.send({ type: EventType.CUSTOM, name: "native", value: event });
   }
   interact(request: Interaction, signal?: AbortSignal): Promise<unknown> {
     if (signal?.aborted) return Promise.resolve(undefined);
@@ -136,23 +142,16 @@ class Turn implements Observer {
   }
 }
 
-class Projection {
-  private readonly encoder = new EventEncoder();
+class AgUiStream {
   private readonly tools = new Set<string>();
   private part: { id: string; role: "assistant" | "reasoning" } | undefined;
   finished = false;
 
   constructor(
-    private readonly response: ServerResponse,
+    private readonly sink: AgUiSink,
     private readonly threadId: string,
     private readonly runId: string,
   ) {
-    response.writeHead(200, {
-      "cache-control": "no-cache, no-store",
-      connection: "keep-alive",
-      "content-type": this.encoder.getContentType(),
-      "x-accel-buffering": "no",
-    });
     this.send({ type: EventType.RUN_STARTED, threadId, runId });
   }
   text(id: string, delta: string, role: "assistant" | "reasoning") {
@@ -200,9 +199,9 @@ class Projection {
       runId: this.runId,
       outcome: { type: "interrupt", interrupts: [interrupt] },
     });
-    this.close();
+    this.finished = true;
   }
-  complete(result: PromptResponse) {
+  complete(result: RunResult) {
     this.endPart();
     this.send({
       type: EventType.RUN_FINISHED,
@@ -211,7 +210,7 @@ class Projection {
       result,
       ...(result.stopReason === "end_turn" ? { outcome: { type: "success" as const } } : {}),
     });
-    this.close();
+    this.finished = true;
   }
   error(error: unknown) {
     this.endPart();
@@ -219,7 +218,7 @@ class Projection {
       type: EventType.RUN_ERROR,
       message: error instanceof Error ? error.message : String(error),
     });
-    this.close();
+    this.finished = true;
   }
   private endPart() {
     if (!this.part) return;
@@ -231,19 +230,17 @@ class Projection {
     this.part = undefined;
   }
   send(event: AGUIEvent) {
-    if (!this.finished && !this.response.destroyed)
-      this.response.write(
-        this.encoder.encodeSSE(EventSchemas.parse({ timestamp: Date.now(), ...event })),
-      );
-  }
-  private close() {
-    this.finished = true;
-    this.response.end();
+    if (!this.finished) this.sink.event(EventSchemas.parse({ timestamp: Date.now(), ...event }));
   }
 }
 
-export async function loadAgUiHistory(agent: NativeAgent, sessionId: string): Promise<Message[]> {
+export async function loadAgUiHistory(
+  agent: NativeAgent,
+  sessionId: string,
+): Promise<HistoryMessage[]> {
   const messages: Message[] = [];
+  const activity = new Map<string, MessageActivity>();
+  const toolActivity = new Map<string, ToolActivity>();
   const byId = new Map<string, Message>();
   const tools = new Set<string>();
   await agent.read(sessionId, {
@@ -276,11 +273,34 @@ export async function loadAgUiHistory(agent: NativeAgent, sessionId: string): Pr
         });
     },
     raw() {},
+    activity(event) {
+      const tool = readToolActivity(event);
+      if (tool) {
+        const { toolCallId, ...metadata } = tool;
+        toolActivity.set(`call:${toolCallId}`, {
+          ...toolActivity.get(`call:${toolCallId}`),
+          ...metadata,
+        });
+      }
+      const metadata = readMessageActivity(event);
+      if (metadata?.messageId && metadata.phase) {
+        const { messageId, phase, ...timing } = metadata;
+        activity.set(messageId, { phase, ...timing });
+      }
+    },
     interact: async () => {
       throw new Error("History cannot request interaction.");
     },
   });
-  return messages;
+  return messages.map((message) => {
+    const metadata = activity.get(message.id);
+    const tool = toolActivity.get(message.id);
+    return {
+      ...message,
+      ...(metadata ? { _meta: metadata } : {}),
+      ...(tool ? { _tool: tool } : {}),
+    };
+  });
 }
 
 function messageText(message: Message): string {
@@ -288,18 +308,4 @@ function messageText(message: Message): string {
   if (!Array.isArray(message.content) || !message.content.every((part) => part.type === "text"))
     throw new Error("SwarmX accepts text-only AG-UI user messages.");
   return message.content.map((part) => part.text).join("");
-}
-
-async function readJson(request: IncomingMessage): Promise<unknown> {
-  if (!(request.headers["content-type"] ?? "").startsWith("application/json"))
-    throw new Error("Expected an application/json body.");
-  const chunks: Buffer[] = [];
-  let size = 0;
-  for await (const chunk of request) {
-    const bytes = Buffer.from(chunk);
-    size += bytes.length;
-    if (size > 1024 * 1024) throw new Error("AG-UI input is too large.");
-    chunks.push(bytes);
-  }
-  return JSON.parse(Buffer.concat(chunks).toString("utf8"));
 }

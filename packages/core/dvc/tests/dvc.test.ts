@@ -13,8 +13,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
-import { NodeProcessRunner } from "../../../../apps/desktop/src/host/process-runner.js";
 import DvcService, { type DvcError } from "../src/index.js";
+import { processRunner } from "./process-runner.js";
 
 const scratch: string[] = [];
 const fixtureSource = fileURLToPath(new URL("./fixtures/fake-dvc.mjs", import.meta.url));
@@ -62,7 +62,7 @@ function repository(): string {
 }
 
 async function mounted(config: Record<string, unknown> = {}) {
-  const dvc = new DvcService(new NodeProcessRunner(), config);
+  const dvc = new DvcService(processRunner, config);
   return { context: { dvc }, fiber: { dispose: () => dvc.close() } };
 }
 

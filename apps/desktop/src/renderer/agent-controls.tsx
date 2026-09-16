@@ -1,12 +1,19 @@
-import type { AssistantRuntime } from "@assistant-ui/react";
-import * as Menu from "@radix-ui/react-dropdown-menu";
-import * as Popover from "@radix-ui/react-popover";
-import * as RadioGroup from "@radix-ui/react-radio-group";
+import type { AssistantRuntime, LanguageModelConfig } from "@assistant-ui/react";
 import type { ModelCatalog, RunOptions } from "@swarmx/swarm";
-import { Command } from "cmdk";
+import { DropdownMenu as Menu } from "radix-ui";
 import { useEffect, useState } from "react";
 import { z } from "zod";
-import { projectFetch as fetch } from "./api.js";
+import { bridge } from "./bridge.js";
+import {
+  ModelSelectorContent,
+  ModelSelectorEffort,
+  ModelSelectorList,
+  ModelSelectorModelContext,
+  ModelSelectorRoot,
+  ModelSelectorTrigger,
+  ModelSelectorValue,
+} from "./components/assistant-ui/elements/model-selector.aui.js";
+import { NativeSelect } from "./components/ui/radix/native-select.js";
 import { t, useTranslation } from "./i18n.js";
 import { Icon } from "./icon.js";
 
@@ -31,10 +38,12 @@ const ModelCatalogSchema = z.strictObject({
 }) satisfies z.ZodType<ModelCatalog>;
 
 const harnessNames: Record<string, string> = {
+  pi: "Pi",
   codex: "Codex",
   claude: "Claude",
   hermes: "Hermes",
   openclaw: "OpenClaw",
+  dsh: "DSH",
 };
 
 export interface HarnessProps {
@@ -101,7 +110,6 @@ export function RunControls({
   const [selection, setSelection] = useState<RunOptions>({});
   const [error, setError] = useState<string>();
   const [request, setRequest] = useState({ agentId, threadId });
-  const [open, setOpen] = useState(false);
   const modelId = selection.model ?? catalog?.current.model;
   const model = catalog?.models.find((row) => row.id === modelId);
   const efforts = model?.efforts ?? [];
@@ -116,38 +124,32 @@ export function RunControls({
         getModelContext: () => ({
           config: {
             ...(selection.mode === undefined ? {} : { mode: selection.mode }),
-            ...(selection.model === undefined ? {} : { modelName: selection.model }),
-            ...((selection.model !== undefined || selection.effort !== undefined) && effort
-              ? { reasoningEffort: effort.id }
-              : {}),
-          },
+          } as LanguageModelConfig & Pick<RunOptions, "mode">,
         }),
       }),
-    [runtime, selection, effort],
+    [runtime, selection.mode],
   );
   useEffect(() => {
-    const controller = new AbortController();
+    let current = true;
     setError(undefined);
     const load = async () => {
-      const response = await fetch(
-        `/api/v1/models?agent=${encodeURIComponent(request.agentId)}&session=${encodeURIComponent(request.threadId)}`,
-        { signal: controller.signal },
+      const value = ModelCatalogSchema.parse(
+        await bridge().models.read({ agent: request.agentId, session: request.threadId }),
       );
-      if (!response.ok) throw new Error(await response.text());
-      const value = ModelCatalogSchema.parse(await response.json());
-      if (!controller.signal.aborted) setCatalog(value);
+      if (current) setCatalog(value);
     };
     void load().catch((cause: unknown) => {
-      if (!controller.signal.aborted)
-        setError(cause instanceof Error ? cause.message : String(cause));
+      if (current) setError(cause instanceof Error ? cause.message : String(cause));
     });
-    return () => controller.abort();
+    return () => {
+      current = false;
+    };
   }, [request]);
 
   return (
     <div className="ml-auto flex min-w-0 items-center gap-1">
       {!!catalog?.modes?.length && (
-        <select
+        <NativeSelect
           aria-label={t("原生模式")}
           className="composer-control max-w-48"
           value={selection.mode ?? catalog.current.mode ?? ""}
@@ -159,122 +161,70 @@ export function RunControls({
               {mode.name}
             </option>
           ))}
-        </select>
+        </NativeSelect>
       )}
-      <Popover.Root open={open} onOpenChange={setOpen}>
-        <Popover.Trigger
-          className="composer-control max-w-64 gap-2 rounded-md text-neutral-500"
-          role="combobox"
-          aria-haspopup="listbox"
-          aria-label={t("选择模型")}
+      <ModelSelectorRoot
+        models={(catalog?.models ?? []).map((row) => ({
+          id: row.id,
+          name: row.name,
+          ...(row.description === undefined ? {} : { description: row.description }),
+          efforts: row.efforts.map((level) => ({ ...level, name: effortLabel(level) })),
+        }))}
+        {...(modelId === undefined ? {} : { value: modelId })}
+        {...(effort === undefined ? {} : { effort: effort.id })}
+        onValueChange={(id) =>
+          setSelection({ ...selection, model: id, effort: selection.effort ?? effort?.id })
+        }
+        onEffortChange={(id) => setSelection({ ...selection, model: modelId, effort: id })}
+      >
+        {(selection.model !== undefined || selection.effort !== undefined) && (
+          <ModelSelectorModelContext />
+        )}
+        <ModelSelectorTrigger
           disabled={disabled}
+          variant="ghost"
+          size="sm"
+          aria-label={t("选择模型")}
           title={model?.name ?? modelId}
-          onKeyDown={(event) => {
-            if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-              event.preventDefault();
-              setOpen(true);
-            }
-          }}
         >
-          <span className="truncate">{model?.name ?? modelId ?? t("选择模型")}</span>
-          {effort && <span className="shrink-0 capitalize">{effortLabel(effort)}</span>}
-          <Icon name="chevron" className="size-3 rotate-90 text-neutral-400" />
-        </Popover.Trigger>
-        <Popover.Portal>
-          <Popover.Content
-            className="model-menu"
-            side="top"
-            align="end"
-            sideOffset={6}
-            collisionPadding={12}
-            aria-label={t("模型与推理强度")}
-          >
-            {error !== undefined ? (
-              <div className="p-2">
-                <p
-                  role="alert"
-                  className="px-2 py-2 text-xs leading-5 break-words text-neutral-600"
-                >
-                  {error}
-                </p>
-                <button
-                  type="button"
-                  className="composer-menu-item w-full hover:bg-neutral-100"
-                  onClick={() => setRequest({ agentId, threadId })}
-                >
-                  {t("重新加载模型")}
-                </button>
-              </div>
-            ) : catalog === undefined ? (
-              <p role="status" className="menu-label p-3">
-                {t("正在加载模型…")}
+          <ModelSelectorValue placeholder={modelId ?? t("选择模型")} />
+        </ModelSelectorTrigger>
+        <ModelSelectorContent
+          searchable={false}
+          side="top"
+          align="end"
+          aria-label={t("模型与推理强度")}
+        >
+          {error !== undefined ? (
+            <div className="p-2">
+              <p role="alert" className="px-2 py-2 text-xs leading-5 break-words text-neutral-600">
+                {error}
               </p>
-            ) : catalog.models.length === 0 ? (
-              <p className="menu-label p-3">{t("此 Harness 未提供可选模型")}</p>
-            ) : (
-              <>
-                <Command
-                  {...(modelId === undefined ? {} : { defaultValue: modelId })}
-                  shouldFilter={false}
-                  loop
-                >
-                  <Command.Input aria-label={t("模型导航")} className="sr-only" />
-                  <Command.List aria-label={t("模型")} className="model-menu-list">
-                    {catalog.models.map((row) => (
-                      <Command.Item
-                        key={row.id}
-                        value={row.id}
-                        disabled={disabled}
-                        onSelect={() => {
-                          setSelection({
-                            ...selection,
-                            model: row.id,
-                            effort: selection.effort ?? effort?.id,
-                          });
-                          setOpen(false);
-                        }}
-                        className="flex min-h-9 cursor-pointer items-center gap-2 rounded-lg px-3 py-2 text-sm data-[selected=true]:bg-neutral-100"
-                        title={row.description}
-                      >
-                        <span className="min-w-0 flex-1 truncate font-medium">{row.name}</span>
-                        {row.id === modelId && (
-                          <Icon name="check" className="size-3.5 text-neutral-500" />
-                        )}
-                      </Command.Item>
-                    ))}
-                  </Command.List>
-                </Command>
-                {efforts.length > 0 && (
-                  <div className="flex items-center justify-between gap-3 border-t border-neutral-200 px-3 py-2">
-                    <span className="text-xs text-neutral-500">{t("推理强度")}</span>
-                    <RadioGroup.Root
-                      aria-label={t("推理强度")}
-                      orientation="horizontal"
-                      value={effort?.id ?? ""}
-                      onValueChange={(id) =>
-                        setSelection({ ...selection, model: modelId, effort: id })
-                      }
-                      disabled={disabled}
-                      className="flex min-w-0 flex-wrap justify-end gap-0.5"
-                    >
-                      {efforts.map((row) => (
-                        <RadioGroup.Item
-                          key={row.id}
-                          value={row.id}
-                          title={row.name}
-                          className="rounded-md px-1.5 py-1 text-xs text-neutral-500 capitalize transition-colors hover:bg-neutral-100 hover:text-neutral-900 data-[state=checked]:bg-neutral-100 data-[state=checked]:font-medium data-[state=checked]:text-neutral-900 disabled:opacity-40"
-                        >
-                          {effortLabel(row)}
-                        </RadioGroup.Item>
-                      ))}
-                    </RadioGroup.Root>
-                  </div>
-                )}
-              </>
-            )}
-          </Popover.Content>
-        </Popover.Portal>
-      </Popover.Root>
+              <button
+                type="button"
+                className="composer-menu-item w-full hover:bg-neutral-100"
+                onClick={() => setRequest({ agentId, threadId })}
+              >
+                {t("重新加载模型")}
+              </button>
+            </div>
+          ) : catalog === undefined ? (
+            <p role="status" className="menu-label p-3">
+              {t("正在加载模型…")}
+            </p>
+          ) : catalog.models.length === 0 ? (
+            <p className="menu-label p-3">{t("此 Harness 未提供可选模型")}</p>
+          ) : (
+            <>
+              <ModelSelectorList />
+              <ModelSelectorEffort
+                label={t("推理强度")}
+                className="flex-wrap [&>[role=radiogroup]]:flex-wrap"
+              />
+            </>
+          )}
+        </ModelSelectorContent>
+      </ModelSelectorRoot>
     </div>
   );
 }

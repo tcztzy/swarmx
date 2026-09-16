@@ -51,12 +51,12 @@ and PDF store the JSON as canonical base64 text so XML metacharacters in code ca
 
 Source references have three stable forms:
 
-- `workspace` stores a traversal-free path relative to the live workspace. It never stores
+- `workspace` stores a traversal-free path relative to the execution directory. It never stores
   `/Users/...`, drive-letter paths, UNC paths, `..`, or a temporary materialization path. The Host
   verifies the live file and adds its SHA256; an optional caller digest is accepted only when it
   matches those bytes.
-- `artifact` stores a Science Artifact id. The Host resolves it inside the current
-  workspace and adds the immutable digest; a caller cannot supply or spoof that digest.
+- `artifact` stores a Science Artifact id. The Host resolves it within the execution directory's
+  records and adds the immutable digest; a caller cannot supply or spoof that digest.
 - `s3` stores a credential-free `s3://bucket/key`. `versionId` and/or a SHA256 digest should be
   supplied when the exact historical object matters. Metadata injection performs no network call.
 
@@ -75,15 +75,15 @@ settings export includes platform, recipe digest and every installed package ver
 cell never registers a declared output, even if an old file exists at that path. Image edits
 append new outputs while the original immutable bytes remain available.
 
-1. Code reads input through a workspace-relative path, an authorized materialized Artifact input,
+1. Code reads input through a path relative to the execution directory, an authorized materialized Artifact input,
    or application-owned S3 access.
 2. matplotlib `savefig(...)`, seaborn/matplotlib, R `ggsave(...)`, or Plotly writes an ordinary PNG,
-   SVG, or PDF inside the workspace.
+   SVG, or PDF inside that directory.
 3. Science resolves Artifact sources and rejects unsafe relative/S3 references. Notebook
    output fingerprints relative sources before execution and verifies them again afterward.
 4. The Artifact Store validates MIME against the actual file, replaces only its owned metadata,
    writes transformed bytes into owner-only staging, and computes SHA256 over the final bytes. The
-   workspace file is never modified.
+   source file is never modified.
 5. The transformed object is fsynced and content-addressed before the Journal commits metadata.
 
 PNG injection validates the chunk structure and inserts one `iTXt` immediately before `IEND`. SVG
@@ -160,7 +160,7 @@ remove, or rewrite existing owned metadata.
 ## Acceptance criteria
 
 - matplotlib and ggplot2 PNG/SVG/PDF outputs pass through one generator-independent capture path.
-- The stored object contains exactly one parseable owned record while the workspace source stays
+- The stored object contains exactly one parseable owned record while the source file stays
   unchanged and unrelated SVG/PDF metadata values survive.
 - Exact code, code hash, redacted runtime, and normalized sources round-trip from stored bytes.
 - Absolute/traversal paths, credential-bearing S3 URIs, foreign Artifact ids, MIME mismatches,

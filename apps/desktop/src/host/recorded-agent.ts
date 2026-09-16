@@ -1,7 +1,9 @@
 import { randomUUID } from "node:crypto";
 import { type AGUIEvent, EventType } from "@ag-ui/core";
-import type { PromptResponse } from "@swarmx/swarm";
+import type { RunResult } from "@swarmx/swarm";
+import { z } from "zod";
 import type { NativeAgent, Observer } from "../agents/types.js";
+import { ActivitySchema } from "../message-activity.js";
 import type { ExecutionContext, ExecutionJournal } from "./execution-journal.js";
 import type { AgentMemory } from "./memory.js";
 
@@ -12,12 +14,12 @@ export function recordedAgent(
   agent: NativeAgent,
   memory?: AgentMemory,
 ): NativeAgent {
-  const pending = new Set<Promise<PromptResponse>>();
+  const pending = new Set<Promise<RunResult>>();
   const interrupted = new Set<string>();
-  const globalCatalog = harness === "hermes" || harness === "openclaw";
+  const globalCatalog = harness === "hermes" || harness === "openclaw" || harness === "dsh";
   const assertSession = (id: string) => {
     if (globalCatalog && !journal.sessionIds().includes(id))
-      throw new Error("Session does not belong to this project.");
+      throw new Error("Session does not belong to this directory.");
   };
   const control = async (
     sessionId: string,
@@ -59,11 +61,16 @@ export function recordedAgent(
     capabilities: agent.capabilities,
     models: async (id) => {
       if (id) assertSession(id);
-      const catalog = await agent.models(id);
-      const mode = id ? journal.sessionMode(id) : undefined;
+      const catalog = await agent.models(harness === "dsh" ? undefined : id);
+      const mode = id && harness !== "hermes" ? journal.sessionMode(id) : undefined;
       return mode ? { ...catalog, current: { ...catalog.current, mode } } : catalog;
     },
     async list() {
+      if (harness === "dsh")
+        return journal
+          .sessionIds()
+          .filter((id) => id.startsWith("dsh:"))
+          .map((sessionId) => ({ sessionId }));
       const sessions = await agent.list();
       if (!globalCatalog) return sessions;
       const owned = new Set(journal.sessionIds());
@@ -92,9 +99,59 @@ export function recordedAgent(
     },
     read: async (id, observer) => {
       assertSession(id);
+      if (harness === "dsh") {
+        if (!id.startsWith("dsh:")) throw new Error("Session does not belong to DSH.");
+        const tools = new Map<string, { name: string; input: unknown }>();
+        let after = 0;
+        for (;;) {
+          const page = journal.read({ session: id, after });
+          for (const { event, attributes } of page.events) {
+            if (event.type === EventType.RUN_STARTED) {
+              for (const message of event.input?.messages ?? [])
+                if (message.role === "user" && typeof message.content === "string")
+                  observer.text(message.id, message.content, "user");
+            } else if (
+              event.type === EventType.TEXT_MESSAGE_CHUNK ||
+              event.type === EventType.REASONING_MESSAGE_CHUNK
+            ) {
+              const chunk = z
+                .object({
+                  messageId: z.string(),
+                  delta: z.string(),
+                  role: z.enum(["user", "assistant"]).optional(),
+                })
+                .parse(event);
+              observer.text(
+                chunk.messageId,
+                chunk.delta,
+                event.type === EventType.REASONING_MESSAGE_CHUNK ? "reasoning" : chunk.role,
+              );
+            } else if (event.type === EventType.TOOL_CALL_CHUNK) {
+              const chunk = z
+                .object({ toolCallName: z.string(), toolCallId: z.string(), delta: z.string() })
+                .parse(event);
+              const call = {
+                name: chunk.toolCallName,
+                input: JSON.parse(chunk.delta) as unknown,
+              };
+              tools.set(chunk.toolCallId, call);
+              observer.tool(chunk.toolCallId, call.name, call.input);
+            } else if (event.type === EventType.TOOL_CALL_RESULT) {
+              const call = tools.get(event.toolCallId);
+              if (call)
+                observer.tool(event.toolCallId, call.name, call.input, JSON.parse(event.content));
+            } else if (event.type === EventType.RAW) observer.raw(event.event, attributes);
+            else if (event.type === EventType.CUSTOM && event.name === "swarmx.activity")
+              observer.activity?.(ActivitySchema.parse(event.value));
+          }
+          if (!page.events.length) return;
+          after = page.nextAfter;
+        }
+      }
       return agent.read(id, {
         tool: observer.tool.bind(observer),
         raw: observer.raw.bind(observer),
+        activity: (event) => observer.activity?.(event),
         interact: observer.interact.bind(observer),
         text: (messageId, text, role = "assistant") =>
           observer.text(
@@ -108,7 +165,15 @@ export function recordedAgent(
       const execute = async () => {
         assertSession(sessionId);
         if (journal.activeSession(sessionId)) throw new Error("Session is busy.");
-        const mode = selection?.mode ?? journal.sessionMode(sessionId);
+        if (
+          harness === "dsh" &&
+          (!sessionId.startsWith("dsh:") || !journal.emptySessions("dsh").includes(sessionId))
+        )
+          throw new Error(
+            "DSH tasks execute once. Create a new task; previous output remains in the execution log.",
+          );
+        const mode =
+          selection?.mode ?? (harness === "hermes" ? undefined : journal.sessionMode(sessionId));
         if (mode) selection = { ...selection, mode };
         const runId = randomUUID();
         const interactions = new AbortController();
@@ -194,6 +259,10 @@ export function recordedAgent(
             if (typeof nativeRun === "string") scope.attributes["swarmx.native.run_id"] = nativeRun;
             observer.raw(event, attributes);
           },
+          activity(event) {
+            send({ type: EventType.CUSTOM, name: "swarmx.activity", value: event });
+            observer.activity?.(event);
+          },
           async interact(request, signal) {
             const lifetime = signal
               ? AbortSignal.any([signal, interactions.signal])
@@ -220,7 +289,7 @@ export function recordedAgent(
               value: {
                 id: request.id,
                 status: answer === undefined ? "cancelled" : "answered",
-                answer: answer ?? null,
+                ...(request.sensitive ? { redacted: true } : { answer: answer ?? null }),
               },
             });
             return answer;
@@ -239,7 +308,8 @@ export function recordedAgent(
             return agent.start(sessionId, text, recorded, {
               ...selection,
               ...(instructions &&
-              (["codex", "claude"].includes(harness) || journal.completedTurns(sessionId) === 0)
+              (["pi", "codex", "claude"].includes(harness) ||
+                journal.completedTurns(sessionId) === 0)
                 ? { instructions }
                 : {}),
             });

@@ -9,9 +9,10 @@ import type { NativeAgent, Observer } from "../src/agents/types.js";
 import { HARNESS_CAPABILITIES } from "../src/agents/types.js";
 import type { ExecutionRecord } from "../src/execution-record.js";
 import { SwarmA2AExecutor } from "../src/host/a2a.js";
+import { loadAgUiHistory } from "../src/host/ag-ui.js";
 import { ExecutionJournal } from "../src/host/execution-journal.js";
 import { recordedAgent } from "../src/host/recorded-agent.js";
-import { projectPermissions } from "../src/permissions.js";
+import { policyPermissions } from "../src/permissions.js";
 
 const cleanups: Array<() => Promise<void>> = [];
 afterEach(async () => {
@@ -43,6 +44,68 @@ function native(start: NativeAgent["start"]): NativeAgent {
 }
 
 describe("execution journal", () => {
+  it("reopens DSH output from directory logs without loading or resuming the SDK", async () => {
+    const { root, journal } = await fixture();
+    const leaf = native(async (_id, _text, observer) => {
+      observer.text("answer", "Native answer");
+      observer.tool("tool", "read", { path: "file" });
+      observer.tool("tool", "read", { path: "file" }, "contents");
+      observer.activity?.({ type: "tool", toolCallId: "tool", status: "completed" });
+      return { stopReason: "end_turn" };
+    });
+    leaf.create = async () => "dsh:once";
+    const agent = recordedAgent(journal, "dsh", leaf);
+    const id = await agent.create();
+    expect(await loadAgUiHistory(agent, id)).toEqual([]);
+    await agent.start(id, "Read file", sink);
+    const reopened = new ExecutionJournal(root, "workspace-a");
+    const other = new ExecutionJournal(root, "workspace-b");
+    const unavailable = native(
+      vi.fn(async () => {
+        throw new Error("SDK must not resume");
+      }),
+    );
+    unavailable.list = vi.fn(async () => {
+      throw new Error("SDK has no listing");
+    });
+    unavailable.read = vi.fn(async () => {
+      throw new Error("SDK has no history");
+    });
+    try {
+      const logs = recordedAgent(reopened, "dsh", unavailable);
+      expect(await logs.list()).toEqual([{ sessionId: id }]);
+      const history = await loadAgUiHistory(logs, id);
+      expect(history).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ role: "user", content: "Read file" }),
+          expect.objectContaining({ id: "answer", content: "Native answer" }),
+          expect.objectContaining({ id: "result:tool", content: '"contents"' }),
+          expect.objectContaining({ id: "call:tool", _tool: { status: "completed" } }),
+        ]),
+      );
+      await expect(logs.start(id, "Continue", sink)).rejects.toThrow("execute once");
+      await expect(logs.read("codex:foreign", sink)).rejects.toThrow("does not belong");
+      expect(await recordedAgent(other, "dsh", unavailable).list()).toEqual([]);
+      expect(unavailable.list).not.toHaveBeenCalled();
+      expect(unavailable.read).not.toHaveBeenCalled();
+      expect(unavailable.start).not.toHaveBeenCalled();
+    } finally {
+      reopened.close();
+      other.close();
+    }
+  });
+
+  it("does not restore an obsolete Hermes ACP mode over native approval configuration", async () => {
+    const { journal } = await fixture();
+    const leaf = native(vi.fn(async () => ({ stopReason: "end_turn" as const })));
+    leaf.create = async () => "hermes:session";
+    const agent = recordedAgent(journal, "hermes", leaf);
+    const id = await agent.create();
+    await agent.start(id, "old", sink, { mode: "acceptEdits" });
+    expect((await agent.models(id)).current.mode).toBeUndefined();
+    await agent.start(id, "native", sink);
+    expect(leaf.start).toHaveBeenLastCalledWith(id, "native", expect.any(Object), {});
+  });
   it("retains native mode choices and reported changes across restart without lending them to siblings", async () => {
     const { root, journal } = await fixture();
     const start = vi.fn<NativeAgent["start"]>(async () => ({ stopReason: "end_turn" }));
@@ -70,7 +133,7 @@ describe("execution journal", () => {
       reopened.close();
     }
   });
-  it("restores only never-dispatched empty reservations within their workspace", async () => {
+  it("restores only never-dispatched empty reservations within their directory", async () => {
     const { root, journal } = await fixture();
     const leaf = native(async () => ({ stopReason: "end_turn" }));
     leaf.create = async () => "claude:empty";
@@ -135,10 +198,10 @@ describe("execution journal", () => {
     await Promise.all([first, second]);
     expect(journal.conversationBindings("swarm").get("same")).toBe("codex:shared");
   });
-  it("intersects all persisted grants without a page limit and isolates identical session IDs by workspace", async () => {
+  it("intersects all persisted grants without a page limit and isolates identical session IDs by directory", async () => {
     const { root, journal } = await fixture();
     const context = { sessionId: "codex:shared", runId: "run", causedBy: null, attributes: {} };
-    const first = projectPermissions({ tools: ["memory.read", "science.read"] });
+    const first = policyPermissions({ tools: ["memory.read", "science.read"] });
     journal.append(context, {
       type: EventType.CUSTOM,
       name: "swarmx.session.created",
@@ -148,7 +211,7 @@ describe("execution journal", () => {
       journal.append(context, {
         type: EventType.CUSTOM,
         name: "swarmx.session.created",
-        value: { permissions: projectPermissions({ delegation: false }) },
+        value: { permissions: policyPermissions({ delegation: false }) },
       });
     journal.append(context, {
       type: EventType.RUN_STARTED,
@@ -161,7 +224,7 @@ describe("execution journal", () => {
         tools: [],
         context: [],
         state: {},
-        forwardedProps: { permissions: projectPermissions({ harnesses: { codex: ["small"] } }) },
+        forwardedProps: { permissions: policyPermissions({ harnesses: { codex: ["small"] } }) },
       },
     });
     expect(journal.sessionPermissions(context.sessionId)).toEqual({
@@ -222,7 +285,7 @@ describe("execution journal", () => {
     }
   });
 
-  it("preserves raw JSON across reopen, rejects rewrites and isolates workspace/cursor reads", async () => {
+  it("preserves raw JSON across reopen, rejects rewrites and isolates directory/cursor reads", async () => {
     const { root, journal } = await fixture();
     const raw = {
       future: { chunks: [null, "中文\n", { model: "reported-model" }] },

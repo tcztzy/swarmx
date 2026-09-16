@@ -12,7 +12,7 @@ import type {
 import { z } from "zod";
 import { type ResearchEnvironment as EnvironmentRecord, EnvironmentSchema } from "../settings.js";
 import { spawnProcess } from "./process-runner.js";
-import type { SettingsStore } from "./workspace-settings.js";
+import type { SettingsStore } from "./settings-store.js";
 
 const exec = promisify(execFile);
 const RECIPE = fileURLToPath(new URL("../../resources/python/", import.meta.url));
@@ -29,7 +29,7 @@ export class ResearchEnvironment implements ScienceProcessRuntime {
 
   constructor(
     private readonly settings: SettingsStore,
-    private readonly workspace: string,
+    private readonly directory: string,
     private readonly staging: string,
   ) {}
 
@@ -108,11 +108,11 @@ export class ResearchEnvironment implements ScienceProcessRuntime {
     spec.signal?.throwIfAborted();
     const { environment, policy } = this.settings.read();
     if (!environment) throw new Error("Set up the research environment in Settings first.");
-    const workspace = await realpath(this.workspace);
+    const directory = await realpath(this.directory);
     const cwd = await realpath(spec.cwd);
-    if (!contains(workspace, cwd))
-      throw new Error("Research working directory is outside the workspace.");
-    const mounts = [mount(workspace, policy.filesystem === "read-only")];
+    if (!contains(directory, cwd))
+      throw new Error("Research working directory is outside the directory.");
+    const mounts = [mount(directory, policy.filesystem === "read-only")];
     const variables = [
       "HOME=/tmp",
       "MPLCONFIGDIR=/tmp/matplotlib",
@@ -177,7 +177,7 @@ export class ResearchEnvironment implements ScienceProcessRuntime {
       spec.signal?.throwIfAborted();
       const spawned = spawnProcess({
         argv: ["docker", "start", "--attach", "--interactive", name],
-        cwd: workspace,
+        cwd: directory,
         graceMs: spec.graceMs,
         ...(spec.signal ? { signal: spec.signal } : {}),
         stdin: spec.stdio.stdin,
@@ -313,6 +313,6 @@ function contains(root: string, path: string): boolean {
 
 function mount(path: string, readonly: boolean): string {
   if (/[",\n\r]/u.test(path))
-    throw new Error("Docker workspace paths cannot contain commas, quotes or newlines.");
+    throw new Error("Docker directory paths cannot contain commas, quotes or newlines.");
   return `type=bind,source=${path},target=${path}${readonly ? ",readonly" : ""}`;
 }

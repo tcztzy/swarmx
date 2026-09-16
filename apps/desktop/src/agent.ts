@@ -4,14 +4,25 @@ import { HarnessSchema } from "./permissions.js";
 export const AGENT_IDS = HarnessSchema.options;
 export type AgentId = (typeof AGENT_IDS)[number];
 
-export function selectedAgent(value = process.env.SWARMX_AGENT ?? "codex"): AgentId {
+export function selectedAgent(value = process.env.SWARMX_AGENT ?? "pi"): AgentId {
   if (!AGENT_IDS.includes(value as AgentId)) throw new Error(`Unknown Agent "${value}".`);
   return value as AgentId;
 }
 
 export async function loadAgent(id: AgentId, options: AgentOptions): Promise<NativeAgent> {
-  const { createAcpHarness } = await import("./agents/acp-harness.js");
-  const agent = scopeSessions(id, await createAcpHarness(id, options));
+  const native =
+    id === "pi"
+      ? await (await import("./agents/pi.js")).createPi(options)
+      : id === "codex"
+        ? await (await import("./agents/codex.js")).createCodex(options)
+        : id === "claude"
+          ? await (await import("./agents/claude.js")).createClaude(options)
+          : id === "hermes"
+            ? await (await import("./agents/hermes.js")).createHermes(options)
+            : id === "openclaw"
+              ? await (await import("./agents/openclaw.js")).createOpenClaw(options)
+              : await (await import("./agents/dsh.js")).createDsh(options);
+  const agent = scopeSessions(id, native);
   try {
     await agent.list();
     return agent;

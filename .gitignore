@@ -3,6 +3,7 @@ node_modules/
 apps/desktop/src/agents/generated/
 dist/
 lib/
+!apps/desktop/src/renderer/lib/
 native/writing-preview-runtime/target/
 /packages/science/core/bin/
 coverage/
@@ -29,5 +30,7 @@ coverage/
 !/swarmx.tex
 /artifacts/
 /tmp/
+/runs/
+/design-qa.md
 
 kernel-*.json

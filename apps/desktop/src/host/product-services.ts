@@ -1,10 +1,8 @@
-import { createHash, randomUUID } from "node:crypto";
-import { lstatSync } from "node:fs";
-import { mkdir, rename, rmdir } from "node:fs/promises";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
+import { realpath, stat } from "node:fs/promises";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { EventType } from "@ag-ui/core";
-import type * as acp from "@agentclientprotocol/sdk";
-import { DvcService } from "@swarmx/dvc";
 import { MemoryService } from "@swarmx/memory";
 import {
   createScienceToolDefinitions,
@@ -16,9 +14,8 @@ import {
 } from "@swarmx/science";
 import { createSwarm } from "@swarmx/swarm";
 import { z } from "zod";
-import { AGENT_IDS, type AgentId, loadAgent, selectedAgent } from "../agent.js";
+import { AGENT_IDS, type AgentId, selectedAgent } from "../agent.js";
 import type { AgentOptions, NativeAgent } from "../agents/types.js";
-import { HARNESS_CAPABILITIES } from "../agents/types.js";
 import {
   type AgentPermissions,
   HarnessSchema,
@@ -26,21 +23,21 @@ import {
   narrowPermissions,
   type PermissionRequest,
   PermissionRequestSchema,
-  projectPermissions,
+  policyPermissions,
 } from "../permissions.js";
 import { ExecutionPolicySchema } from "../settings.js";
 import { A2AEndpoints, SwarmA2AExecutor } from "./a2a.js";
-import { acpAgent } from "./acp.js";
-import { acpClient } from "./acp-client.js";
 import { AgUiBridge } from "./ag-ui.js";
+import { AgentRegistry, bindAgent } from "./agent-registry.js";
+import { publicCapabilities } from "./capabilities.js";
 import { ExecutionJournal } from "./execution-journal.js";
 import type { ToolManifestEntry } from "./mcp.js";
-import { AgentMemory, HOST_MEMORY_ACTIONS } from "./memory.js";
+import { AgentMemory, HOST_MEMORY_ACTIONS, MEMORY_AUTHORING_RULES } from "./memory.js";
 import { reviewMemory } from "./memory-review.js";
-import { NodeProcessRunner, NodeScienceProcessRuntime } from "./process-runner.js";
+import { NodeScienceProcessRuntime } from "./process-runner.js";
 import { recordedAgent } from "./recorded-agent.js";
 import { ResearchEnvironment } from "./research-environment.js";
-import { SettingsStore } from "./workspace-settings.js";
+import { SettingsStore } from "./settings-store.js";
 
 const Id = z.string().min(1).max(2_048);
 const Text = z.string().min(1).max(100_000);
@@ -71,12 +68,6 @@ const SwarmCall = z.discriminatedUnion("action", [
   z.strictObject({ action: z.literal("cancel"), agentId: Id, sessionId: Id }),
 ]);
 
-export interface Workspace {
-  readonly id: string;
-  readonly label: string;
-  readonly root: string;
-}
-
 export interface SwarmRecord {
   readonly id: string;
   readonly leadAgentId: string;
@@ -85,12 +76,14 @@ export interface SwarmRecord {
 
 export interface ProductServicesOptions {
   readonly productHome: string;
-  readonly workspace: Workspace;
+  readonly cwd: string;
+  readonly agents?: AgentRegistry;
   readonly scienceConfig?: ConstructorParameters<typeof ScienceCore>[1];
 }
 
 export class ProductServices {
-  readonly dvc = new DvcService(new NodeProcessRunner());
+  readonly directoryKey: string;
+  readonly mcpSocket: string;
   readonly memory: MemoryService;
   readonly learning: AgentMemory;
   readonly science: ScienceCore;
@@ -98,12 +91,12 @@ export class ProductServices {
   readonly settings: SettingsStore;
   readonly environment: ResearchEnvironment;
   readonly toolManifest: readonly ToolManifestEntry[];
+  readonly agents: AgentRegistry;
 
   private readonly a2a = new A2AEndpoints();
-  private readonly agents = new Map<string, NativeAgent>();
-  private readonly clients = new Map<string, NativeAgent>();
-  private readonly preparing = new Map<string, Set<AbortController>>();
-  private readonly loading = new Map<AgentId, Promise<NativeAgent>>();
+  private readonly boundAgents = new Map<string, NativeAgent>();
+  private readonly members = new Map<string, NativeAgent>();
+  private readonly ownsAgents: boolean;
   private readonly bridges = new Map<string, AgUiBridge>();
   private readonly scienceDefinitions: ReadonlyMap<string, ScienceToolDefinition>;
   private readonly scienceDisposers: Array<() => Promise<void>> = [];
@@ -112,17 +105,21 @@ export class ProductServices {
   private closed = false;
   private readonly shutdown = new AbortController();
   private readonly toolOperations = new Set<Promise<unknown>>();
-  readonly acpExecutions = new Map<string, { sessionId: string; runId: string } | null>();
+  readonly mcpExecutions = new Map<string, { sessionId: string; runId: string } | null>();
   private permissionChecks = 0;
 
   private constructor(readonly options: ProductServicesOptions) {
-    this.settings = new SettingsStore(options.productHome, options.workspace.id);
+    this.agents = options.agents ?? new AgentRegistry();
+    this.ownsAgents = options.agents === undefined;
+    this.directoryKey = createHash("sha256").update(options.cwd).digest("hex").slice(0, 12);
+    this.mcpSocket = join(options.productHome, "mcp", `${randomBytes(6).toString("hex")}.sock`);
+    this.settings = new SettingsStore(options.productHome);
     this.environment = new ResearchEnvironment(
       this.settings,
-      options.workspace.root,
+      options.cwd,
       join(options.productHome, "science", "artifacts", "v1", "staging"),
     );
-    this.journal = new ExecutionJournal(join(options.productHome, "logs"), options.workspace.id);
+    this.journal = new ExecutionJournal(join(options.productHome, "logs"), this.directoryKey);
     const attachments: ScienceAttachmentStore = {
       saveImage: async ({ data, mediaType, name }) => ({
         attachmentId: `swarmx-inline:${createHash("sha256").update(data).digest("hex")}`,
@@ -143,14 +140,14 @@ export class ProductServices {
         root: join(options.productHome, "science"),
         notebookRuntime: "isolated",
       },
-      () => ({ key: options.workspace.id, root: options.workspace.root }),
+      () => ({ key: this.directoryKey, root: options.cwd }),
     );
     this.memory = new MemoryService({
-      root: join(options.productHome, "memory", "vault"),
+      root: join(options.productHome, "memory"),
       checkResource: (resource) => {
         try {
           parseScienceResourceId(resource);
-          this.science.headResource(options.workspace.id, { id: resource });
+          this.science.headResource(this.directoryKey, { id: resource });
           return undefined;
         } catch (error) {
           if (!(error instanceof ScienceError)) throw error;
@@ -170,7 +167,7 @@ export class ProductServices {
               ruleId: "source.unresolved",
               severity: "warning",
               message:
-                "Science source is unavailable in this workspace or its revision has changed.",
+                "Science source is unavailable in this directory or its revision has changed.",
             };
           }
           throw error;
@@ -197,8 +194,7 @@ export class ProductServices {
       })),
       {
         name: "memory",
-        description:
-          "Persistent learning: read_core_memory {target:user|workspace}; update_core_memory {target,content,expectedRevision} replaces bounded notes. search_sessions {query?,sessionId?,limit?} recalls original conversations. Vault: search_memory {query,limit?,includeDeprecated?}; read_memory/load_memory {id} (load includes prerequisites); graph_memory {}; create_memory {title,description,type,body,scope?:global|workspace,sources?,dependencies?:[{id,revision}]}; update_memory {id,expectedRevision,body?,dependencies?,title?,description?,sources?,status?}; deprecate_memory {id,expectedRevision}; lint_memory {id?,now?}. Store reusable procedures as Playbook concepts with explicit prerequisites. Search/read before updating. Never invent evidence. Pending writes are not yet saved; only the user can approve them in Settings.",
+        description: `Persistent learning: read_core_memory {}; update_core_memory {content,expectedRevision} replaces bounded user notes. search_sessions {query?,sessionId?,limit?} recalls original conversations. Vault: search_memory {query,limit?,includeDeprecated?}; read_memory/load_memory {id} (load includes prerequisites); graph_memory {}; lint_memory {id?,now?}; UI actions for the desktop app: memory_status {}, memory_configure {settings}, memory_review {sessionId,focus?}, memory_decide {id,decision}. create_memory {title,description,type,body,sources?,dependencies?:[{id,revision}]}; update_memory {id,expectedRevision,body?,dependencies?,title?,description?,sources?,status?}; deprecate_memory {id,expectedRevision}. Store reusable procedures as Playbook concepts with explicit prerequisites. Search/read before updating. Never invent evidence. Pending writes are not yet saved; only the user can approve them in Settings. ${MEMORY_AUTHORING_RULES}`,
         inputSchema: {
           type: "object",
           additionalProperties: false,
@@ -218,21 +214,9 @@ export class ProductServices {
   }
 
   static async create(options: ProductServicesOptions): Promise<ProductServices> {
-    const previousDirectory = join(options.productHome, "knowledge-base");
-    const previousVault = join(previousDirectory, "vault");
-    if (lstatSync(previousVault, { throwIfNoEntry: false })) {
-      const directory = join(options.productHome, "memory");
-      const vault = join(directory, "vault");
-      if (lstatSync(vault, { throwIfNoEntry: false })) {
-        throw new Error(
-          "Both previous and current Memory vaults exist; consolidate them before starting SwarmX.",
-        );
-      }
-      await mkdir(directory, { mode: 0o700, recursive: true });
-      await rename(previousVault, vault);
-      await rmdir(previousDirectory);
-    }
-    const services = new ProductServices(options);
+    const cwd = await realpath(options.cwd);
+    if (!(await stat(cwd)).isDirectory()) throw new Error("Working directory is not a directory.");
+    const services = new ProductServices({ ...options, cwd });
     try {
       await services.memory.initialize();
       await services.learning.core.initialize();
@@ -245,40 +229,64 @@ export class ProductServices {
 
   async attachAgents(
     origin: string,
-    token: string,
     agent?: NativeAgent,
     selected = selectedAgent(),
   ): Promise<void> {
-    const projectOrigin = `${origin}/projects/${this.options.workspace.id}`;
-    this.a2a.attach(projectOrigin);
-    this.agentOptions = {
-      cwd: this.options.workspace.root,
-      mcp: { url: `${projectOrigin}/mcp`, headers: { authorization: `Bearer ${token}` } },
+    this.a2a.attach(origin);
+    const agentOptions: AgentOptions = {
+      cwd: this.options.cwd,
+      productHome: this.options.productHome,
+      mcp: {
+        command: process.execPath,
+        args: [fileURLToPath(new URL("./mcp-bridge.js", import.meta.url))],
+        env: {
+          ELECTRON_RUN_AS_NODE: "1",
+          SWARMX_MCP_SOCKET: this.mcpSocket,
+        },
+      },
       executionPolicy: () => ({ ...this.settings.read().policy, ...this.currentPermissions() }),
+      productTools: {
+        definitions: this.toolManifest,
+        call: (name, args, callId, signal) => {
+          const context = this.journal.scope.getStore();
+          if (!context?.sessionId) throw new Error("Product tools require an active execution.");
+          return this.callTool(name, args, {
+            actorId: "pi",
+            callId,
+            signal,
+            sessionId: context.sessionId,
+            runId: context.runId,
+          });
+        },
+      },
       registerMcp: (token) => {
-        this.acpExecutions.set(token, null);
+        this.mcpExecutions.set(token, null);
         return {
           bind: (sessionId, runId) => {
             const active = this.journal.activeSession(sessionId);
-            if (active?.runId !== runId) throw new Error("ACP requires an active Host execution.");
-            this.acpExecutions.set(token, { sessionId, runId });
+            if (active?.runId !== runId) throw new Error("MCP requires an active Host execution.");
+            this.mcpExecutions.set(token, { sessionId, runId });
           },
           dispose: () => {
-            this.acpExecutions.delete(token);
+            this.mcpExecutions.delete(token);
           },
         };
       },
     };
+    this.agentOptions = agentOptions;
     if (agent)
-      this.agents.set(
+      this.boundAgents.set(
         selected,
-        this.protectAgent(selected, recordedAgent(this.journal, selected, agent, this.learning)),
+        this.protectAgent(
+          selected,
+          recordedAgent(this.journal, selected, bindAgent(agent, agentOptions), this.learning),
+        ),
       );
     await this.createSwarm("swarm", selected);
   }
 
   get rootAgent(): NativeAgent {
-    const agent = this.clients.get("swarm");
+    const agent = this.members.get("swarm");
     if (!agent) throw new Error("Swarm is not attached.");
     return agent;
   }
@@ -313,112 +321,25 @@ export class ProductServices {
   }
 
   async agent(id: string): Promise<NativeAgent> {
-    const existing = this.clients.get(id);
+    const existing = this.members.get(id);
     if (existing) return existing;
     const nativeId = selectedAgent(id);
-    const attached = this.agents.get(nativeId);
-    if (attached) return this.client(id, attached.capabilities);
-    if (!this.agentOptions) throw new Error("Agents are not attached.");
-    const options = this.agentOptions;
-    const load = () => {
-      let pending = this.loading.get(nativeId);
-      if (!pending) {
-        pending = loadAgent(nativeId, options)
-          .then(async (agent) => {
-            agent.restoreEmptySessions?.(this.journal.emptySessions(nativeId));
-            try {
-              await agent.list();
-            } catch (error) {
-              await agent.dispose();
-              throw error;
-            }
-            return agent;
-          })
-          .catch((error: unknown) => {
-            this.loading.delete(nativeId);
-            throw error;
-          });
-        this.loading.set(nativeId, pending);
-      }
-      return pending;
-    };
-    const agent = recordedAgent(
-      this.journal,
-      nativeId,
-      {
-        name: nativeId,
-        capabilities: HARNESS_CAPABILITIES[nativeId],
-        models: async (session) => (await load()).models(session),
-        list: async () => (await load()).list(),
-        create: async (context) => (await load()).create(context),
-        read: async (session, observer) => (await load()).read(session, observer),
-        start: async (session, text, observer, selection) =>
-          (await load()).start(session, text, observer, selection),
-        steer: async (session, text) => (await load()).steer(session, text),
-        interrupt: async (session) => (await load()).interrupt(session),
-        dispose: async () => {
-          const loaded = this.loading.get(nativeId);
-          if (loaded) await (await loaded).dispose();
-        },
-      },
-      this.learning,
-    );
-    const protectedAgent = this.protectAgent(id, agent);
-    this.agents.set(id, protectedAgent);
-    return this.client(id, protectedAgent.capabilities);
-  }
-
-  private client(id: string, capabilities: acp.AgentCapabilities): NativeAgent {
-    const client = acpClient(
-      id,
-      capabilities,
-      this.options.workspace.root,
-      (app) => this.connectAgent(id, app),
-      () => this.currentPermissions(),
-      this.preparing,
-    );
-    this.clients.set(id, client);
-    return client;
-  }
-
-  private connectAgent(id: string, client: acp.ClientApp): acp.ClientConnection {
-    this.assertOpen();
-    this.permissionChecks += 1;
-    try {
-      let connection: acp.ClientConnection;
-      const swarm = this.swarms.get(id);
-      if (!swarm) {
-        const leaf = this.agents.get(id);
-        if (!leaf) throw new Error(`Unknown Agent "${id}".`);
-        connection = client.connect(acpAgent(leaf, this.options.workspace.root));
-      } else {
-        const current = this.currentPermissions();
-        const permissions =
-          id === "swarm" ? current : intersectPermissions(current, swarm.permissions);
-        const parent = this.journal.scope.getStore() ?? {
-          sessionId: null,
-          runId: randomUUID(),
-          causedBy: null,
-          attributes: {},
-        };
-        connection = this.journal.scope.run({ ...parent, permissions }, () =>
-          client.connect(
-            createSwarm(id, (downstream) => this.connectAgent(swarm.leadAgentId, downstream)),
-          ),
-        );
-      }
-      connection.signal.addEventListener(
-        "abort",
-        () => {
-          this.permissionChecks -= 1;
-        },
-        { once: true },
-      );
-      return connection;
-    } catch (error) {
-      this.permissionChecks -= 1;
-      throw error;
+    const attached = this.boundAgents.get(nativeId);
+    if (attached) {
+      this.members.set(id, attached);
+      return attached;
     }
+    const binding = this.agentOptions;
+    if (!binding) throw new Error("Agents are not attached.");
+    const bound = bindAgent(await this.agents.agent(nativeId, binding), binding);
+    bound.restoreEmptySessions?.(this.journal.emptySessions(nativeId));
+    const protectedAgent = this.protectAgent(
+      nativeId,
+      recordedAgent(this.journal, nativeId, bound, this.learning),
+    );
+    this.boundAgents.set(nativeId, protectedAgent);
+    this.members.set(id, protectedAgent);
+    return protectedAgent;
   }
 
   async agUi(id: string): Promise<AgUiBridge> {
@@ -430,12 +351,20 @@ export class ProductServices {
     return bridge;
   }
 
+  async cancelAgUi(id: string, threadId: string): Promise<void> {
+    await this.bridges.get(id)?.cancel(threadId);
+  }
+
   listSwarms(): SwarmRecord[] {
     return structuredClone([...this.swarms.values()]);
   }
 
   a2aCard(id: string): unknown {
     return this.a2a.card(id);
+  }
+
+  hasA2A(id: string): boolean {
+    return this.a2a.has(id);
   }
 
   handleA2A(id: string, body: Record<string, unknown>, version: string): Promise<unknown> {
@@ -501,13 +430,11 @@ export class ProductServices {
     this.shutdown.abort(new Error("Product services are closing."));
 
     const results = await Promise.allSettled([
-      this.dvc.close(),
       this.environment.close(),
       this.learning.close(),
-      ...[...this.agents.values()].map((agent) => agent.dispose()),
+      ...(this.ownsAgents ? [this.agents.dispose()] : []),
     ]);
     await Promise.allSettled([...this.toolOperations]);
-    await Promise.all([...this.clients.values()].map((client) => client.dispose()));
     results.push(
       ...(await Promise.allSettled(this.scienceDisposers.splice(0).map((dispose) => dispose()))),
     );
@@ -517,9 +444,9 @@ export class ProductServices {
   }
 
   private currentPermissions(): AgentPermissions {
-    const project = projectPermissions(this.settings.read().policy);
+    const policy = policyPermissions(this.settings.read().policy);
     const parent = this.journal.scope.getStore()?.permissions;
-    return parent ? intersectPermissions(project, parent) : project;
+    return parent ? intersectPermissions(policy, parent) : policy;
   }
 
   private protectAgent(id: string, agent: NativeAgent): NativeAgent {
@@ -539,7 +466,10 @@ export class ProductServices {
       this.assertOpen();
       this.permissionChecks += 1;
       try {
-        const current = this.currentPermissions();
+        const captured = id === "swarm" ? undefined : this.swarms.get(id)?.permissions;
+        const current = captured
+          ? intersectPermissions(this.currentPermissions(), captured)
+          : this.currentPermissions();
         const harness = HarnessSchema.safeParse(id);
         const resolve = (ceiling: AgentPermissions) => {
           const saved =
@@ -572,7 +502,8 @@ export class ProductServices {
     return {
       name: agent.name,
       capabilities: agent.capabilities,
-      permissions: (session) => run(undefined, async (permissions) => permissions, session),
+      permissions: (session) =>
+        run(undefined, async (permissions) => agent.permissions?.(session) ?? permissions, session),
       models: async (session) =>
         run(
           undefined,
@@ -618,6 +549,30 @@ export class ProductServices {
               const allowed = harness.success ? permissions.harnesses[harness.data] : null;
               if (allowed && (!options?.model || !allowed.includes(options.model)))
                 throw new Error(`An explicit permitted model is required for harness "${id}".`);
+              if (
+                harness.success &&
+                (options?.model !== undefined ||
+                  options?.effort !== undefined ||
+                  options?.mode !== undefined)
+              ) {
+                const catalog = await agent.models(session);
+                if (admission.signal.aborted) return { stopReason: "cancelled" };
+                const model = catalog.models.find(
+                  (model) => model.id === (options?.model ?? catalog.current.model),
+                );
+                if (options?.model !== undefined && !model)
+                  throw new Error("Select an advertised native model.");
+                if (
+                  options?.effort !== undefined &&
+                  !model?.efforts.some((effort) => effort.id === options.effort)
+                )
+                  throw new Error("Select an advertised native reasoning effort.");
+                if (
+                  options?.mode !== undefined &&
+                  !catalog.modes?.some((mode) => mode.id === options.mode)
+                )
+                  throw new Error("Select an advertised native mode.");
+              }
               const { permissions: _permissions, ...selection } = options ?? {};
               return agent.start(session, text, observer, harness.success ? selection : options);
             },
@@ -653,7 +608,7 @@ export class ProductServices {
     leadAgentId: string,
     request?: PermissionRequest,
   ): Promise<void> {
-    if (this.clients.has(id) || AGENT_IDS.includes(id as AgentId))
+    if (this.members.has(id) || AGENT_IDS.includes(id as AgentId))
       throw new Error(`Agent "${id}" already exists.`);
     const permissions = narrowPermissions(this.currentPermissions(), request);
     const lead = await this.agent(leadAgentId);
@@ -663,7 +618,8 @@ export class ProductServices {
       value: { id, leadAgentId, permissions },
     });
     this.swarms.set(id, { id, leadAgentId, permissions });
-    const swarm = this.client(id, lead.capabilities);
+    const swarm = this.protectAgent(id, createSwarm(id, lead));
+    this.members.set(id, swarm);
     this.a2a.add(id, id, new SwarmA2AExecutor(swarm, this.journal, id));
   }
 
@@ -678,7 +634,8 @@ export class ProductServices {
     if (call.action === "status")
       return call.id === undefined ? this.listSwarms() : this.swarms.get(call.id);
     const agent = await this.agent(call.agentId);
-    if (call.action === "capabilities") return agent.capabilities;
+    if (call.action === "capabilities")
+      return publicCapabilities(agent.capabilities, !!agent.permissions);
     if (call.action === "new_session") return { sessionId: await agent.create() };
     if (call.action === "cancel") {
       await agent.interrupt(call.sessionId);

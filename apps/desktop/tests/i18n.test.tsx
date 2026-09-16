@@ -39,7 +39,6 @@ describe("English and Chinese UI", () => {
     const missing = new Set<string>();
     for (const name of [
       "app",
-      "projects",
       "chat",
       "agent-controls",
       "subagents",

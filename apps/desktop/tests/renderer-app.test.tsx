@@ -7,6 +7,7 @@ import { HarnessPicker, type HarnessProps } from "../src/renderer/agent-controls
 import { App } from "../src/renderer/app.js";
 import { i18n } from "../src/renderer/i18n.js";
 import { DEFAULT_POLICY } from "../src/settings.js";
+import { type BridgeHarness, installBridge } from "./bridge-support.js";
 
 vi.mock("../src/renderer/trace.js", () => ({ TracePanel: () => <p>Trace fixture</p> }));
 
@@ -17,6 +18,7 @@ vi.mock("../src/renderer/chat.js", () => ({
     harnessDisabled,
     sidePanel,
     panelOpen,
+    source,
     ...harness
   }: HarnessProps & {
     threadId: string;
@@ -24,6 +26,7 @@ vi.mock("../src/renderer/chat.js", () => ({
     harnessDisabled: boolean;
     sidePanel?: ReactNode;
     panelOpen?: boolean;
+    source?: { resource: string };
   }) => (
     <>
       <div data-testid="conversation">
@@ -31,6 +34,7 @@ vi.mock("../src/renderer/chat.js", () => ({
       </div>
       <HarnessPicker {...harness} disabled={harnessDisabled} />
       <input aria-label="draft fixture" defaultValue="保留研究内容" />
+      {source && <span>{source.resource}</span>}
       {panelOpen && sidePanel}
     </>
   ),
@@ -44,67 +48,67 @@ const bootstrap = {
     { sessionId: "codex:one", title: "Review RNA results", updatedAt: "2026-09-05T10:00:00Z" },
     { sessionId: "codex:two", title: "整理实验记录" },
   ],
-  workspace: { id: "workspace", label: "research", root: "/research" },
-  projects: [{ id: "workspace", label: "research", root: "/research" }],
+  cwd: "/research",
 };
-const fetchMock = vi.fn<typeof fetch>();
+const settings = {
+  policy: DEFAULT_POLICY,
+  environment: null,
+  cwd: "/research",
+};
+const memory = {
+  action: "memory_status",
+  data: {
+    settings: {
+      enabled: true,
+      autoReview: true,
+      writeApproval: false,
+      reviewInterval: 10,
+      reviewHarness: "codex",
+    },
+    note: { content: "", revision: `sha256:${"0".repeat(64)}`, limit: 1375 },
+    pending: [],
+    review: { state: "idle", message: "", sessionId: null },
+  },
+};
+let gateway: BridgeHarness;
 
 beforeEach(async () => {
   await i18n.changeLanguage("zh");
-  vi.stubGlobal("fetch", fetchMock);
   vi.stubGlobal("matchMedia", () => ({ matches: true }));
-  fetchMock.mockResolvedValue(Response.json(bootstrap));
+  gateway = installBridge();
+  gateway.bootstrap.mockResolvedValue(bootstrap);
+  gateway.sessionsList.mockResolvedValue(bootstrap.sessions);
+  gateway.sessionsCreate.mockResolvedValue({ sessionId: "codex:new" });
+  gateway.settingsRead.mockResolvedValue(settings);
+  gateway.environmentRead.mockResolvedValue({
+    state: "missing",
+    environment: null,
+    log: "",
+    activeProcesses: 0,
+  });
+  gateway.scienceWorkspace.mockResolvedValue({
+    projects: [],
+    notebooks: [],
+    artifacts: [],
+    documents: [],
+    figures: [],
+    records: [],
+    relations: [],
+    experiments: [],
+    runs: [],
+    exports: [],
+  });
+  gateway.tool.mockResolvedValue(memory);
 });
 
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
-  vi.resetAllMocks();
+  vi.clearAllMocks();
 });
 
 describe("desktop task navigation", () => {
   it("keeps chat mounted beside assets/observability and restores it after full-page settings and language changes", async () => {
-    fetchMock.mockImplementation(async (path, init) =>
-      Response.json(
-        path === "/api/v1/language"
-          ? JSON.parse(String(init?.body))
-          : path === "/api/v1/bootstrap"
-            ? bootstrap
-            : path === "/api/v1/settings"
-              ? {
-                  policy: DEFAULT_POLICY,
-                  environment: null,
-                  workspace: { ...bootstrap.workspace, root: "/research" },
-                }
-              : path === "/api/v1/memory"
-                ? {
-                    settings: {
-                      enabled: true,
-                      autoReview: true,
-                      writeApproval: false,
-                      reviewInterval: 10,
-                      reviewHarness: "codex",
-                    },
-                    notes: [],
-                    pending: [],
-                    review: { state: "idle", message: "", sessionId: null },
-                  }
-                : path === "/api/v1/environment"
-                  ? { state: "missing", environment: null, log: "", activeProcesses: 0 }
-                  : {
-                      projects: [],
-                      notebooks: [],
-                      artifacts: [],
-                      documents: [],
-                      figures: [],
-                      records: [],
-                      relations: [],
-                      experiments: [],
-                      runs: [],
-                      exports: [],
-                    },
-      ),
-    );
     render(<App />);
     const conversation = await screen.findByTestId("conversation");
     const draft = screen.getByRole("textbox", { name: "draft fixture" });
@@ -114,35 +118,56 @@ describe("desktop task navigation", () => {
     fireEvent.click(screen.getByRole("button", { name: "观测与溯源", exact: true }));
     await screen.findByRole("tab", { name: "RO-Crate 图谱" });
     expect(screen.getByText("Trace fixture")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "通用设置" }));
-    await screen.findByRole("heading", { name: "通用设置", level: 2 });
-    expect(screen.queryByText("项目目录")).toBeNull();
-    expect(screen.queryByText("运行环境")).toBeNull();
+    await act(async () =>
+      window.dispatchEvent(
+        new CustomEvent("swarmx:open-research", {
+          detail: { source: { resource: "sx:a/figure@1" } },
+        }),
+      ),
+    );
+    await screen.findByRole("heading", { name: "来源检查" });
+    expect(screen.getByText("sx:a/figure@1")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "关闭侧栏" }));
+    expect(screen.queryByText("sx:a/figure@1")).toBeNull();
+    expect(screen.getByTestId("conversation")).toBe(conversation);
+    expect(screen.getByRole("textbox", { name: "draft fixture" })).toBe(draft);
+    fireEvent.click(screen.getByRole("button", { name: "观测与溯源", exact: true }));
+    await screen.findByRole("tab", { name: "RO-Crate 图谱" });
+    fireEvent.click(screen.getByRole("button", { name: "展开侧栏" }));
+    fireEvent.click(screen.getByRole("button", { name: "设置", exact: true }));
+    await screen.findByRole("heading", { name: "设置", level: 2 });
+    await screen.findByRole("heading", { name: "执行与权限" });
+    expect(screen.getByRole("heading", { name: "运行环境" })).toBeTruthy();
+    expect(await screen.findByLabelText("用户偏好")).toBeTruthy();
+    expect(screen.getByText("/research")).toBeTruthy();
     expect(screen.queryByRole("textbox", { name: "draft fixture" })).toBeNull();
     expect(screen.getByTestId("conversation")).toBe(conversation);
     fireEvent.change(screen.getByLabelText("界面语言"), { target: { value: "en" } });
     await screen.findByRole("button", { name: "Back to conversation" });
     expect(document.documentElement.lang).toBe("en");
     expect(i18n.language).toBe("en");
-    expect(
-      fetchMock.mock.calls.some(
-        ([path, init]) =>
-          path === "/api/v1/language" && JSON.parse(String(init?.body)).language === "en",
-      ),
-    ).toBe(true);
+    expect(gateway.languageWrite).toHaveBeenCalledWith({ language: "en" });
     fireEvent.click(screen.getByRole("button", { name: "Back to conversation" }));
     expect(screen.getByRole("textbox", { name: "draft fixture" })).toBe(draft);
     expect((draft as HTMLInputElement).value).toBe("保留研究内容");
     expect(screen.getByRole("button", { name: "Observe", exact: true })).toBeTruthy();
     expect(screen.getByRole("tab", { name: "RO-Crate graph" })).toBeTruthy();
-    expect(fetchMock.mock.calls.filter(([path]) => path === "/api/v1/bootstrap")).toHaveLength(1);
-    fireEvent.click(screen.getByRole("button", { name: "Project settings" }));
-    await screen.findByText("/research");
-    expect(screen.queryByRole("textbox", { name: "Directory path" })).toBeNull();
-    expect(screen.queryByLabelText("Interface language")).toBeNull();
-    expect(screen.getByRole("heading", { name: "Environment" })).toBeTruthy();
+    expect(gateway.bootstrap).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("button", { name: "Settings", exact: true })).toBeTruthy();
   });
-  it("searches native titles, selects tasks, and creates a session through the existing endpoint", async () => {
+  it("offers task navigation and one settings entry without directory management", async () => {
+    render(<App />);
+    await screen.findByTestId("conversation");
+    expect(
+      screen.getAllByRole("navigation").map((element) => element.getAttribute("aria-label")),
+    ).toEqual(["任务列表"]);
+    expect(screen.getAllByRole("button", { name: "设置", exact: true })).toHaveLength(1);
+    fireEvent.click(screen.getByRole("button", { name: "设置", exact: true }));
+    await screen.findByText("/research");
+    expect(screen.getByRole("heading", { name: "工作目录" })).toBeTruthy();
+    expect(screen.queryByRole("textbox", { name: "工作目录" })).toBeNull();
+  });
+  it("searches native titles, selects tasks, and creates a session through the IPC bridge", async () => {
     render(<App />);
     await screen.findByRole("button", { name: /Review RNA results/ });
     fireEvent.change(screen.getByRole("searchbox", { name: "搜索任务" }), {
@@ -156,18 +181,18 @@ describe("desktop task navigation", () => {
     fireEvent.click(screen.getByRole("button", { name: "整理实验记录" }));
     expect(screen.getByTestId("conversation").textContent).toBe("swarm:codex:two");
 
-    fetchMock.mockResolvedValueOnce(Response.json({ sessionId: "codex:new" }));
+    gateway.sessionsCreate.mockResolvedValueOnce({ sessionId: "codex:new" });
     fireEvent.click(screen.getByRole("button", { name: "新建任务" }));
     await waitFor(() =>
       expect(screen.getByTestId("conversation").textContent).toBe("swarm:codex:new"),
     );
-    expect(fetchMock).toHaveBeenLastCalledWith("/api/v1/sessions?agent=swarm", { method: "POST" });
+    expect(gateway.sessionsCreate).toHaveBeenLastCalledWith({ agent: "swarm" });
   });
 
   it("keeps create errors visible alongside the selected conversation", async () => {
     render(<App />);
     await screen.findByTestId("conversation");
-    fetchMock.mockResolvedValueOnce(new Response("Native Agent unavailable", { status: 503 }));
+    gateway.sessionsCreate.mockRejectedValueOnce(new Error("Native Agent unavailable"));
     fireEvent.click(screen.getByRole("button", { name: "新建任务" }));
     expect((await screen.findByRole("alert")).textContent).toContain("Native Agent unavailable");
     expect(screen.getByTestId("conversation").textContent).toBe("swarm:codex:one");
@@ -176,20 +201,16 @@ describe("desktop task navigation", () => {
   it("ignores late session lists from a previously selected Agent", async () => {
     render(<App />);
     await screen.findByTestId("conversation");
-    const old = Promise.withResolvers<Response>();
-    fetchMock.mockReturnValueOnce(old.promise);
+    const old = Promise.withResolvers<unknown>();
+    gateway.sessionsList.mockReturnValueOnce(old.promise);
     fireEvent.keyDown(screen.getByRole("button", { name: "选择 Harness" }), { key: "Enter" });
     fireEvent.click(await screen.findByRole("menuitemradio", { name: "Claude" }));
-    await waitFor(() =>
-      expect(fetchMock).toHaveBeenCalledWith("/api/v1/sessions?agent=claude", undefined),
-    );
-    fetchMock.mockResolvedValueOnce(Response.json([{ sessionId: "codex:now", title: "当前任务" }]));
+    await waitFor(() => expect(gateway.sessionsList).toHaveBeenCalledWith({ agent: "claude" }));
+    gateway.sessionsList.mockResolvedValueOnce([{ sessionId: "codex:now", title: "当前任务" }]);
     fireEvent.keyDown(screen.getByRole("button", { name: "选择 Harness" }), { key: "Enter" });
     fireEvent.click(await screen.findByRole("menuitemradio", { name: "Codex" }));
     await screen.findByRole("button", { name: "当前任务" });
-    await act(async () =>
-      old.resolve(Response.json([{ sessionId: "claude:stale", title: "过期任务" }])),
-    );
+    await act(async () => old.resolve([{ sessionId: "claude:stale", title: "过期任务" }]));
     expect(screen.queryByRole("button", { name: "过期任务" })).toBeNull();
     expect(screen.getByTestId("conversation").textContent).toBe("codex:codex:now");
   });
@@ -197,13 +218,13 @@ describe("desktop task navigation", () => {
   it("locks Harness until a pending native session creation completes", async () => {
     render(<App />);
     await screen.findByTestId("conversation");
-    const created = Promise.withResolvers<Response>();
-    fetchMock.mockReturnValueOnce(created.promise);
+    const created = Promise.withResolvers<unknown>();
+    gateway.sessionsCreate.mockReturnValueOnce(created.promise);
     fireEvent.click(screen.getByRole("button", { name: "新建任务" }));
     expect(screen.getByRole("button", { name: "选择 Harness" }).hasAttribute("disabled")).toBe(
       true,
     );
-    await act(async () => created.resolve(Response.json({ sessionId: "codex:new" })));
+    await act(async () => created.resolve({ sessionId: "codex:new" }));
     expect(screen.getByTestId("conversation").textContent).toBe("swarm:codex:new");
     expect(screen.getByRole("button", { name: "选择 Harness" }).hasAttribute("disabled")).toBe(
       false,
@@ -214,7 +235,7 @@ describe("desktop task navigation", () => {
     render(<App />);
     await screen.findByTestId("conversation");
     fireEvent.click(screen.getByRole("button", { name: "整理实验记录" }));
-    fetchMock.mockResolvedValueOnce(Response.json(bootstrap));
+    gateway.bootstrap.mockResolvedValueOnce(bootstrap);
     fireEvent.click(screen.getByRole("button", { name: "刷新任务" }));
     await waitFor(() =>
       expect(screen.getByRole("button", { name: "刷新任务" }).hasAttribute("disabled")).toBe(false),

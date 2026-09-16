@@ -15,8 +15,6 @@ sources:
   - id: okf-spec
     resource: https://github.com/GoogleCloudPlatform/open-knowledge-format/blob/main/SPEC.md
     title: Open Knowledge Format specification
-swarmx_scope: workspace
-swarmx_workspace: 83bd29e31a4c
 x-fixture-field: preserve-me
 ---
 

@@ -5,12 +5,19 @@
     "lib": ["ES2024", "DOM", "DOM.Iterable"],
     "noEmit": true,
     "rootDir": "src",
+    "paths": {
+      "@/*": ["./src/renderer/*"],
+      "@/components/ui/*": ["./src/renderer/components/ui/radix/*"],
+      "@/components/ui/radix/*": ["./src/renderer/components/ui/radix/*"]
+    },
     "types": ["vite/client"]
   },
   "include": [
     "src/renderer/**/*.ts",
     "src/renderer/**/*.tsx",
+    "src/bridge-contract.ts",
     "src/execution-record.ts",
+    "src/message-activity.ts",
     "src/settings.ts",
     "src/permissions.ts",
     "src/memory.ts"

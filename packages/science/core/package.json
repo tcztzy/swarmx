@@ -1,6 +1,6 @@
 {
   "name": "@swarmx/science",
-  "version": "0.1.0",
+  "version": "3.3.0",
   "description": "Local-first scientific journal and domain service for SwarmX.",
   "license": "MIT",
   "type": "module",

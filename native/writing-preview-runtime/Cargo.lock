@@ -2158,7 +2158,7 @@ dependencies = [
 
 [[package]]
 name = "swarmx-writing-preview-runtime"
-version = "0.1.0"
+version = "3.3.0"
 dependencies = [
  "serde",
  "serde_json",

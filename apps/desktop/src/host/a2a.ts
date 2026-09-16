@@ -46,6 +46,10 @@ export class A2AEndpoints {
     return AgentCard.toJSON(this.get(id).card);
   }
 
+  has(id: string): boolean {
+    return this.endpoints.has(id);
+  }
+
   async handle(id: string, body: Record<string, unknown>, version: string): Promise<unknown> {
     const endpoint = this.get(id);
     validateVersion(version, endpoint.card, "JSONRPC");
@@ -120,7 +124,7 @@ export class SwarmA2AExecutor implements AgentExecutor {
         raw() {},
         interact: async () => {
           throw new Error(
-            "This A2A entry point cannot answer interactive native requests. Use ACP or the browser.",
+            "This A2A entry point cannot answer interactive native requests. Use ACP or the desktop app.",
           );
         },
       });
@@ -217,7 +221,7 @@ function agentCard(url: string, name: string): AgentCard {
       { url, protocolBinding: "JSONRPC", protocolVersion: A2A_PROTOCOL_VERSION, tenant: "" },
     ],
     provider: { organization: "SwarmX", url: "https://github.com/blackscience/swarmx" },
-    version: "1.0.0",
+    version: "3.3.0",
     capabilities: { streaming: false, pushNotifications: false, extensions: [] },
     securitySchemes: {
       bearer: {

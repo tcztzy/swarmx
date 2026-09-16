@@ -5,8 +5,11 @@ import {
   scienceNotebookSchema,
 } from "@swarmx/science/types";
 import { useEffect, useRef, useState } from "react";
-import { scienceTool } from "./api.js";
 import { ArtifactPreview } from "./artifact-preview.js";
+import { scienceTool } from "./bridge.js";
+import { Button } from "./components/ui/radix/button.js";
+import { Input } from "./components/ui/radix/input.js";
+import { Textarea } from "./components/ui/radix/textarea.js";
 import { t, useTranslation } from "./i18n.js";
 import { Icon } from "./icon.js";
 
@@ -56,7 +59,7 @@ export function FigureStudio({
   const [error, setError] = useState("");
   const [output, setOutput] = useState("");
   const [previewId, setPreviewId] = useState(previewArtifactId);
-  const controller = useRef<AbortController>();
+  const controller = useRef<AbortController | undefined>(undefined);
   useEffect(() => () => controller.current?.abort(), []);
   const run = async () => {
     controller.current = new AbortController();
@@ -136,15 +139,17 @@ export function FigureStudio({
         <Icon name="image" />
         <h2 className="font-medium">{t("图像工作台")}</h2>
         <span className="text-xs text-neutral-500">{t("代码 → 隔离运行 → 版本化成果")}</span>
-        <button
+        <Button
           type="button"
-          className="icon-button ml-auto"
+          variant="ghost"
+          size="icon-sm"
+          className="ml-auto"
           disabled={running}
           onClick={onClose}
           aria-label={t("关闭图像工作台")}
         >
           <Icon name="close" />
-        </button>
+        </Button>
       </header>
       <div className="grid min-h-0 flex-1 overflow-y-auto">
         {previewId && (
@@ -156,7 +161,7 @@ export function FigureStudio({
           <label className="sr-only" htmlFor="figure-source">
             {t("Python 图像代码")}
           </label>
-          <textarea
+          <Textarea
             id="figure-source"
             className="min-h-[340px] flex-1 resize-none bg-neutral-50 p-5 font-mono text-[13px] leading-6 outline-none"
             spellCheck={false}
@@ -176,8 +181,7 @@ export function FigureStudio({
         <div className="space-y-5 p-5">
           <label className="field-label">
             {t("成果名称")}
-            <input
-              className="interaction-input"
+            <Input
               value={title}
               maxLength={240}
               disabled={running}
@@ -186,8 +190,8 @@ export function FigureStudio({
           </label>
           <label className="field-label">
             {t("输出文件")}
-            <input
-              className="interaction-input font-mono text-xs"
+            <Input
+              className="font-mono text-xs"
               aria-label={t("输出文件")}
               value={path}
               disabled={running}
@@ -243,24 +247,28 @@ export function FigureStudio({
             </p>
           )}
           {running ? (
-            <button
-              className="secondary-button w-full"
+            <Button
+              variant="outline"
+              size="sm"
+              className="w-full"
               type="button"
               onClick={() => controller.current?.abort()}
             >
               <Icon name="stop" />
               {t("停止执行")}
-            </button>
+            </Button>
           ) : (
-            <button
-              className="primary-button w-full"
+            <Button
+              variant="default"
+              size="default"
+              className="w-full"
               type="button"
               disabled={!code.trim() || !title.trim() || !/\.(png|svg|pdf)$/u.test(path)}
               onClick={() => void run()}
             >
               <Icon name="play" />
               {t("运行并生成图像")}
-            </button>
+            </Button>
           )}
         </div>
       </div>

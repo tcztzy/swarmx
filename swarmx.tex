@@ -68,13 +68,15 @@ research software \sep LLM agents \sep scientific workflows \sep multi-agent orc
 \section*{Required Metadata}
 \section*{Current code version}
 
-% 中文：软件描述、实例和截图对应固定实现版本。
-Table~\ref{tab:code-metadata} identifies the frozen implementation used for the current
-workflow and screenshots in Section~\ref{sec:examples}.
+% 中文：当前软件版本与实例、截图的固定实现基线分别标识。
+Table~\ref{tab:code-metadata} identifies SwarmX 3.3.0. The workflow and screenshots in
+Section~\ref{sec:examples} were recorded using the frozen implementation at source revision
+\texttt{9e1e818}. The 3.3.0 update synchronizes software version identifiers; the retained
+evidence preserves its original metadata.
 
 \begin{table}[H]
 \centering
-\caption{Code metadata for SwarmX 0.1.0, source revision \texttt{9e1e818}.}
+\caption{Code metadata for SwarmX 3.3.0.}
 \label{tab:code-metadata}
 \footnotesize
 \renewcommand{\arraystretch}{1.08}
@@ -82,9 +84,10 @@ workflow and screenshots in Section~\ref{sec:examples}.
 \toprule
 \textbf{ID} & \textbf{Code metadata description} & \textbf{Metadata} \\
 \midrule
-C1 & Current code version & \texttt{0.1.0} \\
+C1 & Current code version & \texttt{3.3.0} (unreleased) \\
 C2 & Permanent GitHub link to code/repository used for this code version &
-\href{https://github.com/tcztzy/swarmx/tree/9e1e818acd438dcbf30fb9dc46d758495d24d094}{Source revision \texttt{9e1e818}} \\
+The \texttt{v3.3.0} source tag is pending publication;
+\href{https://github.com/tcztzy/swarmx/tree/9e1e818acd438dcbf30fb9dc46d758495d24d094}{recorded-workflow baseline \texttt{9e1e818}} \\
 C3 & Legal Code License & MIT License \\
 C4 & Code versioning system used & Git \\
 C5 & Software code languages, tools, and services used & TypeScript, Node.js, Electron, SQLite, Rust/Typst, upstream ACP adapters, Docker/Jupyter Data Science, Zotero, Git, and DVC \\
@@ -152,7 +155,7 @@ boundaries.
 Whole Tale; AiiDA; noWorkflow; ProvBook~\cite{brinckman2019,pizzi2016,pimentel2017,samuel2018} & Environments, workflows, scripts, notebooks & Execution provenance and reproducible computation & Links outputs to claims and native sessions \\
 Workflow Run RO-Crate; PROV-AGENT~\cite{leo2024,souza2025a} & Execution and interaction graphs & Provenance representation and exchange & Connects research revisions, exports and curated memory \\
 ResearchLoop; LEDGER; artifact-centered observability; PaperTrail~\cite{xia2026,kim2026,yin2026,martin-boyle2026} & Claims, evidence and audit records & Claim admission, lineage and inspection & Retains links from running workflows through later knowledge retrieval \\
-RAG; Self-RAG~\cite{lewis2020rag,asai2023selfrag} & Retrieved passages & Generation supported by external knowledge & Supplies knowledge with scope, revision and write controls \\
+RAG; Self-RAG~\cite{lewis2020rag,asai2023selfrag} & Retrieved passages & Generation supported by external knowledge & Supplies knowledge with revision and write controls \\
 Reflexion; Voyager; Agent Workflow Memory~\cite{shinn2023reflexion,wang2023voyager,wang2024workflowmemory} & Feedback, skills and procedures & Experience accumulation and reuse & Links saved knowledge to scientific source revisions \\
 \bottomrule
 \end{tabularx}
@@ -191,7 +194,7 @@ OpenClaw integration through Agent Client Protocol (ACP), preserving native auth
 and permission semantics. Model Context Protocol (MCP) carries product-tool calls; ACP
 carries delegation. External ACP and Agent2Agent (A2A) entry points expose the services,
 and Agent--User Interaction (AG-UI) events update the client. Project scopes separate
-research records, execution views, settings and workspace memory.
+research records, execution views and settings.
 
 \begin{figure}[!t]
 \centering
@@ -244,7 +247,7 @@ research records, execution views, settings and workspace memory.
 };
 \node[owner, below=of science] (memory) {
   \textbf{Memory}\\
-  Concepts, revisions and change history
+  Concepts and revisions
 };
 \node[owner, below=of memory] (client) {
   \textbf{Client}\\
@@ -287,8 +290,8 @@ and separate publication, licensing and archival arrangements.
 
 To carry a finding beyond its originating session, a user or agent records it with source
 references in Memory. Findings and procedures persist as Open Knowledge Format 0.2 Markdown
-concepts with lifecycle metadata and SHA-256 revisions. Global and workspace scopes bound
-access, and updates require the previously read revision.
+concepts with lifecycle metadata and SHA-256 revisions. One shared concept pool is available to
+every project, and updates require the previously read revision.
 
 Writes follow the user's workspace policy. Per-write approval is off by default; when enabled,
 a change remains a durable pending proposal until an authenticated browser action approves or
@@ -298,7 +301,7 @@ by default and can be disabled per workspace; its candidates pass the same valid
 revision and configured approval checks as explicitly authored records.
 
 A later session searches textual matches in concept titles, tags, descriptions and bodies,
-then reads the selected concept and revision. Short user/workspace notes and a navigation
+then reads the selected concept and revision. A short user note and a navigation
 index are frozen for each session and retained across restart; new sessions receive updated
 snapshots. Full concepts are retrieved on demand with their source references, independently
 of the original conversation context.
@@ -306,14 +309,15 @@ of the original conversation context.
 \subsubsection{Record validation and revision}
 \label{sec:knowledge-quality}
 
-Deterministic checks detect malformed documents, unresolved citations, scope violations and
+Deterministic checks detect malformed documents, unresolved citations, unportable Markdown and
 invalid Science addresses. Changed or unavailable source revisions and expired concepts produce
 review diagnostics; warnings may remain in saved drafts. These checks establish structural
 consistency and source identity. Scientific support requires inspection of the original evidence
 or recomputation, as illustrated in Section~\ref{sec:examples}; write approval does not certify
 the truth of a finding.
 
-Corrections preserve previous bytes and append to the change history. Deprecation retains a
+Corrections replace a concept atomically after a revision check; the memory directory's version
+history and the execution journal retain earlier bytes. Deprecation retains a
 concept for explicit inspection while excluding it from default search, allowing failed findings
 to remain available as negative experience. Revision-pinned prerequisite links reject cycles
 and support ordered loading. Changed or expired prerequisites mark dependent concepts stale;
@@ -345,18 +349,18 @@ original options.
 \section{Illustrative examples}
 \label{sec:examples}
 
-The example follows a finding from computation to retrieval in a later session, where its
-supporting records remain available for inspection. It uses the implementation in
-Table~\ref{tab:code-metadata} and a six-row synthetic germination fixture: three replicates
+The recorded example follows a finding from computation to retrieval in a later session, where its
+supporting records remain available for inspection. It used the frozen implementation identified
+under Code availability and a six-row synthetic germination fixture: three replicates
 of 100 seeds per group, with control counts of 78, 80 and 79 and primed counts of 86, 88 and 87.
 These demonstration values support no biological inference.
 
 \subsection{Analysis, verification and provenance}
 
-A reproduction driver creates a fresh project, imports the CSV as an immutable artifact and
-configures Docker. It supplies a lead Codex agent with the analysis code, dataset identity,
-tool-call specifications and workflow. Automatic memory review is disabled and write approval
-is enabled; native permissions follow the installed runtime configuration.
+The recorded workflow imported the CSV as an immutable artifact and configured Docker.
+A lead Codex agent received the analysis code, dataset identity, tool-call specifications and
+workflow. Automatic memory review was disabled and write approval was enabled; native permissions
+followed the installed runtime configuration.
 
 The lead executes the Pandas/Matplotlib analysis through Science, obtains means of 79\% and
 87\%, and registers the figure with its code, input digest and execution environment.
@@ -382,10 +386,10 @@ difference; the adjacent Assets view displays the registered figure.}
 \FloatBarrier
 \subsection{Memory write approval and later retrieval}
 
-After the user approves the pending write through the authenticated browser, the finding is
-saved with its \texttt{draft} status unchanged. The driver then opens a new native session with the
+In the recorded run, the user approved the pending write through the authenticated browser,
+saving the finding with its \texttt{draft} status unchanged. A new native session then received the
 request: \emph{Retrieve the saved result for the synthetic germination
-fixture using memory.} It also requests the means, difference, replicate count, input identity
+fixture using memory.} The request also specified the means, difference, replicate count, input identity
 and scientific limitation without rerunning the analysis. The session searches and reads the
 saved concept, which cites the exact registered figure revision
 (Figure~\ref{fig:desktop-provenance}). Table~\ref{tab:reproduction} identifies the retained
@@ -419,10 +423,10 @@ Memory and recall & Approve the pending finding; read it in a new session & Sour
 \end{table}
 \FloatBarrier
 
-The versioned reproduction materials provide two ways to inspect the example. The native
-driver repeats the workflow with configured Codex credentials and Docker. The offline verifier
+The retained materials support offline inspection of the recorded example. The verifier
 recomputes the arithmetic, checks file hashes, and inspects the saved executions, Memory revision
-and exported entities without running a model.
+and exported entities without running a model. These records do not establish a new end-to-end
+run against the current application.
 
 \subsection{Test suite and integration checks}
 \label{sec:tests}
@@ -434,10 +438,14 @@ grants and client interactions. Docker tests exercise environment setup, version
 execution, confinement and cancellation. The retained example additionally exercises
 authenticated Codex and connects its results to the offline artifact checks.
 
-On 7~September~2026, the full Vitest suite passed 345 tests with seven conditional skips
-across 51 files on macOS~26.6.2 arm64, Node.js~26.7.0 and the pinned pnpm configuration.
+On 7~September~2026, the frozen implementation baseline passed the full Vitest suite with
+345 tests and seven conditional skips across 51 files on macOS~26.6.2 arm64, Node.js~26.7.0
+and the pinned pnpm configuration.
 The six research-environment tests also passed with Docker enabled. Type checking, lint,
 documentation coverage, the application build and the retained artifact verifier passed.
+
+For the 3.3.0 version update, 66 focused protocol, Memory and Notebook-controller tests passed.
+Type checking, lint, documentation coverage, and the library and native-runtime builds also passed.
 
 \subsection{Evaluation scope}
 \label{sec:scope-limitations}
@@ -491,12 +499,14 @@ productivity remain questions for further evaluation.
 
 \section*{Code availability}
 
-SwarmX is available under the MIT License in the
-\href{https://github.com/tcztzy/swarmx/tree/9e1e818acd438dcbf30fb9dc46d758495d24d094}{versioned source repository}.
-Table~\ref{tab:code-metadata} fixes the implementation revision. The
+SwarmX is developed under the MIT License in the
+\href{https://github.com/tcztzy/swarmx}{source repository}. This manuscript describes version
+3.3.0, whose source tag is pending publication. The
+\href{https://github.com/tcztzy/swarmx/tree/9e1e818acd438dcbf30fb9dc46d758495d24d094}{frozen implementation baseline}
+identifies the code used for the recorded workflow and screenshots. The
 \href{https://github.com/tcztzy/swarmx/tree/d564ae641a839564a11b41d8aa3b61617556e625/examples/softwarex/current-release}{versioned reproduction materials}
-include the workflow driver, instructions for configuring credentials and Docker, and checks of
-the exported evidence.
+identify the historical workflow materials. The current example directory retains the exported
+evidence and an offline verifier.
 
 \section*{Data availability}
 

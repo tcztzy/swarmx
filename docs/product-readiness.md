@@ -8,7 +8,7 @@ RO-Crate are the data sources, not UI state.
 
 - Notebook and figure code use Docker and an immutable image ID, with no host fallback.
   Containers have no network, a read-only root filesystem, dropped capabilities, no
-  new privileges and bounded CPU, memory and processes. Only the workspace and
+  new privileges and bounded CPU, memory and processes. Only the execution directory and
   declared immutable artifact inputs are mounted. Never expose host credentials or
   the Docker socket to research code.
 - Settings persist locally and are validated at the Host boundary. Host tool grants
@@ -19,9 +19,8 @@ RO-Crate are the data sources, not UI state.
 - Environment setup is explicit, reports failures, and records the resolved image
   and installed package versions. Execution records include the actual environment
   and isolation policy. Settings and environment records survive restart.
-- Named projects have separate canonical directories, sessions, journals, settings and research
-  objects. Project-scoped requests stay bound across navigation; traversal and symlink escapes
-  are rejected. The sidebar manages projects; global settings contain only user preferences.
+- Each Host uses one canonical execution directory. Sessions and research records retain directory
+  ownership; path traversal and symlink escapes are rejected. Settings are shared across launches.
 - Research UI supports research collection creation, entity search, graph/list inspection,
   artifact previews, executable figure creation/editing and RO-Crate inspection and
   export. Edits preserve revisions, hashes and source relationships. Empty and failed
@@ -34,60 +33,14 @@ RO-Crate are the data sources, not UI state.
 | Initial gap | Implementation | Acceptance evidence |
 | --- | --- | --- |
 | Python execution on the host; JupyMCP bypassing the injected process runtime | Desktop uses stateless Python in an immutable Docker image; explicit mounts, no credentials/network, bounded resources | Real Docker confinement, read-only, declared inputs and child cancellation tests |
-| Implicit configuration and work directory | Named project catalog, per-project directories/settings, scoped gateways, native Codex/Claude permission mapping | Catalog restart/deduplication, concurrent project routing, cross-project rejection and native API mapping tests |
+| Implicit configuration and work directory | Fixed execution directory, shared private settings, validated IPC and external protocol calls | Directory rejection, persistent settings and native permission API tests |
 | No environment setup or export | Official Jupyter Data Science base pinned by digest, native platform, setup/cancel/inspect and actual installed Python package export | Real setup plus image/package inspection; failed setup shown in UI |
-| Research assets inaccessible from conversation | assistant-ui conversation with asset/editor side view; Observe groups react-o11y, scientific runs and RO-Crate | Renderer interaction tests and Chrome workflow checks |
+| Research assets inaccessible from conversation | assistant-ui conversation with asset/editor side view; Observe groups react-o11y, scientific runs and RO-Crate | Renderer interaction tests and desktop workflow checks |
 | Single-language interface | English/Chinese UI, accessible labels and formatting; Host-persisted language preference | Translation coverage, authenticated persistence and draft-preserving language-switch tests |
 | Graph data inaccessible to researchers | React Flow projection of RO-Crate, semantic edges, search and neighborhoods; JSON-LD inspector/export | Identity/relation/filter tests and visual graph inspection |
 | Failed code could capture an old output | Failed runs retain error evidence and cannot create a figure artifact | Regression test with an existing stale output; real Docker figure test |
 | Obsolete CI/release paths | Linux/macOS quality matrix, Docker integration job, source archive and checksum draft release | Local equivalents of quality commands; remote GitHub jobs require a push |
 | Missing machine-readable software citation | CITATION.cff based on manuscript authors and repository license | Author verification and archived version still required |
-
-Initial audit: native Agents, an execution journal, scientific entities, immutable
-artifacts, figure proposals and RO-Crate export exist. Research subprocesses run on
-the host; the renderer exposes only conversations; configuration is implicit;
-CI/release scripts reference deleted packages and commands. Typecheck passes before
-this work. Existing uncommitted work is preserved.
-The obsolete `paper:model` entry point also referenced a removed prototype module. It is
-retired; archived bounded-model outputs are historical artifacts, not checks of the current
-implementation. The current release gates use executable tests and `paper:demo`.
-
-## Local acceptance, 2026-09-06
-
-Validated on macOS arm64 with Node 26 and Docker, using the pinned official Jupyter
-Data Science base on native arm64. The resolved image contains Python 3.13.15 and
-240 installed Python packages. R and Julia are included by the base; the application
-currently executes Python only.
-
-- `pnpm lint`, `pnpm docs:check`, `pnpm typecheck` and `pnpm build` pass.
-- `pnpm test`: 272 pass, 5 skip (the opt-in Docker and native Agent tests), across
-  40 files. The environment test file also passes all 5 tests when enabled: 2 policy
-  tests and 3 real Docker scenarios covering setup/package capture, versioned figures,
-  confinement and cancellation.
-- The real Codex smoke test passes with two native turns, persisted history and a traced
-  `swarm status` MCP call. Its observer approves only that exact read-only elicitation.
-  The Hermes smoke test remains skipped; no authenticated live validation is claimed
-  for Claude, Hermes or OpenClaw.
-- `pnpm paper:demo` passes: 4 artifacts, 4 tasks, committed admission and 10 checksums.
-- Chrome checks cover project/question creation, environment setup and rebuild, PNG
-  generation, SVG style revision, preserved original hash/source, recorded executions,
-  graph selection/neighborhoods and RO-Crate export. The downloaded JSON-LD passes the
-  repository schema and contains both figure versions. At 720 px, the document has no
-  horizontal overflow; the checked page reports no browser console errors or warnings.
-- The conversation side view is checked in Chinese and English: selected-figure references
-  append to the existing draft; full-page Settings preserves it; Observe exposes live
-  react-o11y completion, scientific runs and RO-Crate from one entry. Language persists
-  through authenticated Host settings; the figure editor retains unsaved source when
-  switching to Observe. Jupyter setup from Settings resolves the same native image as
-  the integration test.
-- Rebuilding resolves the same image ID and leaves no SwarmX containers behind.
-  API tests verify import, byte-for-byte downloads and cross-workspace rejection.
-  Chrome's extension denied automated file upload, and its organization policy blocked
-  the direct image download. These two browser flows are not claimed as passed;
-  browser permissions and organization policies were not changed.
-
-The renderer build reports a large main-bundle warning. Remote CI jobs, signed desktop
-installers and the manuscript's empirical provenance study were not run in this acceptance.
 
 ## Design evidence
 

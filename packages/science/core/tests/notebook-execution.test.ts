@@ -3,6 +3,7 @@ import { readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it } from "vitest";
+import { ScienceJournal } from "../src/index.js";
 import { createScienceFixture, type ScienceFixture } from "./fixture.js";
 
 const fixtures: ScienceFixture[] = [];
@@ -33,6 +34,83 @@ function notebook(current: ScienceFixture) {
 }
 
 describe("T15 Python notebook execution", () => {
+  it("includes an older artifact's producing execution within the workspace-scoped history limit", async () => {
+    const current = await fixture();
+    const { notebook: created, project } = notebook(current);
+    const producer = await current.context.science.executeNotebookCell(current.sessionA, {
+      requestId: randomUUID(),
+      notebookId: created.id,
+      source: 'from pathlib import Path\nPath("result.txt").write_text("original result")',
+      outputArtifact: {
+        relativePath: "result.txt",
+        kind: "dataset",
+        title: "Original result",
+        mime: "text/plain",
+        license: null,
+      },
+    });
+    if (!producer.artifact) throw new Error("Missing producing artifact");
+    const journal = new ScienceJournal(current.root);
+    try {
+      for (let index = 0; index < 100; index++) {
+        journal.recordNotebookExecution(
+          "workspace-a",
+          current.sessionA,
+          {
+            requestId: randomUUID(),
+            notebookId: created.id,
+            source: `print(${index})`,
+            outputArtifact: null,
+          },
+          {
+            capturedArtifact: undefined,
+            durationMs: 1,
+            environment: {},
+            exitCode: 0,
+            outputs: [],
+            signal: null,
+            status: "succeeded",
+            stderr: { text: "", truncated: false },
+            stdout: { text: String(index), truncated: false },
+          },
+        );
+      }
+    } finally {
+      journal.close();
+    }
+    await current.scienceFiber.dispose();
+    await current.remount();
+    const science = current.context.science;
+    const count = science.journalCount();
+    const recent = science.getNotebookExecutions(current.sessionA, { projectId: project.id });
+    expect(recent).toHaveLength(100);
+    expect(recent[0]).toHaveProperty("source", "print(99)");
+    expect(recent[99]).toHaveProperty("source", "print(0)");
+    expect(recent.some((execution) => execution.id === producer.id)).toBe(false);
+    const request = { projectId: project.id, includeArtifactId: producer.artifact.id };
+    const included = science.getNotebookExecutions(current.sessionA, request);
+    const { notebook: _notebook, ...summary } = producer;
+    expect(included).toEqual([
+      {
+        ...summary,
+        source: 'from pathlib import Path\nPath("result.txt").write_text("original result")',
+      },
+      ...recent.slice(0, 99),
+    ]);
+    expect(() => science.getNotebookExecutions(current.sessionB, request)).toThrow(/not found/);
+    const other = science.createProject(current.sessionA, {
+      requestId: randomUUID(),
+      title: "Another collection",
+    });
+    expect(
+      science.getNotebookExecutions(current.sessionA, { ...request, projectId: other.id }),
+    ).toEqual([]);
+    expect(() =>
+      science.getNotebookExecutions(current.sessionA, { ...request, includeArtifactId: "" }),
+    ).toThrow();
+    expect(science.journalCount()).toBe(count + 1);
+  });
+
   it("records failed code without capturing an old declared output", async () => {
     const current = await fixture();
     const { notebook: created } = notebook(current);
@@ -56,7 +134,14 @@ describe("T15 Python notebook execution", () => {
     const history = current.context.science.getNotebookExecutions(current.sessionA, {
       projectId: created.projectId,
     });
-    expect(history).toMatchObject([{ id: result.id, status: "failed", artifact: null }]);
+    expect(history).toMatchObject([
+      {
+        id: result.id,
+        status: "failed",
+        artifact: null,
+        source: "raise ValueError('analysis failed')",
+      },
+    ]);
     expect(history[0]).not.toHaveProperty("notebook");
     expect(() =>
       current.context.science.getNotebookExecutions(current.sessionB, {

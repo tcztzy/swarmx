@@ -7,8 +7,11 @@ import {
 } from "@assistant-ui/react";
 import { type ComponentProps, useEffect, useMemo, useState } from "react";
 import { z } from "zod";
-import { ExecutionPageSchema, type ExecutionRecord, type RunControl } from "../execution-record.js";
-import { projectFetch as fetch } from "./api.js";
+import { ExecutionPageResponseSchema } from "../bridge-contract.js";
+import type { ExecutionRecord, RunControl } from "../execution-record.js";
+import { bridge } from "./bridge.js";
+import { Button } from "./components/ui/radix/button.js";
+import { Textarea } from "./components/ui/radix/textarea.js";
 import { i18n, t, useTranslation } from "./i18n.js";
 import { Icon } from "./icon.js";
 
@@ -27,7 +30,6 @@ const InteractionId = z.object({ id: z.string() });
 const ControlFailure = z.object({ message: z.string() });
 const SteeredInput = z.object({ text: z.string() });
 const Delegation = z.object({ agentId: z.string() });
-const ApiError = z.object({ error: z.string() });
 const PAGE_SIZE = 200;
 
 export function Subagents({
@@ -40,7 +42,7 @@ export function Subagents({
   messageComponents: MessageComponents;
 }) {
   useTranslation();
-  const [page, setPage] = useState<z.infer<typeof ExecutionPageSchema>>({
+  const [page, setPage] = useState<z.infer<typeof ExecutionPageResponseSchema>>({
     events: [],
     nextAfter: 0,
     activeRunIds: [],
@@ -56,17 +58,16 @@ export function Subagents({
     setError(undefined);
     async function read() {
       try {
-        let next: z.infer<typeof ExecutionPageSchema>;
+        let next: z.infer<typeof ExecutionPageResponseSchema>;
         do {
-          const query = new URLSearchParams({
-            session: sessionId,
-            descendants: "true",
-            after: String(after),
-            limit: String(PAGE_SIZE),
-          });
-          const response = await fetch(`/api/v1/logs?${query}`, { signal: controller.signal });
-          if (!response.ok) throw new Error(ApiError.parse(await response.json()).error);
-          next = ExecutionPageSchema.parse(await response.json());
+          next = ExecutionPageResponseSchema.parse(
+            await bridge().logs.read({
+              session: sessionId,
+              descendants: "true",
+              after,
+              limit: PAGE_SIZE,
+            }),
+          );
           if (controller.signal.aborted) return;
           records = records.concat(next.events);
           after = next.nextAfter;
@@ -105,15 +106,17 @@ export function Subagents({
             total: runs.length,
           })}
         </span>
-        <button
+        <Button
           type="button"
           aria-label={t("刷新子 Agent")}
           title={t("刷新子 Agent")}
-          className="icon-button ml-auto"
+          variant="ghost"
+          size="icon-sm"
+          className="ml-auto"
           onClick={() => setRefreshCount((value) => value + 1)}
         >
           <Icon name="refresh" className="size-3.5" />
-        </button>
+        </Button>
       </header>
       {error && (
         <p role="alert" className="px-4 pb-3 text-sm break-words">
@@ -156,12 +159,7 @@ function SubagentCard({
     setError(undefined);
     setNotice(undefined);
     try {
-      const response = await fetch(`/api/v1/runs/${encodeURIComponent(run.id)}`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(command),
-      });
-      if (!response.ok) throw new Error(ApiError.parse(await response.json()).error);
+      await bridge().runs.control({ runId: run.id, command });
       if (command.action === "steer") setDraft("");
       setNotice(command.action === "steer" ? t("补充指令已发送") : t("已请求停止"));
       onUpdate();
@@ -266,8 +264,8 @@ function SubagentCard({
             >
               <label className="min-w-0 flex-1 text-xs text-neutral-600">
                 {t("补充指令")}
-                <textarea
-                  className="interaction-input mt-1 w-full resize-y"
+                <Textarea
+                  className="mt-1 w-full resize-y"
                   aria-label={t("给 {{name}} 补充指令", { name: run.name })}
                   value={draft}
                   onChange={(event) => setDraft(event.target.value)}
@@ -277,15 +275,18 @@ function SubagentCard({
                   disabled={pending || unavailable || run.status !== "running"}
                 />
               </label>
-              <button
-                className="primary-button"
+              <Button
+                variant="default"
+                size="default"
                 type="submit"
                 disabled={pending || unavailable || run.status !== "running" || !draft.trim()}
               >
                 {t("发送指令")}
-              </button>
-              <button
-                className="icon-button border border-neutral-200"
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                className="border border-neutral-200"
                 type="button"
                 aria-label={t("停止 {{name}}", { name: run.name })}
                 title={t("停止子 Agent")}
@@ -293,7 +294,7 @@ function SubagentCard({
                 onClick={() => void control({ action: "cancel" })}
               >
                 <Icon name="stop" className="size-3.5" />
-              </button>
+              </Button>
             </form>
           )}
           {notice && (

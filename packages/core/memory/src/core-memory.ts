@@ -6,68 +6,50 @@ import { z } from "zod";
 import { MemoryError } from "./errors.js";
 import { conceptRevision } from "./markdown.js";
 
-export const coreMemoryTargetSchema = z.enum(["user", "workspace"]);
 export const coreMemoryUpdateSchema = z.strictObject({
-  target: coreMemoryTargetSchema,
   content: z.string().max(8_800),
   expectedRevision: z.string().regex(/^sha256:[a-f0-9]{64}$/u),
 });
-export const CORE_MEMORY_LIMITS = { user: 1375, workspace: 2200 } as const;
+export const CORE_MEMORY_LIMIT = 1_375;
 
 export class CoreMemory {
   private readonly root: string;
-  constructor(
-    root: string,
-    private readonly workspaceId: string,
-  ) {
-    this.root = resolve(root);
-    z.string()
-      .regex(/^[a-zA-Z0-9_-]{1,128}$/u)
-      .parse(workspaceId);
-  }
+  private readonly path: string;
 
-  private path(target: z.infer<typeof coreMemoryTargetSchema>) {
-    return target === "user"
-      ? join(this.root, "USER.md")
-      : join(this.root, "workspaces", this.workspaceId, "MEMORY.md");
+  constructor(root: string) {
+    this.root = resolve(root);
+    this.path = join(this.root, "USER.md");
   }
 
   async initialize() {
-    await mkdir(join(this.root, "workspaces", this.workspaceId), { recursive: true, mode: 0o700 });
+    await mkdir(this.root, { recursive: true, mode: 0o700 });
   }
 
-  async read(target: z.infer<typeof coreMemoryTargetSchema>) {
-    coreMemoryTargetSchema.parse(target);
-    const path = this.path(target);
+  async read() {
     let content = "";
     try {
-      const info = await lstat(path);
+      const info = await lstat(this.path);
       const canonical = await realpath(this.root);
       if (
         !info.isFile() ||
         info.isSymbolicLink() ||
-        (await realpath(path)) !== path.replace(this.root, canonical)
+        (await realpath(this.path)) !== this.path.replace(this.root, canonical)
       )
         throw new MemoryError("Core memory must be a regular, unredirected file.", "UNSAFE_PATH");
-      if (info.size > CORE_MEMORY_LIMITS[target] * 4)
+      if (info.size > CORE_MEMORY_LIMIT * 4)
         throw new MemoryError("Core memory exceeds its character limit.", "INVALID_CONCEPT");
-      content = new TextDecoder("utf-8", { fatal: true }).decode(await readFile(path));
+      content = new TextDecoder("utf-8", { fatal: true }).decode(await readFile(this.path));
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
     }
-    if (Array.from(content).length > CORE_MEMORY_LIMITS[target])
+    if (Array.from(content).length > CORE_MEMORY_LIMIT)
       throw new MemoryError("Core memory exceeds its character limit.", "INVALID_CONCEPT");
-    return {
-      target,
-      content,
-      revision: conceptRevision(content),
-      limit: CORE_MEMORY_LIMITS[target],
-    };
+    return { content, revision: conceptRevision(content), limit: CORE_MEMORY_LIMIT };
   }
 
   async update(raw: z.infer<typeof coreMemoryUpdateSchema>, signal?: AbortSignal) {
     const input = coreMemoryUpdateSchema.parse(raw);
-    if (Array.from(input.content).length > CORE_MEMORY_LIMITS[input.target])
+    if (Array.from(input.content).length > CORE_MEMORY_LIMIT)
       throw new MemoryError(
         "Core memory is full. Consolidate entries before saving.",
         "INVALID_REQUEST",
@@ -75,22 +57,26 @@ export class CoreMemory {
     await this.initialize();
     const canonicalRoot = await realpath(this.root);
     if (
-      (await realpath(dirname(this.path(input.target)))) !==
-      join(canonicalRoot, relative(this.root, dirname(this.path(input.target))))
+      (await realpath(dirname(this.path))) !==
+      join(canonicalRoot, relative(this.root, dirname(this.path)))
     )
       throw new MemoryError("Core memory directory is redirected.", "UNSAFE_PATH");
-    const release = await lockfile.lock(this.path(input.target), { realpath: false });
+    // proper-lockfile appends ".lock" to the lockfilePath, keeping the lock outside the vault.
+    const release = await lockfile.lock(this.path, {
+      realpath: false,
+      lockfilePath: `${this.root}.lock`,
+    });
     try {
       signal?.throwIfAborted();
-      const current = await this.read(input.target);
+      const current = await this.read();
       if (current.revision !== input.expectedRevision)
         throw new MemoryError(
           "Core memory changed; read it again before editing.",
           "REVISION_CONFLICT",
         );
       signal?.throwIfAborted();
-      await writeFileAtomic(this.path(input.target), input.content, { mode: 0o600, fsync: true });
-      return this.read(input.target);
+      await writeFileAtomic(this.path, input.content, { mode: 0o600, fsync: true });
+      return this.read();
     } finally {
       await release();
     }

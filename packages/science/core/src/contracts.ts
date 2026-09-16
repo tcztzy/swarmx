@@ -846,6 +846,10 @@ export const getResearchObjectRequestSchema = z.strictObject({
   projectId: entityIdSchema,
 });
 
+export const getNotebookExecutionsRequestSchema = getResearchObjectRequestSchema.extend({
+  includeArtifactId: entityIdSchema.optional(),
+});
+
 const proposeDocumentPatchRequestSchema = z
   .strictObject({
     requestId: z.string().uuid(),
@@ -1187,7 +1191,9 @@ export const notebookExecutionSchema = z.strictObject({
   notebook: scienceNotebookSchema,
   provenance: provenanceReceiptSchema,
 });
-export const notebookExecutionSummarySchema = notebookExecutionSchema.omit({ notebook: true });
+export const notebookExecutionSummarySchema = notebookExecutionSchema
+  .omit({ notebook: true })
+  .extend({ source: notebookCellSchema.shape.source });
 
 const literatureYearFilterSchema = z
   .strictObject({
@@ -1336,6 +1342,7 @@ export type FinishRunRequest = z.infer<typeof finishRunRequestSchema>;
 export type CompareRunsRequest = z.infer<typeof compareRunsRequestSchema>;
 export type ExportProjectRequest = z.infer<typeof exportProjectRequestSchema>;
 export type GetResearchObjectRequest = z.infer<typeof getResearchObjectRequestSchema>;
+export type GetNotebookExecutionsRequest = z.infer<typeof getNotebookExecutionsRequestSchema>;
 export type RegisterArtifactRequest = z.infer<typeof registerArtifactRequestSchema>;
 export type ImportArtifactRequest = z.infer<typeof importArtifactRequestSchema>;
 export type PreviewArtifactRequest = z.infer<typeof previewArtifactRequestSchema>;

@@ -1,14 +1,12 @@
-import { HttpAgent } from "@ag-ui/client";
-import { MessageSchema } from "@ag-ui/core";
+import { FilterToolCallsMiddleware } from "@ag-ui/client";
 import {
   ActionBarPrimitive,
   type AssistantRuntime,
   AssistantRuntimeProvider,
-  AuiIf,
   ComposerPrimitive,
   ExportedMessageRepository,
+  groupPartByType,
   MessagePrimitive,
-  type ReasoningMessagePartProps,
   type ThreadHistoryAdapter,
   ThreadPrimitive,
   type ToolCallMessagePartProps,
@@ -21,135 +19,262 @@ import {
   useAgUiRuntime,
   useAgUiSubmitInterruptResponses,
 } from "@assistant-ui/react-ag-ui";
-import { MarkdownTextPrimitive } from "@assistant-ui/react-markdown";
-import { type ReactNode, useEffect, useMemo, useState } from "react";
-import remarkGfm from "remark-gfm";
+import { type ReactNode, useContext, useEffect, useMemo, useState } from "react";
 import { z } from "zod";
+import { HistoryMessagesSchema, type MessageActivity } from "../message-activity.js";
 import { HarnessPicker, type HarnessProps, RunControls } from "./agent-controls.js";
-import { projectFetch as fetch, projectUrl } from "./api.js";
+import { IpcAgent } from "./agui.js";
+import { bridge } from "./bridge.js";
+import { CommentaryMessages, useMessageActivity } from "./commentary.js";
+import { MarkdownText } from "./components/assistant-ui/elements/markdown-text.js";
+import { TerminalBlock } from "./components/assistant-ui/elements/terminal-block.js";
+import {
+  ToolFallbackArgs,
+  ToolFallbackContent,
+  ToolFallbackError,
+  ToolFallbackResult,
+  ToolFallbackRoot,
+  ToolFallbackTrigger,
+} from "./components/assistant-ui/elements/tool-fallback.js";
+import { Button } from "./components/ui/radix/button.js";
+import { Input } from "./components/ui/radix/input.js";
+import { NativeSelect } from "./components/ui/radix/native-select.js";
 import { t, useTranslation } from "./i18n.js";
 import { Icon } from "./icon.js";
+import { readConceptResult, SavedConcept } from "./saved-concept.js";
+import type { SourceReference } from "./source-inspection.js";
 import { Subagents } from "./subagents.js";
+import { MessageToolGroup, readShell, ToolActivityContext } from "./tool-ui.js";
 
-function Reasoning({ text, status }: ReasoningMessagePartProps) {
-  useTranslation();
-  return (
-    <details className="activity-card" open={status.type === "running"}>
-      <summary>
-        <Icon name="chevron" className="activity-chevron size-3.5" />
-        <span className={status.type === "running" ? "animate-pulse" : ""}>
-          {status.type === "running" ? t("正在思考…") : t("思考过程")}
-        </span>
-      </summary>
-      <div className="whitespace-pre-wrap border-neutral-200 border-l pl-4 text-sm leading-7 text-neutral-500">
-        {text}
-      </div>
-    </details>
-  );
-}
+const CONTEXT_COMPACTION_TOOL = "contextCompaction";
 
-function ToolCard({ toolName, args, result, isError, status }: ToolCallMessagePartProps) {
+function ToolCard({
+  toolCallId,
+  toolName,
+  args,
+  argsText,
+  result,
+  isError,
+  status,
+}: ToolCallMessagePartProps) {
   useTranslation();
-  const label = isError
-    ? t("失败")
-    : status.type === "running"
-      ? t("运行中")
-      : status.type === "requires-action"
-        ? t("等待确认")
-        : status.type === "incomplete"
-          ? status.reason === "cancelled"
-            ? t("已停止")
-            : t("未完成")
-          : result === undefined
+  const native = useContext(ToolActivityContext)[toolCallId];
+  const shell = readShell({ args, result });
+  const cancelled = status.type === "incomplete" && status.reason === "cancelled";
+  const failed =
+    !cancelled &&
+    (isError || native?.status === "failed" || (shell?.exitCode != null && shell.exitCode !== 0));
+  const label = cancelled
+    ? t("已停止")
+    : failed
+      ? t("失败")
+      : status.type === "running"
+        ? t("运行中")
+        : status.type === "requires-action"
+          ? t("等待确认")
+          : status.type === "incomplete"
             ? t("未完成")
-            : t("完成");
+            : result === undefined
+              ? t("未完成")
+              : t("完成");
+  const succeeded = !failed && status.type === "complete" && result !== undefined;
+  if (shell)
+    return (
+      <TerminalBlock
+        command={shell.command ? `$ ${shell.command}` : toolName}
+        lines={[shell.output ?? ""]}
+        visibleCount={1}
+        done={status.type !== "running"}
+        className="max-w-none [&>div:last-child]:max-h-60 [&>div:last-child]:overflow-auto [&>div:last-child]:whitespace-pre"
+        status={
+          <span
+            role="status"
+            className={`flex shrink-0 items-center gap-1 ${failed ? "text-red-600" : "text-muted-foreground"}`}
+          >
+            {shell.exitCode != null && <span>exit {shell.exitCode}</span>}
+            <Icon name={succeeded ? "check" : failed ? "errorCircle" : "code"} />
+            {succeeded ? t("命令成功") : label}
+          </span>
+        }
+      />
+    );
+  const operation = z
+    .object({ action: z.string() })
+    .or(
+      z
+        .object({ arguments: z.object({ action: z.string() }) })
+        .transform((value) => value.arguments),
+    )
+    .safeParse(args);
+  const memory =
+    toolName.includes("memory") &&
+    operation.success &&
+    ["search_memory", "read_memory", "load_memory"].includes(operation.data.action);
   return (
-    <details className="activity-card">
-      <summary>
-        <Icon name="chevron" className="activity-chevron size-3.5" />
-        <Icon name="code" className="size-3.5" />
-        <span className="truncate font-mono text-xs">{toolName}</span>
-        <span className="ml-auto shrink-0 text-xs">{label}</span>
-      </summary>
-      <pre className="max-h-64 overflow-auto rounded-lg bg-neutral-100 p-3 text-xs leading-6">
-        {JSON.stringify({ args, result }, null, 2)}
-      </pre>
-      {toolName.includes("science_") && result !== undefined && (
-        <button
-          className="secondary-button mt-2"
-          type="button"
-          onClick={() => {
-            window.dispatchEvent(
-              new CustomEvent("swarmx:open-research", { detail: scienceTarget(result) }),
-            );
-            window.dispatchEvent(new Event("swarmx:science-changed"));
-          }}
-        >
-          <Icon name="graph" />
-          {t("在侧栏中查看")}
-        </button>
-      )}
-    </details>
+    <ToolFallbackRoot defaultOpen={status.type === "requires-action"}>
+      <ToolFallbackTrigger
+        toolName={memory ? t("记忆搜索与读取") : toolName}
+        status={failed ? { type: "incomplete", reason: "error" } : status}
+      >
+        <span>{memory ? t("记忆搜索与读取") : toolName}</span> <span>{label}</span>
+      </ToolFallbackTrigger>
+      <ToolFallbackContent>
+        <ToolFallbackError status={status} />
+        <p className="text-muted-foreground text-xs font-medium">{t("工具参数")}</p>
+        <ToolFallbackArgs argsText={argsText} />
+        <ToolFallbackResult result={result} />
+        {toolName.includes("science_") && result !== undefined && (
+          <Button
+            variant="outline"
+            size="sm"
+            className="mt-2"
+            type="button"
+            onClick={() => {
+              window.dispatchEvent(
+                new CustomEvent("swarmx:open-research", { detail: scienceTarget(result) }),
+              );
+              window.dispatchEvent(new Event("swarmx:science-changed"));
+            }}
+          >
+            <Icon name="graph" />
+            {t("在侧栏中查看")}
+          </Button>
+        )}
+      </ToolFallbackContent>
+    </ToolFallbackRoot>
   );
 }
 
 function UserMessage() {
-  useTranslation();
   return (
-    <MessagePrimitive.Root className="mx-auto mb-8 flex w-full max-w-3xl justify-end">
-      <div className="max-w-[85%] rounded-2xl bg-neutral-100 px-4 py-2.5 text-[15px] leading-7 break-words">
-        <MessagePrimitive.Parts
-          components={{ Text: ({ text }) => <p className="whitespace-pre-wrap">{text}</p> }}
-        />
+    <MessagePrimitive.Root data-role="user" className="chat-message flex flex-col items-end">
+      <div className="relative max-w-[80%]">
+        <div className="user-bubble rounded-thread bg-muted px-4 py-2 text-[15px] wrap-break-word empty:hidden">
+          <MessagePrimitive.Parts
+            components={{ Text: ({ text }) => <p className="whitespace-pre-wrap">{text}</p> }}
+          />
+        </div>
       </div>
     </MessagePrimitive.Root>
   );
 }
 
-function AssistantMessage() {
+function AssistantMessage({ view = "all" }: { view?: "all" | "work" | "answer" | "commentary" }) {
   useTranslation();
-  const hasText = useAuiState((state) =>
-    state.message.content.some((part) => part.type === "text" && part.text.length > 0),
+  const hasText = useAuiState(
+    (state) =>
+      view !== "work" &&
+      state.message.content.some((part) => part.type === "text" && part.text.length > 0),
   );
+  const hasToolsOrStatus = useAuiState(
+    (state) =>
+      state.message.status?.type === "running" ||
+      (view !== "answer" && state.message.content.some((part) => part.type === "tool-call")),
+  );
+  const conceptResult = useAuiState((state) => {
+    const index = state.thread.messages.findIndex((message) => message.id === state.message.id);
+    for (let i = index + 1; i < state.thread.messages.length; i++) {
+      const later = state.thread.messages[i];
+      if (!later || later.role === "user") break;
+      if (
+        later.role === "assistant" &&
+        later.content.some((part) => part.type === "text" && part.text.length > 0)
+      )
+        return undefined;
+    }
+    for (let i = index; i >= 0; i--) {
+      const message = state.thread.messages[i];
+      if (!message || message.role === "user") break;
+      for (let j = message.content.length - 1; j >= 0; j--) {
+        const part = message.content[j];
+        if (
+          part?.type === "tool-call" &&
+          part.toolName.includes("memory") &&
+          !part.isError &&
+          readConceptResult(part.result)
+        )
+          return part.result;
+      }
+    }
+    return undefined;
+  });
+  const concept = readConceptResult(conceptResult);
+  if (!hasText && !hasToolsOrStatus) return null;
   return (
-    <MessagePrimitive.Root
-      className={`mx-auto w-full max-w-3xl text-[15px] leading-7 ${hasText ? "mb-8" : "mb-2"}`}
-    >
-      <MessagePrimitive.Parts
-        components={{
-          Text: () => (
-            <MarkdownTextPrimitive className="message-markdown" remarkPlugins={[remarkGfm]} />
-          ),
-          Reasoning,
-          tools: { Fallback: ToolCard },
-          Empty: () => (
-            <AuiIf condition={(state) => state.message.status?.type === "running"}>
-              <span role="status" className="animate-pulse text-sm text-neutral-500">
-                {t("正在处理…")}
-              </span>
-            </AuiIf>
-          ),
-        }}
-      />
-      {hasText && (
-        <ActionBarPrimitive.Root hideWhenRunning className="mt-3 flex items-center">
-          <ActionBarPrimitive.Copy
-            aria-label={t("复制回复")}
-            title={t("复制回复")}
-            className="icon-button group gap-1.5 text-xs"
+    <MessagePrimitive.Root data-role="assistant" className="chat-message assistant-message">
+      <div className="text-[15px] leading-relaxed wrap-break-word">
+        <MessagePrimitive.GroupedParts
+          groupBy={groupPartByType({
+            "tool-call": ["group-tool"],
+            data: ["group-tool"],
+          })}
+        >
+          {({ part, children }) => {
+            switch (part.type) {
+              case "group-tool":
+                return view === "answer" ? null : (
+                  <MessageToolGroup indices={part.indices} running={part.status.type === "running"}>
+                    {children}
+                  </MessageToolGroup>
+                );
+              case "text":
+                return view === "work" ? null : (
+                  <MarkdownText
+                    components={view === "commentary" ? { CodeHeader: () => null } : {}}
+                  />
+                );
+              case "tool-call":
+                return view === "answer" ? null : (part.toolUI ?? <ToolCard {...part} />);
+              case "indicator":
+                return view === "work" ? null : (
+                  <span role="status" className="animate-pulse text-sm text-neutral-500">
+                    {t("正在处理…")}
+                  </span>
+                );
+              default:
+                return null;
+            }
+          }}
+        </MessagePrimitive.GroupedParts>
+        {hasText && concept && <SavedConcept concept={concept} />}
+      </div>
+      {hasText && view !== "commentary" && (
+        <div className="answer-actions mt-2 h-6">
+          <ActionBarPrimitive.Root
+            hideWhenRunning
+            autohide="not-last"
+            className="flex h-full items-center gap-1.5"
           >
-            <span className="group-data-[copied]:hidden">
-              <Icon name="copy" className="size-3.5" />
-            </span>
-            <span className="hidden items-center gap-1 group-data-[copied]:flex">
-              <Icon name="check" className="size-3.5" />
-              {t("已复制")}
-            </span>
-          </ActionBarPrimitive.Copy>
-        </ActionBarPrimitive.Root>
+            <ActionBarPrimitive.Copy
+              aria-label={t("复制回复")}
+              title={t("复制回复")}
+              className="group p-1 text-muted-foreground/70 transition-colors hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
+            >
+              <span className="group-data-[copied]:hidden">
+                <Icon name="copy" />
+              </span>
+              <span className="hidden items-center gap-1 group-data-[copied]:flex">
+                <Icon name="check" />
+                <span className="sr-only">{t("已复制")}</span>
+              </span>
+            </ActionBarPrimitive.Copy>
+          </ActionBarPrimitive.Root>
+        </div>
       )}
     </MessagePrimitive.Root>
   );
+}
+
+function WorkMessage() {
+  return <AssistantMessage view="work" />;
+}
+
+function FinalMessage() {
+  return <AssistantMessage view="answer" />;
+}
+
+function CommentaryMessage() {
+  return <AssistantMessage view="commentary" />;
 }
 
 function InteractionForms() {
@@ -202,9 +327,9 @@ function InteractionForms() {
               />
             ))}
             <div className="mt-1 flex gap-2">
-              <button className="primary-button" type="submit">
+              <Button variant="default" size="default" type="submit">
                 {pending ? t("正在提交…") : t("继续")}
-              </button>
+              </Button>
               <button
                 className="rounded-lg border border-neutral-300 bg-white px-3 py-2 text-sm hover:bg-neutral-100"
                 onClick={() => void respond([{ interruptId: interrupt.id, status: "cancelled" }])}
@@ -249,8 +374,8 @@ function InteractionField({
     return (
       <label className="grid gap-1.5 text-sm">
         {label}
-        <select
-          className="interaction-input"
+        <NativeSelect
+          className={schema.type === "array" ? "h-auto min-h-24 [&+svg]:hidden" : undefined}
           multiple={schema.type === "array"}
           name={name}
           required={required}
@@ -262,21 +387,20 @@ function InteractionField({
               {option.label}
             </option>
           ))}
-        </select>
+        </NativeSelect>
       </label>
     );
   }
   const type =
     schema.type === "number" || schema.type === "integer"
       ? "number"
-      : ["date", "email", "url"].includes(String(schema.format))
+      : ["date", "email", "url", "password"].includes(String(schema.format))
         ? String(schema.format)
         : "text";
   return (
     <label className="grid gap-1.5 text-sm">
       {label}
-      <input
-        className="interaction-input"
+      <Input
         name={name}
         type={type}
         required={required}
@@ -294,9 +418,9 @@ interface ConversationProps extends HarnessProps {
   harnessDisabled: boolean;
   threadId: string;
   agentId: string;
-  workspace: string;
   sidePanel?: ReactNode;
   panelOpen?: boolean;
+  source?: SourceReference | undefined;
 }
 
 export function ConversationSurface(props: ConversationProps) {
@@ -304,55 +428,82 @@ export function ConversationSurface(props: ConversationProps) {
   const { threadId, agentId } = props;
   const [error, setError] = useState<string>();
   const [historyReady, setHistoryReady] = useState(false);
+  const [retryingHistory, setRetryingHistory] = useState(false);
   const agent = useMemo(
     () =>
-      new HttpAgent({
-        url: projectUrl(`/api/ag-ui?agent=${encodeURIComponent(agentId)}`),
-        threadId,
-      }),
+      new IpcAgent(agentId, threadId).use(
+        new FilterToolCallsMiddleware({ disallowedToolCalls: [CONTEXT_COMPACTION_TOOL] }),
+      ),
     [threadId, agentId],
   );
-  const history = useMemo<ThreadHistoryAdapter>(
-    () => ({
-      async load() {
-        const response = await fetch(
-          "/api/v1/sessions/" +
-            encodeURIComponent(threadId) +
-            "?agent=" +
-            encodeURIComponent(agentId),
-        );
-        if (!response.ok) throw new Error(await response.text());
-        const repository = ExportedMessageRepository.fromArray(
-          fromAgUiMessages(MessageSchema.array().parse(await response.json())),
-        );
-        setHistoryReady(true);
-        return repository;
-      },
-      async append() {},
-    }),
-    [threadId, agentId],
+  useEffect(() => () => agent.abortRun(), [agent]);
+  const { activity, tools, restore } = useMessageActivity(agent);
+  const history = useMemo(
+    () =>
+      ({
+        async load() {
+          const messages = HistoryMessagesSchema.parse(
+            await bridge().sessions.history({ agent: agentId, sessionId: threadId }),
+          );
+          restore(messages);
+          const repository = ExportedMessageRepository.fromArray(
+            fromAgUiMessages(messages, { showThinking: false })
+              .map((message) => ({
+                ...message,
+                content:
+                  typeof message.content === "string"
+                    ? message.content
+                    : message.content.filter(
+                        (part) =>
+                          part.type !== "tool-call" || part.toolName !== CONTEXT_COMPACTION_TOOL,
+                      ),
+              }))
+              .filter((message) => message.content.length > 0),
+          );
+          setHistoryReady(true);
+          return repository;
+        },
+        async append() {},
+      }) satisfies ThreadHistoryAdapter,
+    [threadId, agentId, restore],
   );
   const runtime = useAgUiRuntime({
     agent,
     adapters: { history },
-    showThinking: true,
+    showThinking: false,
     onError: (cause) => setError(cause.message),
   });
   return (
     <AssistantRuntimeProvider runtime={runtime}>
-      <ConversationContent
-        {...props}
-        runtime={runtime}
-        error={error}
-        historyReady={historyReady}
-        onSend={() => setError(undefined)}
-      />
+      <ToolActivityContext.Provider value={tools}>
+        <ConversationContent
+          {...props}
+          runtime={runtime}
+          activity={activity}
+          error={error}
+          historyReady={historyReady}
+          retryingHistory={retryingHistory}
+          onRetryHistory={async () => {
+            setRetryingHistory(true);
+            try {
+              runtime.thread.import(await history.load());
+              setError(undefined);
+            } catch (cause) {
+              setError(cause instanceof Error ? cause.message : String(cause));
+            } finally {
+              setRetryingHistory(false);
+            }
+          }}
+          onSend={() => setError(undefined)}
+        />
+      </ToolActivityContext.Provider>
     </AssistantRuntimeProvider>
   );
 }
 
 function ConversationContent({
   runtime,
+  activity,
   agentId,
   threadId,
   harness,
@@ -361,13 +512,19 @@ function ConversationContent({
   harnessDisabled,
   sidePanel,
   panelOpen,
+  source,
   error,
   historyReady,
+  retryingHistory,
+  onRetryHistory,
   onSend,
 }: ConversationProps & {
   runtime: AssistantRuntime;
+  activity: Record<string, MessageActivity>;
   error: string | undefined;
   historyReady: boolean;
+  retryingHistory: boolean;
+  onRetryHistory: () => Promise<void>;
   onSend: () => void;
 }) {
   useTranslation();
@@ -375,7 +532,8 @@ function ConversationContent({
   const loading = useAuiState((state) => state.thread.isLoading);
   const empty = useAuiState((state) => state.thread.messages.length === 0);
   const interrupts = useAgUiInterrupts();
-  const blocked = !historyReady || interrupts.length > 0;
+  const standaloneUsed = threadId.startsWith("dsh:") && !empty;
+  const blocked = !historyReady || interrupts.length > 0 || standaloneUsed;
   const welcome = empty && historyReady;
   useEffect(() => {
     const draft = (event: Event) => {
@@ -387,25 +545,35 @@ function ConversationContent({
     return () => window.removeEventListener("swarmx:compose", draft);
   }, [runtime]);
   return (
-    <ThreadPrimitive.Root className="relative flex min-h-0 flex-1 overflow-hidden">
-      <div className={`flex min-h-0 min-w-0 flex-1 flex-col ${welcome ? "justify-center" : ""}`}>
-        <div className={`relative min-h-0 ${welcome ? "" : "flex-1"}`}>
-          <ThreadPrimitive.Viewport className="h-full overflow-y-auto px-5 pt-7 pb-4 sm:px-8">
-            {loading && (
-              <p role="status" className="mx-auto max-w-3xl py-6 text-sm text-neutral-500">
-                {t("正在加载历史记录…")}
-              </p>
-            )}
-            {welcome && (
-              <div className="mx-auto mb-5 max-w-3xl text-center">
-                <Icon name="swarm" className="mx-auto mb-5 size-9" />
-                <h2 className="text-3xl font-semibold tracking-tight">{t("今天想探索什么？")}</h2>
-                <p className="mt-3 text-sm text-neutral-500">
-                  {t("把问题交给 SwarmX，一起推进下一步。")}
-                </p>
-              </div>
-            )}
-            <ThreadPrimitive.Messages components={{ UserMessage, AssistantMessage }} />
+    <ThreadPrimitive.Root
+      className={`conversation-layout relative flex min-h-0 flex-1 overflow-hidden ${panelOpen ? "has-side-panel" : ""}`}
+    >
+      <div className="conversation-column flex min-h-0 min-w-0 flex-1 flex-col">
+        <ThreadPrimitive.Viewport
+          turnAnchor="top"
+          className={`conversation-viewport relative flex flex-1 flex-col overflow-y-auto ${welcome ? "justify-center" : ""}`}
+        >
+          {(loading || retryingHistory) && (
+            <p role="status" className="mx-auto max-w-3xl py-6 text-sm text-neutral-500">
+              {t("正在加载历史记录…")}
+            </p>
+          )}
+          {welcome && (
+            <div className="mx-auto mb-8 flex w-full max-w-(--thread-max-width) flex-col items-center text-center">
+              <h2 className="text-2xl font-medium tracking-tight">{t("今天想探索什么？")}</h2>
+            </div>
+          )}
+          <div className="mb-12 empty:hidden">
+            <CommentaryMessages
+              activity={activity}
+              components={{
+                UserMessage,
+                AssistantMessage,
+                WorkMessage,
+                FinalMessage,
+                CommentaryMessage,
+              }}
+            />
             <Subagents
               key={threadId}
               sessionId={threadId}
@@ -413,112 +581,156 @@ function ConversationContent({
               messageComponents={{ UserMessage, AssistantMessage }}
             />
             <InteractionForms />
-          </ThreadPrimitive.Viewport>
-          {!welcome && (
-            <ThreadPrimitive.ScrollToBottom
-              aria-label={t("滚动到最新消息")}
-              className="absolute bottom-3 left-1/2 grid size-8 -translate-x-1/2 place-items-center rounded-full border border-neutral-200 bg-white shadow-sm disabled:invisible"
-            >
-              <Icon name="arrowDown" />
-            </ThreadPrimitive.ScrollToBottom>
-          )}
-        </div>
-        <div className="mx-auto w-full max-w-[52rem] shrink-0 px-5 pb-4 sm:px-8">
-          {error !== undefined && (
-            <p
-              role="alert"
-              className="mb-3 rounded-lg border border-neutral-300 bg-neutral-50 px-4 py-3 text-sm break-words"
-            >
-              {error}
-            </p>
-          )}
-          <ComposerPrimitive.Root
-            className="rounded-2xl border border-neutral-300 bg-white p-3 shadow-sm focus-within:border-neutral-400 focus-within:shadow-md"
-            onSubmit={onSend}
+          </div>
+          <ThreadPrimitive.ViewportFooter
+            className={`conversation-composer ${welcome ? "" : "sticky bottom-0 mt-auto"}`}
           >
-            <ComposerPrimitive.Input
-              aria-label={t("发送消息")}
-              className="max-h-48 min-h-20 w-full resize-none bg-transparent px-1 py-1.5 text-[15px] leading-6 outline-none placeholder:text-neutral-400 disabled:opacity-50"
-              placeholder={
-                interrupts.length > 0 ? t("请先完成上方确认…") : t("描述你的任务，或提出一个问题…")
-              }
-              rows={2}
-              disabled={blocked}
-            />
-            <div className="flex flex-wrap items-center gap-2 pt-1">
-              <HarnessPicker
-                harness={harness}
-                harnesses={harnesses}
-                onHarnessChange={onHarnessChange}
-                disabled={harnessDisabled || running || interrupts.length > 0}
-              />
-              <div className="ml-auto flex min-w-0 items-center gap-2">
-                <RunControls
-                  runtime={runtime}
-                  agentId={agentId}
-                  threadId={threadId}
-                  disabled={running || blocked}
-                />
-                {running ? (
-                  <ComposerPrimitive.Cancel
-                    aria-label={t("停止生成")}
-                    title={t("停止生成")}
-                    className="grid size-8 place-items-center rounded-full bg-neutral-900 text-white hover:bg-neutral-700"
-                  >
-                    <Icon name="stop" className="size-3.5 fill-current" />
-                  </ComposerPrimitive.Cancel>
-                ) : (
-                  <ComposerPrimitive.Send
-                    aria-label={t("发送消息")}
-                    title={t("发送消息")}
-                    disabled={blocked}
-                    className="grid size-8 place-items-center rounded-full bg-neutral-900 text-white hover:bg-neutral-700 disabled:bg-neutral-200 disabled:text-neutral-400"
-                  >
-                    <Icon name="arrowUp" className="size-5" />
-                  </ComposerPrimitive.Send>
+            {!welcome && (
+              <ThreadPrimitive.ScrollToBottom
+                aria-label={t("滚动到最新消息")}
+                className="absolute -top-11 z-10 grid size-8 place-items-center self-center rounded-control border border-foreground/10 bg-background transition-colors hover:border-foreground/25 disabled:invisible"
+              >
+                <Icon name="arrowDown" />
+              </ThreadPrimitive.ScrollToBottom>
+            )}
+            {error !== undefined && (
+              <div
+                role="alert"
+                className="mb-3 rounded-lg border border-neutral-300 bg-neutral-50 px-4 py-3 text-sm break-words"
+              >
+                {!historyReady && <p className="mb-1 font-medium">{t("无法加载对话历史")}</p>}
+                <p>{error}</p>
+                {historyReady && error.includes("already has an active writer") && (
+                  <p className="mt-1 text-neutral-600">
+                    {t(
+                      "该对话的写入权限正被另一个 Codex 实例持有，暂时无法在这里发送消息；历史记录仍可查看。",
+                    )}
+                  </p>
+                )}
+                {!historyReady && (
+                  <>
+                    <p className="mt-1 text-neutral-600">{t("重新加载后即可继续此对话。")}</p>
+                    <button
+                      type="button"
+                      className="mt-3 rounded-md border border-neutral-300 bg-white px-3 py-1.5 disabled:opacity-50"
+                      disabled={retryingHistory}
+                      onClick={onRetryHistory}
+                    >
+                      {retryingHistory ? t("正在加载历史记录…") : t("重新加载历史")}
+                    </button>
+                  </>
                 )}
               </div>
+            )}
+            <ComposerPrimitive.Root
+              className="chat-composer relative w-full rounded-thread border border-foreground/10 bg-muted/30 transition-colors focus-within:border-foreground/25"
+              onSubmit={onSend}
+            >
+              <ComposerPrimitive.Input
+                aria-label={t("发送消息")}
+                className="composer-input field-sizing-content max-h-48 w-full resize-none bg-transparent px-4 pt-3 pb-2 text-base leading-6 placeholder:text-muted-foreground focus:outline-none"
+                placeholder={
+                  standaloneUsed
+                    ? t("DSH 每个任务独立执行；请新建任务继续")
+                    : interrupts.length > 0
+                      ? t("请先完成上方确认…")
+                      : source
+                        ? t("询问这些记录…")
+                        : t("描述你的任务，或提出一个问题…")
+                }
+                rows={1}
+                disabled={blocked}
+              />
+              <div className="composer-toolbar flex flex-wrap items-center justify-between gap-2 px-2 pb-2">
+                {source && (
+                  <button
+                    type="button"
+                    className="composer-context"
+                    onClick={() =>
+                      window.dispatchEvent(
+                        new CustomEvent("swarmx:compose", {
+                          detail: `${source.title ?? t("来源引用")}: ${source.resource}`,
+                        }),
+                      )
+                    }
+                  >
+                    <Icon name="attachment" className="size-6" />
+                    <span>{t("添加来源上下文")}</span>
+                  </button>
+                )}
+                <div className={`composer-run-controls ${source ? "ml-auto" : ""}`}>
+                  <HarnessPicker
+                    harness={harness}
+                    harnesses={harnesses}
+                    onHarnessChange={onHarnessChange}
+                    disabled={harnessDisabled || running || interrupts.length > 0}
+                  />
+                  <RunControls
+                    runtime={runtime}
+                    agentId={agentId}
+                    threadId={threadId}
+                    disabled={running || blocked}
+                  />
+                </div>
+                <div className="ml-auto flex min-w-0 items-center gap-2">
+                  {running ? (
+                    <ComposerPrimitive.Cancel
+                      aria-label={t("停止生成")}
+                      title={t("停止生成")}
+                      className="grid size-7 place-items-center rounded-control bg-primary text-primary-foreground"
+                    >
+                      <Icon name="stop" className="size-3 fill-current" />
+                    </ComposerPrimitive.Cancel>
+                  ) : (
+                    <ComposerPrimitive.Send
+                      aria-label={t("发送消息")}
+                      title={t("发送消息")}
+                      disabled={blocked}
+                      className="grid size-7 place-items-center rounded-control bg-primary text-primary-foreground transition-opacity disabled:opacity-40"
+                    >
+                      <Icon name="arrowUp" />
+                    </ComposerPrimitive.Send>
+                  )}
+                </div>
+              </div>
+            </ComposerPrimitive.Root>
+            <div className="composer-hint">
+              <span role="status">
+                {running
+                  ? t("正在执行 · 切换任务会停止")
+                  : interrupts.length > 0
+                    ? t("等待你的确认")
+                    : t("本地执行")}
+              </span>
+              <span>{t("Enter 发送 · Shift + Enter 换行")}</span>
             </div>
-          </ComposerPrimitive.Root>
-          <div className="mt-2.5 flex justify-between gap-3 px-1 text-[11px] text-neutral-400">
-            <span role="status">
-              {running
-                ? t("正在执行 · 切换任务会停止")
-                : interrupts.length > 0
-                  ? t("等待你的确认")
-                  : t("本地工作区")}
-            </span>
-            <span>{t("Enter 发送 · Shift + Enter 换行")}</span>
-          </div>
-          {welcome && (
-            <div className="mt-7 grid gap-2 sm:grid-cols-3">
-              <ThreadPrimitive.Suggestion
-                prompt={t("请梳理当前项目的研究目标、已有进展和下一步。")}
-                send={false}
-                className="suggestion-card"
-              >
-                <Icon name="book" />
-                <span>{t("梳理研究思路")}</span>
-              </ThreadPrimitive.Suggestion>
-              <ThreadPrimitive.Suggestion
-                prompt={t("请查看当前工作区的数据与分析代码，说明可以如何开展分析。")}
-                send={false}
-                className="suggestion-card"
-              >
-                <Icon name="code" />
-                <span>{t("探索数据与代码")}</span>
-              </ThreadPrimitive.Suggestion>
-              <ThreadPrimitive.Suggestion
-                prompt={t("请整理当前实验记录，列出主要发现和待验证的问题。")}
-                send={false}
-                className="suggestion-card"
-              >
-                <Icon name="trace" />
-                <span>{t("整理实验记录")}</span>
-              </ThreadPrimitive.Suggestion>
-            </div>
-          )}
-        </div>
+            {welcome && (
+              <div className="mx-auto mt-3 flex max-w-[34rem] flex-wrap items-center justify-center gap-2">
+                <ThreadPrimitive.Suggestion
+                  prompt={t("请梳理当前研究目标、已有进展和下一步。")}
+                  send={false}
+                  className="suggestion-card"
+                >
+                  <span>{t("梳理研究思路")}</span>
+                </ThreadPrimitive.Suggestion>
+                <ThreadPrimitive.Suggestion
+                  prompt={t("请查看当前目录的数据与分析代码，说明可以如何开展分析。")}
+                  send={false}
+                  className="suggestion-card"
+                >
+                  <span>{t("探索数据与代码")}</span>
+                </ThreadPrimitive.Suggestion>
+                <ThreadPrimitive.Suggestion
+                  prompt={t("请整理当前实验记录，列出主要发现和待验证的问题。")}
+                  send={false}
+                  className="suggestion-card"
+                >
+                  <span>{t("整理实验记录")}</span>
+                </ThreadPrimitive.Suggestion>
+              </div>
+            )}
+          </ThreadPrimitive.ViewportFooter>
+        </ThreadPrimitive.Viewport>
       </div>
       <div id="research-side-view" className={panelOpen ? "research-side-view" : "hidden"}>
         {sidePanel}
@@ -545,8 +757,17 @@ export function scienceTarget(result: unknown): { artifactId?: string; projectId
           .safeParse(result)
       : { success: true as const, data: result };
   if (!payload.success) return {};
-  const envelope = z.object({ data: z.unknown() }).safeParse(payload.data);
-  const data = envelope.success ? envelope.data.data : payload.data;
+  const native = z
+    .object({
+      type: z.literal("mcpToolCall"),
+      status: z.literal("completed"),
+      result: z.object({ structuredContent: z.unknown() }),
+      error: z.null(),
+    })
+    .safeParse(payload.data);
+  const value = native.success ? native.data.result.structuredContent : payload.data;
+  const envelope = z.object({ data: z.unknown() }).safeParse(value);
+  const data = envelope.success ? envelope.data.data : value;
   const artifact = z
     .object({ artifact: z.object({ id: z.string(), projectId: z.string() }).nullable() })
     .safeParse(data);

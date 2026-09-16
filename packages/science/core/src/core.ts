@@ -30,7 +30,9 @@ import {
   type FinishRunRequest,
   figureReproducibilityMetadataSchema,
   finishRunRequestSchema,
+  type GetNotebookExecutionsRequest,
   type GetResearchObjectRequest,
+  getNotebookExecutionsRequestSchema,
   getResearchObjectRequestSchema,
   type ImportArtifactRequest,
   importArtifactRequestSchema,
@@ -785,10 +787,10 @@ export class ScienceCore {
 
   getNotebookExecutions(
     sessionId: string,
-    request: GetResearchObjectRequest,
+    request: GetNotebookExecutionsRequest,
     signal?: AbortSignal,
   ) {
-    const parsed = parseRequest(getResearchObjectRequestSchema, request);
+    const parsed = parseRequest(getNotebookExecutionsRequestSchema, request);
     const workspace = this.workspace(sessionId);
     if (
       !this.getWorkspace(sessionId, signal).projects.some(
@@ -796,7 +798,11 @@ export class ScienceCore {
       )
     )
       throw new ScienceError("Project not found in this workspace", "PROJECT_NOT_FOUND");
-    return this.journal.getNotebookExecutions(workspace.key, parsed.projectId);
+    return this.journal.getNotebookExecutions(
+      workspace.key,
+      parsed.projectId,
+      parsed.includeArtifactId,
+    );
   }
 
   previewArtifact(

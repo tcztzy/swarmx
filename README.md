@@ -3,15 +3,18 @@
 Local-first research desktop with recursive Swarms and native Agents.
 
 ```text
-Electron / Browser → assistant-ui + AG-UI → Host → ACP → Swarm → ACP → … → upstream ACP adapter
-                                            ↑ ACP / A2A (external)
-                                            └ MCP → ProductServices → ACP
+Electron → assistant-ui + AG-UI → IPC → Host → Swarm → Native Agent
+                                        ↑ ACP / A2A (external)
+                                        └ MCP → ProductServices → Swarm
 ```
 
-Codex ACP is the default. The Host uses `@agentclientprotocol/codex-acp`,
-`@agentclientprotocol/claude-agent-acp`, `hermes acp` and `openclaw acp` over stdio.
-Adapters load lazily; startup failure never selects another Agent. DSH, ZCode and Kimi are deferred.
-The lockfile pins the unmodified upstream adapters. Native login is
+Pi SDK is the default runtime; use Pi's native authentication and model configuration.
+Builds generate App Server declarations with the official CLI pinned in the development
+dependencies; `CODEX_PATH` can explicitly select a different installed executable.
+Claude and DSH use their official Agent SDK and SDK Client. Hermes uses its installed TUI Gateway;
+OpenClaw uses the official Gateway Client with an explicit address and credentials. DSH provides
+independent executions and Host log viewing; it does not resume tasks across processes.
+Integrations load lazily; startup failure never selects another Agent. Native login is
 needed for conversation, not for configuring an environment or inspecting research objects.
 
 Install Node.js and pnpm matching `package.json`, Rust stable with a C/C++ linker (the bundled
@@ -31,16 +34,15 @@ build stays visible in the terminal and the watcher waits for the next edit. Mai
 end active runs; saved conversations and their permissions remain on disk. Ctrl+C stops development.
 Use `pnpm start` for the normal static production build and launch.
 
-For Chrome or another browser, run `pnpm web` and open the one-use loopback URL printed in the
-terminal. The URL expires after one minute and becomes a local HttpOnly session cookie. Set
-`SWARMX_WORKSPACE=/absolute/research/path` to select an existing directory and `SWARMX_HOME` to
-choose the private data directory (default `~/.swarmx`). Keep the launch URL private.
+The Host uses its starting directory for execution. Set `SWARMX_CWD=/absolute/research/path`
+to select another directory at launch, and `SWARMX_HOME` to choose the private data directory
+(default `~/.swarmx`).
 
 Start with a conversation. **Assets / 科研资产** opens files, images and optional source editing
 beside that conversation. **Observe / 观测与溯源** groups react-o11y traces, recorded scientific
-runs and the RO-Crate graph. Select the entire bottom-left workspace row to open full-page
+runs and the RO-Crate graph. Use the bottom-left settings control to open full-page
 **Settings / 设置** for language, permissions and environment setup. English and Simplified Chinese
-are supported; the Host restores your language choice across restarts and workspace changes.
+are supported; the Host restores your language choice across restarts.
 
 The bundled recipe uses the official `quay.io/jupyter/datascience-notebook` image pinned to a
 multi-architecture digest. Docker selects its native amd64 or arm64 variant, and SwarmX records
@@ -50,12 +52,12 @@ figure code runs without network in an immutable image. Missing Docker or setup 
 shown and never execute that code on the host. See [workbench operation and publication
 readiness](docs/product-readiness.md) for boundaries, exports and acceptance evidence.
 
-Use `SWARMX_AGENT=claude|hermes|openclaw` or the Agent selector. Native setup and external
+Use `SWARMX_AGENT=pi|codex|claude|dsh|hermes|openclaw` or the Agent selector. Native setup and external
 ACP/A2A access: [Agent platform](docs/runtime-platform.md).
 
 [Memory](docs/memory.md) provides shared semantic memory in private OKF Markdown. Agents use the
 `memory` product tool to retrieve and curate research knowledge across sessions; native runtimes
-keep their own conversation histories. Existing vaults move to the current storage path on startup.
+keep their own conversation histories.
 
 ```sh
 pnpm typecheck
@@ -75,6 +77,9 @@ pnpm paper:demo
 ```
 
 Build libraries with `pnpm build:lib` before running Vitest directly on a fresh checkout.
+Release tags use `v<version>` and must match `apps/desktop/package.json`. SwarmX workspace
+packages, the bundled runtime and SwarmX-owned protocol identities use the same release version.
+Recorded examples and manuscript revisions retain the versions of their frozen source.
 The release workflow prepares a source archive, SHA256 checksums and a draft GitHub release;
 it does not currently package signed desktop installers. [CITATION.cff](CITATION.cff) contains
 software citation metadata. Submission requires a citable release and a reproducible scientific-use

@@ -5,7 +5,6 @@ export type MemoryErrorCode =
   | "CONCEPT_NOT_FOUND"
   | "REVISION_CONFLICT"
   | "UNSAFE_PATH"
-  | "WORKSPACE_UNAVAILABLE"
   | "IO_ERROR";
 
 export interface MemoryIssue {

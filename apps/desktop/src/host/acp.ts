@@ -1,17 +1,49 @@
+import { realpath } from "node:fs/promises";
 import * as acp from "@agentclientprotocol/sdk";
 import type { RunOptions } from "@swarmx/swarm";
 import { z } from "zod";
 import type { NativeAgent, Observer } from "../agents/types.js";
 import { SwarmxCapability, SwarmxRequest } from "./acp-extension.js";
+import { publicCapabilities } from "./capabilities.js";
 
 /** Leaf adapter from ACP to the Host-protected native SDK boundary. */
-export function acpAgent(agent: NativeAgent, cwd: string): acp.AgentApp {
+export function acpAgent(native: NativeAgent, cwd: string): acp.AgentApp {
+  const supportsPermissions = native.permissions !== undefined;
+  async function bind(directory: string): Promise<NativeAgent> {
+    if ((await realpath(directory)) !== (await realpath(cwd)))
+      throw acp.RequestError.invalidParams(
+        undefined,
+        "The requested directory does not match the Host working directory.",
+      );
+    return native;
+  }
   let state: { forms: boolean; permissions: NativeAgent["permissions"] } | undefined;
-  const getPermissions = agent.permissions?.bind(agent);
   let connected = false;
   const selections = new Map<string, RunOptions>();
-  const active = new Set<string>();
+  const bound = new Map<string, NativeAgent>();
+  const active = new Map<string, NativeAgent>();
+  function agentFor(sessionId: string): NativeAgent {
+    const agent = bound.get(sessionId);
+    if (!agent)
+      throw acp.RequestError.invalidParams(
+        undefined,
+        "Create, load or resume the ACP session before continuing it.",
+      );
+    return agent;
+  }
+  async function permissionsFor(
+    sessionId: string,
+  ): Promise<Awaited<ReturnType<NonNullable<NativeAgent["permissions"]>>>> {
+    const check = agentFor(sessionId).permissions;
+    if (!check)
+      throw acp.RequestError.invalidParams(
+        undefined,
+        "This Agent cannot enforce the SwarmX permission extension.",
+      );
+    return check(sessionId);
+  }
   async function config(sessionId: string): Promise<acp.SessionConfigOption[]> {
+    const agent = agentFor(sessionId);
     const catalog = await call(agent.models(sessionId));
     const selection = selections.get(sessionId) ?? catalog.current;
     const options: acp.SessionConfigOption[] = [];
@@ -66,6 +98,7 @@ export function acpAgent(agent: NativeAgent, cwd: string): acp.AgentApp {
         undefined,
         "Select an advertised native mode; an explicit permitted model or reasoning effort is required.",
       );
+    const agent = agentFor(sessionId);
     const current = selections.get(sessionId) ?? (await call(agent.models(sessionId))).current;
     selections.set(
       sessionId,
@@ -95,19 +128,20 @@ export function acpAgent(agent: NativeAgent, cwd: string): acp.AgentApp {
       ? { _meta: { swarmx: { version: 2, permissions: await permissions(sessionId) } } }
       : {};
   }
-  function workspace(request: {
-    cwd: string;
+  function scope(request: {
     mcpServers?: acp.McpServer[] | null;
     additionalDirectories?: string[] | null;
   }) {
-    if (request.cwd !== cwd) throw new Error("This SwarmX Host owns a different workspace.");
     if (request.mcpServers?.length)
       throw new Error("Configure MCP in the native Agent; SwarmX owns its product carrier.");
     if (request.additionalDirectories?.length)
       throw acp.RequestError.invalidParams(
         undefined,
-        "Additional directories exceed this Host's workspace.",
+        "Additional directories are not available in this SwarmX execution.",
       );
+  }
+  function attach(sessionId: string, agent: NativeAgent) {
+    bound.set(sessionId, agent);
   }
   return acp
     .agent({ name: "swarmx" })
@@ -118,66 +152,70 @@ export function acpAgent(agent: NativeAgent, cwd: string): acp.AgentApp {
         "abort",
         () => {
           // The peer is gone, so cancellation failures can only be reported to the Host log.
-          void Promise.all([...active].map((id) => agent.interrupt(id))).catch((error) =>
+          void Promise.all([...active].map(([id, agent]) => agent.interrupt(id))).catch((error) =>
             console.error("ACP disconnect cancellation failed:", error),
           );
           connected = false;
           state = undefined;
           selections.clear();
+          bound.clear();
+          active.clear();
         },
         { once: true },
       );
     })
-    .onRequest(acp.methods.agent.initialize, ({ params }) => {
+    .onRequest(acp.methods.agent.initialize, async ({ params }) => {
       const requested = params.clientCapabilities?._meta?.swarmx;
       const swarmx = requested !== undefined && SwarmxCapability.parse(requested).permissions;
-      if (swarmx && !getPermissions)
+      if (swarmx && !supportsPermissions)
         throw acp.RequestError.invalidParams(
           undefined,
           "This Agent cannot enforce the SwarmX permission extension.",
         );
       state = {
         forms: params.clientCapabilities?.elicitation?.form != null,
-        permissions: swarmx ? getPermissions : undefined,
+        permissions: swarmx ? permissionsFor : undefined,
       };
       return {
         protocolVersion: acp.PROTOCOL_VERSION,
-        agentInfo: { name: agent.name, version: "0.1.0" },
-        agentCapabilities: {
-          ...agent.capabilities,
-          _meta: {
-            ...agent.capabilities._meta,
-            swarmx: {
-              version: 2,
-              permissions: !!agent.permissions,
-              steer: true,
-              activeRunResume: false,
-              interactionResume: false,
-            },
-          },
-        },
+        agentInfo: { name: "swarmx", version: "3.3.0" },
+        agentCapabilities: publicCapabilities(native.capabilities, supportsPermissions),
       };
     })
     .onRequest(acp.methods.agent.session.list, async () => {
       peer();
-      return { sessions: (await call(agent.list())).map((session) => ({ ...session, cwd })) };
+      const sessions: Array<{
+        sessionId: string;
+        title?: string | null;
+        updatedAt?: string | null;
+        cwd: string;
+      }> = [];
+      for (const session of await call(native.list())) {
+        attach(session.sessionId, native);
+        sessions.push({ ...session, cwd });
+      }
+      return { sessions };
     })
     .onRequest(acp.methods.agent.session.new, async ({ params }) => {
       peer();
-      workspace(params);
+      scope(params);
+      const agent = await call(bind(params.cwd));
       const permissions = extension(params._meta);
       const sessionId = await call(agent.create(permissions ? { permissions } : undefined));
+      attach(sessionId, agent);
       return { sessionId, configOptions: await config(sessionId), ...(await metadata(sessionId)) };
     })
     .onRequest(acp.methods.agent.session.load, async ({ params, client }) => {
-      workspace(params);
+      scope(params);
       if (extension(params._meta))
         throw acp.RequestError.invalidParams(
           undefined,
           "Narrow permissions on session/new or session/prompt.",
         );
+      const agent = await call(bind(params.cwd));
       const projection = observe(params.sessionId, client, peer().forms, !!peer().permissions);
       await call(agent.read(params.sessionId, projection.observer));
+      attach(params.sessionId, agent);
       await projection.flush();
       return {
         configOptions: await config(params.sessionId),
@@ -185,13 +223,14 @@ export function acpAgent(agent: NativeAgent, cwd: string): acp.AgentApp {
       };
     })
     .onRequest(acp.methods.agent.session.resume, async ({ params }) => {
-      workspace(params);
+      scope(params);
       if (extension(params._meta))
         throw acp.RequestError.invalidParams(
           undefined,
           "Narrow permissions on session/new or session/prompt.",
         );
       peer();
+      const agent = await call(bind(params.cwd));
       await call(
         agent.read(params.sessionId, {
           text() {},
@@ -200,6 +239,7 @@ export function acpAgent(agent: NativeAgent, cwd: string): acp.AgentApp {
           interact: async () => undefined,
         }),
       );
+      attach(params.sessionId, agent);
       return {
         configOptions: await config(params.sessionId),
         ...(await metadata(params.sessionId)),
@@ -215,11 +255,12 @@ export function acpAgent(agent: NativeAgent, cwd: string): acp.AgentApp {
     .onRequest(acp.methods.agent.session.prompt, async ({ params, client }) => {
       if (!params.prompt.every((part) => part.type === "text" || part.type === "resource_link"))
         throw new Error("SwarmX accepts ACP text and resource links.");
+      const agent = agentFor(params.sessionId);
       const projection = observe(params.sessionId, client, peer().forms, !!peer().permissions);
       const permissions = extension(params._meta);
       if (active.has(params.sessionId))
         throw acp.RequestError.invalidRequest(undefined, "Session is busy.");
-      active.add(params.sessionId);
+      active.set(params.sessionId, agent);
       try {
         const result = await call(
           agent.start(
@@ -255,16 +296,12 @@ export function acpAgent(agent: NativeAgent, cwd: string): acp.AgentApp {
           undefined,
           "SwarmX permission extension was not negotiated.",
         );
-      await agent.interrupt(params.sessionId, control?.expectedRunId);
+      await agentFor(params.sessionId).interrupt(params.sessionId, control?.expectedRunId);
     })
-    .onRequest(
-      "_swarmx/models",
-      z.strictObject({ sessionId: z.string().optional() }),
-      async ({ params }) => {
-        if (!peer().permissions) throw acp.RequestError.methodNotFound("_swarmx/models");
-        return call(agent.models(params.sessionId));
-      },
-    )
+    .onRequest("_swarmx/models", z.strictObject({ sessionId: z.string() }), async ({ params }) => {
+      if (!peer().permissions) throw acp.RequestError.methodNotFound("_swarmx/models");
+      return call(agentFor(params.sessionId).models(params.sessionId));
+    })
     .onRequest(
       "_swarmx/session/permissions",
       z.strictObject({ sessionId: z.string() }),
@@ -283,7 +320,9 @@ export function acpAgent(agent: NativeAgent, cwd: string): acp.AgentApp {
       }),
       async ({ params }) => {
         if (!peer().permissions) throw acp.RequestError.methodNotFound("_swarmx/session/steer");
-        await call(agent.steer(params.sessionId, params.text, params.expectedRunId));
+        await call(
+          agentFor(params.sessionId).steer(params.sessionId, params.text, params.expectedRunId),
+        );
         return {};
       },
     );
@@ -301,6 +340,8 @@ async function call<T>(operation: Promise<T>): Promise<T> {
 function observe(sessionId: string, client: acp.AgentContext, forms: boolean, swarmx: boolean) {
   const pending: Promise<void>[] = [];
   const tools = new Set<string>();
+  const toolActivity = new Map<string, { status?: acp.ToolCallStatus; kind?: acp.ToolKind }>();
+  const messageActivity = new Map<string, Record<string, unknown>>();
   const update = (update: acp.SessionUpdate, metadata?: Record<string, unknown>) => {
     pending.push(
       client.notify(acp.methods.client.session.update, {
@@ -328,6 +369,7 @@ function observe(sessionId: string, client: acp.AgentContext, forms: boolean, sw
               : "agent_message_chunk",
         content: { type: "text", text },
         messageId: id,
+        ...(messageActivity.has(id) ? { _meta: messageActivity.get(id) ?? null } : {}),
       });
     },
     tool(id, name, input, output) {
@@ -339,6 +381,7 @@ function observe(sessionId: string, client: acp.AgentContext, forms: boolean, sw
           title: name,
           status: "in_progress",
           rawInput: input,
+          ...toolActivity.get(id),
         });
       }
       if (output !== undefined)
@@ -347,7 +390,50 @@ function observe(sessionId: string, client: acp.AgentContext, forms: boolean, sw
           toolCallId: id,
           status: "completed",
           rawOutput: output,
+          ...toolActivity.get(id),
         });
+    },
+    activity(event) {
+      if (event.type === "tool") {
+        const kind = z
+          .enum([
+            "read",
+            "edit",
+            "delete",
+            "move",
+            "search",
+            "execute",
+            "think",
+            "fetch",
+            "switch_mode",
+            "other",
+          ])
+          .optional()
+          .parse(event.kind);
+        const metadata = {
+          ...toolActivity.get(event.toolCallId),
+          ...(kind ? { kind } : {}),
+          ...(event.status ? { status: event.status } : {}),
+        };
+        toolActivity.set(event.toolCallId, metadata);
+        if (tools.has(event.toolCallId))
+          update({ sessionUpdate: "tool_call_update", toolCallId: event.toolCallId, ...metadata });
+      } else {
+        const { type: _type, phase, messageId, ...timing } = event;
+        if (messageId)
+          messageActivity.set(messageId, {
+            ...(phase ? { codex: { phase } } : {}),
+            swarmx: timing,
+          });
+        update({
+          sessionUpdate: "session_info_update",
+          _meta: {
+            ...(phase ? { codex: { phase } } : {}),
+            swarmx: timing,
+            ...(messageId ? { messageId } : {}),
+          },
+        });
+      }
     },
     raw(event, attributes) {
       update(
@@ -357,18 +443,23 @@ function observe(sessionId: string, client: acp.AgentContext, forms: boolean, sw
     },
     async interact(request, signal) {
       if (signal?.aborted) return undefined;
-      if (request.permission) {
-        const { toolCall, options, answers } = request.permission;
+      if (request.approval) {
+        const { toolId, choices } = request.approval;
+        const params: acp.RequestPermissionRequest = {
+          sessionId,
+          toolCall: { toolCallId: toolId, title: request.title },
+          options: choices.map(({ id, label, kind }) => ({ optionId: id, name: label, kind })),
+        };
         const response = await client.request(
           acp.methods.client.session.requestPermission,
-          { sessionId, toolCall, options },
+          params,
           signal ? { cancellationSignal: signal } : undefined,
         );
         if (signal?.aborted || response.outcome.outcome === "cancelled") return undefined;
         const id = response.outcome.optionId;
-        if (!options.some((option) => option.optionId === id) || !Object.hasOwn(answers, id))
-          throw acp.RequestError.invalidParams(undefined, "Unknown permission option.");
-        return answers[id];
+        const choice = choices.find((choice) => choice.id === id);
+        if (!choice) throw acp.RequestError.invalidParams(undefined, "Unknown permission option.");
+        return choice.answer;
       }
       if (!forms) throw new Error("Native interactions require ACP form elicitation support.");
       const answer = await client.request(

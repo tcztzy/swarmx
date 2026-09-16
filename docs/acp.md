@@ -1,37 +1,22 @@
 # ACP compatibility
 
-## Upstream harness adapters
+## External boundary
 
-Harness integration uses maintained ACP servers over stdio, with the official SDK owning
-JSON-RPC framing and validation. Third-party servers are not required to implement the
-SwarmX permission extension. That extension acknowledges the trusted Host's own API grants,
-not the native process's sandbox. Ordinary native modes and approvals retain their upstream
-semantics. Native slash commands and automatic title generation stay available; model allowlists
-cover Host-dispatched model selection, not every call a native harness can make internally.
-Background reviews request native restrictions and reject observed tools and approvals; upstream
-adapters remain authoritative for internal execution, title calls and session persistence.
-Each child gets a separately registered, revocable MCP bearer credential. It never receives the
-Host's general bearer token and cannot select another execution by changing URL parameters.
+ACP is an external stdio interface into the Host-protected Agent. Its official SDK owns framing,
+validation and connection lifecycle. Swarm composition, desktop/A2A/product-tool calls and memory reviews
+invoke Agents directly; they do not negotiate internal ACP connections. Native integration
+contracts and setup are described in `native-agents.md` and `runtime-platform.md`.
 
-The Host discovers session capabilities and model/config options from ACP. It preserves
-upstream update payloads in the execution log, forwards exact permission options and form
-elicitations, and uses session/cancel on the same connection as the active prompt. Steering
-requires the upstream steering extension. History remains owned by the upstream harness.
+The Host exposes the selected Agent's capabilities, native catalog, history and observed events
+through ACP. Native runtimes retain configuration, titles, transcripts, tools and approvals.
+The SwarmX extension acknowledges Host API grants, not a native process sandbox. The Host records
+native callbacks before projecting them into ACP updates, permission requests and form elicitations.
+Message phases, turn timing and tool kinds/statuses are presentation metadata, never grants.
 
-SwarmX uses official SDK ACP connections at every Swarm-to-Swarm and Swarm-to-leaf edge.
-Each Swarm is an ACP Agent upstream and an ACP Client downstream. The leaf boundary connects to
-upstream ACP executables through official SDK stdio connections. Browser/A2A/MCP entry points consume ACP through a Host projection.
-MCP remains the harness's tool carrier; delegation dispatched by that tool uses recursive ACP.
-Background memory reviews also use the upstream ACP adapters, with tools disabled and approvals rejected.
-Internal connections are operation-scoped and created inside the authenticated caller's execution
-context. Each nested Swarm binds the intersection of caller, project and captured Swarm grants
-before opening its downstream connection. Connection readers inherit that trusted context;
-wire metadata never selects a parent execution or grants authority. Concurrent callers do not
-share connection policy or model selections. Permission negotiation and acknowledgements are
-required between trusted Host boundaries, not from third-party adapters. Closing a connection cancels its active prompts and approvals.
-Cancellation during Host configuration prevents dispatch; cancellation after dispatch uses
-session/cancel. Run-specific controls carry expectedRunId, checked again at the leaf so delayed
-controls cannot target a subsequent execution of the same conversation.
+Each external connection has independent negotiation and selections. Closing it cancels its active
+prompts and pending interactions. Cancellation during Host configuration prevents dispatch;
+after dispatch it invokes the native Agent's interrupt. Run-specific controls carry expectedRunId,
+checked at the execution owner so delayed controls cannot target a later turn of the conversation.
 ACP owns initialization, capability negotiation, session/new, list, load, resume, prompt, cancel,
 session/update, request_permission and elicitation/create. Text and resource links are supported.
 Load replays native history; resume validates the existing session without emitting history.
@@ -40,8 +25,7 @@ Model and reasoning selection use configOptions and session/set_config_option, v
 the permission-filtered native catalog. An unresolved native default is represented by the empty
 selection; restricted model grants still require selecting an explicit admitted model before prompt.
 Connection-local selections use standard session/set_config_option. Native mode selection also
-accepts session/set_mode. At the upstream leaf, advertised mode config options take precedence over
-legacy session modes. The Host persists dispatched mode choices and reported native changes in the
+accepts session/set_mode. The Host persists dispatched mode choices and reported native changes in the
 conversation journal and reapplies them on later turns. No mode is inherited as a Host grant.
 Create a separate ACP Agent app for each connection so negotiation cannot bleed between clients.
 The negotiated `_swarmx/models {sessionId?}` and `_swarmx/session/permissions {sessionId}`
@@ -70,7 +54,7 @@ After negotiation, session/new and session/prompt accept:
 ```
 
 The permissions schema is the same source used by Host policy and the swarm tool: product-tool grants,
-harness/model allowlists and delegation. The Host intersects project, caller, saved conversation,
+harness/model allowlists and delegation. The Host intersects its policy, caller, saved conversation,
 and captured Swarm grants. Explicit widening rejects before native execution. Each response
 acknowledges the full effective grant at `_meta.swarmx.permissions`; callers must validate it
 (the `acknowledgedPermissions` helper rejects missing or wider grants). An unnegotiated, malformed

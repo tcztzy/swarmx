@@ -1,6 +1,6 @@
 {
   "name": "@swarmx/annotation",
-  "version": "0.1.0",
+  "version": "3.3.0",
   "description": "Provider-neutral annotation contract for SwarmX.",
   "license": "MIT",
   "type": "module",

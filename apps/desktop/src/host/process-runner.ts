@@ -2,12 +2,6 @@ import { type ChildProcess, spawn } from "node:child_process";
 import { access } from "node:fs/promises";
 import { delimiter, dirname, isAbsolute, join, resolve } from "node:path";
 import type {
-  ProcessHandle,
-  ProcessOutcome,
-  ProcessRunner,
-  ProcessSpawnOptions,
-} from "@swarmx/dvc";
-import type {
   ScienceProcessHandle,
   ScienceProcessOutcome,
   ScienceProcessOutputRead,
@@ -51,7 +45,7 @@ class OutputBuffer {
 
 interface SpawnedProcess {
   readonly child: ChildProcess;
-  readonly done: Promise<ProcessOutcome>;
+  readonly done: Promise<{ exitCode: number | null; signal: NodeJS.Signals | null }>;
   readonly stdout?: OutputBuffer;
   readonly stderr?: OutputBuffer;
   terminate(): void;
@@ -87,10 +81,12 @@ export function spawnProcess(spec: SpawnSpec): SpawnedProcess {
   };
   const aborted = () => terminate();
   spec.signal?.addEventListener("abort", aborted, { once: true });
-  const done = new Promise<ProcessOutcome>((resolveDone, reject) => {
-    child.once("error", reject);
-    child.once("close", (exitCode, signal) => resolveDone({ exitCode, signal }));
-  }).finally(() => {
+  const done = new Promise<{ exitCode: number | null; signal: NodeJS.Signals | null }>(
+    (resolveDone, reject) => {
+      child.once("error", reject);
+      child.once("close", (exitCode, signal) => resolveDone({ exitCode, signal }));
+    },
+  ).finally(() => {
     if (killTimer !== undefined) clearTimeout(killTimer);
     spec.signal?.removeEventListener("abort", aborted);
   });
@@ -182,35 +178,6 @@ export class NodeScienceProcessRuntime implements ScienceProcessRuntime {
           ),
         ]);
       },
-    };
-  }
-}
-
-export class NodeProcessRunner implements ProcessRunner {
-  resolveExecutable(
-    command: string,
-    _options: Readonly<Record<string, unknown>> = {},
-    signal?: AbortSignal,
-  ): Promise<string> {
-    return resolveExecutable(command, process.env, signal);
-  }
-
-  spawn(spec: ProcessSpawnOptions): ProcessHandle {
-    const spawned = spawnProcess({
-      argv: spec.argv,
-      ...(spec.cwd === undefined ? {} : { cwd: spec.cwd }),
-      env: { ...process.env, ...spec.env },
-      graceMs: spec.graceMs ?? 2_000,
-      ...(spec.signal === undefined ? {} : { signal: spec.signal }),
-      stdin: "ignore",
-      stdout: spec.stdio.stdout,
-      stderr: spec.stdio.stderr,
-    });
-    return {
-      done: spawned.done,
-      collected: collected(spawned),
-      terminate: spawned.terminate,
-      waitForExit: () => spawned.done,
     };
   }
 }

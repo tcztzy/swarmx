@@ -18,35 +18,24 @@ revision and the exported entities. It checks saved evidence, not model reliabil
 answer. `native-runs.json` projects run identities and completion from the Host journal;
 private transcripts and credentials are excluded.
 
-To run the native workflow again, first install the repository dependencies, configure
-Codex authentication and start Docker, then run:
+The recorded workflow imported the input and supplied plotting code and exact tool
+argument shapes to a lead Codex session. That session executed the analysis, delegated
+a standard-library recomputation, recorded the claim and supporting entities, and
+proposed a sourced Finding. Automatic memory review was off and write approval was on.
+The author approved the Finding before a new native session retrieved it.
 
-```sh
-pnpm build
-node examples/softwarex/current-release/run.mjs artifacts/paper-current-new
-```
-
-Use a fresh directory. The driver imports the input and supplies plotting code and exact
-tool argument shapes to a lead Codex session. That session executes the analysis,
-delegates a standard-library recomputation, records the claim and supporting entities,
-and proposes a sourced Finding. Automatic memory review is off; write approval is on.
-Native model and permission settings use the installed harness configuration.
-
-Open the one-use `url` from the run directory's private `ui.json`. When the driver prints
-that it is waiting for approval, inspect the pending Finding in project Settings and
-choose **Approve and save**. A new native session then reads the saved result. The driver
-exports evidence and leaves the browser Host running for screenshots; press Ctrl-C to
-stop it. Do not publish `ui.json`, the private product home or native transcripts.
+The files in this directory support offline verification of that recorded run. They do
+not establish that the native workflow has been rerun against the current application.
 
 The retained run completed three native turns (analysis, delegated check and recall)
 and two Docker computations. An earlier author attempt used incorrect tool arguments;
-the retained driver supplies the corrected argument shapes. Native approval handling
+the retained run used corrected argument shapes. Native approval handling
 also affected a child inspection attempt. This is a worked example, not a first-attempt
-success-rate experiment. New runs may differ and generate new IDs and timestamps.
+success-rate experiment.
 
 The reporting code was corrected after the retained run to count delegation using the
 journal's `causedBy` link. The published count and run summaries were regenerated from
 that journal; the computations were not rerun or changed.
 
-Current browser captures are `docs/figures/swarmx-current-science.png` and
-`docs/figures/swarmx-current-provenance.png`. They use this run's real application state.
+The captures at `docs/figures/swarmx-current-science.png` and
+`docs/figures/swarmx-current-provenance.png` show this recorded run's application state.

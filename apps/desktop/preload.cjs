@@ -1,0 +1,43 @@
+const { contextBridge, ipcRenderer } = require("electron");
+
+const invoke = (channel) => (payload) => ipcRenderer.invoke(channel, payload);
+
+contextBridge.exposeInMainWorld("swarmx", {
+  bootstrap: invoke("swarmx:bootstrap"),
+  tool: invoke("swarmx:tool"),
+  cancelTool: invoke("swarmx:tool:cancel"),
+  settings: {
+    read: invoke("swarmx:settings:read"),
+    update: invoke("swarmx:settings:update"),
+  },
+  language: { write: invoke("swarmx:language:write") },
+  environment: {
+    read: invoke("swarmx:environment:read"),
+    act: invoke("swarmx:environment:act"),
+  },
+  sessions: {
+    list: invoke("swarmx:sessions:list"),
+    create: invoke("swarmx:sessions:create"),
+    history: invoke("swarmx:sessions:history"),
+  },
+  models: { read: invoke("swarmx:models:read") },
+  logs: { read: invoke("swarmx:logs:read") },
+  runs: { control: invoke("swarmx:runs:control") },
+  science: {
+    workspace: invoke("swarmx:science:workspace"),
+    researchObject: invoke("swarmx:science:research-object"),
+    notebookExecutions: invoke("swarmx:science:notebook-executions"),
+    artifactPreview: invoke("swarmx:science:artifact-preview"),
+    artifactContent: invoke("swarmx:science:artifact-content"),
+    import: invoke("swarmx:science:import"),
+  },
+  agui: {
+    start: invoke("swarmx:agui:start"),
+    cancel: invoke("swarmx:agui:cancel"),
+    subscribe: (listener) => {
+      const handler = (_event, message) => listener(message);
+      ipcRenderer.on("swarmx:agui:event", handler);
+      return () => ipcRenderer.removeListener("swarmx:agui:event", handler);
+    },
+  },
+});

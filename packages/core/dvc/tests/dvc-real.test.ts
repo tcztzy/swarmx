@@ -3,8 +3,8 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSyn
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { NodeProcessRunner } from "../../../../apps/desktop/src/host/process-runner.js";
 import DvcService from "../src/index.js";
+import { processRunner } from "./process-runner.js";
 
 const DVC_ENV = { ...process.env, DVC_NO_ANALYTICS: "1", LC_ALL: "C" };
 const dvcAvailable = spawnSync("dvc", ["--version"], { env: DVC_ENV }).status === 0;
@@ -48,7 +48,7 @@ describeRealDvc("DVC real CLI integration", () => {
     expect(dvcAvailable, "DVC CLI is required by SWARMX_REQUIRE_REAL_DVC=1").toBe(true);
     const root = realRepository();
     const sourceHead = run(root, "git", "rev-parse", "HEAD");
-    const dvc = new DvcService(new NodeProcessRunner());
+    const dvc = new DvcService(processRunner);
     try {
       const inspection = await dvc.inspect(root);
       expect(inspection).toMatchObject({ root: ".", version: expect.stringMatching(/^3\./u) });

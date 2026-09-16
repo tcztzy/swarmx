@@ -7,7 +7,7 @@ annotation requests therefore keep strict task-specific schemas; replacing those
 JSON-LD would weaken validation without improving interoperability. The public project graph,
 provenance read, and export are the surfaces standardized as RO-Crate.
 
-Local `sx:` resource addresses are a separate, workspace-authorized progressive-read layer. They
+Local `sx:` resource addresses are a separate, directory-authorized progressive-read layer. They
 return bounded heads, metadata projections, Artifact preview windows, and relation refs without
 changing the RO-Crate graph or its `urn:uuid:` entity identifiers. See
 [`resource-addressing.md`](./resource-addressing.md).

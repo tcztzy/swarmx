@@ -1,234 +1,103 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, mkdtemp, realpath, rm } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AgentCard, Role, TaskState } from "@a2a-js/sdk";
 import { ClientFactory, JsonRpcTransportFactory } from "@a2a-js/sdk/client";
-import { EventSchemas, EventType } from "@ag-ui/core";
+import { type AGUIEvent, EventType } from "@ag-ui/core";
 import * as acp from "@agentclientprotocol/sdk";
-import { Client as McpClient } from "@modelcontextprotocol/sdk/client/index.js";
-import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import type { RunOptions } from "@swarmx/swarm";
 import { createSwarm } from "@swarmx/swarm";
 import { describe, expect, it, vi } from "vitest";
+import manifest from "../package.json";
 import { scopeSessions } from "../src/agent.js";
 import type { NativeAgent, Observer } from "../src/agents/types.js";
 import { HARNESS_CAPABILITIES } from "../src/agents/types.js";
-import type { ExecutionRecord } from "../src/execution-record.js";
+import { LogsQuerySchema, NotebookExecutionsPayloadSchema } from "../src/bridge-contract.js";
 import { acpAgent } from "../src/host/acp.js";
 import { loadAgUiHistory, parseAgUiInput } from "../src/host/ag-ui.js";
+import { HostOperations } from "../src/host/operations.js";
 import { ProductServices } from "../src/host/product-services.js";
 import { startHost } from "../src/host/server.js";
-import { resolveWorkspace, SettingsStore } from "../src/host/workspace-settings.js";
+import { SettingsStore } from "../src/host/settings-store.js";
 import { DEFAULT_POLICY } from "../src/settings.js";
+import { bridgeCall, bridgeClient, socketOf } from "./mcp-bridge-support.js";
 
 describe("external gateways", () => {
-  it("keeps running projects, browser APIs and MCP bound to their own directory", async () => {
-    const gateway = await createGateway();
-    let running: Promise<void> | undefined;
-    try {
-      const browser = await browserSession(gateway);
-      const first = gateway.products.options.workspace;
-      const directory = join(first.root, "second-project");
-      await mkdir(directory);
-      const request = async (project: string, path: string, body?: object, method = "POST") =>
-        fetch(`${gateway.origin}/projects/${project}/api/v1/${path}`, {
-          headers: headers(gateway, browser),
-          ...(body ? { method, body: JSON.stringify(body) } : {}),
-        });
-      expect(
-        (
-          await fetch(`${gateway.origin}/projects/${first.id}/api/v1/projects`, {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({ label: "Unauthorized", root: directory }),
-          })
-        ).status,
-      ).toBe(401);
-      const added = await request(first.id, "projects", {
-        label: "Second project",
-        root: directory,
-      });
-      expect(added.status).toBe(201);
-      const second = await added.json();
-      expect(
-        (await request(first.id, "settings", { ...DEFAULT_POLICY, cpus: 3 }, "PUT")).status,
-      ).toBe(200);
-      const collection = await request(first.id, "tools/science_notebook", {
-        action: "create_project",
-        request: { requestId: randomUUID(), title: "Only first project" },
-      });
-      expect(collection.status).toBe(200);
-      running = gateway.products.rootAgent.start(browser.sessionId, "wait", {
-        text() {},
-        tool() {},
-        raw() {},
-        interact: async () => undefined,
-      });
-      await gateway.leaf.started.promise;
-      expect((await request(first.id, `projects/${second.id}/open`, {})).status).toBe(200);
-      expect(gateway.products.journal.activeRuns()).toHaveLength(1);
-      expect(gateway.leaf.interrupt).not.toHaveBeenCalled();
-      expect((await (await request(first.id, "science")).json()).projects).toHaveLength(1);
-      expect((await (await request(second.id, "science")).json()).projects).toEqual([]);
-      expect((await (await request(first.id, "settings")).json()).policy.cpus).toBe(3);
-      expect((await (await request(second.id, "settings")).json()).policy.cpus).toBe(
-        DEFAULT_POLICY.cpus,
-      );
-      const before = await (await request(second.id, "memory")).json();
-      const note = before.notes.find((note: { target: string }) => note.target === "workspace");
-      expect(
-        (
-          await request(
-            second.id,
-            "memory/notes",
-            {
-              target: "workspace",
-              content: "Second project only",
-              expectedRevision: note.revision,
-            },
-            "PUT",
-          )
-        ).status,
-      ).toBe(200);
-      expect((await gateway.products.learning.core.read("workspace")).content).toBe("");
-      expect((await request("unknown", "settings")).status).toBe(404);
-      const catalog = await (await request(first.id, "projects")).json();
-      expect(catalog.activeId).toBe(second.id);
-      expect(catalog.projects.map((project: { id: string }) => project.id)).toEqual([
-        first.id,
-        second.id,
-      ]);
-      const client = new McpClient({ name: "project-test", version: "1.0.0" });
-      await client.connect(
-        new StreamableHTTPClientTransport(new URL(`${gateway.origin}/projects/${second.id}/mcp`), {
-          requestInit: { headers: { authorization: `Bearer ${gateway.token}` } },
-        }),
-      );
-      try {
-        const recalled = await client.callTool({
-          name: "memory",
-          arguments: { action: "read_core_memory", request: { target: "workspace" } },
-        });
-        expect(recalled.isError).toBe(true);
-        expect(JSON.stringify(recalled)).toContain("active session and execution identity");
-      } finally {
-        await client.close();
-      }
-      await gateway.products.rootAgent.interrupt(browser.sessionId);
-      await running;
-    } finally {
-      await gateway.dispose();
-      await running;
-    }
-  });
-
-  it("authenticates research mutations, persists policy and isolates artifacts across workspace switches", async () => {
+  it("persists settings and keeps artifacts bound to their execution directory", async () => {
     const gateway = await createGateway();
     try {
-      const browser = await browserSession(gateway);
-      const send = (
-        path: string,
-        body: object,
-        method = "POST",
-        auth = headers(gateway, browser),
-      ) =>
-        fetch(`${gateway.origin}/api/v1/${path}`, {
-          method,
-          headers: auth,
-          body: JSON.stringify(body),
-        });
-      const get = (path: string) =>
-        fetch(`${gateway.origin}/api/v1/${path}`, { headers: { cookie: browser.cookie } });
-      const policy = { ...DEFAULT_POLICY, filesystem: "read-only" };
-      expect(
-        (
-          await send("language", { language: "en" }, "PUT", {
-            ...headers(gateway, browser),
-            cookie: "",
-          })
-        ).status,
-      ).toBe(401);
-      expect(
-        (
-          await send("language", { language: "en" }, "PUT", {
-            ...headers(gateway, browser),
-            origin: "https://untrusted.invalid",
-          })
-        ).status,
-      ).toBe(403);
-      expect((await send("language", { language: "invalid" }, "PUT")).status).toBe(400);
-      expect((await send("language", { language: "en" }, "PUT")).status).toBe(200);
-      expect(
-        new SettingsStore(gateway.products.options.productHome, "other-workspace").readLanguage(),
-      ).toBe("en");
-      expect((await (await get("bootstrap")).json()).language).toBe("en");
-      expect(
-        (await send("settings", policy, "PUT", { ...headers(gateway, browser), cookie: "" }))
-          .status,
-      ).toBe(401);
-      expect(
-        (
-          await send("settings", policy, "PUT", {
-            ...headers(gateway, browser),
-            origin: "https://untrusted.invalid",
-          })
-        ).status,
-      ).toBe(403);
-      expect((await send("settings", { ...policy, cpus: 0 }, "PUT")).status).toBe(400);
-      expect((await send("settings", policy, "PUT")).status).toBe(200);
-      expect(
-        new SettingsStore(
-          gateway.products.options.productHome,
-          gateway.products.options.workspace.id,
-        ).read().policy,
-      ).toEqual(policy);
-      const response = await send("tools/science_notebook", {
-        action: "create_project",
-        request: { requestId: randomUUID(), title: "Verified project" },
-      });
-      expect(response.status).toBe(200);
-      const { data: project } = await response.json();
+      const policy = { ...DEFAULT_POLICY, filesystem: "read-only" as const };
+      expect((await gateway.operations.settings()).policy).toEqual(DEFAULT_POLICY);
+      await gateway.operations.writeLanguage("en");
+      expect(new SettingsStore(gateway.products.options.productHome).readLanguage()).toBe("en");
+      expect((await gateway.operations.bootstrap()).language).toBe("en");
+      await expect(gateway.operations.updateSettings({ ...policy, cpus: 0 })).rejects.toThrow();
+      await gateway.operations.updateSettings(policy);
+      expect(new SettingsStore(gateway.products.options.productHome).read().policy).toEqual(policy);
+      const created = (await gateway.operations.callTool(
+        "science_notebook",
+        {
+          action: "create_project",
+          request: { requestId: randomUUID(), title: "Verified project" },
+        },
+        randomUUID(),
+        new AbortController().signal,
+      )) as { data: { id: string } };
+      const projectId = created.data.id;
       const source = "sample,value\nA,42\n";
-      const imported = await send("artifacts", {
+      const artifact = (await gateway.operations.importArtifact({
         requestId: randomUUID(),
-        projectId: project.id,
+        projectId,
         name: "input.csv",
         dataBase64: Buffer.from(source).toString("base64"),
-      });
-      expect(imported.status).toBe(200);
-      const artifact = await imported.json();
-      const content = await get(`artifacts/${artifact.id}/content`);
-      expect(content.headers.get("content-disposition")).toContain("attachment;");
-      expect(await content.text()).toBe(source);
-      expect((await get(`artifact-preview?id=${artifact.id}`)).status).toBe(200);
+      })) as { id: string };
+      const executions = vi.spyOn(gateway.products.science, "getNotebookExecutions");
+      await gateway.operations.notebookExecutions(projectId, artifact.id);
+      expect(executions).toHaveBeenLastCalledWith(
+        "renderer",
+        { projectId, includeArtifactId: artifact.id },
+        expect.any(AbortSignal),
+      );
       expect(
-        JSON.stringify(await (await get(`research-object?project=${project.id}`)).json()),
-      ).toContain(`urn:uuid:${artifact.id}`);
-      expect((await send("tools/swarm", {})).status).toBe(404);
-      expect((await send("environment", { action: "inspect" })).status).toBe(500);
-      const next = join(gateway.products.options.workspace.root, "next-workspace");
-      await mkdir(next);
-      expect((await send("workspace", { root: next }, "PUT")).status).toBe(200);
-      expect(gateway.host.products.options.workspace.root).toBe(await realpath(next));
-      expect((await (await get("science")).json()).projects).toEqual([]);
-      expect((await get(`artifacts/${artifact.id}/content`)).status).toBe(404);
-      expect((await (await get("settings")).json()).policy).toEqual(DEFAULT_POLICY);
-      expect(
-        (await send("workspace", { root: gateway.products.options.workspace.root }, "PUT")).status,
-      ).toBe(200);
-      expect((await (await get("settings")).json()).policy).toEqual(policy);
-      expect(await (await get(`artifacts/${artifact.id}/content`)).text()).toBe(source);
+        NotebookExecutionsPayloadSchema.safeParse({
+          projectId,
+          includeArtifactId: "invalid",
+        }).success,
+      ).toBe(false);
+      const content = await gateway.operations.artifactContent(artifact.id);
+      expect(content.name).toBe("input.csv");
+      expect(Buffer.from(content.bytes).toString("utf8")).toBe(source);
+      await expect(gateway.operations.artifactPreview(artifact.id)).resolves.toBeTruthy();
+      expect(JSON.stringify(await gateway.operations.researchObject(projectId))).toContain(
+        `urn:uuid:${artifact.id}`,
+      );
+      await expect(
+        gateway.operations.callTool("unknown", {}, randomUUID(), new AbortController().signal),
+      ).rejects.toThrow("Unknown SwarmX product tool");
+      await expect(gateway.operations.environmentAction("inspect")).rejects.toThrow();
+      const other = await createGateway();
+      try {
+        expect((await other.operations.scienceWorkspace()).projects).toEqual([]);
+        await expect(other.operations.artifactContent(artifact.id)).rejects.toThrow();
+        expect((await other.operations.settings()).policy).toEqual(DEFAULT_POLICY);
+        expect(
+          Buffer.from((await gateway.operations.artifactContent(artifact.id)).bytes).toString(),
+        ).toBe(source);
+        expect((await gateway.operations.settings()).policy).toEqual(policy);
+      } finally {
+        await other.dispose();
+      }
     } finally {
       await gateway.dispose();
     }
   });
 
-  it("rejects permission and workspace changes while science work is active and settles work before journal shutdown", async () => {
+  it("rejects permission changes while science work is active and settles work before journal shutdown", async () => {
     const gateway = await createGateway();
     const ready = Promise.withResolvers<void>();
     try {
-      const browser = await browserSession(gateway);
       vi.spyOn(gateway.products.science, "executeNotebookCell").mockImplementation(
         async (_session, _request, signal) => {
           ready.resolve();
@@ -238,7 +107,7 @@ describe("external gateways", () => {
           throw new Error("unreachable");
         },
       );
-      const operation = gateway.products.callTool(
+      const operation = gateway.operations.callTool(
         "science_notebook",
         {
           action: "execute",
@@ -249,24 +118,14 @@ describe("external gateways", () => {
             outputArtifact: null,
           },
         },
-        { actorId: "renderer", callId: randomUUID(), signal: new AbortController().signal },
+        randomUUID(),
+        new AbortController().signal,
       );
       const rejected = expect(operation).rejects.toThrow("closing");
       await ready.promise;
-      for (const [path, body] of [
-        ["workspace", { root: gateway.products.options.workspace.root }],
-        ["settings", DEFAULT_POLICY],
-      ] as const) {
-        expect(
-          (
-            await fetch(`${gateway.origin}/api/v1/${path}`, {
-              method: "PUT",
-              headers: headers(gateway, browser),
-              body: JSON.stringify(body),
-            })
-          ).status,
-        ).toBe(409);
-      }
+      await expect(gateway.operations.updateSettings(DEFAULT_POLICY)).rejects.toThrow(
+        "Stop active executions",
+      );
       await gateway.host.dispose();
       await rejected;
     } finally {
@@ -280,7 +139,7 @@ describe("external gateways", () => {
     const stopped = Promise.withResolvers<void>();
     let operation: Promise<void> | undefined;
     try {
-      const browser = await browserSession(gateway);
+      const session = await gateway.products.rootAgent.create();
       const childSession = await gateway.products.rootAgent.create();
       const steer = vi.spyOn(gateway.leaf.agent, "steer");
       const interrupt = vi.spyOn(gateway.leaf.agent, "interrupt").mockImplementation(async () => {
@@ -305,38 +164,27 @@ describe("external gateways", () => {
 
         return { stopReason: "end_turn" as const };
       });
-      operation = gateway.products.rootAgent.start(browser.sessionId, "parent", observer);
+      operation = gateway.products.rootAgent.start(session, "parent", observer);
       await ready.promise;
-      const snapshot = await (
-        await fetch(
-          `${gateway.origin}/api/v1/logs?session=${encodeURIComponent(browser.sessionId)}&descendants=true`,
-          { headers: { cookie: browser.cookie } },
-        )
-      ).json();
-      const child = (snapshot.events as ExecutionRecord[]).find(
+      const snapshot = await gateway.operations.logs(
+        LogsQuerySchema.parse({ session, descendants: "true" }),
+      );
+      const child = snapshot.events.find(
         (record) =>
           record.sessionId === childSession && record.event.type === EventType.RUN_STARTED,
       );
       expect(child).toBeDefined();
       expect(snapshot.activeRunIds).toContain(child?.runId);
-      const url = `${gateway.origin}/api/v1/runs/${child?.runId}`;
-      const post = (body: object, auth = headers(gateway, browser)) =>
-        fetch(url, { method: "POST", headers: auth, body: JSON.stringify(body) });
-      expect(
-        (await post({ action: "cancel" }, { ...headers(gateway, browser), cookie: "" })).status,
-      ).toBe(401);
-      expect(
-        (
-          await post(
-            { action: "cancel" },
-            { ...headers(gateway, browser), origin: "https://other.invalid" },
-          )
-        ).status,
-      ).toBe(403);
-      expect((await post({ action: "steer", text: " " })).status).toBe(400);
-      expect((await post({ action: "steer", text: "check the methods" })).status).toBe(200);
+      const runId = child?.runId ?? "";
+      await expect(
+        gateway.operations.controlRun(runId, { action: "steer", text: " " }),
+      ).rejects.toThrow();
+      await gateway.operations.controlRun(runId, {
+        action: "steer",
+        text: "check the methods",
+      });
       expect(steer).toHaveBeenCalledWith(childSession, "check the methods");
-      expect((await post({ action: "cancel" })).status).toBe(200);
+      await gateway.operations.controlRun(runId, { action: "cancel" });
       await operation;
       expect(interrupt).toHaveBeenCalledExactlyOnceWith(childSession);
       const laterStarted = Promise.withResolvers<void>();
@@ -350,13 +198,15 @@ describe("external gateways", () => {
       const later = gateway.products.rootAgent.start(childSession, "later", observer);
       await laterStarted.promise;
       try {
-        expect((await post({ action: "cancel" })).status).toBe(409);
+        await expect(gateway.operations.controlRun(runId, { action: "cancel" })).rejects.toThrow(
+          "no longer active",
+        );
         expect(interrupt).toHaveBeenCalledTimes(1);
       } finally {
         laterDone.resolve();
         await later;
       }
-      const log = gateway.products.journal.read({ run: child?.runId ?? "" }).events;
+      const log = gateway.products.journal.read({ run: runId }).events;
       expect(
         log.some(
           ({ event }) => event.type === EventType.CUSTOM && event.name === "swarmx.input.steered",
@@ -377,25 +227,18 @@ describe("external gateways", () => {
 
   it("queues parallel delegated confirmations through the parent's AG-UI interaction flow", async () => {
     const gateway = await createGateway();
-    const mcp = new McpClient({ name: "delegation-interactions", version: "1" });
+    let client: Client | undefined;
     const answers: unknown[] = [];
     try {
-      const browser = await browserSession(gateway);
+      const session = await gateway.operations.createSession("swarm");
       vi.spyOn(gateway.leaf.agent, "start").mockImplementation(async (sessionId, text, output) => {
         if (text === "parent") {
-          await mcp.connect(
-            new StreamableHTTPClientTransport(
-              new URL(
-                `${gateway.origin}/mcp?session=${encodeURIComponent(sessionId)}&run=${output.executionId}`,
-              ),
-              {
-                requestInit: { headers: { authorization: `Bearer ${gateway.token}` } },
-              },
-            ),
-          );
+          const token = randomUUID();
+          gateway.products.mcpExecutions.set(token, { sessionId, runId: output.executionId });
+          client = await bridgeClient(socketOf(gateway.products), token);
           const results = await Promise.all(
             ["first", "second"].map((text) =>
-              mcp.callTool({
+              client?.callTool({
                 name: "swarm",
                 arguments: { action: "send_message", agentId: "codex", text },
               }),
@@ -415,10 +258,10 @@ describe("external gateways", () => {
 
         return { stopReason: "end_turn" as const };
       });
-      let stream = await agUi(gateway, browser, runInput(browser.sessionId, "parent"));
+      let stream = await runAgUi(gateway, input(session.sessionId, "parent"));
       const ids = new Set<string>();
       for (const allow of [false, true]) {
-        const finished = events(stream).find((event) => event.type === EventType.RUN_FINISHED);
+        const finished = stream.find((event) => event.type === EventType.RUN_FINISHED);
         if (finished?.type !== EventType.RUN_FINISHED || finished.outcome?.type !== "interrupt")
           throw new Error("Expected child confirmation");
         const pending = finished.outcome.interrupts[0];
@@ -429,23 +272,20 @@ describe("external gateways", () => {
           .activeRuns()
           .find(
             (run) =>
-              run.sessionId !== browser.sessionId && pending.id.startsWith(`${run.sessionId}:`),
+              run.sessionId !== session.sessionId && pending.id.startsWith(`${run.sessionId}:`),
           );
         expect(child).toBeDefined();
-        const control = await fetch(`${gateway.origin}/api/v1/runs/${child?.runId}`, {
-          method: "POST",
-          headers: headers(gateway, browser),
-          body: JSON.stringify({ action: "cancel" }),
-        });
-        expect(control.status).toBe(409);
-        stream = await agUi(gateway, browser, {
-          ...runInput(browser.sessionId, ""),
+        await expect(
+          gateway.operations.controlRun(child?.runId ?? "", { action: "cancel" }),
+        ).rejects.toThrow("pending confirmation");
+        stream = await runAgUi(gateway, {
+          ...input(session.sessionId, ""),
           resume: [{ interruptId: pending.id, status: "resolved", payload: { allow } }],
         });
       }
       expect(ids.size).toBe(2);
       expect(answers).toEqual([{ allow: false }, { allow: true }]);
-      expect(stream).toContain("both children finished");
+      expect(stream.map(streamText).join("")).toContain("both children finished");
       expect(gateway.products.journal.activeRuns()).toEqual([]);
       const interactions = gateway.products.journal
         .read()
@@ -455,95 +295,100 @@ describe("external gateways", () => {
         );
       expect(interactions).toHaveLength(2);
     } finally {
-      await mcp.close();
+      await client?.close();
       await gateway.dispose();
     }
   });
 
-  it("binds ACP MCP endpoints to one Host run and rejects stale or inactive endpoints", async () => {
+  it("delivers sensitive interaction answers without putting them in the execution journal", async () => {
     const gateway = await createGateway();
-    const client = new McpClient({ name: "acp-binding-test", version: "1" });
     try {
-      const browser = await browserSession(gateway);
+      const session = await gateway.operations.createSession("swarm");
+      const answers: unknown[] = [];
+      vi.spyOn(gateway.leaf.agent, "start").mockImplementation(async (_id, _text, output) => {
+        answers.push(
+          await output.interact({
+            id: "credential",
+            title: "Native credential",
+            sensitive: true,
+            schema: {
+              type: "object",
+              properties: { answer: { type: "string", format: "password" } },
+            },
+          }),
+        );
+        return { stopReason: "end_turn" };
+      });
+      const first = await runAgUi(gateway, input(session.sessionId, "work"));
+      const finished = first.find((event) => event.type === EventType.RUN_FINISHED);
+      if (finished?.type !== EventType.RUN_FINISHED || finished.outcome?.type !== "interrupt")
+        throw new Error("Expected credential request");
+      const pending = finished.outcome.interrupts[0];
+      if (!pending) throw new Error("Missing credential request");
+      await runAgUi(gateway, {
+        ...input(session.sessionId, ""),
+        resume: [
+          {
+            interruptId: pending.id,
+            status: "resolved",
+            payload: { answer: "private-secret-value" },
+          },
+        ],
+      });
+      expect(answers).toEqual([{ answer: "private-secret-value" }]);
+      const records = gateway.products.journal.read().events;
+      expect(JSON.stringify(records)).not.toContain("private-secret-value");
+      expect(
+        records.find(
+          ({ event }) =>
+            event.type === EventType.CUSTOM && event.name === "swarmx.interaction.answered",
+        )?.event,
+      ).toMatchObject({ value: { id: "credential", status: "answered", redacted: true } });
+    } finally {
+      await gateway.dispose();
+    }
+  });
+
+  it("binds MCP bridge credentials to one Host run and rejects stale or inactive endpoints", async () => {
+    const gateway = await createGateway();
+    gateway.products.mcpExecutions.set("test-process", null);
+    const client = await bridgeClient(socketOf(gateway.products), "test-process");
+    try {
+      const session = await gateway.operations.createSession("swarm");
       const invoke = vi.spyOn(gateway.products, "callTool");
       const call = () =>
         client.callTool({
           name: "swarm",
           arguments: { action: "status" },
         });
-      gateway.products.acpExecutions.set("test-process", null);
-      await client.connect(
-        new StreamableHTTPClientTransport(new URL(`${gateway.origin}/mcp?acp=test-process`), {
-          requestInit: { headers: { authorization: "Bearer test-process" } },
-        }),
-      );
       vi.spyOn(gateway.leaf.agent, "start").mockImplementation(async (_id, _text, output) => {
         expect((await call()).isError).toBe(true);
         if (!output.executionId) throw new Error("Missing execution identity");
-        gateway.products.acpExecutions.set("test-process", {
-          sessionId: browser.sessionId,
+        gateway.products.mcpExecutions.set("test-process", {
+          sessionId: session.sessionId,
           runId: "stale-run",
         });
         expect((await call()).isError).toBe(true);
-        gateway.products.acpExecutions.set("test-process", {
-          sessionId: browser.sessionId,
+        gateway.products.mcpExecutions.set("test-process", {
+          sessionId: session.sessionId,
           runId: output.executionId,
         });
         expect((await call()).isError).not.toBe(true);
-        gateway.products.acpExecutions.set("test-process", null);
+        gateway.products.mcpExecutions.set("test-process", null);
         return { stopReason: "end_turn" as const };
       });
       for (const turnId of ["first", "second"])
-        await gateway.products.rootAgent.start(browser.sessionId, turnId, observer);
+        await gateway.products.rootAgent.start(session.sessionId, turnId, observer);
       expect((await call()).isError).toBe(true);
       expect(invoke).toHaveBeenCalledTimes(4);
-      const records = gateway.products.journal.read({ session: browser.sessionId }).events;
+      const records = gateway.products.journal.read({ session: session.sessionId }).events;
       const runs = records.filter(({ event }) => event.type === EventType.RUN_STARTED);
       const calls = records.filter(({ event }) => event.type === EventType.TOOL_CALL_START);
       expect(calls.map(({ runId }) => runId)).toEqual(runs.map(({ runId }) => runId));
-      expect(
-        (
-          await fetch(`${gateway.origin}/mcp?session=${browser.sessionId}&run=${runs[0]?.runId}`, {
-            headers: { authorization: "Bearer test-process" },
-          })
-        ).status,
-      ).toBe(403);
-      gateway.products.acpExecutions.delete("test-process");
-      expect(
-        (
-          await fetch(`${gateway.origin}/mcp?acp=test-process`, {
-            headers: { authorization: "Bearer test-process" },
-          })
-        ).status,
-      ).toBe(401);
+      gateway.products.mcpExecutions.delete("test-process");
+      await expect(bridgeClient(socketOf(gateway.products), "test-process")).rejects.toThrow();
     } finally {
       await client.close();
-      await gateway.dispose();
-    }
-  });
-
-  it("journals a browser DVC mutation before dispatch and retains its failure", async () => {
-    const gateway = await createGateway();
-    try {
-      const browser = await browserSession(gateway);
-      vi.spyOn(gateway.products.dvc, "pull").mockImplementation(async () => {
-        expect(gateway.products.journal.read().events.at(-1)?.event.type).toBe(
-          EventType.TOOL_CALL_END,
-        );
-        throw new Error("DVC command failed");
-      });
-      const response = await fetch(`${gateway.origin}/api/v1/dvc`, {
-        method: "POST",
-        headers: headers(gateway, browser),
-        body: JSON.stringify({ action: "pull", request: {} }),
-      });
-      expect(response.status).toBe(500);
-      expect(gateway.products.journal.read().events.at(-1)?.event).toMatchObject({
-        type: EventType.CUSTOM,
-        name: "swarmx.tool.failed",
-        value: { message: "DVC command failed" },
-      });
-    } finally {
       await gateway.dispose();
     }
   });
@@ -551,20 +396,17 @@ describe("external gateways", () => {
   it("preserves causal MCP science/delegation records and reads them after restart without a Harness", async () => {
     const gateway = await createGateway();
     try {
-      const browser = await browserSession(gateway);
+      const session = await gateway.operations.createSession("swarm");
       vi.spyOn(gateway.leaf.agent, "start").mockImplementation(async (_id, text, output) => {
         if (text === "parent") {
           if (!output.executionId) throw new Error("Missing execution ID");
-          const client = new McpClient({ name: "journal-test", version: "1" });
+          const token = randomUUID();
+          gateway.products.mcpExecutions.set(token, {
+            sessionId: session.sessionId,
+            runId: output.executionId,
+          });
+          const client = await bridgeClient(socketOf(gateway.products), token);
           try {
-            await client.connect(
-              new StreamableHTTPClientTransport(
-                new URL(
-                  `${gateway.origin}/mcp?session=${encodeURIComponent(browser.sessionId)}&run=${encodeURIComponent(output.executionId)}`,
-                ),
-                { requestInit: { headers: { authorization: `Bearer ${gateway.token}` } } },
-              ),
-            );
             const science = await client.callTool({
               name: "science_notebook",
               arguments: {
@@ -591,12 +433,8 @@ describe("external gateways", () => {
 
         return { stopReason: "end_turn" as const };
       });
-      await gateway.products.rootAgent.start(browser.sessionId, "parent", observer);
-      const read = await fetch(`${gateway.origin}/api/v1/logs`, {
-        headers: headers(gateway, browser),
-      });
-      expect(read.status).toBe(200);
-      const saved = (await read.json()) as { events: ExecutionRecord[]; nextAfter: number };
+      await gateway.products.rootAgent.start(session.sessionId, "parent", observer);
+      const saved = await gateway.operations.logs(LogsQuerySchema.parse({}));
       const starts = saved.events.filter(({ event }) => event.type === EventType.RUN_STARTED);
       expect(starts).toHaveLength(2);
       const delegated = saved.events.find(
@@ -611,7 +449,7 @@ describe("external gateways", () => {
       if (result?.event.type !== EventType.TOOL_CALL_RESULT)
         throw new Error("Missing science result");
       expect(JSON.parse(result.event.content).locator).toMatchObject({
-        sessionId: browser.sessionId,
+        sessionId: session.sessionId,
         journalSeq: 1,
       });
       expect(result.runId).toBe(starts[0]?.runId);
@@ -622,43 +460,17 @@ describe("external gateways", () => {
             event.type === EventType.RAW && JSON.stringify(event.event).includes("原始记录"),
         ),
       ).toBe(true);
-      expect((await fetch(`${gateway.origin}/api/v1/logs`)).status).toBe(401);
-      expect(
-        (
-          await fetch(`${gateway.origin}/api/v1/logs?limit=0`, {
-            headers: headers(gateway, browser),
-          })
-        ).status,
-      ).toBe(400);
-      expect(
-        (
-          await fetch(`${gateway.origin}/api/v1/logs`, {
-            headers: { ...headers(gateway, browser), origin: "https://foreign.example" },
-          })
-        ).status,
-      ).toBe(403);
-      const page = await (
-        await fetch(`${gateway.origin}/api/v1/logs?limit=1`, { headers: headers(gateway, browser) })
-      ).json();
-      expect(page.events).toEqual(saved.events.slice(0, 1));
-      expect(page.nextAfter).toBe(saved.events[0]?.seq);
+      expect(LogsQuerySchema.safeParse({ limit: 0 }).success).toBe(false);
 
       await gateway.host.dispose();
       await gateway.products.dispose();
       const reopened = await ProductServices.create(gateway.products.options);
-      const host = await startHost({
-        products: reopened,
-        workspace: reopened.options.workspace,
-        rendererRoot: reopened.options.workspace.root,
-      });
       try {
-        const launch = await fetch(host.issueLaunchUrl(), { redirect: "manual" });
-        const cookie = launch.headers.get("set-cookie")?.split(";", 1)[0];
-        if (!cookie) throw new Error("Missing restored browser cookie");
-        const restored = await fetch(`${host.internalUrl}/api/v1/logs`, { headers: { cookie } });
-        expect(await restored.json()).toEqual(saved);
+        expect({
+          ...reopened.journal.read(),
+          activeRunIds: reopened.journal.activeRuns().map((run) => run.runId),
+        }).toEqual(saved);
       } finally {
-        await host.dispose();
         await reopened.dispose();
       }
     } finally {
@@ -666,62 +478,54 @@ describe("external gateways", () => {
     }
   });
 
-  it("restores memory snapshots and pending writes after restart and requires browser approval", async () => {
+  it("restores memory snapshots and pending writes after restart and requires explicit approval", async () => {
     const gateway = await createGateway();
     try {
-      const browser = await browserSession(gateway);
+      const session = await gateway.operations.createSession("swarm");
       gateway.products.settings.writeMemory({ writeApproval: true });
-      const note = await gateway.products.learning.core.read("user");
-      const frozen = await gateway.products.learning.snapshot(browser.sessionId);
-      await gateway.products.callTool(
+      const note = await gateway.products.learning.core.read();
+      const frozen = await gateway.products.learning.snapshot(session.sessionId);
+      await gateway.operations.callTool(
         "memory",
         {
           action: "update_core_memory",
-          request: { target: "user", content: "中文优先", expectedRevision: note.revision },
+          request: { content: "中文优先", expectedRevision: note.revision },
         },
-        { actorId: "model", callId: "memory-proposal", signal: new AbortController().signal },
+        "memory-proposal",
+        new AbortController().signal,
       );
       await gateway.host.dispose();
       await gateway.products.dispose();
       const products = await ProductServices.create(gateway.products.options);
       const host = await startHost({
         products,
-        workspace: products.options.workspace,
-        rendererRoot: products.options.workspace.root,
       });
       try {
-        expect(await products.learning.snapshot(browser.sessionId)).toBe(frozen);
+        const operations = new HostOperations(host);
+        expect(await products.learning.snapshot(session.sessionId)).toBe(frozen);
         const [pending] = (await products.learning.status()).pending;
         if (!pending) throw new Error("Pending memory did not survive restart");
-        const url = `${host.internalUrl}/api/v1/memory/pending/${pending.id}`;
-        const launch = await fetch(host.issueLaunchUrl(), { redirect: "manual" });
-        const cookie = launch.headers.get("set-cookie")?.split(";", 1)[0];
-        if (!cookie) throw new Error("Missing browser cookie");
-        const request = { method: "POST", body: JSON.stringify({ action: "approve" }) };
-        expect(
-          (
-            await fetch(url, {
-              ...request,
-              headers: { authorization: `Bearer ${host.internalToken}`, origin: host.internalUrl },
-            })
-          ).status,
-        ).toBe(401);
-        expect(
-          (await fetch(url, { ...request, headers: { cookie, origin: "https://foreign.example" } }))
-            .status,
-        ).toBe(403);
-        expect((await products.learning.core.read("user")).content).toBe("");
-        expect(
-          (
-            await fetch(url, {
-              ...request,
-              headers: { cookie, origin: host.internalUrl, "content-type": "application/json" },
-            })
-          ).status,
-        ).toBe(200);
-        expect((await products.learning.core.read("user")).content).toBe("中文优先");
+        products.mcpExecutions.set("restart-process", null);
+        const unbound = await bridgeCall(socketOf(products), "restart-process", "memory", {
+          action: "memory_decide",
+          request: { id: pending.id, decision: "approve" },
+        });
+        expect(unbound.isError).toBe(true);
+        expect(JSON.stringify(unbound)).toContain("not bound to an active execution");
+        await expect(bridgeClient(socketOf(products), "unknown-process")).rejects.toThrow();
+        expect((await products.learning.core.read()).content).toBe("");
+        await operations.callTool(
+          "memory",
+          {
+            action: "memory_decide",
+            request: { id: pending.id, decision: "approve" },
+          },
+          randomUUID(),
+          new AbortController().signal,
+        );
+        expect((await products.learning.core.read()).content).toBe("中文优先");
         expect((await products.learning.status()).pending).toEqual([]);
-        expect(await products.learning.snapshot(browser.sessionId)).toBe(frozen);
+        expect(await products.learning.snapshot(session.sessionId)).toBe(frozen);
         expect(await products.learning.snapshot("codex:new-session")).toContain("中文优先");
       } finally {
         await host.dispose();
@@ -734,11 +538,7 @@ describe("external gateways", () => {
 
   it("official ACP client reaches a recursive Swarm, native history, forms and cancellation", async () => {
     const leaf = fakeAgent();
-    const nested = createSwarm("parent", (client) =>
-      client.connect(
-        createSwarm("child", (child) => child.connect(acpAgent(leaf.agent, process.cwd()))),
-      ),
-    );
+    const nested = createSwarm("parent", createSwarm("child", leaf.agent));
     const updates: acp.SessionNotification[] = [];
     const client = acp
       .client({ name: "test" })
@@ -749,7 +549,7 @@ describe("external gateways", () => {
         action: "accept",
         content: { allow: true },
       }));
-    const connection = client.connect(nested);
+    const connection = client.connect(acpAgent(nested, process.cwd()));
     try {
       await connection.agent.request(acp.methods.agent.initialize, {
         protocolVersion: acp.PROTOCOL_VERSION,
@@ -788,7 +588,7 @@ describe("external gateways", () => {
   it("AG-UI uses official schemas and rejects foreign native session ids", async () => {
     const leaf = fakeAgent();
     const session = await leaf.agent.create();
-    expect(parseAgUiInput(runInput(session, "hello")).threadId).toBe(session);
+    expect(parseAgUiInput(input(session, "hello")).threadId).toBe(session);
     expect(() => parseAgUiInput({ threadId: session })).toThrow();
     await expect(loadAgUiHistory(leaf.agent, session)).resolves.toMatchObject([
       { role: "user", content: "restored question" },
@@ -798,36 +598,99 @@ describe("external gateways", () => {
     expect(leaf.prompts).toEqual([]);
   });
 
-  it("browser AG-UI resumes native interaction and preserves the local security boundary", async () => {
+  it("preserves native phases, duration and tool kind/status through direct Swarm history", async () => {
     const gateway = await createGateway();
     try {
-      const browser = await browserSession(gateway);
-      expect((await fetch(`${gateway.origin}/api/v1/bootstrap`)).status).toBe(401);
-      expect((await fetch(gateway.launchUrl, { redirect: "manual" })).status).toBe(401);
-      expect(
-        (
-          await fetch(`${gateway.origin}/api/v1/sessions`, {
-            headers: { cookie: browser.cookie, origin: "https://foreign.example" },
-          })
-        ).status,
-      ).toBe(403);
-      const first = events(await agUi(gateway, browser, runInput(browser.sessionId, "approve")));
-      const finished = first.at(-1);
-      if (finished?.type !== "RUN_FINISHED" || finished.outcome?.type !== "interrupt")
+      const session = await gateway.products.rootAgent.create();
+      vi.spyOn(gateway.leaf.agent, "read").mockImplementation(async (_id, observer) => {
+        observer.text("question", "Saved question", "user");
+        for (const phase of ["commentary", "final_answer"] as const) {
+          observer.activity?.({
+            type: "message",
+            messageId: phase,
+            phase,
+            turnId: "turn",
+            startedAt: 1789013486,
+            durationMs: 1027731,
+          });
+          observer.text(phase, phase);
+        }
+        observer.activity?.({
+          type: "tool",
+          toolCallId: "shell",
+          kind: "execute",
+          status: "in_progress",
+        });
+        observer.tool("shell", "exit 2", { command: "exit 2" });
+        observer.activity?.({ type: "tool", toolCallId: "shell", status: "failed" });
+        observer.tool(
+          "shell",
+          "exit 2",
+          { command: "exit 2" },
+          { formatted_output: "failed command", exit_code: 2 },
+        );
+      });
+      const history = await loadAgUiHistory(gateway.products.rootAgent, session);
+      expect(history).toEqual([
+        { id: "question", role: "user", content: "Saved question" },
+        ...["commentary", "final_answer"].map((phase) => ({
+          id: phase,
+          role: "assistant",
+          content: phase,
+          _meta: { phase, turnId: "turn", startedAt: 1789013486, durationMs: 1027731 },
+        })),
+        {
+          id: "call:shell",
+          role: "assistant",
+          _tool: { kind: "execute", status: "failed" },
+          toolCalls: [
+            {
+              id: "shell",
+              type: "function",
+              function: { name: "exit 2", arguments: JSON.stringify({ command: "exit 2" }) },
+            },
+          ],
+        },
+        {
+          id: "result:shell",
+          role: "tool",
+          toolCallId: "shell",
+          content: JSON.stringify({ formatted_output: "failed command", exit_code: 2 }),
+        },
+      ]);
+    } finally {
+      await gateway.dispose();
+    }
+  });
+
+  it("AG-UI resumes native interaction and streams foreign session errors", async () => {
+    const gateway = await createGateway();
+    try {
+      const session = await gateway.operations.createSession("swarm");
+      const first = await runAgUi(gateway, input(session.sessionId, "approve"));
+      const finished = first.find((event) => event.type === EventType.RUN_FINISHED);
+      if (finished?.type !== EventType.RUN_FINISHED || finished.outcome?.type !== "interrupt")
         throw new Error("No AG-UI interrupt");
       const interrupt = finished.outcome.interrupts[0];
       expect(interrupt).toMatchObject({ id: "permission-1", message: "Write result" });
-      const second = events(
-        await agUi(gateway, browser, {
-          ...runInput(browser.sessionId, "approve"),
-          resume: [{ interruptId: interrupt?.id, status: "resolved", payload: { allow: true } }],
-        }),
-      );
-      expect(second.at(-1)).toMatchObject({ type: "RUN_FINISHED", outcome: { type: "success" } });
+      const second = await runAgUi(gateway, {
+        ...input(session.sessionId, "approve"),
+        resume: [
+          {
+            interruptId: interrupt?.id,
+            status: "resolved",
+            payload: { allow: true },
+          },
+        ],
+      });
+      expect(second.at(-1)).toMatchObject({
+        type: EventType.RUN_FINISHED,
+        outcome: { type: "success" },
+      });
       expect(gateway.leaf.answers).toEqual([{ allow: true }]);
-      const foreign = events(await agUi(gateway, browser, runInput("claude:same-id", "wrong")));
+      const foreign = await runAgUi(gateway, input("claude:same-id", "wrong"));
       expect(foreign.at(-1)).toMatchObject({
-        type: "RUN_ERROR",
+        type: EventType.RUN_ERROR,
         message: expect.stringMatching(/does not belong/),
       });
     } finally {
@@ -835,21 +698,23 @@ describe("external gateways", () => {
     }
   });
 
-  it("disconnecting an active AG-UI stream interrupts the native Agent", async () => {
+  it("cancelling an active AG-UI bridge run interrupts the native Agent", async () => {
     const gateway = await createGateway();
     try {
-      const browser = await browserSession(gateway);
-      const controller = new AbortController();
-      const response = await fetch(`${gateway.origin}/api/ag-ui`, {
-        method: "POST",
-        headers: headers(gateway, browser),
-        signal: controller.signal,
-        body: JSON.stringify(runInput(browser.sessionId, "wait")),
+      const session = await gateway.operations.createSession("swarm");
+      const bridge = await gateway.products.agUi("swarm");
+      const events: AGUIEvent[] = [];
+      const running = bridge.run(parseAgUiInput(input(session.sessionId, "wait")), {
+        event: (event) => events.push(event),
       });
       await gateway.leaf.started.promise;
-      controller.abort();
-      await expect(response.text()).rejects.toThrow();
+      await bridge.cancel(session.sessionId);
+      await running;
       await vi.waitFor(() => expect(gateway.leaf.interrupt).toHaveBeenCalledOnce());
+      expect(events.at(-1)).toMatchObject({
+        type: EventType.RUN_FINISHED,
+        result: { stopReason: "cancelled" },
+      });
     } finally {
       await gateway.dispose();
     }
@@ -858,33 +723,19 @@ describe("external gateways", () => {
   it("serves native model catalogs and forwards only per-turn model settings", async () => {
     const gateway = await createGateway();
     try {
-      const browser = await browserSession(gateway);
-      const init = { headers: headers(gateway, browser) };
-      expect((await fetch(`${gateway.origin}/api/v1/models`)).status).toBe(401);
-      expect(await (await fetch(`${gateway.origin}/api/v1/bootstrap`, init)).json()).toMatchObject({
-        defaultHarness: "codex",
-      });
-      expect(
-        await (
-          await fetch(
-            `${gateway.origin}/api/v1/models?agent=swarm&session=${encodeURIComponent(browser.sessionId)}`,
-            init,
-          )
-        ).json(),
-      ).toEqual({
+      const session = await gateway.operations.createSession("swarm");
+      expect(await gateway.operations.bootstrap()).toMatchObject({ defaultHarness: "codex" });
+      expect(await gateway.operations.models("swarm", session.sessionId)).toEqual({
         models: [{ id: "native-model", name: "Native", efforts: [{ id: "high", name: "High" }] }],
         current: {},
       });
-      expect(
-        (await fetch(`${gateway.origin}/api/v1/models?agent=swarm&session=claude:foreign`, init))
-          .ok,
-      ).toBe(false);
-      const input = {
-        ...runInput(browser.sessionId, "hello"),
+      await expect(gateway.operations.models("swarm", "claude:foreign")).rejects.toThrow();
+      const forwarded = {
+        ...input(session.sessionId, "hello"),
         forwardedProps: { modelName: "native-model", reasoningEffort: "high" },
       };
-      expect(events(await agUi(gateway, browser, input)).at(-1)).toMatchObject({
-        type: "RUN_FINISHED",
+      expect((await runAgUi(gateway, forwarded)).at(-1)).toMatchObject({
+        type: EventType.RUN_FINISHED,
       });
       expect(gateway.leaf.settings).toEqual([
         {
@@ -897,8 +748,8 @@ describe("external gateways", () => {
         { modelName: "native-model --global" },
         { modelName: "native-model", approvalPolicy: "never" },
       ]) {
-        const result = await agUi(gateway, browser, { ...input, forwardedProps });
-        expect(result).toContain("RUN_ERROR");
+        const result = await runAgUi(gateway, { ...forwarded, forwardedProps });
+        expect(result.at(-1)?.type).toBe(EventType.RUN_ERROR);
       }
       expect(gateway.leaf.prompts).toEqual(["hello"]);
     } finally {
@@ -906,28 +757,60 @@ describe("external gateways", () => {
     }
   });
 
-  it("official A2A client discovers the Card, sends to the same native Swarm, reads and cancels Tasks", async () => {
+  it.each([
+    ["Codex connection closed", "Internal error: Codex connection closed"],
+    [{ details: "Codex connection closed" }, "Internal error: Codex connection closed"],
+    [{ message: "Codex connection closed" }, "Internal error: Codex connection closed"],
+    [{ opaque: "not a user-facing message" }, "Internal error"],
+  ])(
+    "preserves readable structured errors when native history fails (%j)",
+    async (data, message) => {
+      const gateway = await createGateway();
+      try {
+        const session = await gateway.operations.createSession("swarm");
+        const read = vi
+          .spyOn(gateway.leaf.agent, "read")
+          .mockRejectedValueOnce(Object.assign(new Error("Internal error"), { data }));
+        await expect(gateway.operations.history("swarm", session.sessionId)).rejects.toThrow(
+          message,
+        );
+        await expect(gateway.operations.history("swarm", session.sessionId)).resolves.toEqual([
+          { id: "old-user", role: "user", content: "restored question" },
+          { id: "old-answer", role: "assistant", content: "restored answer" },
+        ]);
+        expect(read).toHaveBeenCalledTimes(2);
+        expect(gateway.leaf.prompts).toEqual([]);
+      } finally {
+        await gateway.dispose();
+      }
+    },
+  );
+
+  it("official A2A client follows the advertised endpoint and uses the Host directory", async () => {
     const gateway = await createGateway();
     try {
       const card = AgentCard.fromJSON(
         await (await fetch(`${gateway.origin}/a2a/swarm/.well-known/agent-card.json`)).json(),
       );
+      expect(card.version).toBe(manifest.version);
       expect(card.supportedInterfaces[0]).toMatchObject({
         protocolBinding: "JSONRPC",
         protocolVersion: "1.0",
+        url: `${gateway.origin}/a2a/swarm`,
       });
       const client = await new ClientFactory({
         transports: [
           new JsonRpcTransportFactory({
-            fetchImpl: (input, init) => {
+            fetchImpl: (url, init) => {
               const headers = new Headers(init?.headers);
               headers.set("authorization", `Bearer ${gateway.token}`);
-              return fetch(input, { ...init, headers });
+              return fetch(url, { ...init, headers });
             },
           }),
         ],
         preferredTransports: ["JSONRPC"],
       }).createFromAgentCard(card);
+      const directory = gateway.products.options.cwd;
       const result = await client.sendMessage(message("hello"));
       expect(result).toMatchObject({
         status: { state: TaskState.TASK_STATE_COMPLETED },
@@ -935,7 +818,19 @@ describe("external gateways", () => {
       });
       expect(JSON.stringify(result)).not.toContain("restored answer");
       expect(gateway.leaf.prompts).toEqual(["hello"]);
-      const task = await client.sendMessage(message("wait", true));
+      if (!("contextId" in result)) throw new Error("Expected a Task");
+      const resumed = await client.sendMessage(message("again", undefined, result.contextId));
+      expect(resumed).toMatchObject({ status: { state: TaskState.TASK_STATE_COMPLETED } });
+      expect(gateway.leaf.prompts).toEqual(["hello", "again"]);
+      const outside = await mkdtemp(join(tmpdir(), "swarmx-outside-"));
+      try {
+        await expect(
+          client.sendMessage(message("outside", { directory: outside })),
+        ).rejects.toThrow(/does not match the Host working directory/);
+      } finally {
+        await rm(outside, { recursive: true, force: true });
+      }
+      const task = await client.sendMessage(message("wait", { directory }, undefined, true));
       if (!("status" in task)) throw new Error("Expected a Task");
       await gateway.leaf.started.promise;
       await client.getTask({ tenant: "", id: task.id });
@@ -953,6 +848,7 @@ describe("external gateways", () => {
 });
 
 const observer: Observer = { text() {}, tool() {}, raw() {}, interact: async () => undefined };
+
 function fakeAgent() {
   const prompts: string[] = [];
   const answers: unknown[] = [];
@@ -1010,21 +906,20 @@ async function createGateway() {
   const leaf = fakeAgent();
   const products = await ProductServices.create({
     productHome: join(root, "product"),
-    workspace: await resolveWorkspace(root),
+    cwd: root,
   });
   const host = await startHost({
     products,
-    rendererRoot: root,
-    workspace: products.options.workspace,
+    agent: leaf.agent,
+    agentId: "codex",
   });
-  await products.attachAgents(host.internalUrl, host.internalToken, leaf.agent, "codex");
   return {
     leaf,
     products,
     host,
-    origin: host.internalUrl,
-    token: host.internalToken,
-    launchUrl: host.issueLaunchUrl(),
+    operations: new HostOperations(host),
+    origin: host.origin,
+    token: host.token,
     async dispose() {
       await host.dispose();
       await products.dispose();
@@ -1032,32 +927,22 @@ async function createGateway() {
     },
   };
 }
-async function browserSession(gateway: { launchUrl: string; origin: string }) {
-  const response = await fetch(gateway.launchUrl, { redirect: "manual" });
-  expect(response.headers.get("set-cookie")).toMatch(/HttpOnly.*SameSite=Strict/i);
-  const cookie = response.headers.get("set-cookie")?.split(";", 1)[0];
-  if (!cookie) throw new Error("No cookie");
-  const session = await (
-    await fetch(`${gateway.origin}/api/v1/sessions`, {
-      method: "POST",
-      headers: { cookie, origin: gateway.origin },
-    })
-  ).json();
-  return { cookie, sessionId: session.sessionId as string };
+
+async function runAgUi(
+  gateway: Awaited<ReturnType<typeof createGateway>>,
+  body: object,
+): Promise<AGUIEvent[]> {
+  const bridge = await gateway.products.agUi("swarm");
+  const events: AGUIEvent[] = [];
+  await bridge.run(parseAgUiInput(body), { event: (event) => events.push(event) });
+  return events;
 }
-function headers(gateway: { origin: string }, browser: { cookie: string }) {
-  return { "content-type": "application/json", cookie: browser.cookie, origin: gateway.origin };
+
+function streamText(event: AGUIEvent): string {
+  return event.type === EventType.TEXT_MESSAGE_CONTENT ? event.delta : "";
 }
-async function agUi(gateway: { origin: string }, browser: { cookie: string }, body: object) {
-  return (
-    await fetch(`${gateway.origin}/api/ag-ui`, {
-      method: "POST",
-      headers: headers(gateway, browser),
-      body: JSON.stringify(body),
-    })
-  ).text();
-}
-function runInput(threadId: string, text: string) {
+
+function input(threadId: string, text: string) {
   return {
     threadId,
     runId: randomUUID(),
@@ -1068,25 +953,30 @@ function runInput(threadId: string, text: string) {
     forwardedProps: {},
   };
 }
-function events(body: string) {
-  return body
-    .split("\n")
-    .filter((line) => line.startsWith("data: "))
-    .map((line) => EventSchemas.parse(JSON.parse(line.slice(6))));
-}
-function message(text: string, returnImmediately = false) {
+
+function message(
+  text: string,
+  directory?: { directory: string },
+  contextId = "",
+  returnImmediately = false,
+) {
   return {
     tenant: "",
     message: {
       messageId: randomUUID(),
-      contextId: "",
+      contextId,
       taskId: "",
       role: Role.ROLE_USER,
       parts: [
-        { content: { $case: "text" as const, value: text }, filename: "", mediaType: "text/plain" },
+        {
+          content: { $case: "text" as const, value: text },
+          filename: "",
+          mediaType: "text/plain",
+        },
       ],
       extensions: [],
       referenceTaskIds: [],
+      ...(directory === undefined ? {} : { metadata: { swarmx: directory } }),
     },
     configuration: { acceptedOutputModes: ["text/plain"], returnImmediately },
   };

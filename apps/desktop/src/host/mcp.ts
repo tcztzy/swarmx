@@ -1,6 +1,4 @@
-import type { IncomingMessage, ServerResponse } from "node:http";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { z } from "zod";
 
 export interface ToolManifestEntry {
@@ -20,7 +18,7 @@ export function createProductMcpServer(
   tools: readonly ToolManifestEntry[],
   call: ProductToolHandler,
 ): McpServer {
-  const server = new McpServer({ name: "swarmx-products", version: "1.0.0" });
+  const server = new McpServer({ name: "swarmx-products", version: "3.3.0" });
   for (const tool of tools) {
     server.registerTool(
       tool.name,
@@ -32,22 +30,6 @@ export function createProductMcpServer(
     );
   }
   return server;
-}
-
-export async function handleMcp(
-  request: IncomingMessage,
-  response: ServerResponse,
-  tools: readonly ToolManifestEntry[],
-  call: ProductToolHandler,
-): Promise<void> {
-  const server = createProductMcpServer(tools, call);
-  const transport = new StreamableHTTPServerTransport();
-  try {
-    await server.connect(transport as never);
-    await transport.handleRequest(request, response);
-  } finally {
-    await server.close();
-  }
 }
 
 function result(value: unknown) {
