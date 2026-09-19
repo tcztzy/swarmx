@@ -50,6 +50,15 @@ const metadataSchema = z
     stale_after: memoryDateTimeSchema.optional(),
     verified: z.union([generatedSchema, z.array(generatedSchema).min(1)]).optional(),
     swarmx_dependencies: memoryDependenciesSchema.optional(),
+    swarmx_update_request_id: z.string().uuid().optional(),
+    swarmx_update_request_hash: z
+      .string()
+      .regex(/^sha256:[a-f0-9]{64}$/u)
+      .optional(),
+    swarmx_update_revision: z
+      .string()
+      .regex(/^sha256:[a-f0-9]{64}$/u)
+      .optional(),
     tags: z.array(z.string().trim().min(1).max(80)).max(32).optional(),
     title: z.string().trim().min(1).max(500),
     type: z.string().trim().min(1).max(120),

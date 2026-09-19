@@ -22,6 +22,8 @@ Local research Host; recursive Swarms; native Agents.
 - DSH exposes its SDK's actual capabilities: cancellation closes the owned runtime;
   unsupported interactive approval is not represented as an automatic grant.
   Each task is an independent execution with Host log viewing, without cross-process resume.
+  Explicit provider/model routes, reasoning effort and SDK profiles are selected at launch;
+  profiles remain separate from permission modes. The SDK validates routes without model discovery.
 - Hermes execution uses native resume, including automatic continuation; no runtime patch suppresses it.
   OpenClaw accepts explicit Gateway address and credentials.
 
@@ -34,6 +36,9 @@ Local research Host; recursive Swarms; native Agents.
 - New sessions without a first native turn hydrate as empty, without reading an absent transcript.
 - Claude completes on its SDK idle notification after a result; queued native output is not truncated.
 - Swarm owns membership and delegation, not another transcript or transport state machine.
+- Before Agent-originated delegation, the lead receives admitted candidates, versioned bundled
+  selection knowledge and authorized current private Memory. Dispatch requires a completed
+  preparation for the same parent run/task and a recorded choice reason; evidence never grants authority.
 - The Host owns `ProductServices`: Science and Memory, shared by the renderer bridge
   and product tools. Native Agent runtimes load lazily, once per harness, and are disposed at shutdown.
 - One canonical execution directory is fixed at Host startup, using `SWARMX_CWD` or the process's
@@ -51,6 +56,11 @@ Local research Host; recursive Swarms; native Agents.
 - Configurable post-turn reviews propose durable learning using a restricted native runtime.
   Host validation, revision checks and optional user-owned approval govern writes; Agents cannot
   approve their own changes. Native skills remain separate from structured vault knowledge.
+- Eligible success, failure and cancellation outcomes feed a persistent execution-directory review
+  backlog. Reviews retain original grants, survive restart and save their operation plans before
+  writes. Completed batches acknowledge only their own evidence; no-change outcomes state a reason.
+  One review covers H/M/P selection, agent prompts and skills. Explicitly registered project
+  resources evolve only at the supplied revision after their fixed project validator succeeds.
 - Concepts live directly under `memory/` with reserved `index.md`, `README.md` and `USER.md`;
   there are no scope folders and no private revision store.
 - MCP carries product tool calls, never inter-Agent messages.

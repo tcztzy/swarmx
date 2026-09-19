@@ -124,7 +124,18 @@ it.each(["plan", "full"])("native %s does not change Host grants or delegation",
     await expect(products.callTool("memory", { action: "create_memory" }, context)).rejects.toThrow(
       "memory.write",
     );
-    await call({ action: "send_message", agentId: "codex", text: "child" });
+    const { preparationId } = (await call({
+      action: "prepare",
+      task: "child",
+      queries: ["agent-selection"],
+    })) as { preparationId: string };
+    await call({
+      action: "send_message",
+      agentId: "codex",
+      text: "child",
+      preparationId,
+      reason: "Use the permitted native agent for this child task.",
+    });
     return { stopReason: "end_turn" };
   });
   await products.rootAgent.start("codex:parent", "delegate", observer, {
@@ -285,9 +296,20 @@ it("carries read-only grants through nested Swarms, direct native aliases and bo
       await expect(
         products.callTool("memory", { action: "create_memory", request: {} }, parentContext),
       ).rejects.toThrow("memory.write");
+      const { preparationId } = (await products.callTool(
+        "swarm",
+        { action: "prepare", task: "child", queries: ["agent-selection"] },
+        parentContext,
+      )) as { preparationId: string };
       await products.callTool(
         "swarm",
-        { action: "send_message", agentId: "codex", text: "child" },
+        {
+          action: "send_message",
+          agentId: "codex",
+          text: "child",
+          preparationId,
+          reason: "Use the permitted native agent with the inherited read-only grant.",
+        },
         parentContext,
       );
     });
@@ -337,14 +359,15 @@ it("checks Host revocation and model admission on cached Agents and resumed sess
 
 it("does not schedule memory writes or another model from a read-only or non-delegating run", async () => {
   const { products } = await fixture();
-  const completed = vi.spyOn(products.learning, "completed");
   await products.rootAgent.start("codex:reader", "read", observer, {
     permissions: { tools: ["memory.read", "science.read"] },
   });
   await products.rootAgent.start("codex:leaf", "answer", observer, {
     permissions: { delegation: false },
   });
-  expect(completed).not.toHaveBeenCalled();
+  expect(products.journal.pendingLearningRuns()).toEqual([]);
+  expect(products.journal.pendingMemoryReview()).toBeUndefined();
+  expect(products.journal.memoryEvent("swarmx.memory.review.started")).toBeUndefined();
 });
 
 it("denies re-delegation before creating sessions and keeps cancellation available", async () => {

@@ -281,7 +281,7 @@
   "启用长期记忆": "Enable persistent memory",
   "对话后自动整理记忆": "Review memory after conversations",
   "保存前由我确认": "Ask me before saving",
-  "每多少次输入复盘": "Prompts between reviews",
+  "每多少次执行复盘": "Executions between reviews",
   "后台复盘运行时": "Background review runtime",
   "复盘使用已登录的模型并消耗用量。后台不能执行工具；提交的修改仍受记忆审批控制。会话快照在新任务中更新。": "Reviews use your signed-in model and consume usage. Background reviews cannot execute tools; proposed changes follow your memory approval setting. New tasks receive updated snapshots.",
   "保存记忆设置": "Save memory settings",

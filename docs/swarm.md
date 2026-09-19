@@ -57,6 +57,34 @@ A caller cannot acquire a missing Host tool grant through a child, another Swarm
 a resumed conversation or a new MCP carrier. Tool authorization is checked before dispatch.
 Automatic memory reviews are not scheduled without both `memory.write` and delegation authority.
 
+## Delegation preparation
+
+Before choosing a child, the lead calls `swarm.prepare` with the exact task text and up to four
+short search queries for the task, harnesses, models or providers. It receives the admitted harnesses
+and model allowlists, the bundled `resources/agent-selection.md` guide with its revision, and fresh
+private user notes and matching Memory concepts with their prerequisites and stale flags. Concepts
+tagged `agent-selection` are also searched. Retrieval returns bounded complete concepts and explicitly
+lists omitted matches; use `memory.load_memory` for additional evidence. Disabled Memory or a missing
+`memory.read` grant returns an explicit unavailable status without reading private knowledge.
+Admitted harnesses are candidates, not proof that their native runtime or credentials are available.
+`swarm.models` reads one candidate's native catalog lazily under the same permission checks.
+
+An Agent-originated `send_message` must supply the completed preparation's `preparationId` and a
+nonempty `reason`. The Host checks the same parent session, current run and exact delegated task
+before creating a child session or dispatching work. Pending or failed preparation, another parent's
+preparation, or a previous turn's preparation cannot pass. This ensures that selection context was
+returned before dispatch; it cannot prove that a model understood or followed the evidence. The
+existing execution journal records the prepared context, its revisions and the lead's reason.
+Unscoped external calls retain their existing API behavior. Permissions are always checked again
+at dispatch; knowledge and preparation never grant authority.
+
+The lead follows explicit user choices, weighs matching private experience against project defaults,
+and considers the full harness/profile/provider/model/task combination. User-specific provider
+incidents stay in private Memory; bundled knowledge is maintained with the application and is never
+copied over user concepts. Swarm composition does not rank candidates or implement provider routing.
+DSH accepts a qualified `provider/model` and optional `profile` (`sdk` or `sdk-minimal`) in
+`send_message`. Profile selects the runtime composition; it is separate from native permission mode.
+
 Ordinary tasks retain native modes, tools, hooks, delegation, MCP configuration and approvals.
 The Agent catalog exposes native mode choices; the Host does not manufacture a cross-harness ranking.
 Selecting Plan or Full access does not alter Host grants. These grants authorize Host APIs;

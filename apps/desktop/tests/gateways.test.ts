@@ -148,14 +148,27 @@ describe("external gateways", () => {
       });
       vi.spyOn(gateway.leaf.agent, "start").mockImplementation(async (_id, text) => {
         if (text === "parent") {
+          const context = {
+            actorId: "parent",
+            callId: "dispatch",
+            signal: new AbortController().signal,
+          };
+          const { preparationId } = (await gateway.products.callTool(
+            "swarm",
+            { action: "prepare", task: "child", queries: ["agent-selection"] },
+            context,
+          )) as { preparationId: string };
           await gateway.products.callTool(
             "swarm",
-            { action: "send_message", agentId: "codex", sessionId: childSession, text: "child" },
             {
-              actorId: "parent",
-              callId: "dispatch",
-              signal: new AbortController().signal,
+              action: "send_message",
+              agentId: "codex",
+              sessionId: childSession,
+              text: "child",
+              preparationId,
+              reason: "Continue the selected native child session.",
             },
+            context,
           );
         } else {
           ready.resolve();
@@ -237,12 +250,23 @@ describe("external gateways", () => {
           gateway.products.mcpExecutions.set(token, { sessionId, runId: output.executionId });
           client = await bridgeClient(socketOf(gateway.products), token);
           const results = await Promise.all(
-            ["first", "second"].map((text) =>
-              client?.callTool({
+            ["first", "second"].map(async (text) => {
+              const preparation = await client?.callTool({
                 name: "swarm",
-                arguments: { action: "send_message", agentId: "codex", text },
-              }),
-            ),
+                arguments: { action: "prepare", task: text, queries: ["agent-selection"] },
+              });
+              expect(preparation?.isError).not.toBe(true);
+              return client?.callTool({
+                name: "swarm",
+                arguments: {
+                  action: "send_message",
+                  agentId: "codex",
+                  text,
+                  preparationId: preparation?.structuredContent?.preparationId,
+                  reason: "Use the selected native agent for the parallel child task.",
+                },
+              });
+            }),
           );
           expect(results.every((result) => !result.isError)).toBe(true);
           output.text("summary", "both children finished");
@@ -415,12 +439,19 @@ describe("external gateways", () => {
               },
             });
             expect(science.isError).not.toBe(true);
+            const preparation = await client.callTool({
+              name: "swarm",
+              arguments: { action: "prepare", task: "child", queries: ["agent-selection"] },
+            });
+            expect(preparation.isError).not.toBe(true);
             const delegated = await client.callTool({
               name: "swarm",
               arguments: {
                 action: "send_message",
                 agentId: "codex",
                 text: "child",
+                preparationId: preparation.structuredContent?.preparationId,
+                reason: "Use the selected native agent for the child task.",
               },
             });
             expect(delegated.isError).not.toBe(true);
@@ -437,7 +468,7 @@ describe("external gateways", () => {
       const saved = await gateway.operations.logs(LogsQuerySchema.parse({}));
       const starts = saved.events.filter(({ event }) => event.type === EventType.RUN_STARTED);
       expect(starts).toHaveLength(2);
-      const delegated = saved.events.find(
+      const delegated = saved.events.findLast(
         ({ event }) => event.type === EventType.TOOL_CALL_START && event.toolCallName === "swarm",
       );
       expect(starts[1]?.causedBy).toBe(delegated?.id);

@@ -11,6 +11,13 @@ Concept files live directly under the Memory root beside one `index.md`; `README
 are reserved. Reads and linting reject unsafe paths. Unknown frontmatter fields survive reads and
 updates, while invalid UTF-8 is rejected.
 
+Concept updates accept an optional UUID `requestId` for crash recovery. Replaying the same parsed
+request after its atomic write returns the saved concept and repairs its index without requiring a
+new revision. Reusing that ID with changed request content is rejected. Any later successful update
+replaces or clears this last-operation marker, so stale replay still fails after an intervening edit.
+A saved content fingerprint also rejects replay after direct file edits that retain the marker.
+Requests without an ID retain strict `expectedRevision` checks.
+
 The desktop Host exposes the service through its single `ProductServices` instance. Native Agent
 carriers only forward calls to that owner.
 

@@ -186,7 +186,7 @@ export function MemorySettings({ sessionId }: { sessionId?: string | undefined }
               </label>
               <div className="grid grid-cols-2 gap-4">
                 <label className="field-label">
-                  {t("每多少次输入复盘")}
+                  {t("每多少次执行复盘")}
                   <Input
                     name="reviewInterval"
                     type="number"
@@ -276,6 +276,9 @@ export function MemorySettings({ sessionId }: { sessionId?: string | undefined }
                   : ""}
             </span>
           </div>
+          {status.review.summary && (
+            <p className="text-sm text-neutral-500">{status.review.summary}</p>
+          )}
           <div>
             <h4 className="mb-2 font-medium">
               {t("待确认的记忆")} <span className="text-neutral-400">{status.pending.length}</span>
@@ -293,7 +296,8 @@ export function MemorySettings({ sessionId }: { sessionId?: string | undefined }
                     {new Date(entry.createdAt).toLocaleString(i18n.language)}
                   </p>
                   <h5 className="text-sm font-medium">
-                    {entry.operation.request.title ??
+                    {entry.resourcePath ??
+                      entry.operation.request.title ??
                       (entry.operation.action === "update_core_memory"
                         ? t("用户偏好")
                         : entry.operation.request.id)}

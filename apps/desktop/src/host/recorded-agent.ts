@@ -196,6 +196,14 @@ export function recordedAgent(
             "gen_ai.conversation.id": sessionId,
             "gen_ai.request.model": selection?.model ?? null,
             "gen_ai.request.reasoning.level": selection?.effort ?? null,
+            "swarmx.memory.review_eligible": Boolean(
+              memory?.automatic &&
+                (permissions === undefined || permissions.tools.includes("memory.write")) &&
+                permissions?.delegation !== false,
+            ),
+            "swarmx.memory.review_permissions": memory
+              ? JSON.stringify(memory.reviewPermissions(permissions))
+              : null,
           },
         };
         const started = journal.append(context, {
@@ -255,6 +263,15 @@ export function recordedAgent(
           },
           raw(event, attributes) {
             journal.append(scope, { type: EventType.RAW, source: harness, event }, attributes);
+            for (const key of [
+              "swarmx.harness.version",
+              "swarmx.agent.version",
+              "swarmx.agent.model",
+              "swarmx.agent.effort",
+              "swarmx.agent.mode",
+              "swarmx.native.mode",
+            ])
+              if (attributes?.[key] !== undefined) scope.attributes[key] = attributes[key];
             const nativeRun = attributes?.["swarmx.native.run_id"];
             if (typeof nativeRun === "string") scope.attributes["swarmx.native.run_id"] = nativeRun;
             observer.raw(event, attributes);
@@ -304,6 +321,25 @@ export function recordedAgent(
           });
           const result = await journal.scope.run(scope, async () => {
             const instructions = await memory?.snapshot(sessionId);
+            if (memory && context.attributes["swarmx.memory.review_eligible"]) {
+              const resources = await memory.resources
+                .snapshot(interactions.signal)
+                .catch((error: unknown) => {
+                  if (!interrupted.has(sessionId)) throw error;
+                  return [];
+                });
+              if (resources.length)
+                send({
+                  type: EventType.CUSTOM,
+                  name: "swarmx.learning.resources",
+                  value: resources.map(({ id, kind, path, expectedRevision }) => ({
+                    id,
+                    kind,
+                    path,
+                    revision: expectedRevision,
+                  })),
+                });
+            }
             if (interrupted.has(sessionId)) return { stopReason: "cancelled" as const };
             return agent.start(sessionId, text, recorded, {
               ...selection,
@@ -314,20 +350,16 @@ export function recordedAgent(
                 : {}),
             });
           });
-          send({
-            type: EventType.RUN_FINISHED,
-            threadId: sessionId,
-            runId,
-            result: { ...result, interruptionRequested: interrupted.has(sessionId) },
-          });
-          if (
-            result.stopReason === "end_turn" &&
-            !interrupted.has(sessionId) &&
-            (context.permissions === undefined ||
-              context.permissions.tools.includes("memory.write")) &&
-            context.permissions?.delegation !== false
-          )
-            memory?.completed(sessionId, tools.size);
+          journal.append(
+            scope,
+            {
+              type: EventType.RUN_FINISHED,
+              threadId: sessionId,
+              runId,
+              result: { ...result, interruptionRequested: interrupted.has(sessionId) },
+            },
+            { "swarmx.memory.tool_calls": tools.size },
+          );
           return result;
         } catch (error) {
           send({
@@ -339,6 +371,7 @@ export function recordedAgent(
           cancelInteractions();
           journal.deactivate(sessionId);
           interrupted.delete(sessionId);
+          memory?.resume();
         }
       };
       const operation = execute();

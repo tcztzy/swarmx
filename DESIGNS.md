@@ -59,6 +59,13 @@ and skills remain owned by their runtimes. Post-turn reviews use an isolated nat
 with product tools unavailable; validated proposals use the same Memory writes as foreground calls.
 Pending approvals and review outcomes are durable journal events. Only the user through the desktop can approve
 pending writes. Deterministic checks establish structure, scope and revisions, not factual truth.
+The execution journal also supplies the learning backlog: eligible terminal events remain pending
+until an exact batch is acknowledged. One Host consumer persists a review plan before writing,
+then records each applied or staged operation. Restart replays this plan with original grants
+intersected with current policy; idempotent operations cover interrupted receipts. There is no
+separate scheduler or scoring service. Registered project Markdown resources use the same plan
+and approval path, with pinned file/configuration revisions and project-owned validation commands.
+Native runtimes still load their own prompts and skills; see `docs/learning-resources.md`.
 
 The sandboxed Electron preload exposes named operations. IPC validates payloads and accepts calls
 only from the application's top-level window. The external A2A Host binds a random loopback port

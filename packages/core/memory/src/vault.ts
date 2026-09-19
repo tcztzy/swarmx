@@ -28,6 +28,7 @@ import {
   parseMemoryConcept,
 } from "./lint.js";
 import {
+  conceptRevision,
   DEFAULT_MAX_CONCEPT_BYTES,
   type MemoryConceptMetadata,
   type MemorySource,
@@ -57,6 +58,7 @@ export const updateRequestSchema = z.strictObject({
   description: z.string().min(1).max(500).optional(),
   expectedRevision: z.string().regex(/^sha256:[a-f0-9]{64}$/u),
   id: z.string().min(1).max(1_024),
+  requestId: z.string().uuid().optional(),
   sources: z.array(z.record(z.string(), z.unknown())).max(32).optional(),
   status: z.enum(["draft", "stable", "deprecated"]).optional(),
   tags: z.array(z.string()).max(32).optional(),
@@ -293,11 +295,31 @@ export class MemoryVault {
       signal?.throwIfAborted();
       this.authorizeConceptId(request.id);
       const existing = await this.readConceptFile(request.id);
+      const {
+        swarmx_update_request_id: previousRequestId,
+        swarmx_update_request_hash: previousRequestHash,
+        swarmx_update_revision: previousRevision,
+        ...retainedMetadata
+      } = existing.metadata;
+      const requestDigest = request.requestId
+        ? conceptRevision(JSON.stringify(request))
+        : undefined;
+      if (request.requestId && previousRequestId === request.requestId) {
+        if (previousRequestHash !== requestDigest)
+          throw new MemoryError(
+            "memory update request id was reused for different content",
+            "REVISION_CONFLICT",
+          );
+        if (previousRevision !== conceptRevision(renderConcept(retainedMetadata, existing.body)))
+          throw new MemoryError("memory concept changed after the update", "REVISION_CONFLICT");
+        await this.refreshIndex();
+        return existing;
+      }
       if (existing.revision !== request.expectedRevision) {
         throw new MemoryError("memory concept revision changed", "REVISION_CONFLICT");
       }
       const metadata: MemoryConceptMetadata = {
-        ...existing.metadata,
+        ...retainedMetadata,
         ...(request.dependencies === undefined
           ? {}
           : { swarmx_dependencies: request.dependencies }),
@@ -312,7 +334,18 @@ export class MemoryVault {
         ...(request.type === undefined ? {} : { type: request.type }),
         generated: { at: new Date().toISOString(), by: this.actor },
       };
-      const source = renderConcept(metadata, request.body ?? existing.body);
+      const body = request.body ?? existing.body;
+      let source = renderConcept(metadata, body);
+      if (request.requestId)
+        source = renderConcept(
+          {
+            ...metadata,
+            swarmx_update_request_id: request.requestId,
+            swarmx_update_request_hash: requestDigest,
+            swarmx_update_revision: conceptRevision(source),
+          },
+          body,
+        );
       if (Buffer.byteLength(source, "utf8") > this.maxConceptBytes) {
         throw new MemoryError("Rendered memory concept is too large", "INVALID_CONCEPT");
       }

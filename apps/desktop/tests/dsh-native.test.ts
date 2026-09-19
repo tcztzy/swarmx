@@ -113,6 +113,75 @@ it("stops only the owned DSH execution and preserves native failures in siblings
   await agent.dispose();
 });
 
+it.each(["sdk", "sdk-minimal"])(
+  "passes the selected route, effort and %s profile into the owned runtime",
+  async (profile) => {
+    const agent = await createDsh({
+      cwd: "/workspace",
+      mcp: { command: "node", args: ["/bridge.js"], env: {} },
+    });
+    const id = await agent.create();
+    await expect(
+      agent.start(id, "work", view(), {
+        model: "deepseek-official/deepseek/v4-pro-0813",
+        effort: "high",
+        profile,
+      }),
+    ).resolves.toEqual({ stopReason: "end_turn" });
+    expect(sdk.runtimes).toHaveLength(1);
+    expect(sdk.runtimes[0]?.options).toMatchObject({
+      provider: "deepseek-official",
+      model: "deepseek/v4-pro-0813",
+      reasoningEffort: "high",
+      profile,
+    });
+    await agent.dispose();
+  },
+);
+
+it("can select effort and profile while preserving the SDK's default model route", async () => {
+  const agent = await createDsh({
+    cwd: "/workspace",
+    mcp: { command: "node", args: ["/bridge.js"], env: {} },
+  });
+  await agent.start(await agent.create(), "work", view(), {
+    effort: "native-adapter-effort",
+    profile: "sdk-minimal",
+  });
+  expect(sdk.runtimes[0]?.options).toMatchObject({
+    reasoningEffort: "native-adapter-effort",
+    profile: "sdk-minimal",
+  });
+  expect(sdk.runtimes[0]?.options).not.toHaveProperty("provider");
+  expect(sdk.runtimes[0]?.options).not.toHaveProperty("model");
+  await agent.dispose();
+});
+
+it.each([
+  { model: "deepseek-v4-pro-0813" },
+  { model: "/deepseek-v4-pro-0813" },
+  { model: "deepseek-official/" },
+  { model: "deepseek official/deepseek-v4-pro-0813" },
+  { model: "deepseek-official/deepseek v4-pro-0813" },
+  { model: "" },
+  { profile: "custom-profile" },
+  { profile: "" },
+  { mode: "sdk-minimal" },
+])("rejects unsupported selection %j before creating native resources", async (selection) => {
+  const registerMcp = vi.fn();
+  const agent = await createDsh({
+    cwd: "/workspace",
+    mcp: { command: "node", args: ["/bridge.js"], env: {} },
+    registerMcp,
+  });
+  const id = await agent.create();
+  await expect(agent.start(id, "work", view(), selection)).rejects.toThrow();
+  expect(registerMcp).not.toHaveBeenCalled();
+  expect(sdk.runtimes).toHaveLength(0);
+  expect(await agent.list()).toEqual([{ sessionId: id }]);
+  await agent.dispose();
+});
+
 const view = (): Observer => ({
   text: vi.fn(),
   tool: vi.fn(),

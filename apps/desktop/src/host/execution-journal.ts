@@ -205,6 +205,123 @@ export class ExecutionJournal {
     return row ? ExecutionRecordSchema.parse(JSON.parse(row.record_json)) : undefined;
   }
 
+  hasDelegationPreparation(id: string, sessionId: string, runId: string, task: string): boolean {
+    return !!this.database
+      .prepare(`SELECT 1 FROM execution_events started
+        JOIN execution_events result ON result.caused_by = started.id
+        WHERE started.workspace_id = ? AND started.id = ?
+        AND started.session_id = ? AND started.run_id = ?
+        AND json_extract(started.record_json, '$.event.type') = 'TOOL_CALL_START'
+        AND json_extract(started.record_json, '$.event.toolCallName') = 'swarm'
+        AND result.workspace_id = started.workspace_id
+        AND result.session_id = started.session_id AND result.run_id = started.run_id
+        AND json_extract(result.record_json, '$.event.type') = 'TOOL_CALL_RESULT'
+        AND json_extract(result.record_json, '$.event.toolCallId') = json_extract(started.record_json, '$.event.toolCallId')
+        AND json_extract(json_extract(result.record_json, '$.event.content'), '$.action') = 'prepare'
+        AND json_extract(json_extract(result.record_json, '$.event.content'), '$.task') = ? LIMIT 1`)
+      .get(this.directoryKey, id, sessionId, runId, task);
+  }
+
+  pendingLearningRuns(): ExecutionRecord[] {
+    const rows = this.database
+      .prepare(`SELECT terminal.record_json FROM execution_events terminal
+        WHERE terminal.workspace_id = ?
+        AND json_extract(terminal.record_json, '$.event.type') IN ('RUN_FINISHED', 'RUN_ERROR')
+        AND EXISTS (SELECT 1 FROM execution_events started
+          WHERE started.workspace_id = terminal.workspace_id AND started.run_id = terminal.run_id
+          AND json_extract(started.record_json, '$.event.type') = 'RUN_STARTED'
+          AND json_extract(started.record_json, '$.attributes."swarmx.memory.review_eligible"') = 1)
+        AND NOT EXISTS (SELECT 1 FROM execution_events review,
+          json_each(review.record_json, '$.event.value.terminalIds') acknowledged
+          WHERE review.workspace_id = terminal.workspace_id
+          AND json_extract(review.record_json, '$.event.name') = 'swarmx.memory.review.finished'
+          AND json_extract(review.record_json, '$.event.value.state') = 'completed'
+          AND acknowledged.value = terminal.id)
+        ORDER BY terminal.seq LIMIT 100`)
+      .all(this.directoryKey) as { record_json: string }[];
+    return rows.map(({ record_json }) => ExecutionRecordSchema.parse(JSON.parse(record_json)));
+  }
+
+  pendingMemoryReview(): ExecutionRecord | undefined {
+    const row = this.database
+      .prepare(`SELECT queued.record_json FROM execution_events queued
+        WHERE queued.workspace_id = ?
+        AND json_extract(queued.record_json, '$.event.name') = 'swarmx.memory.review.queued'
+        AND NOT EXISTS (SELECT 1 FROM execution_events finished
+          WHERE finished.workspace_id = queued.workspace_id
+          AND json_extract(finished.record_json, '$.event.value.jobId') = queued.id
+          AND (json_extract(finished.record_json, '$.event.name') = 'swarmx.memory.review.superseded'
+            OR (json_extract(finished.record_json, '$.event.name') = 'swarmx.memory.review.finished'
+              AND json_extract(finished.record_json, '$.event.value.state') = 'completed')))
+        ORDER BY queued.seq LIMIT 1`)
+      .get(this.directoryKey) as { record_json: string } | undefined;
+    return row ? ExecutionRecordSchema.parse(JSON.parse(row.record_json)) : undefined;
+  }
+
+  memoryJobEvents(jobId: string): ExecutionRecord[] {
+    const rows = this.database
+      .prepare(`SELECT record_json FROM execution_events
+        WHERE workspace_id = ? AND json_extract(record_json, '$.event.type') = 'CUSTOM'
+        AND json_extract(record_json, '$.event.name') LIKE 'swarmx.memory.%'
+        AND json_extract(record_json, '$.event.value.jobId') = ? ORDER BY seq`)
+      .all(this.directoryKey, jobId) as { record_json: string }[];
+    return rows.map(({ record_json }) => ExecutionRecordSchema.parse(JSON.parse(record_json)));
+  }
+
+  learningEvidence(runIds: readonly string[]): {
+    records: ExecutionRecord[];
+    omitted: string[];
+    omittedCount: number;
+  } {
+    const rows = this.database
+      .prepare(`WITH RECURSIVE related(id, caused_by) AS (
+          SELECT id, caused_by FROM execution_events WHERE workspace_id = ?
+          AND run_id IN (SELECT value FROM json_each(?))
+          UNION
+          SELECT parent.id, parent.caused_by FROM execution_events parent
+          JOIN related child ON parent.id = child.caused_by WHERE parent.workspace_id = ?
+        )
+        SELECT event.id, event.record_json FROM execution_events event
+        WHERE event.workspace_id = ? AND (
+          event.id IN (SELECT id FROM related)
+          OR event.caused_by IN (SELECT cause.id FROM execution_events cause
+            JOIN related ON related.id = cause.id
+            WHERE json_extract(cause.record_json, '$.event.type') = 'TOOL_CALL_START'))
+        AND (json_extract(event.record_json, '$.event.type') IN (
+          'RUN_STARTED', 'RUN_FINISHED', 'RUN_ERROR', 'TEXT_MESSAGE_CHUNK',
+          'TOOL_CALL_START', 'TOOL_CALL_ARGS', 'TOOL_CALL_CHUNK', 'TOOL_CALL_RESULT')
+          OR json_extract(event.record_json, '$.event.name') IN ('swarmx.tool.failed', 'swarmx.learning.resources'))
+        ORDER BY CASE
+          WHEN json_extract(event.record_json, '$.event.type') IN ('RUN_STARTED', 'RUN_FINISHED', 'RUN_ERROR')
+            OR json_extract(event.record_json, '$.event.name') = 'swarmx.learning.resources' THEN 0
+          WHEN json_extract(event.record_json, '$.event.type') = 'TEXT_MESSAGE_CHUNK' THEN 2
+          ELSE 1 END, event.seq`)
+      .iterate(
+        this.directoryKey,
+        JSON.stringify(runIds),
+        this.directoryKey,
+        this.directoryKey,
+      ) as Iterable<{
+      id: string;
+      record_json: string;
+    }>;
+    const records: ExecutionRecord[] = [];
+    const omitted: string[] = [];
+    let omittedCount = 0;
+    let remaining = 39_998;
+    for (const row of rows) {
+      if (row.record_json.length + 1 > remaining) {
+        omittedCount += 1;
+        if (omitted.length < 100) omitted.push(row.id);
+      } else {
+        records.push(ExecutionRecordSchema.parse(JSON.parse(row.record_json)));
+        remaining -= row.record_json.length + 1;
+      }
+    }
+    records.sort((a, b) => a.seq - b.seq);
+    return { records, omitted, omittedCount };
+  }
+
   pendingMemories() {
     const rows = this.database
       .prepare(`SELECT proposal.record_json FROM execution_events proposal
@@ -254,29 +371,6 @@ export class ExecutionJournal {
         return [contextId, sessionId];
       }),
     );
-  }
-
-  memoryToolEvidence(
-    sessionId: string,
-  ): { eventId: string; runId: string | null; event: AGUIEvent }[] {
-    const rows = this.database
-      .prepare(`SELECT record_json FROM execution_events
-      WHERE workspace_id = ? AND session_id = ?
-      AND json_extract(record_json, '$.event.type') IN ('TOOL_CALL_CHUNK', 'TOOL_CALL_RESULT')
-      ORDER BY seq DESC LIMIT 30`)
-      .all(this.directoryKey, sessionId) as { record_json: string }[];
-    let remaining = 20_000;
-    return rows
-      .filter(({ record_json }) => {
-        if (record_json.length > remaining) return false;
-        remaining -= record_json.length;
-        return true;
-      })
-      .reverse()
-      .map(({ record_json }) => {
-        const record = ExecutionRecordSchema.parse(JSON.parse(record_json));
-        return { eventId: record.id, runId: record.runId, event: record.event };
-      });
   }
 
   recall(raw: unknown) {

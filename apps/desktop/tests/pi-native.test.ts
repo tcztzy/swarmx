@@ -517,10 +517,32 @@ it("delegates through nested Swarms into another Pi session with causal history"
     fauxAssistantMessage(
       fauxToolCall(
         "swarm",
-        { action: "send_message", agentId: "nested", text: "Child task" },
-        { id: "delegate" },
+        { action: "prepare", task: "Child task", queries: ["agent-selection"] },
+        { id: "prepare" },
       ),
     ),
+    (context) => {
+      const preparation = context.messages.find(
+        (message) => message.role === "toolResult" && message.toolCallId === "prepare",
+      );
+      if (preparation?.role !== "toolResult") throw new Error("Missing preparation result");
+      const content = preparation.content[0];
+      if (content?.type !== "text") throw new Error("Missing preparation content");
+      const { preparationId } = JSON.parse(content.text);
+      return fauxAssistantMessage(
+        fauxToolCall(
+          "swarm",
+          {
+            action: "send_message",
+            agentId: "nested",
+            text: "Child task",
+            preparationId,
+            reason: "Use the nested Swarm backed by the configured Pi agent.",
+          },
+          { id: "delegate" },
+        ),
+      );
+    },
     fauxAssistantMessage("Child answer"),
     (context) => {
       resultContext = context;

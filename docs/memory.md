@@ -19,8 +19,13 @@ separate roles. Native skills remain owned by their runtimes; concepts add expli
   appendix on the first observed turn; it is removed from the displayed user message.
 - Observed user/assistant messages are recalled from the execution directory's journal.
   Search returns original text, session/run identifiers and event references, not invented summaries.
-- Successful foreground turns trigger a background review after 10 prompts, or 10 tool calls in
-  one turn. A manual review is also available. Reviews produce validated candidate operations;
+- Eligible terminal executions (success, failure or cancellation) form a durable backlog in the
+  execution journal. The review interval counts across this execution directory, including short
+  child sessions. Ten executions by default, ten tool calls in one execution, or an unsuccessful
+  outcome starts a review. A manual review is also available. Busy reviews do not drop new work.
+  Startup resumes queued work after runtimes are attached; failures retain the batch for the next
+  eligible completion, startup or manual retry, without a retry timer. Disabled learning pauses it.
+  Reviews produce validated candidate operations;
   they cannot approve themselves or execute product tools. Review failures are visible in the
   journal and UI; no claim is made that an LLM will extract every important fact correctly.
   The user chooses a configured Codex or Claude runtime for review (Codex by default); the
@@ -28,11 +33,24 @@ separate roles. Native skills remain owned by their runtimes; concepts add expli
   cancelled on Host shutdown. Reviews receive no Host product MCP credential and reject observed
   tool calls and interactions. The Host requests native restrictions; unmodified upstream adapters
   determine their effect, including internal title calls and session persistence. The review uses existing
-  credentials and consumes model usage. It sees bounded snapshots of up to 30 messages, 30 observed
-  tool events and 20 concepts; oversized entries are omitted intact, not silently summarized.
-  It may update the user note and supplied concepts or create draft concepts. New concepts
-  cite the journal snapshot through `urn:swarmx:execution:<event-id>`. Writes are per-concept,
-  not a transaction spanning a whole review; an error leaves prior successful writes visible.
+  credentials and consumes model usage. Bounded snapshots include observed execution settings,
+  outcomes, timestamps, tool evidence, delegation reasons and existing concepts. Omitted evidence
+  is identified explicitly and is never treated as inspected. Unknown native versions or actual
+  provider routes stay unknown. Cancellation is not a quality failure; normal completion is not
+  proof of task correctness.
+  One review considers user preferences, harness/model/provider selection, versioned agent prompts
+  and skill improvements. Selection experience uses the `agent-selection` tag. Memory creations
+  and updates cite the journal snapshot through `urn:swarmx:execution:<event-id>`.
+  Project-local agent/skill files can opt into validated evolution; see
+  [learning resources](learning-resources.md). Native runtimes retain discovery and loading ownership.
+  A review saves its validated operation plan before applying it. Restart replays that plan, not a
+  new model response. Each applied or staged operation is recorded; idempotent writes close the
+  write/receipt crash window. Only a completed batch acknowledges its exact terminal event IDs.
+  Concurrent executions stay pending. A no-change review records its reason. Writes are per-target,
+  not a transaction spanning a whole review; errors leave completed writes visible and unfinished
+  work pending. Conflicting external edits are never overwritten by replay. After a failed review,
+  requesting a manual review explicitly replaces its failed plan with fresh analysis; already
+  applied writes remain, and superseding a plan does not acknowledge its execution evidence.
 - Automatic learning and write approval are Host settings. Approval is off by default,
   matching Hermes. When enabled, writes are staged durably for the user. Only authenticated
   desktop actions can approve/reject them; an Agent-supplied `approved` flag is rejected.
@@ -122,6 +140,22 @@ a skill invocation, or the Agent deciding to read an instruction file. Existing 
 context; newly generated context and review prompts, and the tool manifest, carry the current rule.
 These are semantic authoring instructions. The schema/linter validates structure; it does not
 certify knowledge value, enforce editorial relevance, certify English usage or translate saved content.
+
+## Agent selection experience
+
+Harness/model/provider experience uses the existing private concept pool. Tag durable selection
+concepts `agent-selection`, add route/task aliases or tags, and retain the observed conditions and
+evidence. Explicit user preferences, observations and unverified opinions must remain distinguishable.
+The application-maintained selection guide ships separately in `apps/desktop/resources/agent-selection.md`;
+application updates never overwrite private concepts.
+
+`swarm.prepare` reads the current user note and searches `agent-selection` plus up to four caller
+queries (five matches per query). It returns complete concept bodies, sources, revisions and dependency
+graphs, limited to eight loaded groups and 48,000 serialized characters. Oversized or excess groups
+are listed as omitted, never silently truncated; search diagnostics are retained. The lead can load
+additional concepts with the ordinary Memory tool. This retrieval is fresh even when the parent
+session retains an older frozen index. Disabled Memory or absent `memory.read` authority returns an
+explicit status without reading private notes or concepts. See [delegation preparation](swarm.md#delegation-preparation).
 
 ## Product tool
 

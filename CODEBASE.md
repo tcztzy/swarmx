@@ -15,20 +15,22 @@
 | `apps/desktop/src/agents/pi.ts` | Pi session/resource APIs, direct product tools and native event projection for the default Swarm lead |
 | `apps/desktop/resources/hermes-native.py` | Hermes native gateway bootstrap, process-local Host MCP registration and read-only native execution-thread wait |
 | `apps/desktop/src/agents/openclaw-auth.ts` | private device identity, signing and origin-scoped token storage for the official Gateway Client |
-| `apps/desktop/src/agents/dsh.ts` | independent DSH SDK executions, native MCP launch configuration, process ownership and terminal-outcome validation |
+| `apps/desktop/src/agents/dsh.ts` | independent DSH SDK executions, explicit provider/model and profile selection, native MCP configuration and terminal-outcome validation |
+| `apps/desktop/resources/agent-selection.md` | bundled, versioned selection knowledge returned to the lead before delegation |
 | `apps/desktop/src/acp-main.ts` | external ACP stdio entry point |
 | `apps/desktop/src/window.ts` | BrowserWindow and navigation policy |
 | `apps/desktop/src/host/` | renderer operations, AG-UI, external ACP/A2A, MCP and ProductServices |
 | `apps/desktop/src/host/acp-extension.ts` | negotiated ACP permission extension and acknowledgement validation; see `docs/acp.md` |
 | `apps/desktop/src/host/capabilities.ts` | projection of internal capabilities into the stable public gateway shape |
-| `apps/desktop/src/host/execution-journal.ts` | append-only execution records, persisted conversation permission grants, causal context and directory-scoped reads; see `docs/execution-log.md` |
+| `apps/desktop/src/host/execution-journal.ts` | append-only execution records, same-run delegation preparation evidence, persisted conversation grants and directory-scoped reads; see `docs/execution-log.md` |
 | `apps/desktop/src/host/recorded-agent.ts` | persistent native Agent observation below every gateway |
 | `apps/desktop/preload.cjs` | sandboxed CommonJS preload exposing the Electron IPC product-tool bridge |
 | `apps/desktop/src/host/mcp-bridge.ts` | stdio MCP entry point that forwards product-tool calls to the Host socket |
 | `apps/desktop/src/host/mcp-socket.ts` | Host socket that authorizes and dispatches bridged product-tool calls |
 | `apps/desktop/src/host/agent-registry.ts` | Host ownership of one lazy native runtime per harness |
 | `apps/desktop/src/host/operations.ts` | product operations exposed through Electron IPC |
-| `apps/desktop/src/host/memory.ts` | default Memory authoring instructions, frozen session context, learning thresholds, proposals and journal-backed approval |
+| `apps/desktop/src/host/memory.ts` | Memory authoring, session context, delegation knowledge, durable execution review plans, replay and approval; see `docs/memory.md` |
+| `apps/desktop/src/host/learning-resources.ts` | opted-in project prompt/skill snapshots, revision checks and fixed validation before atomic replacement; see `docs/learning-resources.md` |
 | `apps/desktop/src/host/memory-review.ts` | restricted, cancellable direct Agent execution with tool rejection |
 | `apps/desktop/src/memory.ts` | shared memory settings, graph and review UI schemas |
 | `apps/desktop/src/host/research-environment.ts` | Docker setup, immutable Python image, isolation, limits and cancellation |

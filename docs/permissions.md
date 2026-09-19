@@ -38,7 +38,9 @@ its broader authority to a restricted caller. Child product MCP credentials are 
 bound to the active execution and revoked when its connection closes.
 Pi's SDK custom tools enter the same ProductServices boundary directly. The Host resolves and
 checks their active execution before applying grants; no MCP connection or model-supplied
-execution identity is needed. Pi catalog IDs use `provider/model` in model allowlists.
+execution identity is needed. Pi catalog IDs and explicit DSH routes use `provider/model` in model allowlists.
+DSH has no SDK model catalog: the Host checks the qualified route against its allowlist and lets the
+native SDK validate the route and reasoning effort. DSH profile selection does not change Host grants.
 
 ## Native modes and approvals
 

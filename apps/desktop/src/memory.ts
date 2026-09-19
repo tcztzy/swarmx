@@ -42,12 +42,14 @@ export const MemoryStatusSchema = z.strictObject({
       createdAt: z.string(),
       origin: z.enum(["agent", "review"]),
       sessionId: z.string().nullable(),
+      resourcePath: z.string().optional(),
       operation: z.object({
         action: z.enum([
           "create_memory",
           "update_memory",
           "deprecate_memory",
           "update_core_memory",
+          "update_resource",
         ]),
         request: z
           .object({
@@ -64,5 +66,6 @@ export const MemoryStatusSchema = z.strictObject({
     state: z.enum(["idle", "running", "completed", "failed"]),
     message: z.string(),
     sessionId: z.string().nullable(),
+    summary: z.string().default(""),
   }),
 });

@@ -2,7 +2,11 @@ import { randomUUID } from "node:crypto";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { DeepSeekHarness, type HarnessSession } from "@deepseek-ai/dsh-sdk-client";
+import {
+  DeepSeekHarness,
+  type DeepSeekHarnessOptions,
+  type HarnessSession,
+} from "@deepseek-ai/dsh-sdk-client";
 import type { RunResult } from "@swarmx/swarm";
 import { z } from "zod";
 import {
@@ -34,10 +38,18 @@ export async function createDsh(options: AgentOptions): Promise<NativeAgent> {
     },
     async start(id, text, observer, selection) {
       if (disposed) throw new Error("DSH Agent is disposed.");
-      if (selection?.model || selection?.effort || selection?.mode)
-        throw new Error(
-          "DSH uses its native SDK profile settings; model discovery is unavailable.",
-        );
+      if (selection?.mode !== undefined)
+        throw new Error("DSH does not support permission mode selection.");
+      const route = z
+        .string()
+        .regex(/^[^/\s]+\/\S+$/u, "DSH model must use provider/model.")
+        .transform((value) => {
+          const separator = value.indexOf("/");
+          return { provider: value.slice(0, separator), model: value.slice(separator + 1) };
+        })
+        .optional()
+        .parse(selection?.model);
+      const profile = z.enum(["sdk", "sdk-minimal"]).optional().parse(selection?.profile);
       if (!fresh.delete(id)) throw new Error("DSH tasks execute once. Create a new task.");
       const token = randomUUID();
       const endpoint = options.registerMcp?.(token);
@@ -79,6 +91,15 @@ export async function createDsh(options: AgentOptions): Promise<NativeAgent> {
             cwd: options.cwd,
             processCwd: options.cwd,
             patches: [patch],
+            ...route,
+            ...(profile === undefined ? {} : { profile }),
+            ...(selection?.effort === undefined
+              ? {}
+              : {
+                  reasoningEffort: selection.effort as NonNullable<
+                    DeepSeekHarnessOptions["reasoningEffort"]
+                  >,
+                }),
           }),
           stopped: false,
         };

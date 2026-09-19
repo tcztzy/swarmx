@@ -137,8 +137,14 @@ list, history or resume method. Reusing an existing ID in a new runtime is not a
 SwarmX therefore offers one independent execution per DSH task, with stop implemented by SDK
 close. New work requires a new task. Task listing and past output come from the existing Host
 execution journal, including after restart; they do not reconstruct or resume native sessions.
-Model discovery and interactive steering are not exposed. The SDK's default route and native
-profile configuration apply. Host tools use the native MCP plugin through a private, temporary
+Model discovery and interactive steering are not exposed. Explicit model selection uses
+`provider/model`; the provider is the first segment and the remaining path is the native model
+ID. Omitted selection preserves the SDK's default route. Reasoning effort passes through to
+the SDK, which validates the configured provider/model route and its supported effort.
+DSH `profile` accepts `sdk` or `sdk-minimal`; omission preserves the native `sdk` default.
+Profiles select native tools/plugins and are separate from permission `mode`, which DSH does
+not support. Invalid route syntax, profiles and permission modes fail before runtime creation.
+Host tools use the native MCP plugin through a private, temporary
 launch configuration, removed when the owned runtime closes.
 The SDK profile supplies deterministic titles; SwarmX adds no title-generation request.
 

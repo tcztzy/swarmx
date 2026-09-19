@@ -15,7 +15,9 @@ afterEach(async () => {
 });
 const sink: Observer = { text() {}, tool() {}, raw() {}, interact: async () => undefined };
 const context = { actorId: "model", callId: "test-call", signal: new AbortController().signal };
-async function fixture(reviewer: MemoryReviewer = async () => '{"operations":[]}') {
+async function fixture(
+  reviewer: MemoryReviewer = async () => '{"summary":"No new evidence.","operations":[]}',
+) {
   const root = await mkdtemp(join(tmpdir(), "swarmx-learning-"));
   const options = {
     productHome: join(root, "product"),
@@ -69,9 +71,12 @@ it("instructs every Agent authoring path while preserving local names and mixed-
     tags: ["Japan", "taxation"],
     body: "# ふるさと納税\n\n先核对官方资料。Keep the source links. 手順を確認する。",
   };
-  const reviewer = vi
-    .fn<MemoryReviewer>()
-    .mockResolvedValue(JSON.stringify({ operations: [{ action: "create_memory", request }] }));
+  const reviewer = vi.fn<MemoryReviewer>().mockResolvedValue(
+    JSON.stringify({
+      summary: "Save the demonstrated workflow.",
+      operations: [{ action: "create_memory", request }],
+    }),
+  );
   const { agent, start, memory, products } = await fixture(reviewer);
   await agent.start("codex:authoring", "Save the research", sink);
   memory.review("codex:authoring");
@@ -147,7 +152,7 @@ it("freezes notes per session across reloads while new sessions receive updates"
     products.memory,
     products.journal,
     products.settings,
-    async () => '{"operations":[]}',
+    async () => '{"summary":"No new evidence.","operations":[]}',
   );
   expect(await reopened.snapshot("codex:one")).toBe(first);
   await agent.start("codex:two", "Second task", sink);
@@ -191,7 +196,7 @@ it("stages writes durably, rejects self-approval, and retains a conflicting prop
     products.memory,
     products.journal,
     products.settings,
-    async () => '{"operations":[]}',
+    async () => '{"summary":"No new evidence.","operations":[]}',
   );
   const pending = (await reopened.status()).pending[0];
   if (!pending) throw new Error("Missing pending memory change");
@@ -214,6 +219,7 @@ it("triggers a real review boundary at the configured threshold and records vali
   const note = await memory.core.read();
   reviewer.mockResolvedValue(
     JSON.stringify({
+      summary: "Save an explicit preference.",
       operations: [
         {
           action: "update_core_memory",

@@ -178,6 +178,83 @@ describe("MemoryVault", () => {
     });
   });
 
+  it("replays the last update across restart without changing its revision and repairs the index", async () => {
+    const { vault, vaultRoot } = await fixture();
+    const created = await vault.createConcept({
+      requestId: "10000000-0000-4000-8000-000000000001",
+      title: "Provider experience",
+      description: "Observed provider behavior.",
+      type: "Finding",
+      body: "# Provider experience\n\nOriginal observation.",
+    });
+    const request = {
+      id: created.id,
+      expectedRevision: created.revision,
+      requestId: "10000000-0000-4000-8000-000000000002",
+      description: "Updated provider behavior.",
+      body: "# Provider experience\n\nVerified observation.",
+    };
+    const updated = await vault.updateConcept(request);
+    await writeFile(join(vaultRoot, "index.md"), '---\nokf_version: "0.2"\n---\n\n# Stale index\n');
+    const reopened = new MemoryVault({ root: vaultRoot });
+    expect(await reopened.updateConcept(request)).toEqual(updated);
+    expect(await readFile(join(vaultRoot, "index.md"), "utf8")).toContain(request.description);
+    expect(updated.metadata.swarmx_request_id).toBe(created.metadata.swarmx_request_id);
+    expect(updated.metadata.swarmx_request_hash).toBe(created.metadata.swarmx_request_hash);
+    expect(updated.metadata.swarmx_update_request_id).toBe(request.requestId);
+    expect(updated.metadata.swarmx_update_request_hash).toMatch(/^sha256:[a-f0-9]{64}$/u);
+    for (const changed of [
+      { ...request, body: "# Different observation" },
+      { ...request, expectedRevision: updated.revision },
+    ])
+      await expect(reopened.updateConcept(changed)).rejects.toMatchObject({
+        code: "REVISION_CONFLICT",
+      });
+    expect(await reopened.readConcept(created.id)).toEqual(updated);
+    const path = join(vaultRoot, created.id);
+    await writeFile(
+      path,
+      (await readFile(path, "utf8")).replace("Verified observation.", "Hand edited observation."),
+    );
+    await expect(reopened.updateConcept(request)).rejects.toMatchObject({
+      code: "REVISION_CONFLICT",
+    });
+    expect((await reopened.readConcept(created.id)).body).toContain("Hand edited observation.");
+  });
+
+  it.each([undefined, "10000000-0000-4000-8000-000000000003"])(
+    "rejects stale replay after an intervening update with requestId %s",
+    async (requestId) => {
+      const { vault } = await fixture();
+      const created = await vault.createConcept({
+        title: "Provider experience",
+        description: "Observed provider behavior.",
+        type: "Finding",
+        body: "# Original observation",
+      });
+      const request = {
+        id: created.id,
+        expectedRevision: created.revision,
+        requestId: "10000000-0000-4000-8000-000000000002",
+        body: "# Reviewed observation",
+      };
+      const reviewed = await vault.updateConcept(request);
+      const later = await vault.updateConcept({
+        id: created.id,
+        expectedRevision: reviewed.revision,
+        ...(requestId === undefined ? {} : { requestId }),
+        body: "# User correction",
+      });
+      expect(later.metadata.swarmx_update_request_id).toBe(requestId);
+      if (requestId === undefined)
+        expect(later.metadata.swarmx_update_request_hash).toBeUndefined();
+      await expect(vault.updateConcept(request)).rejects.toMatchObject({
+        code: "REVISION_CONFLICT",
+      });
+      expect(await vault.readConcept(created.id)).toEqual(later);
+    },
+  );
+
   it("V131 V139: preserves malformed hand edits and reports relative diagnostics", async () => {
     const { vault, vaultRoot } = await fixture();
     const malformed = "---\ntitle: Missing type\n---\n\n[[Non portable]].\n";
