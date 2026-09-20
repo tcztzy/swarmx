@@ -6,6 +6,28 @@ import { inspectMarkdown, positionAt } from "./markdown-body.js";
 
 export const DEFAULT_MAX_CONCEPT_BYTES = 128 * 1024;
 
+export const executionSourceSchema = z
+  .string()
+  .refine(
+    (resource) =>
+      resource.startsWith("urn:swarmx:execution:") &&
+      z.uuid().safeParse(resource.slice("urn:swarmx:execution:".length)).success,
+    "Expected urn:swarmx:execution:<UUID>.",
+  );
+const executionSourcesSchema = z
+  .array(executionSourceSchema)
+  .max(32)
+  .refine((sources) => new Set(sources).size === sources.length, "Duplicate execution evidence.");
+export const evaluationSchema = z.strictObject({
+  kind: z.enum(["observation", "judgment", "preference"]),
+  task: z.string().trim().min(1).max(1_000),
+  criteria: z.string().trim().min(1).max(2_000),
+  evidence: executionSourcesSchema.min(1),
+  counterEvidence: executionSourcesSchema.default([]),
+  limitations: z.string().trim().min(1).max(2_000),
+  review: executionSourceSchema.optional(),
+});
+
 export const memoryDateTimeSchema = z.iso.datetime({ offset: true });
 export const memoryDependencySchema = z.strictObject({
   id: z
@@ -50,6 +72,7 @@ const metadataSchema = z
     stale_after: memoryDateTimeSchema.optional(),
     verified: z.union([generatedSchema, z.array(generatedSchema).min(1)]).optional(),
     swarmx_dependencies: memoryDependenciesSchema.optional(),
+    swarmx_evaluation: evaluationSchema.optional(),
     swarmx_update_request_id: z.string().uuid().optional(),
     swarmx_update_request_hash: z
       .string()
@@ -71,6 +94,19 @@ export type MemoryConceptMetadata = z.infer<typeof metadataSchema> & {
   sources: MemorySource[];
   tags: string[];
 };
+
+export function conceptSources(metadata: MemoryConceptMetadata): MemorySource[] {
+  const evaluation = metadata.swarmx_evaluation;
+  if (!evaluation) return metadata.sources;
+  const sources = new Map(metadata.sources.map((entry) => [entry.resource, entry]));
+  for (const resource of [
+    ...evaluation.evidence,
+    ...evaluation.counterEvidence,
+    ...(evaluation.review ? [evaluation.review] : []),
+  ])
+    if (!sources.has(resource)) sources.set(resource, { resource });
+  return [...sources.values()];
+}
 
 export interface ParsedConcept {
   readonly body: string;

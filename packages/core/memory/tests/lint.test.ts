@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { lintMemory } from "../src/lint.js";
-import { conceptRevision, parseConcept, renderConcept } from "../src/markdown.js";
+import { lintMemory, parseMemoryConcept } from "../src/lint.js";
+import { conceptRevision, evaluationSchema, parseConcept, renderConcept } from "../src/markdown.js";
 
 const path = "finding.md";
 const now = "2026-09-05T00:00:00Z";
@@ -23,10 +23,87 @@ function lint(text: string | Uint8Array, extra: ReadonlyMap<string, string> = ne
 }
 
 describe("memory validation", () => {
+  it("validates structured evaluation evidence and checks references omitted from hand-edited sources", () => {
+    const evidence = "urn:swarmx:execution:10000000-0000-4000-8000-000000000001";
+    const counterEvidence = "urn:swarmx:execution:10000000-0000-4000-8000-000000000002";
+    const review = "urn:swarmx:execution:10000000-0000-4000-8000-000000000003";
+    const evaluation = {
+      kind: "preference",
+      task: "Draft prose",
+      criteria: "Use the user's preferred provider",
+      evidence: [evidence],
+      limitations: "Preference is not a measured quality ranking",
+    };
+    expect(evaluationSchema.parse(evaluation)).toMatchObject({ counterEvidence: [] });
+    for (const invalid of [
+      { ...evaluation, task: " " },
+      { ...evaluation, evidence: [] },
+      { ...evaluation, evidence: [evidence, evidence] },
+      { ...evaluation, counterEvidence: [evidence, evidence] },
+      { ...evaluation, evidence: ["urn:swarmx:execution:invalid"] },
+      { ...evaluation, extra: true },
+    ])
+      expect(evaluationSchema.safeParse(invalid).success).toBe(false);
+    const text = renderConcept(
+      {
+        ...metadata,
+        swarmx_evaluation: evaluationSchema.parse({
+          ...evaluation,
+          counterEvidence: [counterEvidence],
+          review,
+        }),
+        sources: [],
+      },
+      "# Preference",
+    );
+    expect(parseMemoryConcept(path, text).metadata.sources).toEqual([]);
+    expect(lint(text)).toContainEqual(
+      expect.objectContaining({ ruleId: "source.unchecked", severity: "warning" }),
+    );
+    const checked: string[] = [];
+    const diagnostics = lintMemory(new Map([[path, text]]), {
+      now,
+      checkResource: (resource) => {
+        checked.push(resource);
+        return { ruleId: "source.unresolved", severity: "warning", message: "Another directory" };
+      },
+    });
+    expect(new Set(checked)).toEqual(new Set([evidence, counterEvidence, review]));
+    expect(diagnostics).toContainEqual(
+      expect.objectContaining({ ruleId: "source.unresolved", severity: "warning" }),
+    );
+    expect(diagnostics.some(({ severity }) => severity === "error")).toBe(false);
+    expect(diagnostics.some(({ ruleId }) => ruleId === "source.missing")).toBe(false);
+    expect(() =>
+      parseMemoryConcept(path, text, undefined, () => ({
+        ruleId: "source.foreign",
+        severity: "error",
+        message: "Foreign execution",
+      })),
+    ).toThrow("Invalid memory concept reference");
+  });
+
   it("accepts the production format and preserves unknown types and fields", () => {
     const text = renderConcept({ ...metadata, type: "Custom fact", "x-owner": "me" }, "# Fact");
     expect(parseConcept(text).metadata["x-owner"]).toBe("me");
     expect(lint(text).filter((item) => item.severity === "error")).toEqual([]);
+  });
+
+  it("checks execution and Science links through the same supplied resolver", () => {
+    const execution = "urn:swarmx:execution:10000000-0000-4000-8000-000000000001";
+    const science = "sx:artifact:test";
+    const checked: string[] = [];
+    const text = source(`# Finding\n\n[Run](${execution}) [Artifact](${science})`);
+    parseMemoryConcept(path, text, undefined, (resource) => {
+      checked.push(resource);
+      return undefined;
+    });
+    expect(checked).toEqual([execution, science]);
+    const invalid = source("# Finding\n\n[Run](urn:swarmx:execution:invalid)");
+    expect(() => parseMemoryConcept(path, invalid)).toThrow("Invalid memory concept reference");
+    expect(lint(invalid)).toContainEqual(
+      expect.objectContaining({ ruleId: "source.invalid", severity: "error" }),
+    );
   });
 
   it.each([

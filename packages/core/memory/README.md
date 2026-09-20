@@ -7,9 +7,20 @@ retrieval, curation, and deterministic linting with source references and revisi
 load in topological order, and expose stale knowledge without silently changing references.
 The desktop Host adds frozen session context, journal-backed recall, background review and approval.
 
+Assessment writes may supply `evaluation`: an observation, judgment or preference, its task,
+criteria, execution evidence, counter-evidence and limitations. It persists as `swarmx_evaluation`;
+an optional review reference identifies its review snapshot. Evidence uses exact
+`urn:swarmx:execution:<UUID>` addresses. Writes merge those references into sources without losing
+existing citations, within the 32-source limit. Updates preserve an assessment unless replaced.
+Reads and lint validate assessment references even when hand edits omit them from sources. A missing
+resolver is reported as a lint warning; resolver errors reject writes, while unresolved warnings
+keep historical notes readable.
+
 Concept files live directly under the Memory root beside one `index.md`; `README.md` and `USER.md`
 are reserved. Reads and linting reject unsafe paths. Unknown frontmatter fields survive reads and
 updates, while invalid UTF-8 is rejected.
+`snapshotConcept(id, expectedRevision)` returns the parsed concept and its exact original
+Markdown from the same read, rejecting stale revisions for reproducible evidence exports.
 
 Concept updates accept an optional UUID `requestId` for crash recovery. Replaying the same parsed
 request after its atomic write returns the saved concept and repairs its index without requiring a

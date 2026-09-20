@@ -1,5 +1,5 @@
 import { MarkerType, Position } from "@xyflow/react";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { z } from "zod";
 import { MemoryGraphSchema, MemorySettingsSchema, MemoryStatusSchema } from "../memory.js";
 import { tool } from "./bridge.js";
@@ -31,36 +31,33 @@ export function MemorySettings({ sessionId }: { sessionId?: string | undefined }
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [query, setQuery] = useState("");
+  const refreshStatus = useCallback(async (signal?: AbortSignal) => {
+    try {
+      setStatus(await tool("memory", { action: "memory_status", request: {} }, MemoryStatusSchema));
+    } catch (cause) {
+      if (!signal?.aborted) setError(cause instanceof Error ? cause.message : String(cause));
+    }
+  }, []);
   useEffect(() => {
     const abort = new AbortController();
-    void tool("memory", { action: "memory_status", request: {} }, MemoryStatusSchema)
-      .then(setStatus)
-      .catch((cause: Error) => {
-        if (!abort.signal.aborted) setError(cause.message);
-      });
+    void refreshStatus(abort.signal);
     return () => abort.abort();
-  }, []);
+  }, [refreshStatus]);
   useEffect(() => {
     if (status?.review.state !== "running") return;
     const abort = new AbortController();
-    const timer = setInterval(() => {
-      void tool("memory", { action: "memory_status", request: {} }, MemoryStatusSchema)
-        .then(setStatus)
-        .catch((cause: Error) => {
-          if (!abort.signal.aborted) setError(cause.message);
-        });
-    }, 1500);
+    const timer = setInterval(() => void refreshStatus(abort.signal), 1500);
     return () => {
       abort.abort();
       clearInterval(timer);
     };
-  }, [status?.review.state]);
+  }, [status?.review.state, refreshStatus]);
   async function perform(task: () => Promise<unknown>) {
     setBusy(true);
     setError("");
     try {
       await task();
-      setStatus(await tool("memory", { action: "memory_status", request: {} }, MemoryStatusSchema));
+      await refreshStatus();
       if (graph)
         setGraph(await tool("memory", { action: "graph_memory", request: {} }, MemoryGraphSchema));
     } catch (cause) {
@@ -318,8 +315,6 @@ export function MemorySettings({ sessionId }: { sessionId?: string | undefined }
                   <div className="flex gap-2">
                     <Button
                       type="button"
-                      variant="default"
-                      size="default"
                       disabled={busy}
                       onClick={() =>
                         void perform(() =>

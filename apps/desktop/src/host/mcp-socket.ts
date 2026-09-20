@@ -2,7 +2,7 @@ import { chmodSync, mkdirSync, rmSync } from "node:fs";
 import { createServer, type Socket } from "node:net";
 import { dirname } from "node:path";
 import { z } from "zod";
-import type { ToolManifestEntry } from "./mcp.js";
+import type { ToolManifestEntry } from "../tool-manifest.js";
 
 const requestSchema = z.object({
   id: z.number(),

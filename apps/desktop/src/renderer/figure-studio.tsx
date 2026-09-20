@@ -7,6 +7,7 @@ import {
 import { useEffect, useRef, useState } from "react";
 import { ArtifactPreview } from "./artifact-preview.js";
 import { scienceTool } from "./bridge.js";
+import { TooltipIconButton } from "./components/assistant-ui/elements/tooltip-icon-button.js";
 import { Button } from "./components/ui/radix/button.js";
 import { Input } from "./components/ui/radix/input.js";
 import { Textarea } from "./components/ui/radix/textarea.js";
@@ -139,17 +140,14 @@ export function FigureStudio({
         <Icon name="image" />
         <h2 className="font-medium">{t("图像工作台")}</h2>
         <span className="text-xs text-neutral-500">{t("代码 → 隔离运行 → 版本化成果")}</span>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon-sm"
-          className="ml-auto"
+        <TooltipIconButton
+          tooltip={t("关闭图像工作台")}
+          className="ml-auto size-8"
           disabled={running}
           onClick={onClose}
-          aria-label={t("关闭图像工作台")}
         >
           <Icon name="close" />
-        </Button>
+        </TooltipIconButton>
       </header>
       <div className="grid min-h-0 flex-1 overflow-y-auto">
         {previewId && (

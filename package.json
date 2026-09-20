@@ -22,7 +22,6 @@
     "dev": "pnpm build:writing-preview-runtime && tsx watch --clear-screen=false --include './apps/desktop/src/**' --include './packages/**/src/**' --exclude './apps/desktop/src/renderer/**' scripts/dev.ts",
     "docs:check": "node scripts/check-codebase-docs.mjs",
     "lint": "biome check .",
-    "paper:demo": "node examples/softwarex/swarm-memory/scripts/verify.mjs",
     "test": "pnpm build:lib && vitest run",
     "start": "pnpm build && pnpm --filter @swarmx/desktop start:built",
     "typecheck": "pnpm generate:codex && tsc -b tsconfig.host.json && tsc -p apps/desktop/tsconfig.renderer.json --noEmit"

@@ -2,6 +2,10 @@
 
 Use this project's integration facts together with the user's current request and private
 experience. These notes describe supported routes, not measured model quality rankings.
+Sources are this release's [native integration contract](../../../docs/native-agents.md),
+[delegation contract](../../../docs/swarm.md), and executable integration tests in
+`apps/desktop/tests/{pi,codex,claude,dsh,hermes,openclaw}-native.test.ts`.
+Interpret these facts against the same Git revision as this guide, not an unspecified latest release.
 
 - Pi is the default lead and exposes its available provider/model routes and thinking levels
   through its native catalog. Use the exact advertised IDs.
@@ -25,6 +29,13 @@ Explain the choice in `send_message.reason`, including relevant knowledge or mem
 
 Save durable harness/model/provider experience as existing Memory concepts tagged `agent-selection`,
 with aliases/tags for the route and task, the observed conditions, and sources or execution evidence.
+Supply structured `evaluation` fields: kind, task, criteria, original execution-event references,
+counterevidence and limitations. Read the Host's evidence status, exact sample scope and computed
+statistics before relying on a note. Unknown cost or identity is not zero or an inferred route;
+wall time includes tools and waiting. Successful termination alone does not establish correctness.
 Distinguish an explicit user preference from an observed result or an unverified opinion. Keep private
 provider incidents in user Memory. Project-maintained evaluations belong in this versioned guide;
 do not overwrite user concepts when the application updates.
+Add a public quality recommendation only with a task/route/version, dated public source or
+versioned reproducible experiment, sample scope, criteria and limitations. Do not ship private
+execution URNs as public evidence or promote an anecdote into a model-wide ranking.

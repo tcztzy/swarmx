@@ -10,6 +10,7 @@ import {
   HistoryPayloadSchema,
   ImportArtifactPayloadSchema,
   LanguageWritePayloadSchema,
+  LogsEvidencePayloadSchema,
   LogsQuerySchema,
   ModelsPayloadSchema,
   NotebookExecutionsPayloadSchema,
@@ -71,6 +72,9 @@ export function registerIpc(platform: DesktopPlatform): void {
     return platform.operations.models(agent, session);
   });
   handle("swarmx:logs:read", (payload) => platform.operations.logs(LogsQuerySchema.parse(payload)));
+  handle("swarmx:logs:evidence", (payload) =>
+    platform.operations.evidence(LogsEvidencePayloadSchema.parse(payload)),
+  );
   handle("swarmx:runs:control", (payload) => {
     const { runId, command } = RunControlPayloadSchema.parse(payload);
     return platform.operations.controlRun(runId, command);

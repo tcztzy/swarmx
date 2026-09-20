@@ -21,7 +21,10 @@ contextBridge.exposeInMainWorld("swarmx", {
     history: invoke("swarmx:sessions:history"),
   },
   models: { read: invoke("swarmx:models:read") },
-  logs: { read: invoke("swarmx:logs:read") },
+  logs: {
+    read: invoke("swarmx:logs:read"),
+    evidence: invoke("swarmx:logs:evidence"),
+  },
   runs: { control: invoke("swarmx:runs:control") },
   science: {
     workspace: invoke("swarmx:science:workspace"),

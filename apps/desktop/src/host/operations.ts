@@ -2,7 +2,11 @@ import { randomUUID } from "node:crypto";
 import { importArtifactRequestSchema } from "@swarmx/science/types";
 import { z } from "zod";
 import type { NativeAgent } from "../agents/types.js";
-import { actionableMessage, type LogsQuerySchema } from "../bridge-contract.js";
+import {
+  actionableMessage,
+  type LogsEvidencePayloadSchema,
+  type LogsQuerySchema,
+} from "../bridge-contract.js";
 import { RunControlSchema } from "../execution-record.js";
 import { LanguageSchema } from "../settings.js";
 import { loadAgUiHistory } from "./ag-ui.js";
@@ -130,6 +134,10 @@ export class HostOperations {
       ...products.journal.read(query),
       activeRunIds: products.journal.activeRuns().map((run) => run.runId),
     };
+  }
+
+  async evidence({ sources }: z.infer<typeof LogsEvidencePayloadSchema>) {
+    return (await this.activeProducts()).journal.evidence(sources);
   }
 
   async controlRun(runId: string, raw: unknown) {

@@ -22,14 +22,32 @@ const updated =
 function resourcePlan(prompt: string) {
   const input = prompt.split("\n\nSnapshot: ")[1];
   assert.ok(input);
-  const [resource] = ResourceSnapshotSchema.array().parse(JSON.parse(input).resources);
+  const snapshot = JSON.parse(input);
+  const [resource] = ResourceSnapshotSchema.array().parse(snapshot.resources);
   assert.ok(resource);
+  const answer = snapshot.evidence.records.find(
+    (record: { event: { type: string } }) => record.event.type === "TEXT_MESSAGE_CHUNK",
+  );
+  assert.ok(answer);
   return {
     summary: "The observed task supports checking original evidence before reporting findings.",
     operations: [
       {
         action: "update_resource",
-        request: { id: resource.id, expectedRevision: resource.expectedRevision, content: updated },
+        request: {
+          id: resource.id,
+          expectedRevision: resource.expectedRevision,
+          content: updated,
+          evaluation: {
+            kind: "judgment",
+            task: "Research procedure",
+            criteria: "Check original evidence before reporting findings.",
+            evidence: [`urn:swarmx:execution:${answer.id}`],
+            counterEvidence: [],
+            limitations:
+              "One observed task; the file validator does not establish improved agent performance.",
+          },
+        },
       },
     ],
   };
@@ -115,6 +133,7 @@ it("one execution review updates a real skill and selection memory, then records
               type: "Finding",
               body: "The fixture Codex agent checked the original evidence on this research task.",
               tags: ["agent-selection"],
+              evaluation: resourcePlan(prompt).operations[0]?.request.evaluation,
             },
           },
         ],
@@ -123,7 +142,9 @@ it("one execution review updates a real skill and selection memory, then records
     .mockResolvedValue(JSON.stringify({ summary: noChange, operations: [] }));
   const { root, target, products, memory, agent } = await fixture(reviewer);
   await agent.start("codex:first", "Correct the unsupported finding", sink);
-  await vi.waitFor(async () => expect((await memory.status()).review.state).toBe("completed"));
+  await vi.waitFor(async () => expect((await memory.status()).review.state).toBe("completed"), {
+    timeout: 5000,
+  });
   expect(await readFile(target, "utf8")).toBe(updated);
   expect(await readFile(join(root, "validated"), "utf8")).toBe(updated);
   const selection = await memory.selection(["research"], new AbortController().signal);
@@ -140,6 +161,23 @@ it("one execution review updates a real skill and selection memory, then records
   );
   expect(reviewer).toHaveBeenCalledTimes(2);
   expect(await readFile(target, "utf8")).toBe(updated);
+});
+
+it("rejects resource improvements without original evidence before validation or staging", async () => {
+  const reviewer = vi.fn<MemoryReviewer>(async (prompt) => {
+    const plan = resourcePlan(prompt);
+    const operation = plan.operations[0];
+    assert.ok(operation);
+    const { evaluation: _evaluation, ...request } = operation.request;
+    return JSON.stringify({ ...plan, operations: [{ ...operation, request }] });
+  });
+  const { root, target, memory, agent, products } = await fixture(reviewer);
+  products.settings.writeMemory({ reviewInterval: 1, writeApproval: true });
+  await agent.start("codex:unreferenced", "Improve the research procedure", sink);
+  await vi.waitFor(async () => expect((await memory.status()).review.state).toBe("failed"));
+  expect((await memory.status()).pending).toEqual([]);
+  expect(await readFile(target, "utf8")).toBe(original);
+  await expect(readFile(join(root, "validated"), "utf8")).rejects.toMatchObject({ code: "ENOENT" });
 });
 
 it("stages resource updates until approval, and rejects approval after filesystem authority is revoked", async () => {
@@ -173,7 +211,9 @@ setInterval(() => {}, 1000);
   );
   await agent.start("codex:paused", "Improve the research procedure", sink);
   await expect
-    .poll(async () => readFile(join(root, "validator-started"), "utf8").catch(() => ""))
+    .poll(async () => readFile(join(root, "validator-started"), "utf8").catch(() => ""), {
+      timeout: 5000,
+    })
     .toBe("yes");
   const queued = products.journal.pendingMemoryReview();
   assert.ok(queued);

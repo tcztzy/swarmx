@@ -4,6 +4,7 @@ import { BootstrapSchema, SessionCreateSchema, SessionListSchema } from "../brid
 import { HarnessPicker } from "./agent-controls.js";
 import { bridge } from "./bridge.js";
 import { ConversationSurface } from "./chat.js";
+import { TooltipIconButton } from "./components/assistant-ui/elements/tooltip-icon-button.js";
 import { Button } from "./components/ui/radix/button.js";
 import { Input } from "./components/ui/radix/input.js";
 import { i18n, t, useTranslation } from "./i18n.js";
@@ -236,18 +237,14 @@ export function App() {
                 <span>
                   {t("任务")} · {sessions.length}
                 </span>
-                <Button
-                  aria-label={t("刷新任务")}
-                  title={t("刷新任务")}
-                  variant="ghost"
-                  size="icon-sm"
+                <TooltipIconButton
+                  tooltip={t("刷新任务")}
                   className="size-7"
                   disabled={loading || creating}
                   onClick={refresh}
-                  type="button"
                 >
                   <Icon name="refresh" className={`size-3.5 ${loading ? "animate-spin" : ""}`} />
-                </Button>
+                </TooltipIconButton>
               </div>
               <nav
                 aria-label={t("任务列表")}
@@ -309,18 +306,15 @@ export function App() {
         )}
         <section className="flex min-w-0 flex-1 flex-col">
           <header className="conversation-header">
-            <Button
+            <TooltipIconButton
+              tooltip={sidebarOpen ? t("收起侧栏") : t("展开侧栏")}
               aria-controls="task-sidebar"
               aria-expanded={sidebarOpen}
-              aria-label={sidebarOpen ? t("收起侧栏") : t("展开侧栏")}
-              title={sidebarOpen ? t("收起侧栏") : t("展开侧栏")}
-              variant="ghost"
-              size="icon-sm"
-              type="button"
+              className="size-8"
               onClick={() => setSidebarOpen((open) => !open)}
             >
               <Icon name="sidebar" />
-            </Button>
+            </TooltipIconButton>
             <span aria-hidden="true" className="header-divider" />
             <h1 title={title}>{title}</h1>
             <div className="ml-auto flex items-center gap-1">

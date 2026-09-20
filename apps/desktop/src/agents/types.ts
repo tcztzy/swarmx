@@ -1,9 +1,9 @@
 import type { Agent, AgentCapabilities, RunOptions, RunResult } from "@swarmx/swarm";
 import { z } from "zod";
-import type { ToolManifestEntry } from "../host/mcp.js";
 import type { Activity } from "../message-activity.js";
 import type { AgentPermissions, PermissionRequest } from "../permissions.js";
 import type { ExecutionPolicy } from "../settings.js";
+import type { ToolManifestEntry } from "../tool-manifest.js";
 
 export const RunOptionsSchema = z
   .strictObject({

@@ -49,8 +49,8 @@ multi-architecture digest. Docker selects its native amd64 or arm64 variant, and
 the resolved image, platform and installed Python packages. The base also contains R and Julia;
 SwarmX's notebook/figure execution currently uses Python. Setup needs network access; notebook and
 figure code runs without network in an immutable image. Missing Docker or setup failures are
-shown and never execute that code on the host. See [workbench operation and publication
-readiness](docs/product-readiness.md) for boundaries, exports and acceptance evidence.
+shown and never execute that code on the host. See [workbench operation](docs/product-readiness.md)
+for boundaries, exports and acceptance evidence.
 
 Use `SWARMX_AGENT=pi|codex|claude|dsh|hermes|openclaw` or the Agent selector. Native setup and external
 ACP/A2A access: [Agent platform](docs/runtime-platform.md).
@@ -73,18 +73,18 @@ immutable bytes and RO-Crate references, and tests container confinement and can
 ```sh
 docker build --tag swarmx-research:validation apps/desktop/resources/python
 SWARMX_TEST_DOCKER_IMAGE=swarmx-research:validation pnpm vitest run apps/desktop/tests/research-environment.test.ts
-pnpm paper:demo
 ```
 
 Build libraries with `pnpm build:lib` before running Vitest directly on a fresh checkout.
 Release tags use `v<version>` and must match `apps/desktop/package.json`. SwarmX workspace
 packages, the bundled runtime and SwarmX-owned protocol identities use the same release version.
-Recorded examples and manuscript revisions retain the versions of their frozen source.
 The release workflow prepares a source archive, SHA256 checksums and a draft GitHub release;
 it does not currently package signed desktop installers. [CITATION.cff](CITATION.cff) contains
-software citation metadata. Submission requires a citable release and a reproducible scientific-use
-example from that release. Claims of researcher productivity or comparative benefit require
-separate evaluation; passing tests does not establish them.
+software citation metadata.
+
+Manuscript sources, Zotero references and publication evidence live in the separate `swarmx-paper`
+project. Its paper revisions do not change this repository's software release archive or checksum.
+Software builds, tests and releases work independently of the paper project.
 
 [SPEC.md](SPEC.md): contract. [DESIGNS.md](DESIGNS.md): ownership and boundaries.
 [CODEBASE.md](CODEBASE.md): source map.

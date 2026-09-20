@@ -29,7 +29,9 @@ import {
 } from "./lint.js";
 import {
   conceptRevision,
+  conceptSources,
   DEFAULT_MAX_CONCEPT_BYTES,
+  evaluationSchema,
   type MemoryConceptMetadata,
   type MemorySource,
   memoryDateTimeSchema,
@@ -43,6 +45,7 @@ export const createRequestSchema = z.strictObject({
   aliases: z.array(z.string()).max(32).optional(),
   body: z.string().min(1).max(65_536),
   description: z.string().min(1).max(500),
+  evaluation: evaluationSchema.optional(),
   requestId: z.string().uuid().optional(),
   sources: z.array(z.record(z.string(), z.unknown())).max(32).optional(),
   status: z.enum(["draft", "stable"]).optional(),
@@ -56,6 +59,7 @@ export const updateRequestSchema = z.strictObject({
   aliases: z.array(z.string()).max(32).optional(),
   body: z.string().min(1).max(65_536).optional(),
   description: z.string().min(1).max(500).optional(),
+  evaluation: evaluationSchema.optional(),
   expectedRevision: z.string().regex(/^sha256:[a-f0-9]{64}$/u),
   id: z.string().min(1).max(1_024),
   requestId: z.string().uuid().optional(),
@@ -89,7 +93,7 @@ async function withFileLock<T>(root: string, operation: () => Promise<T>): Promi
 
 export type CreateConceptRequest = z.input<typeof createRequestSchema>;
 type NormalizedCreateConceptRequest = z.output<typeof createRequestSchema>;
-export type UpdateConceptRequest = z.infer<typeof updateRequestSchema>;
+export type UpdateConceptRequest = z.input<typeof updateRequestSchema>;
 export type SearchConceptsRequest = z.infer<typeof searchRequestSchema>;
 export type LintMemoryRequest = z.infer<typeof lintRequestSchema>;
 
@@ -255,6 +259,7 @@ export class MemoryVault {
       if (!conceptFileName(id))
         throw invalidRequest(`'${id}' is reserved for SwarmX memory navigation or notes.`);
       const metadata = this.createMetadata(request, requestDigest);
+      metadata.sources = conceptSources(metadata);
       const source = renderConcept(metadata, request.body);
       if (Buffer.byteLength(source, "utf8") > this.maxConceptBytes) {
         throw new MemoryError("Rendered memory concept is too large", "INVALID_CONCEPT");
@@ -283,6 +288,22 @@ export class MemoryVault {
     await this.initialize();
     this.authorizeConceptId(id);
     return this.readConceptFile(id);
+  }
+
+  async snapshotConcept(id: string, expectedRevision: string) {
+    await this.initialize();
+    this.authorizeConceptId(id);
+    const bytes = await this.readMemoryFile(id);
+    const concept = {
+      ...parseMemoryConcept(id, bytes, this.maxConceptBytes, this.checkResource),
+      id,
+    };
+    if (concept.revision !== expectedRevision)
+      throw new MemoryError(
+        "Memory concept revision changed; read it again before exporting.",
+        "REVISION_CONFLICT",
+      );
+    return { concept, source: bytes.toString("utf8") };
   }
 
   async updateConcept(
@@ -325,15 +346,28 @@ export class MemoryVault {
           : { swarmx_dependencies: request.dependencies }),
         ...(request.aliases === undefined ? {} : { aliases: request.aliases }),
         ...(request.description === undefined ? {} : { description: request.description }),
+        ...(request.evaluation === undefined ? {} : { swarmx_evaluation: request.evaluation }),
         ...(request.sources === undefined
           ? {}
-          : { sources: request.sources as unknown as MemorySource[] }),
+          : {
+              sources: (request.evaluation === undefined
+                ? request.sources
+                : [
+                    ...new Map(
+                      [...existing.metadata.sources, ...request.sources].map((entry) => [
+                        entry.resource,
+                        entry,
+                      ]),
+                    ).values(),
+                  ]) as unknown as MemorySource[],
+            }),
         ...(request.status === undefined ? {} : { status: request.status }),
         ...(request.tags === undefined ? {} : { tags: request.tags }),
         ...(request.title === undefined ? {} : { title: request.title }),
         ...(request.type === undefined ? {} : { type: request.type }),
         generated: { at: new Date().toISOString(), by: this.actor },
       };
+      metadata.sources = conceptSources(metadata);
       const body = request.body ?? existing.body;
       let source = renderConcept(metadata, body);
       if (request.requestId)
@@ -566,6 +600,7 @@ export class MemoryVault {
       ...(request.aliases === undefined ? {} : { aliases: request.aliases }),
       description: request.description,
       ...(request.dependencies === undefined ? {} : { swarmx_dependencies: request.dependencies }),
+      ...(request.evaluation === undefined ? {} : { swarmx_evaluation: request.evaluation }),
       generated: { at: new Date().toISOString(), by: this.actor },
       sources: (request.sources ?? []) as unknown as MemorySource[],
       status: request.status ?? "draft",

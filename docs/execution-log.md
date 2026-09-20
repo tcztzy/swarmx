@@ -78,6 +78,55 @@ descendants, so paginated reads retain their ancestry. Pagination uses `nextAfte
 be read without launching any Harness. These private records are not automatically included in
 public RO-Crate exports. Back up the SQLite database consistently, including committed WAL data.
 
+## Evaluation evidence
+
+`logs.evidence {sources}` resolves 1–64 `urn:swarmx:execution:<UUID>` references in the current
+execution directory without starting a Harness. Missing or foreign references reject. The
+same resolver validates evaluation writes and supplies Memory lint diagnostics. Ordinary
+citations return their exact records and summarize the associated run lifecycles. Each summary
+retains its lifecycle source IDs. Review-snapshot citations expand only the original records
+saved in that snapshot, validating them against the journal; omitted records remain omitted.
+Parent/tool ancestry provides context without becoming another execution sample. The review
+queue fixes the batch scope, including when reopening older snapshots.
+
+Statistics use the `swarmx.execution.v1` recipe, distinct run IDs and their time window. A
+normal `end_turn`, error, cancellation, other stop, and absent terminal record are separate
+outcomes. None establishes task correctness. Median elapsed time measures Host wall time,
+including tools and waiting. Token totals cover only runs with both known input and output
+counts; cost coverage is counted separately. Unknown values stay null, while known zero stays
+zero. These are citation-selected observations, not an unbiased provider error rate.
+
+Normalized usage comes only from unambiguous per-run native reports. Pi sums finalized main-loop
+assistant messages once per turn, including input cache tokens; native output already includes
+reasoning tokens. It excludes compaction, helpers, extensions and unreported provider retries.
+Unknown/error placeholder usage keeps that run's aggregate unknown. Pi USD values are SDK
+estimates, not invoices, and every aggregate retains its usage basis. Claude's cumulative
+session accounting remains in RAW records, without presenting it as per-run spend. Other
+unavailable totals remain unknown. Requested route, native-reported model/provider and versions
+are distinct; configured model names do not prove the backend model's identity.
+
+Review events retain the supplied snapshot, complete prompt and its SHA-256 identity. The
+original model response is recorded before JSON parsing, including invalid replies; response and
+validated plan record the configured and native-reported reviewer identity when available.
+Earlier reviews without a response record remain explicitly incomplete in an evidence export.
+Selection concepts and prompt/skill proposals link back to that review and the original cited
+events. Evidence availability does not certify the reviewer's qualitative conclusion.
+
+## Exported evidence archives
+
+Publication cases and their independent verifiers belong to the separate `swarmx-paper` project.
+Evidence exports retain the original closed SQLite database and all `record_json` values exported
+in sequence order as UTF-8 JSONL, without reserialization or payload reduction. An independent
+reader can verify byte hashes, SQLite/export agreement, sequence and causal references, then
+replay records as inert data without a Harness implementation or model connection.
+
+Raw observations are authoritative evidence; reports and UI projections are derived views.
+Archive the prompt, frozen code, input identities and results alongside the log. Keep later
+recomputations separate from the captured run. Preserve unknown fields and native identifiers;
+do not mistake a notification capture for a complete transport trace, or event replay for
+re-execution. These case files are an explicit reviewed export, not automatic publication of
+the private journal.
+
 ## Protocol basis
 
 - [AG-UI serialization](https://docs.ag-ui.com/concepts/serialization): events and archival/replay concepts.

@@ -327,16 +327,14 @@ function InteractionForms() {
               />
             ))}
             <div className="mt-1 flex gap-2">
-              <Button variant="default" size="default" type="submit">
-                {pending ? t("正在提交…") : t("继续")}
-              </Button>
-              <button
-                className="rounded-lg border border-neutral-300 bg-white px-3 py-2 text-sm hover:bg-neutral-100"
+              <Button type="submit">{pending ? t("正在提交…") : t("继续")}</Button>
+              <Button
+                variant="outline"
                 onClick={() => void respond([{ interruptId: interrupt.id, status: "cancelled" }])}
                 type="button"
               >
                 {t("取消")}
-              </button>
+              </Button>
             </div>
           </fieldset>
         </form>
@@ -610,14 +608,16 @@ function ConversationContent({
                 {!historyReady && (
                   <>
                     <p className="mt-1 text-neutral-600">{t("重新加载后即可继续此对话。")}</p>
-                    <button
-                      type="button"
-                      className="mt-3 rounded-md border border-neutral-300 bg-white px-3 py-1.5 disabled:opacity-50"
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="mt-3"
                       disabled={retryingHistory}
                       onClick={onRetryHistory}
+                      type="button"
                     >
                       {retryingHistory ? t("正在加载历史记录…") : t("重新加载历史")}
-                    </button>
+                    </Button>
                   </>
                 )}
               </div>

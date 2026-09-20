@@ -128,6 +128,31 @@ describe("MemoryVault", () => {
     expect(updated.body).toContain("Updated research.");
   });
 
+  it("snapshots exact Markdown bytes and rejects an outdated expected revision", async () => {
+    const { vault, vaultRoot } = await fixture();
+    const created = await vault.createConcept({
+      title: "Raw source snapshot",
+      description: "Preserve the original evidence text.",
+      type: "Finding",
+      body: "# 原文\n\nKeep this spacing.  \nSecond line.\n",
+    });
+    const path = join(vaultRoot, created.id);
+    const source = (await readFile(path, "utf8"))
+      .replace(/^---\n/u, "---\n# Keep this exact YAML comment.\nx-extra: 'quoted value'\n")
+      .replace(/\n/gu, "\r\n");
+    await writeFile(path, source, "utf8");
+    const current = await vault.readConcept(created.id);
+    const snapshot = await vault.snapshotConcept(created.id, current.revision);
+    expect(snapshot.concept).toEqual(current);
+    expect(snapshot.concept.metadata["x-extra"]).toBe("quoted value");
+    expect(snapshot.source).toBe(source);
+    expect(Buffer.from(snapshot.source, "utf8")).toEqual(await readFile(path));
+    await expect(vault.snapshotConcept(created.id, created.revision)).rejects.toMatchObject({
+      code: "REVISION_CONFLICT",
+    });
+    expect(await readFile(path, "utf8")).toBe(source);
+  });
+
   it("keeps one root index, reserves its name, and generates no change logs", async () => {
     const { vault, vaultRoot } = await fixture();
     const request = {
@@ -176,6 +201,105 @@ describe("MemoryVault", () => {
     await expect(vault.createConcept({ ...request, body: "# Changed" })).rejects.toMatchObject({
       code: "REVISION_CONFLICT",
     });
+  });
+
+  it("persists assessments, merges evidence and preserves them across ordinary updates", async () => {
+    const { vault, vaultRoot } = await fixture();
+    const evidence = "urn:swarmx:execution:10000000-0000-4000-8000-000000000001";
+    const counterEvidence = "urn:swarmx:execution:10000000-0000-4000-8000-000000000002";
+    const review = "urn:swarmx:execution:10000000-0000-4000-8000-000000000003";
+    const evaluation = {
+      kind: "observation" as const,
+      task: "Revise a scientific abstract",
+      criteria: "Preserve requested claims and formatting",
+      evidence: [evidence],
+      counterEvidence: [counterEvidence],
+      limitations: "One model version and one provider route only",
+      review,
+    };
+    const created = await vault.createConcept({
+      title: "Writing assessment",
+      description: "An evidence-backed writing observation.",
+      type: "Finding",
+      body: "# Writing assessment",
+      sources: [{ resource: evidence, title: "Original run" }, { resource: "https://example.org" }],
+      evaluation,
+    });
+    expect(created.metadata.swarmx_evaluation).toEqual(evaluation);
+    expect(created.metadata.sources).toEqual([
+      { resource: evidence, title: "Original run" },
+      { resource: "https://example.org" },
+      { resource: counterEvidence },
+      { resource: review },
+    ]);
+    const updated = await vault.updateConcept({
+      id: created.id,
+      expectedRevision: created.revision,
+      body: "# Writing assessment\n\nClarified observation.",
+    });
+    expect(updated.metadata.swarmx_evaluation).toEqual(evaluation);
+    expect(updated.metadata.sources).toEqual(created.metadata.sources);
+    const replacement = await vault.updateConcept({
+      id: created.id,
+      expectedRevision: updated.revision,
+      evaluation: { ...evaluation, kind: "judgment", criteria: "Task-specific usefulness" },
+      sources: [{ resource: "https://example.org/updated" }],
+    });
+    expect(replacement.metadata.sources.map(({ resource }) => resource)).toEqual([
+      ...created.metadata.sources.map(({ resource }) => resource),
+      "https://example.org/updated",
+    ]);
+    expect(await new MemoryVault({ root: vaultRoot }).readConcept(created.id)).toEqual(replacement);
+  });
+
+  it("rejects malformed execution sources and resolver errors before writing", async () => {
+    const { vaultRoot } = await fixture();
+    const evidence = "urn:swarmx:execution:10000000-0000-4000-8000-000000000001";
+    const checked: string[] = [];
+    const vault = new MemoryVault({
+      root: vaultRoot,
+      checkResource: (resource) => {
+        checked.push(resource);
+        return { ruleId: "source.foreign", severity: "error", message: "Foreign execution" };
+      },
+    });
+    const request = {
+      title: "Foreign evidence",
+      description: "Must resolve in this directory.",
+      type: "Finding",
+      body: "# Foreign evidence",
+    };
+    await expect(
+      vault.createConcept({ ...request, sources: [{ resource: "urn:swarmx:execution:invalid" }] }),
+    ).rejects.toMatchObject({ code: "INVALID_CONCEPT" });
+    await expect(
+      vault.createConcept({ ...request, sources: [{ resource: evidence }] }),
+    ).rejects.toMatchObject({ code: "INVALID_CONCEPT" });
+    expect(checked).toContain(evidence);
+    expect((await readdir(vaultRoot)).sort()).toEqual(["index.md"]);
+  });
+
+  it("keeps the merged assessment evidence within the existing source limit", async () => {
+    const { vault, vaultRoot } = await fixture();
+    await expect(
+      vault.createConcept({
+        title: "Too many sources",
+        description: "No citations may be silently dropped.",
+        type: "Finding",
+        body: "# Too many sources",
+        sources: Array.from({ length: 32 }, (_, index) => ({
+          resource: `https://example.org/${index}`,
+        })),
+        evaluation: {
+          kind: "observation",
+          task: "Check source limits",
+          criteria: "Keep all evidence",
+          evidence: ["urn:swarmx:execution:10000000-0000-4000-8000-000000000001"],
+          limitations: "A bounded concept",
+        },
+      }),
+    ).rejects.toMatchObject({ code: "INVALID_CONCEPT" });
+    expect((await readdir(vaultRoot)).sort()).toEqual(["index.md"]);
   });
 
   it("replays the last update across restart without changing its revision and repairs the index", async () => {

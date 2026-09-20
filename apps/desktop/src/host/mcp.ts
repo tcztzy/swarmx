@@ -1,11 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-
-export interface ToolManifestEntry {
-  readonly name: string;
-  readonly description: string;
-  readonly inputSchema: Record<string, unknown>;
-}
+import type { ToolManifestEntry } from "../tool-manifest.js";
 
 export type ProductToolHandler = (
   name: string,

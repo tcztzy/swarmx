@@ -72,6 +72,26 @@ it.each(["codex", "claude"] as const)(
   },
 );
 
+it("reports requested and native reviewer identity without inferring missing values", async () => {
+  native.start.mockImplementationOnce(async (_id, _prompt, observer) => {
+    observer.raw(
+      { native: "response" },
+      {
+        "gen_ai.response.model": "reported-model",
+        "swarmx.harness.version": "observed-version",
+      },
+    );
+    observer.text("answer", '{"operations":[]}');
+    return { stopReason: "end_turn" };
+  });
+  const identity = vi.fn();
+  await reviewMemory(options, "Review", new AbortController().signal, "codex", identity);
+  expect(identity.mock.calls).toEqual([
+    [{ "gen_ai.request.model": null }],
+    [{ "gen_ai.response.model": "reported-model", "swarmx.harness.version": "observed-version" }],
+  ]);
+});
+
 it("interrupts cancellation, disposes the runtime and propagates interrupt failures", async () => {
   const controller = new AbortController();
   const finished = Promise.withResolvers<void>();

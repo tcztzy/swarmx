@@ -33,6 +33,9 @@ Local research Host; recursive Swarms; native Agents.
 - A Host-owned, append-only execution journal preserves observed Agent events and product-tool
   requests/results independently of native retention. It records requested settings, reported
   generation metadata, interactions, failures, cancellation requests and delegation links.
+- Manuscript sources, references and reproducible publication cases belong to the separate
+  `swarmx-paper` project. Software builds, tests and releases do not depend on that project.
+  Case archives preserve raw records and input/code/output identities independently of readers.
 - New sessions without a first native turn hydrate as empty, without reading an absent transcript.
 - Claude completes on its SDK idle notification after a result; queued native output is not truncated.
 - Swarm owns membership and delegation, not another transcript or transport state machine.
@@ -61,6 +64,12 @@ Local research Host; recursive Swarms; native Agents.
   writes. Completed batches acknowledge only their own evidence; no-change outcomes state a reason.
   One review covers H/M/P selection, agent prompts and skills. Explicitly registered project
   resources evolve only at the supplied revision after their fixed project validator succeeds.
+- Selection evaluations and prompt/skill improvement proposals cite original execution evidence
+  with explicit task, criteria and limitations. The Host validates references and computes scoped
+  execution statistics; subjective judgments, user preferences and unknown data remain distinct.
+  Users and delegating leads can inspect the same evidence. A valid citation is not proof of a claim.
+  Selected evaluations and their generation process export as self-contained RO-Crate evidence
+  packages, retaining original bytes, pinned revisions and explicit limits on what was observed.
 - Concepts live directly under `memory/` with reserved `index.md`, `README.md` and `USER.md`;
   there are no scope folders and no private revision store.
 - MCP carries product tool calls, never inter-Agent messages.

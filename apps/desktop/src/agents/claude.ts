@@ -135,9 +135,11 @@ function projection(observer: Observer) {
           ? {
               "swarmx.agent.model": message.model,
               "swarmx.agent.mode": message.permissionMode,
-              "swarmx.agent.version": message.claude_code_version,
+              "swarmx.harness.version": message.claude_code_version,
             }
-          : undefined,
+          : message.type === "assistant"
+            ? { "gen_ai.response.model": message.message.model ?? null }
+            : undefined,
       );
       if (message.type === "assistant" || message.type === "user")
         blocks(

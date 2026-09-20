@@ -15,6 +15,7 @@ import { z } from "zod";
 import { ArtifactContentSchema } from "../bridge-contract.js";
 import { ArtifactPreview } from "./artifact-preview.js";
 import { bridge, download, scienceTool } from "./bridge.js";
+import { TooltipIconButton } from "./components/assistant-ui/elements/tooltip-icon-button.js";
 import { Badge } from "./components/ui/radix/badge.js";
 import { Button, buttonVariants } from "./components/ui/radix/button.js";
 import { CodeBlock } from "./components/ui/radix/code-block.js";
@@ -75,6 +76,8 @@ export function ResearchPanel({
   const [questionForm, setQuestionForm] = useState(false);
   const [studio, setStudio] = useState<Studio>();
   const [notice, setNotice] = useState("");
+  const executionSource =
+    mode === "observe" && target?.source?.resource.startsWith("urn:swarmx:execution:");
   const sourceArtifact =
     mode === "observe"
       ? snapshot?.artifacts.find(
@@ -109,6 +112,7 @@ export function ResearchPanel({
   }, []);
   // biome-ignore lint/correctness/useExhaustiveDependencies: revision explicitly refreshes authoritative Host state.
   useEffect(() => {
+    if (executionSource) return;
     let current = true;
     void bridge()
       .science.workspace()
@@ -128,12 +132,12 @@ export function ResearchPanel({
     return () => {
       current = false;
     };
-  }, [revision]);
+  }, [revision, executionSource]);
   // biome-ignore lint/correctness/useExhaustiveDependencies: mutations refresh the current project's RO-Crate.
   useEffect(() => {
     setCrate(undefined);
     setExecutions([]);
-    if (!projectId) return;
+    if (!projectId || executionSource) return;
     let current = true;
     void Promise.all([
       bridge()
@@ -157,7 +161,7 @@ export function ResearchPanel({
     return () => {
       current = false;
     };
-  }, [projectId, revision, includeArtifactId]);
+  }, [projectId, revision, includeArtifactId, executionSource]);
   const perform = async (task: () => Promise<void>) => {
     setBusy(true);
     setError("");
@@ -261,15 +265,9 @@ export function ResearchPanel({
             <h2 className="mr-auto font-medium">
               {mode === "assets" ? t("科研资产") : t("观测与溯源")}
             </h2>
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              type="button"
-              aria-label={t("关闭侧栏")}
-              onClick={onClose}
-            >
+            <TooltipIconButton tooltip={t("关闭侧栏")} className="size-8" onClick={onClose}>
               <Icon name="close" />
-            </Button>
+            </TooltipIconButton>
           </header>
           {mode === "assets" && (
             <div className="flex flex-wrap items-center gap-2 border-b border-neutral-100 px-4 py-2">

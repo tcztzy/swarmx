@@ -17,6 +17,18 @@ function files(directory: string): string[] {
 }
 
 describe("architecture boundaries", () => {
+  it("keeps software quality and release checks independent of the manuscript project", () => {
+    for (const path of [
+      "package.json",
+      ".github/workflows/ci.yml",
+      ".github/workflows/release.yml",
+    ]) {
+      expect(readFileSync(join(root, path), "utf8"), path).not.toMatch(
+        /paper:|examples\/softwarex|swarmx\.tex|references\.bib/u,
+      );
+    }
+  });
+
   it.runIf(existsSync(join(root, "apps/desktop/dist/agents/openclaw.js")))(
     "loads built native entries in Node without starting runtimes",
     () => {
@@ -31,6 +43,14 @@ describe("architecture boundaries", () => {
       );
     },
   );
+
+  it("keeps native integrations free of Host imports", () => {
+    const offenders = files(join(root, "apps/desktop/src/agents"))
+      .filter((path) => extname(path) === ".ts")
+      .filter((path) => /from\s+["']\.\.\/host\//u.test(readFileSync(path, "utf8")))
+      .map((path) => relative(root, path));
+    expect(offenders).toEqual([]);
+  });
 
   it("keeps ACP imports only at the external gateway boundary", () => {
     const imports = files(join(root, "apps/desktop/src"))

@@ -23,10 +23,6 @@ export default defineConfig({
     ],
   },
   test: {
-    include: [
-      "apps/*/tests/**/*.test.{ts,tsx}",
-      "packages/*/*/tests/**/*.test.{ts,tsx}",
-      "scripts/**/*.test.ts",
-    ],
+    include: ["apps/*/tests/**/*.test.{ts,tsx}", "packages/*/*/tests/**/*.test.{ts,tsx}"],
   },
 });

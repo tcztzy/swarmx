@@ -5,8 +5,10 @@ import { MemoryError, type MemoryIssue } from "./errors.js";
 import { dependencyOrder } from "./graph.js";
 import {
   conceptRevision,
+  conceptSources,
   DEFAULT_MAX_CONCEPT_BYTES,
   decodeConcept,
+  executionSourceSchema,
   memoryDateTimeSchema,
   type ParsedConcept,
   parseConcept,
@@ -80,6 +82,24 @@ function localReferenceIssue(
   }
 }
 
+function resourceReferenceIssue(resource: string, checkResource?: MemoryResourceCheck) {
+  const execution = /^urn:swarmx:execution(?:[:/?#]|$)/iu.test(resource);
+  if (execution && !executionSourceSchema.safeParse(resource).success)
+    return {
+      ruleId: "source.invalid",
+      severity: "error" as const,
+      message: "Invalid execution reference; expected urn:swarmx:execution:<UUID>.",
+    };
+  if (!execution && !/^sx:/iu.test(resource)) return;
+  return checkResource
+    ? checkResource(resource)
+    : {
+        ruleId: "source.unchecked",
+        severity: "warning" as const,
+        message: "Execution and Science references require a resource resolver.",
+      };
+}
+
 export function parseMemoryConcept(
   path: string,
   bytes: string | Uint8Array,
@@ -96,11 +116,11 @@ export function parseMemoryConcept(
   }));
   for (const dependency of concept.metadata.swarmx_dependencies ?? [])
     references.push({ url: `/${dependency.id}`, offset: 0, title: "" });
-  for (const entry of concept.metadata.sources) {
+  for (const entry of conceptSources(concept.metadata)) {
     references.push({ url: entry.resource, offset: 0, title: "" });
   }
   for (const { url, offset } of references) {
-    const issue = /^sx:/iu.test(url) ? checkResource?.(url) : localReferenceIssue(path, url);
+    const issue = resourceReferenceIssue(url, checkResource) ?? localReferenceIssue(path, url);
     if (issue && (!("severity" in issue) || issue.severity === "error")) {
       issues.push({ ...issue, severity: "error", ...positionAt(source, offset) });
     }
@@ -112,7 +132,7 @@ export function parseMemoryConcept(
   return concept;
 }
 
-/** Checks an authorized file snapshot with an explicit clock and optional Science resolver. */
+/** Checks an authorized file snapshot with an explicit clock and optional resource resolver. */
 export function lintMemory(
   files: ReadonlyMap<string, string | Uint8Array>,
   options: MemoryLintOptions,
@@ -238,6 +258,11 @@ export function lintMemory(
     const targets = new Set<string>();
     linked.set(path, targets);
     const checkLink = (url: string, offset: number) => {
+      const resourceIssue = resourceReferenceIssue(url, options.checkResource);
+      if (resourceIssue) {
+        emit(path, resourceIssue.ruleId, resourceIssue.severity, resourceIssue.message, offset);
+        return;
+      }
       const issue = localReferenceIssue(path, url);
       if (issue) {
         emit(path, issue.ruleId, "error", issue.message, offset);
@@ -257,10 +282,9 @@ export function lintMemory(
     for (const link of links) checkLink(link.url, bodyOffset + link.offset);
 
     if (concept) {
+      const sources = conceptSources(concept.metadata);
       const ids = new Set(
-        concept.metadata.sources.flatMap((entry) =>
-          entry.id === undefined ? [] : [entry.id.toLowerCase()],
-        ),
+        sources.flatMap((entry) => (entry.id === undefined ? [] : [entry.id.toLowerCase()])),
       );
       for (const id of footnotes) {
         if (!ids.has(id))
@@ -271,20 +295,17 @@ export function lintMemory(
             bodyOffset,
           );
       }
-      for (const entry of concept.metadata.sources) {
+      for (const entry of sources) {
         if (entry.id !== undefined && !footnotes.has(entry.id.toLowerCase())) {
           warn(path, "source.unused", `Source '${entry.id}' is not cited by a footnote.`);
         }
-        if (/^sx:/iu.test(entry.resource)) {
-          const issue = options.checkResource?.(entry.resource);
-          if (issue) emit(path, issue.ruleId, issue.severity, issue.message);
-          if (!options.checkResource)
-            warn(path, "source.unchecked", "Science reference requires a Science resolver.");
-        } else if (/^(?:\.{0,2}\/|[^\s]+\.md(?:[?#]|$))/u.test(entry.resource)) {
+        const issue = resourceReferenceIssue(entry.resource, options.checkResource);
+        if (issue) emit(path, issue.ruleId, issue.severity, issue.message);
+        else if (/^(?:\.{0,2}\/|[^\s]+\.md(?:[?#]|$))/u.test(entry.resource)) {
           checkLink(entry.resource, 0);
         }
       }
-      if (concept.metadata.type === "Finding" && concept.metadata.sources.length === 0) {
+      if (concept.metadata.type === "Finding" && sources.length === 0) {
         warn(path, "source.missing", "Finding has no recorded evidence source.");
       }
       if (

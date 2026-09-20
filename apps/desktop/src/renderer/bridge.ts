@@ -21,6 +21,7 @@ export interface SwarmxBridge {
   };
   models: { read(input: { agent: string; session?: string }): Promise<unknown> };
   logs: {
+    evidence(input: { sources: string[] }): Promise<unknown>;
     read(input: {
       after?: number;
       limit?: number;

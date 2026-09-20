@@ -20,6 +20,13 @@ export const LogsQuerySchema = z
     "Descendants require a session.",
   );
 
+export const LogsEvidencePayloadSchema = z.strictObject({
+  sources: z
+    .array(z.templateLiteral(["urn:swarmx:execution:", z.uuid()]))
+    .min(1)
+    .max(64),
+});
+
 export const ToolCallPayloadSchema = z.strictObject({
   requestId: z.string().uuid(),
   name: z.string().min(1).max(64),

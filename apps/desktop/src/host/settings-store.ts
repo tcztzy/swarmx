@@ -1,16 +1,8 @@
-import { randomUUID } from "node:crypto";
-import {
-  closeSync,
-  fsyncSync,
-  mkdirSync,
-  openSync,
-  readFileSync,
-  renameSync,
-  writeFileSync,
-} from "node:fs";
+import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { z } from "zod";
 import { MemorySettingsSchema } from "../memory.js";
+import { writePrivateJson } from "../private-json.js";
 import { DEFAULT_POLICY, LanguageSchema, type Settings, SettingsSchema } from "../settings.js";
 
 export class SettingsStore {
@@ -75,18 +67,4 @@ export class SettingsStore {
   writeLanguage(language: "zh" | "en"): void {
     writePrivateJson(this.languagePath, LanguageSchema.parse(language));
   }
-}
-
-export function writePrivateJson(path: string, value: unknown) {
-  const directory = dirname(path);
-  mkdirSync(directory, { recursive: true, mode: 0o700 });
-  const temporary = `${path}.${randomUUID()}`;
-  const descriptor = openSync(temporary, "wx", 0o600);
-  try {
-    writeFileSync(descriptor, `${JSON.stringify(value, null, 2)}\n`);
-    fsyncSync(descriptor);
-  } finally {
-    closeSync(descriptor);
-  }
-  renameSync(temporary, path);
 }

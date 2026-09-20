@@ -1,7 +1,8 @@
 import { connect, type Socket } from "node:net";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
-import { createProductMcpServer, type ToolManifestEntry } from "./mcp.js";
+import type { ToolManifestEntry } from "../tool-manifest.js";
+import { createProductMcpServer } from "./mcp.js";
 
 interface Channel {
   request(payload: Record<string, unknown>, signal: AbortSignal): Promise<unknown>;

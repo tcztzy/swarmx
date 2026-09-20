@@ -1,4 +1,4 @@
-# Research workbench and SoftwareX readiness
+# Research workbench readiness
 
 ## Contract
 
@@ -40,13 +40,10 @@ RO-Crate are the data sources, not UI state.
 | Graph data inaccessible to researchers | React Flow projection of RO-Crate, semantic edges, search and neighborhoods; JSON-LD inspector/export | Identity/relation/filter tests and visual graph inspection |
 | Failed code could capture an old output | Failed runs retain error evidence and cannot create a figure artifact | Regression test with an existing stale output; real Docker figure test |
 | Obsolete CI/release paths | Linux/macOS quality matrix, Docker integration job, source archive and checksum draft release | Local equivalents of quality commands; remote GitHub jobs require a push |
-| Missing machine-readable software citation | CITATION.cff based on manuscript authors and repository license | Author verification and archived version still required |
+| Missing machine-readable software citation | CITATION.cff based on software authors and repository license | Author verification and archived version still required |
 
 ## Design evidence
 
-- [SoftwareX reviewer form](https://legacyfileshare.elsevier.com/promis_misc/softwarex-reviewer-form.pdf):
-  installation, reproducible experiments, documented dependencies, licensing, tests
-  and scientific usefulness are review criteria. UI completeness alone is insufficient.
 - [Claude Science](https://www.anthropic.com/news/claude-science-ai-workbench):
   artifacts beside conversations, exact source/environment/history and iterative
   figure editing. The local example at localhost:8000 was also inspected.
@@ -64,38 +61,11 @@ RO-Crate are the data sources, not UI state.
   exchange entities and provenance using the existing versioned JSON-LD document,
   preserving identifiers instead of introducing a second ontology.
 
-## Publication gate
+## Validated scope
 
-Commit all pending repository changes as the freeze baseline before further validation or
-development. After that commit, change production code only to fix a reproduced bug blocking
-installation, the manuscript example, required release checks, or the integrity of its records.
-Keep blocker fixes in separate commits. Complete the reproducible scientific-use example,
-source release and manuscript against this baseline plus any blocker fixes; narrow unsupported
-manuscript claims to the evidence.
-
-1. Record one complete workflow on the release candidate using the existing tools: a native
-   Agent delegates analysis, Science records the input, execution and figure, the result is
-   checked, Memory stores the sourced finding, and a new session retrieves it. Preserve the
-   commands, environment, outputs, provenance and screenshots needed to inspect and reproduce
-   the example. Reuse existing data and scripts where suitable; synthetic fixtures establish
-   software behavior, not biological findings or researcher productivity.
-2. Verify installation from a clean checkout and run the existing release checks. Tag the
-   validated revision, publish its archive/checksums, and cite that exact revision. The
-   release workflow creates a draft; publication remains a separate step.
-3. Align the manuscript's architecture, approval semantics, examples, validation and source
-   link with the release. Compile the paper with resolved references and verify authors,
-   affiliations, software citation and demonstration-data licenses.
-
-The SoftwareX reviewer form asks for evidence proportionate to the claimed or expected impact;
-it does not prescribe a participant study for every software paper. The existing
-`provenance-study-protocol.md` is a possible follow-up for measuring user benefits.
-Comparative multi-agent gains, researcher productivity and generalizable learning
-remain unevaluated unless measured. They do not require new experiments for this submission
-while those claims remain outside its scope.
-
-Signed installers, additional Harness validation, UI polish and architecture refactoring are
-deferred unless a promised release behavior demonstrably depends on them. Once the example,
-release checks and manuscript agree, stop expanding scope and proceed to publication.
+Publication planning and evaluation protocols live in the separate `swarmx-paper` project.
+Comparative multi-agent gains, researcher productivity and generalizable learning remain
+unevaluated unless measured; passing software checks does not establish them.
 
 The product exports RO-Crate metadata and individual verified artifact bytes. It does not claim
 that metadata alone is a portable archive containing all data. Figures can be edited through

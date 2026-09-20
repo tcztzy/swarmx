@@ -3,6 +3,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { constants } from "node:fs";
 import { chmod, lstat, open, realpath, rename, unlink } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join } from "node:path";
+import { evaluationSchema } from "@swarmx/memory";
 import { z } from "zod";
 
 const revision = (content: string) =>
@@ -25,6 +26,7 @@ export const ResourceUpdateSchema = z.strictObject({
     id: ResourceSchema.shape.id,
     expectedRevision: RevisionSchema,
     content: ContentSchema,
+    evaluation: evaluationSchema.optional(),
   }),
 });
 export const ResourceSnapshotSchema = ResourceSchema.extend({

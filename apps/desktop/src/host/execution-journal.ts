@@ -4,10 +4,12 @@ import { chmodSync, mkdirSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { type AGUIEvent, EventSchemas, EventType } from "@ag-ui/core";
+import { executionSourceSchema } from "@swarmx/memory";
 import { z } from "zod";
 import type { EventAttributes, NativeAgent, Observer } from "../agents/types.js";
 import {
   ExecutionAttributes,
+  type ExecutionEvidence,
   type ExecutionRecord,
   ExecutionRecordSchema,
 } from "../execution-record.js";
@@ -17,6 +19,7 @@ import {
   intersectPermissions,
   ToolGrantSchema,
 } from "../permissions.js";
+import { executionRuns, executionStatistics } from "./execution-evidence.js";
 
 export interface ExecutionContext {
   readonly permissions?: AgentPermissions;
@@ -29,6 +32,8 @@ export interface ExecutionContext {
   readonly cancelInteractions?: () => void;
   pendingInteractions?: number;
 }
+
+export class ExecutionSourceError extends Error {}
 
 export class ExecutionJournal {
   readonly databasePath: string;
@@ -194,6 +199,111 @@ export class ExecutionJournal {
     return this.active.get(sessionId);
   }
 
+  resolveSource(resource: string): ExecutionRecord {
+    return ExecutionRecordSchema.parse(JSON.parse(this.sourceText(resource)));
+  }
+
+  sourceText(resource: string): string {
+    const parsed = executionSourceSchema.safeParse(resource);
+    if (!parsed.success)
+      throw new ExecutionSourceError(
+        "Invalid execution source. Expected urn:swarmx:execution:<UUID>.",
+      );
+    const id = parsed.data.slice("urn:swarmx:execution:".length);
+    const row = this.database
+      .prepare("SELECT record_json FROM execution_events WHERE workspace_id = ? AND id = ?")
+      .get(this.directoryKey, id) as { record_json: string } | undefined;
+    if (!row)
+      throw new ExecutionSourceError(
+        "Execution source is missing or belongs to another directory.",
+      );
+    return row.record_json;
+  }
+
+  evidence(sources: readonly string[]): ExecutionEvidence {
+    const references = z.array(z.string()).min(1).max(64).parse(sources);
+    const records = new Map<string, ExecutionRecord>();
+    const lifecycle = new Map<string, ExecutionRecord>();
+    const runIds = new Set<string>();
+    for (const source of references) {
+      const record = this.resolveSource(source);
+      records.set(record.id, record);
+      if (
+        record.event.type === EventType.CUSTOM &&
+        record.event.name === "swarmx.memory.review.started"
+      ) {
+        const saved = z
+          .object({
+            jobId: z.string().optional(),
+            snapshot: z.object({
+              evidence: z.object({
+                records: z.array(ExecutionRecordSchema),
+                statistics: z.object({ runIds: z.array(z.string()) }).optional(),
+              }),
+            }),
+          })
+          .safeParse(record.event.value);
+        if (!saved.success)
+          throw new ExecutionSourceError("Review snapshot has no valid saved execution evidence.");
+        let selectedRunIds = saved.data.snapshot.evidence.statistics?.runIds;
+        if (saved.data.jobId) {
+          const job = this.resolveSource(`urn:swarmx:execution:${saved.data.jobId}`);
+          const queued = z
+            .object({ runIds: z.array(z.string()) })
+            .safeParse(
+              job.event.type === EventType.CUSTOM &&
+                job.event.name === "swarmx.memory.review.queued"
+                ? job.event.value
+                : undefined,
+            );
+          if (!queued.success || job.seq >= record.seq)
+            throw new ExecutionSourceError("Review snapshot has no valid originating review job.");
+          selectedRunIds = queued.data.runIds;
+          for (const followup of this.memoryJobEvents(saved.data.jobId)) {
+            if (followup.seq <= record.seq || followup.event.type !== EventType.CUSTOM) continue;
+            if (followup.event.name === "swarmx.memory.review.started") break;
+            if (
+              followup.event.name === "swarmx.memory.review.response" &&
+              z.object({ source: executionSourceSchema }).parse(followup.event.value).source ===
+                source
+            )
+              records.set(followup.id, followup);
+            if (followup.event.name === "swarmx.memory.review.planned") {
+              records.set(followup.id, followup);
+              break;
+            }
+          }
+        }
+        for (const entry of saved.data.snapshot.evidence.records) {
+          const original = this.resolveSource(`urn:swarmx:execution:${entry.id}`);
+          if (original.seq >= record.seq || JSON.stringify(original) !== JSON.stringify(entry))
+            throw new ExecutionSourceError(
+              "Review snapshot does not match its original execution source.",
+            );
+          records.set(entry.id, entry);
+          if (!selectedRunIds || (entry.runId && selectedRunIds.includes(entry.runId)))
+            lifecycle.set(entry.id, entry);
+        }
+      } else if (record.runId) runIds.add(record.runId);
+    }
+    const rows = this.database
+      .prepare(`SELECT record_json FROM execution_events
+      WHERE workspace_id = ? AND run_id IN (SELECT value FROM json_each(?))
+      AND json_extract(record_json, '$.event.type') IN ('RUN_STARTED', 'RUN_FINISHED', 'RUN_ERROR')
+      ORDER BY seq`)
+      .all(this.directoryKey, JSON.stringify([...runIds])) as { record_json: string }[];
+    for (const row of rows) {
+      const record = ExecutionRecordSchema.parse(JSON.parse(row.record_json));
+      lifecycle.set(record.id, record);
+    }
+    const runs = executionRuns([...lifecycle.values()].sort((a, b) => a.seq - b.seq));
+    return {
+      records: [...records.values()].sort((a, b) => a.seq - b.seq),
+      runs,
+      statistics: executionStatistics(runs),
+    };
+  }
+
   memoryEvent(name: string, sessionId?: string) {
     const row = this.database
       .prepare(`SELECT record_json FROM execution_events
@@ -268,8 +378,18 @@ export class ExecutionJournal {
     return rows.map(({ record_json }) => ExecutionRecordSchema.parse(JSON.parse(record_json)));
   }
 
-  learningEvidence(runIds: readonly string[]): {
-    records: ExecutionRecord[];
+  memoryDecisions(proposalIds: readonly string[]): ExecutionRecord[] {
+    const rows = this.database
+      .prepare(`SELECT record_json FROM execution_events
+        WHERE workspace_id = ? AND json_extract(record_json, '$.event.type') = 'CUSTOM'
+        AND json_extract(record_json, '$.event.name') IN ('swarmx.memory.accepted', 'swarmx.memory.rejected')
+        AND json_extract(record_json, '$.event.value.proposalId') IN (SELECT value FROM json_each(?))
+        ORDER BY seq`)
+      .all(this.directoryKey, JSON.stringify(proposalIds)) as { record_json: string }[];
+    return rows.map(({ record_json }) => ExecutionRecordSchema.parse(JSON.parse(record_json)));
+  }
+
+  learningEvidence(runIds: readonly string[]): ExecutionEvidence & {
     omitted: string[];
     omittedCount: number;
   } {
@@ -319,7 +439,10 @@ export class ExecutionJournal {
       }
     }
     records.sort((a, b) => a.seq - b.seq);
-    return { records, omitted, omittedCount };
+    const runs = executionRuns(
+      records.filter((record) => record.runId && runIds.includes(record.runId)),
+    );
+    return { records, omitted, omittedCount, runs, statistics: executionStatistics(runs) };
   }
 
   pendingMemories() {

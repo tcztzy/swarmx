@@ -1,5 +1,5 @@
 import { loadAgent } from "../agent.js";
-import type { AgentOptions } from "../agents/types.js";
+import type { AgentOptions, EventAttributes } from "../agents/types.js";
 import { policyPermissions } from "../permissions.js";
 import { DEFAULT_POLICY } from "../settings.js";
 
@@ -8,6 +8,7 @@ export async function reviewMemory(
   prompt: string,
   signal: AbortSignal,
   harness: "codex" | "claude",
+  reportIdentity?: (attributes: EventAttributes) => void,
 ) {
   const cancelled = AbortSignal.any([signal, AbortSignal.timeout(120_000)]);
   cancelled.throwIfAborted();
@@ -32,6 +33,7 @@ export async function reviewMemory(
     sessionId = await agent.create();
     cancelled.throwIfAborted();
     const output: string[] = [];
+    reportIdentity?.({ "gen_ai.request.model": models?.[0] ?? null });
     const result = await agent.start(
       sessionId,
       prompt,
@@ -42,7 +44,9 @@ export async function reviewMemory(
         tool: () => {
           throw new Error("Memory review attempted a tool call.");
         },
-        raw() {},
+        raw(_event, attributes) {
+          if (attributes) reportIdentity?.(attributes);
+        },
         interact: async () => {
           throw new Error("Memory review cannot request permissions.");
         },

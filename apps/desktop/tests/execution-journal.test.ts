@@ -379,6 +379,63 @@ describe("execution journal", () => {
     expect(start).toHaveBeenCalledOnce();
   });
 
+  it("projects normalized per-run usage into evidence without borrowing prior turn totals", async () => {
+    const { journal } = await fixture();
+    const start = vi
+      .fn<NativeAgent["start"]>()
+      .mockImplementationOnce(async (_id, _text, observer) => {
+        observer.raw(
+          { type: "run_usage" },
+          {
+            "gen_ai.response.model": "native-model",
+            "gen_ai.provider.name": "native-provider",
+            "swarmx.harness.version": "native-version",
+            "gen_ai.usage.input_tokens": 12,
+            "gen_ai.usage.output_tokens": 3,
+            "swarmx.usage.cost_usd": 0,
+            "swarmx.usage.basis": "Fixture per-run report",
+          },
+        );
+        return { stopReason: "end_turn" };
+      })
+      .mockResolvedValueOnce({ stopReason: "cancelled" });
+    const agent = recordedAgent(journal, "pi", native(start));
+    await agent.start("pi:usage", "First task", sink, { model: "requested-model" });
+    await agent.start("pi:usage", "Second task", sink);
+    const terminals = journal
+      .read()
+      .events.filter(({ event }) => event.type === EventType.RUN_FINISHED);
+    const evidence = journal.evidence(terminals.map(({ id }) => `urn:swarmx:execution:${id}`));
+    expect(evidence.runs).toMatchObject([
+      {
+        requestedModel: "requested-model",
+        reportedModel: "native-model",
+        provider: "native-provider",
+        harnessVersion: "native-version",
+        inputTokens: 12,
+        outputTokens: 3,
+        costUsd: 0,
+        usageBasis: "Fixture per-run report",
+      },
+      {
+        requestedModel: null,
+        reportedModel: null,
+        inputTokens: null,
+        outputTokens: null,
+        costUsd: null,
+        usageBasis: null,
+        outcome: "cancelled",
+      },
+    ]);
+    expect(evidence.statistics).toMatchObject({
+      sampleCount: 2,
+      completed: 1,
+      cancelled: 1,
+      usage: { sampleCount: 1, inputTokens: 12, outputTokens: 3 },
+      cost: { sampleCount: 1, usd: 0 },
+    });
+  });
+
   it("retains errors, interaction answers, steering and cancellation requests", async () => {
     const { journal } = await fixture();
     const started = Promise.withResolvers<void>();

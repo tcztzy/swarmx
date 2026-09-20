@@ -17,6 +17,7 @@
     "src/renderer/**/*.tsx",
     "src/bridge-contract.ts",
     "src/execution-record.ts",
+    "src/evaluation-crate.ts",
     "src/message-activity.ts",
     "src/settings.ts",
     "src/permissions.ts",

@@ -115,4 +115,4 @@ stop a currently active child by execution ID. Stale controls cannot affect a la
 session. Pending confirmations must be answered or cancelled in the parent conversation first.
 
 This is recursive composition and explicit delegation, not a durable scheduler, verification DAG,
-automatic knowledge admission, or proof that every manuscript claim is implemented.
+or automatic knowledge admission.

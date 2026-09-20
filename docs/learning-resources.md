@@ -26,9 +26,14 @@ most 128 KiB per file and 32,000 serialized characters across all snapshots. Ove
 are rejected intact. Installed plugins and global resources are not registered implicitly.
 
 The Host snapshots each resource's complete content, SHA-256 revision and registration revision.
-Reviewers can propose only `{id, expectedRevision, content}` for a supplied resource; they cannot
+Reviewers can propose only `{id, expectedRevision, content, evaluation}` for a supplied resource; they cannot
 choose a different target or change its validator. The durable learning plan retains this
 snapshot and the candidate. Existing write-approval settings control when it can be applied.
+The evaluation records its task, criteria, original execution evidence, counterevidence and
+limitations using the same [Memory contract](memory.md#agent-selection-experience). References
+must resolve to original events included in this review's snapshot before a proposal is staged
+or a validator runs. The Host stamps the review source; a prior model conclusion cannot serve
+as fresh evidence. Previously persisted plans keep their replay contract.
 
 The registered validator runs in the project directory without a shell. Its fixed argument
 list receives one final argument: the absolute candidate Markdown path. The candidate is a

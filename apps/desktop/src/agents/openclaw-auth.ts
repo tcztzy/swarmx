@@ -3,7 +3,7 @@ import { readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { type GatewayClientHostDeps, gatewayOriginScope } from "@openclaw/gateway-client";
 import { z } from "zod";
-import { writePrivateJson } from "../host/settings-store.js";
+import { writePrivateJson } from "../private-json.js";
 
 const identitySchema = z.object({
   deviceId: z.string(),

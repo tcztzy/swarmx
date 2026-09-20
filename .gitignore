@@ -16,18 +16,6 @@ coverage/
 
 # Local research drafts and review artifacts
 /*.csv
-/*.aux
-/*.bbl
-/*.blg
-/*.fdb_latexmk
-/*.fls
-/*.log
-/*.out
-/*.pdf
-/*.spl
-/*.synctex.gz
-/*.tex
-!/swarmx.tex
 /artifacts/
 /tmp/
 /runs/

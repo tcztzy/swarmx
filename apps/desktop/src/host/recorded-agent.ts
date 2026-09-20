@@ -270,6 +270,13 @@ export function recordedAgent(
               "swarmx.agent.effort",
               "swarmx.agent.mode",
               "swarmx.native.mode",
+              "gen_ai.response.model",
+              "gen_ai.provider.name",
+              "swarmx.model.version",
+              "gen_ai.usage.input_tokens",
+              "gen_ai.usage.output_tokens",
+              "swarmx.usage.cost_usd",
+              "swarmx.usage.basis",
             ])
               if (attributes?.[key] !== undefined) scope.attributes[key] = attributes[key];
             const nativeRun = attributes?.["swarmx.native.run_id"];

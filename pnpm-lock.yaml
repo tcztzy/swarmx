@@ -125,6 +125,9 @@ importers:
       cn:
         specifier: 0.2.6
         version: 0.2.6
+      fflate:
+        specifier: 0.8.3
+        version: 0.8.3
       i18next:
         specifier: 26.4.2
         version: 26.4.2(typescript@6.0.3)

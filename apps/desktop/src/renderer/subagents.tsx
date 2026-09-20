@@ -10,6 +10,7 @@ import { z } from "zod";
 import { ExecutionPageResponseSchema } from "../bridge-contract.js";
 import type { ExecutionRecord, RunControl } from "../execution-record.js";
 import { bridge } from "./bridge.js";
+import { TooltipIconButton } from "./components/assistant-ui/elements/tooltip-icon-button.js";
 import { Button } from "./components/ui/radix/button.js";
 import { Textarea } from "./components/ui/radix/textarea.js";
 import { i18n, t, useTranslation } from "./i18n.js";
@@ -106,17 +107,13 @@ export function Subagents({
             total: runs.length,
           })}
         </span>
-        <Button
-          type="button"
-          aria-label={t("刷新子 Agent")}
-          title={t("刷新子 Agent")}
-          variant="ghost"
-          size="icon-sm"
-          className="ml-auto"
+        <TooltipIconButton
+          tooltip={t("刷新子 Agent")}
+          className="ml-auto size-8"
           onClick={() => setRefreshCount((value) => value + 1)}
         >
           <Icon name="refresh" className="size-3.5" />
-        </Button>
+        </TooltipIconButton>
       </header>
       {error && (
         <p role="alert" className="px-4 pb-3 text-sm break-words">
@@ -276,25 +273,20 @@ function SubagentCard({
                 />
               </label>
               <Button
-                variant="default"
-                size="default"
                 type="submit"
                 disabled={pending || unavailable || run.status !== "running" || !draft.trim()}
               >
                 {t("发送指令")}
               </Button>
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                className="border border-neutral-200"
+              <TooltipIconButton
+                tooltip={t("停止 {{name}}", { name: run.name })}
+                className="size-8 border border-neutral-200"
                 type="button"
-                aria-label={t("停止 {{name}}", { name: run.name })}
-                title={t("停止子 Agent")}
                 disabled={pending || unavailable || run.status !== "running"}
                 onClick={() => void control({ action: "cancel" })}
               >
                 <Icon name="stop" className="size-3.5" />
-              </Button>
+              </TooltipIconButton>
             </form>
           )}
           {notice && (

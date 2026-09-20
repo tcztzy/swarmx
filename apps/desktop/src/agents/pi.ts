@@ -12,6 +12,7 @@ import {
   getAgentDir,
   ModelRuntime,
   SessionManager,
+  VERSION,
 } from "@earendil-works/pi-coding-agent";
 import type { RunResult } from "@swarmx/swarm";
 import {
@@ -254,8 +255,46 @@ export async function createPi(options: AgentOptions): Promise<NativeAgent> {
         let failure: Error | undefined;
         let messageId = "";
         let streamed = new Set<number>();
+        const measured = new Set<Message>();
+        let usageKnown = true;
+        let inputTokens = 0;
+        let outputTokens = 0;
+        let costUsd = 0;
         session.subscribe((event) => {
-          view.raw(event);
+          const assistant =
+            event.type === "message_end" && event.message.role === "assistant"
+              ? event.message
+              : undefined;
+          if (assistant && !measured.has(assistant)) {
+            measured.add(assistant);
+            const usage = assistant.usage;
+            // SDK zero placeholders after missing usage/errors cannot prove zero consumption.
+            usageKnown &&=
+              assistant.stopReason !== "error" &&
+              assistant.stopReason !== "aborted" &&
+              usage.totalTokens > 0 &&
+              [
+                usage.input,
+                usage.cacheRead,
+                usage.cacheWrite,
+                usage.output,
+                usage.cost.total,
+              ].every((value) => Number.isFinite(value) && value >= 0);
+            inputTokens += usage.input + usage.cacheRead + usage.cacheWrite;
+            outputTokens += usage.output;
+            costUsd += usage.cost.total;
+          }
+          view.raw(
+            event,
+            assistant
+              ? {
+                  "gen_ai.response.model":
+                    assistant.responseModel ??
+                    (assistant.model !== session.model?.id ? assistant.model : null),
+                  "gen_ai.provider.name": assistant.provider,
+                }
+              : undefined,
+          );
           if (event.type === "message_start") {
             messageId = randomUUID();
             streamed = new Set();
@@ -317,6 +356,7 @@ export async function createPi(options: AgentOptions): Promise<NativeAgent> {
           {
             "swarmx.agent.model": session.model && modelId(session.model),
             "swarmx.agent.effort": session.thinkingLevel,
+            "swarmx.harness.version": VERSION,
           },
         );
         try {
@@ -333,6 +373,16 @@ export async function createPi(options: AgentOptions): Promise<NativeAgent> {
         }
         if (failure) throw failure;
         if (!outcome) throw new Error("Pi ended without a terminal assistant result.");
+        view.raw(
+          { type: "run_usage" },
+          {
+            "gen_ai.usage.input_tokens": usageKnown && measured.size ? inputTokens : null,
+            "gen_ai.usage.output_tokens": usageKnown && measured.size ? outputTokens : null,
+            "swarmx.usage.cost_usd": usageKnown && measured.size ? costUsd : null,
+            "swarmx.usage.basis":
+              "Pi assistant messages; input includes cache; SDK estimated USD; excludes auxiliary calls",
+          },
+        );
         succeeded = true;
         return outcome;
       } finally {

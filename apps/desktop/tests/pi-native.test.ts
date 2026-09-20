@@ -2,7 +2,9 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  type AssistantMessage,
   type Context,
+  createAssistantMessageEventStream,
   fauxAssistantMessage,
   fauxProvider,
   fauxText,
@@ -14,6 +16,7 @@ import {
   DefaultResourceLoader,
   ModelRuntime,
   SessionManager,
+  VERSION,
 } from "@earendil-works/pi-coding-agent";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { createPi } from "../src/agents/pi.js";
@@ -96,6 +99,163 @@ async function agent(extra: Partial<AgentOptions> = {}) {
   owned.push(native);
   return native;
 }
+
+function reportedResponses(messages: AssistantMessage[]) {
+  return vi.spyOn(faux.provider, "streamSimple").mockImplementation(() => {
+    const message = messages.shift();
+    if (!message) throw new Error("Missing native response");
+    const stream = createAssistantMessageEventStream();
+    stream.push({ type: "start", partial: message });
+    if (message.content[0]?.type === "text") {
+      for (const delta of ["First", " second"])
+        stream.push({ type: "text_delta", contentIndex: 0, delta, partial: message });
+    }
+    if (message.stopReason === "error" || message.stopReason === "aborted")
+      stream.push({ type: "error", reason: message.stopReason, error: message });
+    else stream.push({ type: "done", reason: message.stopReason, message });
+    return stream;
+  });
+}
+
+it("records Pi observed identity and sums assistant usage once within each Host run", async () => {
+  const native = await agent();
+  const id = await native.create();
+  const response = (content: Parameters<typeof fauxAssistantMessage>[0]): AssistantMessage => ({
+    ...fauxAssistantMessage(content),
+    provider: "pi-test",
+    model: "first",
+    responseModel: "reported-model",
+    usage: {
+      input: 10,
+      output: 5,
+      cacheRead: 20,
+      cacheWrite: 30,
+      reasoning: 2,
+      totalTokens: 65,
+      cost: { input: 0.1, output: 0.2, cacheRead: 0.3, cacheWrite: 0.4, total: 1 },
+    },
+  });
+  const stream = reportedResponses([
+    { ...response(fauxToolCall("read", { path: "missing.txt" })), stopReason: "toolUse" },
+    { ...response("First second"), responseModel: undefined, model: "native-fallback-model" },
+    { ...response("First second"), responseModel: undefined },
+  ]);
+  const first = observer();
+  await native.start(id, "First run", first);
+  expect(stream).toHaveBeenCalledTimes(2);
+  expect(first.raw).toHaveBeenCalledWith(
+    expect.objectContaining({ type: "message_end" }),
+    expect.objectContaining({ "gen_ai.response.model": "native-fallback-model" }),
+  );
+  expect(first.raw).toHaveBeenCalledWith(
+    expect.objectContaining({ type: "run_config" }),
+    expect.objectContaining({ "swarmx.harness.version": VERSION }),
+  );
+  expect(first.raw).toHaveBeenCalledWith(
+    expect.objectContaining({
+      type: "message_end",
+      message: expect.objectContaining({ role: "assistant" }),
+    }),
+    expect.objectContaining({
+      "gen_ai.response.model": "reported-model",
+      "gen_ai.provider.name": "pi-test",
+    }),
+  );
+  expect(first.raw).toHaveBeenCalledWith(
+    { type: "run_usage" },
+    expect.objectContaining({
+      "gen_ai.usage.input_tokens": 120,
+      "gen_ai.usage.output_tokens": 10,
+      "swarmx.usage.cost_usd": 2,
+      "swarmx.usage.basis": expect.any(String),
+    }),
+  );
+  const second = observer();
+  await native.start(id, "Second run", second);
+  expect(second.raw).toHaveBeenCalledWith(
+    expect.objectContaining({
+      type: "message_end",
+      message: expect.objectContaining({ role: "assistant" }),
+    }),
+    expect.objectContaining({ "gen_ai.response.model": null }),
+  );
+  expect(second.raw).toHaveBeenCalledWith(
+    { type: "run_usage" },
+    expect.objectContaining({
+      "gen_ai.usage.input_tokens": 60,
+      "gen_ai.usage.output_tokens": 5,
+      "swarmx.usage.cost_usd": 1,
+    }),
+  );
+});
+
+it("keeps Pi zero-placeholder usage unknown across a successful native retry", async () => {
+  await writeFile(
+    join(agentDir, "settings.json"),
+    JSON.stringify({
+      defaultProvider: "pi-test",
+      defaultModel: "first",
+      retry: { enabled: true, maxRetries: 1, baseDelayMs: 1 },
+      compaction: { enabled: false },
+    }),
+  );
+  const native = await agent();
+  const stream = reportedResponses([
+    {
+      ...fauxAssistantMessage("", { stopReason: "error", errorMessage: "429 rate limit" }),
+      provider: "pi-test",
+      model: "first",
+    },
+    {
+      ...fauxAssistantMessage("First second"),
+      provider: "pi-test",
+      model: "first",
+      usage: {
+        input: 10,
+        output: 5,
+        cacheRead: 0,
+        cacheWrite: 0,
+        totalTokens: 15,
+        cost: { input: 1, output: 0, cacheRead: 0, cacheWrite: 0, total: 1 },
+      },
+    },
+  ]);
+  const sink = observer();
+  await expect(native.start(await native.create(), "Retry", sink)).resolves.toEqual({
+    stopReason: "end_turn",
+  });
+  expect(stream).toHaveBeenCalledTimes(2);
+  expect(sink.raw).toHaveBeenCalledWith(
+    { type: "run_usage" },
+    expect.objectContaining({
+      "gen_ai.usage.input_tokens": null,
+      "gen_ai.usage.output_tokens": null,
+      "swarmx.usage.cost_usd": null,
+    }),
+  );
+  expect(
+    vi
+      .mocked(sink.raw)
+      .mock.calls.some(
+        ([, attributes]) => typeof attributes?.["gen_ai.response.model"] === "string",
+      ),
+  ).toBe(false);
+});
+
+it("does not report Pi missing native usage as free execution", async () => {
+  const native = await agent();
+  reportedResponses([fauxAssistantMessage("First second")]);
+  const sink = observer();
+  await native.start(await native.create(), "Run", sink);
+  expect(sink.raw).toHaveBeenCalledWith(
+    { type: "run_usage" },
+    expect.objectContaining({
+      "gen_ai.usage.input_tokens": null,
+      "gen_ai.usage.output_tokens": null,
+      "swarmx.usage.cost_usd": null,
+    }),
+  );
+});
 
 it("releases the Pi session when native resource cleanup fails", async () => {
   const native = await agent();

@@ -241,10 +241,16 @@ it("retains full run evidence and causal delegation choices while reporting over
   expect(evidence.omitted).toEqual([oversized.id]);
   expect(evidence.omittedCount).toBe(1);
   expect(JSON.stringify(evidence.records).length).toBeLessThanOrEqual(40_000);
-  expect(journal.learningEvidence([])).toEqual({ records: [], omitted: [], omittedCount: 0 });
+  expect(journal.learningEvidence([])).toMatchObject({
+    records: [],
+    omitted: [],
+    omittedCount: 0,
+    runs: [],
+    statistics: { sampleCount: 0 },
+  });
   const other = new ExecutionJournal(root, "workspace-b");
   try {
-    expect(other.learningEvidence(["child"])).toEqual({
+    expect(other.learningEvidence(["child"])).toMatchObject({
       records: [],
       omitted: [],
       omittedCount: 0,
@@ -265,7 +271,7 @@ it("caps omission diagnostics while retaining the exact omitted event count", as
       delta: "x".repeat(40_001),
     }),
   );
-  expect(journal.learningEvidence([scope.runId])).toEqual({
+  expect(journal.learningEvidence([scope.runId])).toMatchObject({
     records: [],
     omitted: omitted.slice(0, 100).map(({ id }) => id),
     omittedCount: 110,

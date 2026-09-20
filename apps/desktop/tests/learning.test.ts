@@ -69,6 +69,44 @@ it("counts short child sessions together instead of waiting for ten turns in eac
   expect(reviewer.mock.calls[0]?.[0]).toContain("Second child");
 });
 
+it("retains the original reviewer response and its source when JSON parsing fails", async () => {
+  const text = ' \r\n```json\r\n{"summary":"原始回复", "operations":[]}\r\n``` \r\n';
+  const reviewer = vi.fn<MemoryReviewer>(
+    async (_prompt, _signal, _harness, _permissions, reportIdentity) => {
+      reportIdentity({
+        "gen_ai.request.model": "requested-reviewer",
+        "gen_ai.response.model": "reported-reviewer",
+        "gen_ai.provider.name": "reported-provider",
+        "swarmx.harness.version": "reported-version",
+      });
+      return text;
+    },
+  );
+  const { products, memory, agent } = await fixture(reviewer);
+  products.settings.writeMemory({ ...products.settings.readMemory(), reviewInterval: 1 });
+  await agent.start("codex:invalid-review", "Preserve even a malformed review", sink);
+  await vi.waitFor(async () => expect((await memory.status()).review.state).toBe("failed"));
+  const started = products.journal.memoryEvent("swarmx.memory.review.started");
+  const response = products.journal.memoryEvent("swarmx.memory.review.response");
+  if (started?.event.type !== EventType.CUSTOM || response?.event.type !== EventType.CUSTOM)
+    throw new Error("Missing review source or original response");
+  expect(response.seq).toBeGreaterThan(started.seq);
+  expect(response.event.value).toEqual({
+    jobId: started.event.value.jobId,
+    source: `urn:swarmx:execution:${started.id}`,
+    text,
+    reviewer: {
+      harness: products.settings.readMemory().reviewHarness,
+      requestedModel: "requested-reviewer",
+      model: "reported-reviewer",
+      provider: "reported-provider",
+      version: "reported-version",
+    },
+  });
+  expect(products.journal.memoryEvent("swarmx.memory.review.planned")).toBeUndefined();
+  expect(products.journal.pendingLearningRuns()).toHaveLength(1);
+});
+
 it("drains completions arriving during a paused review without acknowledging them early", async () => {
   const gate = Promise.withResolvers<string>();
   const reviewer = vi
@@ -143,8 +181,12 @@ it("resumes the saved operation plan after a write/receipt crash without asking 
     ...first.products.settings.readMemory(),
     reviewInterval: 1,
   });
-  first.reviewer.mockResolvedValue(
-    JSON.stringify({
+  first.reviewer.mockImplementation(async (prompt) => {
+    const snapshot = JSON.parse(prompt.split("\n\nSnapshot: ")[1] ?? "null");
+    const answer = snapshot.evidence.records.find(
+      (record: { event: { type: string } }) => record.event.type === EventType.TEXT_MESSAGE_CHUNK,
+    );
+    return JSON.stringify({
       summary: "Save an observed provider incident.",
       operations: [
         {
@@ -155,25 +197,37 @@ it("resumes the saved operation plan after a write/receipt crash without asking 
             type: "Finding",
             tags: ["agent-selection"],
             body: "A single observed provider incident; not a general quality ranking.",
+            evaluation: {
+              kind: "observation",
+              task: "Provider observation",
+              criteria: "Retain the observed provider response.",
+              evidence: [`urn:swarmx:execution:${answer.id}`],
+              limitations: "One execution, without a controlled comparison.",
+            },
           },
         },
       ],
-    }),
-  );
+    });
+  });
   const append = first.products.journal.append.bind(first.products.journal);
+  const failedReview = Promise.withResolvers<void>();
   let failed = false;
   vi.spyOn(first.products.journal, "append").mockImplementation((context, event, attributes) => {
     if (!failed && event.type === EventType.CUSTOM && event.name === "swarmx.memory.saved") {
       failed = true;
       throw new Error("crash after the file was saved");
     }
-    return append(context, event, attributes);
+    const recorded = append(context, event, attributes);
+    if (event.type === EventType.CUSTOM && event.name === "swarmx.memory.review.finished")
+      failedReview.resolve();
+    return recorded;
   });
   await first.agent.start("codex:one", "Observe provider behavior", sink);
-  await vi.waitFor(async () => expect((await first.memory.status()).review.state).toBe("failed"));
+  await failedReview.promise;
+  await first.memory.close();
+  expect((await first.memory.status()).review.state).toBe("failed");
   const before = await first.products.memory.vault.readConcept("provider-incident.md");
   const beforeStat = await stat(join(first.options.productHome, "memory", "provider-incident.md"));
-  await first.memory.close();
   await first.products.dispose();
   const products = await ProductServices.create(first.options);
   const reviewer = vi.fn<MemoryReviewer>();

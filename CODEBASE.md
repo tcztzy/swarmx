@@ -7,6 +7,8 @@
 | `apps/desktop/src/main.ts` | Electron lifecycle |
 | `apps/desktop/src/settings.ts` | shared strict execution policy and environment schemas |
 | `apps/desktop/src/bridge-contract.ts` | validated Electron IPC payloads and renderer response schemas |
+| `apps/desktop/src/tool-manifest.ts` | shared product-tool manifest contract between the Host and native integrations |
+| `apps/desktop/src/private-json.ts` | atomic private JSON writes with restricted permissions |
 | `apps/desktop/src/ipc.ts` | trusted-window IPC handlers and AG-UI event delivery |
 | `apps/desktop/src/permissions.ts` | Host tool/delegation grants, harness/model admission and non-widening inheritance; see `docs/permissions.md` |
 | `apps/desktop/src/platform.ts` | Host startup and lifecycle |
@@ -23,6 +25,8 @@
 | `apps/desktop/src/host/acp-extension.ts` | negotiated ACP permission extension and acknowledgement validation; see `docs/acp.md` |
 | `apps/desktop/src/host/capabilities.ts` | projection of internal capabilities into the stable public gateway shape |
 | `apps/desktop/src/host/execution-journal.ts` | append-only execution records, same-run delegation preparation evidence, persisted conversation grants and directory-scoped reads; see `docs/execution-log.md` |
+| `apps/desktop/src/host/evaluation-crate.ts` | selected evaluation and review evidence projected into an Attached RO-Crate; see `docs/ro-crate.md` |
+| `apps/desktop/src/host/execution-evidence.ts` | deterministic summaries and coverage counts for cited executions, derived from original lifecycle records |
 | `apps/desktop/src/host/recorded-agent.ts` | persistent native Agent observation below every gateway |
 | `apps/desktop/preload.cjs` | sandboxed CommonJS preload exposing the Electron IPC product-tool bridge |
 | `apps/desktop/src/host/mcp-bridge.ts` | stdio MCP entry point that forwards product-tool calls to the Host socket |
@@ -36,6 +40,7 @@
 | `apps/desktop/src/host/research-environment.ts` | Docker setup, immutable Python image, isolation, limits and cancellation |
 | `apps/desktop/src/host/settings-store.ts` | atomic private execution settings and user preferences |
 | `apps/desktop/src/execution-record.ts` | shared journal record, read response and run-control boundary schemas |
+| `apps/desktop/src/evaluation-crate.ts` | shared evaluation export request and Attached RO-Crate payload schemas |
 | `apps/desktop/src/message-activity.ts` | validated Codex message phases, turn timing and native tool kind/status for history and streaming |
 | `apps/desktop/src/renderer/` | assistant-ui task navigation, Tailwind and optional react-o11y trace pane; see `docs/desktop-ui.md` |
 | `apps/desktop/src/renderer/agent-controls.tsx` | native catalog and run-setting ownership, Harness menu and assistant-ui model/Thinking selector |
@@ -46,8 +51,9 @@
 | `apps/desktop/src/renderer/tool-ui.tsx` | assistant-ui tool grouping, native activity summaries and shell terminal output |
 | `apps/desktop/src/renderer/subagents.tsx` | persistent delegation list, per-run conversation/log inspection and native child controls |
 | `apps/desktop/src/renderer/research.tsx` | conversation side view for assets, assistant edit drafts, react-o11y, scientific runs and RO-Crate |
-| `apps/desktop/src/renderer/source-inspection.tsx` | pinned artifact inspection, input identities, copy controls and recorded computation tabs |
+| `apps/desktop/src/renderer/source-inspection.tsx` | pinned artifact and execution evidence inspection, original records, scoped statistics, input identities and recorded computations |
 | `apps/desktop/src/renderer/saved-concept.tsx` | validated Memory-read result cards and source navigation from the current answer |
+| `apps/desktop/src/renderer/evaluation-export.tsx` | local ZIP download of evaluation and review evidence |
 | `apps/desktop/src/renderer/i18n.ts` and `locales/en.json` | English/Chinese UI, browser-language detection and shared translation catalog |
 | `apps/desktop/src/renderer/research-graph.tsx` | bounded RO-Crate projection and shared React Flow view for research and memory |
 | `apps/desktop/src/renderer/memory.tsx` | bilingual user-note editing, approval, review status and concept dependency graph |
@@ -77,13 +83,13 @@ The Swarm package has no transport or protocol dependency.
 Checks never rewrite files. Install with `prefligit install`;
 verify with `prefligit run --all-files`.
 
-Build, cleanup, documentation coverage, and manuscript-model utilities live under `scripts/`.
+Build, cleanup, and documentation coverage utilities live under `scripts/`.
 `scripts/generate-codex-types.ts` generates ignored App Server declarations from the pinned official CLI development dependency before development and builds; `CODEX_PATH` is an explicit executable override.
 `scripts/dev.ts` compiles watched backend changes, starts the local Vite renderer server and owns
 the development Electron child process.
-Reproducible SoftwareX examples live under `examples/`; the manuscript is `swarmx.tex`.
-`examples/softwarex/current-release/` contains frozen workflow evidence and its offline verifier.
+Manuscript sources, bibliography, publication evidence and their verification tools belong to the
+separate `swarmx-paper` project. Software build, test and release tooling has no dependency on it.
 The pinned Jupyter Data Science container recipe lives under `apps/desktop/resources/python/`.
 Local research downloads, visual comparisons, logs and preview scripts belong in ignored
-`runs/`. Promote material that
-must ship or remain reproducible into `docs/`, `examples/` or `scripts/` before committing.
+`runs/`. Promote software material that must ship into `docs/` or `scripts/` before committing;
+preserve publication evidence in `swarmx-paper`.

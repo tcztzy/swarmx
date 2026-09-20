@@ -155,6 +155,27 @@ outline icons preserve the reference's hierarchy; scientific previews use the or
 Successful Memory reads expose saved-concept metadata and clickable Science source references
 under the current answer, including Pi live output and restored history. Pi Science tool cards
 open their referenced artifact or project in Assets in both paths.
+Execution source references open the same side view directly through the read-only `logs.evidence`
+bridge operation; they do not require a Science workspace. The view shows statistics only for
+the cited executions, with completion, error and cancellation counts kept separate. Elapsed time
+is Host wall-clock time including tool execution and waiting, and missing usage, cost or route
+fields remain explicitly unknown. Requested settings and native-reported settings are distinct.
+Original cited inputs, outputs, terminal events and review snapshots are expandable records.
+The same review attempt's saved plan exposes its conclusion and reported reviewer identity
+separately from the frozen execution evidence and its statistics.
+Unavailable or foreign-directory references show an error rather than substituting other history.
+Saved selection concepts distinguish observations, AI judgments and user preferences, and display
+their task, criteria and limitations. Older selection concepts without structured evaluation
+metadata are marked unverified. Structured evaluations whose original references cannot resolve
+also display the Host's unverified status and reason; citations do not certify a conclusion.
+Structured evaluation cards can export their exact displayed concept revision as a local
+RO-Crate ZIP. A loaded review snapshot offers the same export without requiring a saved
+Memory concept, including reviews with no proposed changes. The ZIP contains root
+`ro-crate-metadata.json` and the Host-selected evidence files with their original text intact.
+The UI states that selected private source text is included; it only downloads locally.
+ZIP entry timestamps are fixed, so an unchanged exported payload produces identical ZIP bytes.
+Export stays disabled while pending, and unavailable evidence or revision conflicts remain
+visible errors without downloading a partial package.
 Opening a source preserves its exact revision, resolves it against the
 authorized execution directory and reports unavailable or changed revisions instead of substituting the
 latest artifact. Source inspection shows the figure's recorded input IDs and full-copy SHA-256,

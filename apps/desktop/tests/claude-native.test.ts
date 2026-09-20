@@ -196,6 +196,53 @@ it("reserves empty sessions across Host restart and uses the native session ID o
   ]);
 });
 
+it("records Claude response identity without treating cumulative query usage as run totals", async () => {
+  const agent = await open();
+  let turn = 0;
+  mock.respond = (fixture) => {
+    fixture.emit({
+      type: "system",
+      subtype: "init",
+      model: "requested-alias",
+      permissionMode: "default",
+      claude_code_version: "native-version",
+    });
+    fixture.emit({ ...answer, message: { ...answer.message, model: "reported-model" } });
+    for (const total of [++turn * 100, 0, undefined])
+      fixture.emit(
+        result({
+          total_cost_usd: total,
+          modelUsage:
+            total === undefined
+              ? undefined
+              : { "reported-model": { inputTokens: total, outputTokens: total, costUSD: total } },
+        }),
+      );
+    fixture.emit(idle);
+  };
+  for (const text of ["First", "Second"]) {
+    const sink = observer();
+    await agent.start("saved", text, sink, { model: "requested-alias" });
+    expect(sink.raw).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "system", subtype: "init" }),
+      expect.objectContaining({ "swarmx.harness.version": "native-version" }),
+    );
+    expect(sink.raw).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "assistant" }),
+      expect.objectContaining({ "gen_ai.response.model": "reported-model" }),
+    );
+    for (const [, attributes] of vi.mocked(sink.raw).mock.calls)
+      for (const key of [
+        "gen_ai.provider.name",
+        "gen_ai.usage.input_tokens",
+        "gen_ai.usage.output_tokens",
+        "swarmx.usage.cost_usd",
+      ])
+        expect(attributes?.[key]).toBeUndefined();
+  }
+  expect(mock.queries).toHaveLength(1);
+});
+
 it("waits for idle after result, retains the runtime for native titles, and detaches the completed observer", async () => {
   mock.respond = undefined;
   const agent = await open();
