@@ -1,14 +1,18 @@
+import { randomUUID } from "node:crypto";
 import { loadAgent } from "../agent.js";
 import type { AgentOptions, EventAttributes } from "../agents/types.js";
 import { policyPermissions } from "../permissions.js";
 import { DEFAULT_POLICY } from "../settings.js";
+import type { ExecutionJournal } from "./execution-journal.js";
+import { recordedAgent } from "./recorded-agent.js";
 
 export async function reviewMemory(
   options: AgentOptions,
   prompt: string,
   signal: AbortSignal,
   harness: "codex" | "claude",
-  reportIdentity?: (attributes: EventAttributes) => void,
+  reportIdentity: ((attributes: EventAttributes) => void) | undefined,
+  journal: ExecutionJournal,
 ) {
   const cancelled = AbortSignal.any([signal, AbortSignal.timeout(120_000)]);
   cancelled.throwIfAborted();
@@ -21,7 +25,7 @@ export async function reviewMemory(
     reviewOnly: true,
     executionPolicy: () => ({ ...policy, tools: [], delegation: false }),
   };
-  const agent = await loadAgent(harness, reviewOptions);
+  const agent = recordedAgent(journal, harness, await loadAgent(harness, reviewOptions));
   let sessionId: string | undefined;
   let interruption: Promise<PromiseSettledResult<unknown>[]> | undefined;
   const stop = () => {
@@ -30,28 +34,44 @@ export async function reviewMemory(
   cancelled.addEventListener("abort", stop, { once: true });
   try {
     cancelled.throwIfAborted();
-    sessionId = await agent.create();
+    const id = await agent.create();
+    sessionId = id;
     cancelled.throwIfAborted();
     const output: string[] = [];
     reportIdentity?.({ "gen_ai.request.model": models?.[0] ?? null });
-    const result = await agent.start(
-      sessionId,
-      prompt,
+    const parent = journal.scope.getStore();
+    const budget = parent?.attributes["swarmx.work.reserved_usd"];
+    const result = await journal.scope.run(
       {
-        text: (_id, text, role = "assistant") => {
-          if (role === "assistant") output.push(text);
-        },
-        tool: () => {
-          throw new Error("Memory review attempted a tool call.");
-        },
-        raw(_event, attributes) {
-          if (attributes) reportIdentity?.(attributes);
-        },
-        interact: async () => {
-          throw new Error("Memory review cannot request permissions.");
-        },
+        sessionId: null,
+        runId: parent?.runId ?? randomUUID(),
+        causedBy: parent?.causedBy ?? null,
+        permissions: policyPermissions({ ...policy, tools: [], delegation: false }),
+        attributes: { ...parent?.attributes, "swarmx.execution.purpose": "memory-review" },
       },
-      models === null ? undefined : { model: models[0] },
+      () =>
+        agent.start(
+          id,
+          prompt,
+          {
+            text: (_id, text, role = "assistant") => {
+              if (role === "assistant") output.push(text);
+            },
+            tool: () => {
+              throw new Error("Memory review attempted a tool call.");
+            },
+            raw(_event, attributes) {
+              if (attributes) reportIdentity?.(attributes);
+            },
+            interact: async () => {
+              throw new Error("Memory review cannot request permissions.");
+            },
+          },
+          {
+            ...(models === null ? {} : { model: models[0] }),
+            ...(harness === "claude" && typeof budget === "number" ? { budgetUsd: budget } : {}),
+          },
+        ),
     );
     const [stopped] = (await interruption) ?? [];
     if (stopped?.status === "rejected") throw stopped.reason;

@@ -8,7 +8,7 @@ function walk(directory) {
   return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
     if (
       entry.isDirectory() &&
-      ["coverage", "dist", "lib", "node_modules", "generated"].includes(entry.name)
+      ["coverage", "dist", "lib", "node_modules", "generated", "release"].includes(entry.name)
     ) {
       return [];
     }

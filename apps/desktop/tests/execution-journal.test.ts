@@ -388,6 +388,7 @@ describe("execution journal", () => {
           { type: "run_usage" },
           {
             "gen_ai.response.model": "native-model",
+            "swarmx.agent.effort": "medium",
             "gen_ai.provider.name": "native-provider",
             "swarmx.harness.version": "native-version",
             "gen_ai.usage.input_tokens": 12,
@@ -400,7 +401,7 @@ describe("execution journal", () => {
       })
       .mockResolvedValueOnce({ stopReason: "cancelled" });
     const agent = recordedAgent(journal, "pi", native(start));
-    await agent.start("pi:usage", "First task", sink, { model: "requested-model" });
+    await agent.start("pi:usage", "First task", sink, { model: "requested-model", effort: "high" });
     await agent.start("pi:usage", "Second task", sink);
     const terminals = journal
       .read()
@@ -409,7 +410,7 @@ describe("execution journal", () => {
     expect(evidence.runs).toMatchObject([
       {
         requestedModel: "requested-model",
-        reportedModel: "native-model",
+        requestedEffort: "high",
         provider: "native-provider",
         harnessVersion: "native-version",
         inputTokens: 12,
@@ -419,7 +420,7 @@ describe("execution journal", () => {
       },
       {
         requestedModel: null,
-        reportedModel: null,
+        requestedEffort: null,
         inputTokens: null,
         outputTokens: null,
         costUsd: null,

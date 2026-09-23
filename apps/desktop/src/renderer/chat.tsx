@@ -13,7 +13,6 @@ import {
   useAuiState,
 } from "@assistant-ui/react";
 import {
-  type AgUiInterrupt,
   fromAgUiMessages,
   useAgUiInterrupts,
   useAgUiRuntime,
@@ -37,10 +36,9 @@ import {
   ToolFallbackTrigger,
 } from "./components/assistant-ui/elements/tool-fallback.js";
 import { Button } from "./components/ui/radix/button.js";
-import { Input } from "./components/ui/radix/input.js";
-import { NativeSelect } from "./components/ui/radix/native-select.js";
 import { t, useTranslation } from "./i18n.js";
 import { Icon } from "./icon.js";
+import { NativeInteractionForm } from "./interaction-form.js";
 import { readConceptResult, SavedConcept } from "./saved-concept.js";
 import type { SourceReference } from "./source-inspection.js";
 import { Subagents } from "./subagents.js";
@@ -278,138 +276,25 @@ function CommentaryMessage() {
 }
 
 function InteractionForms() {
-  useTranslation();
   const interrupts = useAgUiInterrupts();
   const submit = useAgUiSubmitInterruptResponses();
-  const [pending, setPending] = useState(false);
-  const [error, setError] = useState<string>();
-  const respond = async (responses: Parameters<typeof submit>[0]) => {
-    setPending(true);
-    setError(undefined);
-    try {
-      await submit(responses);
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
-    } finally {
-      setPending(false);
-    }
-  };
-  return (
-    <>
-      {interrupts.map((interrupt) => (
-        <form
-          className="mx-auto mb-6 w-full max-w-3xl rounded-2xl border border-neutral-300 bg-neutral-50 p-5"
-          key={interrupt.id}
-          onSubmit={(event) => {
-            event.preventDefault();
-            if (!event.currentTarget.reportValidity()) return;
-            void respond([
-              {
-                interruptId: interrupt.id,
-                status: "resolved",
-                payload: formPayload(new FormData(event.currentTarget), interrupt.responseSchema),
-              },
-            ]);
-          }}
-        >
-          <div className="mb-1 text-xs text-neutral-500">{t("需要你的确认")}</div>
-          <h3 className="mb-4 font-medium">{interrupt.message ?? t("Agent 需要你的输入")}</h3>
-          <fieldset disabled={pending} className="grid gap-4">
-            {schemaFields(interrupt).map(([name, schema]) => (
-              <InteractionField
-                key={name}
-                name={name}
-                schema={schema}
-                required={
-                  Array.isArray(interrupt.responseSchema?.required) &&
-                  interrupt.responseSchema.required.includes(name)
-                }
-              />
-            ))}
-            <div className="mt-1 flex gap-2">
-              <Button type="submit">{pending ? t("正在提交…") : t("继续")}</Button>
-              <Button
-                variant="outline"
-                onClick={() => void respond([{ interruptId: interrupt.id, status: "cancelled" }])}
-                type="button"
-              >
-                {t("取消")}
-              </Button>
-            </div>
-          </fieldset>
-        </form>
-      ))}
-      {error !== undefined && (
-        <p role="alert" className="mx-auto mb-4 max-w-3xl break-words text-sm">
-          {error}
-        </p>
-      )}
-    </>
-  );
-}
-
-function InteractionField({
-  name,
-  schema,
-  required,
-}: {
-  name: string;
-  schema: JsonObject;
-  required: boolean;
-}) {
-  useTranslation();
-  const options = choices(schema.type === "array" ? object(schema.items) : schema);
-  const label = typeof schema.title === "string" ? schema.title : name;
-  if (schema.type === "boolean") {
-    return (
-      <label className="flex items-center gap-2">
-        <input name={name} type="checkbox" className="size-4 accent-neutral-900" />
-        {label}
-      </label>
-    );
-  }
-  if (options.length > 0) {
-    return (
-      <label className="grid gap-1.5 text-sm">
-        {label}
-        <NativeSelect
-          className={schema.type === "array" ? "h-auto min-h-24 [&+svg]:hidden" : undefined}
-          multiple={schema.type === "array"}
-          name={name}
-          required={required}
-          defaultValue={schema.type === "array" ? [] : ""}
-        >
-          {schema.type !== "array" && <option value="">{t("请选择")}</option>}
-          {options.map((option) => (
-            <option key={option.value} value={option.value}>
-              {option.label}
-            </option>
-          ))}
-        </NativeSelect>
-      </label>
-    );
-  }
-  const type =
-    schema.type === "number" || schema.type === "integer"
-      ? "number"
-      : ["date", "email", "url", "password"].includes(String(schema.format))
-        ? String(schema.format)
-        : "text";
-  return (
-    <label className="grid gap-1.5 text-sm">
-      {label}
-      <Input
-        name={name}
-        type={type}
-        required={required}
-        step={schema.type === "integer" ? 1 : "any"}
-        min={typeof schema.minimum === "number" ? schema.minimum : undefined}
-        max={typeof schema.maximum === "number" ? schema.maximum : undefined}
-        minLength={typeof schema.minLength === "number" ? schema.minLength : undefined}
-        maxLength={typeof schema.maxLength === "number" ? schema.maxLength : undefined}
-      />
-    </label>
-  );
+  return interrupts.map((interrupt) => (
+    <NativeInteractionForm
+      key={interrupt.id}
+      id={interrupt.id}
+      title={interrupt.message ?? t("Agent 需要你的输入")}
+      schema={interrupt.responseSchema ?? {}}
+      onRespond={async (answer) => {
+        await submit([
+          {
+            interruptId: interrupt.id,
+            status: answer === undefined ? "cancelled" : "resolved",
+            ...(answer === undefined ? {} : { payload: answer }),
+          },
+        ]);
+      }}
+    />
+  ));
 }
 
 interface ConversationProps extends HarnessProps {
@@ -739,8 +624,6 @@ function ConversationContent({
   );
 }
 
-type JsonObject = Record<string, unknown>;
-
 export function scienceTarget(result: unknown): { artifactId?: string; projectId?: string } {
   const payload =
     typeof result === "string"
@@ -783,52 +666,4 @@ export function scienceTarget(result: unknown): { artifactId?: string; projectId
         artifactId: entity.data.id,
         ...(entity.data.projectId ? { projectId: entity.data.projectId } : {}),
       };
-}
-
-function schemaFields(interrupt: AgUiInterrupt): Array<[string, JsonObject]> {
-  const properties = object(interrupt.responseSchema?.properties);
-  return Object.entries(properties).map(([name, schema]) => [name, object(schema)]);
-}
-
-function formPayload(data: FormData, schema: JsonObject | undefined): JsonObject {
-  const result: JsonObject = {};
-  const required = new Set(Array.isArray(schema?.required) ? schema.required : []);
-  for (const [name, field] of Object.entries(object(schema?.properties))) {
-    const definition = object(field);
-    if (definition.type === "boolean") {
-      result[name] = data.has(name);
-    } else if (definition.type === "array") {
-      const values = data.getAll(name).map(String);
-      if (values.length > 0 || required.has(name)) result[name] = values;
-    } else {
-      const value = data.get(name);
-      if (value !== null && (String(value) !== "" || required.has(name))) {
-        result[name] =
-          definition.type === "number" || definition.type === "integer"
-            ? Number(value)
-            : String(value);
-      }
-    }
-  }
-  return result;
-}
-
-function choices(schema: JsonObject): Array<{ value: string; label: string }> {
-  if (Array.isArray(schema.enum)) {
-    return schema.enum.map((value) => ({ value: String(value), label: String(value) }));
-  }
-  if (!Array.isArray(schema.oneOf)) return [];
-  return schema.oneOf.map((entry) => {
-    const option = object(entry);
-    return {
-      value: String(option.const),
-      label: typeof option.title === "string" ? option.title : String(option.const),
-    };
-  });
-}
-
-function object(value: unknown): JsonObject {
-  return typeof value === "object" && value !== null && !Array.isArray(value)
-    ? (value as JsonObject)
-    : {};
 }

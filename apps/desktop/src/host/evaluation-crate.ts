@@ -201,7 +201,7 @@ export function createEvaluationCrate(
       ...(run.harnessVersion ? { version: run.harnessVersion } : {}),
       description: JSON.stringify({
         requestedModel: run.requestedModel,
-        reportedModel: run.reportedModel,
+        requestedEffort: run.requestedEffort,
         provider: run.provider,
         modelVersion: run.modelVersion,
         profile: run.profile,

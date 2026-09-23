@@ -463,6 +463,24 @@ it("uses per-session model and effort settings and preserves native prompts", as
   });
 });
 
+it.each(["model", "effort"] as const)(
+  "rejects Hermes keeping a different %s before submitting the prompt",
+  async (setting) => {
+    const handler = mock.handler;
+    mock.handler = (peer, method, params) =>
+      method === (setting === "model" ? "model.options" : "config.get")
+        ? setting === "model"
+          ? { model: "other", provider: "provider", providers: [] }
+          : { value: "low" }
+        : handler(peer, method, params);
+    const agent = await open();
+    await expect(
+      agent.start("saved", "Run", view(), { model: "provider:model", effort: "high" }),
+    ).rejects.toThrow(`Hermes ${setting} changed`);
+    expect(mock.peers[0]?.request).not.toHaveBeenCalledWith("prompt.submit", expect.anything());
+  },
+);
+
 it("does not silently grant approval for an unsupported ACP edit mode", async () => {
   const agent = await open();
   await expect(agent.start("saved", "work", view(), { mode: "dont_ask" })).rejects.toThrow(
@@ -811,7 +829,9 @@ it.each([true, false])("honors native model cost confirmation: %s", async (accep
   mock.handler = async (peer, method, params) =>
     method === "config.set" && !params.confirm_expensive_model
       ? { confirm_required: true, confirm_message: "Use expensive model?" }
-      : handler?.(peer, method, params);
+      : method === "model.options"
+        ? { model: "expensive", provider: "provider", providers: [] }
+        : handler?.(peer, method, params);
   const agent = await open();
   const observer = view();
   vi.mocked(observer.interact).mockResolvedValue({ confirm: accept });

@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { fileURLToPath } from "node:url";
 import {
   getSupportedThinkingLevels,
   type Model,
@@ -117,6 +118,14 @@ export async function createPi(options: AgentOptions): Promise<NativeAgent> {
     const resourceLoader = new DefaultResourceLoader({
       cwd: options.cwd,
       agentDir: getAgentDir(),
+      ...(!options.reviewOnly &&
+      options.productTools?.definitions.some(({ name }) => name === "swarm")
+        ? {
+            additionalSkillPaths: [
+              fileURLToPath(new URL("../../resources/skills/delegate", import.meta.url)),
+            ],
+          }
+        : {}),
       ...(instructions ? { appendSystemPrompt: [instructions] } : {}),
     });
     await resourceLoader.reload();
@@ -251,6 +260,14 @@ export async function createPi(options: AgentOptions): Promise<NativeAgent> {
           if (!level) throw new Error(`Unsupported Pi thinking level "${selection.effort}".`);
           session.setThinkingLevel(level);
         }
+        const assertSelection = () => {
+          for (const [key, actual] of [
+            ["model", session.model && modelId(session.model)],
+            ["effort", session.thinkingLevel],
+          ] as const)
+            if (selection[key] !== undefined && selection[key] !== actual)
+              throw new Error(`Pi ${key} changed from "${selection[key]}" to "${actual}".`);
+        };
         let outcome: RunResult | undefined;
         let failure: Error | undefined;
         let messageId = "";
@@ -261,10 +278,22 @@ export async function createPi(options: AgentOptions): Promise<NativeAgent> {
         let outputTokens = 0;
         let costUsd = 0;
         session.subscribe((event) => {
+          assertSelection();
           const assistant =
             event.type === "message_end" && event.message.role === "assistant"
               ? event.message
               : undefined;
+          const responseModel = assistant?.responseModel
+            ? modelRuntime.getModel(assistant.provider, assistant.responseModel)
+            : undefined;
+          for (const actual of [
+            assistant && `${assistant.provider}/${assistant.model}`,
+            responseModel && modelId(responseModel),
+          ])
+            if (selection.model && actual && actual !== selection.model) {
+              view.raw(event);
+              throw new Error(`Pi model changed from "${selection.model}" to "${actual}".`);
+            }
           if (assistant && !measured.has(assistant)) {
             measured.add(assistant);
             const usage = assistant.usage;
@@ -363,7 +392,9 @@ export async function createPi(options: AgentOptions): Promise<NativeAgent> {
           await session.prompt(text, {
             preflightResult(accepted) {
               // SDK preparation can still be awaiting extensions while abort() sees idle.
-              if (accepted) active.controller.signal.throwIfAborted();
+              if (!accepted) return;
+              active.controller.signal.throwIfAborted();
+              assertSelection();
             },
           });
         } catch (error) {
@@ -379,6 +410,9 @@ export async function createPi(options: AgentOptions): Promise<NativeAgent> {
             "gen_ai.usage.input_tokens": usageKnown && measured.size ? inputTokens : null,
             "gen_ai.usage.output_tokens": usageKnown && measured.size ? outputTokens : null,
             "swarmx.usage.cost_usd": usageKnown && measured.size ? costUsd : null,
+            "swarmx.usage.cost_source": usageKnown && measured.size ? "native-estimate" : "unknown",
+            "swarmx.usage.coverage": usageKnown && measured.size ? "partial" : "unknown",
+            "swarmx.usage.scope": "native-main-loop",
             "swarmx.usage.basis":
               "Pi assistant messages; input includes cache; SDK estimated USD; excludes auxiliary calls",
           },

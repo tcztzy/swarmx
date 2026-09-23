@@ -731,6 +731,26 @@ export async function createHermes(options: AgentOptions): Promise<NativeAgent> 
               throw new Error("Hermes did not accept model confirmation.");
           }
         }
+        if (selection?.model !== undefined) {
+          const applied = catalogSchema.parse(
+            await peer.rpc.request("model.options", { session_id: session.session_id }),
+          );
+          const actual = modelId(applied.provider, applied.model);
+          if (actual !== selection.model)
+            throw new Error(`Hermes model changed from "${selection.model}" to "${actual}".`);
+        }
+        if (selection?.effort !== undefined) {
+          const applied = z.object({ value: z.string() }).parse(
+            await peer.rpc.request("config.get", {
+              session_id: session.session_id,
+              key: "reasoning",
+            }),
+          );
+          if (applied.value !== selection.effort)
+            throw new Error(
+              `Hermes effort changed from "${selection.effort}" to "${applied.value}".`,
+            );
+        }
         if (run.stopped) return { stopReason: "cancelled" };
         run.submitted = true;
         await peer.submit(

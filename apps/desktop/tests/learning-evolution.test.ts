@@ -62,6 +62,7 @@ const content = await readFile(process.argv[2], 'utf8');
 assert.match(content, /Check original evidence before reporting a finding/);
 await writeFile('validated', content);
 `,
+  evaluator?: string,
 ) {
   const root = await mkdtemp(join(tmpdir(), "swarmx-learning-evolution-"));
   const options = { cwd: root, productHome: join(root, "product") };
@@ -70,6 +71,7 @@ await writeFile('validated', content);
   const target = join(root, ".pi/skills/research/SKILL.md");
   await writeFile(target, original);
   await writeFile(join(root, ".swarmx/validate.mjs"), validator);
+  if (evaluator) await writeFile(join(root, ".swarmx/evaluate.mjs"), evaluator);
   await writeFile(
     join(root, ".swarmx/learning.json"),
     JSON.stringify({
@@ -79,6 +81,7 @@ await writeFile('validated', content);
           kind: "skill",
           path: ".pi/skills/research/SKILL.md",
           validate: [process.execPath, ".swarmx/validate.mjs"],
+          ...(evaluator ? { evaluate: [process.execPath, ".swarmx/evaluate.mjs"] } : {}),
         },
       ],
     }),
@@ -198,7 +201,57 @@ it("stages resource updates until approval, and rejects approval after filesyste
   await memory.decide(pending.id, "approve");
   expect(await readFile(target, "utf8")).toBe(updated);
   expect((await memory.status()).pending).toEqual([]);
+  expect(products.journal.memoryEvent("swarmx.memory.accepted")?.event).toMatchObject({
+    value: { result: { assessment: "structural-only", validation: "passed" } },
+  });
 });
+
+it.each([false, true])(
+  "retains rejected behavioral evidence with writeApproval=%s",
+  async (writeApproval) => {
+    const { target, products, memory, agent } = await fixture(
+      undefined,
+      undefined,
+      `
+import { readFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
+const measure = async (path, passedCases) => ({
+  revision: 'sha256:' + createHash('sha256').update(await readFile(path)).digest('hex'),
+  passedCases, totalCases: 1
+});
+console.log(JSON.stringify({
+  evaluatorVersion: 'rejection-fixture-v1', passed: false,
+  baseline: await measure(process.argv[2], 1), candidate: await measure(process.argv[3], 0)
+}));
+`,
+    );
+    products.settings.writeMemory({ reviewInterval: 1, writeApproval });
+    await agent.start("codex:regression", "Improve the research procedure", sink);
+    await vi.waitFor(async () =>
+      expect((await memory.status()).review.state).toBe(writeApproval ? "completed" : "failed"),
+    );
+    if (writeApproval) {
+      const [pending] = (await memory.status()).pending;
+      assert.ok(pending);
+      await expect(memory.decide(pending.id, "approve")).rejects.toThrow("behavioral evaluation");
+      expect((await memory.status()).pending.map(({ id }) => id)).toEqual([pending.id]);
+    }
+    expect(await readFile(target, "utf8")).toBe(original);
+    expect(
+      products.journal.memoryEvent("swarmx.memory.resource.evaluation.rejected")?.event,
+    ).toMatchObject({
+      value: {
+        error: {
+          reportHash: expect.stringMatching(/^sha256:[a-f0-9]{64}$/u),
+          baselineRevision: expect.stringMatching(/^sha256:[a-f0-9]{64}$/u),
+          candidateRevision: expect.stringMatching(/^sha256:[a-f0-9]{64}$/u),
+          report: { evaluatorVersion: "rejection-fixture-v1", passed: false },
+        },
+      },
+    });
+    expect(products.journal.memoryEvent("swarmx.memory.saved")).toBeUndefined();
+  },
+);
 
 it("disabling memory aborts a paused validator and retains the unfinished review job", async () => {
   const { root, target, products, memory, agent } = await fixture(

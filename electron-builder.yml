@@ -1,0 +1,21 @@
+appId: io.github.tcztzy.swarmx
+productName: SwarmX
+directories:
+  app: apps/desktop/release/app
+  output: apps/desktop/release
+files:
+  - dist/**/*
+  - preload.cjs
+  - resources/**/*
+  - from: node_modules
+    to: node_modules
+    filter: ["**/*"]
+beforeBuild: scripts/prepare-macos-dependencies.mjs
+asar: false
+mac:
+  target: dmg
+  category: public.app-category.productivity
+  artifactName: SwarmX-${version}-mac-${arch}.${ext}
+  identity: "-"
+  hardenedRuntime: false
+  notarize: false

@@ -53,6 +53,7 @@ vi.mock("@anthropic-ai/claude-agent-sdk", () => ({
         supportedModels: vi.fn(async () => [
           {
             value: "native",
+            resolvedModel: "native-resolved",
             displayName: "Native",
             description: "SDK model",
             supportedEffortLevels: ["low", "high"],
@@ -108,6 +109,21 @@ const result = (extra = {}) => ({
   stop_reason: "end_turn",
   ...extra,
 });
+const usageResult = (total: number, extra = {}) =>
+  result({
+    total_cost_usd: total / 1000,
+    modelUsage: {
+      "reported-model": {
+        inputTokens: total,
+        outputTokens: total / 10,
+        cacheReadInputTokens: total / 10,
+        cacheCreationInputTokens: 0,
+        thinkingTokens: total / 10,
+        costUSD: total / 1000,
+      },
+    },
+    ...extra,
+  });
 const idle = { type: "system", subtype: "session_state_changed", state: "idle" };
 const answer = {
   type: "assistant",
@@ -179,6 +195,80 @@ it("loads Claude directly through the SDK and keeps public session IDs scoped", 
   expect(() => agent.read("codex:saved", observer())).toThrow("does not belong");
 });
 
+it.each(["assistant", "stream_event"])(
+  "rejects a conflicting root Claude model in %s before projecting tools",
+  async (type) => {
+    mock.respond = (fixture) => {
+      fixture.emit(
+        type === "assistant"
+          ? {
+              ...answer,
+              parent_tool_use_id: null,
+              message: {
+                model: "other",
+                content: [{ type: "tool_use", id: "tool", name: "Bash", input: {} }],
+              },
+            }
+          : {
+              type,
+              parent_tool_use_id: null,
+              event: { type: "message_start", message: { id: "message", model: "other" } },
+            },
+      );
+      fixture.emit(result());
+      fixture.emit(idle);
+    };
+    const agent = await open();
+    const sink = observer();
+    await expect(agent.start("saved", "Run", sink, { model: "native" })).rejects.toThrow(
+      'Claude model changed from "native" to "other"',
+    );
+    expect(sink.tool).not.toHaveBeenCalled();
+    expect(mock.queries[0]?.native.close).toHaveBeenCalled();
+  },
+);
+
+it("matches Claude model aliases using the SDK catalog and ignores native child models", async () => {
+  const agent = await open();
+  mock.respond = undefined;
+  const sink = observer();
+  const running = agent.start("saved", "Run", sink, { model: "native" });
+  const fixture = await submitted();
+  fixture.emit({
+    ...answer,
+    parent_tool_use_id: "child-tool",
+    message: {
+      ...answer.message,
+      model: "child-model",
+      usage: { input_tokens: 200, output_tokens: 20 },
+    },
+  });
+  fixture.emit({
+    ...answer,
+    parent_tool_use_id: null,
+    message: { ...answer.message, model: "native-resolved" },
+  });
+  fixture.emit(
+    usageResult(3000, {
+      modelUsage: {
+        "native-resolved": { ...usageResult(1000).modelUsage["reported-model"], costUSD: 1 },
+        "child-model": { ...usageResult(2000).modelUsage["reported-model"], costUSD: 2 },
+      },
+    }),
+  );
+  fixture.emit(idle);
+  await expect(running).resolves.toEqual({ stopReason: "end_turn" });
+  expect(sink.raw).toHaveBeenCalledWith(
+    expect.objectContaining({ type: "result", total_cost_usd: 3 }),
+    expect.objectContaining({ "swarmx.usage.cost_usd": 3 }),
+  );
+  expect(
+    vi
+      .mocked(sink.raw)
+      .mock.calls.filter(([, attributes]) => attributes?.["swarmx.usage.cost_usd"] !== undefined),
+  ).toHaveLength(1);
+});
+
 it("reserves empty sessions across Host restart and uses the native session ID on first dispatch", async () => {
   const first = await open();
   const id = await first.create();
@@ -203,7 +293,7 @@ it("records Claude response identity without treating cumulative query usage as 
     fixture.emit({
       type: "system",
       subtype: "init",
-      model: "requested-alias",
+      model: "reported-model",
       permissionMode: "default",
       claude_code_version: "native-version",
     });
@@ -222,7 +312,7 @@ it("records Claude response identity without treating cumulative query usage as 
   };
   for (const text of ["First", "Second"]) {
     const sink = observer();
-    await agent.start("saved", text, sink, { model: "requested-alias" });
+    await agent.start("saved", text, sink, { model: "reported-model" });
     expect(sink.raw).toHaveBeenCalledWith(
       expect.objectContaining({ type: "system", subtype: "init" }),
       expect.objectContaining({ "swarmx.harness.version": "native-version" }),
@@ -238,9 +328,229 @@ it("records Claude response identity without treating cumulative query usage as 
         "gen_ai.usage.output_tokens",
         "swarmx.usage.cost_usd",
       ])
-        expect(attributes?.[key]).toBeUndefined();
+        expect(attributes?.[key] ?? null).toBeNull();
   }
   expect(mock.queries).toHaveLength(1);
+});
+
+it("differences cumulative query usage across turns and counts queued results once", async () => {
+  const agent = await open();
+  let turn = 0;
+  mock.respond = (fixture) => {
+    for (const total of [++turn * 100, turn * 100, turn * 100 + 10]) {
+      fixture.emit(usageResult(total, { uuid: `result-${total}` }));
+    }
+    fixture.emit(idle);
+  };
+  for (const [text, expected] of [
+    ["First", 110],
+    ["Second", 100],
+  ] as const) {
+    const sink = observer();
+    await agent.start("saved", text, sink);
+    const usage = vi
+      .mocked(sink.raw)
+      .mock.calls.findLast(([event]) => (event as { type: string }).type === "result")?.[1];
+    expect(usage).toMatchObject({
+      "gen_ai.usage.input_tokens": expected + expected / 10,
+      "gen_ai.usage.output_tokens": expected / 10,
+      "swarmx.usage.cached_input_tokens": expected / 10,
+      "swarmx.usage.reasoning_output_tokens": expected / 10,
+      "swarmx.usage.cost_source": "native-estimate",
+      "swarmx.usage.coverage": "partial",
+    });
+    expect(usage?.["swarmx.usage.cost_usd"]).toBeCloseTo(expected / 1000);
+  }
+  expect(mock.queries).toHaveLength(1);
+});
+
+it("marks a cumulative reset unknown and resumes measurement from the new baseline", async () => {
+  const agent = await open();
+  for (const [total, expected] of [
+    [100, 110],
+    [20, null],
+    [50, 33],
+  ] as const) {
+    mock.respond = (fixture) => {
+      fixture.emit(usageResult(total));
+      fixture.emit(idle);
+    };
+    const sink = observer();
+    await agent.start("saved", "Next", sink);
+    expect(sink.raw).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "result" }),
+      expect.objectContaining({ "gen_ai.usage.input_tokens": expected }),
+    );
+  }
+});
+
+it.each([
+  [0, null],
+  [100, 110],
+])(
+  "retains actual failed-run usage but leaves zeroed error reports unknown (%s)",
+  async (total, expected) => {
+    const agent = await open();
+    const sink = observer();
+    mock.respond = (fixture) =>
+      fixture.emit(usageResult(total, { is_error: true, result: "Failed" }));
+    await expect(agent.start("saved", "Work", sink)).rejects.toThrow("Failed");
+    expect(sink.raw).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "result" }),
+      expect.objectContaining({ "gen_ai.usage.input_tokens": expected }),
+    );
+  },
+);
+
+it("starts a fresh accounting baseline when cancellation closes and then resumes a query", async () => {
+  const agent = await open();
+  mock.respond = (fixture) => fixture.emit(usageResult(100, { terminal_reason: "aborted_tools" }));
+  const cancelled = observer();
+  await expect(agent.start("saved", "Cancelled", cancelled)).resolves.toEqual({
+    stopReason: "cancelled",
+  });
+  expect(cancelled.raw).toHaveBeenCalledWith(
+    expect.objectContaining({ type: "result" }),
+    expect.objectContaining({ "gen_ai.usage.input_tokens": 110 }),
+  );
+  mock.respond = (fixture) => {
+    fixture.emit(usageResult(20));
+    fixture.emit(idle);
+  };
+  const resumed = observer();
+  await agent.start("saved", "Resume", resumed);
+  expect(resumed.raw).toHaveBeenCalledWith(
+    expect.objectContaining({ type: "result" }),
+    expect.objectContaining({ "gen_ai.usage.input_tokens": 22 }),
+  );
+  expect(mock.queries).toHaveLength(2);
+});
+
+it("bounds each managed execution with a fresh query and preserves ordinary query reuse", async () => {
+  const agent = await open();
+  await agent.start("saved", "Ordinary first turn", observer());
+  await agent.start("saved", "Ordinary follow-up", observer());
+  expect(mock.queries).toHaveLength(1);
+  expect(mock.queries[0]?.options.maxBudgetUsd).toBeUndefined();
+  expect(mock.queries[0]?.native.close).not.toHaveBeenCalled();
+  for (const budgetUsd of [0.2, 0.4]) {
+    const sink = observer();
+    await agent.start("saved", "Managed work", sink, { budgetUsd });
+    const fixture = mock.queries.at(-1);
+    expect(fixture?.options).toMatchObject({ resume: "saved", maxBudgetUsd: budgetUsd });
+    expect(fixture?.native.close).toHaveBeenCalledTimes(1);
+    expect(sink.raw).toHaveBeenCalledWith(
+      { type: "swarmx.native.budget", budgetUsd, scope: "query" },
+      { "swarmx.budget.limit_usd": budgetUsd, "swarmx.budget.enforcement": "claude.maxBudgetUsd" },
+    );
+  }
+  expect(mock.queries).toHaveLength(3);
+  expect(mock.queries[0]?.native.close).toHaveBeenCalledTimes(1);
+  await agent.start("saved", "Ordinary turn again", observer());
+  expect(mock.queries).toHaveLength(4);
+  expect(mock.queries[3]?.options.maxBudgetUsd).toBeUndefined();
+  expect(mock.queries[3]?.native.close).not.toHaveBeenCalled();
+});
+
+it("the installed SDK forwards the query cap to the actual native budget flag", async () => {
+  const sdk = await vi.importActual<typeof import("@anthropic-ai/claude-agent-sdk")>(
+    "@anthropic-ai/claude-agent-sdk",
+  );
+  const spawn = vi.fn<NonNullable<Options["spawnClaudeCodeProcess"]>>(() => {
+    throw new Error("Fixture prevents native process dispatch");
+  });
+  expect(() =>
+    sdk.query({
+      prompt: new PassThrough({ objectMode: true }),
+      options: { maxBudgetUsd: 0.25, spawnClaudeCodeProcess: spawn },
+    }),
+  ).toThrow("Fixture prevents native process dispatch");
+  const args = spawn.mock.calls[0]?.[0].args;
+  const index = args?.indexOf("--max-budget-usd");
+  expect(index).toBeGreaterThanOrEqual(0);
+  expect(args?.slice(index, (index ?? 0) + 2)).toEqual(["--max-budget-usd", "0.25"]);
+});
+
+it("keeps queued steering under one native query budget through idle", async () => {
+  mock.respond = undefined;
+  const agent = await open();
+  const sink = observer();
+  let completed = false;
+  const work = agent.start("saved", "Initial work", sink, { budgetUsd: 0.3 }).then((outcome) => {
+    completed = true;
+    return outcome;
+  });
+  const fixture = await submitted();
+  await agent.steer("saved", "Accepted follow-up");
+  await vi.waitFor(() => expect(fixture.messages).toHaveLength(2));
+  fixture.emit(usageResult(100));
+  await new Promise((resolve) => setImmediate(resolve));
+  expect(completed).toBe(false);
+  expect(fixture.native.close).not.toHaveBeenCalled();
+  fixture.emit(usageResult(200));
+  fixture.emit(idle);
+  await expect(work).resolves.toEqual({ stopReason: "end_turn" });
+  expect(mock.queries).toHaveLength(1);
+  expect(fixture.options.maxBudgetUsd).toBe(0.3);
+  expect(fixture.native.close).toHaveBeenCalledTimes(1);
+  expect(sink.raw).toHaveBeenCalledWith(
+    expect.objectContaining({ type: "result", total_cost_usd: 0.2 }),
+    expect.objectContaining({ "swarmx.usage.cost_usd": 0.2 }),
+  );
+});
+
+it("cancels budgeted initialization before any prompt or credential dispatch", async () => {
+  const ready = Promise.withResolvers<void>();
+  mock.initialize = ready.promise;
+  const registerMcp = vi.fn();
+  const agent = await open({ registerMcp });
+  const work = agent.start("saved", "Never dispatch", observer(), { budgetUsd: 0.1 });
+  await vi.waitFor(() => expect(mock.queries).toHaveLength(1));
+  expect(mock.queries[0]?.options.maxBudgetUsd).toBe(0.1);
+  await agent.interrupt("saved");
+  ready.resolve();
+  await expect(work).resolves.toEqual({ stopReason: "cancelled" });
+  expect(mock.queries[0]?.messages).toEqual([]);
+  expect(registerMcp).not.toHaveBeenCalled();
+});
+
+it("cancels while closing a retained query without opening or dispatching a budgeted replacement", async () => {
+  const agent = await open();
+  await agent.start("saved", "Previous ordinary task", observer());
+  const previous = mock.queries[0];
+  expect(previous).toBeDefined();
+  mock.closeProcess = false;
+  const work = agent.start("saved", "Never dispatch", observer(), { budgetUsd: 0.1 });
+  await vi.waitFor(() => expect(previous?.native.close).toHaveBeenCalledTimes(1));
+  const stop = agent.interrupt("saved");
+  previous?.process.emit("close");
+  await stop;
+  await expect(work).resolves.toEqual({ stopReason: "cancelled" });
+  expect(mock.queries).toHaveLength(1);
+  expect(previous?.messages).toHaveLength(1);
+});
+
+it("preserves native budget-exhaustion errors and incurred usage without accepting the work", async () => {
+  const agent = await open();
+  const sink = observer();
+  mock.respond = (fixture) =>
+    fixture.emit(
+      usageResult(200, {
+        subtype: "error_max_budget_usd",
+        is_error: true,
+        errors: ["Budget exceeded"],
+        terminal_reason: "budget_exhausted",
+      }),
+    );
+  await expect(agent.start("saved", "Exhaust budget", sink, { budgetUsd: 0.1 })).rejects.toThrow(
+    "Budget exceeded",
+  );
+  expect(mock.queries[0]?.options.maxBudgetUsd).toBe(0.1);
+  expect(mock.queries[0]?.native.close).toHaveBeenCalled();
+  expect(sink.raw).toHaveBeenCalledWith(
+    expect.objectContaining({ type: "result", subtype: "error_max_budget_usd" }),
+    expect.objectContaining({ "swarmx.usage.cost_usd": 0.2 }),
+  );
 });
 
 it("waits for idle after result, retains the runtime for native titles, and detaches the completed observer", async () => {

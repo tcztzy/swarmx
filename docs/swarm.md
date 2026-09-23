@@ -1,5 +1,9 @@
 # Swarm
 
+Swarm supplies lightweight native Agent composition within the
+[long-term research system](product-direction.md). The Host owns persistent work, budgets,
+acceptance and policy; the composition package retains its direct Agent contract.
+
 ## Compatibility contract
 
 The default lead uses Pi's embedded SDK, including its native sessions, tools and skill loading.
@@ -61,13 +65,32 @@ Automatic memory reviews are not scheduled without both `memory.write` and deleg
 
 Before choosing a child, the lead calls `swarm.prepare` with the exact task text and up to four
 short search queries for the task, harnesses, models or providers. It receives the admitted harnesses
-and model allowlists, the bundled `resources/agent-selection.md` guide with its revision, and fresh
-private user notes and matching Memory concepts with their prerequisites and stale flags. Concepts
+and model allowlists, the bundled `resources/skills/delegate/SKILL.md` skill with its revision, and fresh
+private user notes and matching Memory concepts with their prerequisites and stale flags. The returned
+`knowledge.content` is the skill body with relevant private evaluations and Host-computed facts appended;
+the existing `memory` field retains the structured sources. Each evaluation preserves its written
+assessment, appropriate scenarios, observation/judgment/preference kind, revision and original evidence.
+Statistics distinguish harness/model/effort/provider/profile/version combinations, runtime outcomes,
+independent acceptance, cost coverage and task wall time. Missing identity or price stays unknown.
+The requested configuration is the shared identity. Explicit native model/effort conflicts fail;
+an SDK that does not report effective settings provides no independent confirmation. Different
+requested effort levels and omitted effort are separate evidence groups. Native effort names
+retain their harness/model meaning; identical names across runtimes do not imply equal computation.
+For cited executions, preparation also reads current Host feedback and later corrections; a superseded
+acceptance marks the old assessment as corrected even when its Memory body has not changed. This is
+work-attempt acceptance, not an isolated estimate of each contributing run's quality. Stale or unresolved
+concepts remain explicitly unverified. Capability-based scenarios in the shipped skill are integration guidance,
+not measured rankings. Private assessments are loaded afresh and never written into shipped resources.
+Concepts
 tagged `agent-selection` are also searched. Retrieval returns bounded complete concepts and explicitly
 lists omitted matches; use `memory.load_memory` for additional evidence. Disabled Memory or a missing
 `memory.read` grant returns an explicit unavailable status without reading private knowledge.
 Admitted harnesses are candidates, not proof that their native runtime or credentials are available.
 `swarm.models` reads one candidate's native catalog lazily under the same permission checks.
+Managed work also supplies its goal, criteria, shared remaining budget, Agent choices and local
+acceptance/cost evidence before the selected supervisor runs. Its native Agent loop delegates and
+uses returned results to decide subsequent instructions. Every child retains the work identity and
+shares its root runtime budget; see [work management](work-management.md).
 
 An Agent-originated `send_message` must supply the completed preparation's `preparationId` and a
 nonempty `reason`. The Host checks the same parent session, current run and exact delegated task
@@ -79,7 +102,7 @@ Unscoped external calls retain their existing API behavior. Permissions are alwa
 at dispatch; knowledge and preparation never grant authority.
 
 The lead follows explicit user choices, weighs matching private experience against project defaults,
-and considers the full harness/profile/provider/model/task combination. User-specific provider
+and considers the full harness/profile/provider/model/effort/task combination. User-specific provider
 incidents stay in private Memory; bundled knowledge is maintained with the application and is never
 copied over user concepts. Swarm composition does not rank candidates or implement provider routing.
 DSH accepts a qualified `provider/model` and optional `profile` (`sdk` or `sdk-minimal`) in
@@ -114,5 +137,7 @@ The desktop can inspect causally linked child executions in the persistent journ
 stop a currently active child by execution ID. Stale controls cannot affect a later run of the same
 session. Pending confirmations must be answered or cancelled in the parent conversation first.
 
-This is recursive composition and explicit delegation, not a durable scheduler, verification DAG,
-or automatic knowledge admission.
+Persistent work scheduling and independent acceptance belong to the Host above this composition
+layer. Native execution outcome, content acceptance and approved knowledge changes retain separate
+identities and authority. See [product readiness](product-readiness.md) for the current executable
+scope and [ROADMAP](../ROADMAP.md) for the next scheduling and learning milestones.

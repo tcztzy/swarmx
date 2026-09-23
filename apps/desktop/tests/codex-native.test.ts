@@ -1,6 +1,7 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { EventType } from "@ag-ui/core";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { loadAgent, scopeSessions } from "../src/agent.js";
 import { createCodex } from "../src/agents/codex.js";
@@ -84,6 +85,29 @@ const options = {
   cwd,
   mcp: { command: "node", args: ["/bridge.js"], env: {} },
 };
+const tokenUsage = (inputTokens = 100, outputTokens = 20) => ({
+  inputTokens,
+  outputTokens,
+  cachedInputTokens: inputTokens / 5,
+  cacheWriteInputTokens: inputTokens / 10,
+  reasoningOutputTokens: outputTokens / 2,
+  totalTokens: inputTokens + outputTokens,
+});
+const responseUsage = (
+  responseId: string,
+  usage: unknown,
+  turnId = "turn",
+  threadId = "saved",
+) => ({
+  method: "rawResponse/completed",
+  params: {
+    threadId,
+    turnId,
+    responseId,
+    usage,
+    usageMetadata: { amount: "123", metadata: { unit: "unspecified" } },
+  },
+});
 const observer = (): Observer => ({
   executionId: "execution",
   text: vi.fn(),
@@ -98,6 +122,52 @@ async function open(extra = {}) {
   agents.push(agent);
   return agent;
 }
+
+it("stops Codex when a selected model is rerouted before allowing another tool", async () => {
+  const original = mock.handler;
+  mock.handler = async (peer, method, params) => {
+    if (method !== "turn/start") return original(peer, method, params);
+    queueMicrotask(async () => {
+      await peer.receive({
+        method: "turn/started",
+        params: { threadId: "saved", turn: turn("inProgress") },
+      });
+      try {
+        await peer.receive({
+          method: "model/rerouted",
+          params: {
+            threadId: "saved",
+            turnId: "turn",
+            fromModel: "model-b",
+            toModel: "other",
+            reason: "highRiskCyberActivity",
+          },
+        });
+      } catch (error) {
+        peer.failed(error as Error);
+      }
+      if (!peer.signal.aborted)
+        await peer.receive({
+          method: "item/commandExecution/requestApproval",
+          id: "tool",
+          params: { threadId: "saved", turnId: "turn", itemId: "tool", command: "must not run" },
+        });
+      if (!peer.signal.aborted)
+        await peer.receive({
+          method: "turn/completed",
+          params: { threadId: "saved", turn: turn() },
+        });
+    });
+    return { turn: turn("inProgress") };
+  };
+  const agent = await open();
+  const sink = observer();
+  await expect(agent.start("saved", "Run", sink, { model: "model-b" })).rejects.toThrow(
+    'Codex model changed from "model-b" to "other"',
+  );
+  expect(sink.interact).not.toHaveBeenCalled();
+  expect(currentPeer().dispose).toHaveBeenCalled();
+});
 
 beforeEach(() => {
   mock.peers.length = 0;
@@ -177,6 +247,205 @@ beforeEach(() => {
 afterEach(async () => {
   await Promise.all(agents.splice(0).map((agent) => agent.dispose()));
   vi.unstubAllEnvs();
+});
+
+it("meters exact Codex response usage once per turn without summing cumulative notifications or token subsets", async () => {
+  const root = await mkdtemp(join(tmpdir(), "swarmx-codex-usage-"));
+  const journal = new ExecutionJournal(root, cwd);
+  const native = await open();
+  const agent = recordedAgent(journal, "codex", native);
+  const first = responseUsage("response-one", tokenUsage());
+  const next = responseUsage("response-two", tokenUsage(50, 10));
+  const normal = mock.handler;
+  let execution = 0;
+  mock.handler = async (peer, method, params) => {
+    if (method !== "turn/start") return normal(peer, method, params);
+    await peer.receive({
+      method: "turn/started",
+      params: { threadId: "saved", turn: turn("inProgress") },
+    });
+    await peer.receive(responseUsage("earlier-turn", tokenUsage(900), "previous"));
+    await peer.receive(responseUsage("foreign-thread", tokenUsage(900), "turn", "foreign"));
+    if (++execution === 1) {
+      await peer.receive(first);
+      for (let i = 0; i < 2; i++) {
+        await peer.receive({
+          method: "thread/tokenUsage/updated",
+          params: {
+            threadId: "saved",
+            turnId: "turn",
+            tokenUsage: { total: tokenUsage(900), last: tokenUsage(), modelContextWindow: 200_000 },
+          },
+        });
+        await peer.receive(first);
+      }
+      await peer.receive(next);
+    }
+    await peer.receive({ method: "turn/completed", params: { threadId: "saved", turn: turn() } });
+    return { turn: turn("inProgress") };
+  };
+  try {
+    await agent.start("saved", "First", observer(), { model: "requested-model" });
+    await agent.start("saved", "Next", observer());
+    const records = journal.read({}).events;
+    const sources = records
+      .filter(({ event }) => event.type === EventType.RUN_STARTED)
+      .map(({ id }) => `urn:swarmx:execution:${id}`);
+    const evidence = journal.evidence(sources);
+    expect(evidence.runs[0]).toMatchObject({
+      inputTokens: 150,
+      outputTokens: 30,
+      cachedInputTokens: 45,
+      reasoningOutputTokens: 15,
+      costUsd: null,
+      costSource: "unknown",
+      usageCoverage: "partial",
+      requestedModel: "requested-model",
+    });
+    expect(evidence.runs[1]).toMatchObject({
+      inputTokens: null,
+      outputTokens: null,
+      costUsd: null,
+      usageCoverage: "unknown",
+    });
+    expect(
+      records.filter(
+        ({ event }) =>
+          event.type === EventType.RAW && JSON.stringify(event.event) === JSON.stringify(first),
+      ),
+    ).toHaveLength(3);
+    expect(evidence.statistics.usage).toEqual({
+      sampleCount: 1,
+      inputTokens: 150,
+      outputTokens: 30,
+    });
+  } finally {
+    await agent.dispose();
+    journal.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+it.each(["failed", "interrupted"])(
+  "retains observed Codex usage when the native turn is %s",
+  async (status) => {
+    const root = await mkdtemp(join(tmpdir(), "swarmx-codex-terminal-usage-"));
+    const journal = new ExecutionJournal(root, cwd);
+    const native = await open();
+    const agent = recordedAgent(journal, "codex", native);
+    const normal = mock.handler;
+    const dispatched = Promise.withResolvers<Peer>();
+    mock.handler = async (peer, method, params) => {
+      if (method === "turn/start") {
+        await peer.receive({
+          method: "turn/started",
+          params: { threadId: "saved", turn: turn("inProgress") },
+        });
+        await peer.receive(responseUsage("billed-response", tokenUsage()));
+        dispatched.resolve(peer);
+        return { turn: turn("inProgress") };
+      }
+      if (method === "turn/interrupt") return {};
+      return normal(peer, method, params);
+    };
+    try {
+      const run = agent.start("saved", "Run", observer());
+      const peer = await dispatched.promise;
+      if (status === "interrupted") await agent.interrupt("saved");
+      const settled =
+        status === "failed"
+          ? expect(run).rejects.toThrow("Native failure")
+          : expect(run).resolves.toEqual({ stopReason: "cancelled" });
+      await peer.receive({
+        method: "turn/completed",
+        params: {
+          threadId: "saved",
+          turn: {
+            ...turn(status),
+            error: status === "failed" ? { message: "Native failure" } : null,
+          },
+        },
+      });
+      await settled;
+      const started = journal
+        .read({})
+        .events.find(({ event }) => event.type === EventType.RUN_STARTED);
+      expect(journal.evidence([`urn:swarmx:execution:${started?.id}`]).runs[0]).toMatchObject({
+        outcome: status === "failed" ? "error" : "cancelled",
+        inputTokens: 100,
+        outputTokens: 20,
+        costUsd: null,
+        costSource: "unknown",
+        usageCoverage: "partial",
+      });
+    } finally {
+      await agent.dispose();
+      journal.close();
+      await rm(root, { recursive: true, force: true });
+    }
+  },
+);
+
+it.each([
+  ["missing", null],
+  ["negative", { ...tokenUsage(), inputTokens: -1 }],
+  ["inconsistent subset", { ...tokenUsage(), reasoningOutputTokens: 21 }],
+  ["conflicting duplicate", tokenUsage(200)],
+])("keeps Codex usage unknown for a %s report", async (_reason, usage) => {
+  const normal = mock.handler;
+  const unknown = responseUsage("response", usage);
+  mock.handler = async (peer, method, params) => {
+    if (method !== "turn/start") return normal(peer, method, params);
+    await peer.receive({
+      method: "turn/started",
+      params: { threadId: "saved", turn: turn("inProgress") },
+    });
+    await peer.receive(responseUsage("response", tokenUsage()));
+    await peer.receive(unknown);
+    await peer.receive({ method: "turn/completed", params: { threadId: "saved", turn: turn() } });
+    return { turn: turn("inProgress") };
+  };
+  const agent = await open();
+  const output = observer();
+  await agent.start("saved", "Run", output);
+  expect(output.raw).toHaveBeenCalledWith(
+    unknown,
+    expect.objectContaining({
+      "gen_ai.usage.input_tokens": null,
+      "gen_ai.usage.output_tokens": null,
+      "swarmx.usage.coverage": "unknown",
+      "swarmx.usage.cost_usd": null,
+    }),
+  );
+});
+
+it("fills a missing Codex response usage report without adding the same response twice", async () => {
+  const normal = mock.handler;
+  mock.handler = async (peer, method, params) => {
+    if (method !== "turn/start") return normal(peer, method, params);
+    await peer.receive({
+      method: "turn/started",
+      params: { threadId: "saved", turn: turn("inProgress") },
+    });
+    await peer.receive(responseUsage("response", null));
+    await peer.receive(responseUsage("response", tokenUsage()));
+    await peer.receive(responseUsage("response", tokenUsage()));
+    await peer.receive({ method: "turn/completed", params: { threadId: "saved", turn: turn() } });
+    return { turn: turn("inProgress") };
+  };
+  const agent = await open();
+  const output = observer();
+  await agent.start("saved", "Run", output);
+  const reports = vi
+    .mocked(output.raw)
+    .mock.calls.filter(
+      ([, attributes]) => attributes?.["swarmx.usage.scope"] === "native-responses",
+    );
+  expect(reports.map(([, attributes]) => attributes?.["gen_ai.usage.input_tokens"])).toEqual([
+    null,
+    100,
+    100,
+  ]);
 });
 
 it("reads native history and catalog without acquiring a writer or MCP credential", async () => {

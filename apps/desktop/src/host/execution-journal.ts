@@ -1,8 +1,9 @@
 import { AsyncLocalStorage } from "node:async_hooks";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { chmodSync, mkdirSync } from "node:fs";
-import { isAbsolute, join } from "node:path";
+import { dirname, isAbsolute, join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
+import { isDeepStrictEqual } from "node:util";
 import { type AGUIEvent, EventSchemas, EventType } from "@ag-ui/core";
 import { executionSourceSchema } from "@swarmx/memory";
 import { z } from "zod";
@@ -77,6 +78,12 @@ export class ExecutionJournal {
         CREATE INDEX IF NOT EXISTS execution_run ON execution_events(workspace_id, run_id, seq);
         CREATE INDEX IF NOT EXISTS execution_cause ON execution_events(workspace_id, caused_by);
         CREATE INDEX IF NOT EXISTS execution_custom ON execution_events(workspace_id, json_extract(record_json, '$.event.name'), seq);
+        CREATE TABLE IF NOT EXISTS execution_idempotency (
+          workspace_id TEXT NOT NULL,
+          key TEXT NOT NULL,
+          event_id TEXT NOT NULL REFERENCES execution_events(id),
+          PRIMARY KEY (workspace_id, key)
+        ) STRICT;
         CREATE VIRTUAL TABLE IF NOT EXISTS memory_messages USING fts5(
           workspace_id UNINDEXED, session_id UNINDEXED, run_id UNINDEXED,
           role UNINDEXED, event_id UNINDEXED, text, tokenize='trigram'
@@ -98,10 +105,33 @@ export class ExecutionJournal {
     }
   }
 
+  tryReviewLock(): (() => void) | undefined {
+    const key = createHash("sha256").update(this.directoryKey).digest("hex");
+    const path = join(dirname(this.databasePath), `review-${key}.sqlite`);
+    // A separate SQLite lock leaves journal writes available throughout native review.
+    const lock = new DatabaseSync(path);
+    try {
+      chmodSync(path, 0o600);
+      lock.exec("BEGIN IMMEDIATE");
+    } catch (error) {
+      lock.close();
+      if (error instanceof Error && "errcode" in error && error.errcode === 5) return;
+      throw error;
+    }
+    return () => {
+      try {
+        lock.exec("ROLLBACK");
+      } finally {
+        lock.close();
+      }
+    };
+  }
+
   append(
     context: ExecutionContext | null,
     event: AGUIEvent,
     attributes: EventAttributes = {},
+    idempotencyKey?: string,
   ): ExecutionRecord {
     const observedAt = new Date();
     const data = EventSchemas.parse({ timestamp: observedAt.getTime(), ...event });
@@ -115,6 +145,29 @@ export class ExecutionJournal {
     );
     this.database.exec("BEGIN IMMEDIATE");
     try {
+      if (idempotencyKey !== undefined) {
+        const prior = this.database
+          .prepare(`SELECT record_json FROM execution_events
+          JOIN execution_idempotency ON event_id = execution_events.id
+          WHERE execution_idempotency.workspace_id = ? AND key = ?`)
+          .get(this.directoryKey, idempotencyKey) as { record_json: string } | undefined;
+        if (prior) {
+          const record = ExecutionRecordSchema.parse(JSON.parse(prior.record_json));
+          if (
+            record.sessionId !== (context?.sessionId ?? null) ||
+            record.runId !== (context?.runId ?? null) ||
+            record.causedBy !== (context?.causedBy ?? null) ||
+            !isDeepStrictEqual(record.attributes, attribution) ||
+            !isDeepStrictEqual(record.event, {
+              ...data,
+              timestamp: event.timestamp ?? record.event.timestamp,
+            })
+          )
+            throw new Error("Execution event idempotency conflict.");
+          this.database.exec("COMMIT");
+          return record;
+        }
+      }
       const { seq } = this.database
         .prepare("SELECT COALESCE(MAX(seq), 0) + 1 AS seq FROM execution_events")
         .get() as { seq: number };
@@ -144,6 +197,10 @@ export class ExecutionJournal {
           record.causedBy,
           json,
         );
+      if (idempotencyKey !== undefined)
+        this.database
+          .prepare("INSERT INTO execution_idempotency VALUES (?, ?, ?)")
+          .run(this.directoryKey, idempotencyKey, record.id);
       this.database.exec("COMMIT");
       return JSON.parse(json) as ExecutionRecord;
     } catch (error) {
@@ -225,6 +282,7 @@ export class ExecutionJournal {
     const records = new Map<string, ExecutionRecord>();
     const lifecycle = new Map<string, ExecutionRecord>();
     const runIds = new Set<string>();
+    let recordsComplete = true;
     for (const source of references) {
       const record = this.resolveSource(source);
       records.set(record.id, record);
@@ -238,6 +296,7 @@ export class ExecutionJournal {
             snapshot: z.object({
               evidence: z.object({
                 records: z.array(ExecutionRecordSchema),
+                omittedCount: z.number().int().nonnegative().optional(),
                 statistics: z.object({ runIds: z.array(z.string()) }).optional(),
               }),
             }),
@@ -245,6 +304,7 @@ export class ExecutionJournal {
           .safeParse(record.event.value);
         if (!saved.success)
           throw new ExecutionSourceError("Review snapshot has no valid saved execution evidence.");
+        recordsComplete &&= !saved.data.snapshot.evidence.omittedCount;
         let selectedRunIds = saved.data.snapshot.evidence.statistics?.runIds;
         if (saved.data.jobId) {
           const job = this.resolveSource(`urn:swarmx:execution:${saved.data.jobId}`);
@@ -274,6 +334,11 @@ export class ExecutionJournal {
             }
           }
         }
+        const selected = new Set(
+          executionRuns(saved.data.snapshot.evidence.records, selectedRunIds).map(
+            ({ runId }) => runId,
+          ),
+        );
         for (const entry of saved.data.snapshot.evidence.records) {
           const original = this.resolveSource(`urn:swarmx:execution:${entry.id}`);
           if (original.seq >= record.seq || JSON.stringify(original) !== JSON.stringify(entry))
@@ -281,22 +346,31 @@ export class ExecutionJournal {
               "Review snapshot does not match its original execution source.",
             );
           records.set(entry.id, entry);
-          if (!selectedRunIds || (entry.runId && selectedRunIds.includes(entry.runId)))
-            lifecycle.set(entry.id, entry);
+          if (entry.runId && selected.has(entry.runId)) lifecycle.set(entry.id, entry);
         }
       } else if (record.runId) runIds.add(record.runId);
     }
     const rows = this.database
-      .prepare(`SELECT record_json FROM execution_events
-      WHERE workspace_id = ? AND run_id IN (SELECT value FROM json_each(?))
-      AND json_extract(record_json, '$.event.type') IN ('RUN_STARTED', 'RUN_FINISHED', 'RUN_ERROR')
-      ORDER BY seq`)
-      .all(this.directoryKey, JSON.stringify([...runIds])) as { record_json: string }[];
+      .prepare(`WITH RECURSIVE related(id) AS (
+        SELECT id FROM execution_events WHERE workspace_id = ?
+          AND run_id IN (SELECT value FROM json_each(?))
+        UNION
+        SELECT child.id FROM execution_events child JOIN related parent ON child.caused_by = parent.id
+          WHERE child.workspace_id = ?
+      ) SELECT record_json FROM execution_events WHERE id IN (SELECT id FROM related)
+        ORDER BY seq`)
+      .all(this.directoryKey, JSON.stringify([...runIds]), this.directoryKey) as {
+      record_json: string;
+    }[];
     for (const row of rows) {
       const record = ExecutionRecordSchema.parse(JSON.parse(row.record_json));
       lifecycle.set(record.id, record);
     }
-    const runs = executionRuns([...lifecycle.values()].sort((a, b) => a.seq - b.seq));
+    const runs = executionRuns(
+      [...lifecycle.values()].sort((a, b) => a.seq - b.seq),
+      undefined,
+      recordsComplete,
+    );
     return {
       records: [...records.values()].sort((a, b) => a.seq - b.seq),
       runs,
@@ -336,7 +410,10 @@ export class ExecutionJournal {
     const rows = this.database
       .prepare(`SELECT terminal.record_json FROM execution_events terminal
         WHERE terminal.workspace_id = ?
-        AND json_extract(terminal.record_json, '$.event.type') IN ('RUN_FINISHED', 'RUN_ERROR')
+        AND (json_extract(terminal.record_json, '$.event.type') IN ('RUN_FINISHED', 'RUN_ERROR')
+          OR (json_extract(terminal.record_json, '$.event.type') = 'CUSTOM'
+            AND json_extract(terminal.record_json, '$.event.name') = 'swarmx.work.feedback'
+            AND json_extract(terminal.record_json, '$.attributes."swarmx.memory.review_eligible"') = 1))
         AND EXISTS (SELECT 1 FROM execution_events started
           WHERE started.workspace_id = terminal.workspace_id AND started.run_id = terminal.run_id
           AND json_extract(started.record_json, '$.event.type') = 'RUN_STARTED'
@@ -389,14 +466,22 @@ export class ExecutionJournal {
     return rows.map(({ record_json }) => ExecutionRecordSchema.parse(JSON.parse(record_json)));
   }
 
-  learningEvidence(runIds: readonly string[]): ExecutionEvidence & {
+  learningEvidence(
+    runIds: readonly string[],
+    sourceIds?: readonly string[],
+  ): ExecutionEvidence & {
     omitted: string[];
     omittedCount: number;
   } {
     const rows = this.database
-      .prepare(`WITH RECURSIVE related(id, caused_by) AS (
+      .prepare(`WITH RECURSIVE descendants(id, caused_by) AS (
           SELECT id, caused_by FROM execution_events WHERE workspace_id = ?
           AND run_id IN (SELECT value FROM json_each(?))
+          UNION
+          SELECT child.id, child.caused_by FROM execution_events child
+          JOIN descendants parent ON child.caused_by = parent.id WHERE child.workspace_id = ?
+        ), related(id, caused_by) AS (
+          SELECT id, caused_by FROM descendants
           UNION
           SELECT parent.id, parent.caused_by FROM execution_events parent
           JOIN related child ON parent.id = child.caused_by WHERE parent.workspace_id = ?
@@ -410,17 +495,25 @@ export class ExecutionJournal {
         AND (json_extract(event.record_json, '$.event.type') IN (
           'RUN_STARTED', 'RUN_FINISHED', 'RUN_ERROR', 'TEXT_MESSAGE_CHUNK',
           'TOOL_CALL_START', 'TOOL_CALL_ARGS', 'TOOL_CALL_CHUNK', 'TOOL_CALL_RESULT')
-          OR json_extract(event.record_json, '$.event.name') IN ('swarmx.tool.failed', 'swarmx.learning.resources'))
+          OR json_extract(event.record_json, '$.event.name') IN ('swarmx.tool.failed', 'swarmx.learning.resources')
+          OR (json_extract(event.record_json, '$.event.name') = 'swarmx.work.feedback'
+            AND (? IS NULL OR event.id IN (SELECT value FROM json_each(?)))))
         ORDER BY CASE
+          WHEN event.id IN (SELECT value FROM json_each(?)) THEN 0
+          WHEN json_extract(event.record_json, '$.event.name') = 'swarmx.work.feedback' THEN 1
           WHEN json_extract(event.record_json, '$.event.type') IN ('RUN_STARTED', 'RUN_FINISHED', 'RUN_ERROR')
-            OR json_extract(event.record_json, '$.event.name') = 'swarmx.learning.resources' THEN 0
-          WHEN json_extract(event.record_json, '$.event.type') = 'TEXT_MESSAGE_CHUNK' THEN 2
-          ELSE 1 END, event.seq`)
+            OR json_extract(event.record_json, '$.event.name') = 'swarmx.learning.resources' THEN 2
+          WHEN json_extract(event.record_json, '$.event.type') = 'TEXT_MESSAGE_CHUNK' THEN 4
+          ELSE 3 END, event.seq`)
       .iterate(
         this.directoryKey,
         JSON.stringify(runIds),
         this.directoryKey,
         this.directoryKey,
+        this.directoryKey,
+        sourceIds === undefined ? null : JSON.stringify(sourceIds),
+        sourceIds === undefined ? null : JSON.stringify(sourceIds),
+        sourceIds === undefined ? null : JSON.stringify(sourceIds),
       ) as Iterable<{
       id: string;
       record_json: string;
@@ -439,9 +532,7 @@ export class ExecutionJournal {
       }
     }
     records.sort((a, b) => a.seq - b.seq);
-    const runs = executionRuns(
-      records.filter((record) => record.runId && runIds.includes(record.runId)),
-    );
+    const runs = executionRuns(records, runIds, omittedCount === 0);
     return { records, omitted, omittedCount, runs, statistics: executionStatistics(runs) };
   }
 

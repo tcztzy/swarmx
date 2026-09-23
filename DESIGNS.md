@@ -1,5 +1,8 @@
 # SwarmX design
 
+[Product direction](docs/product-direction.md) defines the long-term research objective and
+[ROADMAP](ROADMAP.md) tracks unfinished milestones. This document defines data and execution ownership.
+
 The Host owns ProductServices and lazily loaded native Agents. It resolves `SWARMX_CWD` or the
 process's starting directory once; all execution uses that canonical directory. Science and execution
 journal records are isolated by a hash of the directory. Settings and Memory are shared in the private
@@ -12,6 +15,7 @@ does not close a borrowed native runtime. MCP's `swarm` tool enters the same dir
 | Native messages, configuration, history, approvals | Pi, Codex, Claude, DSH, Hermes or OpenClaw |
 | Observed execution events and causal links | Host execution journal, append-only SQLite |
 | Swarm membership | ProductServices, in memory |
+| Work cycles/items, resource reservations and acceptance | Host work management; references native sessions, execution records and Science revisions |
 | Research entities, journal and artifacts | Science |
 | Execution permissions and resolved Python environment | Host, private validated settings |
 | Shared semantic memory in OKF Markdown | Memory |
@@ -26,7 +30,7 @@ enforce ownership at the Host boundary. See `docs/execution-log.md` for the pers
 
 The Agent contract carries capabilities, run results and cancellation directly. Native integrations
 use official SDKs or native runtime APIs and project their events into the Host Observer. Native
-terminal outcomes confirm completion; the Host does not add title-generation requests. MCP
+terminal outcomes confirm that execution ended, independently of work acceptance; the Host does not add title-generation requests. MCP
 credentials are bound to their Host execution and revoked at the execution boundary.
 Pi supplies the default lead through its embedded SDK. Its native session manager and resource
 loader own persistence and skill discovery; SwarmX maintains no second Agent loop or skill loader.
@@ -51,21 +55,19 @@ messages. It is not a durable audit log or evidence of an action's correctness. 
 Memory keep their existing domain records. The execution journal records observed operations and
 their returned domain locators; it does not replace native resume state or scientific facts.
 
-Memory persists curated research knowledge across sessions and Agents through one shared store.
-A bounded user note supplies frozen session context; the OKF concept pool supplies knowledge and
-explicit revision-pinned prerequisites on demand. A trigram FTS5 index derives searchable original
-messages from the execution journal, including Chinese substring recall. Native resume histories
-and skills remain owned by their runtimes. Post-turn reviews use an isolated native conversation
-with product tools unavailable; validated proposals use the same Memory writes as foreground calls.
-Pending approvals and review outcomes are durable journal events. Only the user through the desktop can approve
-pending writes. Deterministic checks establish structure, scope and revisions, not factual truth.
-The execution journal also supplies the learning backlog: eligible terminal events remain pending
-until an exact batch is acknowledged. One Host consumer persists a review plan before writing,
-then records each applied or staged operation. Restart replays this plan with original grants
-intersected with current policy; idempotent operations cover interrupted receipts. There is no
-separate scheduler or scoring service. Registered project Markdown resources use the same plan
-and approval path, with pinned file/configuration revisions and project-owned validation commands.
-Native runtimes still load their own prompts and skills; see `docs/learning-resources.md`.
+[Memory](docs/memory.md) owns one shared knowledge store; native runtimes own resume histories
+and skill loading. Its searchable conversation index and review backlog derive from execution
+records. A single Host consumer persists a review plan before writes, then records each applied
+or staged operation so restart can replay with original grants intersected with current policy.
+Pending approvals are durable; only the user can approve them. Registered project prompts and
+skills use this same plan and approval path, plus revision checks and project-owned validators;
+see [learning resources](docs/learning-resources.md). Structural validation does not establish
+factual truth or a behavior change's effectiveness.
+
+[Work management](docs/work-management.md) owns Agent selection, managed continuations, runtime
+limits and acceptance above the Swarm layer. It derives cost from the execution journal's existing
+parent/child links and independent charges. Per-Agent totals include descendants; cycle spending
+counts each charge once. No second aggregate ledger or general-purpose billing layer is introduced.
 
 The sandboxed Electron preload exposes named operations. IPC validates payloads and accepts calls
 only from the application's top-level window. The external A2A Host binds a random loopback port

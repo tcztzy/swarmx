@@ -152,7 +152,7 @@ it("returns scoped evidence to the lead and labels old or foreign evaluations un
     evaluation: {
       status: "referenced",
       statistics: { sampleCount: 1, completed: 1 },
-      runs: [{ requestedModel: "requested", reportedModel: null }],
+      runs: [{ requestedModel: "requested", totalCostUsd: null, totalCostComplete: false }],
     },
   });
   expect(concepts.find(({ id }) => id === "legacy-agent-selection.md")).toMatchObject({
@@ -205,16 +205,18 @@ it("binds each reviewed evaluation to inspected original events and records the 
       reviewer: { harness: "codex" },
     },
   });
-  expect(products.journal.memoryEvent("swarmx.memory.review.planned")?.event).toMatchObject({
+  const planned = products.journal.memoryEvent("swarmx.memory.review.planned");
+  expect(planned?.event).toMatchObject({
     value: {
       reviewer: {
         harness: "codex",
         requestedModel: "configured-review-model",
-        model: null,
         version: "review-runtime",
       },
     },
   });
+  if (planned?.event.type !== EventType.CUSTOM) throw new Error("Missing review plan");
+  expect(planned.event.value.reviewer).not.toHaveProperty("model");
 });
 
 it.each(["omitted", "previous-review"])(

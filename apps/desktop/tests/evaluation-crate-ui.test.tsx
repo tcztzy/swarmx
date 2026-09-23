@@ -177,7 +177,8 @@ it("exports a loaded review snapshot directly without requiring a Memory concept
       other: 0,
       elapsed: { sampleCount: 0, medianMs: null },
       usage: { sampleCount: 0, inputTokens: null, outputTokens: null },
-      cost: { sampleCount: 0, usd: null },
+      cost: { sampleCount: 0, usd: null, complete: false },
+      tools: { callCount: 0, usd: 0, unpricedCalls: 0 },
     },
   });
   render(

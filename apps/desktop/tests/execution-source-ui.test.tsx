@@ -54,11 +54,13 @@ const evidence = {
   runs: [
     {
       runId: "run",
+      parentRunId: null,
+      purpose: null,
       sessionId: "codex:parent",
       task: "Check the original data.",
       harness: "codex",
       requestedModel: "requested-route",
-      reportedModel: "reported-route",
+      requestedEffort: "low",
       provider: null,
       harnessVersion: "native-1",
       modelVersion: null,
@@ -69,7 +71,14 @@ const evidence = {
       elapsedMs: 2000,
       inputTokens: null,
       outputTokens: null,
+      cachedInputTokens: null,
+      reasoningOutputTokens: null,
       costUsd: null,
+      tools: { callCount: 0, usd: 0, unpricedCalls: 0 },
+      totalCostUsd: null,
+      totalCostComplete: false,
+      costSource: "unknown",
+      usageCoverage: "unknown",
       usageBasis: "Native usage; cost estimated from configured model pricing.",
       sources: [source.resource],
     },
@@ -87,7 +96,8 @@ const evidence = {
     other: 0,
     elapsed: { sampleCount: 1, medianMs: 2000 },
     usage: { sampleCount: 0, inputTokens: null, outputTokens: null },
-    cost: { sampleCount: 0, usd: null },
+    cost: { sampleCount: 0, usd: null, complete: false },
+    tools: { callCount: 0, usd: 0, unpricedCalls: 0 },
   },
 };
 let gateway: BridgeHarness;
@@ -109,7 +119,10 @@ it("opens cited execution evidence without a Science snapshot and preserves orig
   ).toBeTruthy();
   expect(screen.getByText("2.00 s")).toBeTruthy();
   expect(screen.getByText("requested-route")).toBeTruthy();
-  expect(screen.getByText("reported-route")).toBeTruthy();
+  expect(screen.getByText("Requested reasoning effort").nextElementSibling?.textContent).toBe(
+    "low",
+  );
+  expect(screen.queryByText("Runtime-reported reasoning effort")).toBeNull();
   expect(
     screen.getByText("Native usage; cost estimated from configured model pricing."),
   ).toBeTruthy();
@@ -120,6 +133,19 @@ it("opens cited execution evidence without a Science snapshot and preserves orig
   expect(screen.getByText(/"content": "Check the original data\."/)).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: /Original output/ }));
   expect(screen.getByText(/The original answer is preserved/)).toBeTruthy();
+});
+
+it("shows missing requested effort as not recorded", async () => {
+  gateway.logsEvidence.mockResolvedValue({
+    ...evidence,
+    runs: evidence.runs.map((run) => ({ ...run, requestedEffort: null })),
+  });
+  render(
+    <SourceInspection source={source} snapshot={undefined} executions={[]} onClose={() => {}} />,
+  );
+  expect(
+    (await screen.findByText("Requested reasoning effort")).nextElementSibling?.textContent,
+  ).toBe("Not recorded");
 });
 
 it("surfaces unavailable and foreign execution references", async () => {

@@ -47,6 +47,23 @@ beforeEach(() => {
   sdk.hold = false;
 });
 
+it("sets Node mode for the SDK child executable and preserves the inherited environment", async () => {
+  const parentMode = process.env.ELECTRON_RUN_AS_NODE;
+  const agent = await createDsh({
+    cwd: "/workspace",
+    mcp: { command: "node", args: ["/bridge.js"], env: {} },
+  });
+  try {
+    await agent.start(await agent.create(), "work", view());
+    const env = sdk.runtimes[0]?.options.env;
+    expect(env?.ELECTRON_RUN_AS_NODE).toBe("1");
+    expect(env?.PATH).toBe(process.env.PATH);
+    expect(process.env.ELECTRON_RUN_AS_NODE).toBe(parentMode);
+  } finally {
+    await agent.dispose();
+  }
+});
+
 it("owns one native runtime per task and removes its private MCP configuration and credential", async () => {
   const endpoint = { bind: vi.fn(), dispose: vi.fn() };
   const registerMcp = vi.fn((_token: string) => endpoint);
@@ -76,7 +93,12 @@ it("owns one native runtime per task and removes its private MCP configuration a
   });
   expect(patch[0].insert[0].config.env.SWARMX_MCP_TOKEN).toBe(registerMcp.mock.calls[0]?.[0]);
   expect(endpoint.bind).toHaveBeenCalledWith(`dsh:${id}`, "execution");
-  expect(runtime.options).toEqual({ cwd: "/workspace", processCwd: "/workspace", patches: [path] });
+  expect(runtime.options).toEqual({
+    cwd: "/workspace",
+    processCwd: "/workspace",
+    env: expect.any(Object),
+    patches: [path],
+  });
   runtime.finish();
   await expect(work).resolves.toEqual({ stopReason: "end_turn" });
   expect(runtime.close).toHaveBeenCalledOnce();

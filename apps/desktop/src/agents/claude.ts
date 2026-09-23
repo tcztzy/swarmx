@@ -21,6 +21,7 @@ import { z } from "zod";
 import { requestApproval } from "./approval.js";
 import {
   type AgentOptions,
+  type EventAttributes,
   HARNESS_CAPABILITIES,
   memoryContextSuffix,
   type NativeAgent,
@@ -50,6 +51,56 @@ const questionSchema = z.object({
     }),
   ),
 });
+const nativeUsageSchema = z.object({
+  total_cost_usd: z.number().finite().nonnegative(),
+  modelUsage: z.record(
+    z.string(),
+    z.object({
+      inputTokens: z.number().int().nonnegative(),
+      outputTokens: z.number().int().nonnegative(),
+      cacheReadInputTokens: z.number().int().nonnegative(),
+      cacheCreationInputTokens: z.number().int().nonnegative(),
+      thinkingTokens: z.number().int().nonnegative().optional(),
+    }),
+  ),
+});
+const emptyUsage = { input: 0, output: 0, cached: 0, thinking: 0 as number | null, cost: 0 };
+type QueryUsage = typeof emptyUsage;
+
+function queryUsage(message: SDKResultMessage): QueryUsage | null {
+  const parsed = nativeUsageSchema.safeParse(message);
+  if (!parsed.success || !Object.keys(parsed.data.modelUsage).length) return null;
+  const models = Object.values(parsed.data.modelUsage);
+  if (
+    message.is_error &&
+    parsed.data.total_cost_usd === 0 &&
+    models.every(
+      (model) =>
+        model.inputTokens +
+          model.outputTokens +
+          model.cacheReadInputTokens +
+          model.cacheCreationInputTokens ===
+        0,
+    )
+  )
+    return null;
+  return {
+    input: models.reduce(
+      (sum, model) =>
+        sum + model.inputTokens + model.cacheReadInputTokens + model.cacheCreationInputTokens,
+      0,
+    ),
+    output: models.reduce((sum, model) => sum + model.outputTokens, 0),
+    cached: models.reduce(
+      (sum, model) => sum + model.cacheReadInputTokens + model.cacheCreationInputTokens,
+      0,
+    ),
+    thinking: models.every((model) => model.thinkingTokens !== undefined)
+      ? models.reduce((sum, model) => sum + (model.thinkingTokens ?? 0), 0)
+      : null,
+    cost: parsed.data.total_cost_usd,
+  };
+}
 
 function resultOutcome(result: SDKResultMessage): RunResult {
   if (result.terminal_reason === "aborted_streaming" || result.terminal_reason === "aborted_tools")
@@ -128,7 +179,7 @@ function projection(observer: Observer) {
   };
   return {
     blocks,
-    event(message: SDKMessage) {
+    event(message: SDKMessage, usage?: EventAttributes) {
       observer.raw(
         message,
         message.type === "system" && message.subtype === "init"
@@ -139,7 +190,7 @@ function projection(observer: Observer) {
             }
           : message.type === "assistant"
             ? { "gen_ai.response.model": message.message.model ?? null }
-            : undefined,
+            : usage,
       );
       if (message.type === "assistant" || message.type === "user")
         blocks(
@@ -179,6 +230,10 @@ export async function createClaude(options: AgentOptions): Promise<NativeAgent> 
     result?: SDKResultMessage;
     stopped: boolean;
     submitted: boolean;
+    usageStart?: QueryUsage | null;
+    usageReset?: boolean;
+    model?: string;
+    resolvedModel?: string | undefined;
   };
   const running = new Map<string, Active>();
   let disposed = false;
@@ -196,13 +251,14 @@ export async function createClaude(options: AgentOptions): Promise<NativeAgent> 
       throw new Error("Claude session does not belong to this directory.");
   };
 
-  function open(sessionId?: string, instructions?: string) {
+  function open(sessionId?: string, instructions?: string, budgetUsd?: number) {
     const input = new PassThrough({ objectMode: true });
     let childClosed: Promise<void> = Promise.resolve();
     let closing = false;
     let closePromise: Promise<void> | undefined;
     let failure: Error | undefined;
     const current: RunOptions = {};
+    let usage: QueryUsage | null = emptyUsage;
     const active = () => (sessionId === undefined ? undefined : running.get(sessionId));
     const readonly = options.reviewOnly || sessionId === undefined;
     const native = query({
@@ -211,6 +267,7 @@ export async function createClaude(options: AgentOptions): Promise<NativeAgent> 
         cwd: options.cwd,
         settingSources: ["user", "project", "local"],
         includePartialMessages: true,
+        ...(budgetUsd === undefined ? {} : { maxBudgetUsd: budgetUsd }),
         ...(sessionId === undefined
           ? {}
           : fresh.has(sessionId)
@@ -262,7 +319,7 @@ export async function createClaude(options: AgentOptions): Promise<NativeAgent> 
             message: "Tool request declined.",
             toolUseID: context.toolUseID,
           };
-          if (!run || run.stopped || readonly) return deny;
+          if (!run || run.stopped || failure || readonly) return deny;
           if (name === "AskUserQuestion") {
             const { questions } = questionSchema.parse(input);
             const fields = questions.flatMap((question, index) => {
@@ -387,7 +444,57 @@ export async function createClaude(options: AgentOptions): Promise<NativeAgent> 
             Object.assign(current, { mode: message.permissionMode });
           const run = active();
           if (!run?.submitted || run.stopped) continue;
-          run.project.event(message);
+          const responseModel =
+            message.type === "assistant" && !message.parent_tool_use_id
+              ? message.message.model
+              : message.type === "stream_event" &&
+                  !message.parent_tool_use_id &&
+                  message.event.type === "message_start"
+                ? message.event.message.model
+                : message.type === "system" &&
+                    message.subtype === "model_refusal_fallback" &&
+                    message.scope !== "local"
+                  ? message.fallback_model
+                  : undefined;
+          if (
+            run.model &&
+            responseModel &&
+            responseModel !== run.model &&
+            responseModel !== run.resolvedModel
+          ) {
+            run.observer.raw(message);
+            throw new Error(`Claude model changed from "${run.model}" to "${responseModel}".`);
+          }
+          let measured: EventAttributes | undefined;
+          if (message.type === "result") {
+            const next = queryUsage(message);
+            const previous = usage;
+            const keys = ["input", "output", "cached", "cost"] as const;
+            if (!next || !previous || keys.some((key) => next[key] < previous[key]))
+              run.usageReset = true;
+            usage = next;
+            const start = run.usageStart;
+            const known = !run.usageReset && start && next;
+            measured = {
+              "gen_ai.usage.input_tokens": known ? next.input - start.input : null,
+              "gen_ai.usage.output_tokens": known ? next.output - start.output : null,
+              "swarmx.usage.cached_input_tokens": known ? next.cached - start.cached : null,
+              "swarmx.usage.reasoning_output_tokens":
+                known &&
+                next.thinking !== null &&
+                start.thinking !== null &&
+                next.thinking >= start.thinking
+                  ? next.thinking - start.thinking
+                  : null,
+              "swarmx.usage.cost_usd": known ? next.cost - start.cost : null,
+              "swarmx.usage.cost_source": known ? "native-estimate" : "unknown",
+              "swarmx.usage.coverage": known ? "partial" : "unknown",
+              "swarmx.usage.scope": "native-query",
+              "swarmx.usage.basis":
+                "Claude query cumulative delta; includes native subagents and cache; output includes thinking; excludes helpers outside query pipeline; USD estimate, not invoice",
+            };
+          }
+          run.project.event(message, measured);
           if (message.type === "result") {
             run.result = message;
             const outcome = resultOutcome(message);
@@ -417,6 +524,9 @@ export async function createClaude(options: AgentOptions): Promise<NativeAgent> 
     return {
       native,
       current,
+      get usage() {
+        return usage;
+      },
       get failure() {
         return failure;
       },
@@ -532,15 +642,26 @@ export async function createClaude(options: AgentOptions): Promise<NativeAgent> 
       try {
         await owned(sessionId);
         if (run.stopped) return { stopReason: "cancelled" };
+        const previous = runtimes.get(sessionId);
+        if (selection?.budgetUsd !== undefined && previous) {
+          run.runtime = previous;
+          await previous.close();
+          runtimes.delete(sessionId);
+          if (run.stopped) return { stopReason: "cancelled" };
+        }
         const runtime =
           runtimes.get(sessionId) ??
-          open(sessionId, fresh.get(sessionId) ?? selection?.instructions);
+          open(sessionId, fresh.get(sessionId) ?? selection?.instructions, selection?.budgetUsd);
         run.runtime = runtime;
         runtimes.set(sessionId, runtime);
         if (runtime.failure) throw runtime.failure;
         await runtime.native.initializationResult();
         if (run.stopped) return { stopReason: "cancelled" };
         if (selection?.model !== undefined) {
+          run.model = selection.model;
+          run.resolvedModel = (await runtime.native.supportedModels()).find(
+            (model) => model.value === selection.model,
+          )?.resolvedModel;
           await runtime.native.setModel(selection.model);
           Object.assign(runtime.current, { model: selection.model });
         }
@@ -574,6 +695,15 @@ export async function createClaude(options: AgentOptions): Promise<NativeAgent> 
             throw new Error(`Claude MCP configuration failed: ${JSON.stringify(response.errors)}`);
         }
         if (run.stopped) return { stopReason: "cancelled" };
+        if (selection?.budgetUsd !== undefined)
+          observer.raw(
+            { type: "swarmx.native.budget", budgetUsd: selection.budgetUsd, scope: "query" },
+            {
+              "swarmx.budget.limit_usd": selection.budgetUsd,
+              "swarmx.budget.enforcement": "claude.maxBudgetUsd",
+            },
+          );
+        run.usageStart = runtime.usage;
         run.submitted = true;
         runtime.send(text);
         fresh.delete(sessionId);
@@ -593,7 +723,7 @@ export async function createClaude(options: AgentOptions): Promise<NativeAgent> 
         throw error;
       } finally {
         endpoint?.dispose();
-        if (options.reviewOnly || run.stopped) {
+        if (options.reviewOnly || run.stopped || selection?.budgetUsd !== undefined) {
           await run.runtime?.close();
           runtimes.delete(sessionId);
         }

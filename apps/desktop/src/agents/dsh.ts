@@ -90,6 +90,7 @@ export async function createDsh(options: AgentOptions): Promise<NativeAgent> {
           harness: new DeepSeekHarness({
             cwd: options.cwd,
             processCwd: options.cwd,
+            env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" },
             patches: [patch],
             ...route,
             ...(profile === undefined ? {} : { profile }),

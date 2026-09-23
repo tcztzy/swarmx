@@ -1,8 +1,13 @@
 import { z } from "zod";
 import type { AgUiEventMessage } from "../bridge-contract.js";
+import type { WorkCommandSchema, WorkReadRequestSchema } from "../work.js";
 
 export interface SwarmxBridge {
   bootstrap(): Promise<unknown>;
+  work: {
+    read(input: z.input<typeof WorkReadRequestSchema>): Promise<unknown>;
+    command(input: z.input<typeof WorkCommandSchema>): Promise<unknown>;
+  };
   tool(input: { requestId: string; name: string; args: unknown }): Promise<unknown>;
   cancelTool(input: { requestId: string }): Promise<unknown>;
   settings: {

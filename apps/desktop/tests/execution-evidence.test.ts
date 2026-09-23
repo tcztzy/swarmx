@@ -236,7 +236,6 @@ it("counts distinct started executions with explicit outcomes and reports only k
     task: "Actual task 0",
     harness: "dsh",
     requestedModel: "requested-provider/requested",
-    reportedModel: "reported-model",
     provider: "reported-provider",
     harnessVersion: "native-version",
     modelVersion: "model-version",
@@ -248,7 +247,6 @@ it("counts distinct started executions with explicit outcomes and reports only k
     usageBasis: "Native reported usage; native estimated cost",
   });
   expect(evidence.runs[1]).toMatchObject({
-    reportedModel: null,
     provider: null,
     inputTokens: null,
     outputTokens: null,
@@ -275,7 +273,8 @@ it("counts distinct started executions with explicit outcomes and reports only k
     other: 1,
     elapsed: { sampleCount: 4, medianMs: 3_500 },
     usage: { sampleCount: 1, inputTokens: 20, outputTokens: 10 },
-    cost: { sampleCount: 1, usd: 0.03 },
+    cost: { sampleCount: 1, usd: 0.03, complete: false },
+    tools: { callCount: 0, usd: 0, unpricedCalls: 0 },
   });
   expect(journal.evidence([...sources].reverse()).statistics).toEqual(evidence.statistics);
 });
@@ -316,7 +315,57 @@ it("keeps snapshot evidence frozen and never fetches omitted or later transcript
   expect(current.statistics).toMatchObject({ sampleCount: 1, completed: 1, incomplete: 0 });
 });
 
-it("preserves an explicitly unknown reported model despite a known configured model", async () => {
+it.each([
+  { children: 1, taskLength: 41_000 },
+  { children: 8, taskLength: 9_000 },
+])("does not call truncated descendant costs complete (%j)", async ({ children, taskLength }) => {
+  const { journal } = await fixture();
+  const parent = context("parent");
+  const started = start(journal, parent);
+  for (let index = 0; index < children; index++) {
+    const child = {
+      ...context(`child-${index}`),
+      causedBy: started.id,
+      attributes: { ...parent.attributes, "swarmx.execution.parent_run_id": parent.runId },
+    };
+    journal.append(child, {
+      type: EventType.RUN_STARTED,
+      threadId: child.sessionId,
+      runId: child.runId,
+      input: {
+        threadId: child.sessionId,
+        runId: child.runId,
+        messages: [{ id: "task", role: "user", content: "x".repeat(taskLength) }],
+        tools: [],
+        context: [],
+        state: {},
+        forwardedProps: {},
+      },
+    });
+    finish(journal, child, "end_turn", { "swarmx.usage.cost_usd": 2 });
+  }
+  const terminal = finish(journal, parent, "end_turn", { "swarmx.usage.cost_usd": 1 });
+  const saved = journal.learningEvidence([parent.runId], [terminal.id]);
+  expect(saved.omittedCount).toBeGreaterThan(0);
+  expect(saved.statistics.cost.complete).toBe(false);
+  expect(saved.runs).not.toHaveLength(0);
+  expect(saved.runs.every((run) => run.totalCostUsd === null && !run.totalCostComplete)).toBe(true);
+  const snapshot = journal.append(null, {
+    type: EventType.CUSTOM,
+    name: "swarmx.memory.review.started",
+    value: { snapshot: { evidence: saved } },
+  });
+  const recalled = journal.evidence([source(snapshot)]);
+  expect(recalled.runs).toEqual(saved.runs);
+  expect(recalled.statistics).toEqual(saved.statistics);
+  expect(recalled.records).toEqual([...saved.records, snapshot]);
+  expect(journal.evidence([source(started)]).runs[0]).toMatchObject({
+    totalCostUsd: 1 + children * 2,
+    totalCostComplete: true,
+  });
+});
+
+it("summarizes only the requested model and preserves native attributes in the original record", async () => {
   const { journal } = await fixture();
   const scope = context("unknown-model");
   start(journal, scope);
@@ -330,11 +379,81 @@ it("preserves an explicitly unknown reported model despite a known configured mo
   const evidence = journal.evidence([source(terminal)]);
   expect(evidence.runs[0]).toMatchObject({
     requestedModel: "requested-provider/requested",
-    reportedModel: null,
   });
+  expect(evidence.runs[0]).not.toHaveProperty("reportedModel");
+  expect(evidence.records[0]?.attributes["gen_ai.response.model"]).toBeNull();
+  expect(evidence.records[0]?.attributes["swarmx.agent.model"]).toBe("configured-model");
   expect(evidence.statistics).toMatchObject({
     usage: { sampleCount: 1, inputTokens: 0, outputTokens: 0 },
     cost: { sampleCount: 1, usd: 0 },
+  });
+});
+
+it("uses dispatch effort without inferring a level from later native records", async () => {
+  const { journal } = await fixture();
+  const cases = [
+    ["high", "medium", "high"],
+    ["high", undefined, "high"],
+    [undefined, "off", null],
+    [undefined, undefined, null],
+    ["low", null, "low"],
+    [3, false, null],
+  ] as const;
+  for (const [index, [requested, reported, requestedEffort]] of cases.entries()) {
+    const scope = context(`effort-${index}`);
+    scope.attributes["gen_ai.request.reasoning.level"] = requested;
+    start(journal, scope);
+    journal.append(
+      scope,
+      { type: EventType.RAW, event: { type: "unprojected-config" } },
+      {
+        "swarmx.agent.effort": "raw-only-level",
+      },
+    );
+    const terminal = finish(journal, scope, "end_turn", {
+      "gen_ai.request.reasoning.level": "later-request-attribute",
+      "swarmx.agent.effort": reported,
+    });
+    const evidence = journal.evidence([source(terminal)]);
+    expect(evidence.runs).toHaveLength(1);
+    expect(evidence.runs[0]).toMatchObject({ requestedEffort });
+    expect(evidence.runs[0]).not.toHaveProperty("reportedEffort");
+    expect(evidence.records[0]?.attributes["swarmx.agent.effort"]).toBe(reported);
+  }
+});
+
+it("counts independent tool charges once and leaves unpriced tool calls visible", async () => {
+  const { journal } = await fixture();
+  const scope = context("tools");
+  const started = start(journal, scope);
+  journal.append(scope, {
+    type: EventType.TOOL_CALL_START,
+    toolCallId: "priced",
+    toolCallName: "cloud-compute",
+  });
+  for (let index = 0; index < 2; index++)
+    journal.append(
+      scope,
+      {
+        type: EventType.TOOL_CALL_RESULT,
+        toolCallId: "priced",
+        messageId: `result-${index}`,
+        content: "{}",
+      },
+      { "swarmx.tool.cost_usd": 2 },
+    );
+  journal.append(scope, {
+    type: EventType.TOOL_CALL_CHUNK,
+    toolCallId: "local",
+    toolCallName: "bash",
+    delta: "{}",
+  });
+  finish(journal, scope, "end_turn", { "swarmx.usage.cost_usd": 1 });
+  const evidence = journal.evidence([source(started)]);
+  expect(evidence.runs[0]).toMatchObject({ costUsd: 1, totalCostUsd: 3, totalCostComplete: true });
+  expect(evidence.statistics).toMatchObject({
+    tools: { callCount: 2, usd: 2, unpricedCalls: 1 },
+    cost: { sampleCount: 1, usd: 3, complete: true },
   });
 });
 

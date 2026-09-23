@@ -201,8 +201,12 @@ function ExecutionSourceInspection({
             <dd>{run.harness ?? unknown}</dd>
             <dt>{t("请求的模型")}</dt>
             <dd>{run.requestedModel ?? unknown}</dd>
-            <dt>{t("运行时报告的模型")}</dt>
-            <dd>{run.reportedModel ?? unknown}</dd>
+            <dt>{t("请求的推理强度")}</dt>
+            <dd>{run.requestedEffort ?? unknown}</dd>
+            <dt>{t("自身费用（USD）")}</dt>
+            <dd>{run.costUsd ?? unknown}</dd>
+            <dt>{t("含下级的总费用（USD）")}</dt>
+            <dd>{run.totalCostUsd ?? t("费用不完整")}</dd>
             <dt>{t("运行时报告的 Provider")}</dt>
             <dd>{run.provider ?? unknown}</dd>
             <dt>{t("Harness 版本")}</dt>

@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useState } from "react";
 import type { z } from "zod";
 import { BootstrapSchema, SessionCreateSchema, SessionListSchema } from "../bridge-contract.js";
 import { HarnessPicker } from "./agent-controls.js";
@@ -16,6 +16,7 @@ import { TracePanel } from "./trace.js";
 const ResearchPanel = lazy(() =>
   import("./research.js").then(({ ResearchPanel }) => ({ default: ResearchPanel })),
 );
+const WorkPanel = lazy(() => import("./work.js").then(({ WorkPanel }) => ({ default: WorkPanel })));
 
 type Sessions = z.infer<typeof SessionListSchema>;
 
@@ -31,7 +32,12 @@ export function App() {
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(() => matchMedia("(min-width: 768px)").matches);
-  const [panel, setPanel] = useState<"assets" | "observe">();
+  const [panel, showPanel] = useState<"assets" | "observe" | "work">();
+  const [researchMode, setResearchMode] = useState<"assets" | "observe">();
+  const setPanel = useCallback((mode: "assets" | "observe" | "work" | undefined) => {
+    showPanel(mode);
+    if (mode !== "work") setResearchMode(mode);
+  }, []);
   const [target, setTarget] = useState<{
     artifactId?: string;
     projectId?: string;
@@ -48,7 +54,7 @@ export function App() {
     };
     window.addEventListener("swarmx:open-research", open);
     return () => window.removeEventListener("swarmx:open-research", open);
-  }, []);
+  }, [setPanel]);
 
   useEffect(() => {
     const { agentId } = sessionRequest;
@@ -166,19 +172,26 @@ export function App() {
         </p>
       }
     >
-      <ResearchPanel
-        mode={panel ?? "assets"}
-        canCompose={!!selected}
-        target={target}
-        onClose={() => setPanel(undefined)}
-        trace={
-          selected ? (
-            <TracePanel />
-          ) : (
-            <p className="p-6 text-neutral-500">{t("任务开始后，执行轨迹会显示在这里。")}</p>
-          )
-        }
-      />
+      {panel === "work" && (
+        <WorkPanel onClose={() => setPanel(undefined)} harnesses={harnessProps.harnesses} />
+      )}
+      {researchMode && (
+        <div hidden={panel === "work"} className={panel === "work" ? "hidden" : "contents"}>
+          <ResearchPanel
+            mode={researchMode}
+            canCompose={!!selected}
+            target={target}
+            onClose={() => setPanel(undefined)}
+            trace={
+              selected ? (
+                <TracePanel />
+              ) : (
+                <p className="p-6 text-neutral-500">{t("任务开始后，执行轨迹会显示在这里。")}</p>
+              )
+            }
+          />
+        </div>
+      )}
     </Suspense>
   );
 
@@ -318,6 +331,19 @@ export function App() {
             <span aria-hidden="true" className="header-divider" />
             <h1 title={title}>{title}</h1>
             <div className="ml-auto flex items-center gap-1">
+              <Button
+                variant="outline"
+                size="sm"
+                className="border-transparent px-2.5 aria-expanded:bg-neutral-100"
+                aria-label={t("长期工作")}
+                aria-expanded={panel === "work"}
+                aria-controls="research-side-view"
+                type="button"
+                onClick={() => setPanel(panel === "work" ? undefined : "work")}
+              >
+                <Icon name="book" className="size-6" />
+                <span className="hidden sm:inline">{t("长期工作")}</span>
+              </Button>
               <Button
                 variant="outline"
                 size="sm"

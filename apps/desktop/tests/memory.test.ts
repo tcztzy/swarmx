@@ -37,6 +37,7 @@ it("exposes Memory operations, rejects model approvals and persists across Host 
                 "memory_configure",
                 "memory_review",
                 "memory_decide",
+                "export_evaluation",
               ],
             },
           },

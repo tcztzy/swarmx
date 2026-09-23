@@ -32,7 +32,11 @@ async function fixture() {
     runId: randomUUID(),
     sessionId: "codex:crate",
     causedBy: null,
-    attributes: { "swarmx.harness.name": "codex", "gen_ai.request.model": "requested-model" },
+    attributes: {
+      "swarmx.harness.name": "codex",
+      "gen_ai.request.model": "requested-model",
+      "gen_ai.request.reasoning.level": "low",
+    },
   };
   const started = products.journal.append(scope, {
     type: EventType.RUN_STARTED,
@@ -53,12 +57,15 @@ async function fixture() {
     role: "assistant",
     delta: "原始回答\nLimitations preserved.",
   });
-  products.journal.append(scope, {
-    type: EventType.RUN_FINISHED,
-    threadId: scope.sessionId,
-    runId: scope.runId,
-    result: { stopReason: "end_turn" },
-  });
+  products.journal.append(
+    { ...scope, attributes: { ...scope.attributes, "swarmx.agent.effort": "high" } },
+    {
+      type: EventType.RUN_FINISHED,
+      threadId: scope.sessionId,
+      runId: scope.runId,
+      result: { stopReason: "end_turn" },
+    },
+  );
   const evaluation = {
     kind: "judgment" as const,
     task: "Writing",
@@ -87,7 +94,7 @@ async function fixture() {
 }
 
 it("exports exact pinned evidence as a deterministic Attached RO-Crate without mutating knowledge", async () => {
-  const { products, root, concept, answer, exportCrate } = await fixture();
+  const { products, root, concept, answer, scope, exportCrate } = await fixture();
   const request = { id: concept.id, expectedRevision: concept.revision };
   const first = await exportCrate(request);
   expect(await exportCrate(request)).toEqual(first);
@@ -134,6 +141,14 @@ it("exports exact pinned evidence as a deterministic Attached RO-Crate without m
     sampleCount: 1,
     completed: 1,
     cost: { sampleCount: 0, usd: null },
+  });
+  expect(statistics.runs).toMatchObject([{ requestedEffort: "low" }]);
+  expect(statistics.runs[0]).not.toHaveProperty("reportedEffort");
+  const software = first.metadata["@graph"].find(
+    (entity) => entity["@id"] === `#software-${scope.runId}`,
+  );
+  expect(JSON.parse(String(software?.description))).toMatchObject({
+    requestedEffort: "low",
   });
   expect((await products.memory.vault.readConcept(concept.id)).revision).toBe(concept.revision);
 });

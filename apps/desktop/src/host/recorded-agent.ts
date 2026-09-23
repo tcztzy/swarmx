@@ -189,6 +189,15 @@ export function recordedAgent(
           interact: observer.interact.bind(observer),
           cancelInteractions,
           attributes: {
+            ...Object.fromEntries(
+              Object.entries(parent?.attributes ?? {}).filter(
+                ([key]) =>
+                  key.startsWith("swarmx.work.") ||
+                  key === "swarmx.execution.purpose" ||
+                  key === "swarmx.memory.review.source_run_ids",
+              ),
+            ),
+            "swarmx.execution.parent_run_id": parent?.sessionId ? parent.runId : null,
             "swarmx.harness.name": harness,
             "swarmx.harness.version": null,
             "gen_ai.agent.name": agent.name,
@@ -266,17 +275,19 @@ export function recordedAgent(
             for (const key of [
               "swarmx.harness.version",
               "swarmx.agent.version",
-              "swarmx.agent.model",
-              "swarmx.agent.effort",
               "swarmx.agent.mode",
               "swarmx.native.mode",
-              "gen_ai.response.model",
               "gen_ai.provider.name",
               "swarmx.model.version",
               "gen_ai.usage.input_tokens",
               "gen_ai.usage.output_tokens",
               "swarmx.usage.cost_usd",
               "swarmx.usage.basis",
+              "swarmx.usage.cached_input_tokens",
+              "swarmx.usage.reasoning_output_tokens",
+              "swarmx.usage.coverage",
+              "swarmx.usage.cost_source",
+              "swarmx.usage.scope",
             ])
               if (attributes?.[key] !== undefined) scope.attributes[key] = attributes[key];
             const nativeRun = attributes?.["swarmx.native.run_id"];

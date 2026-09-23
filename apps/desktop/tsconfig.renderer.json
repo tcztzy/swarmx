@@ -21,6 +21,7 @@
     "src/message-activity.ts",
     "src/settings.ts",
     "src/permissions.ts",
+    "src/work.ts",
     "src/memory.ts"
   ]
 }

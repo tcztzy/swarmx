@@ -7,6 +7,10 @@ title generation, tools and execution. Only the selected integration loads.
 
 Pi uses its native model/auth configuration, SessionManager, built-in tools, compaction and
 DefaultResourceLoader. Skills retain Pi's standard discovery and on-demand full-text loading.
+Sessions with the product `swarm` tool add the bundled `delegate` skill through the SDK's
+`additionalSkillPaths`; restricted review sessions do not add it. Pi advertises its metadata
+and reads its body on demand. `swarm.prepare` still loads the current skill with relevant
+private evaluations before each delegated task; native discovery does not replace that check.
 Frozen Memory context enters through the SDK's appended system prompt. Per-turn model/thinking
 choices belong to the session and do not rewrite global Pi defaults. Custom tools invoke the
 existing ProductServices directly, with the active execution's permissions, cancellation and
@@ -36,6 +40,15 @@ Swarm composition borrows a lead Agent and forwards method calls and Observer ca
 process. It has no wire format, connection handshake or provider-specific branches. The Host
 intersects Host policy, caller, captured Swarm and persisted conversation grants at every hop.
 Configuration validation and cancellation before dispatch remain Host responsibilities.
+The shared Agent identity is the requested harness/model/effort/profile. An explicit effective-model
+or effort conflict reported by a native runtime fails execution; raw reports remain in the journal.
+Pi checks SDK session settings at preflight and during callbacks. A provider `responseModel` that
+identifies another model in the same native catalog also fails before its tools execute. Unknown
+response names remain raw evidence because Pi supplies no alias-to-canonical mapping; an unfamiliar
+name alone cannot prove that a provider changed models. Claude resolves model aliases with
+its official catalog and checks main-thread output; native internal subagents can use their own
+models. Codex rejects explicit model rerouting. Native acknowledgement without effective-setting
+metadata is not independent proof of the backend configuration.
 Native terminal outcomes confirm completion or cancellation; missing terminal results fail.
 The existing public `stopReason` values remain stable for stored execution records and callers.
 
@@ -61,8 +74,18 @@ explicit model, effort and mode selections, including through the external ACP g
 Previously persisted Codex approval mode IDs retain their approval/reviewer policies and select
 the corresponding native permissions profile; new native profile IDs pass through unchanged.
 Native message phases, turn timing, tools and errors survive projection into the existing UI.
-Claude consumes native output through its idle notification after a result and keeps the SDK
-session alive between turns so delayed native title generation can finish. The SDK reads
+Codex records exact per-response usage from `rawResponse/completed`, grouped by the current
+native turn and deduplicated by response ID. Input includes cache reads/writes; output includes
+reasoning. Session-level `thread/tokenUsage/updated` totals and last-response snapshots remain
+RAW evidence and are not added again. Missing or inconsistent usage remains unknown, including
+when a run completes normally. Known observed tokens survive failure and cancellation; no USD
+price is inferred. See [execution accounting](execution-log.md) for coverage and provenance.
+Claude consumes native output through its idle notification after a result. Ordinary turns keep
+the SDK session alive so delayed native title generation can finish. Host-budgeted executions
+open a fresh or resumed SDK query with its registered `maxBudgetUsd` and close that query after
+completion. Queued steering stays within the same query and budget. The limit uses Claude's
+reported USD estimates; the SDK stops after observing the budget exceeded, so this is not an
+invoice cap or a guarantee of zero overspend. The SDK reads
 session metadata and history without opening a writer. Stop closes only the owned session
 process and waits for its exit, discarding any queued steering inputs. Native errors and terminal
 stops settle immediately and close the runtime; successful turns require idle. Output EOF without
@@ -126,6 +149,8 @@ connections; a Gateway that does not issue a device token continues to require i
 
 DSH uses its published SDK client and the matching runtime. A run ends at native idle after its
 input receipt. Stop closes that execution's runtime; closing one execution cannot stop another.
+The SDK launches its runtime with the Host executable. SwarmX preserves the inherited environment
+and sets `ELECTRON_RUN_AS_NODE=1` for that child so desktop builds run the DSH entry point as Node.
 Idle is a lifecycle boundary, not proof of success: native `turn/end` errors, blocked turns and
 unfinished turns cannot become successful Host results. Committed assistant messages and tool
 events are projected as the SDK delivers them; child-session events remain diagnostic records

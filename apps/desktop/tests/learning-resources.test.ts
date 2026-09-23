@@ -34,17 +34,21 @@ const content = await readFile(process.argv[2], 'utf8');
 if (!content.includes('VALID')) process.exit(1);
 await appendFile('validated.txt', content + '\\n');
 `,
+  evaluator?: string,
+  original = "Original instructions\n",
 ) {
   const root = await mkdtemp(join(tmpdir(), "swarmx-learning-resources-"));
   roots.push(root);
   await mkdir(join(root, ".swarmx"));
-  await writeFile(join(root, "AGENTS.md"), "Original instructions\n");
+  await writeFile(join(root, "AGENTS.md"), original);
   await writeFile(join(root, ".swarmx", "validate.mjs"), validator);
+  if (evaluator) await writeFile(join(root, ".swarmx", "evaluate.mjs"), evaluator);
   const resource = {
     id: "instructions",
     kind: "agent",
     path: "AGENTS.md",
     validate: [process.execPath, ".swarmx/validate.mjs"],
+    ...(evaluator ? { evaluate: [process.execPath, ".swarmx/evaluate.mjs"] } : {}),
   };
   const registration = { resources: [resource] };
   const configure = () =>
@@ -60,6 +64,268 @@ await appendFile('validated.txt', content + '\\n');
   };
   return { root, resources, snapshot, request, resource, registration, configure };
 }
+
+const evaluator = `
+import { readFile, appendFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
+const [baselinePath, candidatePath] = process.argv.slice(2);
+const baseline = await readFile(baselinePath, 'utf8');
+const candidate = await readFile(candidatePath, 'utf8');
+const measure = (content) => {
+  const method = content.match(/operation: (\\w+)/)?.[1];
+  const cases = [[2, 4], [1, 3, 5]];
+  const answers = cases.map((values) => {
+    const sum = values.reduce((a, b) => a + b, 0);
+    return ['mean', 'average'].includes(method) ? sum / values.length : sum;
+  });
+  return {
+    revision: 'sha256:' + createHash('sha256').update(content).digest('hex'),
+    passedCases: answers.filter((answer) => answer === 3).length,
+    totalCases: cases.length,
+    cost: { amount: cases.length, unit: 'fixture-calls' }
+  };
+};
+const report = {
+  evaluatorVersion: 'mean-fixtures-v1',
+  passed: measure(candidate).passedCases === 2,
+  baseline: measure(baseline),
+  candidate: measure(candidate),
+  summary: 'Compared calculations on two common input fixtures.'
+};
+await appendFile('evaluated.txt', baseline + '\\n');
+`;
+
+it("marks validation-only updates as structural checks", async () => {
+  const { resources, snapshot, request } = await fixture();
+  expect(await resources.apply(request, snapshot, signal())).toMatchObject({
+    assessment: "structural-only",
+    baselineRevision: snapshot.expectedRevision,
+    configurationRevision: snapshot.configurationRevision,
+    stages: [
+      { stage: "candidate", status: "prepared" },
+      { stage: "validate", status: "passed", durationMs: expect.any(Number) },
+      { stage: "evaluate", status: "not-configured" },
+      { stage: "adopt", status: "applied" },
+    ],
+  });
+});
+
+it.each([false, true])(
+  "rejects structurally valid but behaviorally wrong changes even with evaluator passed=%s",
+  async (forcePassed) => {
+    const { root, resources, snapshot, request } = await fixture(
+      undefined,
+      `${evaluator}\n${forcePassed ? "report.passed = true;" : ""}\nconsole.log(JSON.stringify(report));`,
+      "VALID operation: mean\n",
+    );
+    const content = "VALID operation: sum\n";
+    await expect(
+      resources.apply({ ...request, content }, snapshot, signal()),
+    ).rejects.toMatchObject({
+      message: expect.stringContaining("behavioral evaluation"),
+      report: {
+        evaluatorVersion: "mean-fixtures-v1",
+        baseline: { revision: snapshot.expectedRevision, passedCases: 2, totalCases: 2 },
+        candidate: { passedCases: 0, totalCases: 2 },
+      },
+      reportHash: expect.stringMatching(/^sha256:[a-f0-9]{64}$/u),
+      baselineRevision: snapshot.expectedRevision,
+      configurationRevision: snapshot.configurationRevision,
+    });
+    expect(await readFile(join(root, "AGENTS.md"), "utf8")).toBe(snapshot.content);
+    expect((await readdir(root)).sort()).toEqual([
+      ".swarmx",
+      "AGENTS.md",
+      "evaluated.txt",
+      "validated.txt",
+    ]);
+  },
+);
+
+it("evaluates both versions, retains report identities and uses the original baseline on replay", async () => {
+  const { root, resources, snapshot, request } = await fixture(
+    undefined,
+    `${evaluator}\nconsole.log(JSON.stringify(report));`,
+    "VALID operation: mean\n",
+  );
+  const candidate = { ...request, content: "VALID operation: average\n" };
+  const result = await resources.apply(candidate, snapshot, signal());
+  expect(result).toMatchObject({
+    changed: true,
+    assessment: "behavior-tested",
+    baselineRevision: snapshot.expectedRevision,
+    reportHash: expect.stringMatching(/^sha256:[a-f0-9]{64}$/u),
+    report: {
+      baseline: { revision: snapshot.expectedRevision, passedCases: 2, totalCases: 2 },
+      candidate: { revision: result.revision, passedCases: 2, totalCases: 2 },
+    },
+  });
+  expect(await resources.apply(candidate, snapshot, signal())).toMatchObject({
+    changed: false,
+    reportHash: result.reportHash,
+  });
+  expect(await readFile(join(root, "evaluated.txt"), "utf8")).toBe(
+    `${snapshot.content}\n${snapshot.content}\n`,
+  );
+});
+
+it.each([
+  "report.candidate.revision = report.baseline.revision; console.log(JSON.stringify(report));",
+  "report.candidate.totalCases = 3; console.log(JSON.stringify(report));",
+  "console.log(JSON.stringify({ passed: true }));",
+  "console.log('x'.repeat(16_385));",
+])("rejects stale, incomparable, missing or oversized behavioral reports: %s", async (output) => {
+  const { root, resources, snapshot, request } = await fixture(
+    undefined,
+    `${evaluator}\n${output}`,
+    "VALID operation: mean\n",
+  );
+  await expect(
+    resources.apply({ ...request, content: "VALID operation: average\n" }, snapshot, signal()),
+  ).rejects.toThrow();
+  expect(await readFile(join(root, "AGENTS.md"), "utf8")).toBe(snapshot.content);
+});
+
+it.each(["baselinePath", "candidatePath"])("rejects evaluators that mutate %s", async (path) => {
+  const { root, resources, snapshot, request } = await fixture(
+    undefined,
+    `${evaluator}\nimport { writeFile } from 'node:fs/promises';\nawait writeFile(${path}, 'Changed');\nconsole.log(JSON.stringify(report));`,
+    "VALID operation: mean\n",
+  );
+  await expect(
+    resources.apply({ ...request, content: "VALID operation: average\n" }, snapshot, signal()),
+  ).rejects.toThrow("changed");
+  expect(await readFile(join(root, "AGENTS.md"), "utf8")).toBe(snapshot.content);
+});
+
+it("rejects evaluator registration changes after the resource snapshot", async () => {
+  const { resources, snapshot, request, resource, configure } = await fixture(
+    undefined,
+    `${evaluator}\nconsole.log(JSON.stringify(report));`,
+  );
+  resource.evaluate?.push("replacement");
+  await configure();
+  await expect(resources.apply(request, snapshot, signal())).rejects.toThrow("registration");
+});
+
+it("rechecks registration after behavioral evaluation", async () => {
+  const { root, resources, snapshot, request } = await fixture(
+    undefined,
+    `${evaluator}\nimport { writeFile } from 'node:fs/promises';\nawait writeFile('.swarmx/learning.json', '{"resources":[]}');\nconsole.log(JSON.stringify(report));`,
+    "VALID operation: mean\n",
+  );
+  await expect(
+    resources.apply({ ...request, content: "VALID operation: average\n" }, snapshot, signal()),
+  ).rejects.toThrow("registration");
+  expect(await readFile(join(root, "AGENTS.md"), "utf8")).toBe(snapshot.content);
+});
+
+it("cancels a running behavioral evaluator and cleans both inputs", async () => {
+  const { root, resources, snapshot, request } = await fixture(
+    undefined,
+    `
+import { writeFile } from 'node:fs/promises';
+await writeFile('evaluation-started', 'yes');
+setInterval(() => {}, 1000);
+`,
+  );
+  const controller = new AbortController();
+  const work = resources.apply(request, snapshot, controller.signal);
+  const rejected = expect(work).rejects.toThrow();
+  await expect
+    .poll(async () => readFile(join(root, "evaluation-started"), "utf8").catch(() => ""))
+    .toBe("yes");
+  controller.abort(new Error("Stop behavioral evaluation"));
+  await rejected;
+  expect(await readFile(join(root, "AGENTS.md"), "utf8")).toBe(snapshot.content);
+  expect((await readdir(root)).sort()).toEqual([
+    ".swarmx",
+    "AGENTS.md",
+    "evaluation-started",
+    "validated.txt",
+  ]);
+});
+
+it.each(["validator", "evaluator", "report-limit"])(
+  "stops ordinary descendants before returning from %s cancellation",
+  async (mode) => {
+    const program = `
+import { spawn } from 'node:child_process';
+import { existsSync } from 'node:fs';
+spawn(process.execPath, ['-e', ${JSON.stringify(`
+const { existsSync, writeFileSync } = require('node:fs');
+writeFileSync('child-ready', String(process.pid));
+const timer = setInterval(() => {
+  if (existsSync('release-child')) {
+    writeFileSync('child-after-stop', 'continued after cancellation');
+    clearInterval(timer);
+  }
+}, 10);
+`)}], { stdio: 'ignore' });
+setInterval(() => {
+  if (existsSync('release-report')) process.stdout.write('x'.repeat(16_385));
+}, 10);
+`;
+    const { root, resources, snapshot, request } = await fixture(
+      mode === "validator" ? program : undefined,
+      mode === "validator" ? undefined : program,
+    );
+    const controller = new AbortController();
+    const work = resources.apply(request, snapshot, controller.signal);
+    const rejected = expect(work).rejects.toThrow();
+    let childPid: number | undefined;
+    try {
+      await expect
+        .poll(async () => readFile(join(root, "child-ready"), "utf8").catch(() => ""))
+        .toMatch(/^\d+$/u);
+      childPid = Number(await readFile(join(root, "child-ready"), "utf8"));
+      if (mode === "report-limit") await writeFile(join(root, "release-report"), "yes");
+      else controller.abort(new Error("Stop learning resource check"));
+      await rejected;
+      await writeFile(join(root, "release-child"), "Continue only after Stop returned");
+      await expect
+        .poll(() => {
+          try {
+            process.kill(childPid as number, 0);
+            return true;
+          } catch (error) {
+            if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
+            return false;
+          }
+        })
+        .toBe(false);
+      expect(await readdir(root)).not.toContain("child-after-stop");
+      expect(await readFile(join(root, "AGENTS.md"), "utf8")).toBe(snapshot.content);
+    } finally {
+      controller.abort();
+      if (childPid !== undefined) {
+        try {
+          process.kill(childPid, "SIGKILL");
+        } catch (error) {
+          expect(error).toMatchObject({ code: "ESRCH" });
+        }
+      }
+      await work.catch(() => {});
+    }
+  },
+);
+
+it("rejects candidate changes after evaluation and before adoption", async () => {
+  const { root, resources, snapshot, request } = await fixture(
+    undefined,
+    `${evaluator}\nconsole.log(JSON.stringify(report));`,
+    "VALID operation: mean\n",
+  );
+  const native = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises");
+  vi.mocked(chmod).mockImplementationOnce(async (path, mode) => {
+    await native.chmod(path, mode);
+    await writeFile(path, "VALID operation: sum\n");
+  });
+  await expect(
+    resources.apply({ ...request, content: "VALID operation: average\n" }, snapshot, signal()),
+  ).rejects.toThrow("changed the candidate");
+  expect(await readFile(join(root, "AGENTS.md"), "utf8")).toBe(snapshot.content);
+});
 
 it("has no resources without explicit registration", async () => {
   const root = await mkdtemp(join(tmpdir(), "swarmx-learning-resources-"));

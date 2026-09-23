@@ -20,6 +20,8 @@ export interface BridgeHarness {
   readonly logsRead: Mock;
   readonly logsEvidence: Mock;
   readonly runsControl: Mock;
+  readonly workRead: Mock;
+  readonly workCommand: Mock;
   readonly scienceWorkspace: Mock;
   readonly scienceResearchObject: Mock;
   readonly scienceNotebookExecutions: Mock;
@@ -50,6 +52,18 @@ export function installBridge(): BridgeHarness {
   const logsRead = vi.fn(async () => ({ events: [], nextAfter: 0, activeRunIds: [] }));
   const logsEvidence = vi.fn();
   const runsControl = vi.fn(async () => ({}));
+  const workRead = vi.fn(async () => ({
+    cycles: [],
+    snapshot: null,
+    activeWorkIds: [],
+    interactions: [],
+  }));
+  const workCommand = vi.fn(async () => ({
+    cycles: [],
+    snapshot: null,
+    activeWorkIds: [],
+    interactions: [],
+  }));
   const scienceWorkspace = vi.fn();
   const scienceResearchObject = vi.fn();
   const scienceNotebookExecutions = vi.fn(async () => []);
@@ -69,6 +83,7 @@ export function installBridge(): BridgeHarness {
     models: { read: modelsRead },
     logs: { read: logsRead, evidence: logsEvidence },
     runs: { control: runsControl },
+    work: { read: workRead, command: workCommand },
     science: {
       workspace: scienceWorkspace,
       researchObject: scienceResearchObject,
@@ -106,6 +121,8 @@ export function installBridge(): BridgeHarness {
     logsRead,
     logsEvidence,
     runsControl,
+    workRead,
+    workCommand,
     scienceWorkspace,
     scienceResearchObject,
     scienceNotebookExecutions,

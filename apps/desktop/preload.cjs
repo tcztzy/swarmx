@@ -4,6 +4,10 @@ const invoke = (channel) => (payload) => ipcRenderer.invoke(channel, payload);
 
 contextBridge.exposeInMainWorld("swarmx", {
   bootstrap: invoke("swarmx:bootstrap"),
+  work: {
+    read: invoke("swarmx:work:read"),
+    command: invoke("swarmx:work:command"),
+  },
   tool: invoke("swarmx:tool"),
   cancelTool: invoke("swarmx:tool:cancel"),
   settings: {

@@ -1,6 +1,8 @@
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
+import * as acp from "@agentclientprotocol/sdk";
 import {
   type AssistantMessage,
   type Context,
@@ -23,6 +25,7 @@ import { createPi } from "../src/agents/pi.js";
 import type { AgentOptions, NativeAgent, Observer } from "../src/agents/types.js";
 import { loadAgUiHistory } from "../src/host/ag-ui.js";
 import { ProductServices } from "../src/host/product-services.js";
+import { startDesktopPlatform } from "../src/platform.js";
 import { DEFAULT_POLICY } from "../src/settings.js";
 
 let root: string;
@@ -366,6 +369,164 @@ it("uses Pi's built-in read tool and loads skill bodies only when read", async (
   );
 });
 
+it("runs a standalone project's skill and CLI through ACP and records its output", async () => {
+  const skill = ".agents/skills/project-smoke/SKILL.md";
+  await mkdir(join(cwd, ".agents/skills/project-smoke"), { recursive: true });
+  await mkdir(join(cwd, "scripts"));
+  await writeFile(join(cwd, "AGENTS.md"), "PROJECT_INSTRUCTIONS: inspect the output JSON.\n");
+  await writeFile(join(cwd, "input.txt"), "hello\n");
+  await writeFile(
+    join(cwd, skill),
+    "---\nname: project-smoke\ndescription: Run the project's harmless file-output check.\n---\nRun `node scripts/smoke.mjs` from the project directory and inspect `outputs/smoke.json`.\n",
+  );
+  await writeFile(
+    join(cwd, "scripts/smoke.mjs"),
+    `import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+const result = { cwd: process.cwd(), message: readFileSync("input.txt", "utf8").trim() };
+mkdirSync("outputs", { recursive: true });
+writeFileSync("outputs/smoke.json", JSON.stringify(result));
+console.log("PROJECT_SMOKE_OK");
+`,
+  );
+  const home = join(root, "project-home");
+  vi.stubEnv("SWARMX_HOME", home);
+  const platform = await startDesktopPlatform({ cwd, agentId: "pi" });
+  const updates: acp.SessionUpdate[] = [];
+  const connection = acp
+    .client()
+    .onNotification(acp.methods.client.session.update, ({ params }) => {
+      updates.push(params.update);
+    })
+    .connect(platform.acp);
+  const contexts: Context[] = [];
+  faux.setResponses([
+    (context) => {
+      contexts.push(context);
+      return fauxAssistantMessage(fauxToolCall("read", { path: skill }, { id: "project-skill" }));
+    },
+    (context) => {
+      contexts.push(context);
+      return fauxAssistantMessage(
+        fauxToolCall("bash", { command: "node scripts/smoke.mjs" }, { id: "project-cli" }),
+      );
+    },
+    fauxAssistantMessage("Project check finished"),
+  ]);
+  let sessionId: string;
+  try {
+    await connection.agent.request(acp.methods.agent.initialize, {
+      protocolVersion: acp.PROTOCOL_VERSION,
+    });
+    await expect(
+      connection.agent.request(acp.methods.agent.session.new, { cwd: root, mcpServers: [] }),
+    ).rejects.toThrow(/directory/);
+    ({ sessionId } = await connection.agent.request(acp.methods.agent.session.new, {
+      cwd: platform.cwd,
+      mcpServers: [],
+    }));
+    const result = await connection.agent.request(acp.methods.agent.session.prompt, {
+      sessionId,
+      prompt: [{ type: "text", text: "Read project-smoke and run its check." }],
+    });
+    expect(result.stopReason).toBe("end_turn");
+    expect(contexts[0]?.systemPrompt).toContain("PROJECT_INSTRUCTIONS");
+    expect(contexts[0]?.systemPrompt).toContain("<name>project-smoke</name>");
+    expect(contexts[0]?.systemPrompt).not.toContain("node scripts/smoke.mjs");
+    expect(JSON.stringify(contexts[1]?.messages)).toContain("node scripts/smoke.mjs");
+    expect(JSON.parse(await readFile(join(cwd, "outputs/smoke.json"), "utf8"))).toEqual({
+      cwd: platform.cwd,
+      message: "hello",
+    });
+    expect(JSON.stringify(updates)).toContain("PROJECT_SMOKE_OK");
+    const records = (await platform.operations.logs({ session: sessionId, limit: 1000 })).events;
+    expect(records.filter(({ event }) => event.type === "RUN_STARTED")).toHaveLength(1);
+    expect(records.some(({ event }) => event.type === "RUN_FINISHED")).toBe(true);
+    expect(records.some(({ event }) => event.type === "RUN_ERROR")).toBe(false);
+    expect(JSON.stringify(records)).toContain("PROJECT_SMOKE_OK");
+  } finally {
+    connection.close();
+    await platform.dispose();
+  }
+  const reopened = await startDesktopPlatform({ cwd, agentId: "pi" });
+  try {
+    expect(
+      JSON.stringify(await reopened.operations.logs({ session: sessionId, limit: 1000 })),
+    ).toContain("PROJECT_SMOKE_OK");
+  } finally {
+    await reopened.dispose();
+  }
+});
+
+it("discovers the bundled delegate skill through Pi and reads its body on demand", async () => {
+  const skill = fileURLToPath(new URL("../resources/skills/delegate/SKILL.md", import.meta.url));
+  const native = await agent({
+    productTools: {
+      definitions: [
+        { name: "swarm", description: "Delegate work", inputSchema: { type: "object" } },
+      ],
+      call: vi.fn(),
+    },
+  });
+  let prompt: string | undefined;
+  let toolContext: Context | undefined;
+  faux.setResponses([
+    (context) => {
+      prompt = context.systemPrompt;
+      return fauxAssistantMessage(fauxToolCall("read", { path: skill }, { id: "read-delegate" }));
+    },
+    (context) => {
+      toolContext = context;
+      return fauxAssistantMessage("Delegation skill read");
+    },
+  ]);
+  await native.start(await native.create(), "Read the delegate skill", observer());
+  expect(prompt).toContain("<name>delegate</name>");
+  expect(prompt).toContain(skill);
+  expect(prompt).not.toContain("# Delegate work using observed combination performance");
+  expect(toolContext?.messages).toContainEqual(
+    expect.objectContaining({
+      role: "toolResult",
+      toolName: "read",
+      isError: false,
+      content: [
+        expect.objectContaining({
+          type: "text",
+          text: expect.stringContaining(await readFile(skill, "utf8")),
+        }),
+      ],
+    }),
+  );
+});
+
+it.each([
+  ["without product tools", undefined, false],
+  ["with unrelated product tools", "memory", false],
+  ["during restricted review", "swarm", true],
+] as const)("does not add the bundled delegate skill %s", async (_label, toolName, reviewOnly) => {
+  const native = await agent({
+    reviewOnly,
+    ...(toolName
+      ? {
+          productTools: {
+            definitions: [
+              { name: toolName, description: toolName, inputSchema: { type: "object" } },
+            ],
+            call: vi.fn(),
+          },
+        }
+      : {}),
+  });
+  let prompt: string | undefined;
+  faux.setResponses([
+    (context) => {
+      prompt = context.systemPrompt;
+      return fauxAssistantMessage("Observed");
+    },
+  ]);
+  await native.start(await native.create(), "Inspect available skills", observer());
+  expect(prompt).not.toContain("<name>delegate</name>");
+});
+
 it("preserves tool failures when native history is reloaded", async () => {
   const native = await agent();
   const id = await native.create();
@@ -554,6 +715,84 @@ it.each([
     await expect(native.start(id, "Retry", sink)).resolves.toEqual({ stopReason: "end_turn" });
     expect(output(sink)).toBe("Retry answer");
   }
+});
+
+it.each([
+  ["before_agent_start", "model"],
+  ["before_agent_start", "effort"],
+  ["turn_start", "model"],
+  ["turn_start", "effort"],
+] as const)(
+  "rejects a %s extension changing the requested %s before any provider call",
+  async (hook, setting) => {
+    const extensionDir = join(cwd, ".pi", "extensions");
+    await mkdir(extensionDir, { recursive: true });
+    await writeFile(
+      join(extensionDir, "selection.ts"),
+      `export default function(pi) {
+        pi.on(${JSON.stringify(hook)}, async (_event, context) => {
+          ${setting === "model" ? 'await pi.setModel(context.modelRegistry.getAvailable().find(model => model.id === "second"));' : 'pi.setThinkingLevel("low");'}
+        });
+      }`,
+    );
+    const native = await agent();
+    const id = await native.create();
+    faux.setResponses([fauxAssistantMessage("Must not run")]);
+    const sink = observer();
+    await expect(
+      native.start(id, "Run", sink, { model: "pi-test/first", effort: "high" }),
+    ).rejects.toThrow(`Pi ${setting} changed`);
+    expect(faux.state.callCount).toBe(0);
+    expect(sink.tool).not.toHaveBeenCalled();
+  },
+);
+
+it.each([
+  { model: "second" },
+  { model: "first", responseModel: "second" },
+  { model: "second", responseModel: "first" },
+])("stops Pi before executing tools from a conflicting model route %j", async (reported) => {
+  const native = await agent();
+  const id = await native.create();
+  const target = join(cwd, "unexpected.txt");
+  const stream = reportedResponses([
+    {
+      ...fauxAssistantMessage(fauxToolCall("write", { path: target, content: "Must not run" })),
+      provider: "pi-test",
+      ...reported,
+      stopReason: "toolUse",
+    },
+    { ...fauxAssistantMessage("Done"), provider: "pi-test", model: "first" },
+  ]);
+  const sink = observer();
+  await expect(native.start(id, "Run", sink, { model: "pi-test/first" })).rejects.toThrow(
+    'Pi model changed from "pi-test/first" to "pi-test/second"',
+  );
+  expect(stream).toHaveBeenCalledOnce();
+  expect(sink.tool).not.toHaveBeenCalled();
+  await expect(readFile(target)).rejects.toThrow("ENOENT");
+});
+
+it("preserves provider alias expansions absent from the Pi model catalog", async () => {
+  const native = await agent();
+  const id = await native.create();
+  const stream = reportedResponses([
+    {
+      ...fauxAssistantMessage("Done"),
+      provider: "pi-test",
+      model: "first",
+      responseModel: "first-20260923",
+    },
+  ]);
+  const sink = observer();
+  await expect(native.start(id, "Run", sink, { model: "pi-test/first" })).resolves.toEqual({
+    stopReason: "end_turn",
+  });
+  expect(stream).toHaveBeenCalledOnce();
+  expect(sink.raw).toHaveBeenCalledWith(
+    expect.objectContaining({ type: "message_end" }),
+    expect.objectContaining({ "gen_ai.response.model": "first-20260923" }),
+  );
 });
 
 it("preserves a native preflight failure when Stop was requested", async () => {

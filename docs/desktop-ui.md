@@ -80,7 +80,7 @@ contract. The running-state hint makes this visible; background execution is not
 Swarm delegations appear in an expandable sub-Agent list following assistant-ui's
 [SubagentList](https://www.assistant-ui.com/elements/subagent-list) and
 [SpeakerIdentity](https://www.assistant-ui.com/elements/speaker-identity) patterns. Each execution
-shows its dispatched task, parent, Harness, requested/reported model and independent status;
+shows its dispatched task, parent, Harness, requested model and independent status;
 parallel children may finish in any order. Expanding a card shows the observed conversation for
 that run and its original execution records. This is a projection of the persistent journal,
 including nested delegations, and remains readable after restart. Missing terminal records are
@@ -140,8 +140,10 @@ Rename/archive, attachments, file review,
 terminal panels and concurrent background tasks need additional end-to-end contracts and
 are not exposed as nonfunctional controls.
 
-The conversation is the primary view. The header always exposes Assets and Observe;
-both open a side view without replacing the conversation, its draft or active stream.
+The conversation is the primary view. The header exposes Long-term work, Assets and Observe;
+these open a side view without replacing the conversation, its draft or active stream.
+Switching to Long-term work keeps the research view mounted and hidden, preserving unsaved
+figure code and any running figure tool until the user closes that research view.
 Chat and split view share the same mounted conversation, message styles, typography and
 composer controls. Opening a side view changes the available width, not the chat theme.
 Closing it restores the full conversation area with a centered readable message column;
@@ -159,9 +161,10 @@ Execution source references open the same side view directly through the read-on
 bridge operation; they do not require a Science workspace. The view shows statistics only for
 the cited executions, with completion, error and cancellation counts kept separate. Elapsed time
 is Host wall-clock time including tool execution and waiting, and missing usage, cost or route
-fields remain explicitly unknown. Requested settings and native-reported settings are distinct.
+fields remain explicitly unknown. Requested settings identify the Agent; original native reports
+remain available in raw records.
 Original cited inputs, outputs, terminal events and review snapshots are expandable records.
-The same review attempt's saved plan exposes its conclusion and reported reviewer identity
+The same review attempt's saved plan exposes its conclusion and requested reviewer identity
 separately from the frozen execution evidence and its statistics.
 Unavailable or foreign-directory references show an error rather than substituting other history.
 Saved selection concepts distinguish observations, AI judgments and user preferences, and display
@@ -249,6 +252,15 @@ current-conversation review, persistent pending approvals, and a searchable Vaul
 Selecting a concept loads its prerequisite closure in order; changed prerequisite revisions are
 marked for review. Conflicting edits stay pending and display the error. The graph uses the same
 React Flow view as research provenance, with read-only edges. See `memory.md` for storage and authority.
+
+Long-term work uses the existing Host work manager. Users create cycles with shared budgets and
+registered execution configurations, then add goals with written acceptance criteria. The side
+view shows execution and acceptance separately, actual reported spending and still-held reserves,
+original output and pinned artifact references. Start and Stop are explicit; opening or closing
+the view never dispatches or cancels work. Native confirmations reuse the conversation's form
+fields. User acceptance and corrections preserve their displayed attempt and criteria revision;
+goal revisions retain work identity, budget and historical evidence. Errors remain visible and
+do not discard form edits. See `work-management.md` for lifecycle and accounting rules.
 
 Acceptance is covered by renderer interaction tests plus the existing gateway and observability
 tests. Streaming fixtures wait for the IPC run-start call before delivering events: the AG-UI

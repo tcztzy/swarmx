@@ -18,11 +18,13 @@ import type { ThreadReadResponse } from "./generated/v2/ThreadReadResponse.js";
 import type { ThreadResumeResponse } from "./generated/v2/ThreadResumeResponse.js";
 import type { ThreadStartResponse } from "./generated/v2/ThreadStartResponse.js";
 import type { ThreadTurnsListResponse } from "./generated/v2/ThreadTurnsListResponse.js";
+import type { TokenUsageBreakdown } from "./generated/v2/TokenUsageBreakdown.js";
 import type { Turn } from "./generated/v2/Turn.js";
 import type { TurnStartResponse } from "./generated/v2/TurnStartResponse.js";
 import { rpcProcess } from "./rpc-process.js";
 import {
   type AgentOptions,
+  type EventAttributes,
   HARNESS_CAPABILITIES,
   memoryContextSuffix,
   type NativeAgent,
@@ -44,6 +46,25 @@ type Responses = {
   "turn/steer": unknown;
   "turn/interrupt": unknown;
 };
+const tokenUsageSchema = z
+  .object({
+    inputTokens: z.number().int().nonnegative(),
+    cachedInputTokens: z.number().int().nonnegative(),
+    cacheWriteInputTokens: z.number().int().nonnegative(),
+    outputTokens: z.number().int().nonnegative(),
+    reasoningOutputTokens: z.number().int().nonnegative(),
+    totalTokens: z.number().int().nonnegative(),
+  })
+  .refine(
+    (usage) =>
+      usage.cachedInputTokens + usage.cacheWriteInputTokens <= usage.inputTokens &&
+      usage.reasoningOutputTokens <= usage.outputTokens &&
+      usage.totalTokens === usage.inputTokens + usage.outputTokens,
+  );
+const responseUsageSchema = z.object({
+  responseId: z.string().min(1),
+  usage: tokenUsageSchema.nullable(),
+});
 
 // These public mode IDs already occur in persisted conversations. Keep their original policies.
 const approvalPresets = {
@@ -87,6 +108,7 @@ export async function createCodex(options: AgentOptions): Promise<NativeAgent> {
   type Peer = Awaited<ReturnType<typeof open>>;
   type Active = {
     cancelled: boolean;
+    model: string | undefined;
     peer?: Peer;
     finished: ReturnType<typeof Promise.withResolvers<void>>;
   };
@@ -100,6 +122,8 @@ export async function createCodex(options: AgentOptions): Promise<NativeAgent> {
     let observer: Observer | undefined;
     let threadId: string | undefined;
     let nativeTurn: Turn | undefined;
+    const responseUsage = new Map<string, TokenUsageBreakdown | null>();
+    let invalidUsage = false;
     const streamed = new Set<string>();
     const interactionSignal = new AbortController();
     const done = Promise.withResolvers<RunResult>();
@@ -121,7 +145,46 @@ export async function createCodex(options: AgentOptions): Promise<NativeAgent> {
           if (raw.id !== undefined) throw new Error(`No active Codex turn for ${message.method}.`);
           return;
         }
-        observer.raw(raw);
+        let attributes: EventAttributes | undefined;
+        if (
+          message.method === "rawResponse/completed" &&
+          message.params.threadId === threadId &&
+          message.params.turnId === nativeTurn?.id
+        ) {
+          const parsed = responseUsageSchema.safeParse(message.params);
+          if (!parsed.success) invalidUsage = true;
+          else {
+            const previous = responseUsage.get(parsed.data.responseId);
+            if (
+              previous &&
+              parsed.data.usage &&
+              JSON.stringify(previous) !== JSON.stringify(parsed.data.usage)
+            )
+              invalidUsage = true;
+            responseUsage.set(parsed.data.responseId, parsed.data.usage);
+          }
+          const reports = [...responseUsage.values()];
+          const known =
+            !invalidUsage && reports.length > 0 && reports.every((usage) => usage !== null);
+          const sum = (key: keyof TokenUsageBreakdown) =>
+            known ? reports.reduce((total, usage) => total + (usage?.[key] ?? 0), 0) : null;
+          attributes = {
+            "swarmx.native.run_id": message.params.turnId,
+            "gen_ai.usage.input_tokens": sum("inputTokens"),
+            "gen_ai.usage.output_tokens": sum("outputTokens"),
+            "swarmx.usage.cached_input_tokens": known
+              ? (sum("cachedInputTokens") ?? 0) + (sum("cacheWriteInputTokens") ?? 0)
+              : null,
+            "swarmx.usage.reasoning_output_tokens": sum("reasoningOutputTokens"),
+            "swarmx.usage.cost_usd": null,
+            "swarmx.usage.cost_source": "unknown",
+            "swarmx.usage.coverage": known ? "partial" : "unknown",
+            "swarmx.usage.scope": "native-responses",
+            "swarmx.usage.basis":
+              "Codex exact response usage by response ID within native turn; input includes cache; output includes reasoning; excludes unreported calls; no USD report",
+          };
+        }
+        observer.raw(raw, attributes);
         if (
           message.params &&
           "threadId" in message.params &&
@@ -130,6 +193,16 @@ export async function createCodex(options: AgentOptions): Promise<NativeAgent> {
           if (raw.id !== undefined) throw new Error("Codex request belongs to another thread.");
           return;
         }
+        if (
+          message.method === "model/rerouted" &&
+          message.params.turnId === nativeTurn?.id &&
+          threadId &&
+          running.get(threadId)?.model &&
+          message.params.fromModel !== message.params.toModel
+        )
+          throw new Error(
+            `Codex model changed from "${message.params.fromModel}" to "${message.params.toModel}".`,
+          );
         if ("id" in message) {
           if (options.reviewOnly)
             throw new Error("Memory review cannot request tools or permissions.");
@@ -203,6 +276,9 @@ export async function createCodex(options: AgentOptions): Promise<NativeAgent> {
       settled,
       observe(id: string, value: Observer) {
         threadId = id;
+        nativeTurn = undefined;
+        responseUsage.clear();
+        invalidUsage = false;
         observer = value;
       },
       async settings(instructions?: string) {
@@ -492,7 +568,11 @@ export async function createCodex(options: AgentOptions): Promise<NativeAgent> {
       if (options.reviewOnly && /^\s*\/[a-z][a-z0-9_-]*(?:\s|$)/iu.test(text))
         throw new Error("Memory reviews cannot execute native slash commands.");
       if (running.has(id)) throw new Error("Codex session is busy.");
-      const active: Active = { cancelled: false, finished: Promise.withResolvers<void>() };
+      const active: Active = {
+        cancelled: false,
+        model: selection?.model,
+        finished: Promise.withResolvers<void>(),
+      };
       running.set(id, active);
       const wasFresh = fresh.has(id);
       let rollout = !wasFresh;

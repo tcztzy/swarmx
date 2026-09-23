@@ -28,13 +28,21 @@ export const ExecutionPageSchema = z.object({
   activeRunIds: z.array(z.string()),
 });
 
+const ToolCostSchema = z.object({
+  callCount: z.number().int().nonnegative(),
+  usd: z.number().nonnegative(),
+  unpricedCalls: z.number().int().nonnegative(),
+});
+
 export const ExecutionRunSummarySchema = z.object({
   runId: z.string(),
+  parentRunId: z.string().nullable(),
+  purpose: z.string().nullable(),
   sessionId: z.string().nullable(),
   task: z.string().nullable(),
   harness: z.string().nullable(),
   requestedModel: z.string().nullable(),
-  reportedModel: z.string().nullable(),
+  requestedEffort: z.string().nullable(),
   provider: z.string().nullable(),
   harnessVersion: z.string().nullable(),
   modelVersion: z.string().nullable(),
@@ -45,7 +53,14 @@ export const ExecutionRunSummarySchema = z.object({
   elapsedMs: z.number().nonnegative().nullable(),
   inputTokens: z.number().int().nonnegative().nullable(),
   outputTokens: z.number().int().nonnegative().nullable(),
+  cachedInputTokens: z.number().int().nonnegative().nullable(),
+  reasoningOutputTokens: z.number().int().nonnegative().nullable(),
   costUsd: z.number().nonnegative().nullable(),
+  tools: ToolCostSchema,
+  totalCostUsd: z.number().nonnegative().nullable(),
+  totalCostComplete: z.boolean(),
+  costSource: z.enum(["native-estimate", "invoice", "price-snapshot", "unknown"]),
+  usageCoverage: z.enum(["partial", "complete", "unknown"]),
   usageBasis: z.string().nullable(),
   sources: z.array(z.string()),
 });
@@ -71,7 +86,12 @@ export const ExecutionStatisticsSchema = z.object({
     inputTokens: z.number().int().nonnegative().nullable(),
     outputTokens: z.number().int().nonnegative().nullable(),
   }),
-  cost: z.object({ sampleCount: z.number().int().nonnegative(), usd: z.number().nullable() }),
+  cost: z.object({
+    sampleCount: z.number().int().nonnegative(),
+    usd: z.number().nullable(),
+    complete: z.boolean(),
+  }),
+  tools: ToolCostSchema,
 });
 export type ExecutionStatistics = z.infer<typeof ExecutionStatisticsSchema>;
 

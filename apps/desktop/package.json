@@ -5,6 +5,11 @@
   "license": "MIT",
   "type": "module",
   "main": "dist/main.js",
+  "files": [
+    "dist",
+    "preload.cjs",
+    "resources"
+  ],
   "scripts": {
     "build": "vite build && tsc -b",
     "start:built": "electron dist/main.js",
@@ -55,7 +60,6 @@
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "latest",
-    "electron": "^43.4.1",
     "tailwindcss": "4.3.3",
     "vite": "^8.2.1"
   }

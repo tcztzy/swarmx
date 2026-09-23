@@ -21,6 +21,7 @@ import {
 } from "./bridge-contract.js";
 import { parseAgUiInput } from "./host/ag-ui.js";
 import type { DesktopPlatform } from "./platform.js";
+import { WorkCommandSchema, WorkReadRequestSchema } from "./work.js";
 
 /** Electron IPC surface: operation-named channels reachable only from SwarmX windows. */
 export function registerIpc(platform: DesktopPlatform): void {
@@ -35,6 +36,12 @@ export function registerIpc(platform: DesktopPlatform): void {
     });
   };
   handle("swarmx:bootstrap", () => platform.operations.bootstrap());
+  handle("swarmx:work:read", (payload) =>
+    platform.operations.workRead(WorkReadRequestSchema.parse(payload)),
+  );
+  handle("swarmx:work:command", (payload) =>
+    platform.operations.workCommand(WorkCommandSchema.parse(payload)),
+  );
   handle("swarmx:tool", (payload) => {
     const { requestId, name, args } = ToolCallPayloadSchema.parse(payload);
     const controller = new AbortController();

@@ -2,6 +2,10 @@ packages:
   - packages/*/*
   - apps/*
 
+injectWorkspacePackages: true
+syncInjectedDepsAfterScripts:
+  - bundle
+
 overrides:
   '@assistant-ui/core': 0.3.17
   '@assistant-ui/store': 0.3.12
@@ -12,6 +16,7 @@ allowBuilds:
   '@deepseek-ai/dsh-subprocess-local': true
   '@google/genai': false
   electron: true
+  electron-winstaller: false
   esbuild: true
   koffi: true
   node-addon-require-builtin: false

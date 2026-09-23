@@ -2,6 +2,7 @@
 node_modules/
 apps/desktop/src/agents/generated/
 dist/
+/apps/desktop/release/
 lib/
 !apps/desktop/src/renderer/lib/
 native/writing-preview-runtime/target/

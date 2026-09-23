@@ -40,6 +40,8 @@ describe("English and Chinese UI", () => {
     for (const name of [
       "app",
       "chat",
+      "interaction-form",
+      "work",
       "agent-controls",
       "subagents",
       "trace",

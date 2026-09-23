@@ -5,7 +5,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Existing version tag to prepare as a draft release
+        description: Existing version tag to build and publish
         required: true
         type: string
 permissions:
@@ -16,26 +16,97 @@ jobs:
   source:
     runs-on: ubuntu-24.04
     timeout-minutes: 35
-    permissions:
-      contents: write
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
         with:
-          ref: ${{ env.RELEASE_TAG }}
+          ref: refs/tags/${{ env.RELEASE_TAG }}
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
         with:
-          node-version-file: package.json
+          node-version: 24
+      - name: Check the tag matches the desktop version
+        run: |
+          node --input-type=module -e 'import { readFileSync } from "node:fs"; const version = JSON.parse(readFileSync("apps/desktop/package.json")).version; if (process.env.RELEASE_TAG !== `v${version}`) throw new Error("Tag must match the desktop manifest version")'
       - uses: pnpm/action-setup@008330803749db0355799c700092d9a85fd074e9
         with:
           cache: true
+      - name: Install the Rust toolchain
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
       - run: pnpm install --frozen-lockfile
       - run: pnpm lint && pnpm docs:check && pnpm typecheck && pnpm test && pnpm build
       - name: Archive the reviewed source
+        run: git archive --format=tar.gz --prefix="swarmx-${RELEASE_TAG}/" --output="swarmx-${RELEASE_TAG}.tar.gz" HEAD
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-source
+          path: swarmx-${{ env.RELEASE_TAG }}.tar.gz
+          if-no-files-found: error
+          compression-level: 0
+  macos:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-15
+            arch: arm64
+          - os: macos-15-intel
+            arch: x64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          ref: refs/tags/${{ env.RELEASE_TAG }}
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 24
+          architecture: ${{ matrix.arch }}
+      - uses: pnpm/action-setup@008330803749db0355799c700092d9a85fd074e9
+        with:
+          cache: true
+      - name: Install the Rust toolchain
         run: |
-          node --input-type=module -e 'import { readFileSync } from "node:fs"; const version = JSON.parse(readFileSync("apps/desktop/package.json")).version; if (process.env.RELEASE_TAG !== `v${version}`) throw new Error("Tag must match the desktop manifest version")'
-          git archive --format=tar.gz --prefix="swarmx-${RELEASE_TAG}/" --output="swarmx-${RELEASE_TAG}.tar.gz" HEAD
-          sha256sum "swarmx-${RELEASE_TAG}.tar.gz" > SHA256SUMS
-      - name: Prepare draft release for author review
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm package:mac
+      - name: Verify the packaged application
+        shell: bash
+        run: |
+          dmg=(apps/desktop/release/*-mac-${{ matrix.arch }}.dmg)
+          test "${#dmg[@]}" -eq 1
+          hdiutil verify "${dmg[0]}"
+          mountpoint=$(mktemp -d "$RUNNER_TEMP/swarmx-dmg.XXXXXX")
+          hdiutil attach "${dmg[0]}" -readonly -nobrowse -mountpoint "$mountpoint"
+          trap 'hdiutil detach "$mountpoint"; rmdir "$mountpoint"' EXIT
+          SWARMX_PACKAGED_APP="$mountpoint/SwarmX.app" pnpm exec vitest run apps/desktop/tests/macos-package.test.ts
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-macos-${{ matrix.arch }}
+          path: apps/desktop/release/*-mac-${{ matrix.arch }}.dmg
+          if-no-files-found: error
+          compression-level: 0
+  publish:
+    needs: [source, macos]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: release-*
+          path: release-assets
+          merge-multiple: true
+      - name: Publish the release
+        working-directory: release-assets
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$RELEASE_TAG" "swarmx-${RELEASE_TAG}.tar.gz" SHA256SUMS --verify-tag --draft --generate-notes --title "SwarmX $RELEASE_TAG"
+          GH_REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          sha256sum *.dmg *.tar.gz > SHA256SUMS
+          prerelease=()
+          if [[ "${RELEASE_TAG%%+*}" == *-* ]]; then prerelease=(--prerelease); fi
+          gh release create "$RELEASE_TAG" *.dmg *.tar.gz SHA256SUMS --verify-tag --generate-notes --title "SwarmX $RELEASE_TAG" "${prerelease[@]}"

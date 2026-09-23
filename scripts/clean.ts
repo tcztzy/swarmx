@@ -3,6 +3,7 @@ import { resolve } from "node:path";
 
 const root = resolve(import.meta.dirname, "..");
 const outputs = [
+  resolve(root, "apps/desktop/release/app"),
   resolve(root, "apps/desktop/dist"),
   resolve(root, "packages/core/annotation/lib"),
   resolve(root, "packages/core/dvc/lib"),

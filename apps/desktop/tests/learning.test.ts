@@ -98,11 +98,14 @@ it("retains the original reviewer response and its source when JSON parsing fail
     reviewer: {
       harness: products.settings.readMemory().reviewHarness,
       requestedModel: "requested-reviewer",
-      model: "reported-reviewer",
       provider: "reported-provider",
       version: "reported-version",
     },
   });
+  expect(started.event.value.reviewer).not.toHaveProperty("model");
+  expect(started.event.value.prompt).toContain("Use requested settings as the Agent identity");
+  expect(started.event.value.prompt).not.toContain("native-reported effort");
+  expect(started.event.value.prompt).not.toContain("distinguish requested settings");
   expect(products.journal.memoryEvent("swarmx.memory.review.planned")).toBeUndefined();
   expect(products.journal.pendingLearningRuns()).toHaveLength(1);
 });

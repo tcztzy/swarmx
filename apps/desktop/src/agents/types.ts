@@ -58,6 +58,7 @@ export interface Observer {
 }
 
 export interface NativeRunOptions extends RunOptions {
+  readonly budgetUsd?: number;
   readonly profile?: string | undefined;
   readonly permissions?: PermissionRequest | undefined;
   readonly instructions?: string;

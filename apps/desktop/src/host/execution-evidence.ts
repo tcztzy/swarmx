@@ -6,21 +6,25 @@ import type {
 } from "../execution-record.js";
 
 /** Only lifecycle records count as executions; tool ancestry is context, not another sample. */
-export function executionRuns(records: readonly ExecutionRecord[]): ExecutionRunSummary[] {
+export function executionRuns(
+  records: readonly ExecutionRecord[],
+  rootRunIds?: readonly string[],
+  recordsComplete = true,
+): ExecutionRunSummary[] {
   const grouped = new Map<string, ExecutionRecord[]>();
   for (const record of records) {
-    if (
-      !record.runId ||
-      (record.event.type !== EventType.RUN_STARTED &&
-        record.event.type !== EventType.RUN_FINISHED &&
-        record.event.type !== EventType.RUN_ERROR)
-    )
-      continue;
+    if (!record.runId) continue;
     const run = grouped.get(record.runId) ?? [];
     run.push(record);
     grouped.set(record.runId, run);
   }
-  return [...grouped].flatMap(([runId, records]): ExecutionRunSummary[] => {
+  const runs = [...grouped].flatMap(([runId, observed]): ExecutionRunSummary[] => {
+    const records = observed.filter(
+      ({ event }) =>
+        event.type === EventType.RUN_STARTED ||
+        event.type === EventType.RUN_FINISHED ||
+        event.type === EventType.RUN_ERROR,
+    );
     records.sort((a, b) => a.seq - b.seq);
     const started = records.find(({ event }) => event.type === EventType.RUN_STARTED);
     if (!started) return [];
@@ -66,6 +70,8 @@ export function executionRuns(records: readonly ExecutionRecord[]): ExecutionRun
     return [
       {
         runId,
+        parentRunId: value("swarmx.execution.parent_run_id"),
+        purpose: value("swarmx.execution.purpose"),
         sessionId: started?.sessionId ?? terminal?.sessionId ?? null,
         task,
         harness: value("swarmx.harness.name"),
@@ -73,10 +79,10 @@ export function executionRuns(records: readonly ExecutionRecord[]): ExecutionRun
           typeof started?.attributes["gen_ai.request.model"] === "string"
             ? started.attributes["gen_ai.request.model"]
             : null,
-        reportedModel:
-          "gen_ai.response.model" in attributes
-            ? value("gen_ai.response.model")
-            : value("swarmx.agent.model"),
+        requestedEffort:
+          typeof started.attributes["gen_ai.request.reasoning.level"] === "string"
+            ? started.attributes["gen_ai.request.reasoning.level"]
+            : null,
         provider: value("gen_ai.provider.name"),
         harnessVersion: value("swarmx.harness.version") ?? value("swarmx.agent.version"),
         modelVersion: value("swarmx.model.version"),
@@ -87,7 +93,29 @@ export function executionRuns(records: readonly ExecutionRecord[]): ExecutionRun
         elapsedMs: elapsed !== null && Number.isFinite(elapsed) && elapsed >= 0 ? elapsed : null,
         inputTokens: quantity("gen_ai.usage.input_tokens", true),
         outputTokens: quantity("gen_ai.usage.output_tokens", true),
+        cachedInputTokens: quantity("swarmx.usage.cached_input_tokens", true),
+        reasoningOutputTokens: quantity("swarmx.usage.reasoning_output_tokens", true),
         costUsd: quantity("swarmx.usage.cost_usd"),
+        tools: executionToolCost(observed),
+        totalCostUsd: null,
+        totalCostComplete: false,
+        costSource:
+          quantity("swarmx.usage.cost_usd") === null
+            ? "unknown"
+            : value("swarmx.usage.cost_source") === "native-estimate"
+              ? "native-estimate"
+              : value("swarmx.usage.cost_source") === "invoice"
+                ? "invoice"
+                : value("swarmx.usage.cost_source") === "price-snapshot"
+                  ? "price-snapshot"
+                  : "unknown",
+        usageCoverage:
+          quantity("gen_ai.usage.input_tokens", true) === null ||
+          quantity("gen_ai.usage.output_tokens", true) === null
+            ? "unknown"
+            : value("swarmx.usage.coverage") === "complete"
+              ? "complete"
+              : "partial",
         usageBasis:
           typeof terminal?.attributes["swarmx.usage.basis"] === "string"
             ? terminal.attributes["swarmx.usage.basis"]
@@ -96,6 +124,58 @@ export function executionRuns(records: readonly ExecutionRecord[]): ExecutionRun
       },
     ];
   });
+  return descendantRuns(runs, rootRunIds).map((run) => {
+    const cost = executionCost(runs, [run.runId]);
+    const complete = recordsComplete && cost.complete;
+    return {
+      ...run,
+      totalCostUsd: complete ? cost.usd : null,
+      totalCostComplete: complete,
+    };
+  });
+}
+
+/** Sum independent charges once, optionally including all descendants of the selected runs. */
+export function executionCost(
+  runs: readonly ExecutionRunSummary[],
+  rootRunIds?: readonly string[],
+) {
+  const charged = descendantRuns(runs, rootRunIds);
+  const known = charged.filter(({ costUsd }) => costUsd !== null);
+  const toolUsd = charged.reduce((sum, { tools }) => sum + tools.usd, 0);
+  return {
+    sampleCount: known.length,
+    usd:
+      known.length || toolUsd
+        ? known.reduce((sum, run) => sum + (run.costUsd ?? 0), toolUsd)
+        : null,
+    complete: charged.length > 0 && known.length === charged.length,
+  };
+}
+
+function descendantRuns(runs: readonly ExecutionRunSummary[], rootRunIds?: readonly string[]) {
+  const unique = new Map(runs.map((run) => [run.runId, run]));
+  const selected = new Set(rootRunIds ?? unique.keys());
+  for (const runId of selected)
+    for (const run of unique.values()) if (run.parentRunId === runId) selected.add(run.runId);
+  return [...unique.values()].filter(({ runId }) => selected.has(runId));
+}
+
+/** Unpriced observed tools currently cost zero; no second resource ledger is stored. */
+export function executionToolCost(records: readonly ExecutionRecord[]) {
+  const calls = new Map<string, number | null>();
+  for (const { runId, event, attributes } of records) {
+    if (!("toolCallId" in event) || typeof event.toolCallId !== "string") continue;
+    const key = `${runId}:${event.toolCallId}`;
+    const cost = attributes["swarmx.tool.cost_usd"];
+    if (typeof cost === "number" && Number.isFinite(cost) && cost >= 0) calls.set(key, cost);
+    else if (!calls.has(key)) calls.set(key, null);
+  }
+  return {
+    callCount: calls.size,
+    usd: [...calls.values()].reduce<number>((sum, cost) => sum + (cost ?? 0), 0),
+    unpricedCalls: [...calls.values()].filter((cost) => cost === null).length,
+  };
 }
 
 export function executionStatistics(runs: readonly ExecutionRunSummary[]): ExecutionStatistics {
@@ -105,7 +185,6 @@ export function executionStatistics(runs: readonly ExecutionRunSummary[]): Execu
   const usage = runs.flatMap(({ inputTokens, outputTokens }) =>
     inputTokens === null || outputTokens === null ? [] : [{ inputTokens, outputTokens }],
   );
-  const cost = runs.flatMap((run) => (run.costUsd === null ? [] : [run.costUsd]));
   const starts = runs.flatMap((run) => (run.startedAt === null ? [] : [run.startedAt])).sort();
   const finishes = runs.flatMap((run) => (run.finishedAt === null ? [] : [run.finishedAt])).sort();
   const lower = elapsed[Math.floor((elapsed.length - 1) / 2)];
@@ -130,6 +209,17 @@ export function executionStatistics(runs: readonly ExecutionRunSummary[]): Execu
       inputTokens: usage.length ? usage.reduce((sum, run) => sum + run.inputTokens, 0) : null,
       outputTokens: usage.length ? usage.reduce((sum, run) => sum + run.outputTokens, 0) : null,
     },
-    cost: { sampleCount: cost.length, usd: cost.length ? cost.reduce((a, b) => a + b, 0) : null },
+    cost: {
+      ...executionCost(runs),
+      complete: runs.length > 0 && runs.every((run) => run.totalCostComplete),
+    },
+    tools: runs.reduce(
+      (sum, { tools }) => ({
+        callCount: sum.callCount + tools.callCount,
+        usd: sum.usd + tools.usd,
+        unpricedCalls: sum.unpricedCalls + tools.unpricedCalls,
+      }),
+      { callCount: 0, usd: 0, unpricedCalls: 0 },
+    ),
   };
 }

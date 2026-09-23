@@ -2,7 +2,9 @@
 import { createResearchObject } from "@swarmx/science";
 import { RO_CRATE_CONTEXT, type RoCrateMetadataDocument } from "@swarmx/science/types";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { App } from "../src/renderer/app.js";
 import { FigureStudio } from "../src/renderer/figure-studio.js";
 import { i18n } from "../src/renderer/i18n.js";
 import { ResearchPanel } from "../src/renderer/research.js";
@@ -10,6 +12,41 @@ import { crateGraph } from "../src/renderer/research-graph.js";
 import { SettingsPage } from "../src/renderer/settings.js";
 import { DEFAULT_POLICY } from "../src/settings.js";
 import { type BridgeHarness, installBridge } from "./bridge-support.js";
+
+vi.mock("../src/renderer/chat.js", () => ({
+  ConversationSurface: ({ sidePanel }: { sidePanel?: ReactNode }) => sidePanel,
+}));
+vi.mock("../src/renderer/trace.js", () => ({ TracePanel: () => null }));
+
+it("preserves a running figure and its unsaved code when opening Work", async () => {
+  gateway.bootstrap.mockResolvedValue({
+    agents: ["pi"],
+    defaultHarness: "pi",
+    sessions: [],
+    cwd: "/research",
+    language: "zh",
+  });
+  const pending = Promise.withResolvers<never>();
+  gateway.tool.mockReturnValue(pending.promise);
+  render(<App />);
+  fireEvent.click(await screen.findByRole("button", { name: "科研资产", exact: true }));
+  fireEvent.click(await screen.findByRole("button", { name: /^Plotting run/ }));
+  const editor = await screen.findByLabelText("Python 图像代码");
+  fireEvent.change(editor, { target: { value: "print('unsaved')" } });
+  fireEvent.change(screen.getByLabelText("输出文件"), { target: { value: "figure.png" } });
+  fireEvent.click(screen.getByRole("button", { name: "运行并生成图像" }));
+  await waitFor(() => expect(gateway.tool).toHaveBeenCalledTimes(1));
+  try {
+    fireEvent.click(screen.getByRole("button", { name: "长期工作", exact: true }));
+    await screen.findByRole("complementary", { name: "长期工作侧栏" });
+    expect(gateway.cancelTool).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "科研资产", exact: true }));
+    expect(screen.getByLabelText("Python 图像代码")).toBe(editor);
+    expect((editor as HTMLTextAreaElement).value).toBe("print('unsaved')");
+  } finally {
+    pending.reject(new Error("Local fixture finished"));
+  }
+});
 
 const workbenchIdentity = {
   createdAt: 0,

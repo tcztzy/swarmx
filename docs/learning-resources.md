@@ -13,7 +13,8 @@ Register resources in `.swarmx/learning.json`:
       "id": "research-skill",
       "kind": "skill",
       "path": ".agents/skills/research/SKILL.md",
-      "validate": ["node", "scripts/validate-research-skill.mjs"]
+      "validate": ["node", "scripts/validate-research-skill.mjs"],
+      "evaluate": ["node", "scripts/evaluate-research-skill.mjs"]
     }
   ]
 }
@@ -27,7 +28,7 @@ are rejected intact. Installed plugins and global resources are not registered i
 
 The Host snapshots each resource's complete content, SHA-256 revision and registration revision.
 Reviewers can propose only `{id, expectedRevision, content, evaluation}` for a supplied resource; they cannot
-choose a different target or change its validator. The durable learning plan retains this
+choose a different target or change its validator or evaluator. The durable learning plan retains this
 snapshot and the candidate. Existing write-approval settings control when it can be applied.
 The evaluation records its task, criteria, original execution evidence, counterevidence and
 limitations using the same [Memory contract](memory.md#agent-selection-experience). References
@@ -41,15 +42,60 @@ private temporary file alongside the original, so ordinary relative Markdown lin
 base directory. The validator must inspect that candidate; testing the unchanged original
 does not validate an update. Registration authorizes this project-owned program to run, and
 the Host does not sandbox its side effects. Use a validator appropriate to the resource's
-behavior, including native parsing or task fixtures where relevant.
+structure, including native parsing and interface checks where relevant.
 
-Application requires a successful validator exit within 30 seconds, an unchanged registration,
-and the expected original revision. Failure, cancellation or revision conflicts prevent the
-Host from replacing the resource. After successful validation the Host atomically replaces it
-and reports the new digest. Replaying an operation whose desired bytes are already present
+`evaluate` is optional and separate from the quick validator. When registered, this fixed
+program receives two final arguments: an absolute private baseline Markdown path containing
+the snapshotted original bytes, then the candidate path. Even when replaying an already applied
+update, the baseline remains the original snapshot. The evaluator has five minutes and must
+write one JSON object of at most 16 KiB to stdout:
+
+```json
+{
+  "evaluatorVersion": "research-fixtures-v1",
+  "passed": true,
+  "baseline": {
+    "revision": "sha256:<64 lowercase hexadecimal characters>",
+    "passedCases": 3,
+    "totalCases": 4,
+    "cost": { "amount": 0.01, "unit": "USD" }
+  },
+  "candidate": {
+    "revision": "sha256:<64 lowercase hexadecimal characters>",
+    "passedCases": 4,
+    "totalCases": 4,
+    "cost": { "amount": 0.01, "unit": "USD" }
+  },
+  "summary": "Candidate passes the held-out scientific task fixtures."
+}
+```
+
+`cost` is optional; omission means unknown, not zero. The trusted evaluator owns its task
+fixtures, cost requirements and stricter acceptance criteria. The Host additionally requires
+matching content revisions, a nonempty equal case count, no reduction in passed cases and
+`passed: true`. A zero exit alone is insufficient. The evaluator must use the same cases for
+both versions, include content-error counterexamples, redact its bounded summary and keep
+hidden materials outside Agent access. Configuring an evaluator authorizes its execution,
+not extra Agent access to its fixtures. Both temporary files must remain unchanged.
+
+Application requires a successful validator exit within 30 seconds, a passing evaluation when
+configured, an unchanged registration and the expected original revision. Failure, cancellation or revision conflicts prevent the
+Host from replacing the resource. Cancellation, timeout and oversized reports stop the command
+and its ordinary descendants: an owned process group on macOS/Linux, or Windows `taskkill /T /F`.
+Registered commands must not detach children from that lifetime; this is not a sandbox. Windows
+remains unvalidated. After successful validation the Host atomically replaces it
+and returns the original/candidate/configuration digests, candidate/validation/evaluation/
+adoption stages, validation/evaluation elapsed time, and the parsed evaluation report with its
+SHA-256 digest. Automatic review and manual approval store this result in existing journal
+receipts. They also retain rejected comparisons and their digests as
+`swarmx.memory.resource.evaluation.rejected` events. Malformed or oversized reports fail without
+retaining raw output. Replaying an operation whose desired bytes are already present
 still reruns validation, but does not rewrite the resource. Temporary candidates are removed.
 
-A passed validator records only that the configured checks passed; it is not a general claim
-of improved model quality. Native runtimes retain ownership of skill discovery and context
+Without `evaluate`, existing registrations remain supported and the receipt explicitly says
+`structural-only`; they provide no behavioral acceptance. Evaluated updates say
+`behavior-tested`, scoped to the reported fixtures; they do not establish general model-quality
+improvement. Continued observation, withdrawal and long-term net-benefit comparisons remain
+the next resource lifecycle milestone. Native runtimes retain ownership of skill discovery and context
 loading. Updated resources apply when a runtime next loads them for a new task; existing
 conversations are not promised a live refresh.

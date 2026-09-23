@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { importArtifactRequestSchema } from "@swarmx/science/types";
 import { z } from "zod";
-import type { NativeAgent } from "../agents/types.js";
+import type { Interaction, NativeAgent } from "../agents/types.js";
 import {
   actionableMessage,
   type LogsEvidencePayloadSchema,
@@ -9,6 +9,12 @@ import {
 } from "../bridge-contract.js";
 import { RunControlSchema } from "../execution-record.js";
 import { LanguageSchema } from "../settings.js";
+import {
+  WorkCommandSchema,
+  WorkReadRequestSchema,
+  WorkReadSchema,
+  type WorkRunSchema,
+} from "../work.js";
 import { loadAgUiHistory } from "./ag-ui.js";
 import type { ProductServices } from "./product-services.js";
 import { HttpError, type SwarmXHost } from "./server.js";
@@ -21,6 +27,15 @@ const ARTIFACT_EXTENSIONS: Readonly<Record<string, string>> = {
 
 /** Renderer-facing operations over one SwarmX Host. Electron IPC is the only carrier. */
 export class HostOperations {
+  private readonly activeWork = new Map<
+    string,
+    {
+      cycleId: string;
+      controller: AbortController;
+      interactions: Map<string, { request: Interaction; resolve: (answer: unknown) => void }>;
+    }
+  >();
+
   constructor(private readonly host: SwarmXHost) {}
 
   activeProducts(): Promise<ProductServices> {
@@ -83,6 +98,145 @@ export class HostOperations {
     const language = LanguageSchema.parse(raw);
     products.settings.writeLanguage(language);
     return { language };
+  }
+
+  async workRead(raw: unknown = {}) {
+    this.host.signal.throwIfAborted();
+    const { cycleId } = WorkReadRequestSchema.parse(raw);
+    const work = this.host.products.work;
+    const cycles = work.cycles();
+    const selected = cycleId ?? cycles[0]?.id;
+    return WorkReadSchema.parse({
+      cycles,
+      snapshot: selected === undefined ? null : work.snapshot(selected),
+      activeWorkIds: [...this.activeWork.keys()],
+      interactions: [...this.activeWork].flatMap(([workId, { interactions }]) =>
+        [...interactions.values()].map(({ request: { id, title, schema } }) => ({
+          workId,
+          id,
+          title,
+          schema,
+        })),
+      ),
+    });
+  }
+
+  async workCommand(raw: unknown) {
+    this.host.signal.throwIfAborted();
+    const command = WorkCommandSchema.parse(raw);
+    const products = this.host.products;
+    const work = products.work;
+    let cycleId: string;
+    switch (command.action) {
+      case "createCycle":
+        cycleId = work.createCycle(command.request).id;
+        break;
+      case "createItem":
+        cycleId = work.createItem(command.request).cycleId;
+        break;
+      case "setBudget":
+        if (
+          [...this.activeWork.values()].some((entry) => entry.cycleId === command.request.cycleId)
+        )
+          throw new HttpError(409, "Stop active work before changing its budget.");
+        cycleId = work.setBudget(command.request).id;
+        break;
+      case "revise":
+        if (this.activeWork.has(command.request.id))
+          throw new HttpError(409, "Stop active work before changing its criteria.");
+        cycleId = work.revise(command.request).cycleId;
+        break;
+      case "accept": {
+        const feedback = work.accept({
+          ...command.request,
+          source: "user",
+          layer: "user",
+          evaluator: "desktop-user",
+          evaluatorVersion: "v1",
+        });
+        cycleId = work.attempt(feedback.attemptId).cycleId;
+        break;
+      }
+      case "reconcileCharge":
+        cycleId = work.attempt(work.reconcileCharge(command.request).reservationId).cycleId;
+        break;
+      case "reconcileOutcome":
+        cycleId = work.reconcileOutcome(command.request).cycleId;
+        break;
+      case "stop": {
+        const active = this.activeWork.get(command.workId);
+        if (!active) throw new HttpError(409, "This work is not active in this Host.");
+        cycleId = active.cycleId;
+        active.controller.abort(new Error("Work stopped by the user."));
+        break;
+      }
+      case "respond": {
+        const active = this.activeWork.get(command.workId);
+        const pending = active?.interactions.get(command.interactionId);
+        if (!active || !pending)
+          throw new HttpError(409, "This confirmation is no longer pending. Refresh work status.");
+        cycleId = active.cycleId;
+        active.interactions.delete(command.interactionId);
+        pending.resolve(command.cancel ? undefined : command.answer);
+        break;
+      }
+      case "startNext":
+        cycleId = command.cycleId;
+        for (const item of work.pending(cycleId)) {
+          const selected = item.mode === "managed" ? item.supervisor : item.configuration;
+          if (
+            this.activeWork.has(item.id) ||
+            (selected && !this.host.products.admittedWork(selected)) ||
+            item.dependencies.some((id) => work.item(id).state !== "accepted")
+          )
+            continue;
+          if ((await this.startWork(item.id)).reservation) break;
+        }
+        break;
+      case "start":
+        cycleId = work.item(command.workId).cycleId;
+        await this.startWork(command.workId, command.options);
+        break;
+    }
+    return this.workRead({ cycleId });
+  }
+
+  private async startWork(workId: string, options?: z.infer<typeof WorkRunSchema>) {
+    if (this.activeWork.has(workId)) throw new HttpError(409, "This work is already active.");
+    const cycleId = this.host.products.work.item(workId).cycleId;
+    const controller = new AbortController();
+    const signal = AbortSignal.any([this.host.signal, controller.signal]);
+    const interactions = new Map<
+      string,
+      { request: Interaction; resolve: (answer: unknown) => void }
+    >();
+    this.activeWork.set(workId, { cycleId, controller, interactions });
+    try {
+      return await this.host.products.runWork(
+        workId,
+        signal,
+        (request, nativeSignal) => {
+          const lifetime = nativeSignal ? AbortSignal.any([signal, nativeSignal]) : signal;
+          if (lifetime.aborted) return Promise.resolve(undefined);
+          if (interactions.has(request.id)) throw new Error("Duplicate pending interaction ID.");
+          const answer = Promise.withResolvers<unknown>();
+          const cancel = () => {
+            interactions.delete(request.id);
+            answer.resolve(undefined);
+          };
+          interactions.set(request.id, { request, resolve: answer.resolve });
+          lifetime.addEventListener("abort", cancel, { once: true });
+          return answer.promise.finally(() => {
+            interactions.delete(request.id);
+            lifetime.removeEventListener("abort", cancel);
+          });
+        },
+        options,
+      );
+    } finally {
+      controller.abort(new Error("Work execution ended."));
+      this.activeWork.delete(workId);
+    }
   }
 
   async environment() {

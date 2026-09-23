@@ -5,6 +5,11 @@ across sessions as OKF Markdown concepts directly under `$SWARMX_HOME/memory`. U
 searchable observed conversations, reusable procedures, and the structured concept pool have
 separate roles. Native skills remain owned by their runtimes; concepts add explicit dependencies.
 
+Memory supports the [long-term research product direction](product-direction.md). Saving an
+observation or passing a structural validator does not establish that a policy, prompt or skill
+improves later work. Host work management keeps independent acceptance and resource feedback;
+behavioral comparison, adoption and withdrawal are tracked in [ROADMAP](../ROADMAP.md).
+
 ## Learning lifecycle
 
 - `memory/USER.md` stores standing user preferences (1375 Unicode characters). Empty notes are
@@ -19,12 +24,20 @@ separate roles. Native skills remain owned by their runtimes; concepts add expli
   appendix on the first observed turn; it is removed from the displayed user message.
 - Observed user/assistant messages are recalled from the execution directory's journal.
   Search returns original text, session/run identifiers and event references, not invented summaries.
-- Eligible terminal executions (success, failure or cancellation) form a durable backlog in the
+- Eligible terminal executions (success, failure or cancellation) and trusted work-acceptance
+  feedback form a durable backlog in the
   execution journal. The review interval counts across this execution directory, including short
   child sessions. Ten executions by default, ten tool calls in one execution, or an unsuccessful
-  outcome starts a review. A manual review is also available. Busy reviews do not drop new work.
+  outcome starts a review. New acceptance or correction feedback starts a review without waiting
+  for that interval. The feedback keeps its own source event ID, so acknowledging the earlier
+  execution cannot consume a later assessment. A manual review is also available. Busy reviews do not drop new work.
+  A directory-scoped SQLite execution lock admits one queue consumer across desktop and ACP Hosts.
+  It is held through review and application, released on normal exit or by SQLite after process
+  termination, and stores no separate review state. A competing consumer leaves the durable queue
+  intact; later startup or resume rechecks it. Journal writes remain available while review runs.
   Startup resumes queued work after runtimes are attached; failures retain the batch for the next
-  eligible completion, startup or manual retry, without a retry timer. Disabled learning pauses it.
+  eligible completion or feedback, startup or manual retry, without a retry timer. Disabled learning pauses it.
+  Source-run review eligibility and grants are preserved and intersected with current policy.
   Reviews produce validated candidate operations;
   they cannot approve themselves or execute product tools. Review failures are visible in the
   journal and UI; no claim is made that an LLM will extract every important fact correctly.
@@ -34,19 +47,25 @@ separate roles. Native skills remain owned by their runtimes; concepts add expli
   tool calls and interactions. The Host requests native restrictions; unmodified upstream adapters
   determine their effect, including internal title calls and session persistence. The review uses existing
   credentials and consumes model usage. Bounded snapshots include observed execution settings,
-  outcomes, timestamps, tool evidence, delegation reasons and existing concepts. Omitted evidence
+  outcomes, timestamps, tool evidence, delegation reasons, queued acceptance feedback and existing concepts. Omitted evidence
   is identified explicitly and is never treated as inspected. Unknown native versions or actual
   provider routes stay unknown. Cancellation is not a quality failure; normal completion is not
   proof of task correctness.
-  One review considers user preferences, harness/model/provider selection, versioned agent prompts
+  One review considers user preferences, harness/model/effort/provider selection, versioned agent prompts
   and skill improvements. Selection experience uses the `agent-selection` tag. Memory creations
   and updates cite the journal snapshot through `urn:swarmx:execution:<event-id>`.
   Project-local agent/skill files can opt into validated evolution; see
   [learning resources](learning-resources.md). Native runtimes retain discovery and loading ownership.
   A review saves its validated operation plan before applying it. Restart replays that plan, not a
   new model response. Each applied or staged operation is recorded; idempotent writes close the
-  write/receipt crash window. Only a completed batch acknowledges its exact terminal event IDs.
-  Concurrent executions stay pending. A no-change review records its reason. Writes are per-target,
+  write/receipt crash window. Only a completed batch acknowledges its exact source event IDs.
+  The persisted `terminalIds` field now includes both terminal-execution and feedback event IDs.
+  Batches contain at most 100 chronological sources. Before saving a job, the Host selects a
+  complete prefix that fits the existing 40,000-character evidence limit. Queued sources have snapshot priority;
+  feedback arriving during preparation or review stays in the next batch. If the bounded snapshot
+  cannot fit one source, review fails without acknowledging it. Large collections of individually
+  bounded feedback drain in separate batches. Concurrent executions stay pending.
+  A no-change review records its reason. Writes are per-target,
   not a transaction spanning a whole review; errors leave completed writes visible and unfinished
   work pending. Conflicting external edits are never overwritten by replay. After a failed review,
   requesting a manual review explicitly replaces its failed plan with fresh analysis; already
@@ -143,11 +162,17 @@ certify knowledge value, enforce editorial relevance, certify English usage or t
 
 ## Agent selection experience
 
-Harness/model/provider experience uses the existing private concept pool. Tag durable selection
+Harness/model/effort/provider experience uses the existing private concept pool. Tag durable selection
 concepts `agent-selection`, add route/task aliases or tags, and retain the observed conditions and
 evidence. Explicit user preferences, observations and unverified opinions must remain distinguishable.
-The application-maintained selection guide ships separately in `apps/desktop/resources/agent-selection.md`;
-application updates never overwrite private concepts.
+Assess acceptance, time and total descendant cost separately for each requested effort. Explicit native
+configuration conflicts fail execution. Leave omitted levels unknown, and do not equate identically
+named levels across different runtimes. Original native reports remain in the execution journal.
+The application-maintained delegation skill ships in `apps/desktop/resources/skills/delegate/SKILL.md`.
+At `swarm.prepare`, the Host appends relevant private concept bodies and their original evidence to the
+skill text. Write the combination assessment and appropriate scenarios in the concept body; future
+preparations read the latest saved revision. This reuses the existing durable review and concept pool;
+application updates never overwrite private concepts. See [delegation preparation](swarm.md#delegation-preparation).
 
 New selection evaluations carry an `evaluation` object: `kind` (`observation`, `judgment`,
 or `preference`), `task`, `criteria`, `evidence` (execution-event URNs), `counterEvidence`,
@@ -165,10 +190,12 @@ other stops and incomplete runs remain separate. Elapsed time is Host-observed t
 including tools and waits, not model generation speed. Token counts and USD cost are reported
 only when the native interface supplied unambiguous totals; unknown values remain null with
 explicit coverage counts. A citation-selected sample is not a provider-wide error rate or a
-controlled model comparison. Reported identity remains separate from requested identity.
+controlled model comparison. Agent identity uses requested settings; native metadata remains in
+the original events, and an explicit configuration conflict fails execution.
 
-Reviews receive these computed facts and preserve their prompt identity, configured reviewer
-and native-reported reviewer identity when available. Qualitative conclusions remain judgments
+Reviews receive these computed facts and preserve their prompt identity and requested reviewer
+model, with available provider and runtime version. They do not copy a second model identity into
+the review response or plan. Qualitative conclusions remain judgments
 against their recorded criteria, with supporting and contrary evidence and limitations. A
 resource validator passing establishes only its stated check, not improved agent performance.
 Selection preparation returns the same evidence summaries alongside the exact Memory revisions.
