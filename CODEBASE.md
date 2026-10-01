@@ -16,9 +16,9 @@
 | `apps/desktop/src/agents/` | embedded Pi SDK, native Codex App Server, Claude/DSH SDKs, Hermes TUI Gateway and OpenClaw Gateway Client, settings and Host event projection; see `docs/native-agents.md` |
 | `apps/desktop/src/agents/pi.ts` | Pi session/resource APIs, direct product tools and native event projection for the default Swarm lead |
 | `apps/desktop/resources/hermes-native.py` | Hermes native gateway bootstrap, process-local Host MCP registration and read-only native execution-thread wait |
+| `apps/desktop/resources/openclaw-plugin/` | OpenClaw gateway plugin that forwards session-scoped Host tool calls over the private bridge |
 | `apps/desktop/src/agents/openclaw-auth.ts` | private device identity, signing and origin-scoped token storage for the official Gateway Client |
 | `apps/desktop/src/agents/dsh.ts` | independent DSH SDK executions, explicit provider/model and profile selection, native MCP configuration and terminal-outcome validation |
-| `apps/desktop/resources/skills/delegate/SKILL.md` | delegation skill: combination selection, capability-based scenarios and evidence requirements |
 | `apps/desktop/src/acp-main.ts` | external ACP stdio entry point |
 | `apps/desktop/src/window.ts` | BrowserWindow and navigation policy |
 | `apps/desktop/src/host/` | renderer operations, AG-UI, external ACP/A2A, MCP and ProductServices |
@@ -78,6 +78,8 @@
 | `packages/core/dvc/` | Git/DVC inspection and explicit operations |
 | `packages/core/memory/` | bounded Markdown notes, private OKF concepts, dependency validation/loading and lint |
 | `packages/core/swarm/` | direct recursive Agent composition; the caller owns the borrowed lead |
+| `packages/core/swarm/skills/delegate/SKILL.md` | shared delegation skill exported with the Swarm package: combination selection, task fit and evidence requirements |
+| `packages/core/memory/skills/memory/SKILL.md` | shared Memory authoring guide exported with the Memory package, read on demand and used directly by background reviews |
 | `packages/science/core/` | scientific journal, artifacts, tools, and previews |
 
 Public packages do not depend on Electron, Renderer, AG-UI, A2A or provider SDKs.

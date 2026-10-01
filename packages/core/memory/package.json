@@ -11,7 +11,8 @@
       "types": "./lib/types/index.d.ts",
       "default": "./lib/index.js"
     },
-    "./package.json": "./package.json"
+    "./package.json": "./package.json",
+    "./skills/memory/SKILL.md": "./skills/memory/SKILL.md"
   },
   "scripts": {
     "bundle": "tsdown",
@@ -36,6 +37,7 @@
   "files": [
     "lib/index.js",
     "lib/types/**/*.d.ts",
-    "src"
+    "src",
+    "skills"
   ]
 }

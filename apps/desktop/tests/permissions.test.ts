@@ -94,6 +94,7 @@ it("checks each Host tool family before dispatch even without a parent execution
   const { products } = await fixture();
   products.updatePolicy({ ...products.settings.read().policy, tools: [] });
   for (const [name, args, grant] of [
+    ["memory", { action: "read_memory_guide" }, "memory.read"],
     ["memory", { action: "read_core_memory" }, "memory.read"],
     ["memory", { action: "create_memory" }, "memory.write"],
     ["science_query", {}, "science.read"],
@@ -104,6 +105,9 @@ it("checks each Host tool family before dispatch even without a parent execution
   await expect(
     products.callTool("memory", { action: "read_core_memory", request: {} }, context),
   ).resolves.toBeDefined();
+  await expect(
+    products.callTool("memory", { action: "read_memory_guide", request: {} }, context),
+  ).resolves.toMatchObject({ action: "read_memory_guide", data: expect.any(String) });
 });
 
 it.each(["plan", "full"])("native %s does not change Host grants or delegation", async (mode) => {

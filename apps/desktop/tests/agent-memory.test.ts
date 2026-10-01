@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it, vi } from "vitest";
@@ -63,7 +63,7 @@ async function fixture(
   };
 }
 
-it("instructs every Agent authoring path while preserving local names and mixed-language bodies", async () => {
+it("loads the full Memory guide on demand and for reviews without injecting it into sessions", async () => {
   const request = {
     title: "ふるさと納税",
     description: "A checklist for Japan's local government donation program.",
@@ -78,40 +78,55 @@ it("instructs every Agent authoring path while preserving local names and mixed-
     }),
   );
   const { agent, start, memory, products } = await fixture(reviewer);
+  const indexSnapshot = vi.spyOn(products.memory.vault, "indexSnapshot");
   await agent.start("codex:authoring", "Save the research", sink);
+  const instructions = start.mock.calls[0]?.[3]?.instructions;
+  const description = products.toolManifest.find((tool) => tool.name === "memory")?.description;
+  expect(instructions).toContain("read_memory_guide");
+  expect(instructions).not.toContain("Store durable user- or research-specific knowledge");
+  expect(description).toContain("read_memory_guide");
+  expect(description).not.toContain("Store durable user- or research-specific knowledge");
+  expect(indexSnapshot).not.toHaveBeenCalled();
+  const guide = (await memory.call({ action: "read_memory_guide", request: {} }, context)) as {
+    action: string;
+    data: string;
+  };
+  expect(guide.action).toBe("read_memory_guide");
+  expect(guide.data).toBe(
+    await readFile(new URL(import.meta.resolve("@swarmx/memory/skills/memory/SKILL.md")), "utf8"),
+  );
+  await expect(
+    memory.call({ action: "read_memory_guide", request: { extra: true } }, context),
+  ).rejects.toThrow();
   memory.review("codex:authoring");
   await vi.waitFor(async () => expect((await memory.status()).review.state).toBe("completed"));
 
-  for (const instructions of [
-    start.mock.calls[0]?.[3]?.instructions,
-    products.toolManifest.find((tool) => tool.name === "memory")?.description,
-    reviewer.mock.calls[0]?.[0],
-  ]) {
-    expect(instructions).toContain(
+  for (const fullGuide of [guide.data, reviewer.mock.calls[0]?.[0]]) {
+    expect(fullGuide).toContain(
       "Store durable user- or research-specific knowledge that adds value beyond public sources",
     );
-    expect(instructions).toContain(
+    expect(fullGuide).toContain(
       "if there is no durable added value, do not save an encyclopedia summary",
     );
-    expect(instructions).toContain(
+    expect(fullGuide).toContain(
       "Do not put migration notes, curation history, source-scope bookkeeping or self-commentary in memory content",
     );
-    expect(instructions).toContain(
+    expect(fullGuide).toContain(
       "Do not create standalone current concepts or first-level index/navigation/disambiguation entries for merged or obsolete topics",
     );
-    expect(instructions).toContain(
+    expect(fullGuide).toContain(
       "These are Memory operating rules, not user preferences; do not copy them into core notes or vault concepts",
     );
-    expect(instructions).toContain("Use concise, unambiguous concept titles");
-    expect(instructions).toContain("without hashes, UUIDs or timestamps");
-    expect(instructions).toContain("Store concept pages directly at the memory root");
-    expect(instructions).toContain("Do not add folders");
-    expect(instructions).toContain("no separate Markdown change log");
-    expect(instructions).toContain("Write natural-language Memory metadata in American English");
-    expect(instructions).toContain("language community, culture or institution");
-    expect(instructions).toContain("法定节假日调休, ふるさと納税, 전세");
-    expect(instructions).toContain("Body content may use any language or mix languages");
-    expect(instructions).toContain("Preserve IDs, URLs, hashes, timestamps");
+    expect(fullGuide).toContain("Use concise, unambiguous concept titles");
+    expect(fullGuide).toContain("without hashes, UUIDs or timestamps");
+    expect(fullGuide).toContain("Store concept pages directly at the memory root");
+    expect(fullGuide).toContain("Do not add folders");
+    expect(fullGuide).toContain("no separate Markdown change log");
+    expect(fullGuide).toContain("Write natural-language Memory metadata in American English");
+    expect(fullGuide).toContain("language community, culture or institution");
+    expect(fullGuide).toContain("法定节假日调休, ふるさと納税, 전세");
+    expect(fullGuide).toContain("Body content may use any language or mix languages");
+    expect(fullGuide).toContain("Preserve IDs, URLs, hashes, timestamps");
   }
 
   const [entry] = (await products.memory.vault.search({ query: request.title })).items;

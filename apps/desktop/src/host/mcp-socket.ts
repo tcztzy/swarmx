@@ -10,17 +10,22 @@ const requestSchema = z.object({
   list: z.literal(true).optional(),
   tool: z.string().optional(),
   args: z.unknown().optional(),
+  sessionKey: z.string().optional(),
+  toolCallId: z.string().optional(),
 });
+
+export interface McpSocketRequest {
+  readonly token: string;
+  readonly tool: string;
+  readonly args: unknown;
+  readonly sessionKey?: string;
+  readonly toolCallId?: string;
+}
 
 export interface McpSocketHandler {
   readonly tools: readonly ToolManifestEntry[];
   readonly known: (token: string) => boolean;
-  readonly invoke: (
-    token: string,
-    tool: string,
-    args: unknown,
-    signal: AbortSignal,
-  ) => Promise<unknown>;
+  readonly invoke: (request: McpSocketRequest, signal: AbortSignal) => Promise<unknown>;
 }
 
 export interface McpSocketServer {
@@ -69,7 +74,16 @@ export function startMcpSocket(path: string, handler: McpSocketHandler): Promise
       }
       if (request.tool === undefined) throw new Error("MCP request requires a tool.");
       const signal = flights.get(socket)?.signal ?? AbortSignal.abort();
-      const value = await handler.invoke(request.token, request.tool, request.args, signal);
+      const value = await handler.invoke(
+        {
+          token: request.token,
+          tool: request.tool,
+          args: request.args,
+          ...(request.sessionKey === undefined ? {} : { sessionKey: request.sessionKey }),
+          ...(request.toolCallId === undefined ? {} : { toolCallId: request.toolCallId }),
+        },
+        signal,
+      );
       reply({ ok: true, value });
     } catch (error) {
       reply({ ok: false, error: error instanceof Error ? error.message : String(error) });

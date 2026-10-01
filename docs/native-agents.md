@@ -7,7 +7,8 @@ title generation, tools and execution. Only the selected integration loads.
 
 Pi uses its native model/auth configuration, SessionManager, built-in tools, compaction and
 DefaultResourceLoader. Skills retain Pi's standard discovery and on-demand full-text loading.
-Sessions with the product `swarm` tool add the bundled `delegate` skill through the SDK's
+Sessions with the product `swarm` tool resolve the shared `@swarmx/swarm/skills/delegate/SKILL.md`
+package resource and add its directory through the SDK's
 `additionalSkillPaths`; restricted review sessions do not add it. Pi advertises its metadata
 and reads its body on demand. `swarm.prepare` still loads the current skill with relevant
 private evaluations before each delegated task; native discovery does not replace that check.
@@ -132,7 +133,15 @@ their output and terminal outcomes remain observed even when native steering bec
 follow-up. The Host execution finishes only after its main request and steering requests settle.
 Cancellation names the session and each owned unfinished run and preserves unrelated side runs. A
 disconnect, malformed owned event or native error cannot be reported as successful completion.
-Native Gateway tool configuration remains authoritative; no Host MCP credential is injected.
+Native Gateway tool configuration remains authoritative; the Host never writes MCP servers into it.
+The bundled gateway plugin (`apps/desktop/resources/openclaw-plugin`) is how a session reaches Host
+product tools. While it runs, the Host publishes a bridge descriptor under
+`$SWARMX_HOME/openclaw/bridges`; the plugin forwards each call over the Host's private socket
+together with the trusted gateway session key, session id and tool call id. The Host authorizes the
+call against the execution that leased that session, and the lease exists only for the run that bound
+it. Calls without a lease, with another credential, or after the run ends are rejected, and the
+plugin rechecks the gateway invocation before contacting the Host. Without the plugin, OpenClaw
+sessions keep their native tools and Memory context only.
 Listings also expose the previous ACP bridge UUID for matching native bridge sessions so the
 Host can find conversations already owned by its journal; both IDs address the same writer.
 An approval's native expiry or resolution by another client cancels the pending interaction and

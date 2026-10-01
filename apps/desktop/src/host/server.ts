@@ -62,21 +62,23 @@ export async function startHost(options: StartHostOptions): Promise<SwarmXHost> 
   const socket = await (async () => {
     try {
       await products.attachAgents(origin, options.agent, options.agentId);
-      return await startMcpSocket(products.mcpSocket, {
+      const socket = await startMcpSocket(products.mcpSocket, {
         tools: products.toolManifest,
-        known: (credential) => products.mcpExecutions.has(credential),
-        invoke: (credential, tool, args, signal) => {
-          const bound = products.mcpExecutions.get(credential);
-          if (!bound) throw new Error("MCP tool endpoint is not bound to an active execution.");
-          return products.callTool(tool, args, {
+        known: (credential) =>
+          credential === products.openclawToken || products.mcpExecutions.has(credential),
+        invoke: (request, signal) => {
+          const bound = products.resolveMcpCall(request);
+          return products.callTool(request.tool, request.args, {
             actorId: bound.sessionId,
-            callId: randomUUID(),
+            callId: request.toolCallId ?? randomUUID(),
             signal,
             sessionId: bound.sessionId,
             runId: bound.runId,
           });
         },
       });
+      await products.publishOpenClawBridge();
+      return socket;
     } catch (error) {
       server.closeAllConnections();
       await new Promise<void>((done) => server.close(() => done()));

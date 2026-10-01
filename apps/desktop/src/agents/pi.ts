@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   getSupportedThinkingLevels,
@@ -122,7 +123,7 @@ export async function createPi(options: AgentOptions): Promise<NativeAgent> {
       options.productTools?.definitions.some(({ name }) => name === "swarm")
         ? {
             additionalSkillPaths: [
-              fileURLToPath(new URL("../../resources/skills/delegate", import.meta.url)),
+              dirname(fileURLToPath(import.meta.resolve("@swarmx/swarm/skills/delegate/SKILL.md"))),
             ],
           }
         : {}),

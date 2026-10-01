@@ -109,4 +109,9 @@ export interface AgentOptions {
     bind(sessionId: string, runId: string): void;
     dispose(): void;
   };
+  /** OpenClaw claims Host tools through its gateway plugin; one lease per native session. */
+  readonly registerOpenClaw?: (sessionKey: string) => {
+    bind(sessionId: string, runId: string): void;
+    release(): void;
+  };
 }

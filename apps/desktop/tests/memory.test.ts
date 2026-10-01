@@ -30,6 +30,7 @@ it("exposes Memory operations, rejects model approvals and persists across Host 
                 "lint_memory",
                 "graph_memory",
                 "load_memory",
+                "read_memory_guide",
                 "read_core_memory",
                 "update_core_memory",
                 "search_sessions",

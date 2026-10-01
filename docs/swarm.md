@@ -65,7 +65,7 @@ Automatic memory reviews are not scheduled without both `memory.write` and deleg
 
 Before choosing a child, the lead calls `swarm.prepare` with the exact task text and up to four
 short search queries for the task, harnesses, models or providers. It receives the admitted harnesses
-and model allowlists, the bundled `resources/skills/delegate/SKILL.md` skill with its revision, and fresh
+and model allowlists, the shared `@swarmx/swarm/skills/delegate/SKILL.md` skill with its revision, and fresh
 private user notes and matching Memory concepts with their prerequisites and stale flags. The returned
 `knowledge.content` is the skill body with relevant private evaluations and Host-computed facts appended;
 the existing `memory` field retains the structured sources. Each evaluation preserves its written

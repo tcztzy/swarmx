@@ -772,7 +772,7 @@ describe("external gateways", () => {
         {
           model: "native-model",
           effort: "high",
-          instructions: expect.stringContaining("SwarmX memory"),
+          instructions: expect.stringContaining("read_memory_guide"),
         },
       ]);
       for (const forwardedProps of [

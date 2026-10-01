@@ -1,0 +1,17 @@
+{
+  "id": "swarmx",
+  "name": "SwarmX Host tools",
+  "description": "Call SwarmX Host product tools such as shared Memory from OpenClaw sessions.",
+  "version": "0.1.0",
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {}
+  },
+  "activation": {
+    "onStartup": true
+  },
+  "contracts": {
+    "tools": ["swarmx"]
+  }
+}

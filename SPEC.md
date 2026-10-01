@@ -57,7 +57,8 @@ Durable product requirements. See [product direction](docs/product-direction.md)
 - Settings contains language, permissions, environment and memory preferences.
 - [Memory](docs/memory.md) combines a bounded user note, frozen session context, journal-backed
   recall and flat OKF concepts with revision-pinned acyclic prerequisites. Native skills remain
-  separate from structured vault knowledge.
+  separate from structured vault knowledge. New sessions receive a short tool entry point and
+  user note; the complete authoring guide and relevant concepts load on demand.
 - Configurable post-turn reviews propose durable learning using a restricted native runtime.
   Host validation, revision checks and optional user-owned approval govern writes; Agents cannot
   approve their own changes.

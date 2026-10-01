@@ -56,13 +56,19 @@ Memory keep their existing domain records. The execution journal records observe
 their returned domain locators; it does not replace native resume state or scientific facts.
 
 [Memory](docs/memory.md) owns one shared knowledge store; native runtimes own resume histories
-and skill loading. Its searchable conversation index and review backlog derive from execution
+and skill loading. The Memory tool serves the bundled authoring guide on demand; background
+reviews read the same guide directly. New session snapshots contain only short usage guidance
+and the bounded user note. Its searchable conversation index and review backlog derive from execution
 records. A single Host consumer persists a review plan before writes, then records each applied
 or staged operation so restart can replay with original grants intersected with current policy.
 Pending approvals are durable; only the user can approve them. Registered project prompts and
 skills use this same plan and approval path, plus revision checks and project-owned validators;
 see [learning resources](docs/learning-resources.md). Structural validation does not establish
 factual truth or a behavior change's effectiveness.
+
+The built-in Memory and delegation skills belong to the existing `@swarmx/memory` and
+`@swarmx/swarm` packages. Their Markdown resources are exported and included in those packages;
+application entry points resolve the package exports. They do not belong to the Desktop UI.
 
 [Work management](docs/work-management.md) owns Agent selection, managed continuations, runtime
 limits and acceptance above the Swarm layer. It derives cost from the execution journal's existing

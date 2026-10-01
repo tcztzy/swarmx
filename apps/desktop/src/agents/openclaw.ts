@@ -737,9 +737,11 @@ export async function createOpenClaw(options: AgentOptions): Promise<NativeAgent
         lifetime: new AbortController(),
         streams: new Map(),
       };
+      const lease = options.registerOpenClaw?.(id);
       run.streams.set(run.id, stream(run.id));
       running.set(id, run);
       try {
+        if (lease && observer.executionId !== undefined) lease.bind(id, observer.executionId);
         if (selection?.mode !== undefined) modeSchema.parse(selection.mode);
         if (selection?.model !== undefined || selection?.mode !== undefined) {
           await client.request("sessions.patch", {
@@ -773,6 +775,7 @@ export async function createOpenClaw(options: AgentOptions): Promise<NativeAgent
         }
         throw error;
       } finally {
+        lease?.release();
         run.lifetime.abort();
         run.done.resolve(new Error("OpenClaw run closed without a terminal outcome."));
         running.delete(id);

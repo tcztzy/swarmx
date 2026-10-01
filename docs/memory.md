@@ -15,8 +15,10 @@ behavioral comparison, adoption and withdrawal are tracked in [ROADMAP](../ROADM
 - `memory/USER.md` stores standing user preferences (1375 Unicode characters). Empty notes are
   valid. Updates require the last read revision, reject overflow, and use a private atomic file
   replacement.
-- The Host freezes the user note and a bounded navigation index for each session. Full
-  concepts are loaded on demand. Existing session snapshots survive Host restarts; new sessions
+- The Host freezes a short Memory tool entry point and the user note for each session. The full
+  authoring guide and concepts are loaded on demand through `read_memory_guide` and the existing
+  search/read/load actions. The navigation index is not injected into new session context.
+  Existing session snapshots survive Host restarts; new sessions
   see new notes. The snapshot is installed when creating a task, or on the first observed turn
   of an existing native task. Disabling memory stops learning and gives new tasks empty snapshots;
   it does not erase context already given to an existing task. Retrieved knowledge is data and cannot grant tool permissions.
@@ -152,12 +154,14 @@ Body content and plain-text user notes may use any language or mix languages. Pr
 IDs, URLs, hashes, timestamps and other machine-readable values exactly. Changing a title does
 not require changing an existing concept ID or its links.
 
-The Host shares one `MEMORY_AUTHORING_RULES` instruction across foreground session context,
-the Memory tool description and background review prompts. Its content selection, naming, layout and language
-rules are loaded automatically when Memory is enabled; they do not depend on skill discovery,
-a skill invocation, or the Agent deciding to read an instruction file. Existing sessions retain their frozen
-context; newly generated context and review prompts, and the tool manifest, carry the current rule.
-These are semantic authoring instructions. The schema/linter validates structure; it does not
+The complete runtime authoring guide is bundled at
+`packages/core/memory/skills/memory/SKILL.md` and exported as
+`@swarmx/memory/skills/memory/SKILL.md`. Applications resolve this package resource without
+depending on a Desktop directory. New session context and the Memory tool
+description point to `read_memory_guide {}`; the Agent reads it when it needs to author durable
+knowledge. Background reviews load the same full guide directly. Existing sessions retain their
+frozen context, including snapshots created before this change. These are semantic authoring
+instructions. The schema/linter validates structure; it does not
 certify knowledge value, enforce editorial relevance, certify English usage or translate saved content.
 
 ## Agent selection experience
@@ -168,7 +172,8 @@ evidence. Explicit user preferences, observations and unverified opinions must r
 Assess acceptance, time and total descendant cost separately for each requested effort. Explicit native
 configuration conflicts fail execution. Leave omitted levels unknown, and do not equate identically
 named levels across different runtimes. Original native reports remain in the execution journal.
-The application-maintained delegation skill ships in `apps/desktop/resources/skills/delegate/SKILL.md`.
+The shared delegation skill ships in `packages/core/swarm/skills/delegate/SKILL.md`, exported as
+`@swarmx/swarm/skills/delegate/SKILL.md`.
 At `swarm.prepare`, the Host appends relevant private concept bodies and their original evidence to the
 skill text. Write the combination assessment and appropriate scenarios in the concept body; future
 preparations read the latest saved revision. This reuses the existing durable review and concept pool;
@@ -218,13 +223,14 @@ queries (five matches per query). It returns complete concept bodies, sources, r
 graphs, limited to eight loaded groups and 48,000 serialized characters. Oversized or excess groups
 are listed as omitted, never silently truncated; search diagnostics are retained. The lead can load
 additional concepts with the ordinary Memory tool. This retrieval is fresh even when the parent
-session retains an older frozen index. Disabled Memory or absent `memory.read` authority returns an
+session retains an older frozen note. Disabled Memory or absent `memory.read` authority returns an
 explicit status without reading private notes or concepts. See [delegation preparation](swarm.md#delegation-preparation).
 
 ## Product tool
 
 The Host publishes one `memory` MCP tool:
 
+- `read_memory_guide` — `{}`; read the complete bundled authoring guide on demand
 - `search_memory`
 - `read_memory`
 - `create_memory`
@@ -290,9 +296,14 @@ An explicit file check still reports scan failures that prevent a complete snaps
 
 ## Acceptance
 
-- Foreground Agent context, the Memory tool manifest and background reviews carry the same
-  content selection and metadata language instructions, even with an empty user note. Local
-  concept names and mixed-language bodies survive writes.
+- New session context and the Memory tool manifest contain a short entry point without the
+  complete guide or navigation index. `read_memory_guide` returns the full bundled instructions
+  under `memory.read` permission; background reviews use the same guide directly. Local concept
+  names and mixed-language bodies survive writes.
+- OpenClaw sessions reach the same tool only through the bundled gateway plugin, while the Host
+  holds a lease for that gateway session's active run. Calls without a lease, with another
+  credential, or after the run ends are rejected; without the plugin, OpenClaw keeps context-only
+  Memory and its native tools.
 - New concepts have deterministic filenames. Duplicate names reject creation without overwriting.
 - Concepts use the flat layout with one root index and do not generate Markdown change logs.
 - Unsafe paths, malformed or oversized concepts, stale revisions, rejection, and cancellation do

@@ -458,7 +458,7 @@ console.log("PROJECT_SMOKE_OK");
 });
 
 it("discovers the bundled delegate skill through Pi and reads its body on demand", async () => {
-  const skill = fileURLToPath(new URL("../resources/skills/delegate/SKILL.md", import.meta.url));
+  const skill = fileURLToPath(import.meta.resolve("@swarmx/swarm/skills/delegate/SKILL.md"));
   const native = await agent({
     productTools: {
       definitions: [

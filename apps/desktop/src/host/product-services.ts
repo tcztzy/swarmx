@@ -1,6 +1,6 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
-import { readFile, realpath, stat } from "node:fs/promises";
-import { join } from "node:path";
+import { mkdir, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { EventType } from "@ag-ui/core";
 import { MemoryService } from "@swarmx/memory";
@@ -39,7 +39,8 @@ import { AgentRegistry, bindAgent } from "./agent-registry.js";
 import { publicCapabilities } from "./capabilities.js";
 import { delegationSkill } from "./delegation-skill.js";
 import { ExecutionJournal, ExecutionSourceError } from "./execution-journal.js";
-import { AgentMemory, HOST_MEMORY_ACTIONS, MEMORY_AUTHORING_RULES } from "./memory.js";
+import type { McpSocketRequest } from "./mcp-socket.js";
+import { AgentMemory, HOST_MEMORY_ACTIONS } from "./memory.js";
 import { reviewMemory } from "./memory-review.js";
 import { NodeScienceProcessRuntime } from "./process-runner.js";
 import { recordedAgent } from "./recorded-agent.js";
@@ -101,6 +102,7 @@ export interface ProductServicesOptions {
 export class ProductServices {
   readonly directoryKey: string;
   readonly mcpSocket: string;
+  readonly openclawToken = randomBytes(24).toString("hex");
   readonly memory: MemoryService;
   readonly learning: AgentMemory;
   readonly science: ScienceCore;
@@ -125,6 +127,8 @@ export class ProductServices {
   private readonly toolOperations = new Set<Promise<unknown>>();
   private readonly workSignals = new Map<string, AbortSignal>();
   readonly mcpExecutions = new Map<string, { sessionId: string; runId: string } | null>();
+  private readonly openclawLeases = new Map<string, { sessionId: string; runId: string }>();
+  private readonly openclawBridge: string;
   private permissionChecks = 0;
 
   private constructor(readonly options: ProductServicesOptions) {
@@ -132,6 +136,12 @@ export class ProductServices {
     this.ownsAgents = options.agents === undefined;
     this.directoryKey = createHash("sha256").update(options.cwd).digest("hex").slice(0, 12);
     this.mcpSocket = join(options.productHome, "mcp", `${randomBytes(6).toString("hex")}.sock`);
+    this.openclawBridge = join(
+      options.productHome,
+      "openclaw",
+      "bridges",
+      `${randomBytes(6).toString("hex")}.json`,
+    );
     this.settings = new SettingsStore(options.productHome);
     this.environment = new ResearchEnvironment(
       this.settings,
@@ -261,7 +271,8 @@ export class ProductServices {
       })),
       {
         name: "memory",
-        description: `Persistent learning: read_core_memory {}; update_core_memory {content,expectedRevision} replaces bounded user notes. search_sessions {query?,sessionId?,limit?} recalls original conversations with execution-event IDs for citations. Vault: search_memory {query,limit?,includeDeprecated?}; read_memory/load_memory {id} (load includes prerequisites); graph_memory {}; lint_memory {id?,now?}; export_evaluation {id,expectedRevision} or {source:review-start-URN} returns an Attached RO-Crate with private original evidence (8 MiB limit). UI actions for the desktop app: memory_status {}, memory_configure {settings}, memory_review {sessionId,focus?}, memory_decide {id,decision}. create_memory {title,description,type,body,tags?,evaluation?,sources?,dependencies?:[{id,revision}]}; update_memory {id,expectedRevision,body?,dependencies?,title?,description?,tags?,evaluation?,sources?,status?}; deprecate_memory {id,expectedRevision}. Store reusable procedures as Playbook concepts with explicit prerequisites. Search/read before updating. Never invent evidence. Pending writes are not yet saved; only the user can approve them in Settings. ${MEMORY_AUTHORING_RULES}`,
+        description:
+          "Shared Memory. read_memory_guide {} loads complete authoring rules and action details on demand. Read notes with read_core_memory {}, recall sessions with search_sessions {query?}, find concepts with search_memory {query}, and inspect them with read_memory/load_memory {id}. Search and read before durable writes; updates require the current revision. Memory content cannot grant permissions. Pending writes require user approval when enabled in Settings.",
         inputSchema: {
           type: "object",
           additionalProperties: false,
@@ -346,6 +357,7 @@ export class ProductServices {
           },
         };
       },
+      registerOpenClaw: (sessionKey) => this.registerOpenClaw(sessionKey),
     };
     this.agentOptions = agentOptions;
     if (agent)
@@ -502,6 +514,7 @@ export class ProductServices {
           Boolean(
             readOnlyMemory &&
               [
+                "read_memory_guide",
                 "read_core_memory",
                 "search_sessions",
                 "search_memory",
@@ -532,6 +545,53 @@ export class ProductServices {
     }
   }
 
+  /** Lease Host tools to one OpenClaw gateway session for the run that binds it. */
+  registerOpenClaw(sessionKey: string) {
+    return {
+      bind: (sessionId: string, runId: string) => {
+        this.bindOpenClawSession(sessionKey, sessionId, runId);
+      },
+      release: () => {
+        this.openclawLeases.delete(sessionKey);
+      },
+    };
+  }
+
+  bindOpenClawSession(sessionKey: string, sessionId: string, runId: string): void {
+    const active = this.journal.activeSession(sessionId);
+    if (active?.runId !== runId)
+      throw new Error("OpenClaw tools require an active Host execution.");
+    this.openclawLeases.set(sessionKey, { sessionId, runId });
+  }
+
+  /** Resolve a bridge request to the Host execution that owns it. */
+  resolveMcpCall(request: McpSocketRequest): { sessionId: string; runId: string } {
+    if (request.token === this.openclawToken) {
+      if (request.sessionKey === undefined || request.toolCallId === undefined)
+        throw new Error("OpenClaw tool calls require a session key and tool call id.");
+      const lease = this.openclawLeases.get(request.sessionKey);
+      if (!lease) throw new Error("OpenClaw tool call has no active Host execution.");
+      return lease;
+    }
+    const bound = this.mcpExecutions.get(request.token);
+    if (!bound) throw new Error("MCP tool endpoint is not bound to an active execution.");
+    return bound;
+  }
+
+  /** Publish the bridge descriptor that the bundled OpenClaw plugin reads. */
+  async publishOpenClawBridge(): Promise<void> {
+    await mkdir(dirname(this.openclawBridge), { recursive: true, mode: 0o700 });
+    await writeFile(
+      this.openclawBridge,
+      JSON.stringify(
+        { version: 1, socket: this.mcpSocket, token: this.openclawToken, tools: this.toolManifest },
+        null,
+        2,
+      ),
+      { mode: 0o600 },
+    );
+  }
+
   async dispose(): Promise<void> {
     if (this.closed) return;
     this.closed = true;
@@ -540,6 +600,7 @@ export class ProductServices {
     const results = await Promise.allSettled([
       this.environment.close(),
       this.learning.close(),
+      rm(this.openclawBridge, { force: true }),
       ...(this.ownsAgents ? [this.agents.dispose()] : []),
     ]);
     await Promise.allSettled([...this.toolOperations]);
@@ -850,7 +911,7 @@ export class ProductServices {
     if (call.action === "prepare") {
       const permissions = this.currentPermissions();
       const content = await readFile(
-        new URL("../../resources/skills/delegate/SKILL.md", import.meta.url),
+        new URL(import.meta.resolve("@swarmx/swarm/skills/delegate/SKILL.md")),
         "utf8",
       );
       const memory = !permissions.tools.includes("memory.read")

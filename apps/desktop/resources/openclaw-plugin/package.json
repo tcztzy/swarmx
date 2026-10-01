@@ -1,0 +1,22 @@
+{
+  "name": "openclaw-plugin-swarmx",
+  "version": "0.1.0",
+  "type": "module",
+  "private": true,
+  "files": [
+    "index.js",
+    "openclaw.plugin.json",
+    "README.md"
+  ],
+  "peerDependencies": {
+    "openclaw": ">=2026.5.17"
+  },
+  "openclaw": {
+    "extensions": [
+      "./index.js"
+    ],
+    "compat": {
+      "pluginApi": ">=2026.5.17"
+    }
+  }
+}

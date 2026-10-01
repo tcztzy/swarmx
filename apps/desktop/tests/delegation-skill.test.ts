@@ -284,7 +284,7 @@ it("loads the delegation skill and embeds original Memory bodies with deduplicat
   const result = await prepare();
   expect(result.knowledge).toMatchObject({ kind: "skill", resource: "skills/delegate/SKILL.md" });
   const skill = await readFile(
-    new URL("../resources/skills/delegate/SKILL.md", import.meta.url),
+    new URL(import.meta.resolve("@swarmx/swarm/skills/delegate/SKILL.md")),
     "utf8",
   );
   expect(result.knowledge.sourceRevision).toBe(digest(skill));

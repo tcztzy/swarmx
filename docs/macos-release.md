@@ -19,6 +19,8 @@ tree from the lockfile, including SDK peers. The deployed directory uses ordinar
 directories so macOS signing does not recursively follow pnpm's dependency symlinks.
 Workspace packages are injected and synchronized after
 their `bundle` scripts so the deployed tree contains the freshly compiled libraries.
+The built-in Memory and delegation skills ship inside their respective workspace packages;
+the packaged app resolves those package exports rather than Desktop-local skill copies.
 The build hook uses `@electron/rebuild` for native modules and tells electron-builder to
 preserve that tree. Recomputing it with electron-builder's dependency collector omits
 runtime peers used by DSH. The staging directory is removed by `pnpm clean`.

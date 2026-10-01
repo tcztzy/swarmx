@@ -67,8 +67,14 @@ async function verify() {
   assert.equal(app.getAppPath(), root);
   assert.equal(process.cwd(), ${JSON.stringify(scratch)});
   for (const path of ["preload.cjs", "dist/main.js", "dist/renderer/index.html",
-    "resources/skills/delegate/SKILL.md", "resources/hermes-native.py", "resources/python/Dockerfile"]) {
+    "resources/hermes-native.py", "resources/python/Dockerfile",
+    "resources/openclaw-plugin/index.js", "resources/openclaw-plugin/openclaw.plugin.json"]) {
     accessSync(join(root, path));
+  }
+  for (const resource of ["@swarmx/swarm/skills/delegate/SKILL.md", "@swarmx/memory/skills/memory/SKILL.md"]) {
+    const path = appRequire.resolve(resource);
+    assert.ok(path.startsWith(root + "/"), "Skill resolved outside the packaged app: " + path);
+    accessSync(path);
   }
   const { ScienceCore, DEFAULT_WRITING_PREVIEW_RUNTIME_COMMAND } =
     await import(pathToFileURL(appRequire.resolve("@swarmx/science")).href);
