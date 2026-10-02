@@ -84,7 +84,10 @@ export const BootstrapSchema = z.strictObject({
   cwd: z.string().min(1),
 });
 export const SettingsResponseSchema = SettingsSchema.extend({ cwd: z.string().min(1) });
-export const HistoryResponseSchema = HistoryMessagesSchema;
+export const HistoryResponseSchema = z.discriminatedUnion("supported", [
+  z.strictObject({ supported: z.literal(true), messages: HistoryMessagesSchema }),
+  z.strictObject({ supported: z.literal(false) }),
+]);
 export const ExecutionPageResponseSchema = ExecutionPageSchema;
 export const EnvironmentResponseSchema = EnvironmentStatusSchema;
 export const ArtifactContentSchema = z.object({

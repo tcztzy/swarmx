@@ -4,19 +4,19 @@ import type { NativeAgent, Observer } from "../src/agents/types.js";
 import { HARNESS_CAPABILITIES } from "../src/agents/types.js";
 
 const factory = vi.hoisted(() => ({
-  pi: vi.fn(),
   codex: vi.fn(),
   claude: vi.fn(),
   hermes: vi.fn(),
   openclaw: vi.fn(),
   dsh: vi.fn(),
+  acp: vi.fn(),
 }));
-vi.mock("../src/agents/pi.js", () => ({ createPi: factory.pi }));
 vi.mock("../src/agents/codex.js", () => ({ createCodex: factory.codex }));
 vi.mock("../src/agents/claude.js", () => ({ createClaude: factory.claude }));
 vi.mock("../src/agents/hermes.js", () => ({ createHermes: factory.hermes }));
 vi.mock("../src/agents/openclaw.js", () => ({ createOpenClaw: factory.openclaw }));
 vi.mock("../src/agents/dsh.js", () => ({ createDsh: factory.dsh }));
+vi.mock("../src/agents/external-acp.js", () => ({ createExternalAcp: factory.acp }));
 const options = { cwd: "/workspace", mcp: { command: "node", args: ["/bridge.js"], env: {} } };
 const observer: Observer = { text() {}, tool() {}, raw() {}, interact: async () => undefined };
 function native(): NativeAgent {
@@ -35,9 +35,10 @@ function native(): NativeAgent {
 }
 beforeEach(() => vi.resetAllMocks());
 
-it("uses Pi by default and preserves explicit native selections", () => {
+it("uses Codex by default and preserves explicit native selections", () => {
   vi.stubEnv("SWARMX_AGENT", undefined);
-  expect(selectedAgent()).toBe("pi");
+  vi.stubEnv("SWARMX_ACP_AGENT", undefined);
+  expect(selectedAgent()).toBe("codex");
   expect(selectedAgent("codex")).toBe("codex");
   vi.stubEnv("SWARMX_AGENT", "claude");
   expect(selectedAgent()).toBe("claude");

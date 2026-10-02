@@ -13,7 +13,9 @@ Electron → assistant-ui + AG-UI → IPC → Host → Swarm → Native Agent
                                         └ MCP → ProductServices → Swarm
 ```
 
-Pi SDK is the default runtime; use Pi's native authentication and model configuration.
+SwarmX orchestrates external Agents and contains no builtin Agent runtime. Codex App Server
+is the default; use its native login/configuration. To use an independent ACP agent, configure
+`SWARMX_ACP_AGENT` and explicitly admit `acp` in Host policy; see [ACP setup](docs/acp.md).
 Builds generate App Server declarations with the official CLI pinned in the development
 dependencies; `CODEX_PATH` can explicitly select a different installed executable.
 Claude and DSH use their official Agent SDK and SDK Client. Hermes uses its installed TUI Gateway;
@@ -45,7 +47,8 @@ to select another directory at launch, and `SWARMX_HOME` to choose the private d
 
 Independent projects can keep their own programs, dependencies and native skills in
 that directory. See [running an independent project](docs/domain-projects.md) for desktop/ACP launch
-commands, the Pi project layout, output ownership and execution-log export.
+commands, project-local resources, output ownership and execution-log export. Its historical
+Pi examples are retained as evidence; see the migration note before using them.
 
 Start with a conversation. **Assets / 科研资产** opens files, images and optional source editing
 beside that conversation. **Observe / 观测与溯源** groups react-o11y traces, recorded scientific
@@ -61,7 +64,7 @@ figure code runs without network in an immutable image. Missing Docker or setup 
 shown and never execute that code on the host. See [workbench operation](docs/product-readiness.md)
 for boundaries, exports and acceptance evidence.
 
-Use `SWARMX_AGENT=pi|codex|claude|dsh|hermes|openclaw` or the Agent selector. Native setup and external
+Use `SWARMX_AGENT=codex|claude|dsh|hermes|openclaw|acp` or the Agent selector. Native setup and external
 ACP/A2A access: [Agent platform](docs/runtime-platform.md).
 
 [Memory](docs/memory.md) retains research knowledge across sessions in private OKF Markdown.

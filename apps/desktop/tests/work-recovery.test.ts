@@ -16,7 +16,7 @@ const cleanups: (() => Promise<void>)[] = [];
 afterEach(async () => {
   for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
 });
-const configurations = [{ id: "registered", harness: "pi", model: "fixture" }];
+const configurations = [{ id: "registered", harness: "codex", model: "fixture" }];
 const item = (id: string, extra = {}) => ({
   id,
   cycleId: "cycle",
@@ -73,7 +73,7 @@ async function fixture() {
   };
   const start = (reservation: WorkAttempt) => {
     const context: ExecutionContext = {
-      sessionId: `pi:${randomUUID()}`,
+      sessionId: `codex:${randomUUID()}`,
       runId: randomUUID(),
       causedBy: null,
       attributes: first.work.attributes(reservation),
@@ -309,8 +309,8 @@ async function products() {
   let sessions = 0;
   const native: NativeAgent = {
     name: "recovery fixture",
-    capabilities: HARNESS_CAPABILITIES.pi,
-    create: async () => `pi:${++sessions}`,
+    capabilities: HARNESS_CAPABILITIES.codex,
+    create: async () => `codex:${++sessions}`,
     list: async () => [],
     read: async () => {},
     models: vi.fn(async () => ({
@@ -322,7 +322,7 @@ async function products() {
     steer: async () => {},
     dispose: async () => {},
   };
-  await services.attachAgents("http://localhost", native, "pi");
+  await services.attachAgents("http://localhost", native, "codex");
   services.work.createCycle({
     id: "cycle",
     project: "research",
@@ -333,7 +333,7 @@ async function products() {
       { ...configurations[0], id: "not-permitted", model: "not-permitted" },
     ],
   });
-  services.updatePolicy({ ...services.settings.read().policy, harnesses: { pi: ["fixture"] } });
+  services.updatePolicy({ ...services.settings.read().policy, harnesses: { codex: ["fixture"] } });
   cleanups.push(async () => {
     await services.dispose();
     await rm(cwd, { recursive: true, force: true });
@@ -403,7 +403,7 @@ it.each(["manual", "managed"] as const)(
         priority: 10,
         mode,
         [mode === "managed" ? "supervisor" : "configuration"]: {
-          harness: "pi",
+          harness: "codex",
           model: "not-permitted",
         },
       }),

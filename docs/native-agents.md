@@ -1,41 +1,19 @@
 # Native integrations
 
-The default Swarm lead uses the embedded Pi SDK. The Host also calls Codex App Server,
-Claude Agent SDK, DSH SDK Client, Hermes TUI Gateway and
-OpenClaw Gateway Client directly. Their native runtimes own configuration, transcripts,
-title generation, tools and execution. Only the selected integration loads.
+SwarmX orchestrates external Agents. Codex App Server is the default; an explicit ACP
+endpoint may select `acp` after Host policy admits it. Claude Agent SDK, DSH SDK Client,
+Hermes TUI Gateway and OpenClaw Gateway Client retain their native integrations. Each runtime
+owns its loop, context, configuration, transcripts, tools and skill discovery. Only the
+selected integration loads. SwarmX ships no builtin Pi runtime and has no direct Pi SDK
+dependency. The existing DSH SDK still transitively depends on `pi-ai`; it owns that backend.
+This migration removes SwarmX's own loop and tool bridge, not every upstream use of Pi libraries.
 
-Pi uses its native model/auth configuration, SessionManager, built-in tools, compaction and
-DefaultResourceLoader. Skills retain Pi's standard discovery and on-demand full-text loading.
-Sessions with the product `swarm` tool resolve the shared `@swarmx/swarm/skills/delegate/SKILL.md`
-package resource and add its directory through the SDK's
-`additionalSkillPaths`; restricted review sessions do not add it. Pi advertises its metadata
-and reads its body on demand. `swarm.prepare` still loads the current skill with relevant
-private evaluations before each delegated task; native discovery does not replace that check.
-Frozen Memory context enters through the SDK's appended system prompt. Per-turn model/thinking
-choices belong to the session and do not rewrite global Pi defaults. Custom tools invoke the
-existing ProductServices directly, with the active execution's permissions, cancellation and
-causal journal context. No internal protocol connection is needed.
-Successful product-tool results project their `details` as the business result in both live
-output and native history, so Memory cards and Science navigation receive the same data.
-Built-in/extension tool results and failed calls retain their native payloads. RAW events and
-Pi transcripts preserve the complete native result, including `content` and `details`.
-History and model reads do not send a prompt. Catalog inspection uses Pi's in-memory snapshot
-so its disposal cannot release the running session's resources or modify its transcript.
-Session listing remains directory-scoped, and
-the Host restores empty session reservations until Pi writes its first native assistant message.
-Streaming, tool events, steering and abort use the SDK. Stop clears the SDK's pending message
-queue before aborting so queued steering cannot launch another turn. The Host also checks cancellation
-at the SDK's synchronous preflight acceptance callback before the Agent loop starts. Stop or disposal
-during an asynchronous input or startup extension prevents the accepted prompt from reaching the
-model once preparation returns; the run ends cancelled and releases its session. A later attempt
-uses a fresh cancellation scope. Native preparation failures remain failures.
-Native errors and missing terminal outcomes reject. A native resource-cleanup failure releases
-the session for the next turn and is
-recorded as a raw cleanup event; it only rejects the run that otherwise succeeded.
-SDK extensions run in headless mode; terminal-only UI is not exposed.
-See the upstream [SDK](https://pi.dev/docs/latest/sdk) and
-[skills](https://pi.dev/docs/latest/skills) documentation for native configuration and discovery.
+The historical Pi adapter and its tests are preserved under `examples/legacy-pi/` for evidence
+and migration review. They are not an executable fallback or a supported optional runtime.
+Existing `pi` settings and journal records remain parseable; selecting that retired runtime
+fails with guidance to configure an external ACP agent. Native Pi session/auth files remain
+untouched. A replacement agent must explicitly use a compatible native store and validate its
+session ownership; Host observations are never imported as a new native transcript.
 
 Swarm composition borrows a lead Agent and forwards method calls and Observer callbacks in
 process. It has no wire format, connection handshake or provider-specific branches. The Host
@@ -43,19 +21,19 @@ intersects Host policy, caller, captured Swarm and persisted conversation grants
 Configuration validation and cancellation before dispatch remain Host responsibilities.
 The shared Agent identity is the requested harness/model/effort/profile. An explicit effective-model
 or effort conflict reported by a native runtime fails execution; raw reports remain in the journal.
-Pi checks SDK session settings at preflight and during callbacks. A provider `responseModel` that
-identifies another model in the same native catalog also fails before its tools execute. Unknown
-response names remain raw evidence because Pi supplies no alias-to-canonical mapping; an unfamiliar
-name alone cannot prove that a provider changed models. Claude resolves model aliases with
+Claude resolves model aliases with
 its official catalog and checks main-thread output; native internal subagents can use their own
 models. Codex rejects explicit model rerouting. Native acknowledgement without effective-setting
 metadata is not independent proof of the backend configuration.
 Native terminal outcomes confirm completion or cancellation; missing terminal results fail.
 The existing public `stopReason` values remain stable for stored execution records and callers.
 
-ACP is an optional external stdio gateway into the same protected Agent. Its SDK and negotiated
-extension belong at that boundary only. Desktop AG-UI, product MCP, A2A, recursive delegation and
-background memory reviews do not cross an internal ACP connection.
+ACP is an optional external stdio gateway into the same protected Agent. The separate `acp`
+integration calls an explicitly configured external agent through the official SDK. That agent
+owns its runtime, tools, native configuration and session history. SwarmX has no dependency
+on its internal Agent framework. History and resume consult the remote agent, never replay Host journal text into
+a new session. Capability gaps fail explicitly. Internal recursive composition still calls the
+Agent interface directly. See `acp.md` for endpoint admission and child lifecycle.
 
 Codex history uses read-only `thread/read`, including while another client holds a writer.
 Paginated histories use `thread/turns/list` and `thread/items/list`. New local threads select
@@ -184,17 +162,12 @@ The SDK profile supplies deterministic titles; SwarmX adds no title-generation r
 
 ## Acceptance
 
-- Pi is the default lead; explicit native selections retain their own sessions and behavior.
-- Pi sessions resume from native storage, including Host-owned empty reservations; built-in tools
-  and skills come from the SDK. Product tools retain Host permission checks and delegation context.
-- Pi model catalogs, streaming, history, steering, cancellation and failures project into the
-  existing Agent contract without a second execution loop or transcript store.
-- Pi cancellation tests pause real SDK input/startup extensions: after Stop or disposal, releasing
-  the extension causes no provider call; a stopped session can accept a later prompt.
-- Successful Pi Memory/Science results render and navigate identically in live output and
-  restored history; failed calls and non-product tool payloads are not unwrapped.
-- Reloaded Pi and OpenClaw histories preserve native tool failure statuses in desktop and
-  external ACP projections without rerunning the calls.
+- Codex is the default external lead; explicit supported selections retain their own sessions.
+- SwarmX production source and direct dependencies contain no Pi SDK, built-in loop or direct Pi
+  product-tool bridge; DSH's upstream transitive backend is separately identified.
+- Retired `pi` selections fail clearly without changing saved native data or selecting a fallback.
+- External ACP requires explicit admission before spawning and retains remote native history.
+- OpenClaw history preserves native tool failures without rerunning the calls.
 - Recursive calls preserve observer identity, native failures, terminal outcomes and controls.
 - Concurrent callers and nested Swarms cannot share or widen authority; stopped preparation
   cannot later dispatch. Stale execution controls cannot affect a subsequent turn.

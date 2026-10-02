@@ -5,7 +5,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, it, vi } from "vitest";
 import { HARNESS_CAPABILITIES, type NativeAgent } from "../src/agents/types.js";
-import { currentAgentBinding } from "../src/host/agent-registry.js";
 import { HostOperations } from "../src/host/operations.js";
 import { ProductServices } from "../src/host/product-services.js";
 import { WorkConfigurationSchema } from "../src/work.js";
@@ -20,12 +19,12 @@ it.each([false, true])(
     const criteria = "c".repeat(16_000);
     const native: NativeAgent = {
       name: "local preparation fixture",
-      capabilities: HARNESS_CAPABILITIES.pi,
+      capabilities: HARNESS_CAPABILITIES.codex,
       models: async () => ({
         models: [{ id: "fixture", name: "Fixture", efforts: [] }],
         current: {},
       }),
-      create: async () => "pi:fixture",
+      create: async () => "codex:fixture",
       list: async () => [],
       read: async () => {},
       start: vi.fn(async (_session, text, observer) => {
@@ -40,7 +39,7 @@ it.each([false, true])(
       dispose: async () => {},
     };
     try {
-      await products.attachAgents("http://localhost", native, "pi");
+      await products.attachAgents("http://localhost", native, "codex");
       products.work.createCycle({ id: "cycle", project: "test", budgetUsd: 10 });
       products.work.createItem({
         id: "item",
@@ -50,7 +49,7 @@ it.each([false, true])(
         criteriaVersion: "v1",
         taskClass: "analysis",
         mode: "managed",
-        supervisor: { harness: "pi", model: "fixture" },
+        supervisor: { harness: "codex", model: "fixture" },
         runtime: { budgetUsd: 1 },
       });
       if (oversize)
@@ -81,21 +80,21 @@ it.each([false, true])(
 
 it("keeps presets and temporary agent choices separate from runtime limits", () => {
   expect(
-    WorkConfigurationSchema.safeParse({ harness: "pi", model: "worker", profile: "sdk-minimal" })
+    WorkConfigurationSchema.safeParse({ harness: "codex", model: "worker", profile: "sdk-minimal" })
       .success,
   ).toBe(false);
   expect(
     WorkConfigurationSchema.safeParse({ harness: "dsh", model: "worker", profile: "sdk-minimal" })
       .success,
   ).toBe(true);
-  expect(WorkConfigurationSchema.parse({ harness: "pi", model: "worker", effort: "high" })).toEqual(
-    { id: "temporary", harness: "pi", model: "worker", effort: "high" },
-  );
   expect(
-    WorkConfigurationSchema.safeParse({ harness: "pi", model: "worker", version: "1" }).success,
+    WorkConfigurationSchema.parse({ harness: "codex", model: "worker", effort: "high" }),
+  ).toEqual({ id: "temporary", harness: "codex", model: "worker", effort: "high" });
+  expect(
+    WorkConfigurationSchema.safeParse({ harness: "codex", model: "worker", version: "1" }).success,
   ).toBe(false);
   expect(
-    WorkConfigurationSchema.safeParse({ harness: "pi", model: "worker", reserveUsd: 2 }).success,
+    WorkConfigurationSchema.safeParse({ harness: "codex", model: "worker", reserveUsd: 2 }).success,
   ).toBe(false);
 });
 
@@ -110,25 +109,31 @@ it.each(["stop", "timeout"])(
     const releaseRoot = Promise.withResolvers<void>();
     const releaseChild = Promise.withResolvers<void>();
     const interrupted = Promise.withResolvers<void>();
+    // Fire the deadline after child creation pauses, independent of scheduler speed.
+    const deadline = new AbortController();
+    const timeout =
+      cancel === "timeout"
+        ? vi.spyOn(AbortSignal, "timeout").mockReturnValue(deadline.signal)
+        : undefined;
     let sessions = 0;
     let stopped = false;
     const native: NativeAgent = {
       name: "local cancellation fixture",
-      capabilities: HARNESS_CAPABILITIES.pi,
+      capabilities: HARNESS_CAPABILITIES.codex,
       models: async () => ({
         models: [{ id: "fixture", name: "Fixture", efforts: [] }],
         current: {},
       }),
       async create() {
-        if (++sessions === 1) return "pi:root";
+        if (++sessions === 1) return "codex:root";
         childCreating.resolve();
         await releaseChild.promise;
-        return "pi:child";
+        return "codex:child";
       },
       list: async () => [],
       read: async () => {},
       start: vi.fn(async (session) => {
-        if (session === "pi:root") {
+        if (session === "codex:root") {
           rootReady.resolve();
           await releaseRoot.promise;
         }
@@ -142,7 +147,7 @@ it.each(["stop", "timeout"])(
       dispose: async () => {},
     };
     try {
-      await products.attachAgents("http://localhost", native, "pi");
+      await products.attachAgents("http://localhost", native, "codex");
       products.work.createCycle({ id: "cycle", project: "test", budgetUsd: 2 });
       products.work.createItem({
         id: "item",
@@ -152,7 +157,7 @@ it.each(["stop", "timeout"])(
         criteriaVersion: "1",
         taskClass: "test",
         mode: "managed",
-        supervisor: { harness: "pi", model: "fixture" },
+        supervisor: { harness: "codex", model: "fixture" },
         runtime: { budgetUsd: 2, ...(cancel === "timeout" ? { timeoutMs: 200 } : {}) },
       });
       const operations = new HostOperations({
@@ -164,13 +169,13 @@ it.each(["stop", "timeout"])(
       });
       const running = operations.workCommand({ action: "start", workId: "item" });
       await rootReady.promise;
-      const runId = products.journal.activeSession("pi:root")?.runId;
+      const runId = products.journal.activeSession("codex:root")?.runId;
       assert.ok(runId);
       // Socket callbacks carry session/run credentials, not the Agent's AsyncLocalStorage scope.
       expect(products.journal.scope.getStore()).toBeUndefined();
       const context = {
         actorId: "mcp",
-        sessionId: "pi:root",
+        sessionId: "codex:root",
         runId,
         signal: new AbortController().signal,
       };
@@ -183,7 +188,7 @@ it.each(["stop", "timeout"])(
         "swarm",
         {
           action: "send_message",
-          agentId: "pi",
+          agentId: "codex",
           model: "fixture",
           text: "Child",
           preparationId: prepared.preparationId,
@@ -197,6 +202,12 @@ it.each(["stop", "timeout"])(
       );
       await childCreating.promise;
       if (cancel === "stop") await operations.workCommand({ action: "stop", workId: "item" });
+      else {
+        expect(timeout).toHaveBeenCalledWith(200);
+        deadline.abort(
+          new DOMException("The operation was aborted due to timeout", "TimeoutError"),
+        );
+      }
       await interrupted.promise;
       releaseChild.resolve();
       expect(await outcome).toBe("cancelled");
@@ -205,6 +216,7 @@ it.each(["stop", "timeout"])(
       await running;
       expect(products.work.snapshot("cycle").reservations[0]?.outcome).toBe("cancelled");
     } finally {
+      timeout?.mockRestore();
       releaseChild.resolve();
       releaseRoot.resolve();
       await products.dispose();
@@ -220,12 +232,12 @@ it("prepares the supervisor before dispatch and lets it follow up on a child res
   const calls: string[] = [];
   const native: NativeAgent = {
     name: "local supervised work fixture",
-    capabilities: HARNESS_CAPABILITIES.pi,
+    capabilities: HARNESS_CAPABILITIES.codex,
     models: async () => ({
       models: ["supervisor", "worker"].map((id) => ({ id, name: id, efforts: [] })),
       current: {},
     }),
-    create: async () => `pi:${randomUUID()}`,
+    create: async () => `codex:${randomUUID()}`,
     list: async () => [],
     read: async () => {},
     async start(_id, text, observer, options) {
@@ -233,20 +245,20 @@ it("prepares the supervisor before dispatch and lets it follow up on a child res
       if (options?.model === "supervisor") {
         expect(text).toContain("<swarmx-preparation>");
         expect(text).toContain("Independently check the result");
-        const tools = currentAgentBinding().productTools;
-        assert.ok(tools);
+        const call = (name: string, args: unknown, callId: string, signal: AbortSignal) =>
+          products.callTool(name, args, { actorId: "mcp", callId, signal });
         for (const task of ["First analysis", "Follow up: correct the missing control"]) {
-          const prepare = (await tools.call(
+          const prepare = (await call(
             "swarm",
             { action: "prepare", task, queries: ["analysis"] },
             randomUUID(),
             new AbortController().signal,
           )) as { preparationId: string };
-          const result = await tools.call(
+          const result = await call(
             "swarm",
             {
               action: "send_message",
-              agentId: "pi",
+              agentId: "codex",
               model: "worker",
               text: task,
               reason: "Check and improve the returned analysis",
@@ -270,12 +282,12 @@ it("prepares the supervisor before dispatch and lets it follow up on a child res
     dispose: async () => {},
   };
   try {
-    await products.attachAgents("http://localhost", native, "pi");
+    await products.attachAgents("http://localhost", native, "codex");
     products.work.createCycle({
       id: "cycle",
       project: "analysis",
       budgetUsd: 10,
-      configurations: [{ id: "worker", harness: "pi", model: "worker" }],
+      configurations: [{ id: "worker", harness: "codex", model: "worker" }],
     });
     products.work.createItem({
       id: "item",
@@ -285,7 +297,7 @@ it("prepares the supervisor before dispatch and lets it follow up on a child res
       criteriaVersion: "1",
       taskClass: "analysis",
       mode: "managed",
-      supervisor: { harness: "pi", model: "supervisor" },
+      supervisor: { harness: "codex", model: "supervisor" },
       runtime: { budgetUsd: 4, timeoutMs: 10_000 },
     });
     await products.runWork("item", new AbortController().signal);

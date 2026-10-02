@@ -38,7 +38,7 @@ const ModelCatalogSchema = z.strictObject({
 }) satisfies z.ZodType<ModelCatalog>;
 
 const harnessNames: Record<string, string> = {
-  pi: "Pi",
+  pi: "Pi (retired)",
   codex: "Codex",
   claude: "Claude",
   hermes: "Hermes",

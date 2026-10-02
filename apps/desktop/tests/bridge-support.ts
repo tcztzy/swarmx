@@ -47,7 +47,7 @@ export function installBridge(): BridgeHarness {
   const environmentAct = vi.fn();
   const sessionsList = vi.fn(async () => []);
   const sessionsCreate = vi.fn();
-  const sessionsHistory = vi.fn(async () => []);
+  const sessionsHistory = vi.fn(async () => ({ supported: true, messages: [] }));
   const modelsRead = vi.fn(async () => ({ models: [], current: {} }));
   const logsRead = vi.fn(async () => ({ events: [], nextAfter: 0, activeRunIds: [] }));
   const logsEvidence = vi.fn();

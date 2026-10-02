@@ -18,14 +18,14 @@ changes require restarting `pnpm dev`.
 
 | Agent | Interface | Setup |
 | --- | --- | --- |
-| Pi (default) | Embedded Pi SDK | Native Pi authentication, models and settings in `~/.pi/agent/`; provider environment variables are supported |
-| Codex | Installed Codex App Server | Native login/config; `CODEX_PATH` can select the executable |
+| External ACP | Operator-selected stdio subprocess | Absolute `SWARMX_ACP_AGENT` descriptor and explicit `acp` Host grant; see `acp.md` |
+| Codex (default) | Installed Codex App Server | Native login/config; `CODEX_PATH` can select the executable |
 | Claude | Packaged `@anthropic-ai/claude-agent-sdk` | Native authentication and Claude settings |
 | Hermes | Installed native TUI Gateway over stdio | `SWARMX_HERMES_PYTHON` selects its Python interpreter; otherwise use the installed `hermes` interpreter |
 | OpenClaw | Official Gateway Client | `OPENCLAW_GATEWAY_URL` (default `ws://127.0.0.1:18789`), `OPENCLAW_GATEWAY_TOKEN` or `OPENCLAW_GATEWAY_PASSWORD` |
 | DSH | Official SDK Client and matching runtime | Native SDK profile/authentication; one independent execution per task |
 
-`--agent` → `SWARMX_AGENT` → `pi`. The desktop can select any configured Agent. Only a selected
+`--agent` → `SWARMX_AGENT` → configured `SWARMX_ACP_AGENT` (`acp`) → `codex`. The desktop can select any configured Agent. Only a selected
 integration loads; errors are reported without fallback. ZCode and Kimi are not registered.
 Host startup does not connect to a native CLI. Bootstrap reports session-list failures visibly
 while keeping research and settings available. A later explicit native request may reconnect.
@@ -34,18 +34,21 @@ Native runtimes are Host-owned: one lazy instance per harness serves tasks in th
 directory with the Host's permission ceiling and a scoped product-tool credential. The Host
 disposes the runtimes at shutdown.
 
-Pi uses its own authentication and settings. Run `pnpm --filter @swarmx/desktop exec pi` and
-use `/login`, or configure a provider environment variable as described in the
-[Pi provider guide](https://pi.dev/docs/latest/providers). Explicit harness
-allowlists must include `pi` to admit it; changing the default does not widen saved grants.
+The retired `pi` value remains readable in historical settings and execution records but
+cannot launch a builtin runtime. Configure a standalone ACP agent to use Pi or any other
+framework. SwarmX does not copy credentials or migrate native session IDs. Validate an
+existing native store explicitly with that external agent before resuming its sessions.
+The historical adapter and tests remain under `examples/legacy-pi/`; SwarmX production source
+and direct dependencies no longer import the Pi SDK. DSH still brings `pi-ai` transitively
+through its own upstream backend; see `native-agents.md`.
 
 SwarmX preserves native settings and exposes advertised native mode choices per conversation.
 Ordinary tasks retain native tools, delegation, hooks and ambient MCP. The Host injects a scoped
-product-tool bridge where supported; Pi custom tools call the same services directly and
-OpenClaw still uses its Gateway tool configuration.
+product-tool bridge where supported; OpenClaw uses its Gateway tool configuration. External
+ACP currently receives no Host product-tool bridge or automatic Host Memory injection.
 Host API grants are enforced independently of native execution modes. SwarmX does not rewrite
 global configuration. Native history is read on demand. Empty
-Pi/Claude sessions have no native transcript. Pi/Codex/Claude filter native
+Claude sessions have no native transcript. Codex/Claude filter native
 history by directory. Hermes/OpenClaw expose global native catalogs, so the Host lists and
 accepts only sessions created or previously run in the execution directory's journal. Empty created tasks
 have durable ownership records; a memory review record cannot establish task ownership.
@@ -161,7 +164,7 @@ notebook snapshots and rejects records owned by another execution directory.
 `agents.test.ts` checks native integration selection and session ownership;
 `gateways.test.ts` exercises the official ACP/A2A clients, run-bound product tools and AG-UI streaming.
 Provider tests cover native events, interactions, cancellation and lifecycle. Codex types are generated
-by its official CLI; SDK integrations use their published types. Internal code has no ACP adapter.
+by its official CLI; SDK integrations use their published types. Internal Swarm composition has no ACP connection; the external boundary has its own adapter.
 
 Opt-in real checks:
 

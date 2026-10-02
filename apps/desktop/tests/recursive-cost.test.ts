@@ -7,7 +7,6 @@ import { EventType } from "@ag-ui/core";
 import { expect, it } from "vitest";
 import { z } from "zod";
 import { HARNESS_CAPABILITIES, type NativeAgent } from "../src/agents/types.js";
-import { currentAgentBinding } from "../src/host/agent-registry.js";
 import { ProductServices } from "../src/host/product-services.js";
 
 it.each([false, true])(
@@ -18,13 +17,13 @@ it.each([false, true])(
     services.settings.writeMemory({ autoReview: false });
     const configurations = ["A", "B", "C"].map((id) => ({
       id,
-      harness: "pi",
+      harness: "codex",
       model: `fixture/${id}`,
     }));
     const native: NativeAgent = {
       name: "Local recursive cost fixture",
-      capabilities: HARNESS_CAPABILITIES.pi,
-      create: async () => `pi:${randomUUID()}`,
+      capabilities: HARNESS_CAPABILITIES.codex,
+      create: async () => `codex:${randomUUID()}`,
       list: async () => [],
       read: async () => {},
       models: async () => ({
@@ -35,10 +34,12 @@ it.each([false, true])(
         const level = options?.model === "fixture/C" ? 3 : options?.model === "fixture/B" ? 2 : 1;
         if (level < 3) {
           const child = level === 1 ? "B" : "C";
-          const tools = currentAgentBinding().productTools;
-          assert.ok(tools);
           const call = (args: unknown) =>
-            tools.call("swarm", args, randomUUID(), new AbortController().signal);
+            services.callTool("swarm", args, {
+              actorId: "mcp",
+              callId: randomUUID(),
+              signal: new AbortController().signal,
+            });
           const prepared = z
             .object({ preparationId: z.string() })
             .parse(
@@ -46,7 +47,7 @@ it.each([false, true])(
             );
           const request = {
             action: "send_message",
-            agentId: "pi",
+            agentId: "codex",
             model: `fixture/${child}`,
             text: child,
             preparationId: prepared.preparationId,
@@ -75,7 +76,7 @@ it.each([false, true])(
       dispose: async () => {},
     };
     try {
-      await services.attachAgents("http://localhost", native, "pi");
+      await services.attachAgents("http://localhost", native, "codex");
       services.work.createCycle({
         id: "cycle",
         project: "recursive accounting",

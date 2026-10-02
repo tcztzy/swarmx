@@ -110,7 +110,10 @@ class Turn implements Observer {
       id: request.id,
       reason: "input_required",
       message: request.title,
-      responseSchema: request.schema,
+      responseSchema:
+        request.approval?.input === undefined
+          ? request.schema
+          : { ...request.schema, description: JSON.stringify(request.approval.input, null, 2) },
     };
     const pending = { interrupt, resolve: answer.resolve };
     const cancel = () => {

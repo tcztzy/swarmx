@@ -6,14 +6,19 @@ Durable product requirements. See [product direction](docs/product-direction.md)
 ## Architecture
 
 - Renderer → AG-UI over Electron IPC → Host → Swarm → native Agent.
-- Pi SDK is the default Swarm runtime. Native runtimes own Agent loops, sessions, compaction,
-  model configuration, built-in tools and skill discovery.
-- Other native integrations: Codex App Server, Claude Agent SDK, DSH SDK Client,
+- SwarmX implements orchestration, not a built-in Agent. External runtimes own Agent loops,
+  model/context management, sessions, compaction, tools and skill discovery.
+- Codex is the default external runtime; a configured ACP endpoint becomes the default only
+  with an explicit Host harness grant. The old `pi` selection fails with migration guidance;
+  it never falls back to a different Agent or rewrites native session files.
+- Native integrations: Codex App Server, Claude Agent SDK, DSH SDK Client,
   Hermes TUI Gateway JSON-RPC and OpenClaw Gateway Client SDK.
 - Internal Swarm/member edges call the Agent interface directly. No ACP connections, envelopes,
   provider adapters or protocol types inside composition. Parents never inspect provider identity.
   No nesting limit. Each hop intersects trusted Host grants in the execution context.
-- ACP and A2A are external gateways only. ACP retains its negotiated permissions extension.
+- ACP and A2A remain external boundaries. ACP also supports explicitly configured external
+  agent processes through the optional `acp` integration; composition still calls the Agent
+  interface directly. The inbound ACP gateway retains its negotiated permissions extension.
 - Native integrations own provider configuration, sessions, events, approvals and cancellation.
   Load only the selected integration. Startup errors propagate without implicit adapter fallback.
   An explicit Host policy may retry or choose another admitted configuration while retaining the
@@ -26,6 +31,9 @@ Durable product requirements. See [product direction](docs/product-direction.md)
 ## Ownership
 
 - Native transcripts own runtime resume and context. History hydration reads native data.
+  External ACP agents retain their own runtime, tools and native history; SwarmX does not load
+  their underlying harness or reconstruct their context from its observation journal.
+  Failed external resume never creates a replacement session or resubmits an old prompt.
 - A Host-owned, append-only execution journal preserves observed Agent events and product-tool
   requests/results independently of native retention. The requested Agent configuration is the
   shared identity; an explicit native mismatch fails. Original native payloads retain observed
@@ -119,6 +127,10 @@ Durable product requirements. See [product direction](docs/product-direction.md)
   message; switching harnesses loads its own sessions without migrating transcripts or rewriting
   vendor settings. Configuration controls are disabled during a run.
 - ACP: official SDK over stdio, `pnpm acp`; stdout reserved for protocol messages.
+  Outbound `acp` is opt-in through an explicit endpoint descriptor and Host harness grant.
+  It forwards the remote agent's actual capabilities, choices and permission requests; it
+  does not grant filesystem/terminal access or inject Host credentials into the child.
+  Cancel waits for the original prompt terminal outcome; disposal owns and awaits child exit.
 - A2A: official SDK JSON-RPC endpoint and discoverable Agent Card; bearer required for calls.
 - Electron IPC accepts validated operations from the application's top-level window. The preload
   exposes named operations. A2A uses a random loopback port and bearer-authenticated calls;
@@ -131,7 +143,7 @@ Durable product requirements. See [product direction](docs/product-direction.md)
 ## Acceptance
 
 - `swarm.test.ts`: recursive delegation and cancellation without provider/protocol imports.
-- `agents.test.ts`: default Pi, lazy selection, native requests/events/interactions/Stop;
+- `agents.test.ts`: external default, retired builtin rejection, lazy selection and native requests;
   failures remain failures. Native configuration is not narrowed to protocol capabilities.
 - `permissions.test.ts`: recursive Host grants, native-mode independence, model admission on resumed
   sessions, policy revocation, concurrent isolation, product writes and delegation rejection.
@@ -140,7 +152,10 @@ Durable product requirements. See [product direction](docs/product-direction.md)
 - Execution-journal tests: append-only persistence, restart reads, directory isolation, writes
   before dispatch/delivery, raw payload preservation, per-run settings and causal tool/delegation links.
 - `boundaries.test.ts`: no provider/protocol/UI dependencies in public packages; ACP is confined
-  to external ingress; no upstream ACP harness adapters or patches in production dependencies.
+  to external ingress/egress adapters; no ACP imports in recursive composition or upstream
+  harness patches in production dependencies.
+- `external-acp.test.ts`: real stdio child lifecycle, explicit endpoint admission, remote-owned
+  sessions, permission forwarding/rejection, cancellation and disconnect cleanup.
 - Renderer interaction tests: session search/create/switch, stale request isolation, native
   history, suggested drafts, streaming/Stop, message copy and explicit interaction responses.
 - Run the [engineering checks](docs/product-readiness.md#verification) against the current candidate.

@@ -530,6 +530,8 @@ describe("external gateways", () => {
       const products = await ProductServices.create(gateway.products.options);
       const host = await startHost({
         products,
+        agent: fakeAgent().agent,
+        agentId: "codex",
       });
       try {
         const operations = new HostOperations(host);
@@ -614,6 +616,60 @@ describe("external gateways", () => {
     } finally {
       connection.close();
     }
+  });
+
+  it("resumes the same native session after an external ACP client reconnects", async () => {
+    const leaf = fakeAgent();
+    const create = vi.spyOn(leaf.agent, "create");
+    const start = vi.spyOn(leaf.agent, "start");
+    const updates: acp.SessionNotification[] = [];
+    let sessionId = "";
+    for (const text of ["first analysis", "continue the saved analysis"]) {
+      const connection = acp
+        .client({ name: "domain-client" })
+        .onNotification(acp.methods.client.session.update, ({ params }) => updates.push(params))
+        .connect(acpAgent(leaf.agent, process.cwd()));
+      try {
+        await connection.agent.request(acp.methods.agent.initialize, {
+          protocolVersion: acp.PROTOCOL_VERSION,
+        });
+        if (!sessionId) {
+          const session = await connection.agent.request(acp.methods.agent.session.new, {
+            cwd: process.cwd(),
+            mcpServers: [],
+          });
+          sessionId = session.sessionId;
+        } else {
+          await expect(
+            connection.agent.request(acp.methods.agent.session.prompt, {
+              sessionId,
+              prompt: [{ type: "text", text }],
+            }),
+          ).rejects.toThrow("Create, load or resume");
+          updates.length = 0;
+          await connection.agent.request(acp.methods.agent.session.resume, {
+            sessionId,
+            cwd: process.cwd(),
+            mcpServers: [],
+          });
+          expect(updates).toEqual([]);
+        }
+        await expect(
+          connection.agent.request(acp.methods.agent.session.prompt, {
+            sessionId,
+            prompt: [{ type: "text", text }],
+          }),
+        ).resolves.toMatchObject({ stopReason: "end_turn" });
+      } finally {
+        connection.close();
+        await connection.closed;
+      }
+    }
+    expect(create).toHaveBeenCalledOnce();
+    expect(start.mock.calls.map(([id, text]) => [id, text])).toEqual([
+      [sessionId, "first analysis"],
+      [sessionId, "continue the saved analysis"],
+    ]);
   });
 
   it("AG-UI uses official schemas and rejects foreign native session ids", async () => {
@@ -805,10 +861,13 @@ describe("external gateways", () => {
         await expect(gateway.operations.history("swarm", session.sessionId)).rejects.toThrow(
           message,
         );
-        await expect(gateway.operations.history("swarm", session.sessionId)).resolves.toEqual([
-          { id: "old-user", role: "user", content: "restored question" },
-          { id: "old-answer", role: "assistant", content: "restored answer" },
-        ]);
+        await expect(gateway.operations.history("swarm", session.sessionId)).resolves.toEqual({
+          supported: true,
+          messages: [
+            { id: "old-user", role: "user", content: "restored question" },
+            { id: "old-answer", role: "assistant", content: "restored answer" },
+          ],
+        });
         expect(read).toHaveBeenCalledTimes(2);
         expect(gateway.leaf.prompts).toEqual([]);
       } finally {
@@ -880,7 +939,7 @@ describe("external gateways", () => {
 
 const observer: Observer = { text() {}, tool() {}, raw() {}, interact: async () => undefined };
 
-function fakeAgent() {
+function fakeAgent(historySupported = true) {
   const prompts: string[] = [];
   const answers: unknown[] = [];
   const settings: Array<RunOptions | undefined> = [];
@@ -892,7 +951,7 @@ function fakeAgent() {
   });
   const agent = scopeSessions("codex", {
     name: "native",
-    capabilities: HARNESS_CAPABILITIES.codex,
+    capabilities: { ...HARNESS_CAPABILITIES.codex, history: historySupported },
     models: async () => ({
       models: [{ id: "native-model", name: "Native", efforts: [{ id: "high", name: "High" }] }],
       current: {},
@@ -932,13 +991,14 @@ function fakeAgent() {
   return { agent, prompts, answers, settings, started, interrupt };
 }
 
-async function createGateway() {
+async function createGateway(historySupported = true) {
   const root = await mkdtemp(join(tmpdir(), "swarmx-gateway-"));
-  const leaf = fakeAgent();
+  const leaf = fakeAgent(historySupported);
   const products = await ProductServices.create({
     productHome: join(root, "product"),
     cwd: root,
   });
+  products.settings.writeMemory({ autoReview: false });
   const host = await startHost({
     products,
     agent: leaf.agent,
@@ -1012,3 +1072,22 @@ function message(
     configuration: { acceptedOutputModes: ["text/plain"], returnImmediately },
   };
 }
+
+it("reports unsupported native history without fabricating a transcript", async () => {
+  const gateway = await createGateway(false);
+  try {
+    const { sessionId } = await gateway.operations.createSession("swarm");
+    const read = vi.spyOn(gateway.leaf.agent, "read");
+    const models = vi.spyOn(gateway.leaf.agent, "models");
+    expect(await gateway.operations.history("swarm", sessionId)).toEqual({ supported: false });
+    expect(models).toHaveBeenCalledWith(sessionId);
+    expect(read).not.toHaveBeenCalled();
+    expect(gateway.leaf.prompts).toEqual([]);
+    models.mockRejectedValueOnce(new Error("Native session missing"));
+    await expect(gateway.operations.history("swarm", "codex:missing")).rejects.toThrow(
+      "Native session missing",
+    );
+  } finally {
+    await gateway.dispose();
+  }
+});

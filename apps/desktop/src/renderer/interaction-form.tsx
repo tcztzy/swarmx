@@ -43,6 +43,11 @@ export function NativeInteractionForm({
     >
       <div className="mb-1 text-xs text-neutral-500">{t("需要你的确认")}</div>
       <h3 className="mb-4 font-medium">{title}</h3>
+      {typeof schema.description === "string" && (
+        <pre className="mb-4 max-h-64 overflow-auto whitespace-pre-wrap break-words text-sm">
+          {schema.description}
+        </pre>
+      )}
       <fieldset disabled={pending} className="grid gap-4">
         {Object.entries(object(schema.properties)).map(([name, value]) => (
           <InteractionField

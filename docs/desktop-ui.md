@@ -17,7 +17,12 @@ current selection. Connection, session creation and history failures are visible
 History failures identify the failed operation, show the native error detail, and offer an
 explicit retry for the same session. Retry preserves the mounted chat, draft and side view;
 it only reloads native history, never sends a prompt or reruns an analysis. Sending remains
-disabled until history loads successfully. A failed retry leaves the recovery action available.
+disabled until supported history loads successfully. A failed retry leaves the recovery action available.
+If the Agent advertises no history replay, the Host validates the native session and returns an
+explicit unsupported status, without a transcript. The UI labels that limitation and allows
+continued prompts in the same session; it displays only messages received since opening the
+view. This state does not offer a history retry or imply that the native transcript is empty.
+The internal history IPC response is `{supported:true,messages}` or `{supported:false}`.
 Codex history and model choices remain readable while Codex App holds the same conversation.
 A conflicting send reports that the other instance holds write access; viewing history does
 not require closing Codex App.
@@ -104,7 +109,7 @@ model and current effort together. Selecting a model closes the popover; selecti
 keeps it open. Keyboard navigation uses cmdk for models and Radix RadioGroup for effort levels.
 The list scrolls independently and the effort row wraps when needed on narrow windows.
 Harness selects
-the native runtime (Pi, Codex, Claude, DSH, Hermes or OpenClaw); the default Swarm shows its lead's
+the native runtime (external ACP, Codex, Claude, DSH, Hermes or OpenClaw); the default Swarm shows its lead's
 Harness. Switching Harness retains the existing native-session ownership rule. Model and
 effort changes preserve the current conversation and draft, and apply on the next send.
 Controls remain disabled while streaming or waiting for an interaction response.
@@ -155,8 +160,8 @@ recorded computations beside them. The design image's concept banner is an annot
 not application chrome. Blue source selection, neutral draft status and restrained
 outline icons preserve the reference's hierarchy; scientific previews use the original artifact.
 Successful Memory reads expose saved-concept metadata and clickable Science source references
-under the current answer, including Pi live output and restored history. Pi Science tool cards
-open their referenced artifact or project in Assets in both paths.
+under the current answer. Historical Pi tool cards remain readable in saved Host projections;
+this does not restore a retired runtime or grant an external ACP endpoint Host product tools.
 Execution source references open the same side view directly through the read-only `logs.evidence`
 bridge operation; they do not require a Science workspace. The view shows statistics only for
 the cited executions, with completion, error and cancellation counts kept separate. Elapsed time

@@ -27,7 +27,10 @@ contracts; a tool grant is not a confidentiality boundary for the execution dire
 
 Omitted request fields inherit. Host defaults allow all four tool grants, configured harnesses
 and delegation. An omitted harness is unavailable; a null model list permits its native models,
-while an empty list permits none. `delegation: false` blocks creating or starting more work through
+while an empty list permits none. The optional external `acp` integration is excluded from
+default grants; an endpoint descriptor alone never admits its process. Add an explicit `acp`
+harness grant before selecting it. Native model IDs from the external agent remain subject to
+that grant. `delegation: false` blocks creating or starting more work through
 the Swarm tool. Status and cancellation remain available subject to session ownership.
 
 Each run uses the intersection of Host policy, the authenticated caller's grant, the named
@@ -36,9 +39,10 @@ widening rejects. Permissions belong to the execution context, never to untruste
 Concurrent callers do not share grants. Reusing an existing Swarm or conversation does not lend
 its broader authority to a restricted caller. Child product MCP credentials are separately scoped,
 bound to the active execution and revoked when its connection closes.
-Pi's SDK custom tools enter the same ProductServices boundary directly. The Host resolves and
-checks their active execution before applying grants; no MCP connection or model-supplied
-execution identity is needed. Pi catalog IDs and explicit DSH routes use `provider/model` in model allowlists.
+The retired Pi direct-call bridge is absent from production. External ACP receives no Host
+product credential; its native tool approvals do not grant access to Host APIs. Existing
+Codex/Claude/Hermes/DSH MCP and OpenClaw bridge authorization remains execution-bound.
+Explicit DSH routes use `provider/model` in model allowlists.
 DSH has no SDK model catalog: the Host checks the qualified route against its allowlist and lets the
 native SDK validate the route and reasoning effort. DSH profile selection does not change Host grants.
 

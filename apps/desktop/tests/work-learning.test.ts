@@ -32,14 +32,14 @@ it("charges restricted background reviews once and uses acceptance arriving afte
     reviewHarness: "codex",
   });
   const configurations = [
-    { id: "cheap", harness: "pi", model: "cheap" },
-    { id: "strong", harness: "pi", model: "strong" },
+    { id: "cheap", harness: "codex", model: "cheap" },
+    { id: "strong", harness: "codex", model: "strong" },
   ];
   let session = 0;
   const agent: NativeAgent = {
     name: "deterministic work provider",
-    capabilities: HARNESS_CAPABILITIES.pi,
-    create: async () => `pi:main-${++session}`,
+    capabilities: HARNESS_CAPABILITIES.codex,
+    create: async () => `codex:main-${++session}`,
     list: async () => [],
     read: async () => {},
     models: async () => ({
@@ -90,7 +90,7 @@ it("charges restricted background reviews once and uses acceptance arriving afte
     }),
   };
   vi.mocked(loadAgent).mockResolvedValue(reviewer);
-  await services.attachAgents("http://localhost", agent, "pi");
+  await services.attachAgents("http://localhost", agent, "codex");
   services.work.createCycle({
     id: "cycle",
     project: "research",

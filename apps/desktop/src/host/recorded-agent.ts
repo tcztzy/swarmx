@@ -14,6 +14,8 @@ export function recordedAgent(
   agent: NativeAgent,
   memory?: AgentMemory,
 ): NativeAgent {
+  // External agents own context and history; ACP has no Host system-instruction contract.
+  if (harness === "acp") memory = undefined;
   const pending = new Set<Promise<RunResult>>();
   const interrupted = new Set<string>();
   const globalCatalog = harness === "hermes" || harness === "openclaw" || harness === "dsh";
@@ -62,7 +64,7 @@ export function recordedAgent(
     models: async (id) => {
       if (id) assertSession(id);
       const catalog = await agent.models(harness === "dsh" ? undefined : id);
-      const mode = id && harness !== "hermes" ? journal.sessionMode(id) : undefined;
+      const mode = id && !["hermes", "acp"].includes(harness) ? journal.sessionMode(id) : undefined;
       return mode ? { ...catalog, current: { ...catalog.current, mode } } : catalog;
     },
     async list() {
@@ -76,9 +78,11 @@ export function recordedAgent(
       const owned = new Set(journal.sessionIds());
       return sessions.filter(({ sessionId }) => owned.has(sessionId));
     },
-    async create() {
-      const instructions = await memory?.context();
-      const id = await agent.create(instructions === undefined ? undefined : { instructions });
+    async create(options) {
+      const instructions = options?.instructions ?? (await memory?.context());
+      const id = await agent.create(
+        instructions === undefined ? options : { ...options, instructions },
+      );
       const parent = journal.scope.getStore();
       if (globalCatalog || parent?.permissions || harness === "claude")
         journal.append(
@@ -173,7 +177,8 @@ export function recordedAgent(
             "DSH tasks execute once. Create a new task; previous output remains in the execution log.",
           );
         const mode =
-          selection?.mode ?? (harness === "hermes" ? undefined : journal.sessionMode(sessionId));
+          selection?.mode ??
+          (["hermes", "acp"].includes(harness) ? undefined : journal.sessionMode(sessionId));
         if (mode) selection = { ...selection, mode };
         const runId = randomUUID();
         const interactions = new AbortController();
@@ -362,8 +367,7 @@ export function recordedAgent(
             return agent.start(sessionId, text, recorded, {
               ...selection,
               ...(instructions &&
-              (["pi", "codex", "claude"].includes(harness) ||
-                journal.completedTurns(sessionId) === 0)
+              (["codex", "claude"].includes(harness) || journal.completedTurns(sessionId) === 0)
                 ? { instructions }
                 : {}),
             });

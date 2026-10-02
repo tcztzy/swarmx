@@ -6,9 +6,10 @@ acceptance and policy; the composition package retains its direct Agent contract
 
 ## Compatibility contract
 
-The default lead uses Pi's embedded SDK, including its native sessions, tools and skill loading.
-SwarmX product tools enter ProductServices directly from Pi; recursive composition remains
-the same in-process Agent contract used for other native members.
+The lead is an external Agent reached through a native integration or admitted ACP endpoint.
+Its runtime owns sessions, tools and skills; SwarmX owns composition and grants. Product tools
+use the existing execution-bound Host bridges where supported. External ACP currently has no
+product-tool bridge, and no embedded Pi path remains.
 
 Composition uses the direct `Agent` contract with `AgentCapabilities` and `RunResult` types.
 Native integrations preserve the public `stopReason` values, including cancellation and limits.

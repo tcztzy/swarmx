@@ -3,7 +3,6 @@ import { z } from "zod";
 import type { Activity } from "../message-activity.js";
 import type { AgentPermissions, PermissionRequest } from "../permissions.js";
 import type { ExecutionPolicy } from "../settings.js";
-import type { ToolManifestEntry } from "../tool-manifest.js";
 
 export const RunOptionsSchema = z
   .strictObject({
@@ -30,6 +29,8 @@ export interface Interaction {
   readonly sensitive?: boolean;
   readonly approval?: {
     readonly toolId: string;
+    /** Exact native tool arguments shown before approval, never an execution grant. */
+    readonly input?: unknown;
     readonly choices: readonly {
       readonly id: string;
       readonly label: string;
@@ -78,11 +79,11 @@ export interface NativeAgent extends Omit<Agent<Observer>, "start" | "create"> {
 }
 
 export const HARNESS_CAPABILITIES = {
-  pi: { history: true, list: true, resume: true, steer: true, emptySessionResume: true },
   codex: { history: true, list: true, resume: true, steer: true, emptySessionResume: false },
   claude: { history: true, list: true, resume: true, steer: true, emptySessionResume: true },
   hermes: { history: true, list: true, resume: true, steer: true, emptySessionResume: false },
   openclaw: { history: true, list: true, resume: true, steer: true, emptySessionResume: false },
+  acp: { history: false, list: true, resume: true, steer: false, emptySessionResume: false },
   dsh: { history: true, list: true, resume: false, steer: false, emptySessionResume: false },
 } as const satisfies Record<string, AgentCapabilities>;
 
@@ -100,10 +101,6 @@ export interface AgentOptions {
   };
   readonly executionPolicy?: () => ExecutionPolicy;
   readonly reviewOnly?: boolean;
-  readonly productTools?: {
-    readonly definitions: readonly ToolManifestEntry[];
-    call(name: string, args: unknown, callId: string, signal: AbortSignal): Promise<unknown>;
-  };
   /** The child receives only its own revocable MCP credential. */
   readonly registerMcp?: (token: string) => {
     bind(sessionId: string, runId: string): void;

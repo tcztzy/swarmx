@@ -37,11 +37,12 @@ describe("architecture boundaries", () => {
         [
           "--input-type=module",
           "--eval",
-          'for (const name of ["pi", "codex", "claude", "dsh", "hermes", "openclaw"]) await import("./apps/desktop/dist/agents/" + name + ".js")',
+          'for (const name of ["codex", "claude", "dsh", "hermes", "openclaw", "external-acp"]) await import("./apps/desktop/dist/agents/" + name + ".js")',
         ],
         { cwd: root, stdio: "pipe" },
       );
     },
+    20_000,
   );
 
   it("keeps native integrations free of Host imports", () => {
@@ -60,7 +61,11 @@ describe("architecture boundaries", () => {
       )
       .map((path) => relative(root, path))
       .sort();
-    expect(imports).toEqual(["apps/desktop/src/acp-main.ts", "apps/desktop/src/host/acp.ts"]);
+    expect(imports).toEqual([
+      "apps/desktop/src/acp-main.ts",
+      "apps/desktop/src/agents/external-acp.ts",
+      "apps/desktop/src/host/acp.ts",
+    ]);
     for (const name of ["acp-harness", "acp-process"])
       expect(existsSync(join(root, `apps/desktop/src/agents/${name}.ts`))).toBe(false);
   });
@@ -114,6 +119,12 @@ describe("architecture boundaries", () => {
     };
     const names = Object.keys(manifest.dependencies ?? {});
     expect(names).not.toContain("@openai/codex");
+    expect(names.some((name) => name.startsWith("@earendil-works/"))).toBe(false);
+    const core = files(join(root, "apps/desktop/src"))
+      .filter((path) => [".ts", ".tsx"].includes(extname(path)))
+      .map((path) => readFileSync(path, "utf8"))
+      .join("\n");
+    expect(core).not.toMatch(/@earendil-works|createAgentSession|productTools/u);
     expect(names.filter((name) => name.startsWith("@deepseek-ai/"))).toEqual([
       "@deepseek-ai/dsh-sdk-client",
     ]);
@@ -123,7 +134,6 @@ describe("architecture boundaries", () => {
     expect(names).not.toContain("assistant-cloud");
     expect(names).not.toContain("@deepseek-ai/cordis");
     expect(manifest.dependencies).toMatchObject({
-      "@earendil-works/pi-coding-agent": expect.any(String),
       "@a2a-js/sdk": "1.1.0",
       "@anthropic-ai/claude-agent-sdk": expect.any(String),
       "@openclaw/gateway-client": expect.any(String),

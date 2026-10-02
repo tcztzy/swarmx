@@ -25,8 +25,7 @@ it.runIf(process.platform === "darwin" && packagedApp !== undefined)(
       ...process.env,
       SWARMX_HOME: join(scratch, "swarmx"),
       SWARMX_CWD: scratch,
-      SWARMX_AGENT: "pi",
-      PI_CODING_AGENT_DIR: join(scratch, "pi"),
+      SWARMX_AGENT: "codex",
     };
     delete env.ELECTRON_RUN_AS_NODE;
     delete env.NODE_OPTIONS;
@@ -109,7 +108,7 @@ async function verify() {
   assert.ok(Array.isArray(bootstrap.agents));
   assert.ok(Array.isArray(bootstrap.sessions));
   const { AGENT_IDS } = await load("dist/agent.js");
-  for (const id of AGENT_IDS) await load("dist/agents/" + id + ".js");
+  for (const id of AGENT_IDS) await load("dist/agents/" + (id === "acp" ? "external-acp" : id) + ".js");
   const sdkRequire = createRequire(appRequire.resolve("@deepseek-ai/dsh-sdk-client"));
   const dshRequire = createRequire(sdkRequire.resolve("@deepseek-ai/dsh/package.json"));
   for (const id of ["@deepseek-ai/dsh-app-boot", "@deepseek-ai/dsh-agent-loop"]) {

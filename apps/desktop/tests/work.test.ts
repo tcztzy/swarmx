@@ -14,8 +14,8 @@ afterEach(async () => {
   for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
 });
 const configurations = [
-  { id: "cheap", harness: "pi", model: "cheap" },
-  { id: "strong", harness: "pi", model: "strong" },
+  { id: "cheap", harness: "codex", model: "cheap" },
+  { id: "strong", harness: "codex", model: "strong" },
 ];
 const signal = () => new AbortController().signal;
 
@@ -26,8 +26,8 @@ async function fixture(budgetUsd = 10, concurrency = 3) {
   let counter = 0;
   const agent: NativeAgent = {
     name: "local deterministic provider",
-    capabilities: HARNESS_CAPABILITIES.pi,
-    create: vi.fn(async () => `pi:${++counter}`),
+    capabilities: HARNESS_CAPABILITIES.codex,
+    create: vi.fn(async () => `codex:${++counter}`),
     list: async () => [],
     read: async () => {},
     models: vi.fn(async () => ({
@@ -53,7 +53,7 @@ async function fixture(budgetUsd = 10, concurrency = 3) {
     steer: async () => {},
     dispose: async () => {},
   };
-  await services.attachAgents("http://localhost", agent, "pi");
+  await services.attachAgents("http://localhost", agent, "codex");
   services.work.createCycle({
     id: "cycle",
     project: "research",
@@ -411,7 +411,7 @@ it("honors dependency, priority, deadline and current permission constraints", a
   await expect(services.runWork("blocked", signal())).rejects.toThrow("dependencies");
   add("expired", { deadline: "2020-01-01T00:00:00.000Z" });
   expect((await services.runWork("expired", signal())).decision.action).toBe("stop");
-  services.updatePolicy({ ...services.settings.read().policy, harnesses: { pi: ["strong"] } });
+  services.updatePolicy({ ...services.settings.read().policy, harnesses: { codex: ["strong"] } });
   const onlyStrong = await services.runWork("dependency", signal());
   expect(onlyStrong.reservation?.configuration?.id).toBe("strong");
 });

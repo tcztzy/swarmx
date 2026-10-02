@@ -1,6 +1,7 @@
 import { z } from "zod";
 
-export const HarnessSchema = z.enum(["pi", "codex", "claude", "hermes", "openclaw", "dsh"]);
+// `pi` remains readable in saved policies and evidence, but has no production runtime.
+export const HarnessSchema = z.enum(["pi", "codex", "claude", "hermes", "openclaw", "dsh", "acp"]);
 export const HarnessAccessSchema = z.partialRecord(
   HarnessSchema,
   z.array(z.string().min(1).max(512)).nullable(),
@@ -24,7 +25,6 @@ export function policyPermissions(policy: PermissionRequest): AgentPermissions {
   return {
     tools: policy.tools ?? [...ToolGrantSchema.options],
     harnesses: policy.harnesses ?? {
-      pi: null,
       codex: null,
       claude: null,
       hermes: null,

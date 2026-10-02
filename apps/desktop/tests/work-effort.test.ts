@@ -14,21 +14,21 @@ it("keeps feedback, cost and dispatch effort separate for two configurations of 
   const configurations = [
     {
       id: "low",
-      harness: "pi",
+      harness: "codex",
       model: "fixture-model",
       effort: "low",
     },
     {
       id: "high",
-      harness: "pi",
+      harness: "codex",
       model: "fixture-model",
       effort: "high",
     },
   ];
   const agent: NativeAgent = {
     name: "Offline effort fixture",
-    capabilities: HARNESS_CAPABILITIES.pi,
-    create: async () => `pi:${randomUUID()}`,
+    capabilities: HARNESS_CAPABILITIES.codex,
+    create: async () => `codex:${randomUUID()}`,
     list: async () => [],
     read: async () => {},
     models: async () => ({
@@ -66,7 +66,7 @@ it("keeps feedback, cost and dispatch effort separate for two configurations of 
     dispose: async () => {},
   };
   try {
-    await services.attachAgents("http://localhost", agent, "pi");
+    await services.attachAgents("http://localhost", agent, "codex");
     services.work.createCycle({ id: "cycle", project: "analysis", budgetUsd: 4, configurations });
     for (const id of ["first", "second", "next"])
       services.work.createItem({

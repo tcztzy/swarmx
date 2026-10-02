@@ -17,7 +17,7 @@ const cycle = {
   project: "analysis",
   budgetUsd: 5,
   concurrency: 2,
-  configurations: [{ id: "local", harness: "pi", model: "fixture" }],
+  configurations: [{ id: "local", harness: "codex", model: "fixture" }],
 };
 const item = {
   id: "first",
@@ -38,8 +38,8 @@ async function fixture() {
   let sessions = 0;
   const native: NativeAgent = {
     name: "desktop local fixture",
-    capabilities: HARNESS_CAPABILITIES.pi,
-    create: vi.fn(async () => `pi:${++sessions}`),
+    capabilities: HARNESS_CAPABILITIES.codex,
+    create: vi.fn(async () => `codex:${++sessions}`),
     list: async () => [],
     read: async () => {},
     models: vi.fn(async () => ({
@@ -63,7 +63,7 @@ async function fixture() {
     steer: async () => {},
     dispose: async () => {},
   };
-  await products.attachAgents("http://localhost", native, "pi");
+  await products.attachAgents("http://localhost", native, "codex");
   const shutdown = new AbortController();
   const host: SwarmXHost = {
     products,
@@ -366,7 +366,7 @@ it.each(["answer", "cancel", "stop", "shutdown"] as const)(
       (value) => ({ value, error: undefined }),
       (error: unknown) => ({ value: undefined, error }),
     );
-    const interactionId = `pi:1:${request.id}`;
+    const interactionId = `codex:1:${request.id}`;
     let asserted = false;
     try {
       await vi.waitFor(async () =>
@@ -374,7 +374,7 @@ it.each(["answer", "cancel", "stop", "shutdown"] as const)(
           {
             workId: "first",
             id: interactionId,
-            title: `pi · pi:1 — ${request.title}`,
+            title: `codex · codex:1 — ${request.title}`,
             schema: request.schema,
           },
         ]),

@@ -121,11 +121,14 @@ counted once; it must not repeat a fee already in the SDK total. Unpriced tools 
 zero while remaining visible as unpriced, including local bash calls. No human-resource registry
 or duplicate aggregate ledger is maintained. Known estimates are not cash invoices.
 
-Pi sums finalized main-loop
+Historical builtin Pi records summed finalized main-loop
 assistant messages once per turn, including input cache tokens; native output already includes
 reasoning tokens. It excludes compaction, helpers, extensions and unreported provider retries.
 Unknown/error placeholder usage keeps that run's aggregate unknown. Pi USD values are SDK
-estimates, not invoices, and every aggregate retains its usage basis. Claude differences
+estimates, not invoices, and every aggregate retains its usage basis. The builtin runtime is
+retired; its saved accounting remains readable. External ACP accounting is limited to values
+actually reported by that agent and must not infer Pi usage from its choice of framework.
+Claude differences
 `modelUsage` and `total_cost_usd` against the cumulative snapshot at the start of the Host run,
 within the actual SDK query process. Repeated results and queued native turns use the latest
 cumulative report once. A new query process starts its own accounting, including a resumed

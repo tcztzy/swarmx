@@ -13,8 +13,9 @@
 | `apps/desktop/src/permissions.ts` | Host tool/delegation grants, harness/model admission and non-widening inheritance; see `docs/permissions.md` |
 | `apps/desktop/src/platform.ts` | Host startup and lifecycle |
 | `apps/desktop/src/agent.ts` | lazy integration selection and native session ownership |
-| `apps/desktop/src/agents/` | embedded Pi SDK, native Codex App Server, Claude/DSH SDKs, Hermes TUI Gateway and OpenClaw Gateway Client, settings and Host event projection; see `docs/native-agents.md` |
-| `apps/desktop/src/agents/pi.ts` | Pi session/resource APIs, direct product tools and native event projection for the default Swarm lead |
+| `apps/desktop/src/agents/` | external ACP, native Codex App Server, Claude/DSH SDKs, Hermes TUI Gateway and OpenClaw Gateway Client, settings and Host event projection; see `docs/native-agents.md` |
+| `examples/legacy-pi/` | preserved builtin Pi adapter and test evidence; historical source only, excluded from production and default tests |
+| `apps/desktop/src/agents/external-acp.ts` | opt-in external ACP client, owned stdio process, remote session references, permission forwarding and terminal lifecycle |
 | `apps/desktop/resources/hermes-native.py` | Hermes native gateway bootstrap, process-local Host MCP registration and read-only native execution-thread wait |
 | `apps/desktop/resources/openclaw-plugin/` | OpenClaw gateway plugin that forwards session-scoped Host tool calls over the private bridge |
 | `apps/desktop/src/agents/openclaw-auth.ts` | private device identity, signing and origin-scoped token storage for the official Gateway Client |

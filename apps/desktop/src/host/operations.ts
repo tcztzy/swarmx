@@ -272,7 +272,12 @@ export class HostOperations {
 
   async history(agent: string, sessionId: string) {
     try {
-      return await loadAgUiHistory(await this.agent(agent), sessionId);
+      const native = await this.agent(agent);
+      if (!native.capabilities.history) {
+        await native.models(sessionId);
+        return { supported: false as const };
+      }
+      return { supported: true as const, messages: await loadAgUiHistory(native, sessionId) };
     } catch (error) {
       throw new Error(actionableMessage(error));
     }

@@ -57,7 +57,7 @@ beforeEach(async () => {
   await i18n.changeLanguage("zh");
   gateway = installBridge();
   gateway.modelsRead.mockResolvedValue(catalog);
-  gateway.sessionsHistory.mockResolvedValue([]);
+  gateway.sessionsHistory.mockResolvedValue({ supported: true, messages: [] });
   gateway.logsRead.mockResolvedValue({ events: [], nextAfter: 0, activeRunIds: [] });
   vi.stubGlobal(
     "ResizeObserver",
@@ -88,10 +88,13 @@ async function send(text: string) {
 }
 
 it("shows stored DSH output and disables another execution in the same task", async () => {
-  gateway.sessionsHistory.mockResolvedValue([
-    { id: "input", role: "user", content: "Old task" },
-    { id: "answer", role: "assistant", content: "Stored DSH output" },
-  ]);
+  gateway.sessionsHistory.mockResolvedValue({
+    supported: true,
+    messages: [
+      { id: "input", role: "user", content: "Old task" },
+      { id: "answer", role: "assistant", content: "Stored DSH output" },
+    ],
+  });
   gateway.modelsRead.mockResolvedValue({ models: [], current: {} });
   render(<ConversationSurface {...props} harness="dsh" threadId="dsh:stored" />);
   expect(await screen.findByText("Stored DSH output")).toBeTruthy();
@@ -290,9 +293,10 @@ describe("assistant-ui conversation", () => {
       nextAfter: log.records.length,
       activeRunIds: ["run-worker-a", "run-nested-reviewer"],
     });
-    gateway.sessionsHistory.mockResolvedValue([
-      { id: "parent", role: "assistant", content: "父会话内容" },
-    ]);
+    gateway.sessionsHistory.mockResolvedValue({
+      supported: true,
+      messages: [{ id: "parent", role: "assistant", content: "父会话内容" }],
+    });
     render(<ConversationSurface {...props} />);
     await screen.findByText("父会话内容");
     fireEvent.change(screen.getByRole("textbox", { name: "发送消息" }), {
@@ -409,9 +413,10 @@ describe("assistant-ui conversation", () => {
       ],
       current: { ...catalog.current, mode: "plan" },
     });
-    gateway.sessionsHistory.mockResolvedValue([
-      { id: "old", role: "assistant", content: "已有历史" },
-    ]);
+    gateway.sessionsHistory.mockResolvedValue({
+      supported: true,
+      messages: [{ id: "old", role: "assistant", content: "已有历史" }],
+    });
     render(<ConversationSurface {...props} />);
     await screen.findByText("已有历史");
     await screen.findByText("Model A");
@@ -541,22 +546,25 @@ describe("assistant-ui conversation", () => {
 
   it("separates generic tool arguments and results while preserving a native failure", async () => {
     await i18n.changeLanguage("en");
-    gateway.sessionsHistory.mockResolvedValue([
-      { id: "u1", role: "user", content: "Inspect the index" },
-      {
-        id: "call",
-        role: "assistant",
-        _tool: { kind: "other", status: "failed" },
-        toolCalls: [
-          {
-            id: "index",
-            type: "function",
-            function: { name: "read_index", arguments: '{"path":"index.json"}' },
-          },
-        ],
-      },
-      { id: "result", role: "tool", toolCallId: "index", content: "Permission denied" },
-    ]);
+    gateway.sessionsHistory.mockResolvedValue({
+      supported: true,
+      messages: [
+        { id: "u1", role: "user", content: "Inspect the index" },
+        {
+          id: "call",
+          role: "assistant",
+          _tool: { kind: "other", status: "failed" },
+          toolCalls: [
+            {
+              id: "index",
+              type: "function",
+              function: { name: "read_index", arguments: '{"path":"index.json"}' },
+            },
+          ],
+        },
+        { id: "result", role: "tool", toolCallId: "index", content: "Permission denied" },
+      ],
+    });
     render(<ConversationSurface {...props} />);
     fireEvent.click(await screen.findByRole("button", { name: "Used tools" }));
     const trigger = screen.getByRole("button", { name: "read_index Failed" });
@@ -597,8 +605,9 @@ describe("assistant-ui conversation", () => {
       };
       const result = harness === "pi" ? data : { result: { structuredContent: data }, error: null };
       const toolName = harness === "pi" ? "memory" : "mcp__swarmx__memory";
-      gateway.sessionsHistory.mockResolvedValue(
-        live
+      gateway.sessionsHistory.mockResolvedValue({
+        supported: true,
+        messages: live
           ? []
           : [
               { id: "u1", role: "user", content: "Retrieve the saved finding" },
@@ -625,7 +634,7 @@ describe("assistant-ui conversation", () => {
                 content: "## Recorded finding\n\nRetrieved without recomputing.",
               },
             ],
-      );
+      });
       if (live)
         respond(
           started,
@@ -679,29 +688,34 @@ describe("assistant-ui conversation", () => {
           },
         },
       };
-      gateway.sessionsHistory.mockResolvedValue([
-        { id: "u", role: "user", content: "Read finding" },
-        {
-          id: "tool",
-          role: "assistant",
-          toolCalls: [
-            { id: "read", type: "function", function: { name: "memory", arguments: "{}" } },
-          ],
-        },
-        { id: "result", role: "tool", toolCallId: "read", content: JSON.stringify(result) },
-        {
-          id: "comment",
-          role: "assistant",
-          content: "Checking the finding",
-          ...(phases ? { _meta: { turnId: "turn", phase: "commentary", durationMs: 1000 } } : {}),
-        },
-        {
-          id: "final",
-          role: "assistant",
-          content: "Final answer",
-          ...(phases ? { _meta: { turnId: "turn", phase: "final_answer", durationMs: 1000 } } : {}),
-        },
-      ]);
+      gateway.sessionsHistory.mockResolvedValue({
+        supported: true,
+        messages: [
+          { id: "u", role: "user", content: "Read finding" },
+          {
+            id: "tool",
+            role: "assistant",
+            toolCalls: [
+              { id: "read", type: "function", function: { name: "memory", arguments: "{}" } },
+            ],
+          },
+          { id: "result", role: "tool", toolCallId: "read", content: JSON.stringify(result) },
+          {
+            id: "comment",
+            role: "assistant",
+            content: "Checking the finding",
+            ...(phases ? { _meta: { turnId: "turn", phase: "commentary", durationMs: 1000 } } : {}),
+          },
+          {
+            id: "final",
+            role: "assistant",
+            content: "Final answer",
+            ...(phases
+              ? { _meta: { turnId: "turn", phase: "final_answer", durationMs: 1000 } }
+              : {}),
+          },
+        ],
+      });
       render(<ConversationSurface {...props} />);
       await screen.findByText("Final answer");
       if (phases) fireEvent.click(screen.getByRole("button", { name: "Worked for 1s" }));
@@ -732,8 +746,9 @@ describe("assistant-ui conversation", () => {
         durationMs: 1,
       } satisfies Extract<ThreadItem, { type: "mcpToolCall" }>;
       const result = harness === "pi" ? data : native;
-      gateway.sessionsHistory.mockResolvedValue(
-        live
+      gateway.sessionsHistory.mockResolvedValue({
+        supported: true,
+        messages: live
           ? []
           : [
               { id: "input", role: "user", content: "Retrieve the figure" },
@@ -755,7 +770,7 @@ describe("assistant-ui conversation", () => {
                 content: JSON.stringify(result),
               },
             ],
-      );
+      });
       if (live)
         respond(
           started,
@@ -824,16 +839,19 @@ describe("assistant-ui conversation", () => {
           ),
         },
       ];
-      gateway.sessionsHistory.mockResolvedValue([
-        { id: "u1", role: "user", content: "Check files" },
-        ...tool("read", "Read file 'README.md'", "read"),
-        ...tool("shell", "pnpm test", "execute", "pnpm test"),
-        { id: "commentary", role: "assistant", content: "Now checking a failure" },
-        ...tool("fail", "exit 2", "execute", "exit 2", 2),
-        { id: "reasoning", role: "reasoning", content: "Check another file" },
-        ...tool("another", "Read file 'package.json'", "read"),
-        { id: "answer", role: "assistant", content: "Final result" },
-      ]);
+      gateway.sessionsHistory.mockResolvedValue({
+        supported: true,
+        messages: [
+          { id: "u1", role: "user", content: "Check files" },
+          ...tool("read", "Read file 'README.md'", "read"),
+          ...tool("shell", "pnpm test", "execute", "pnpm test"),
+          { id: "commentary", role: "assistant", content: "Now checking a failure" },
+          ...tool("fail", "exit 2", "execute", "exit 2", 2),
+          { id: "reasoning", role: "reasoning", content: "Check another file" },
+          ...tool("another", "Read file 'package.json'", "read"),
+          { id: "answer", role: "assistant", content: "Final result" },
+        ],
+      });
       const { container } = render(<ConversationSurface {...props} />);
       const trigger = await screen.findByRole("button", { name: "Read files, ran commands" });
       const group = trigger.closest(".tool-group");
@@ -864,30 +882,33 @@ describe("assistant-ui conversation", () => {
 
   it("keeps unrecognized command results visible in the generic tool view", async () => {
     await i18n.changeLanguage("en");
-    gateway.sessionsHistory.mockResolvedValue([
-      { id: "user", role: "user", content: "Inspect output" },
-      {
-        id: "call",
-        role: "assistant",
-        toolCalls: [
-          {
-            id: "command",
-            type: "function",
-            function: {
-              name: "terminal",
-              arguments: JSON.stringify({ command: "inspect" }),
+    gateway.sessionsHistory.mockResolvedValue({
+      supported: true,
+      messages: [
+        { id: "user", role: "user", content: "Inspect output" },
+        {
+          id: "call",
+          role: "assistant",
+          toolCalls: [
+            {
+              id: "command",
+              type: "function",
+              function: {
+                name: "terminal",
+                arguments: JSON.stringify({ command: "inspect" }),
+              },
             },
-          },
-        ],
-      },
-      {
-        id: "result",
-        role: "tool",
-        toolCallId: "command",
-        content: JSON.stringify({ detail: "Native result remains available" }),
-      },
-      { id: "answer", role: "assistant", content: "Inspection finished" },
-    ]);
+          ],
+        },
+        {
+          id: "result",
+          role: "tool",
+          toolCallId: "command",
+          content: JSON.stringify({ detail: "Native result remains available" }),
+        },
+        { id: "answer", role: "assistant", content: "Inspection finished" },
+      ],
+    });
     const { container } = render(<ConversationSurface {...props} />);
     await screen.findByText("Inspection finished");
     fireEvent.click(screen.getByRole("button", { name: "Used tools" }));
@@ -960,18 +981,21 @@ describe("assistant-ui conversation", () => {
   it("renders avatar-free Demo messages, hydrates Markdown and copies the assistant reply", async () => {
     const reply =
       "## 研究进展\n\n- 已整理数据\n- 待验证结果\n\n| 内容 | 进展 |\n| --- | --- |\n| 数据 | 已完成 |";
-    gateway.sessionsHistory.mockResolvedValue([
-      { id: "u1", role: "user", content: "研究进展？" },
-      {
-        id: "tool",
-        role: "assistant",
-        toolCalls: [
-          { id: "call", type: "function", function: { name: "read_file", arguments: "{}" } },
-        ],
-      },
-      { id: "result", role: "tool", toolCallId: "call", content: "done" },
-      { id: "a1", role: "assistant", content: reply },
-    ]);
+    gateway.sessionsHistory.mockResolvedValue({
+      supported: true,
+      messages: [
+        { id: "u1", role: "user", content: "研究进展？" },
+        {
+          id: "tool",
+          role: "assistant",
+          toolCalls: [
+            { id: "call", type: "function", function: { name: "read_file", arguments: "{}" } },
+          ],
+        },
+        { id: "result", role: "tool", toolCallId: "call", content: "done" },
+        { id: "a1", role: "assistant", content: reply },
+      ],
+    });
     const { container } = render(<ConversationSurface {...props} />);
     expect(await screen.findByRole("heading", { name: "研究进展" })).toBeTruthy();
     expect(container.querySelector(".message-avatar")).toBeNull();
@@ -998,11 +1022,14 @@ describe("assistant-ui conversation", () => {
   });
 
   it("keeps the reply action placeholder mounted as hover shows and hides the copy button", async () => {
-    gateway.sessionsHistory.mockResolvedValue([
-      { id: "a1", role: "assistant", content: "Earlier reply" },
-      { id: "u2", role: "user", content: "Next question" },
-      { id: "a2", role: "assistant", content: "Latest reply" },
-    ]);
+    gateway.sessionsHistory.mockResolvedValue({
+      supported: true,
+      messages: [
+        { id: "a1", role: "assistant", content: "Earlier reply" },
+        { id: "u2", role: "user", content: "Next question" },
+        { id: "a2", role: "assistant", content: "Latest reply" },
+      ],
+    });
     render(<ConversationSurface {...props} />);
     const message = (await screen.findByText("Earlier reply")).closest(
       '[data-role="assistant"]',
@@ -1029,33 +1056,36 @@ describe("assistant-ui conversation", () => {
       content: id,
       _meta: { phase, turnId, durationMs },
     });
-    gateway.sessionsHistory.mockResolvedValue([
-      { id: "u1", role: "user", content: "First question" },
-      message("First commentary", "commentary", "t1", 1027731),
-      { id: "r1", role: "reasoning", content: "Reasoning alongside commentary" },
-      {
-        id: "tool",
-        role: "assistant",
-        toolCalls: [
-          { id: "call", type: "function", function: { name: "read_file", arguments: "{}" } },
-        ],
-      },
-      { id: "result", role: "tool", toolCallId: "call", content: "done" },
-      message("More commentary", "commentary", "t1", 1027731),
-      message("First final", "final_answer", "t1", 1027731),
-      { id: "u2", role: "user", content: "Second question" },
-      message("Second commentary", "commentary", "t2", 3601000),
-      message("Second final", "final_answer", "t2", 3601000),
-      { id: "u3", role: "user", content: "Interrupted question" },
-      message("Unfinished commentary", "commentary", "t3", null),
-      message("Resumed commentary", "commentary", "t3-next", 0),
-      message("Resumed final", "final_answer", "t3-next", 0),
-      { id: "u4", role: "user", content: "Untagged question" },
-      { id: "plain", role: "assistant", content: "Untagged reply" },
-      { id: "u5", role: "user", content: "Unknown timing" },
-      message("Untimed commentary", "commentary", "t5", null),
-      message("Untimed final", "final_answer", "t5", null),
-    ]);
+    gateway.sessionsHistory.mockResolvedValue({
+      supported: true,
+      messages: [
+        { id: "u1", role: "user", content: "First question" },
+        message("First commentary", "commentary", "t1", 1027731),
+        { id: "r1", role: "reasoning", content: "Reasoning alongside commentary" },
+        {
+          id: "tool",
+          role: "assistant",
+          toolCalls: [
+            { id: "call", type: "function", function: { name: "read_file", arguments: "{}" } },
+          ],
+        },
+        { id: "result", role: "tool", toolCallId: "call", content: "done" },
+        message("More commentary", "commentary", "t1", 1027731),
+        message("First final", "final_answer", "t1", 1027731),
+        { id: "u2", role: "user", content: "Second question" },
+        message("Second commentary", "commentary", "t2", 3601000),
+        message("Second final", "final_answer", "t2", 3601000),
+        { id: "u3", role: "user", content: "Interrupted question" },
+        message("Unfinished commentary", "commentary", "t3", null),
+        message("Resumed commentary", "commentary", "t3-next", 0),
+        message("Resumed final", "final_answer", "t3-next", 0),
+        { id: "u4", role: "user", content: "Untagged question" },
+        { id: "plain", role: "assistant", content: "Untagged reply" },
+        { id: "u5", role: "user", content: "Unknown timing" },
+        message("Untimed commentary", "commentary", "t5", null),
+        message("Untimed final", "final_answer", "t5", null),
+      ],
+    });
     render(<ConversationSurface {...props} />);
     const first = await workPanel("Worked for 17m 8s");
     const second = await workPanel("Worked for 1h 0m 1s");
@@ -1091,26 +1121,29 @@ describe("assistant-ui conversation", () => {
   });
 
   it("shows native reasoning duration without an expandable disclosure or hidden message spacing", async () => {
-    gateway.sessionsHistory.mockResolvedValue([
-      { id: "u1", role: "user", content: "Reason through this" },
-      { id: "r1", role: "reasoning", content: "First reasoning block" },
-      { id: "r2", role: "reasoning", content: "Second reasoning block" },
-      {
-        id: "a1",
-        role: "assistant",
-        content: "Reasoned answer",
-        _meta: {
-          phase: "final_answer",
-          turnId: "reasoned",
-          durationMs: 45000,
+    gateway.sessionsHistory.mockResolvedValue({
+      supported: true,
+      messages: [
+        { id: "u1", role: "user", content: "Reason through this" },
+        { id: "r1", role: "reasoning", content: "First reasoning block" },
+        { id: "r2", role: "reasoning", content: "Second reasoning block" },
+        {
+          id: "a1",
+          role: "assistant",
+          content: "Reasoned answer",
+          _meta: {
+            phase: "final_answer",
+            turnId: "reasoned",
+            durationMs: 45000,
+          },
         },
-      },
-      { id: "u2", role: "user", content: "Unfinished turn" },
-      { id: "r3", role: "reasoning", content: "Unfinished reasoning" },
-      { id: "u3", role: "user", content: "Unmarked turn" },
-      { id: "r4", role: "reasoning", content: "Unmarked reasoning" },
-      { id: "a2", role: "assistant", content: "Unmarked answer" },
-    ]);
+        { id: "u2", role: "user", content: "Unfinished turn" },
+        { id: "r3", role: "reasoning", content: "Unfinished reasoning" },
+        { id: "u3", role: "user", content: "Unmarked turn" },
+        { id: "r4", role: "reasoning", content: "Unmarked reasoning" },
+        { id: "a2", role: "assistant", content: "Unmarked answer" },
+      ],
+    });
     const { container } = render(<ConversationSurface {...props} />);
     expect(await screen.findByText("Reasoned answer")).toBeTruthy();
     expect(screen.getByText("Unmarked answer")).toBeTruthy();
@@ -1136,25 +1169,28 @@ describe("assistant-ui conversation", () => {
       type: "function",
       function: { name: "contextCompaction", arguments: "{}" },
     };
-    gateway.sessionsHistory.mockResolvedValue([
-      { id: "u1", role: "user", content: "First question" },
-      {
-        id: "a1",
-        role: "assistant",
-        content: "First answer",
-        _meta: { phase: "final_answer", turnId: "first", durationMs: 72000 },
-      },
-      { id: "c1", role: "assistant", toolCalls: [compaction] },
-      { id: "result", role: "tool", toolCallId: "compact", content: "Context compacted" },
-      { id: "u2", role: "user", content: "Second question" },
-      {
-        id: "a2",
-        role: "assistant",
-        content: "Second answer",
-        toolCalls: [{ ...compaction, id: "compact-again" }],
-        _meta: { phase: "final_answer", turnId: "second", durationMs: 130000 },
-      },
-    ]);
+    gateway.sessionsHistory.mockResolvedValue({
+      supported: true,
+      messages: [
+        { id: "u1", role: "user", content: "First question" },
+        {
+          id: "a1",
+          role: "assistant",
+          content: "First answer",
+          _meta: { phase: "final_answer", turnId: "first", durationMs: 72000 },
+        },
+        { id: "c1", role: "assistant", toolCalls: [compaction] },
+        { id: "result", role: "tool", toolCallId: "compact", content: "Context compacted" },
+        { id: "u2", role: "user", content: "Second question" },
+        {
+          id: "a2",
+          role: "assistant",
+          content: "Second answer",
+          toolCalls: [{ ...compaction, id: "compact-again" }],
+          _meta: { phase: "final_answer", turnId: "second", durationMs: 130000 },
+        },
+      ],
+    });
     const { container } = render(<ConversationSurface {...props} />);
     expect(await screen.findByText("Second answer")).toBeTruthy();
     for (const [label, answer] of [
@@ -1175,29 +1211,32 @@ describe("assistant-ui conversation", () => {
   });
 
   it("keeps tools in the work disclosure when a turn has no commentary", async () => {
-    gateway.sessionsHistory.mockResolvedValue([
-      { id: "u1", role: "user", content: "Read a file" },
-      { id: "r1", role: "reasoning", content: "Hidden tool reasoning" },
-      {
-        id: "tool",
-        role: "assistant",
-        toolCalls: [
-          {
-            id: "compact",
-            type: "function",
-            function: { name: "contextCompaction", arguments: "{}" },
-          },
-          { id: "call", type: "function", function: { name: "read_file", arguments: "{}" } },
-        ],
-      },
-      { id: "result", role: "tool", toolCallId: "call", content: "done" },
-      {
-        id: "final",
-        role: "assistant",
-        content: "Read complete",
-        _meta: { phase: "final_answer", turnId: "tools", durationMs: 2300 },
-      },
-    ]);
+    gateway.sessionsHistory.mockResolvedValue({
+      supported: true,
+      messages: [
+        { id: "u1", role: "user", content: "Read a file" },
+        { id: "r1", role: "reasoning", content: "Hidden tool reasoning" },
+        {
+          id: "tool",
+          role: "assistant",
+          toolCalls: [
+            {
+              id: "compact",
+              type: "function",
+              function: { name: "contextCompaction", arguments: "{}" },
+            },
+            { id: "call", type: "function", function: { name: "read_file", arguments: "{}" } },
+          ],
+        },
+        { id: "result", role: "tool", toolCallId: "call", content: "done" },
+        {
+          id: "final",
+          role: "assistant",
+          content: "Read complete",
+          _meta: { phase: "final_answer", turnId: "tools", durationMs: 2300 },
+        },
+      ],
+    });
     render(<ConversationSurface {...props} />);
     const work = await workPanel("Worked for 2s");
     expect(work.dataset.state).toBe("closed");
@@ -1431,6 +1470,7 @@ describe("assistant-ui conversation", () => {
             message: "确认分析参数",
             responseSchema: {
               type: "object",
+              description: '{"command":"inspect dataset","path":"/project/data file.txt"}',
               properties: {
                 count: { type: "integer", title: "样本数量", minimum: 1 },
                 allow: { type: "boolean", title: "允许写入" },
@@ -1444,6 +1484,9 @@ describe("assistant-ui conversation", () => {
     });
     await send("分析数据");
     const number = await screen.findByRole("spinbutton", { name: "样本数量" });
+    const scope = screen.getByText('{"command":"inspect dataset","path":"/project/data file.txt"}');
+    expect(scope.tagName).toBe("PRE");
+    expect(scope.getAttribute("contenteditable")).toBeNull();
     const password = screen.getByLabelText("凭据");
     expect(password.getAttribute("type")).toBe("password");
     fireEvent.change(password, { target: { value: "private value" } });
@@ -1518,10 +1561,13 @@ describe("assistant-ui conversation", () => {
     expect((await screen.findByRole("alert")).textContent).toContain("Still unavailable");
     expect(input.hasAttribute("disabled")).toBe(true);
     expect(retry.hasAttribute("disabled")).toBe(false);
-    gateway.sessionsHistory.mockResolvedValueOnce([
-      { id: "old-user", role: "user", content: "原来的问题" },
-      { id: "old-answer", role: "assistant", content: "原来的回答" },
-    ]);
+    gateway.sessionsHistory.mockResolvedValueOnce({
+      supported: true,
+      messages: [
+        { id: "old-user", role: "user", content: "原来的问题" },
+        { id: "old-answer", role: "assistant", content: "原来的回答" },
+      ],
+    });
     fireEvent.click(retry);
     await screen.findByText("原来的回答");
     expect(screen.queryByRole("alert")).toBeNull();
@@ -1536,9 +1582,10 @@ describe("assistant-ui conversation", () => {
 
   it("keeps loaded history visible when another Codex instance blocks a send", async () => {
     const log = vi.spyOn(console, "error").mockImplementation(() => {});
-    gateway.sessionsHistory.mockResolvedValue([
-      { id: "saved", role: "assistant", content: "已加载的历史" },
-    ]);
+    gateway.sessionsHistory.mockResolvedValue({
+      supported: true,
+      messages: [{ id: "saved", role: "assistant", content: "已加载的历史" }],
+    });
     render(<ConversationSurface {...props} />);
     await screen.findByText("已加载的历史");
     const conflict = "Internal error: thread session already has an active writer";
@@ -1555,9 +1602,10 @@ describe("assistant-ui conversation", () => {
   });
 
   it("restores the same normal chat after closing a source pane without losing history or draft", async () => {
-    gateway.sessionsHistory.mockResolvedValue([
-      { id: "old", role: "assistant", content: "已有对话" },
-    ]);
+    gateway.sessionsHistory.mockResolvedValue({
+      supported: true,
+      messages: [{ id: "old", role: "assistant", content: "已有对话" }],
+    });
     const { rerender } = render(<ConversationSurface {...props} />);
     const message = (await screen.findByText("已有对话")).closest(".assistant-message");
     const draft = screen.getByRole("textbox");
@@ -1623,4 +1671,36 @@ describe("assistant-ui conversation", () => {
     expect(scienceTarget({ ...native, result: null })).toEqual({});
     expect(scienceTarget({ ...native, error: { message: "Failed" } })).toEqual({});
   });
+});
+
+it("allows resumed conversation when the agent advertises no history replay", async () => {
+  gateway.sessionsHistory.mockResolvedValue({ supported: false });
+  const threadId = "acp:geepilot:existing";
+  const incoming = { type: "RUN_STARTED", threadId, runId: "run" };
+  const done = { type: "RUN_FINISHED", threadId, runId: "run" };
+  render(<ConversationSurface {...props} harness="acp" threadId={threadId} />);
+  const notice = await screen.findByText(
+    "此 Agent 不提供历史消息；你可以继续对话，这里仅显示本次打开后的消息。",
+  );
+  expect(notice).toBeTruthy();
+  expect(screen.queryByRole("alert")).toBeNull();
+  expect(screen.queryByText("今天想探索什么？")).toBeNull();
+  expect(screen.queryByRole("button", { name: "重新加载历史" })).toBeNull();
+  respond(
+    incoming,
+    { type: "TEXT_MESSAGE_START", messageId: "answer", role: "assistant" },
+    { type: "TEXT_MESSAGE_CONTENT", messageId: "answer", delta: "Current reply" },
+    { type: "TEXT_MESSAGE_END", messageId: "answer" },
+    done,
+  );
+  await send("Continue existing session");
+  expect(await screen.findByText("Current reply")).toBeTruthy();
+  expect(gateway.aguiStart).toHaveBeenLastCalledWith(
+    expect.objectContaining({ input: expect.objectContaining({ threadId }) }),
+  );
+  expect(
+    screen.getByText("此 Agent 不提供历史消息；你可以继续对话，这里仅显示本次打开后的消息。"),
+  ).toBeTruthy();
+  expect(gateway.sessionsHistory).toHaveBeenCalledTimes(1);
+  expect(gateway.sessionsCreate).not.toHaveBeenCalled();
 });

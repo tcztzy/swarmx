@@ -20,7 +20,8 @@ import {
 } from "@assistant-ui/react-ag-ui";
 import { type ReactNode, useContext, useEffect, useMemo, useState } from "react";
 import { z } from "zod";
-import { HistoryMessagesSchema, type MessageActivity } from "../message-activity.js";
+import { HistoryResponseSchema } from "../bridge-contract.js";
+import type { MessageActivity } from "../message-activity.js";
 import { HarnessPicker, type HarnessProps, RunControls } from "./agent-controls.js";
 import { IpcAgent } from "./agui.js";
 import { bridge } from "./bridge.js";
@@ -311,6 +312,7 @@ export function ConversationSurface(props: ConversationProps) {
   const { threadId, agentId } = props;
   const [error, setError] = useState<string>();
   const [historyReady, setHistoryReady] = useState(false);
+  const [historyUnsupported, setHistoryUnsupported] = useState(false);
   const [retryingHistory, setRetryingHistory] = useState(false);
   const agent = useMemo(
     () =>
@@ -325,9 +327,16 @@ export function ConversationSurface(props: ConversationProps) {
     () =>
       ({
         async load() {
-          const messages = HistoryMessagesSchema.parse(
+          const response = HistoryResponseSchema.parse(
             await bridge().sessions.history({ agent: agentId, sessionId: threadId }),
           );
+          setHistoryUnsupported(!response.supported);
+          if (!response.supported) {
+            setHistoryReady(true);
+            // Start the current view empty without claiming an empty native transcript.
+            return ExportedMessageRepository.fromArray([]);
+          }
+          const messages = response.messages;
           restore(messages);
           const repository = ExportedMessageRepository.fromArray(
             fromAgUiMessages(messages, { showThinking: false })
@@ -365,6 +374,7 @@ export function ConversationSurface(props: ConversationProps) {
           activity={activity}
           error={error}
           historyReady={historyReady}
+          historyUnsupported={historyUnsupported}
           retryingHistory={retryingHistory}
           onRetryHistory={async () => {
             setRetryingHistory(true);
@@ -398,6 +408,7 @@ function ConversationContent({
   source,
   error,
   historyReady,
+  historyUnsupported,
   retryingHistory,
   onRetryHistory,
   onSend,
@@ -406,6 +417,7 @@ function ConversationContent({
   activity: Record<string, MessageActivity>;
   error: string | undefined;
   historyReady: boolean;
+  historyUnsupported: boolean;
   retryingHistory: boolean;
   onRetryHistory: () => Promise<void>;
   onSend: () => void;
@@ -417,7 +429,7 @@ function ConversationContent({
   const interrupts = useAgUiInterrupts();
   const standaloneUsed = threadId.startsWith("dsh:") && !empty;
   const blocked = !historyReady || interrupts.length > 0 || standaloneUsed;
-  const welcome = empty && historyReady;
+  const welcome = empty && historyReady && !historyUnsupported;
   useEffect(() => {
     const draft = (event: Event) => {
       const text = z.string().parse((event as CustomEvent).detail);
@@ -439,6 +451,11 @@ function ConversationContent({
           {(loading || retryingHistory) && (
             <p role="status" className="mx-auto max-w-3xl py-6 text-sm text-neutral-500">
               {t("正在加载历史记录…")}
+            </p>
+          )}
+          {historyUnsupported && (
+            <p role="status" className="mx-auto max-w-3xl px-4 py-6 text-sm text-neutral-500">
+              {t("此 Agent 不提供历史消息；你可以继续对话，这里仅显示本次打开后的消息。")}
             </p>
           )}
           {welcome && (

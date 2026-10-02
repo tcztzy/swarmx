@@ -1,26 +1,34 @@
 import type { AgentOptions, NativeAgent, Observer } from "./agents/types.js";
 import { HarnessSchema } from "./permissions.js";
 
-export const AGENT_IDS = HarnessSchema.options;
+// Keep retired ids in persisted schemas, but never advertise or load them as runtimes.
+export const AGENT_IDS = HarnessSchema.options.filter((id) => id !== "pi");
 export type AgentId = (typeof AGENT_IDS)[number];
 
-export function selectedAgent(value = process.env.SWARMX_AGENT ?? "pi"): AgentId {
+export function selectedAgent(
+  value = process.env.SWARMX_AGENT ?? (process.env.SWARMX_ACP_AGENT ? "acp" : "codex"),
+): AgentId {
+  if (value === "pi")
+    throw new Error(
+      "The built-in Pi agent has been retired. Select Codex or configure an external ACP agent with SWARMX_AGENT=acp and SWARMX_ACP_AGENT. Existing Pi authentication and session files are unchanged.",
+    );
   if (!AGENT_IDS.includes(value as AgentId)) throw new Error(`Unknown Agent "${value}".`);
   return value as AgentId;
 }
 
 export async function loadAgent(id: AgentId, options: AgentOptions): Promise<NativeAgent> {
+  id = selectedAgent(id);
   const native =
-    id === "pi"
-      ? await (await import("./agents/pi.js")).createPi(options)
-      : id === "codex"
-        ? await (await import("./agents/codex.js")).createCodex(options)
-        : id === "claude"
-          ? await (await import("./agents/claude.js")).createClaude(options)
-          : id === "hermes"
-            ? await (await import("./agents/hermes.js")).createHermes(options)
-            : id === "openclaw"
-              ? await (await import("./agents/openclaw.js")).createOpenClaw(options)
+    id === "codex"
+      ? await (await import("./agents/codex.js")).createCodex(options)
+      : id === "claude"
+        ? await (await import("./agents/claude.js")).createClaude(options)
+        : id === "hermes"
+          ? await (await import("./agents/hermes.js")).createHermes(options)
+          : id === "openclaw"
+            ? await (await import("./agents/openclaw.js")).createOpenClaw(options)
+            : id === "acp"
+              ? await (await import("./agents/external-acp.js")).createExternalAcp(options)
               : await (await import("./agents/dsh.js")).createDsh(options);
   const agent = scopeSessions(id, native);
   try {

@@ -178,6 +178,7 @@
   "继续": "Continue",
   "取消": "Cancel",
   "请选择": "Select an option",
+  "此 Agent 不提供历史消息；你可以继续对话，这里仅显示本次打开后的消息。": "This agent does not provide message history. You can continue the conversation; only messages from this view are shown.",
   "正在加载历史记录…": "Loading history…",
   "无法加载对话历史": "Unable to load conversation history",
   "重新加载后即可继续此对话。": "Reload the history to continue this conversation.",

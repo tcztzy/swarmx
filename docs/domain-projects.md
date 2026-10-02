@@ -1,3 +1,5 @@
+> 迁移说明：SwarmX 已停止提供 builtin Pi；下文既有 Pi 命令、项目布局与验收记录保留为历史证据，`SWARMX_AGENT=pi` 不再可启动。当前默认使用外部 Codex；独立 Pi 或其他框架 Agent 请按 [ACP 配置](acp.md) 显式连接并授权。旧会话与结果文件不会自动转换，Host 日志不能替代原生会话。
+
 # 在独立项目目录中运行 SwarmX
 
 SwarmX 是通用多智能体系统，提供原生 Agent 与模型接入、任务调度、桌面、权限和运行记录。
@@ -52,6 +54,28 @@ session/prompt，并处理流式更新、审批或问题以及终态。session/n
 单独在终端运行 ACP 命令只会等待客户端，不会自动开始任务。
 
 外部应用通过公开入口使用 SwarmX，不导入 `apps/desktop/dist/platform.js` 等内部实现。
+
+### 外部客户端续接会话
+
+客户端保存 `session/new` 返回的完整 `sessionId`，每轮只发送新增输入。
+同一连接可以继续调用 `session/prompt`；重新连接后，先 initialize，再调用
+`session/resume`，或在需要显示历史时调用 `session/load`，随后发送新的 prompt。
+两者都使用原来的 `sessionId`、相同的项目 `cwd` 和空 `mcpServers`。
+原生 Agent 保存上下文；客户端不应将本地显示的历史重新拼进每轮输入，或为追问创建新会话。
+只有 Agent 广告支持续接时才能采用此流程；例如 DSH 没有持久会话续接能力。
+原生会话缺失、续接失败或执行失败须明确报告，不能静默替换为新会话。
+
+模型与推理设置在每次连接中通过返回的 `configOptions` 和
+`session/set_config_option` 选择。客户端须转发审批和问题；若界面尚不支持交互，
+应返回取消或拒绝，不能自动批准。取消后等待原 prompt 的终态。
+结束 stdio 客户端时还需关闭所拥有子进程的 stdin，并等待进程退出；
+SDK 连接关闭本身不保证底层进程退出。
+
+例如 GEEPilot 通过这一入口使用 SwarmX 的原生 Agent、会话、授权、取消与执行记录；
+它的任务技能负责生物学问题、方法选择、质量检查与结果解释。
+BioV 负责确定性的生物计算、数据访问、软件环境和分析产物，其技能说明这些底层软件的用法。
+BioV CLI 或 MCP 按原生 Agent 的项目配置接入，不能通过 ACP 注入 MCP，
+也不需要将 BioV 计算复制到 SwarmX。Agent 的 `end_turn` 与 BioV 的计算检查结果分别保存。
 
 ## 项目指令、技能和程序
 

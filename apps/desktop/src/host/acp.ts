@@ -231,14 +231,16 @@ export function acpAgent(native: NativeAgent, cwd: string): acp.AgentApp {
         );
       peer();
       const agent = await call(bind(params.cwd));
-      await call(
-        agent.read(params.sessionId, {
-          text() {},
-          tool() {},
-          raw() {},
-          interact: async () => undefined,
-        }),
-      );
+      if (agent.capabilities.history)
+        await call(
+          agent.read(params.sessionId, {
+            text() {},
+            tool() {},
+            raw() {},
+            interact: async () => undefined,
+          }),
+        );
+      else await call(agent.models(params.sessionId));
       attach(params.sessionId, agent);
       return {
         configOptions: await config(params.sessionId),
@@ -444,10 +446,14 @@ function observe(sessionId: string, client: acp.AgentContext, forms: boolean, sw
     async interact(request, signal) {
       if (signal?.aborted) return undefined;
       if (request.approval) {
-        const { toolId, choices } = request.approval;
+        const { toolId, choices, input } = request.approval;
         const params: acp.RequestPermissionRequest = {
           sessionId,
-          toolCall: { toolCallId: toolId, title: request.title },
+          toolCall: {
+            toolCallId: toolId,
+            title: request.title,
+            ...(input === undefined ? {} : { rawInput: input }),
+          },
           options: choices.map(({ id, label, kind }) => ({ optionId: id, name: label, kind })),
         };
         const response = await client.request(

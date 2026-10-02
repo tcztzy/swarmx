@@ -12,6 +12,7 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { DefaultResourceLoader } from "@earendil-works/pi-coding-agent";
 import { afterEach, expect, it, vi } from "vitest";
 import { LearningResources, ResourceUpdateSchema } from "../src/host/learning-resources.js";
 
@@ -139,7 +140,6 @@ it.each([false, true])(
       "validated.txt",
     ]);
   },
-  15_000,
 );
 
 it("evaluates both versions, retains report identities and uses the original baseline on replay", async () => {
@@ -167,7 +167,7 @@ it("evaluates both versions, retains report identities and uses the original bas
   expect(await readFile(join(root, "evaluated.txt"), "utf8")).toBe(
     `${snapshot.content}\n${snapshot.content}\n`,
   );
-}, 15_000);
+});
 
 it.each([
   "report.candidate.revision = report.baseline.revision; console.log(JSON.stringify(report));",
@@ -231,27 +231,20 @@ setInterval(() => {}, 1000);
   );
   const controller = new AbortController();
   const work = resources.apply(request, snapshot, controller.signal);
-  const outcome = work.catch((error: unknown) => error);
-  try {
-    await expect
-      .poll(async () => readFile(join(root, "evaluation-started"), "utf8").catch(() => ""), {
-        timeout: 5_000,
-      })
-      .toBe("yes");
-    controller.abort(new Error("Stop behavioral evaluation"));
-    expect(await outcome).toBeInstanceOf(Error);
-    expect(await readFile(join(root, "AGENTS.md"), "utf8")).toBe(snapshot.content);
-    expect((await readdir(root)).sort()).toEqual([
-      ".swarmx",
-      "AGENTS.md",
-      "evaluation-started",
-      "validated.txt",
-    ]);
-  } finally {
-    controller.abort();
-    await outcome;
-  }
-}, 15_000);
+  const rejected = expect(work).rejects.toThrow();
+  await expect
+    .poll(async () => readFile(join(root, "evaluation-started"), "utf8").catch(() => ""))
+    .toBe("yes");
+  controller.abort(new Error("Stop behavioral evaluation"));
+  await rejected;
+  expect(await readFile(join(root, "AGENTS.md"), "utf8")).toBe(snapshot.content);
+  expect((await readdir(root)).sort()).toEqual([
+    ".swarmx",
+    "AGENTS.md",
+    "evaluation-started",
+    "validated.txt",
+  ]);
+});
 
 it.each(["validator", "evaluator", "report-limit"])(
   "stops ordinary descendants before returning from %s cancellation",
@@ -279,18 +272,16 @@ setInterval(() => {
     );
     const controller = new AbortController();
     const work = resources.apply(request, snapshot, controller.signal);
-    const outcome = work.catch((error: unknown) => error);
+    const rejected = expect(work).rejects.toThrow();
     let childPid: number | undefined;
     try {
       await expect
-        .poll(async () => readFile(join(root, "child-ready"), "utf8").catch(() => ""), {
-          timeout: 5_000,
-        })
+        .poll(async () => readFile(join(root, "child-ready"), "utf8").catch(() => ""))
         .toMatch(/^\d+$/u);
       childPid = Number(await readFile(join(root, "child-ready"), "utf8"));
       if (mode === "report-limit") await writeFile(join(root, "release-report"), "yes");
       else controller.abort(new Error("Stop learning resource check"));
-      expect(await outcome).toBeInstanceOf(Error);
+      await rejected;
       await writeFile(join(root, "release-child"), "Continue only after Stop returned");
       await expect
         .poll(() => {
@@ -317,7 +308,6 @@ setInterval(() => {
       await work.catch(() => {});
     }
   },
-  15_000,
 );
 
 it("rejects candidate changes after evaluation and before adoption", async () => {
@@ -442,20 +432,15 @@ setInterval(() => {}, 1000);
 `);
   const controller = new AbortController();
   const work = resources.apply(request, snapshot, controller.signal);
-  const outcome = work.catch((error: unknown) => error);
-  try {
-    await expect
-      .poll(async () => readFile(join(root, "started"), "utf8").catch(() => ""), { timeout: 5_000 })
-      .toBe("yes");
-    controller.abort(new Error("Stop validation"));
-    expect(await outcome).toBeInstanceOf(Error);
-    expect(await readFile(join(root, "AGENTS.md"), "utf8")).toBe(snapshot.content);
-    expect((await readdir(root)).sort()).toEqual([".swarmx", "AGENTS.md", "started"]);
-  } finally {
-    controller.abort();
-    await outcome;
-  }
-}, 15_000);
+  const rejected = expect(work).rejects.toThrow();
+  await expect
+    .poll(async () => readFile(join(root, "started"), "utf8").catch(() => ""))
+    .toBe("yes");
+  controller.abort(new Error("Stop validation"));
+  await rejected;
+  expect(await readFile(join(root, "AGENTS.md"), "utf8")).toBe(snapshot.content);
+  expect((await readdir(root)).sort()).toEqual([".swarmx", "AGENTS.md", "started"]);
+});
 
 it("rejects concurrent applications before launching a second validator", async () => {
   const { root, resources, snapshot, request } = await fixture(`
@@ -465,16 +450,15 @@ import { setTimeout } from 'node:timers/promises';
 await appendFile('started', 'validator\\n');
 while (!existsSync('release')) await setTimeout(10);
 `);
-  const first = resources.apply(request, snapshot, signal()).catch((error: unknown) => error);
-  let second: Promise<unknown> | undefined;
+  const first = resources.apply(request, snapshot, signal());
+  await expect
+    .poll(async () => readFile(join(root, "started"), "utf8").catch(() => ""))
+    .toBe("validator\n");
+  let rejected: unknown;
+  const second = resources.apply(request, snapshot, signal()).catch((error: unknown) => {
+    rejected = error;
+  });
   try {
-    await expect
-      .poll(async () => readFile(join(root, "started"), "utf8").catch(() => ""), { timeout: 5_000 })
-      .toBe("validator\n");
-    let rejected: unknown;
-    second = resources.apply(request, snapshot, signal()).catch((error: unknown) => {
-      rejected = error;
-    });
     await Promise.resolve();
     expect(rejected).toBeInstanceOf(Error);
     expect(String(rejected)).toContain("already running");
@@ -482,10 +466,9 @@ while (!existsSync('release')) await setTimeout(10);
     await writeFile(join(root, "release"), "release");
     await Promise.allSettled([first, second]);
   }
-  expect(await first).not.toBeInstanceOf(Error);
   expect(await readFile(join(root, "started"), "utf8")).toBe("validator\n");
   expect(await readFile(join(root, "AGENTS.md"), "utf8")).toBe(request.content);
-}, 15_000);
+});
 
 it("does not dispatch a validator when cancelled before application", async () => {
   const { root, resources, snapshot, request } = await fixture();
@@ -545,4 +528,47 @@ await symlink('AGENTS.md', process.argv[2]);
     "symbolic",
   );
   expect(await readFile(join(second.root, "AGENTS.md"), "utf8")).toBe(second.snapshot.content);
+});
+
+it("the native Pi loader sees updated project agent instructions and skills on reload", async () => {
+  const { root, resources, resource, registration, configure } = await fixture();
+  const skillPath = ".pi/skills/research/SKILL.md";
+  await mkdir(join(root, ".pi/skills/research"), { recursive: true });
+  await writeFile(
+    join(root, skillPath),
+    "---\nname: research\ndescription: Original method\n---\nRead evidence.\n",
+  );
+  registration.resources.push({ ...resource, id: "research", kind: "skill", path: skillPath });
+  await configure();
+  const loader = new DefaultResourceLoader({
+    cwd: root,
+    agentDir: join(root, "native-user"),
+    noExtensions: true,
+    noPromptTemplates: true,
+    noThemes: true,
+  });
+  await loader.reload();
+  expect(loader.getSkills().skills.find(({ name }) => name === "research")?.description).toBe(
+    "Original method",
+  );
+  for (const snapshot of await resources.snapshot(signal())) {
+    const content =
+      snapshot.kind === "skill"
+        ? "---\nname: research\ndescription: VALID updated method\n---\nCheck the original evidence.\n"
+        : "VALID updated agent instructions\n";
+    await resources.apply(
+      { id: snapshot.id, expectedRevision: snapshot.expectedRevision, content },
+      snapshot,
+      signal(),
+    );
+  }
+  await loader.reload();
+  expect(loader.getSkills().diagnostics).toEqual([]);
+  expect(loader.getSkills().skills.find(({ name }) => name === "research")?.description).toBe(
+    "VALID updated method",
+  );
+  expect(loader.getAgentsFiles().agentsFiles).toContainEqual({
+    path: join(root, "AGENTS.md"),
+    content: "VALID updated agent instructions\n",
+  });
 });

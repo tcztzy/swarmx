@@ -1,0 +1,22 @@
+{
+  "status": "historical reference only; not a production adapter, fallback or supported runnable example",
+  "source_head": "d61bac85c994314346b9c39dcf2e7b6b4fec0e55",
+  "preserved_from_working_tree": true,
+  "files": [
+    {
+      "source": "apps/desktop/src/agents/pi.ts",
+      "archive": "examples/legacy-pi/pi.ts",
+      "sha256": "955658f4311bbcd6966bfb44fdad1f42f8596c6f6eb7dc6d2a6722475ba9947a"
+    },
+    {
+      "source": "apps/desktop/tests/pi-native.test.ts",
+      "archive": "examples/legacy-pi/pi-native.test.ts",
+      "sha256": "2ff740d595bc5ceca7d0023ab4b0e33e1103c8553fe65aaa00a8e2d256bed0e0"
+    },
+    {
+      "source": "apps/desktop/tests/learning-resources.test.ts",
+      "archive": "examples/legacy-pi/learning-resources.test.ts",
+      "sha256": "984248aa2ecfddfa0386dfeed2ac8deb38878d522e75ec2239e5bfe38b363c77"
+    }
+  ]
+}

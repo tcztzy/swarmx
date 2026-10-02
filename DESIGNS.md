@@ -12,7 +12,7 @@ does not close a borrowed native runtime. MCP's `swarm` tool enters the same dir
 
 | Data | Owner |
 | --- | --- |
-| Native messages, configuration, history, approvals | Pi, Codex, Claude, DSH, Hermes or OpenClaw |
+| Native messages, configuration, history, approvals | External ACP agent, Codex, Claude, DSH, Hermes or OpenClaw |
 | Observed execution events and causal links | Host execution journal, append-only SQLite |
 | Swarm membership | ProductServices, in memory |
 | Work cycles/items, resource reservations and acceptance | Host work management; references native sessions, execution records and Science revisions |
@@ -32,15 +32,22 @@ The Agent contract carries capabilities, run results and cancellation directly. 
 use official SDKs or native runtime APIs and project their events into the Host Observer. Native
 terminal outcomes confirm that execution ended, independently of work acceptance; the Host does not add title-generation requests. MCP
 credentials are bound to their Host execution and revoked at the execution boundary.
-Pi supplies the default lead through its embedded SDK. Its native session manager and resource
-loader own persistence and skill discovery; SwarmX maintains no second Agent loop or skill loader.
-Pi custom tools call ProductServices in process under the active Host execution, retaining the
-same grants, cancellation and journal as the external product MCP boundary.
+SwarmX owns orchestration and Host API authorization, with no built-in Agent loop or
+provider runtime. Codex is the default external integration. Configured ACP endpoints remain
+separately admitted by Host policy. The retired Pi adapter and its historical tests are retained
+under `examples/legacy-pi/`, outside production builds, dependencies and default tests.
 See `docs/native-agents.md` for lifecycle contracts and `docs/runtime-platform.md` for
 selectable integrations and setup.
-ACP remains an external stdio boundary. Its official SDK translates the Agent contract and its
-negotiated permission extension into the public wire format; internal delegation and memory
-reviews do not open ACP connections. See `docs/acp.md`.
+ACP remains an external stdio boundary. The inbound gateway projects the Agent contract and
+its negotiated permission extension. The opt-in outbound integration adapts one explicitly
+configured external process to that same Agent interface; Swarm composition stays in process.
+The remote agent owns its native runtime and session files. Host observation logs never replace
+remote history or resume state. An external agent may change its internal framework without
+changing this boundary. SwarmX does not instantiate Pi or directly depend on its SDK. An
+external native SDK may bring its own backend dependencies (currently DSH brings `pi-ai`);
+those do not implement a SwarmX-owned Agent loop.
+The first outbound ACP client supplies no Host MCP credential, automatic Memory context or
+post-turn review; unsupported Host-tool access fails explicitly. See `docs/acp.md`.
 A2A JSON-RPC is an external entry point into the same Swarm. A2A stores SDK-owned
 ingress messages and final artifacts, never hydrates native history, and rejects interactive
 requests that this text-only entry point cannot answer. ACP permission requests/form elicitation and desktop AG-UI

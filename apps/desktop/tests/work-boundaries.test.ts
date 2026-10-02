@@ -7,7 +7,6 @@ import { formatScienceResourceId } from "@swarmx/science";
 import { afterEach, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { HARNESS_CAPABILITIES, type NativeAgent, type Observer } from "../src/agents/types.js";
-import { currentAgentBinding } from "../src/host/agent-registry.js";
 import { ProductServices } from "../src/host/product-services.js";
 
 const cleanups: (() => Promise<void>)[] = [];
@@ -18,14 +17,12 @@ const signal = () => new AbortController().signal;
 const sink: Observer = { text() {}, tool() {}, raw() {}, interact: async () => undefined };
 const configuration = {
   id: "registered",
-  harness: "pi",
+  harness: "codex",
   model: "fixture/research",
 };
 
-async function tool(name: string, args: unknown) {
-  const tools = currentAgentBinding().productTools;
-  assert.ok(tools);
-  return tools.call(name, args, randomUUID(), signal());
+async function tool(services: ProductServices, name: string, args: unknown) {
+  return services.callTool(name, args, { actorId: "mcp", callId: randomUUID(), signal: signal() });
 }
 
 async function fixture(execute: (services: ProductServices, text: string) => Promise<void>) {
@@ -53,20 +50,20 @@ async function fixture(execute: (services: ProductServices, text: string) => Pro
   });
   const native: NativeAgent = {
     name: "work boundary fixture",
-    capabilities: HARNESS_CAPABILITIES.pi,
+    capabilities: HARNESS_CAPABILITIES.codex,
     models: async () => ({
       models: [{ id: configuration.model, name: "Research fixture", efforts: [] }],
       current: {},
     }),
     list: async () => [],
-    create: async () => `pi:boundary-${++sessions}`,
+    create: async () => `codex:boundary-${++sessions}`,
     read: async () => {},
     start,
     steer: async () => {},
     interrupt: async () => {},
     dispose: async () => {},
   };
-  await services.attachAgents("http://localhost", native, "pi");
+  await services.attachAgents("http://localhost", native, "codex");
   services.work.createCycle({
     id: "cycle",
     project: "research",
@@ -88,11 +85,11 @@ async function fixture(execute: (services: ProductServices, text: string) => Pro
 
 it("rejects native self-acceptance and administration while retaining the unaccepted runtime result", async () => {
   const { services } = await fixture(async (products) => {
-    await expect(tool("work", { action: "accept", accepted: true })).rejects.toThrow();
+    await expect(tool(services, "work", { action: "accept", accepted: true })).rejects.toThrow();
     expect(() => products.work.accept({})).toThrow("trusted Host caller");
     expect(() => products.work.createCycle({})).toThrow("trusted Host caller");
     await expect(products.runWork("first", signal())).rejects.toThrow("trusted Host caller");
-    const status = await tool("work", { action: "status" });
+    const status = await tool(services, "work", { action: "status" });
     expect(status).toMatchObject({ item: { id: "first", state: "running" }, heldUsd: 0.4 });
   });
   await services.runWork("first", signal());
@@ -114,20 +111,24 @@ it("requires exact-task preparation and atomically shares the parent budget acro
     }
     const send = {
       action: "send_message",
-      agentId: "pi",
+      agentId: "codex",
       model: configuration.model,
       text: "Child task",
       reason: "Use the registered child configuration.",
     };
-    await expect(tool("swarm", send)).rejects.toThrow("swarm.prepare");
+    await expect(tool(services, "swarm", send)).rejects.toThrow("swarm.prepare");
     expect(products.work.snapshot("cycle").reservations).toHaveLength(1);
-    const preparation = z
-      .object({ preparationId: z.string() })
-      .parse(await tool("swarm", { action: "prepare", task: "Child task", queries: ["research"] }));
+    const preparation = z.object({ preparationId: z.string() }).parse(
+      await tool(services, "swarm", {
+        action: "prepare",
+        task: "Child task",
+        queries: ["research"],
+      }),
+    );
     await expect(
-      tool("swarm", { ...send, text: "Different child task", ...preparation }),
+      tool(services, "swarm", { ...send, text: "Different child task", ...preparation }),
     ).rejects.toThrow("exact task");
-    const children = [1, 2].map(() => tool("swarm", { ...send, ...preparation }));
+    const children = [1, 2].map(() => tool(services, "swarm", { ...send, ...preparation }));
     try {
       await childStarted.promise;
       const snapshot = products.work.snapshot("cycle");
@@ -163,7 +164,7 @@ it("prevents a managed native session from escaping its original work identity",
   const completed = await services.runWork("first", signal());
   assert.ok("result" in completed);
   const { sessionId } = z.object({ sessionId: z.string() }).parse(completed.result);
-  const agent = await services.agent("pi");
+  const agent = await services.agent("codex");
   await expect(
     agent.start(sessionId, "Resume outside work", sink, { model: configuration.model }),
   ).rejects.toThrow("original work identity");
@@ -189,19 +190,19 @@ it.each([true, false])(
     let logicalId: string;
     const { cwd, services } = await fixture(async () => {
       if (!granted) {
-        await expect(tool("work", { action: "submit", artifacts: [evidence] })).rejects.toThrow(
-          "Science read permission",
-        );
+        await expect(
+          tool(services, "work", { action: "submit", artifacts: [evidence] }),
+        ).rejects.toThrow("Science read permission");
         return;
       }
       await expect(
-        tool("work", { action: "submit", artifacts: [{ ...evidence, id: logicalId }] }),
+        tool(services, "work", { action: "submit", artifacts: [{ ...evidence, id: logicalId }] }),
       ).rejects.toThrow("exact Science resource ID");
       await expect(
-        tool("work", { action: "submit", artifacts: [{ ...evidence, revision: "2" }] }),
+        tool(services, "work", { action: "submit", artifacts: [{ ...evidence, revision: "2" }] }),
       ).rejects.toThrow("matching revision");
       await expect(
-        tool("work", { action: "submit", artifacts: [evidence] }),
+        tool(services, "work", { action: "submit", artifacts: [evidence] }),
       ).resolves.toMatchObject({ artifacts: [evidence] });
     });
     const project = services.science.createProject(services.directoryKey, {

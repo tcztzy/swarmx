@@ -7,6 +7,7 @@ import manifest from "../package.json";
 import { HARNESS_CAPABILITIES, type Interaction, type NativeAgent } from "../src/agents/types.js";
 import { acpAgent } from "../src/host/acp.js";
 import { acknowledgedPermissions } from "../src/host/acp-extension.js";
+import { AgUiBridge, parseAgUiInput } from "../src/host/ag-ui.js";
 import { ProductServices } from "../src/host/product-services.js";
 import { policyPermissions } from "../src/permissions.js";
 
@@ -27,6 +28,7 @@ const question: Interaction = {
   schema: {},
   approval: {
     toolId: "tool",
+    input: { command: "printf 'scope with spaces'", path: "/project/data file.txt" },
     choices: [
       { id: "yes", label: "Allow once", kind: "allow_once", answer: { allow: true } },
       { id: "no", label: "Reject", kind: "reject_once", answer: { allow: false } },
@@ -256,6 +258,7 @@ async function fixture() {
     productHome: join(root, "home"),
     cwd: root,
   });
+  products.settings.writeMemory({ autoReview: false });
   let counter = 0;
   const start = vi.fn<NativeAgent["start"]>(async () => ({ stopReason: "end_turn" }));
   const native: NativeAgent = {
@@ -462,6 +465,16 @@ it("uses ACP permissions without requiring forms and validates the exact offered
     prompt: [{ type: "text", text: "approve" }],
   });
   expect(permission).toHaveBeenCalledTimes(1);
+  expect(permission).toHaveBeenCalledWith(
+    expect.objectContaining({
+      params: expect.objectContaining({
+        toolCall: expect.objectContaining({
+          toolCallId: "tool",
+          rawInput: question.approval?.input,
+        }),
+      }),
+    }),
+  );
   optionId = "invented";
   await expect(
     client.request(acp.methods.agent.session.prompt, {
@@ -579,4 +592,104 @@ it("uses ACP config options for admitted models and rejects unadvertised setting
     expect.anything(),
     expect.objectContaining({ model: "small", effort: "high" }),
   );
+});
+
+it("shows exact native tool input in the AG-UI approval before the answer", async () => {
+  const { native, start } = await fixture();
+  start.mockImplementation(async (_id, _text, observer) => {
+    await observer.interact(question);
+    return { stopReason: "end_turn" };
+  });
+  const id = await native.create();
+  const bridge = new AgUiBridge(native);
+  const events: unknown[] = [];
+  try {
+    await bridge.run(
+      parseAgUiInput({
+        threadId: id,
+        runId: "scope",
+        state: {},
+        tools: [],
+        context: [],
+        messages: [{ id: "ask", role: "user", content: "Show the operation" }],
+      }),
+      { event: (event) => events.push(event) },
+    );
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "RUN_FINISHED",
+        outcome: expect.objectContaining({
+          type: "interrupt",
+          interrupts: [
+            expect.objectContaining({
+              responseSchema: expect.objectContaining({
+                description: JSON.stringify(question.approval?.input, null, 2),
+              }),
+            }),
+          ],
+        }),
+      }),
+    );
+  } finally {
+    await bridge.cancel(id);
+  }
+});
+
+it("resumes agents without history through native session validation without replay", async () => {
+  const { root, native, start } = await fixture();
+  const models = vi.fn(async (id?: string) => {
+    if (id !== "codex:existing") throw new Error("Native session missing");
+    return { models: [], current: {} };
+  });
+  const read = vi.fn(async () => {
+    throw new Error("History unsupported");
+  });
+  const updates: acp.SessionNotification[] = [];
+  const connection = acp
+    .client()
+    .onNotification("session/update", ({ params }) => {
+      updates.push(params);
+    })
+    .connect(
+      acpAgent(
+        {
+          ...native,
+          capabilities: { ...native.capabilities, history: false },
+          models,
+          read,
+        },
+        root,
+      ),
+    );
+  try {
+    const initialized = await connection.agent.request("initialize", {
+      protocolVersion: acp.PROTOCOL_VERSION,
+    });
+    expect(initialized.agentCapabilities?.loadSession).toBe(false);
+    await connection.agent.request("session/resume", { sessionId: "codex:existing", cwd: root });
+    expect(models).toHaveBeenCalledWith("codex:existing");
+    expect(read).not.toHaveBeenCalled();
+    expect(native.create).not.toHaveBeenCalled();
+    expect(start).not.toHaveBeenCalled();
+    expect(updates).toEqual([]);
+    await expect(
+      connection.agent.request("session/resume", { sessionId: "codex:missing", cwd: root }),
+    ).rejects.toThrow("Native session missing");
+    await expect(
+      connection.agent.request("session/prompt", { sessionId: "codex:missing", prompt: [] }),
+    ).rejects.toThrow("resume the ACP session");
+    expect(start).not.toHaveBeenCalled();
+    await connection.agent.request("session/prompt", {
+      sessionId: "codex:existing",
+      prompt: [{ type: "text", text: "continue" }],
+    });
+    expect(start).toHaveBeenCalledWith(
+      "codex:existing",
+      "continue",
+      expect.anything(),
+      expect.anything(),
+    );
+  } finally {
+    connection.close();
+  }
 });

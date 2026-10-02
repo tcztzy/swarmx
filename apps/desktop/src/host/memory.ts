@@ -288,6 +288,13 @@ export class AgentMemory {
   ) {
     const input = CallSchema.parse(raw);
     context.signal.throwIfAborted();
+    if (
+      ["memory_status", "memory_configure", "memory_review", "memory_decide"].includes(
+        input.action,
+      ) &&
+      (context.sessionId !== undefined || this.journal.scope.getStore()?.sessionId != null)
+    )
+      throw new Error("Memory management requires a trusted Host caller.");
     if (input.action === "read_memory_guide") {
       z.strictObject({}).parse(input.request);
       return { action: input.action, data: await readFile(MEMORY_GUIDE_URL, "utf8") };

@@ -330,20 +330,6 @@ export class ProductServices {
         },
       },
       executionPolicy: () => ({ ...this.settings.read().policy, ...this.currentPermissions() }),
-      productTools: {
-        definitions: this.toolManifest,
-        call: (name, args, callId, signal) => {
-          const context = this.journal.scope.getStore();
-          if (!context?.sessionId) throw new Error("Product tools require an active execution.");
-          return this.callTool(name, args, {
-            actorId: "pi",
-            callId,
-            signal,
-            sessionId: context.sessionId,
-            runId: context.runId,
-          });
-        },
-      },
       registerMcp: (token) => {
         this.mcpExecutions.set(token, null);
         return {
