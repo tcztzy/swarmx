@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { createResearchObject } from "@swarmx/science";
+import { createResearchObject } from "@swarmx/science/src/research-object.ts";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { i18n } from "../src/renderer/i18n.js";

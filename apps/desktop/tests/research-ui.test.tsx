@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { createResearchObject } from "@swarmx/science";
+import { createResearchObject } from "@swarmx/science/src/research-object.ts";
 import { RO_CRATE_CONTEXT, type RoCrateMetadataDocument } from "@swarmx/science/types";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
