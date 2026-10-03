@@ -108,6 +108,9 @@ importers:
       '@openclaw/gateway-protocol':
         specifier: 2026.9.4
         version: 2026.9.4
+      '@swarmx/evidence':
+        specifier: workspace:*
+        version: link:../../packages/core/evidence
       '@swarmx/memory':
         specifier: workspace:*
         version: link:../../packages/core/memory
@@ -200,6 +203,12 @@ importers:
         specifier: ^4.4.3
         version: 4.4.3
 
+  packages/core/evidence:
+    dependencies:
+      zod:
+        specifier: ^4.4.3
+        version: 4.4.3
+
   packages/core/memory:
     dependencies:
       mdast-util-from-markdown:
@@ -250,6 +259,9 @@ importers:
       '@swarmx/annotation':
         specifier: workspace:*
         version: link:../../core/annotation
+      '@swarmx/evidence':
+        specifier: workspace:*
+        version: link:../../core/evidence
       '@xmldom/xmldom':
         specifier: 0.9.12
         version: 0.9.12

@@ -5,6 +5,5 @@
     "rootDir": "src",
     "tsBuildInfoFile": "lib/types/tsconfig.tsbuildinfo"
   },
-  "include": ["src"],
-  "references": [{ "path": "../../core/annotation" }, { "path": "../../core/evidence" }]
+  "include": ["src"]
 }

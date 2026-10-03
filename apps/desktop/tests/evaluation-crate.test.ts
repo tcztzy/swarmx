@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { EventType } from "@ag-ui/core";
-import { roCrateMetadataDocumentSchema } from "@swarmx/science/types";
+import { roCrateMetadataDocumentSchema } from "@swarmx/evidence";
 import { afterEach, expect, it } from "vitest";
 import { EvaluationCrateSchema } from "../src/evaluation-crate.js";
 import { ProductServices } from "../src/host/product-services.js";

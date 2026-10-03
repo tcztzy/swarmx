@@ -1,4 +1,4 @@
-import type { RoCrateMetadataDocument } from "@swarmx/science/types";
+import type { RoCrateMetadataDocument } from "@swarmx/evidence";
 import {
   Background,
   Controls,

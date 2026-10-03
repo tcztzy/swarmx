@@ -14,6 +14,15 @@ changing the RO-Crate graph or its `urn:uuid:` entity identifiers. See
 
 ## Boundary
 
+The reusable `@swarmx/evidence` package owns the RO-Crate constants, entity schema and
+metadata-document validation shared by evaluation exports and domain applications. It has no
+Science, desktop, execution, Memory or provider dependency. Existing Science public exports
+remain available, but generic desktop evaluation exports and graph rendering import this
+contract directly. Scientific project IDs and projection rules stay in Science.
+
+This extraction preserves the existing wire format and validation rules. It does not make the
+validator a complete RO-Crate conformance checker or move scientific interpretation into SwarmX.
+
 `ctx.science.getResearchObject(sessionId, { projectId })` and every new `science_export` result return the same deterministic, project-scoped `ro-crate-metadata.json` structure:
 
 - `@context` is `https://w3id.org/ro/crate/1.3/context`.

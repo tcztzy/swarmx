@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { RO_CRATE_CONTEXT } from "@swarmx/science/types";
+import { RO_CRATE_CONTEXT } from "@swarmx/evidence";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { strFromU8, unzipSync } from "fflate";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";

@@ -76,6 +76,7 @@
 | Path | Ownership |
 | --- | --- |
 | `packages/core/annotation/` | portable artifact annotations |
+| `packages/core/evidence/` | domain-neutral RO-Crate constants, entity and metadata validation shared with external domain applications |
 | `packages/core/dvc/` | Git/DVC inspection and explicit operations |
 | `packages/core/memory/` | bounded Markdown notes, private OKF concepts, dependency validation/loading and lint |
 | `packages/core/swarm/` | direct recursive Agent composition; the caller owns the borrowed lead |

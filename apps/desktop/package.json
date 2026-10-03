@@ -32,6 +32,7 @@
     "@modelcontextprotocol/sdk": "^1.30.0",
     "@openclaw/gateway-client": "2026.9.4",
     "@openclaw/gateway-protocol": "2026.9.4",
+    "@swarmx/evidence": "workspace:*",
     "@swarmx/memory": "workspace:*",
     "@swarmx/science": "workspace:*",
     "@swarmx/swarm": "workspace:*",

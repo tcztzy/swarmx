@@ -1,7 +1,7 @@
+import { roCrateMetadataDocumentSchema } from "@swarmx/evidence";
 import {
   MAX_SCIENCE_IMPORT_BYTES,
   notebookExecutionSummarySchema,
-  roCrateMetadataDocumentSchema,
   type ScienceArtifact,
   type ScienceNotebook,
   scienceArtifactSchema,

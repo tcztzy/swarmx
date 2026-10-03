@@ -12,7 +12,7 @@
   },
   "scripts": {
     "build": "pnpm clean && pnpm build:lib && pnpm build:renderer && pnpm build:desktop",
-    "build:lib": "pnpm build:writing-preview-runtime && tsc -b packages/core/annotation packages/core/dvc packages/core/memory packages/core/swarm packages/science/core && pnpm --filter './packages/**' -r bundle",
+    "build:lib": "pnpm build:writing-preview-runtime && tsc -b packages/core/annotation packages/core/evidence packages/core/dvc packages/core/memory packages/core/swarm packages/science/core && pnpm --filter './packages/**' -r bundle",
     "build:writing-preview-runtime": "tsx scripts/build-writing-preview-runtime.ts",
     "build:renderer": "vite build --config apps/desktop/vite.config.ts",
     "build:desktop": "pnpm generate:codex && tsc -b apps/desktop",

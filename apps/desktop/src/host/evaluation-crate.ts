@@ -1,12 +1,12 @@
 import { createHash } from "node:crypto";
 import { EventType } from "@ag-ui/core";
-import { evaluationSchema, type MemoryConcept } from "@swarmx/memory";
 import {
   RO_CRATE_CONTEXT,
   RO_CRATE_FILENAME,
   RO_CRATE_PROFILE,
   type RoCrateEntity,
-} from "@swarmx/science/types";
+} from "@swarmx/evidence";
+import { evaluationSchema, type MemoryConcept } from "@swarmx/memory";
 import { z } from "zod";
 import { EvaluationCrateSchema } from "../evaluation-crate.js";
 import type { ExecutionRecord } from "../execution-record.js";

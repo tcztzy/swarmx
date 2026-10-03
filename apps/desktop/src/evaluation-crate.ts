@@ -1,4 +1,4 @@
-import { roCrateMetadataDocumentSchema } from "@swarmx/science/types";
+import { roCrateMetadataDocumentSchema } from "@swarmx/evidence";
 import { z } from "zod";
 
 export const EvaluationCrateRequestSchema = z.union([

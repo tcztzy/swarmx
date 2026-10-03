@@ -2,6 +2,7 @@
   "files": [],
   "references": [
     { "path": "./packages/core/annotation" },
+    { "path": "./packages/core/evidence" },
     { "path": "./packages/core/dvc" },
     { "path": "./packages/core/memory" },
     { "path": "./packages/core/swarm" },

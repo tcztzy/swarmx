@@ -39,9 +39,10 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@swarmx/annotation": "workspace:*",
-    "@xmldom/xmldom": "0.9.12",
     "@modelcontextprotocol/sdk": "^1.30.0",
+    "@swarmx/annotation": "workspace:*",
+    "@swarmx/evidence": "workspace:*",
+    "@xmldom/xmldom": "0.9.12",
     "papaparse": "^5.6.0",
     "pdf-lib": "1.17.1",
     "zod": "^4.4.3"
