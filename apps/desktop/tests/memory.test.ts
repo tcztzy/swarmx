@@ -1,9 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { EventType } from "@ag-ui/core";
+import { importModelObservation, queryModelExperience } from "@swarmx/memory";
 import { expect, it, vi } from "vitest";
 import { HARNESS_CAPABILITIES, type NativeAgent } from "../src/agents/types.js";
 import { currentAgentBinding } from "../src/host/agent-registry.js";
@@ -438,3 +439,115 @@ it.each(["memory_status", "memory_configure", "memory_review", "memory_decide"] 
     }
   },
 );
+
+it("keeps external observation provenance after accepted Host evaluation updates", async () => {
+  const root = await realpath(await mkdtemp(join(tmpdir(), "swarmx-shared-experience-")));
+  const products = await ProductServices.create({ productHome: join(root, "product"), cwd: root });
+  try {
+    const artifact = join(root, "observation.json");
+    await writeFile(
+      artifact,
+      JSON.stringify({
+        schemaVersion: 1,
+        kind: "observation",
+        observedAt: "2026-01-02T03:04:05Z",
+        observer: "synthetic-external-observer",
+        task: "Synthetic parser trial",
+        criteria: "Two keys returned",
+        outcome: "success",
+        limitations: "Synthetic external assertion; not provider verified",
+        confidence: "Only this synthetic fixture",
+        requested: {
+          model: "synthetic-model",
+          effort: null,
+          provider: null,
+          harness: null,
+          runtimeVersion: null,
+        },
+        actual: null,
+        retries: null,
+        elapsed: null,
+        tokens: null,
+        cost: null,
+      }),
+    );
+    let saved = await importModelObservation(products.memory.vault, {
+      artifact,
+      title: "Shared synthetic experience",
+      requestId: randomUUID(),
+    });
+    const context = {
+      actorId: "actor",
+      callId: randomUUID(),
+      signal: new AbortController().signal,
+    };
+    const evaluation = {
+      kind: "judgment" as const,
+      task: "Host synthetic trial",
+      criteria: "Recorded validator accepts the output",
+      evidence: [`urn:swarmx:execution:${randomUUID()}`],
+      counterEvidence: [],
+      limitations: "One synthetic Host event; no model quality claim",
+    };
+    await expect(
+      products.callTool(
+        "memory",
+        {
+          action: "update_memory",
+          request: {
+            id: saved.id,
+            expectedRevision: saved.revision,
+            body: "Host judgment",
+            evaluation,
+          },
+        },
+        context,
+      ),
+    ).rejects.toThrow("Execution source is missing or belongs to another directory.");
+    const record = products.journal.append(null, {
+      type: EventType.CUSTOM,
+      name: "synthetic.validator.result",
+      value: { accepted: true, fixtureOnly: true },
+    });
+    for (const kind of ["judgment", "preference"] as const) {
+      await products.callTool(
+        "memory",
+        {
+          action: "update_memory",
+          request: {
+            id: saved.id,
+            expectedRevision: saved.revision,
+            body: `Host ${kind} about the recorded fixture`,
+            evaluation: { ...evaluation, kind, evidence: [`urn:swarmx:execution:${record.id}`] },
+          },
+        },
+        context,
+      );
+      saved = await products.memory.vault.readConcept(saved.id);
+      const result = await queryModelExperience(products.memory.vault);
+      expect(result.concepts[0]).toMatchObject({
+        revision: saved.revision,
+        kind,
+        provenance: "mixed-unchecked",
+        confidence: null,
+        observation: {
+          kind: "observation",
+          provenance: "external-self-asserted",
+          observer: "synthetic-external-observer",
+          confidence: "Only this synthetic fixture",
+          actual: null,
+          cost: null,
+        },
+        evaluation: {
+          kind,
+          provenance: "host-execution-references-unchecked",
+          evidence: [`urn:swarmx:execution:${record.id}`],
+        },
+      });
+      expect(saved.metadata.sources).toHaveLength(2);
+    }
+  } finally {
+    await products.dispose();
+    await rm(root, { recursive: true, force: true });
+  }
+});

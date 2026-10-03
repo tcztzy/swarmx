@@ -174,25 +174,23 @@ export async function queryModelExperience(
     if (external && !/^urn:sha256:[a-f0-9]{64}$/u.test(external.resource))
       throw new MemoryError("External observation artifact digest is invalid.", "INVALID_CONCEPT");
     const evaluation = metadata.swarmx_evaluation;
-    if (observation && evaluation)
-      throw new MemoryError(
-        "External observation and Host evaluation provenance must be separate concepts.",
-        "INVALID_CONCEPT",
-      );
     concepts.push({
       ...item,
       generated: { at: metadata.generated.at, by: metadata.generated.by },
-      kind: observation?.kind ?? evaluation?.kind ?? "unknown",
+      kind: evaluation?.kind ?? observation?.kind ?? "unknown",
       detail: observation || evaluation ? "structured" : "needs-detailed-read",
       provenance: observation
-        ? "external-self-asserted"
+        ? evaluation
+          ? "mixed-unchecked"
+          : "external-self-asserted"
         : evaluation
           ? "host-execution-references-unchecked"
           : "unverified-concept",
-      confidence: observation?.confidence ?? null,
+      confidence: evaluation ? null : (observation?.confidence ?? null),
       observation: observation
         ? {
             ...observation,
+            provenance: "external-self-asserted",
             actual: withoutSource(observation.actual),
             retries: withoutSource(observation.retries),
             elapsed: withoutSource(observation.elapsed),
@@ -201,12 +199,16 @@ export async function queryModelExperience(
           }
         : null,
       artifactDigest: external?.resource ?? null,
-      evaluation: evaluation ?? null,
+      evaluation: evaluation
+        ? { ...evaluation, provenance: "host-execution-references-unchecked" }
+        : null,
       dependencies: metadata.swarmx_dependencies ?? [],
       dependencyState: "unchecked",
       unknowns: observation
         ? ["actual", "retries", "elapsed", "tokens", "cost", "confidence"].filter(
-            (key) => observation[key as keyof ModelObservation] === null,
+            (key) =>
+              observation[key as keyof ModelObservation] === null ||
+              (key === "confidence" && evaluation !== undefined),
           )
         : ["actual", "retries", "elapsed", "tokens", "cost", "confidence"],
       ...(request.includeBody ? { body: concept.body } : {}),

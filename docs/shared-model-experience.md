@@ -32,6 +32,12 @@ Host evaluation concepts retain their observation/judgment/preference distinctio
 references, task, criteria and limitations. The standalone reader cannot resolve Host execution
 evidence; its evidence status is explicitly unchecked. Missing structure remains unknown.
 An imported external observation is never a verified Host evaluation or a model ranking.
+When a normal Host update adds an execution-backed evaluation to an imported concept, the snapshot
+keeps both assessments with separate provenance. Overall provenance is `mixed-unchecked`; the
+top-level kind follows the current evaluation, while `observation.kind` remains `observation`.
+The old external measurements and confidence are not promoted to Host-verified facts. Each record
+retains its own criteria, limitations and evidence reference; the standalone reader checks neither
+Host execution truth nor the external observer's identity.
 
 ## Owner-local observation import
 
@@ -106,7 +112,8 @@ serve as certified import replays. Import is not a read-only operation.
 Owner-local filesystem authority is separate from agent Host permissions. This command never
 uses an active-run token, grants Host authority, imports Host journal records or bypasses an
 approval queue. Host `swarmx_evaluation` still requires genuine directory-scoped execution URNs.
-Cross-application evidence-backed judgments and automatic routing remain outside this prototype.
+Importing externally authored judgments or preferences and automatic routing remain outside this
+prototype. Existing Host judgments and preferences can be read without changing their authority.
 
 From this repository, run `pnpm build:lib`, then
 `node packages/core/memory/lib/cli.js query --vault /absolute/private/memory`.
