@@ -349,5 +349,9 @@
   "工具结果": "Result",
   "工具错误": "Error",
   "复制代码": "Copy code",
-  "模型导航": "Model navigation"
+  "模型导航": "Model navigation",
+  "项目提示词与技能文件权限": "Project prompt and skill file access",
+  "只读，不更新项目资源": "Read only; do not update project resources",
+  "允许经审核更新已注册的项目资源": "Allow reviewed updates to registered project resources",
+  "此设置控制提示词与技能学习，不改变原生 Agent 的文件权限。": "This controls prompt and skill learning, not native Agent filesystem permissions."
 }

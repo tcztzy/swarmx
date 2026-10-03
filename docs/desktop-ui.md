@@ -227,3 +227,7 @@ tests. Streaming fixtures wait for the IPC run-start call before delivering even
 client initializes asynchronously before subscribing, and normal streams begin with `RUN_STARTED`.
 Send controls follow the active UI language. Desktop checks cover the empty state, a populated
 conversation and a narrow viewport.
+
+Settings retains the project prompt/skill file-access selector. Read-only blocks resource learning
+and updates; workspace-write permits the registered, validated approval flow. Users can enable
+or tighten it independently of native Agent filesystem permissions and domain reference grants.

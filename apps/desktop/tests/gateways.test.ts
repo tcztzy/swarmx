@@ -42,7 +42,7 @@ describe("external gateways", () => {
         .read({ session: session.sessionId })
         .events.find(({ event }) => event.type === EventType.RUN_STARTED);
       if (!run) throw new Error("Missing recorded execution");
-      const sources = [`urn:swarmx:execution:${run.runId}` as const];
+      const sources = [`urn:swarmx:execution:${run.id}` as const];
       const evidence = await gateway.operations.evidence({ sources });
       expect(JSON.stringify(evidence)).toContain("Verified execution");
       await expect(
@@ -50,7 +50,7 @@ describe("external gateways", () => {
       ).rejects.toThrow("Unknown SwarmX product tool");
       const other = await createGateway();
       try {
-        await expect(other.operations.evidence({ sources })).rejects.toThrow();
+        expect(() => other.operations.evidence({ sources })).toThrow("another directory");
         expect((await other.operations.settings()).policy).toEqual(DEFAULT_POLICY);
         expect(await gateway.operations.evidence({ sources })).toEqual(evidence);
         expect((await gateway.operations.settings()).policy).toEqual(policy);

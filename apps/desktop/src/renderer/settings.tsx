@@ -114,6 +114,7 @@ export function SettingsPage({ sessionId }: { sessionId?: string | undefined }) 
                     const next = SettingsResponseSchema.parse(
                       await bridge().settings.update({
                         ...settings.policy,
+                        filesystem: data.get("filesystem"),
                         tools: data.getAll("tools"),
                         delegation: data.has("delegation"),
                       }),
@@ -128,6 +129,18 @@ export function SettingsPage({ sessionId }: { sessionId?: string | undefined }) 
                   className="grid grid-cols-2 gap-4 disabled:opacity-50"
                 >
                   <div className="col-span-2 space-y-2">
+                    <label className="field-label">
+                      {t("项目提示词与技能文件权限")}
+                      <NativeSelect name="filesystem" defaultValue={settings.policy.filesystem}>
+                        <option value="read-only">{t("只读，不更新项目资源")}</option>
+                        <option value="workspace-write">
+                          {t("允许经审核更新已注册的项目资源")}
+                        </option>
+                      </NativeSelect>
+                    </label>
+                    <p className="text-sm text-neutral-500">
+                      {t("此设置控制提示词与技能学习，不改变原生 Agent 的文件权限。")}
+                    </p>
                     <p className="field-label">{t("Swarm 工具授权")}</p>
                     {ToolGrantSchema.options.map((grant) => (
                       <label key={grant} className="flex items-center gap-2 text-sm">

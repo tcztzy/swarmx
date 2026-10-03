@@ -85,7 +85,7 @@ cannot run again under the new semantics. Create a new conversation and select i
 
 Old settings containing `policy.approval` must be deliberately updated: remove that field,
 set `policy.tools` to the desired Host grants, and configure native modes in the harness/task.
-Legacy `policy.filesystem`, CPU/memory/timeout and environment fields remain readable for saved-setting compatibility; they no longer configure a built-in scientific runtime. The settings loader rejects
+`policy.filesystem` remains an active Host control for registered prompt/skill learning: `read-only` excludes resource snapshots and rejects resource-update approval/application; `workspace-write` permits the separately validated learning flow. Settings exposes this control in both directions. It does not control native Agent filesystem authority. CPU/memory/timeout and old environment metadata remain readable for saved-setting compatibility; there is no built-in scientific runtime. The settings loader rejects
 old settings with an actionable path instead of silently changing their native execution policy.
 
 ## Examples
@@ -96,5 +96,5 @@ old settings with an actionable path instead of silently changing their native e
 | All Host tools, no delegation | YOLO | Can use granted Host tools; cannot start another task through the Swarm tool |
 | Whole task tree must never modify files | Any | Not a cross-harness guarantee provided by SwarmX; use an actually isolated execution environment |
 
-Host authentication, directory/session ownership and research container isolation remain independent
+Host authentication, directory/session ownership and registered resource-learning permissions remain independent
 of native permission mode selection.

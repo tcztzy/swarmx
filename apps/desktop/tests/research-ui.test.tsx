@@ -57,6 +57,28 @@ it("saves explicit tool grants and delegation without exposing the removed runti
   });
 });
 
+it("lets users enable and tighten generic project resource learning", async () => {
+  const settings = {
+    policy: { ...DEFAULT_POLICY, filesystem: "read-only" as const },
+    environment: null,
+    cwd: "/work",
+  };
+  gateway.settingsRead.mockResolvedValue(settings);
+  gateway.settingsUpdate.mockImplementation(async (policy: unknown) => ({ ...settings, policy }));
+  render(<SettingsPage />);
+  const access = await screen.findByLabelText("项目提示词与技能文件权限");
+  expect((access as HTMLSelectElement).value).toBe("read-only");
+  fireEvent.change(access, { target: { value: "workspace-write" } });
+  fireEvent.click(screen.getByRole("button", { name: "保存权限" }));
+  await screen.findByText("权限已保存，对下一次执行生效。");
+  expect(gateway.settingsUpdate).toHaveBeenLastCalledWith({ ...DEFAULT_POLICY, delegation: true });
+  fireEvent.change(access, { target: { value: "read-only" } });
+  fireEvent.click(screen.getByRole("button", { name: "保存权限" }));
+  await screen.findByText("权限已保存，对下一次执行生效。");
+  expect(gateway.settingsUpdate).toHaveBeenLastCalledWith({ ...settings.policy, delegation: true });
+  expect(screen.queryByRole("heading", { name: "运行环境" })).toBeNull();
+});
+
 it("leaves a rejected policy save visible and retryable", async () => {
   gateway.settingsRead.mockResolvedValue({
     policy: DEFAULT_POLICY,
