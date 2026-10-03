@@ -73,6 +73,10 @@ const metadataSchema = z
     verified: z.union([generatedSchema, z.array(generatedSchema).min(1)]).optional(),
     swarmx_dependencies: memoryDependenciesSchema.optional(),
     swarmx_evaluation: evaluationSchema.optional(),
+    swarmx_create_revision: z
+      .string()
+      .regex(/^sha256:[a-f0-9]{64}$/u)
+      .optional(),
     swarmx_update_request_id: z.string().uuid().optional(),
     swarmx_update_request_hash: z
       .string()

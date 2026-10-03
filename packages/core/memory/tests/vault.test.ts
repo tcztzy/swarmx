@@ -203,6 +203,55 @@ describe("MemoryVault", () => {
     });
   });
 
+  it("replays fingerprinted creation across restart and repairs only the index", async () => {
+    const { vault, vaultRoot } = await fixture();
+    const request = {
+      requestId: "10000000-0000-4000-8000-000000000001",
+      title: "Creation replay",
+      description: "Synthetic replay fixture",
+      type: "Finding",
+      body: "Original observation.",
+    };
+    const created = await vault.createConcept(request);
+    expect(created.metadata.swarmx_create_revision).toMatch(/^sha256:[a-f0-9]{64}$/u);
+    const original = await readFile(join(vaultRoot, created.id));
+    await writeFile(join(vaultRoot, "index.md"), "Stale index");
+    const reopened = new MemoryVault({ root: vaultRoot });
+    expect(await reopened.createConcept(request)).toEqual(created);
+    expect(await readFile(join(vaultRoot, created.id))).toEqual(original);
+    expect(await readFile(join(vaultRoot, "index.md"), "utf8")).toContain(request.description);
+  });
+
+  it("preserves legacy creation-marker reads, updates and replay semantics", async () => {
+    const { vault, vaultRoot } = await fixture();
+    const request = {
+      requestId: "10000000-0000-4000-8000-000000000001",
+      title: "Legacy replay",
+      description: "Synthetic legacy fixture",
+      type: "Finding",
+      body: "Original observation.",
+    };
+    const created = await vault.createConcept(request);
+    const path = join(vaultRoot, created.id);
+    await writeFile(
+      path,
+      (await readFile(path, "utf8")).replace(/^swarmx_create_revision:.*\n/mu, ""),
+    );
+    const reopened = new MemoryVault({ root: vaultRoot });
+    const legacy = await reopened.readConcept(created.id);
+    expect(legacy.metadata.swarmx_create_revision).toBeUndefined();
+    expect(await reopened.createConcept(request)).toEqual(legacy);
+    const corrected = await reopened.updateConcept({
+      id: legacy.id,
+      expectedRevision: legacy.revision,
+      body: "Owner correction.",
+    });
+    expect(await reopened.createConcept(request)).toEqual(corrected);
+    await expect(
+      reopened.createConcept({ ...request, body: "Different request" }),
+    ).rejects.toMatchObject({ code: "REVISION_CONFLICT" });
+  });
+
   it("persists assessments, merges evidence and preserves them across ordinary updates", async () => {
     const { vault, vaultRoot } = await fixture();
     const evidence = "urn:swarmx:execution:10000000-0000-4000-8000-000000000001";

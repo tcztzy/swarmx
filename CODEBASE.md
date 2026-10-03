@@ -77,6 +77,8 @@
 | `packages/core/evidence/` | domain-neutral RO-Crate constants, entity and metadata validation shared with external domain applications |
 | `packages/core/dvc/` | Git/DVC inspection and explicit operations |
 | `packages/core/memory/` | bounded Markdown notes, private OKF concepts, dependency validation/loading and lint |
+| `packages/core/memory/src/model-experience.ts` | owner-local external observation import and privacy-minimal revision-pinned snapshots of one shared vault; see `docs/shared-model-experience.md` |
+| `packages/core/memory/src/cli.ts` | standalone `swarmx-memory` query/import binary; no Host or network authority |
 | `packages/core/swarm/` | direct recursive Agent composition; the caller owns the borrowed lead |
 | `packages/core/swarm/skills/delegate/SKILL.md` | shared delegation skill exported with the Swarm package: combination selection, task fit and evidence requirements |
 | `packages/core/memory/skills/memory/SKILL.md` | shared Memory authoring guide exported with the Memory package, read on demand and used directly by background reviews |

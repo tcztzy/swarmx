@@ -6,6 +6,9 @@
   "type": "module",
   "main": "lib/index.js",
   "types": "lib/types/index.d.ts",
+  "bin": {
+    "swarmx-memory": "lib/cli.js"
+  },
   "exports": {
     ".": {
       "types": "./lib/types/index.d.ts",
@@ -35,7 +38,7 @@
     "mdast-util-to-markdown": "^2.1.2"
   },
   "files": [
-    "lib/index.js",
+    "lib/*.js",
     "lib/types/**/*.d.ts",
     "src",
     "skills"

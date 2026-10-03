@@ -166,6 +166,10 @@ certify knowledge value, enforce editorial relevance, certify English usage or t
 
 ## Agent selection experience
 
+Other owner-authorized applications can consume the same user-owned vault through the
+[standalone model-experience CLI](shared-model-experience.md). Its external observation imports
+remain self-asserted ordinary concepts, separate from Host execution-backed evaluations.
+
 Harness/model/effort/provider experience uses the existing private concept pool. Tag durable selection
 concepts `agent-selection`, add route/task aliases or tags, and retain the observed conditions and
 evidence. Explicit user preferences, observations and unverified opinions must remain distinguishable.

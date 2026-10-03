@@ -29,7 +29,16 @@ replaces or clears this last-operation marker, so stale replay still fails after
 A saved content fingerprint also rejects replay after direct file edits that retain the marker.
 Requests without an ID retain strict `expectedRevision` checks.
 
+New request-ID creations also save `swarmx_create_revision`: create replay rejects changes to
+content, metadata or original formatting before repairing the index. Legacy creations without this
+fingerprint retain their earlier replay contract; reads and ordinary edits remain compatible.
+
 The desktop Host exposes the service through its single `ProductServices` instance. Native Agent
 carriers only forward calls to that owner.
+
+`swarmx-memory` provides standalone read-only model-experience snapshots and owner-local external
+observation imports against one explicit user-owned vault. See
+[shared model experience](../../../docs/shared-model-experience.md) for schema, privacy and authority
+boundaries. Ordinary read/search/snapshot operations no longer initialize or repair the vault.
 
 See [Memory](../../../docs/memory.md) for the tool contract, validation, and layout.
