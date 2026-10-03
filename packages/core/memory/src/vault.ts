@@ -251,6 +251,14 @@ export class MemoryVault {
               "REVISION_CONFLICT",
             );
           }
+          const { swarmx_create_revision: createdRevision, ...createdMetadata } = existing.metadata;
+          if (
+            createdRevision &&
+            (createdRevision !== conceptRevision(renderConcept(createdMetadata, existing.body)) ||
+              existing.revision !==
+                conceptRevision(renderConcept(existing.metadata, existing.body)))
+          )
+            throw new MemoryError("memory concept changed after creation", "REVISION_CONFLICT");
           await this.refreshIndex();
           return existing;
         }
@@ -260,7 +268,12 @@ export class MemoryVault {
         throw invalidRequest(`'${id}' is reserved for SwarmX memory navigation or notes.`);
       const metadata = this.createMetadata(request, requestDigest);
       metadata.sources = conceptSources(metadata);
-      const source = renderConcept(metadata, request.body);
+      let source = renderConcept(metadata, request.body);
+      if (request.requestId)
+        source = renderConcept(
+          { ...metadata, swarmx_create_revision: conceptRevision(source) },
+          request.body,
+        );
       if (Buffer.byteLength(source, "utf8") > this.maxConceptBytes) {
         throw new MemoryError("Rendered memory concept is too large", "INVALID_CONCEPT");
       }
@@ -285,13 +298,11 @@ export class MemoryVault {
   }
 
   async readConcept(id: string): Promise<MemoryConcept> {
-    await this.initialize();
     this.authorizeConceptId(id);
     return this.readConceptFile(id);
   }
 
   async snapshotConcept(id: string, expectedRevision: string) {
-    await this.initialize();
     this.authorizeConceptId(id);
     const bytes = await this.readMemoryFile(id);
     const concept = {
@@ -403,7 +414,6 @@ export class MemoryVault {
 
   async search(rawRequest: SearchConceptsRequest): Promise<MemorySearchResult> {
     const request = parseRequest(searchRequestSchema, rawRequest);
-    await this.initialize();
     const query = request.query.toLocaleLowerCase("und");
     const diagnostics: MemoryDiagnostic[] = [];
     const matches: Array<{ concept: MemoryConcept; score: number }> = [];
