@@ -1,13 +1,32 @@
-import {
-  NodeScienceProcessRuntime,
-  spawnProcess,
-} from "../../../../apps/desktop/src/host/process-runner.js";
+import { access } from "node:fs/promises";
+import { delimiter, dirname, isAbsolute, join, resolve } from "node:path";
+import { spawnProcess } from "../../../../scripts/test-process.js";
 import type { ProcessRunner } from "../src/process.js";
 
-const runtime = new NodeScienceProcessRuntime();
-
 export const processRunner: ProcessRunner = {
-  resolveExecutable: (command, _options, signal) => runtime.resolveExecutable(command, {}, signal),
+  async resolveExecutable(command, _options, signal) {
+    signal?.throwIfAborted();
+    if (command.includes("/") || command.includes("\\")) {
+      const candidate = isAbsolute(command) ? command : resolve(command);
+      await access(candidate);
+      return candidate;
+    }
+    const extensions =
+      process.platform === "win32" ? (process.env.PATHEXT ?? ".EXE;.CMD;.BAT").split(";") : [""];
+    for (const directory of (process.env.PATH ?? "").split(delimiter)) {
+      for (const extension of extensions) {
+        signal?.throwIfAborted();
+        const candidate = join(directory || dirname(process.execPath), `${command}${extension}`);
+        try {
+          await access(candidate);
+          return candidate;
+        } catch {
+          // Continue through PATH; absence is expected.
+        }
+      }
+    }
+    throw new Error(`Executable "${command}" was not found on PATH.`);
+  },
   spawn(options) {
     const spawned = spawnProcess({
       ...options,

@@ -459,7 +459,6 @@ it("keeps the conversation draft mounted and never cancels managed work when clo
   fireEvent.click(screen.getByRole("button", { name: "长期工作", exact: true }));
   await screen.findByRole("complementary", { name: "长期工作侧栏" });
   expect(screen.getByLabelText("draft fixture")).toBe(draft);
-  expect(gateway.scienceWorkspace).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole("button", { name: "关闭侧栏" }));
   expect(screen.getByLabelText("draft fixture")).toBe(draft);
   expect((draft as HTMLInputElement).value).toBe("保留我的草稿");
@@ -508,7 +507,7 @@ it("retains a revised goal on conflict and saves the new criteria under the same
   });
 });
 
-it("requires explicit invoice and outcome evidence, keeps unknown costs, and opens pinned artifact sources", async () => {
+it("requires explicit invoice and outcome evidence, keeps unknown costs, and preserves opaque pinned artifact references", async () => {
   const data = state();
   data.snapshot.items = [{ ...item, state: "blocked" }];
   data.snapshot.reservations = [
@@ -516,14 +515,14 @@ it("requires explicit invoice and outcome evidence, keeps unknown costs, and ope
   ];
   gateway.workRead.mockResolvedValue(data);
   gateway.workCommand.mockResolvedValue(data);
-  const source = vi.fn();
-  window.addEventListener("swarmx:open-research", source);
+  const copy = vi.fn().mockResolvedValue(undefined);
+  Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: copy } });
   render(<WorkPanel harnesses={["codex"]} onClose={() => {}} />);
-  fireEvent.click(await screen.findByRole("button", { name: /成果版本: artifact/ }));
-  expect(source.mock.calls[0]?.[0].detail).toEqual({
-    source: { resource: "sx:a/artifact@sha256:abc", title: "artifact" },
-  });
-  window.removeEventListener("swarmx:open-research", source);
+  expect(await screen.findByText(/成果版本: artifact/)).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "复制成果引用" }));
+  await waitFor(() =>
+    expect(copy).toHaveBeenCalledWith(JSON.stringify({ id: "artifact", revision: "sha256:abc" })),
+  );
   fireEvent.click(screen.getByText("核对费用与外部执行状态", { selector: "summary" }));
   const charge = within(screen.getByRole("form", { name: "登记核对后的费用" }));
   expect((charge.getByLabelText("账单费用（美元）") as HTMLInputElement).value).toBe("");

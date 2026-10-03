@@ -1,5 +1,4 @@
 import { randomUUID } from "node:crypto";
-import { importArtifactRequestSchema } from "@swarmx/science/types";
 import { z } from "zod";
 import type { Interaction, NativeAgent } from "../agents/types.js";
 import {
@@ -18,12 +17,6 @@ import {
 import { loadAgUiHistory } from "./ag-ui.js";
 import type { ProductServices } from "./product-services.js";
 import { HttpError, type SwarmXHost } from "./server.js";
-
-const ARTIFACT_EXTENSIONS: Readonly<Record<string, string>> = {
-  "image/png": ".png",
-  "image/svg+xml": ".svg",
-  "application/pdf": ".pdf",
-};
 
 /** Renderer-facing operations over one SwarmX Host. Electron IPC is the only carrier. */
 export class HostOperations {
@@ -50,7 +43,7 @@ export class HostOperations {
     try {
       sessions = await products.rootAgent.list();
     } catch (error) {
-      sessionError = `Native Agent unavailable: ${error instanceof Error ? error.message : String(error)}. Research and settings remain available.`;
+      sessionError = `Native Agent unavailable: ${error instanceof Error ? error.message : String(error)}. Work, execution evidence and settings remain available.`;
     }
     return {
       agents: products.availableAgents,
@@ -239,29 +232,6 @@ export class HostOperations {
     }
   }
 
-  async environment() {
-    return this.host.products.environment.status();
-  }
-
-  async environmentAction(action: "setup" | "inspect" | "cancel") {
-    const products = this.host.products;
-    return products.journal.tool(
-      `environment.${action}`,
-      {},
-      { actorId: "renderer", callId: randomUUID() },
-      async () => {
-        if (action === "setup") {
-          if (products.busy)
-            throw new HttpError(409, "Stop active executions before environment setup.");
-          return products.environment.setup(this.host.signal);
-        }
-        if (action === "inspect") return products.environment.inspect();
-        products.environment.cancelSetup();
-        return { cancelled: true };
-      },
-    );
-  }
-
   async listSessions(agent: string) {
     return (await this.agent(agent)).list();
   }
@@ -314,55 +284,5 @@ export class HostOperations {
     if (command.action === "steer") await agent.steer(run.sessionId, command.text, run.runId);
     else await agent.interrupt(run.sessionId, run.runId);
     return { runId: run.runId };
-  }
-
-  async scienceWorkspace() {
-    const products = this.host.products;
-    return products.science.getWorkspace("renderer", this.host.signal);
-  }
-
-  async researchObject(projectId: string) {
-    const products = this.host.products;
-    return products.science.getResearchObject("renderer", { projectId });
-  }
-
-  async notebookExecutions(projectId: string, includeArtifactId?: string) {
-    const products = this.host.products;
-    return products.science.getNotebookExecutions(
-      "renderer",
-      { projectId, ...(includeArtifactId === undefined ? {} : { includeArtifactId }) },
-      this.host.signal,
-    );
-  }
-
-  async artifactPreview(id: string) {
-    const products = this.host.products;
-    return products.science.previewArtifact("renderer", { artifactId: id });
-  }
-
-  async artifactContent(id: string) {
-    const products = this.host.products;
-    const { artifact, bytes } = products.science.readArtifactContent(
-      "renderer",
-      { artifactId: id },
-      this.host.signal,
-    );
-    const extension = ARTIFACT_EXTENSIONS[artifact.mime] ?? "";
-    return {
-      name: artifact.title.endsWith(extension) ? artifact.title : `${artifact.title}${extension}`,
-      mime: artifact.mime,
-      bytes,
-    };
-  }
-
-  async importArtifact(raw: unknown) {
-    const products = this.host.products;
-    const input = importArtifactRequestSchema.parse(raw);
-    return products.journal.tool(
-      "science.import",
-      { ...input, dataBase64: `[${input.dataBase64.length} base64 characters]` },
-      { actorId: "renderer", callId: randomUUID() },
-      async () => products.science.importArtifact("renderer", input, this.host.signal),
-    );
   }
 }

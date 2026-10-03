@@ -12,26 +12,12 @@ export const ExecutionPolicySchema = z.strictObject({
   memoryMb: z.number().int().min(256).max(65536),
   timeoutSeconds: z.number().int().min(5).max(3600),
 });
-export const EnvironmentSchema = z.strictObject({
-  imageId: z.string().regex(/^sha256:[a-f0-9]{64}$/u),
-  recipeDigest: z.string().regex(/^sha256:[a-f0-9]{64}$/u),
-  platform: z.enum(["linux/amd64", "linux/arm64"]),
-  createdAt: z.string().datetime(),
-  pythonVersion: z.string(),
-  packages: z.array(z.string()).max(1000),
-});
 export const SettingsSchema = z.strictObject({
   policy: ExecutionPolicySchema,
-  environment: EnvironmentSchema.nullable(),
-});
-export const EnvironmentStatusSchema = z.strictObject({
-  state: z.enum(["missing", "ready", "building", "failed"]),
-  log: z.string(),
-  environment: EnvironmentSchema.nullable(),
-  activeProcesses: z.number().int().nonnegative(),
+  // Preserve retired environment metadata in saved settings without interpreting or executing it.
+  environment: z.json().nullable(),
 });
 export type ExecutionPolicy = z.infer<typeof ExecutionPolicySchema>;
-export type ResearchEnvironment = z.infer<typeof EnvironmentSchema>;
 export type Settings = z.infer<typeof SettingsSchema>;
 export const DEFAULT_POLICY: ExecutionPolicy = {
   filesystem: "workspace-write",

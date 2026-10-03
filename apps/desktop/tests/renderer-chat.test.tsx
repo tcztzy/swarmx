@@ -4,7 +4,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testi
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ThreadItem } from "../src/agents/generated/v2/ThreadItem.js";
 import type { ExecutionRecord } from "../src/execution-record.js";
-import { ConversationSurface, scienceTarget } from "../src/renderer/chat.js";
+import { ConversationSurface } from "../src/renderer/chat.js";
 import { i18n, t } from "../src/renderer/i18n.js";
 import { TracePanel } from "../src/renderer/trace.js";
 import { type BridgeHarness, installBridge } from "./bridge-support.js";
@@ -486,7 +486,7 @@ describe("assistant-ui conversation", () => {
   it("surfaces catalog failures, retries explicitly, and does not invent an empty catalog", async () => {
     gateway.modelsRead.mockRejectedValueOnce(new Error("Model catalog unavailable"));
     render(<ConversationSurface {...props} />);
-    await screen.findByRole("button", { name: "梳理研究思路" });
+    await screen.findByRole("button", { name: "梳理任务思路" });
     fireEvent.click(screen.getByRole("combobox", { name: "选择模型" }));
     expect((await screen.findByRole("alert")).textContent).toContain("Model catalog unavailable");
     gateway.modelsRead.mockResolvedValueOnce({ models: [], current: {} });
@@ -589,7 +589,10 @@ describe("assistant-ui conversation", () => {
     "opens a pinned source from $harness $action (live=$live) and preserves the draft",
     async ({ action, harness, live }) => {
       await i18n.changeLanguage("en");
-      const source = { title: "Registered figure", resource: "sx:a/figure@1" };
+      const source = {
+        title: "Execution evidence",
+        resource: "urn:swarmx:execution:11111111-1111-4111-8111-111111111111",
+      };
       const concept = {
         id: "finding",
         revision: "sha256:0123456789abcdef",
@@ -657,18 +660,18 @@ describe("assistant-ui conversation", () => {
           finished,
         );
       const open = vi.fn();
-      window.addEventListener("swarmx:open-research", open);
+      window.addEventListener("swarmx:open-source", open);
       render(<ConversationSurface {...props} harness={harness} />);
       if (live) await send("Retrieve the saved finding");
       const saved = await screen.findByRole("region", { name: "Saved concept" });
       expect(within(saved).getByText("draft")).toBeTruthy();
       const draft = screen.getByRole("textbox", { name: "Send message" });
       fireEvent.change(draft, { target: { value: "Keep this draft" } });
-      fireEvent.click(within(saved).getByRole("button", { name: /Registered figure/ }));
+      fireEvent.click(within(saved).getByRole("button", { name: /Execution evidence/ }));
       expect(open).toHaveBeenCalledWith(expect.objectContaining({ detail: { source } }));
       expect((draft as HTMLTextAreaElement).value).toBe("Keep this draft");
       expect(gateway.aguiStart).toHaveBeenCalledTimes(live ? 1 : 0);
-      window.removeEventListener("swarmx:open-research", open);
+      window.removeEventListener("swarmx:open-source", open);
     },
   );
 
@@ -724,7 +727,7 @@ describe("assistant-ui conversation", () => {
   );
 
   it.each(["pi", "codex"].flatMap((harness) => [false, true].map((live) => ({ harness, live }))))(
-    "opens the $harness Science result in Assets (live=$live)",
+    "keeps historical $harness domain results readable without local domain actions (live=$live)",
     async ({ harness, live }) => {
       const data = { data: { artifact: { id: "figure", projectId: "study" } } };
       const native = {
@@ -786,18 +789,15 @@ describe("assistant-ui conversation", () => {
           finished,
         );
       const open = vi.fn();
-      window.addEventListener("swarmx:open-research", open);
+      window.addEventListener("swarmx:open-source", open);
       render(<ConversationSurface {...props} harness={harness} />);
       if (live) await send("Retrieve the figure");
       fireEvent.click(await screen.findByRole("button", { name: "调用工具" }));
       fireEvent.click(screen.getByRole("button", { name: "science_figure 完成" }));
-      fireEvent.click(screen.getByRole("button", { name: "在侧栏中查看" }));
-      expect(open).toHaveBeenCalledWith(
-        expect.objectContaining({
-          detail: { artifactId: "figure", projectId: "study" },
-        }),
-      );
-      window.removeEventListener("swarmx:open-research", open);
+      expect(screen.queryByRole("button", { name: "在侧栏中查看" })).toBeNull();
+      expect(screen.getByText(/"artifact"/)).toBeTruthy();
+      expect(open).not.toHaveBeenCalled();
+      window.removeEventListener("swarmx:open-source", open);
     },
   );
   it.each(["legacy", "codex", "claude", "hermes"])(
@@ -1408,8 +1408,8 @@ describe("assistant-ui conversation", () => {
 
   it("fills a suggested draft without sending and streams through the AG-UI bridge", async () => {
     render(<ConversationSurface {...props} />);
-    fireEvent.click(await screen.findByRole("button", { name: "梳理研究思路" }));
-    expect((screen.getByRole("textbox") as HTMLTextAreaElement).value).toContain("研究目标");
+    fireEvent.click(await screen.findByRole("button", { name: "梳理任务思路" }));
+    expect((screen.getByRole("textbox") as HTMLTextAreaElement).value).toContain("任务目标");
     expect(gateway.sessionsHistory).toHaveBeenCalledTimes(1);
     respond(
       started,
@@ -1424,7 +1424,7 @@ describe("assistant-ui conversation", () => {
       agent: "swarm",
       input: {
         threadId: "codex:session",
-        messages: [{ role: "user", content: expect.stringContaining("研究目标") }],
+        messages: [{ role: "user", content: expect.stringContaining("任务目标") }],
       },
     });
     await waitFor(() => expect(screen.queryByRole("button", { name: "停止生成" })).toBeNull());
@@ -1538,7 +1538,7 @@ describe("assistant-ui conversation", () => {
         {...props}
         panelOpen
         sidePanel={<aside>来源面板</aside>}
-        source={{ resource: "sx:a/figure@1" }}
+        source={{ resource: "urn:swarmx:execution:11111111-1111-4111-8111-111111111111" }}
       />,
     );
     const alert = await screen.findByRole("alert");
@@ -1616,7 +1616,7 @@ describe("assistant-ui conversation", () => {
           {...props}
           panelOpen
           sidePanel={<TracePanel />}
-          source={{ resource: "sx:a/figure@1" }}
+          source={{ resource: "urn:swarmx:execution:11111111-1111-4111-8111-111111111111" }}
         />,
       ),
     );
@@ -1640,36 +1640,6 @@ describe("assistant-ui conversation", () => {
     expect(screen.queryByRole("button", { name: "Add source context" })).toBeNull();
     expect((draft as HTMLTextAreaElement).value).toBe("保留草稿\n\nEdit artifact abc");
     expect(gateway.sessionsHistory).toHaveBeenCalledTimes(1);
-  });
-
-  it("opens exact scientific artifacts from structured and JSON tool results", () => {
-    const artifact = { id: "figure", projectId: "study" };
-    expect(scienceTarget({ data: { artifact } })).toEqual({
-      artifactId: "figure",
-      projectId: "study",
-    });
-    expect(scienceTarget(JSON.stringify({ data: { ...artifact, kind: "figure" } }))).toEqual({
-      artifactId: "figure",
-      projectId: "study",
-    });
-    expect(scienceTarget({ data: { id: "study", kind: "project" } })).toEqual({
-      projectId: "study",
-    });
-    expect(scienceTarget("not a scientific result")).toEqual({});
-  });
-
-  it("reads successful Codex Science targets and leaves failures without a target", () => {
-    const native = {
-      type: "mcpToolCall",
-      status: "completed",
-      result: { structuredContent: { data: { id: "study", kind: "project" } } },
-      error: null,
-    };
-    expect(scienceTarget(native)).toEqual({ projectId: "study" });
-    expect(scienceTarget(JSON.stringify(native))).toEqual({ projectId: "study" });
-    expect(scienceTarget({ ...native, status: "inProgress" })).toEqual({});
-    expect(scienceTarget({ ...native, result: null })).toEqual({});
-    expect(scienceTarget({ ...native, error: { message: "Failed" } })).toEqual({});
   });
 });
 

@@ -4,14 +4,6 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { EventType } from "@ag-ui/core";
 import { MemoryService } from "@swarmx/memory";
-import {
-  createScienceToolDefinitions,
-  parseScienceResourceId,
-  type ScienceAttachmentStore,
-  ScienceCore,
-  ScienceError,
-  type ScienceToolDefinition,
-} from "@swarmx/science";
 import { createSwarm } from "@swarmx/swarm";
 import { z } from "zod";
 import { AGENT_IDS, type AgentId, selectedAgent } from "../agent.js";
@@ -30,6 +22,7 @@ import {
   PermissionRequestSchema,
   policyPermissions,
 } from "../permissions.js";
+import type { ReferenceProvider } from "../reference-provider.js";
 import { ExecutionPolicySchema } from "../settings.js";
 import type { ToolManifestEntry } from "../tool-manifest.js";
 import { type WorkConfiguration, WorkRunSchema } from "../work.js";
@@ -42,9 +35,7 @@ import { ExecutionJournal, ExecutionSourceError } from "./execution-journal.js";
 import type { McpSocketRequest } from "./mcp-socket.js";
 import { AgentMemory, HOST_MEMORY_ACTIONS } from "./memory.js";
 import { reviewMemory } from "./memory-review.js";
-import { NodeScienceProcessRuntime } from "./process-runner.js";
 import { recordedAgent } from "./recorded-agent.js";
-import { ResearchEnvironment } from "./research-environment.js";
 import { SettingsStore } from "./settings-store.js";
 import { WorkManager } from "./work.js";
 
@@ -96,7 +87,7 @@ export interface ProductServicesOptions {
   readonly productHome: string;
   readonly cwd: string;
   readonly agents?: AgentRegistry;
-  readonly scienceConfig?: ConstructorParameters<typeof ScienceCore>[1];
+  readonly referenceProvider?: ReferenceProvider;
 }
 
 export class ProductServices {
@@ -105,11 +96,9 @@ export class ProductServices {
   readonly openclawToken = randomBytes(24).toString("hex");
   readonly memory: MemoryService;
   readonly learning: AgentMemory;
-  readonly science: ScienceCore;
   readonly journal: ExecutionJournal;
   readonly work: WorkManager;
   readonly settings: SettingsStore;
-  readonly environment: ResearchEnvironment;
   readonly toolManifest: readonly ToolManifestEntry[];
   readonly agents: AgentRegistry;
 
@@ -118,8 +107,6 @@ export class ProductServices {
   private readonly members = new Map<string, NativeAgent>();
   private readonly ownsAgents: boolean;
   private readonly bridges = new Map<string, AgUiBridge>();
-  private readonly scienceDefinitions: ReadonlyMap<string, ScienceToolDefinition>;
-  private readonly scienceDisposers: Array<() => Promise<void>> = [];
   private readonly swarms = new Map<string, SwarmRecord>();
   private agentOptions?: AgentOptions;
   private closed = false;
@@ -143,39 +130,12 @@ export class ProductServices {
       `${randomBytes(6).toString("hex")}.json`,
     );
     this.settings = new SettingsStore(options.productHome);
-    this.environment = new ResearchEnvironment(
-      this.settings,
-      options.cwd,
-      join(options.productHome, "science", "artifacts", "v1", "staging"),
-    );
     this.journal = new ExecutionJournal(join(options.productHome, "logs"), this.directoryKey);
     this.work = new WorkManager(
       join(options.productHome, "work"),
       this.directoryKey,
       this.journal,
       () => this.learning.resume(),
-    );
-    const attachments: ScienceAttachmentStore = {
-      saveImage: async ({ data, mediaType, name }) => ({
-        attachmentId: `swarmx-inline:${createHash("sha256").update(data).digest("hex")}`,
-        mediaType,
-        bytes: data.byteLength,
-        ...(name === undefined ? {} : { name }),
-        inlineData: Buffer.from(data).toString("base64"),
-      }),
-    };
-    this.science = new ScienceCore(
-      {
-        subprocess: this.environment,
-        documentSubprocess: new NodeScienceProcessRuntime(),
-        onDispose: (dispose) => this.scienceDisposers.push(dispose),
-      },
-      {
-        ...options.scienceConfig,
-        root: join(options.productHome, "science"),
-        notebookRuntime: "isolated",
-      },
-      () => ({ key: this.directoryKey, root: options.cwd }),
     );
     this.memory = new MemoryService({
       root: join(options.productHome, "memory"),
@@ -189,36 +149,31 @@ export class ProductServices {
             return { ruleId: "source.unresolved", severity: "warning", message: error.message };
           }
         }
-        try {
-          parseScienceResourceId(resource);
-          this.science.headResource(this.directoryKey, { id: resource });
-          return undefined;
-        } catch (error) {
-          if (!(error instanceof ScienceError)) throw error;
-          if (error.code === "INVALID_RESOURCE_ID") {
-            return {
-              ruleId: "source.invalid",
-              severity: "error",
-              message: "Invalid Science resource address.",
-            };
-          }
+        const provider = this.options.referenceProvider;
+        if (provider && resource.toLowerCase().startsWith(provider.scheme.toLowerCase())) {
+          const permissions = this.currentPermissions().tools;
           if (
-            ["RESOURCE_NOT_FOUND", "RESOURCE_KIND_MISMATCH", "RESOURCE_REVISION_MISMATCH"].includes(
-              error.code,
-            )
+            !permissions.includes("science.read") ||
+            !provider.requiredPermissions.every((permission) => permissions.includes(permission))
           ) {
             return {
               ruleId: "source.unresolved",
               severity: "warning",
-              message:
-                "Science source is unavailable in this directory or its revision has changed.",
+              message: "Domain reference read permission is required.",
             };
           }
-          throw error;
+          return provider.checkResource(resource);
         }
+        if (/^sx:/iu.test(resource)) {
+          return {
+            ruleId: "source.unresolved",
+            severity: "warning",
+            message: "No domain reference provider is configured for this directory.",
+          };
+        }
+        return undefined;
       },
     });
-    const definitions = createScienceToolDefinitions(this.science, attachments);
     this.learning = new AgentMemory(
       options,
       this.memory,
@@ -262,13 +217,7 @@ export class ProductServices {
         }
       },
     );
-    this.scienceDefinitions = new Map(definitions.map((tool) => [tool.name, tool]));
     this.toolManifest = [
-      ...definitions.map((tool) => ({
-        name: tool.name,
-        description: tool.description,
-        inputSchema: (tool.mcpParameters ?? tool.parameters) as Record<string, unknown>,
-      })),
       {
         name: "memory",
         description:
@@ -286,7 +235,7 @@ export class ProductServices {
       {
         name: "work",
         description:
-          "Inspect the current managed work goal, acceptance, shared budget and feedback with {action:'status'}. Submit pinned Science references with {action:'submit',artifacts:[{id,revision}]}. Submission is not acceptance. Budgets and acceptance are controlled by the trusted Host caller.",
+          "Inspect the current managed work goal, acceptance, shared budget and feedback with {action:'status'}. Submit pinned domain references with {action:'submit',artifacts:[{id,revision}]}. Submission is not acceptance. Budgets and acceptance are controlled by the trusted Host caller.",
         inputSchema: z.toJSONSchema(WorkCall),
       },
       {
@@ -374,7 +323,6 @@ export class ProductServices {
     return (
       this.permissionChecks > 0 ||
       this.toolOperations.size > 0 ||
-      this.environment.busy ||
       this.learning.busy ||
       this.journal.activeRuns().length > 0
     );
@@ -484,39 +432,41 @@ export class ProductServices {
           return this.work.prepare(workId, (candidate) => this.admittedWork(candidate));
         if (!this.currentPermissions().tools.includes("science.read"))
           throw new Error("Science read permission is required to submit evidence.");
+        const provider = this.options.referenceProvider;
+        if (!provider)
+          throw new Error("No domain reference provider is configured for this directory.");
+        if (
+          !provider.requiredPermissions.every((permission) =>
+            this.currentPermissions().tools.includes(permission),
+          )
+        )
+          throw new Error("Domain reference provider permission is required.");
         for (const artifact of call.artifacts) {
-          const head = this.science.headResource(this.directoryKey, { id: artifact.id });
-          if (String(head.ref.revision) !== artifact.revision || head.ref.exactId !== artifact.id)
-            throw new Error("Submit an exact Science resource ID and its matching revision.");
+          if (!artifact.id.startsWith(provider.scheme))
+            throw new Error("Unsupported domain reference scheme.");
+          const resolved = provider.resolve(artifact.id);
+          if (resolved.revision !== artifact.revision || resolved.exactId !== artifact.id)
+            throw new Error("Submit an exact domain resource ID and its matching revision.");
         }
         return this.work.submit(attemptId, call.artifacts);
       }
-      const science = this.scienceDefinitions.get(name);
-      if (name === "memory" || science !== undefined) {
-        const readOnlyMemory =
-          name === "memory" && z.object({ action: z.string() }).parse(args).action;
-        const readOnly =
-          name === "science_query" ||
-          Boolean(
-            readOnlyMemory &&
-              [
-                "read_memory_guide",
-                "read_core_memory",
-                "search_sessions",
-                "search_memory",
-                "read_memory",
-                "load_memory",
-                "graph_memory",
-                "lint_memory",
-                "export_evaluation",
-              ].includes(readOnlyMemory),
-          );
-        const grant =
-          `${name === "memory" ? "memory" : "science"}.${readOnly ? "read" : "write"}` as const;
+      if (name === "memory") {
+        const action = z.object({ action: z.string() }).parse(args).action;
+        const readOnly = [
+          "read_memory_guide",
+          "read_core_memory",
+          "search_sessions",
+          "search_memory",
+          "read_memory",
+          "load_memory",
+          "graph_memory",
+          "lint_memory",
+          "export_evaluation",
+        ].includes(action);
+        const grant = `memory.${readOnly ? "read" : "write"}` as const;
         if (!this.currentPermissions().tools.includes(grant))
           throw new Error(`Product tool permission "${grant}" is required.`);
       }
-      if (science !== undefined) return science.invoke(args, context);
       if (name === "swarm") return this.callSwarm(args, context.signal);
       if (name === "memory") {
         return this.learning.call(args, context);
@@ -584,15 +534,11 @@ export class ProductServices {
     this.shutdown.abort(new Error("Product services are closing."));
 
     const results = await Promise.allSettled([
-      this.environment.close(),
       this.learning.close(),
       rm(this.openclawBridge, { force: true }),
       ...(this.ownsAgents ? [this.agents.dispose()] : []),
     ]);
     await Promise.allSettled([...this.toolOperations]);
-    results.push(
-      ...(await Promise.allSettled(this.scienceDisposers.splice(0).map((dispose) => dispose()))),
-    );
     this.journal.close();
     this.work.close();
     const failure = results.find((result) => result.status === "rejected");

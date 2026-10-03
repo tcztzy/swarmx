@@ -1,13 +1,4 @@
 import { type ChildProcess, spawn } from "node:child_process";
-import { access } from "node:fs/promises";
-import { delimiter, dirname, isAbsolute, join, resolve } from "node:path";
-import type {
-  ScienceProcessHandle,
-  ScienceProcessOutcome,
-  ScienceProcessOutputRead,
-  ScienceProcessRuntime,
-  ScienceProcessSpec,
-} from "@swarmx/science";
 
 interface SpawnSpec {
   readonly argv: readonly string[];
@@ -32,7 +23,7 @@ class OutputBuffer {
     this.content = Buffer.concat([this.content, bytes]).subarray(-this.maxBytes);
   }
 
-  readFrom(offset: number): ScienceProcessOutputRead {
+  readFrom(offset: number): { text: string; nextOffset: number; lossy: boolean } {
     if (!Number.isSafeInteger(offset) || offset < 0) throw new Error("Output offset is invalid.");
     const retainedFrom = this.totalBytes - this.content.length;
     return {
@@ -97,87 +88,4 @@ export function spawnProcess(spec: SpawnSpec): SpawnedProcess {
     ...(stderr === undefined ? {} : { stderr }),
     terminate,
   };
-}
-
-async function resolveExecutable(
-  command: string,
-  environment: Readonly<Record<string, string | undefined>>,
-  signal?: AbortSignal,
-): Promise<string> {
-  signal?.throwIfAborted();
-  if (command.includes("/") || command.includes("\\")) {
-    const candidate = isAbsolute(command) ? command : resolve(command);
-    await access(candidate);
-    return candidate;
-  }
-  const path = environment.PATH ?? process.env.PATH ?? "";
-  const extensions =
-    process.platform === "win32"
-      ? (environment.PATHEXT ?? process.env.PATHEXT ?? ".EXE;.CMD;.BAT").split(";")
-      : [""];
-  for (const directory of path.split(delimiter)) {
-    for (const extension of extensions) {
-      signal?.throwIfAborted();
-      const candidate = join(directory || dirname(process.execPath), `${command}${extension}`);
-      try {
-        await access(candidate);
-        return candidate;
-      } catch {
-        // Continue through PATH; absence is expected.
-      }
-    }
-  }
-  throw new Error(`Executable "${command}" was not found on PATH.`);
-}
-
-function collected(process: SpawnedProcess) {
-  return {
-    ...(process.stdout === undefined ? {} : { stdout: process.stdout }),
-    ...(process.stderr === undefined ? {} : { stderr: process.stderr }),
-  };
-}
-
-export class NodeScienceProcessRuntime implements ScienceProcessRuntime {
-  resolveExecutable(
-    command: string,
-    environment: Readonly<Record<string, string>> = {},
-    signal?: AbortSignal,
-  ): Promise<string> {
-    return resolveExecutable(command, { ...process.env, ...environment }, signal);
-  }
-
-  async spawn(spec: ScienceProcessSpec): Promise<ScienceProcessHandle> {
-    const spawned = spawnProcess({
-      argv: spec.argv,
-      cwd: spec.cwd,
-      env: { ...process.env, ...spec.env },
-      graceMs: spec.graceMs,
-      ...(spec.signal === undefined ? {} : { signal: spec.signal }),
-      stdin: spec.stdio.stdin,
-      stdout: spec.stdio.stdout,
-      stderr: spec.stdio.stderr,
-    });
-    return {
-      pid: spawned.child.pid ?? 0,
-      stdin: spawned.child.stdin ?? undefined,
-      stdout: spawned.child.stdout ?? undefined,
-      stderr: spawned.child.stderr ?? undefined,
-      collected: collected(spawned),
-      done: spawned.done as Promise<ScienceProcessOutcome>,
-      terminate: spawned.terminate,
-      async waitForExit(signal?: AbortSignal) {
-        if (signal === undefined) {
-          await spawned.done;
-          return true;
-        }
-        if (signal.aborted) return false;
-        return Promise.race([
-          spawned.done.then(() => true),
-          new Promise<false>((resolveWait) =>
-            signal.addEventListener("abort", () => resolveWait(false), { once: true }),
-          ),
-        ]);
-      },
-    };
-  }
 }

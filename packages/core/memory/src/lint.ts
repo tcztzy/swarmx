@@ -90,14 +90,13 @@ function resourceReferenceIssue(resource: string, checkResource?: MemoryResource
       severity: "error" as const,
       message: "Invalid execution reference; expected urn:swarmx:execution:<UUID>.",
     };
+  if (checkResource) return checkResource(resource);
   if (!execution && !/^sx:/iu.test(resource)) return;
-  return checkResource
-    ? checkResource(resource)
-    : {
-        ruleId: "source.unchecked",
-        severity: "warning" as const,
-        message: "Execution and Science references require a resource resolver.",
-      };
+  return {
+    ruleId: "source.unchecked",
+    severity: "warning" as const,
+    message: "Execution and domain references require a resource resolver.",
+  };
 }
 
 export function parseMemoryConcept(

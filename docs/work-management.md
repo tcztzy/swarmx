@@ -2,7 +2,7 @@
 
 See [product direction](product-direction.md) for the objective and [ROADMAP](../ROADMAP.md) for unfinished work.
 The Host owns work cycles, items, admission budgets, decisions and acceptance. Native sessions,
-Science artifacts and execution records retain their existing owners; work records contain references.
+Domain artifacts and execution records retain their existing owners; work records contain references.
 Work state is stored in `$SWARMX_HOME/work/work.sqlite`, keyed by the canonical execution directory.
 Separate directory keys share neither work items nor acceptance history, even in the same product home.
 
@@ -35,7 +35,7 @@ Separate directory keys share neither work items nor acceptance history, even in
   cancellation cannot dispatch a later model or tool request.
 - Native completion, failure and cancellation remain execution outcomes. Only trusted Host code
   acting for a user or validator records acceptance. Agents may inspect work and submit pinned
-  Science references; they cannot create budgets or approve themselves through product tools.
+  domain references; they cannot create budgets or approve themselves through product tools.
   Feedback may arrive after execution or a memory review and may correct earlier feedback.
   Each saved feedback fact is published once to the execution journal. Publication can be
   replayed after an interrupted write without duplicating the fact. Authorized automatic
@@ -123,7 +123,9 @@ there is no versioned policy-injection interface.
 
 Managed Agents call `work` with `{action: "status"}` or `{action: "submit", artifacts}`. Status and
 `swarm.prepare` expose current work context, budget and evidence. Submission requires `science.read`
-and an exact Science resource ID with matching revision; it creates no acceptance authority.
+and a trusted configured domain provider. The provider must return the exact submitted ID and
+matching revision; missing providers and mismatches fail closed. All provider grants are checked
+before the callback. Submission creates no acceptance authority. See [domain references](domain-projects.md).
 Delegated calls still require same-run preparation and a reason. They must match an admitted
 configuration and share the root runtime's budget. Previously managed native sessions cannot escape
 their original work identity and budget through another entry point.

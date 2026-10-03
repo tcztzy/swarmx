@@ -123,7 +123,7 @@ export function MemorySettings({ sessionId }: { sessionId?: string | undefined }
       <div>
         <h3 className="text-lg font-semibold">{t("记忆与知识")}</h3>
         <p className="mt-1 text-sm text-neutral-500">
-          {t("Vault 保存带来源与依赖的科研知识。新任务自动加载记忆目录。")}
+          {t("Vault 保存带来源与依赖的知识。新任务自动加载记忆目录。")}
         </p>
       </div>
       {error && (

@@ -15,10 +15,6 @@ export interface SwarmxBridge {
     update(policy: unknown): Promise<unknown>;
   };
   language: { write(input: { language: "zh" | "en" }): Promise<unknown> };
-  environment: {
-    read(): Promise<unknown>;
-    act(input: { action: "setup" | "inspect" | "cancel" }): Promise<unknown>;
-  };
   sessions: {
     list(input: { agent: string }): Promise<unknown>;
     create(input: { agent: string }): Promise<unknown>;
@@ -39,19 +35,6 @@ export interface SwarmxBridge {
     control(input: {
       runId: string;
       command: { action: "steer"; text: string } | { action: "cancel" };
-    }): Promise<unknown>;
-  };
-  science: {
-    workspace(): Promise<unknown>;
-    researchObject(input: { projectId: string }): Promise<unknown>;
-    notebookExecutions(input: { projectId: string; includeArtifactId?: string }): Promise<unknown>;
-    artifactPreview(input: { id: string }): Promise<unknown>;
-    artifactContent(input: { id: string }): Promise<unknown>;
-    import(input: {
-      requestId: string;
-      projectId: string;
-      name: string;
-      dataBase64: string;
     }): Promise<unknown>;
   };
   agui: {
@@ -91,19 +74,6 @@ export async function tool<T>(
   } finally {
     signal?.removeEventListener("abort", cancel);
   }
-}
-
-/** Calls one science tool, refreshes dependent views and unwraps its `{data}` envelope. */
-export async function scienceTool<T>(
-  name: string,
-  action: string,
-  request: unknown,
-  schema: z.ZodType<T>,
-  signal?: AbortSignal,
-): Promise<T> {
-  const result = await tool(name, { action, request }, z.object({ data: schema }), signal);
-  window.dispatchEvent(new Event("swarmx:science-changed"));
-  return result.data;
 }
 
 export function download(name: string, content: string | Uint8Array, mime = "application/json") {

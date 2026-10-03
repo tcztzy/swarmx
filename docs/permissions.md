@@ -16,14 +16,11 @@ carry configuration and approval messages; external ACP projects them for its cl
 }
 ```
 
-Tool grants are `memory.read`, `memory.write`, `science.read` and `science.write`. Memory reads
-include session recall and vault/core-note reads. Science reads use `science_query`; other Science
-tools require `science.write`, including scientific execution. The latter still runs under the
-separate research environment's filesystem, network and resource limits. A missing tool grant
-rejects the operation before dispatch. `tools: []` disables both product-tool families.
-Read and write are separate grants; neither implies the other. These grants apply to Agent API
-calls. Frozen conversation context, authenticated user edits and Host bookkeeping have their own
-contracts; a tool grant is not a confidentiality boundary for the execution directory.
+Tool grants retain `memory.read`, `memory.write`, `science.read` and `science.write` for saved
+policy compatibility. Memory reads include session recall and vault/core-note reads. `science.read`
+is required before trusted domain reference callbacks, along with any provider-declared grants.
+`science.write` has no active built-in tool implementation. No Science product tools remain.
+Missing authority prevents callback invocation; missing providers fail closed for Work submission.
 
 Omitted request fields inherit. Host defaults allow all four tool grants, configured harnesses
 and delegation. An omitted harness is unavailable; a null model list permits its native models,
@@ -88,7 +85,7 @@ cannot run again under the new semantics. Create a new conversation and select i
 
 Old settings containing `policy.approval` must be deliberately updated: remove that field,
 set `policy.tools` to the desired Host grants, and configure native modes in the harness/task.
-`policy.filesystem` now controls only the isolated research environment. The settings loader rejects
+Legacy `policy.filesystem`, CPU/memory/timeout and environment fields remain readable for saved-setting compatibility; they no longer configure a built-in scientific runtime. The settings loader rejects
 old settings with an actionable path instead of silently changing their native execution policy.
 
 ## Examples

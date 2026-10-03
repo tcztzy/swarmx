@@ -17,6 +17,22 @@ function files(directory: string): string[] {
 }
 
 describe("architecture boundaries", () => {
+  it("keeps scientific models and execution in the domain application", () => {
+    for (const path of [
+      "packages/science/core/package.json",
+      "native/writing-preview-runtime",
+      "apps/desktop/resources/python",
+      "apps/desktop/src/host/research-environment.ts",
+      "apps/desktop/src/renderer/figure-studio.tsx",
+    ])
+      expect(existsSync(join(root, path)), path).toBe(false);
+    const source = files(join(root, "apps/desktop/src"))
+      .filter((path) => [".ts", ".tsx"].includes(extname(path)))
+      .map((path) => readFileSync(path, "utf8"))
+      .join("\n");
+    expect(source).not.toMatch(/@swarmx\/science|ScienceCore|createScienceToolDefinitions/u);
+  });
+
   it("keeps software quality and release checks independent of the manuscript project", () => {
     for (const path of [
       "package.json",

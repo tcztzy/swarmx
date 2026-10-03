@@ -1,13 +1,12 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { formatScienceResourceId } from "@swarmx/science";
 import { afterEach, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { HARNESS_CAPABILITIES, type NativeAgent, type Observer } from "../src/agents/types.js";
-import { ProductServices } from "../src/host/product-services.js";
+import { ProductServices, type ProductServicesOptions } from "../src/host/product-services.js";
 
 const cleanups: (() => Promise<void>)[] = [];
 afterEach(async () => {
@@ -25,9 +24,16 @@ async function tool(services: ProductServices, name: string, args: unknown) {
   return services.callTool(name, args, { actorId: "mcp", callId: randomUUID(), signal: signal() });
 }
 
-async function fixture(execute: (services: ProductServices, text: string) => Promise<void>) {
+async function fixture(
+  execute: (services: ProductServices, text: string) => Promise<void>,
+  referenceProvider?: ProductServicesOptions["referenceProvider"],
+) {
   const cwd = await mkdtemp(join(tmpdir(), "swarmx-work-boundaries-"));
-  const services = await ProductServices.create({ cwd, productHome: join(cwd, "home") });
+  const services = await ProductServices.create({
+    cwd,
+    productHome: join(cwd, "home"),
+    ...(referenceProvider === undefined ? {} : { referenceProvider }),
+  });
   cleanups.push(async () => {
     await services.dispose();
     await rm(cwd, { recursive: true, force: true });
@@ -184,11 +190,17 @@ it("prevents a managed native session from escaping its original work identity",
 });
 
 it.each([true, false])(
-  "preserves Science exact revisions and science.read permission (granted=%s)",
+  "preserves provider exact revisions and science.read permission (granted=%s)",
   async (granted) => {
-    let evidence: { id: string; revision: string };
-    let logicalId: string;
-    const { cwd, services } = await fixture(async () => {
+    const logicalId = "sx:a/evidence";
+    const evidence = { id: `${logicalId}@1`, revision: "1" };
+    const referenceProvider = {
+      scheme: "sx:",
+      requiredPermissions: ["science.read"] as const,
+      resolve: vi.fn(() => ({ id: logicalId, exactId: evidence.id, revision: evidence.revision })),
+      checkResource: vi.fn(() => undefined),
+    };
+    const { services } = await fixture(async () => {
       if (!granted) {
         await expect(
           tool(services, "work", { action: "submit", artifacts: [evidence] }),
@@ -197,34 +209,14 @@ it.each([true, false])(
       }
       await expect(
         tool(services, "work", { action: "submit", artifacts: [{ ...evidence, id: logicalId }] }),
-      ).rejects.toThrow("exact Science resource ID");
+      ).rejects.toThrow(/exact.*resource ID/iu);
       await expect(
         tool(services, "work", { action: "submit", artifacts: [{ ...evidence, revision: "2" }] }),
       ).rejects.toThrow("matching revision");
       await expect(
         tool(services, "work", { action: "submit", artifacts: [evidence] }),
       ).resolves.toMatchObject({ artifacts: [evidence] });
-    });
-    const project = services.science.createProject(services.directoryKey, {
-      requestId: randomUUID(),
-      title: "Scientific evidence",
-    });
-    await writeFile(join(cwd, "data.csv"), "sample,value\nA,2\nB,4\n");
-    const artifact = await services.science.registerArtifact(services.directoryKey, {
-      requestId: randomUUID(),
-      projectId: project.id,
-      relativePath: "data.csv",
-      kind: "dataset",
-      title: "Data",
-      mime: "text/csv",
-      runId: null,
-      environment: {},
-      license: null,
-      sourceEntityIds: [],
-    });
-    logicalId = formatScienceResourceId("artifact", artifact.id);
-    const head = services.science.headResource(services.directoryKey, { id: logicalId });
-    evidence = { id: head.ref.exactId, revision: String(head.ref.revision) };
+    }, referenceProvider);
     if (!granted) {
       const { policy } = services.settings.read();
       services.updatePolicy({
@@ -236,6 +228,8 @@ it.each([true, false])(
     assert.ok(execution.reservation);
     const snapshot = services.work.snapshot("cycle");
     expect(snapshot.reservations[0]?.artifacts).toEqual(granted ? [evidence] : []);
+    expect(referenceProvider.resolve).toHaveBeenCalledTimes(granted ? 3 : 0);
+    expect(referenceProvider.checkResource).not.toHaveBeenCalled();
     if (granted)
       expect(() =>
         services.work.accept({
@@ -255,3 +249,103 @@ it.each([true, false])(
       ).toThrow("pin the submitted artifact revisions");
   },
 );
+
+it.each([{ artifacts: [] }, { artifacts: [{ id: "sx:a/evidence@1", revision: "1" }] }])(
+  "fails closed without a trusted evidence provider (artifacts=$artifacts)",
+  async ({ artifacts }) => {
+    const { services } = await fixture(async () => {
+      await expect(tool(services, "work", { action: "submit", artifacts })).rejects.toThrow(
+        /provider.*configured|configured.*provider/iu,
+      );
+    });
+    await services.runWork("first", signal());
+    expect(services.work.snapshot("cycle").reservations[0]?.artifacts).toEqual([]);
+  },
+);
+
+it.each(["missing-base-grant", "missing-provider-grant", "unsupported-scheme"] as const)(
+  "rejects %s before invoking any provider method",
+  async (failure) => {
+    const evidence = {
+      id: failure === "unsupported-scheme" ? "other:a/evidence@1" : "sx:a/evidence@1",
+      revision: "1",
+    };
+    const referenceProvider = {
+      scheme: "sx:",
+      requiredPermissions:
+        failure === "missing-base-grant" ? [] : (["science.read", "science.write"] as const),
+      resolve: vi.fn(() => ({ id: "sx:a/evidence", exactId: evidence.id, revision: "1" })),
+      checkResource: vi.fn(() => undefined),
+    };
+    const { services } = await fixture(async () => {
+      await expect(
+        tool(services, "work", { action: "submit", artifacts: [evidence] }),
+      ).rejects.toThrow(failure === "unsupported-scheme" ? /scheme|supported/iu : /permission/iu);
+    }, referenceProvider);
+    const removed = failure === "missing-base-grant" ? "science.read" : "science.write";
+    if (failure !== "unsupported-scheme") {
+      const { policy } = services.settings.read();
+      services.updatePolicy({
+        ...policy,
+        tools: policy.tools.filter((permission) => permission !== removed),
+      });
+    }
+    await services.runWork("first", signal());
+    expect(referenceProvider.resolve).not.toHaveBeenCalled();
+    expect(referenceProvider.checkResource).not.toHaveBeenCalled();
+    expect(services.work.snapshot("cycle").reservations[0]?.artifacts).toEqual([]);
+  },
+);
+
+it.each(["exact-id", "revision", "exception"] as const)(
+  "rejects provider %s failure without partially submitting evidence",
+  async (failure) => {
+    const artifacts = [
+      { id: "sx:a/first@1", revision: "1" },
+      { id: "sx:a/second@1", revision: "1" },
+    ];
+    const providerError = new Error("Trusted reference store is unavailable.");
+    const referenceProvider = {
+      scheme: "sx:",
+      requiredPermissions: ["science.read"] as const,
+      resolve: vi.fn((id: string) => {
+        if (id === artifacts[0]?.id) return { id: "sx:a/first", exactId: id, revision: "1" };
+        if (failure === "exception") throw providerError;
+        return {
+          id: "sx:a/second",
+          exactId: failure === "exact-id" ? "sx:a/different@1" : id,
+          revision: failure === "revision" ? "2" : "1",
+        };
+      }),
+      checkResource: vi.fn(() => undefined),
+    };
+    const { services } = await fixture(async () => {
+      const submission = tool(services, "work", { action: "submit", artifacts });
+      if (failure === "exception") await expect(submission).rejects.toBe(providerError);
+      else await expect(submission).rejects.toThrow(/exact.*matching revision/iu);
+    }, referenceProvider);
+    await services.runWork("first", signal());
+    expect(referenceProvider.resolve).toHaveBeenCalledTimes(2);
+    expect(referenceProvider.checkResource).not.toHaveBeenCalled();
+    expect(services.work.snapshot("cycle").reservations[0]?.artifacts).toEqual([]);
+  },
+);
+
+it("submits exact evidence from a custom provider scheme when every required grant is present", async () => {
+  const evidence = { id: "bio:dataset/evidence@v3", revision: "v3" };
+  const referenceProvider = {
+    scheme: "bio:",
+    requiredPermissions: ["memory.read", "science.write"] as const,
+    resolve: vi.fn(() => ({ id: "bio:dataset/evidence", exactId: evidence.id, revision: "v3" })),
+    checkResource: vi.fn(() => undefined),
+  };
+  const { services } = await fixture(async () => {
+    await expect(
+      tool(services, "work", { action: "submit", artifacts: [evidence] }),
+    ).resolves.toMatchObject({ artifacts: [evidence] });
+  }, referenceProvider);
+  await services.runWork("first", signal());
+  expect(referenceProvider.resolve).toHaveBeenCalledExactlyOnceWith(evidence.id);
+  expect(referenceProvider.checkResource).not.toHaveBeenCalled();
+  expect(services.work.snapshot("cycle").reservations[0]?.artifacts).toEqual([evidence]);
+});

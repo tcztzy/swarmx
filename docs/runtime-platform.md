@@ -2,7 +2,7 @@
 
 ## Local development
 
-`pnpm dev` prepares the native compiler once, then uses `tsx watch` to rebuild
+`pnpm dev` uses `tsx watch` to rebuild
 Host and library TypeScript and restart Electron on backend edits. Renderer files are excluded from
 that watcher: Vite serves the renderer and HMR on a local development server. Electron loads its
 URL only in explicit development mode; packaged builds load the static renderer. Product operations
@@ -11,8 +11,7 @@ and active native work before exit.
 
 Renderer-only HMR preserves state where React Fast Refresh supports it; changing component exports
 can require a page reload. Backend restarts recreate the window and end live runs. Persisted sessions,
-permission grants and research data survive, but unsent drafts may not. Rust compiler/dependency setup
-changes require restarting `pnpm dev`.
+permission grants and saved evidence survive, but unsent drafts may not.
 
 ## Native integrations
 
@@ -98,66 +97,27 @@ run or looks up a different run by session ID. Child confirmation replies use AG
 MCP text content preserves the product result as JSON; non-object results, including arrays,
 use `{ value: result }` in the protocol's object-valued `structuredContent` field.
 
-## Settings and scientific execution
+## Settings and domain boundaries
 
-The bundled image derives from the official `quay.io/jupyter/datascience-notebook` stack, pinned
-to a dated release and immutable multi-architecture digest. Docker uses its native architecture;
-the Host records the resolved image ID, platform and actual Python packages. No custom pip
-dependency stack is overlaid. Python runs and metadata probes explicitly override the image's
-Jupyter startup entrypoint; a notebook server is not exposed. R and Julia are available in the
-base image but are not additional SwarmX execution modes.
+The Host resolves one canonical `SWARMX_CWD` (or starting directory) for its lifetime. Native
+sessions and execution logs retain that directory ownership. Private settings, Memory preferences
+and language survive restart. `settings.read/update` validates policy; language changes do not
+restart active work. Busy work rejects permission changes.
 
-The Host resolves `SWARMX_CWD`, or the process's starting directory, to one canonical execution
-directory for its lifetime. Native sessions, scientific records and execution logs retain their
-directory ownership. Research collections use the Science API's `project` entity type.
+The Host authorizes Memory, Work submissions, harness/model admission and delegation. Native
+modes and approvals remain owned by each harness and do not grant Host authority. Memory reviews
+retain their separate restricted native configuration; no cross-harness tool-free or filesystem
+isolation guarantee is claimed. See [permissions](permissions.md).
 
-The private product home stores execution policy and the resolved environment in `settings.json`,
-Memory preferences in `memory.json` and the UI language in `language.json`. Settings are shared
-across launches. The `language.write` bridge operation accepts only `zh` or `en`; language changes
-are allowed during execution and never restart a run or rewrite scientific content.
+Scientific models, notebook/figure execution and artifact stores belong to domain applications.
+There is no Science or environment IPC surface. A trusted embedding Host may supply a
+workspace-bound domain reference provider; Work requires exact ID/revision and read grants before
+calling it. External ACP launch does not register one automatically. See [domain integration](domain-projects.md).
+Legacy scientific settings and reference strings stay readable without activating a runtime.
 
-Settings shows the execution directory, language, permissions, environment and Memory preferences.
-The `settings.read/update` bridge operations read configuration and update the strict policy object.
-`environment.read` returns setup state, bounded logs, active process count and the resolved image
-manifest; `environment.act` accepts `setup`, `inspect` or `cancel`. IPC validates callers and payloads.
-Active work rejects permission changes and environment setup. Configuration and environment
-operations enter the execution log.
-
-The Host authorizes its Memory/Science APIs, selected harness/model and Swarm delegation.
-Native mode selections retain their advertised IDs/labels and are reapplied for that conversation;
-normal native approvals reach the connected user with exact options. Native slash commands,
-hooks, internal delegation and title-model calls remain governed by the harness. A Host model
-allowlist controls Host launches, not every autonomous native model call. A Host tool grant is not
-a machine filesystem boundary. See `permissions.md` for inheritance and examples.
-
-Background memory reviews use an admitted model, receive no Host product MCP credential,
-and reject observed tool calls and approval requests. The Host requests native restrictions;
-unmodified upstream adapters determine their effect, including title calls and session persistence.
-These requests do not establish a cross-harness tool-free or ephemeral execution guarantee.
-Old settings that contain `policy.approval` reject with an explicit update instruction. Historical
-filesystem grants stay readable but cannot authorize new execution under the Host-only semantics.
-User-originated research edits and Host bookkeeping are distinct from Agent API grants.
-
-Desktop notebook execution is stateless Python through Docker. Each cell must declare its inputs
-and contain its imports; notebook history records cells but does not preserve a live kernel.
-The public Science package retains its separately configured JupyMCP runtime for existing library
-consumers. The Desktop Host never selects that path. Scientific Python containers have no network,
-a read-only root, no capabilities or new privileges, a PID limit, CPU/memory limits and a wall-clock
-timeout. The execution directory and verified artifact input files are mounted; input files are
-read-only. Cancellation removes the owned container, including its descendants. Docker daemon
-availability is required. The Host and daemon are trusted; containers are not a security
-certification or a boundary against a compromised daemon.
-
-The bundled Typst document compiler and explicit Git/DVC operations retain their existing host
-execution boundary. Python environment settings do not sandbox those native components.
-
-The `tool` bridge operation invokes registered product tools; `cancelTool` aborts the matching call.
-The `science` bridge reads research collections, RO-Crate metadata, artifact previews and immutable
-artifact content. Artifact imports are limited to 8 MiB; downloads verify immutable bytes and are
-limited to 32 MiB. SVG previews use an image element, not executable inline markup. Exports contain
-RO-Crate metadata; payload files download separately. `science.notebookExecutions` reads the latest
-100 execution summaries for a research collection directly from the journal; it omits repeated
-notebook snapshots and rejects records owned by another execution directory.
+The `tool` bridge invokes registered generic product tools, and `cancelTool` aborts its matching call.
+`logs.read` and `logs.evidence` expose scoped execution evidence. Evaluation exports retain their
+payload identities and are private unless the user explicitly shares them.
 
 ## Verification
 
@@ -171,7 +131,6 @@ Opt-in real checks:
 ```sh
 SWARMX_REAL_CODEX=1 pnpm exec vitest run apps/desktop/tests/agents-real.test.ts
 SWARMX_HERMES_PYTHON=/path/to/hermes/venv/bin/python pnpm exec vitest run apps/desktop/tests/agents-real.test.ts
-SWARMX_TEST_DOCKER_IMAGE=swarmx-research:validation pnpm vitest run apps/desktop/tests/research-environment.test.ts
 ```
 
 The Codex check reads native history after a no-tool prompt, then checks a product status call

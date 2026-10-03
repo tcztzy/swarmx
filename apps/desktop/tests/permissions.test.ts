@@ -97,10 +97,12 @@ it("checks each Host tool family before dispatch even without a parent execution
     ["memory", { action: "read_memory_guide" }, "memory.read"],
     ["memory", { action: "read_core_memory" }, "memory.read"],
     ["memory", { action: "create_memory" }, "memory.write"],
-    ["science_query", {}, "science.read"],
-    ["science_notebook", {}, "science.write"],
   ] as const)
     await expect(products.callTool(name, args, context)).rejects.toThrow(grant);
+  for (const name of ["science_query", "science_notebook"])
+    await expect(products.callTool(name, {}, context)).rejects.toThrow(
+      "Unknown SwarmX product tool",
+    );
   products.updatePolicy({ ...products.settings.read().policy, tools: ["memory.read"] });
   await expect(
     products.callTool("memory", { action: "read_core_memory", request: {} }, context),

@@ -3,19 +3,13 @@ import {
   AgentPayloadSchema,
   AgUiCancelPayloadSchema,
   AgUiStartPayloadSchema,
-  ArtifactContentPayloadSchema,
-  ArtifactIdPayloadSchema,
   actionableMessage,
-  EnvironmentActPayloadSchema,
   HistoryPayloadSchema,
-  ImportArtifactPayloadSchema,
   LanguageWritePayloadSchema,
   LogsEvidencePayloadSchema,
   LogsQuerySchema,
   ModelsPayloadSchema,
-  NotebookExecutionsPayloadSchema,
   RunControlPayloadSchema,
-  ScienceProjectPayloadSchema,
   ToolCallPayloadSchema,
   ToolCancelPayloadSchema,
 } from "./bridge-contract.js";
@@ -60,10 +54,6 @@ export function registerIpc(platform: DesktopPlatform): void {
   handle("swarmx:language:write", (payload) =>
     platform.operations.writeLanguage(LanguageWritePayloadSchema.parse(payload).language),
   );
-  handle("swarmx:environment:read", () => platform.operations.environment());
-  handle("swarmx:environment:act", (payload) =>
-    platform.operations.environmentAction(EnvironmentActPayloadSchema.parse(payload).action),
-  );
   handle("swarmx:sessions:list", (payload) =>
     platform.operations.listSessions(AgentPayloadSchema.parse(payload).agent),
   );
@@ -86,23 +76,6 @@ export function registerIpc(platform: DesktopPlatform): void {
     const { runId, command } = RunControlPayloadSchema.parse(payload);
     return platform.operations.controlRun(runId, command);
   });
-  handle("swarmx:science:workspace", () => platform.operations.scienceWorkspace());
-  handle("swarmx:science:research-object", (payload) =>
-    platform.operations.researchObject(ScienceProjectPayloadSchema.parse(payload).projectId),
-  );
-  handle("swarmx:science:notebook-executions", (payload) => {
-    const { projectId, includeArtifactId } = NotebookExecutionsPayloadSchema.parse(payload);
-    return platform.operations.notebookExecutions(projectId, includeArtifactId);
-  });
-  handle("swarmx:science:artifact-preview", (payload) =>
-    platform.operations.artifactPreview(ArtifactIdPayloadSchema.parse(payload).id),
-  );
-  handle("swarmx:science:artifact-content", (payload) =>
-    platform.operations.artifactContent(ArtifactContentPayloadSchema.parse(payload).id),
-  );
-  handle("swarmx:science:import", (payload) =>
-    platform.operations.importArtifact(ImportArtifactPayloadSchema.parse(payload)),
-  );
 
   ipcMain.handle("swarmx:agui:start", (event, raw: unknown) => {
     trusted(event);

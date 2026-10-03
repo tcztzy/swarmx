@@ -1,8 +1,7 @@
-import { importArtifactRequestSchema } from "@swarmx/science/types";
 import { z } from "zod";
 import { ExecutionPageSchema, RunControlSchema } from "./execution-record.js";
 import { HistoryMessagesSchema } from "./message-activity.js";
-import { EnvironmentStatusSchema, LanguageSchema, SettingsSchema } from "./settings.js";
+import { LanguageSchema, SettingsSchema } from "./settings.js";
 
 export const LogsQuerySchema = z
   .strictObject({
@@ -34,9 +33,6 @@ export const ToolCallPayloadSchema = z.strictObject({
 });
 export const ToolCancelPayloadSchema = z.strictObject({ requestId: z.string().uuid() });
 export const LanguageWritePayloadSchema = z.strictObject({ language: LanguageSchema });
-export const EnvironmentActPayloadSchema = z.strictObject({
-  action: z.enum(["setup", "inspect", "cancel"]),
-});
 export const AgentPayloadSchema = z.strictObject({ agent: z.string().min(1).max(64) });
 export const HistoryPayloadSchema = z.strictObject({
   agent: z.string().min(1).max(64),
@@ -50,14 +46,6 @@ export const RunControlPayloadSchema = z.strictObject({
   runId: z.string().min(1).max(2048),
   command: RunControlSchema,
 });
-export const ScienceProjectPayloadSchema = z.strictObject({ projectId: z.string().uuid() });
-export const NotebookExecutionsPayloadSchema = z.strictObject({
-  projectId: z.string().uuid(),
-  includeArtifactId: z.string().uuid().optional(),
-});
-export const ArtifactIdPayloadSchema = z.strictObject({ id: z.string().uuid() });
-export const ArtifactContentPayloadSchema = ArtifactIdPayloadSchema;
-export const ImportArtifactPayloadSchema = importArtifactRequestSchema;
 export const AgUiStartPayloadSchema = z.strictObject({
   agent: z.string().min(1).max(64),
   input: z.unknown(),
@@ -89,12 +77,6 @@ export const HistoryResponseSchema = z.discriminatedUnion("supported", [
   z.strictObject({ supported: z.literal(false) }),
 ]);
 export const ExecutionPageResponseSchema = ExecutionPageSchema;
-export const EnvironmentResponseSchema = EnvironmentStatusSchema;
-export const ArtifactContentSchema = z.object({
-  name: z.string(),
-  mime: z.string(),
-  bytes: z.instanceof(Uint8Array),
-});
 export const AgUiEventMessageSchema = z.object({
   threadId: z.string(),
   event: z.unknown().optional(),

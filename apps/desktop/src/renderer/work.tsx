@@ -18,6 +18,7 @@ import { Textarea } from "./components/ui/radix/textarea.js";
 import { t, useTranslation } from "./i18n.js";
 import { Icon } from "./icon.js";
 import { NativeInteractionForm } from "./interaction-form.js";
+import { CopyButton } from "./source-inspection.js";
 
 const STATES = {
   queued: "待执行",
@@ -588,7 +589,7 @@ function ItemCard({
   const agent = item.mode === "managed" ? item.supervisor : item.configuration;
   const openSource = (resource: string, title: string) =>
     window.dispatchEvent(
-      new CustomEvent("swarmx:open-research", { detail: { source: { resource, title } } }),
+      new CustomEvent("swarmx:open-source", { detail: { source: { resource, title } } }),
     );
   return (
     <article className="space-y-3 rounded-lg border border-neutral-200 p-3" aria-label={item.goal}>
@@ -693,21 +694,15 @@ function ItemCard({
               )),
             )}
             {attempt.artifacts.map((artifact) => (
-              <Button
+              <div
                 key={`${artifact.id}@${artifact.revision}`}
-                type="button"
-                variant="outline"
-                size="sm"
-                className="h-auto max-w-full whitespace-normal break-all"
-                onClick={() =>
-                  openSource(
-                    `sx:a/${encodeURIComponent(artifact.id)}@${artifact.revision}`,
-                    artifact.id,
-                  )
-                }
+                className="flex max-w-full items-center gap-2 rounded-md border border-neutral-200 p-2 text-xs"
               >
-                {t("成果版本")}: {artifact.id} · {artifact.revision}
-              </Button>
+                <span className="break-all">
+                  {t("成果版本")}: {artifact.id} · {artifact.revision}
+                </span>
+                <CopyButton compact value={JSON.stringify(artifact)} label={t("复制成果引用")} />
+              </div>
             ))}
           </div>
           {attempt.purpose === "execution" && attempt.finishedAt && (

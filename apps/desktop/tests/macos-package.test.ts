@@ -8,12 +8,12 @@ import {
 } from "node:fs";
 import { isAbsolute, join } from "node:path";
 import { expect, it, vi } from "vitest";
-import { spawnProcess } from "../src/host/process-runner.js";
+import { spawnProcess } from "../../../scripts/test-process.js";
 
 const packagedApp = process.env.SWARMX_PACKAGED_APP;
 
 it.runIf(process.platform === "darwin" && packagedApp !== undefined)(
-  "runs the exported macOS app, native integrations, Typst, renderer and preload IPC",
+  "runs the exported macOS app, native integrations, renderer and preload IPC",
   async () => {
     expect(isAbsolute(packagedApp ?? "")).toBe(true);
     // macOS's per-user temporary path can exceed the Host's Unix socket path limit.
@@ -33,7 +33,7 @@ it.runIf(process.platform === "darwin" && packagedApp !== undefined)(
     writeFileSync(
       driver,
       `const assert = require("node:assert/strict");
-const { accessSync, writeFileSync } = require("node:fs");
+const { accessSync, existsSync, writeFileSync } = require("node:fs");
 const { createRequire, registerHooks } = require("node:module");
 const { join } = require("node:path");
 const { fileURLToPath, pathToFileURL } = require("node:url");
@@ -66,7 +66,7 @@ async function verify() {
   assert.equal(app.getAppPath(), root);
   assert.equal(process.cwd(), ${JSON.stringify(scratch)});
   for (const path of ["preload.cjs", "dist/main.js", "dist/renderer/index.html",
-    "resources/hermes-native.py", "resources/python/Dockerfile",
+    "resources/hermes-native.py",
     "resources/openclaw-plugin/index.js", "resources/openclaw-plugin/openclaw.plugin.json"]) {
     accessSync(join(root, path));
   }
@@ -75,24 +75,9 @@ async function verify() {
     assert.ok(path.startsWith(root + "/"), "Skill resolved outside the packaged app: " + path);
     accessSync(path);
   }
-  const { ScienceCore, DEFAULT_WRITING_PREVIEW_RUNTIME_COMMAND } =
-    await import(pathToFileURL(appRequire.resolve("@swarmx/science")).href);
-  assert.ok(DEFAULT_WRITING_PREVIEW_RUNTIME_COMMAND.startsWith(root + "/"));
-  accessSync(DEFAULT_WRITING_PREVIEW_RUNTIME_COMMAND);
-  const { NodeScienceProcessRuntime } = await load("dist/host/process-runner.js");
-  const disposers = [];
-  const science = new ScienceCore({
-    subprocess: new NodeScienceProcessRuntime(),
-    onDispose: (dispose) => disposers.push(dispose),
-  }, { root: join(process.cwd(), "science") }, () => ({ key: "package", root: process.cwd() }));
-  try {
-    writeFileSync("package.typ", "= SwarmX package test\\nBundled Typst compiles this document.\\n");
-    const preview = await science.previewTypstDocument("package", { relativePath: "package.typ" });
-    assert.equal(preview.status, "ready", preview.diagnostics.join("\\n"));
-    assert.equal(Buffer.from(preview.pdfBase64, "base64").subarray(0, 5).toString(), "%PDF-");
-    assert.ok(preview.pdfSize > 1000);
-  } finally {
-    for (const dispose of disposers) await dispose();
+  assert.throws(() => appRequire.resolve("@swarmx/science"), { code: "MODULE_NOT_FOUND" });
+  for (const path of ["resources/python", "dist/host/process-runner.js", "dist/host/research-environment.js"]) {
+    assert.equal(existsSync(join(root, path)), false, "Unexpected scientific runtime: " + path);
   }
   const window = await waitFor(() => BrowserWindow.getAllWindows()[0]);
   await waitFor(() => window.webContents.getURL() === pathToFileURL(join(root, "dist/renderer/index.html")).href);

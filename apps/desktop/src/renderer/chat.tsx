@@ -122,23 +122,6 @@ function ToolCard({
         <p className="text-muted-foreground text-xs font-medium">{t("工具参数")}</p>
         <ToolFallbackArgs argsText={argsText} />
         <ToolFallbackResult result={result} />
-        {toolName.includes("science_") && result !== undefined && (
-          <Button
-            variant="outline"
-            size="sm"
-            className="mt-2"
-            type="button"
-            onClick={() => {
-              window.dispatchEvent(
-                new CustomEvent("swarmx:open-research", { detail: scienceTarget(result) }),
-              );
-              window.dispatchEvent(new Event("swarmx:science-changed"));
-            }}
-          >
-            <Icon name="graph" />
-            {t("在侧栏中查看")}
-          </Button>
-        )}
       </ToolFallbackContent>
     </ToolFallbackRoot>
   );
@@ -609,11 +592,11 @@ function ConversationContent({
             {welcome && (
               <div className="mx-auto mt-3 flex max-w-[34rem] flex-wrap items-center justify-center gap-2">
                 <ThreadPrimitive.Suggestion
-                  prompt={t("请梳理当前研究目标、已有进展和下一步。")}
+                  prompt={t("请梳理当前任务目标、已有进展和下一步。")}
                   send={false}
                   className="suggestion-card"
                 >
-                  <span>{t("梳理研究思路")}</span>
+                  <span>{t("梳理任务思路")}</span>
                 </ThreadPrimitive.Suggestion>
                 <ThreadPrimitive.Suggestion
                   prompt={t("请查看当前目录的数据与分析代码，说明可以如何开展分析。")}
@@ -623,64 +606,20 @@ function ConversationContent({
                   <span>{t("探索数据与代码")}</span>
                 </ThreadPrimitive.Suggestion>
                 <ThreadPrimitive.Suggestion
-                  prompt={t("请整理当前实验记录，列出主要发现和待验证的问题。")}
+                  prompt={t("请整理当前工作记录，列出主要进展和待解决的问题。")}
                   send={false}
                   className="suggestion-card"
                 >
-                  <span>{t("整理实验记录")}</span>
+                  <span>{t("整理工作记录")}</span>
                 </ThreadPrimitive.Suggestion>
               </div>
             )}
           </ThreadPrimitive.ViewportFooter>
         </ThreadPrimitive.Viewport>
       </div>
-      <div id="research-side-view" className={panelOpen ? "research-side-view" : "hidden"}>
+      <div id="observation-side-view" className={panelOpen ? "observation-side-view" : "hidden"}>
         {sidePanel}
       </div>
     </ThreadPrimitive.Root>
   );
-}
-
-export function scienceTarget(result: unknown): { artifactId?: string; projectId?: string } {
-  const payload =
-    typeof result === "string"
-      ? z
-          .string()
-          .transform((value, ctx) => {
-            try {
-              return JSON.parse(value) as unknown;
-            } catch {
-              ctx.addIssue({ code: "custom", message: "Not a JSON tool result" });
-              return z.NEVER;
-            }
-          })
-          .safeParse(result)
-      : { success: true as const, data: result };
-  if (!payload.success) return {};
-  const native = z
-    .object({
-      type: z.literal("mcpToolCall"),
-      status: z.literal("completed"),
-      result: z.object({ structuredContent: z.unknown() }),
-      error: z.null(),
-    })
-    .safeParse(payload.data);
-  const value = native.success ? native.data.result.structuredContent : payload.data;
-  const envelope = z.object({ data: z.unknown() }).safeParse(value);
-  const data = envelope.success ? envelope.data.data : value;
-  const artifact = z
-    .object({ artifact: z.object({ id: z.string(), projectId: z.string() }).nullable() })
-    .safeParse(data);
-  if (artifact.success && artifact.data.artifact)
-    return { artifactId: artifact.data.artifact.id, projectId: artifact.data.artifact.projectId };
-  const entity = z
-    .object({ id: z.string(), kind: z.string(), projectId: z.string().optional() })
-    .safeParse(data);
-  if (!entity.success) return {};
-  return entity.data.kind === "project"
-    ? { projectId: entity.data.id }
-    : {
-        artifactId: entity.data.id,
-        ...(entity.data.projectId ? { projectId: entity.data.projectId } : {}),
-      };
 }

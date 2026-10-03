@@ -29,10 +29,6 @@ jobs:
       - uses: pnpm/action-setup@008330803749db0355799c700092d9a85fd074e9
         with:
           cache: true
-      - name: Install the Rust toolchain
-        run: |
-          rustup toolchain install stable --profile minimal
-          rustup default stable
       - run: pnpm install --frozen-lockfile
       - run: pnpm lint && pnpm docs:check && pnpm typecheck && pnpm test && pnpm build
       - name: Archive the reviewed source
@@ -65,10 +61,6 @@ jobs:
       - uses: pnpm/action-setup@008330803749db0355799c700092d9a85fd074e9
         with:
           cache: true
-      - name: Install the Rust toolchain
-        run: |
-          rustup toolchain install stable --profile minimal
-          rustup default stable
       - run: pnpm install --frozen-lockfile
       - run: pnpm package:mac
       - name: Verify the packaged application

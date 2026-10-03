@@ -104,8 +104,8 @@ Concepts live directly at the memory root; there are no scope or category folder
 is reserved for generated navigation entries, `README.md` for repository guidance and `USER.md`
 for user notes; those names are not valid concept filenames. Use links and metadata for topical
 organization. Memory has no separate Markdown change log and no private revision store: Git
-history for this directory and the Host execution journal retain history. Science remains
-authoritative for research entities and evidence; native Agents remain authoritative for
+history for this directory and the Host execution journal retain history. Domain applications remain
+authoritative for scientific entities and evidence; native Agents remain authoritative for
 their transcripts.
 
 Concepts are bounded UTF-8 Markdown with YAML frontmatter: `type`, `title`, `description`,
@@ -209,7 +209,7 @@ a Harness or sending private records to an external service. The same directory-
 resolver governs new writes, lint diagnostics and the read-only evidence view.
 An explicit `export_evaluation` request packages the selected evaluation or review attempt as an
 Attached RO-Crate, including original evidence and its generation process. See
-[evaluation research objects](ro-crate.md#evaluation-research-objects); default Science exports
+[evaluation research objects](ro-crate.md#evaluation-research-objects); domain scientific exports
 continue to exclude private Memory and execution history.
 
 Bundled selection guidance uses the same separation of observation, judgment and preference.
@@ -264,7 +264,7 @@ replaced by a fresh proposal. Settings are saved in `$SWARMX_HOME/memory.json`.
 The shared validator reports `ruleId`, relative `path`, `line`, `column`, `severity`, `message`,
 and the SHA-256 `revision` of the bytes inspected (`null` when an unsafe, missing, oversized,
 or scan-limited path could not be read). Its clock is an explicit ISO datetime `now`;
-the same authorized file and Science resource snapshots and clock produce the same diagnostics. Unknown frontmatter
+the same authorized file and domain resource snapshots and clock produce the same diagnostics. Unknown frontmatter
 fields and concept types remain supported. These are SwarmX authoring rules, not a claim that
 every warning violates OKF.
 
@@ -277,7 +277,7 @@ every warning violates OKF.
   require a source. Markdown code blocks and inline code are literal examples, not references.
 - Index syntax is checked separately from concept frontmatter. `README.md` and `USER.md` are
   notes, not concepts, and are excluded from concept checks.
-- Science `sx:` sources use the directory-scoped Science resolver in the Host.
+- Domain sources use the trusted workspace-bound provider after Host permission checks. Legacy `sx:` references without a provider remain unresolved warnings; see [domain references](domain-projects.md).
   Invalid addresses are errors; unavailable resources or changed revisions require review.
   No network requests, automatic revision substitution, or claims of factual verification.
 
@@ -318,3 +318,7 @@ An explicit file check still reports scan failures that prevent a complete snaps
   decisions and conflicting revisions are checked independently of model correctness.
 - Dependency cycles, missing targets and stale revision links are rejected on write;
   upstream updates propagate stale flags through the graph and preserve the original pins.
+
+Configured Memory resource checkers receive references without a built-in scientific parser.
+They return no diagnostic for schemes they do not own; local Memory path validation still runs.
+The Host dispatches only the configured domain scheme and retains execution-URN ownership.

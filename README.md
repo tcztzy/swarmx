@@ -1,7 +1,7 @@
 # SwarmX
 
 SwarmX is a local-first research work system with native Agents, recursive delegation and
-a scientific workbench. Persistent goals share budgets, deadlines and acceptance criteria.
+inspectable execution evidence. Persistent goals share budgets, deadlines and acceptance criteria.
 
 Start with the [product direction](docs/product-direction.md) for the vision and ownership,
 [product readiness](docs/product-readiness.md) for the usable and tested scope, and
@@ -22,12 +22,12 @@ Claude and DSH use their official Agent SDK and SDK Client. Hermes uses its inst
 OpenClaw uses the official Gateway Client with an explicit address and credentials. DSH provides
 independent executions and Host log viewing; it does not resume tasks across processes.
 Integrations load lazily; startup failure never selects another Agent. Native login is
-needed for conversation, not for configuring an environment or inspecting research objects.
+needed for conversation, not for inspecting saved execution evidence.
 
-Install Node.js and pnpm matching `package.json`, Rust stable with a C/C++ linker (the bundled
-Typst compiler is built with the committed Cargo lockfile), and Docker Engine or Docker Desktop
-for Python execution. macOS also requires the Xcode command-line tools. Linux and macOS are the
-CI targets; Windows has not been validated.
+Install Node.js and pnpm matching `package.json`. macOS packaging also requires the Xcode
+command-line tools. Linux and macOS are the CI targets; Windows has not been validated.
+Scientific runtimes, data models and domain tools belong to independent applications such as
+GEEPilot; SwarmX has no bundled Python/Docker or Typst/Rust execution runtime.
 
 ```sh
 pnpm install --frozen-lockfile
@@ -47,22 +47,16 @@ to select another directory at launch, and `SWARMX_HOME` to choose the private d
 
 Independent projects can keep their own programs, dependencies and native skills in
 that directory. See [running an independent project](docs/domain-projects.md) for desktop/ACP launch
-commands, project-local resources, output ownership and execution-log export. Its historical
-Pi examples are retained as evidence; see the migration note before using them.
+commands, project-local resources, output ownership and execution-log export. Domain applications own their scientific data and execution.
 
-Start with a conversation. **Assets / 科研资产** opens files, images and optional source editing
-beside that conversation. **Observe / 观测与溯源** groups react-o11y traces, recorded scientific
-runs and the RO-Crate graph. Use the bottom-left settings control to open full-page
-**Settings / 设置** for language, permissions and environment setup. English and Simplified Chinese
-are supported; the Host restores your language choice across restarts.
+Start with a conversation. **Observe / 观测与溯源** shows execution evidence and react-o11y
+traces. Work manages durable goals, budgets and independent acceptance. Settings controls language,
+Host permissions and Memory. English and Simplified Chinese preferences survive restart.
 
-The bundled recipe uses the official `quay.io/jupyter/datascience-notebook` image pinned to a
-multi-architecture digest. Docker selects its native amd64 or arm64 variant, and SwarmX records
-the resolved image, platform and installed Python packages. The base also contains R and Julia;
-SwarmX's notebook/figure execution currently uses Python. Setup needs network access; notebook and
-figure code runs without network in an immutable image. Missing Docker or setup failures are
-shown and never execute that code on the host. See [workbench operation](docs/product-readiness.md)
-for boundaries, exports and acceptance evidence.
+Domain applications retain their scientific records, revisions and artifact bytes. A trusted
+in-process Host can inject a workspace-bound reference provider; the external ACP launcher does
+not automatically register one. See [domain references](docs/domain-projects.md). Existing
+scientific data is not deleted or rewritten by this extraction.
 
 Use `SWARMX_AGENT=codex|claude|dsh|hermes|openclaw|acp` or the Agent selector. Native setup and external
 ACP/A2A access: [Agent platform](docs/runtime-platform.md).
@@ -71,9 +65,9 @@ ACP/A2A access: [Agent platform](docs/runtime-platform.md).
 [Work management](docs/work-management.md) describes persistent goals, Agent choices, runtime
 limits and acceptance. Native runtimes keep their own conversation histories.
 
-See [verification commands](docs/product-readiness.md#verification) for engineering and Docker checks.
+See [verification commands](docs/product-readiness.md#verification) for engineering checks.
 Release tags use `v<version>` and must match `apps/desktop/package.json`. SwarmX workspace
-packages, the bundled runtime and SwarmX-owned protocol identities use the same release version.
+packages and SwarmX-owned protocol identities use the same release version.
 `pnpm package:mac` builds a macOS DMG for the current machine's architecture. The release
 workflow builds Apple Silicon and Intel installers on GitHub's macOS runners, then publishes
 them with a source archive and SHA256 checksums. See [macOS packaging and releases](docs/macos-release.md)

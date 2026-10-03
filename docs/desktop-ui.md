@@ -38,7 +38,7 @@ retain their formatting for direct comparison; application code remains Biome-fo
 Model Selector, Reasoning, Tool Fallback, Tool Group, MarkdownText, Tabs, Collapsible and
 CodeBlock own their generic interactions. Shared buttons, inputs and badges use the same
 official foundation. The renderer uses React's ref-as-prop support rather than local ref wrappers.
-Native catalogs and run settings remain in `agent-controls.tsx`; tool outcomes, Memory/Science
+Native catalogs and run settings remain in `agent-controls.tsx`; tool outcomes, Memory
 actions and cross-message grouping remain in the conversation renderer. Generic tool cards
 separate arguments, results and errors; expanding them never submits an approval or retries a call.
 The Reasoning component displays commentary Markdown and tool calls as one turn's work.
@@ -145,25 +145,23 @@ Rename/archive, attachments, file review,
 terminal panels and concurrent background tasks need additional end-to-end contracts and
 are not exposed as nonfunctional controls.
 
-The conversation is the primary view. The header exposes Long-term work, Assets and Observe;
+The conversation is the primary view. The header exposes Long-term work and Observe;
 these open a side view without replacing the conversation, its draft or active stream.
-Switching to Long-term work keeps the research view mounted and hidden, preserving unsaved
-figure code and any running figure tool until the user closes that research view.
 Chat and split view share the same mounted conversation, message styles, typography and
-composer controls. Opening a side view changes the available width, not the chat theme.
-Closing it restores the full conversation area with a centered readable message column;
-history, draft, model choices and streaming remain intact. Source-specific composer context
-and its placeholder appear only while the source-inspection view is open.
-The source-inspection view follows the approved two-column design: a compact conversation
-and composer occupy 40% of a wide window, with the pinned figure, input identity and
-recorded computations beside them. The design image's concept banner is an annotation,
-not application chrome. Blue source selection, neutral draft status and restrained
-outline icons preserve the reference's hierarchy; scientific previews use the original artifact.
-Successful Memory reads expose saved-concept metadata and clickable Science source references
-under the current answer. Historical Pi tool cards remain readable in saved Host projections;
-this does not restore a retired runtime or grant an external ACP endpoint Host product tools.
+composer controls. Closing the side view restores the full conversation area; history,
+draft, model choices and streaming remain intact. Source-specific composer context and
+its placeholder appear only while the source-inspection view is open. On wide screens,
+the conversation occupies 40% of the split view; narrow screens retain a closable inspector.
+Observe shows the existing react-o11y execution waterfall. Its entry remains visible before
+the first run, with an explicit empty state. Scientific asset galleries, notebooks, figure
+editing, scientific computation history and scientific runtime setup belong to the external
+domain application and are not offered by SwarmX.
+Successful Memory reads expose saved-concept metadata and exact source references beneath
+the current answer. Historical tool results remain readable through generic tool cards,
+without reinstating domain-specific actions. External source references stay readable and
+copyable; opening one explains that its originating application owns inspection.
 Execution source references open the same side view directly through the read-only `logs.evidence`
-bridge operation; they do not require a Science workspace. The view shows statistics only for
+bridge operation; they do not require a domain workspace. The view shows statistics only for
 the cited executions, with completion, error and cancellation counts kept separate. Elapsed time
 is Host wall-clock time including tool execution and waiting, and missing usage, cost or route
 fields remain explicitly unknown. Requested settings identify the Agent; original native reports
@@ -184,84 +182,41 @@ The UI states that selected private source text is included; it only downloads l
 ZIP entry timestamps are fixed, so an unchanged exported payload produces identical ZIP bytes.
 Export stays disabled while pending, and unavailable evidence or revision conflicts remain
 visible errors without downloading a partial package.
-Opening a source preserves its exact revision, resolves it against the
-authorized execution directory and reports unavailable or changed revisions instead of substituting the
-latest artifact. Source inspection shows the figure's recorded input IDs and full-copy SHA-256,
-an original-output download, and expandable Code / Output / Environment computation tabs.
-Code comes from that execution's journaled notebook snapshot, never the current notebook.
-Execution summaries include this source without returning the whole notebook or changing stored records.
-The producing computation appears first, even after more than 100 later executions.
-The `science.notebookExecutions` bridge operation accepts `projectId` and `includeArtifactId`,
-reserving the producing computation's place before filling the bounded 100-entry result with recent
-executions from the same research collection and execution directory. Without `includeArtifactId`,
-it returns the latest 100 executions. Source inspection
-includes other returned computations only when they have a recorded shared input; this does not
-imply a parent-child link or scientific verification.
-Opening, copying or inspecting a source never reruns an analysis. The composer can add the
-selected source reference as text context; existing Harness, model and thinking controls remain
-available. Narrow screens retain a closable inspection view without horizontal overflow.
-Switching between Assets and Observe also retains the open figure editor and its running job.
-Selecting a different notebook or output retargets the editor to that notebook's code instead of
-reusing the previous editor state.
-Assets shows scientific files and figures at useful preview size; manual source editing is
-optional. Users can ask the assistant to work on a selected artifact from the same composer.
-Observe groups the react-o11y waterfall, recorded scientific runs and the RO-Crate graph/JSON-LD.
-Its entry remains visible before the first run, with an explicit empty state. Tool result cards
-open their referenced artifact or project in Assets, including Codex's successful native MCP
-structured results in both live output and restored history. Native failures remain visible
-without inferring an artifact target. Narrow windows show a closable side view.
-The sidebar lists native tasks. The bottom-left settings control opens Settings; Back
-restores the same mounted conversation. Research collections, research-question records, bounded data/image imports,
-artifact previews, execution history and RO-Crate export use existing Science contracts.
-Notebook history reads the latest 100 execution facts from the Science journal, including failed
-cells, exit status and output. A code cell's source is selected explicitly; the following output
-cell is never presented as editable Python or counted as another execution.
+Opening, copying or inspecting evidence never reruns work. The composer can add the
+selected source reference as text context; existing Harness, model and thinking controls
+remain available. The sidebar lists native tasks. The bottom-left settings control opens
+Settings; Back restores the same mounted conversation.
 
-The side view presents an artifact gallery, a relation graph, runs and the JSON-LD
-document. Search and selected-node neighborhoods keep the graph readable; at most 200 matched
-entities render at once. React Flow owns pan/zoom/fit and keyboard navigation. The details pane
-shows the original identifier, content hash, source code, environment and relations. The graph
-projects recorded references and never invents scientific relationships or permits visual edits
-that would bypass the journal.
+The reusable generic RO-Crate graph projection preserves recorded identifiers and relation
+names. Search and selected-node neighborhoods keep it readable; at most 200 matched entities
+render at once. React Flow owns pan/zoom/fit and keyboard navigation. This shared graph view
+also renders Memory dependencies; edges are read-only and no domain relationships are inferred.
 
-The figure workbench edits Python beside a result preview and execution output. The initial
-example is explicitly illustrative. Users can select up to four immutable inputs, execute,
-stop, correct errors and generate a new artifact while retaining earlier outputs. Imported
-raster images use Pillow; plots use the recorded source. Existing source without a recorded
-output path requires an explicit path before Run,
-so an unrelated pre-existing `figure.png` cannot be silently chosen by the editor's default.
-The initial preview shows the selected immutable artifact.
-This is executable scientific figure generation/editing, not a configured generative-image API.
-PNG/SVG preview in the side view; PDF
-and larger files download for inspection. RO-Crate exports are metadata documents; users download
-the artifact files separately. The UI does not imply that a metadata export is a self-contained
-research-data archive.
+Settings shows the Host's canonical execution directory and explicit tool/delegation grants.
+The existing domain-reference read grant remains visible for externally owned pinned references.
+Legacy policy and environment metadata remain persisted but have no local scientific-runtime
+controls. Native modes are chosen per conversation using upstream labels. Permission-save
+failures remain actionable; policy changes apply only after current executions have ended.
 
-Settings shows the Host's canonical execution directory,
-Host tool/delegation grants and research-container file/resource limits. Native modes are chosen
-in each conversation using upstream labels; model/effort changes preserve that choice. Environment setup streams bounded build logs,
-supports cancellation and verification, and exports the resolved manifest and dependency lock.
-Setup is an explicit networked operation; figure execution uses the configured image offline.
-Failures remain actionable. Policy changes apply only after current executions have ended.
-
-English and Simplified Chinese cover navigation, chat controls, approvals, asset/editor views,
+English and Simplified Chinese cover navigation, chat controls, approvals, execution evidence,
 observability and settings, including accessible labels and empty states. i18next owns lookup
 and interpolation. The first launch follows the browser language (English for unsupported
 languages); Settings persists an explicit choice in the private product home and updates the UI
 immediately. Bootstrap restores it across Host restarts.
-Document language, dates and numbers follow that choice. Scientific data, code, native model
+Document language, dates and numbers follow that choice. Original data, code, native model
 names, protocol identifiers and original execution/error payloads remain untranslated.
 
 Settings includes shared user preferences, Memory and knowledge: the bounded user note, automatic review settings,
 current-conversation review, persistent pending approvals, and a searchable Vault dependency graph.
 Selecting a concept loads its prerequisite closure in order; changed prerequisite revisions are
 marked for review. Conflicting edits stay pending and display the error. The graph uses the same
-React Flow view as research provenance, with read-only edges. See `memory.md` for storage and authority.
+generic RO-Crate React Flow view, with read-only edges. See `memory.md` for storage and authority.
 
 Long-term work uses the existing Host work manager. Users create cycles with shared budgets and
 registered execution configurations, then add goals with written acceptance criteria. The side
 view shows execution and acceptance separately, actual reported spending and still-held reserves,
-original output and pinned artifact references. Start and Stop are explicit; opening or closing
+original output and opaque pinned artifact IDs/revisions. Artifact references can be copied
+without constructing domain-specific resource URLs. Start and Stop are explicit; opening or closing
 the view never dispatches or cancels work. Native confirmations reuse the conversation's form
 fields. User acceptance and corrections preserve their displayed attempt and criteria revision;
 goal revisions retain work identity, budget and historical evidence. Errors remain visible and
