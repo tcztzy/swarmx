@@ -34,25 +34,30 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-it("saves explicit tool grants and delegation without exposing the removed runtime", async () => {
-  const settings = { policy: DEFAULT_POLICY, environment: null, cwd: "/work" };
+it("saves active grants while preserving hidden inactive domain grants", async () => {
+  const settings = {
+    policy: {
+      ...DEFAULT_POLICY,
+      tools: ["memory.read", "memory.write", "science.read", "science.write"],
+    },
+    environment: null,
+    cwd: "/work",
+  };
   gateway.settingsRead.mockResolvedValue(settings);
   gateway.settingsUpdate.mockImplementation(async (policy: unknown) => ({ ...settings, policy }));
   render(<SettingsPage />);
   await screen.findByRole("button", { name: "保存权限" });
   expect(screen.queryByRole("heading", { name: "运行环境" })).toBeNull();
   expect(screen.queryByLabelText("CPU 核数")).toBeNull();
-  expect(screen.getByLabelText("读取领域引用")).toBeTruthy();
+  expect(screen.queryByLabelText("读取领域引用")).toBeNull();
+  expect(screen.queryByLabelText("旧版领域写入授权")).toBeNull();
   fireEvent.click(screen.getByLabelText("修改记忆"));
-  fireEvent.click(screen.getByLabelText("读取领域引用"));
   fireEvent.click(screen.getByLabelText("允许通过 Swarm 委派任务"));
   fireEvent.click(screen.getByRole("button", { name: "保存权限" }));
   await screen.findByText("权限已保存，对下一次执行生效。");
   expect(gateway.settingsUpdate).toHaveBeenCalledWith({
     ...DEFAULT_POLICY,
-    tools: DEFAULT_POLICY.tools.filter(
-      (grant) => grant !== "memory.write" && grant !== "science.read",
-    ),
+    tools: ["memory.read", "science.read", "science.write"],
     delegation: false,
   });
 });
@@ -77,6 +82,25 @@ it("lets users enable and tighten generic project resource learning", async () =
   await screen.findByText("权限已保存，对下一次执行生效。");
   expect(gateway.settingsUpdate).toHaveBeenLastCalledWith({ ...settings.policy, delegation: true });
   expect(screen.queryByRole("heading", { name: "运行环境" })).toBeNull();
+});
+
+it("does not add inactive domain grants when saving memory permissions", async () => {
+  const settings = {
+    policy: { ...DEFAULT_POLICY, tools: ["memory.read"] },
+    environment: null,
+    cwd: "/work",
+  };
+  gateway.settingsRead.mockResolvedValue(settings);
+  gateway.settingsUpdate.mockImplementation(async (policy: unknown) => ({ ...settings, policy }));
+  render(<SettingsPage />);
+  fireEvent.click(await screen.findByLabelText("修改记忆"));
+  fireEvent.click(screen.getByRole("button", { name: "保存权限" }));
+  await screen.findByText("权限已保存，对下一次执行生效。");
+  expect(gateway.settingsUpdate).toHaveBeenCalledWith({
+    ...DEFAULT_POLICY,
+    tools: ["memory.read", "memory.write"],
+    delegation: true,
+  });
 });
 
 it("leaves a rejected policy save visible and retryable", async () => {

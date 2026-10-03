@@ -17,41 +17,42 @@ using official ACP initialization/session/prompt and native permission flows. AC
 for protocol traffic. ACP execution access does not register a domain evidence resolver or grant
 additional Host authority. Saving or resuming an ACP session is separate from scientific data access.
 
-## Trusted in-process reference provider
+## Generic calls and evidence ownership
 
-`ProductServicesOptions.referenceProvider` and `startDesktopPlatform({referenceProvider, ...})`
-accept this structural interface from trusted host configuration:
+A coordinating Agent learns domain capabilities from the ordinary Agent/tool descriptions and
+uses the existing authorized native or ACP call path. Domain-specific scientific validation stays
+with that Agent/tool. SwarmX has no dedicated GEEPilot connector, resource resolver registration,
+scientific URI parser or command protocol.
 
-```ts
-interface ReferenceProvider {
-  readonly scheme: string;
-  readonly requiredPermissions: readonly ToolGrant[];
-  resolve(id: string): { id: string; exactId: string; revision: string };
-  checkResource(id: string): undefined | {
-    ruleId: "source.invalid" | "source.unresolved";
-    severity: "error" | "warning";
-    message: string;
-  };
-}
+Work submissions contain opaque artifact identities plus observed execution sources:
+
+```json
+{"action":"submit","artifacts":[{"id":"domain-owned-id","revision":"domain-owned-revision","evidence":["urn:swarmx:execution:<record-UUID>"]}]}
 ```
 
-The provider is borrowed, synchronous and already bound to the canonical workspace. Its creator
-owns shutdown. Provider configuration is never accepted from tool arguments, renderer IPC or ACP
-messages. A provider must retain its domain's canonical IDs, current revisions and failure behavior;
-SwarmX does not implement the domain model or fall back to historical content.
+`work.status` exposes `submissionEvidence`: up to the latest 100 source URNs, run IDs, event
+types and observation times from this Work runtime, plus a truncation flag. It exposes no recorded
+payloads and needs no broader Memory recall grant. The Agent can use these stable references
+after ordinary producing/verification calls.
 
-Work checks the retained `science.read` permission and every declared provider grant before
-calling `resolve`. Submitted IDs must use that provider's scheme; both returned `exactId` and
-`revision` must equal the submitted values. Missing provider, unsupported scheme, failed lookup or
-mismatch rejects submission without recording accepted artifacts. Submission never grants acceptance.
+The Host requires an active managed Work execution. For every artifact, evidence must be nonempty
+and refer to immutable records in this execution directory, Work item and runtime; delegated runs
+in that runtime may supply producing or verification observations. Missing, foreign or mismatched
+sources reject the whole submission. No `science.read` grant or domain lookup is involved.
 
-Memory validates execution URNs through the Host journal. Matching domain references invoke
-`checkResource` only with the required read authority; its invalid/unresolved diagnostics are kept.
-An unconfigured legacy `sx:` reference produces an unresolved warning. Ordinary URLs and local
-Memory links keep their own validation. This preserves stored citations without pretending that an
-unavailable source was verified. Provider exceptions are not converted into successful resolution.
+The ID and revision are supplied domain claims. The Host does not check their syntax, existence,
+currentness or scientific meaning. Even a valid source can contain a self-report or an incorrect
+judgment: provenance proves what was observed, not that the artifact or conclusion is correct.
+Independent user/trusted-validator acceptance pins the submitted identities and evidence, criteria
+revision and evaluator report. Agent submission cannot accept its own work or establish domain truth.
+A domain verification result must be obtained through an ordinary authorized Agent/tool call and
+assessed against the acceptance criteria, not synthesized by this bookkeeping layer.
 
-GEEPilot's workspace-bound provider can be supplied by an embedding host. The existing external
-ACP launcher does **not** automatically register it: cross-process domain resolution is not
-implemented here. An in-process seam and independently passing tests do not establish a complete
-external ACP scientific workflow.
+Existing Work records without evidence stay readable as unverified legacy records. New artifact
+submissions lacking evidence are rejected; add observed sources rather than silently upgrading old
+records. Existing scientific storage, revisions and hashes are not changed by this contract update.
+
+Memory validates SwarmX execution URNs against its own directory-scoped journal. Other URI
+references, including old `sx:` identifiers, are opaque external references and receive a
+`source.unverified` warning. Local Memory paths retain their validation. This does not query external
+services, infer scientific validity or promise that an unavailable link resolves.

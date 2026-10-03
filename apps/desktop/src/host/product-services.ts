@@ -22,10 +22,9 @@ import {
   PermissionRequestSchema,
   policyPermissions,
 } from "../permissions.js";
-import type { ReferenceProvider } from "../reference-provider.js";
 import { ExecutionPolicySchema } from "../settings.js";
 import type { ToolManifestEntry } from "../tool-manifest.js";
-import { type WorkConfiguration, WorkRunSchema } from "../work.js";
+import { WorkArtifactSubmissionSchema, type WorkConfiguration, WorkRunSchema } from "../work.js";
 import { A2AEndpoints, SwarmA2AExecutor } from "./a2a.js";
 import { AgUiBridge } from "./ag-ui.js";
 import { AgentRegistry, bindAgent } from "./agent-registry.js";
@@ -87,7 +86,6 @@ export interface ProductServicesOptions {
   readonly productHome: string;
   readonly cwd: string;
   readonly agents?: AgentRegistry;
-  readonly referenceProvider?: ReferenceProvider;
 }
 
 export class ProductServices {
@@ -149,26 +147,12 @@ export class ProductServices {
             return { ruleId: "source.unresolved", severity: "warning", message: error.message };
           }
         }
-        const provider = this.options.referenceProvider;
-        if (provider && resource.toLowerCase().startsWith(provider.scheme.toLowerCase())) {
-          const permissions = this.currentPermissions().tools;
-          if (
-            !permissions.includes("science.read") ||
-            !provider.requiredPermissions.every((permission) => permissions.includes(permission))
-          ) {
-            return {
-              ruleId: "source.unresolved",
-              severity: "warning",
-              message: "Domain reference read permission is required.",
-            };
-          }
-          return provider.checkResource(resource);
-        }
-        if (/^sx:/iu.test(resource)) {
+        if (/^[a-z][a-z0-9+.-]*:/iu.test(resource)) {
           return {
-            ruleId: "source.unresolved",
+            ruleId: "source.unverified",
             severity: "warning",
-            message: "No domain reference provider is configured for this directory.",
+            message:
+              "External reference is recorded, not verified by SwarmX. Use the domain Agent or tool to assess it.",
           };
         }
         return undefined;
@@ -235,7 +219,7 @@ export class ProductServices {
       {
         name: "work",
         description:
-          "Inspect the current managed work goal, acceptance, shared budget and feedback with {action:'status'}. Submit pinned domain references with {action:'submit',artifacts:[{id,revision}]}. Submission is not acceptance. Budgets and acceptance are controlled by the trusted Host caller.",
+          "Inspect the current managed work goal, acceptance, shared budget, feedback and recent submissionEvidence source references with {action:'status'}. Submit opaque artifact identities with {action:'submit',artifacts:[{id,revision,evidence:[executionSource]}]}. Evidence must cite observed records from this work runtime; it establishes provenance, not artifact validity. Domain checks use ordinary Agent/tool calls. Submission is not acceptance. Budgets and acceptance are controlled by the trusted Host caller.",
         inputSchema: z.toJSONSchema(WorkCall),
       },
       {
@@ -429,25 +413,10 @@ export class ProductServices {
         if (typeof workId !== "string" || typeof attemptId !== "string")
           throw new Error("No managed work is attached to this execution.");
         if (call.action === "status")
-          return this.work.prepare(workId, (candidate) => this.admittedWork(candidate));
-        if (!this.currentPermissions().tools.includes("science.read"))
-          throw new Error("Science read permission is required to submit evidence.");
-        const provider = this.options.referenceProvider;
-        if (!provider)
-          throw new Error("No domain reference provider is configured for this directory.");
-        if (
-          !provider.requiredPermissions.every((permission) =>
-            this.currentPermissions().tools.includes(permission),
-          )
-        )
-          throw new Error("Domain reference provider permission is required.");
-        for (const artifact of call.artifacts) {
-          if (!artifact.id.startsWith(provider.scheme))
-            throw new Error("Unsupported domain reference scheme.");
-          const resolved = provider.resolve(artifact.id);
-          if (resolved.revision !== artifact.revision || resolved.exactId !== artifact.id)
-            throw new Error("Submit an exact domain resource ID and its matching revision.");
-        }
+          return {
+            ...this.work.prepare(workId, (candidate) => this.admittedWork(candidate)),
+            submissionEvidence: this.work.submissionEvidence(attemptId),
+          };
         return this.work.submit(attemptId, call.artifacts);
       }
       if (name === "memory") {
@@ -988,6 +957,6 @@ const WorkCall = z.discriminatedUnion("action", [
   z.strictObject({ action: z.literal("status") }),
   z.strictObject({
     action: z.literal("submit"),
-    artifacts: z.array(z.strictObject({ id: Id, revision: Id })).max(100),
+    artifacts: z.array(WorkArtifactSubmissionSchema).max(100),
   }),
 ]);

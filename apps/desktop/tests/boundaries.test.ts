@@ -23,6 +23,7 @@ describe("architecture boundaries", () => {
       "native/writing-preview-runtime",
       "apps/desktop/resources/python",
       "apps/desktop/src/host/research-environment.ts",
+      "apps/desktop/src/reference-provider.ts",
       "apps/desktop/src/renderer/figure-studio.tsx",
     ])
       expect(existsSync(join(root, path)), path).toBe(false);
@@ -30,7 +31,9 @@ describe("architecture boundaries", () => {
       .filter((path) => [".ts", ".tsx"].includes(extname(path)))
       .map((path) => readFileSync(path, "utf8"))
       .join("\n");
-    expect(source).not.toMatch(/@swarmx\/science|ScienceCore|createScienceToolDefinitions/u);
+    expect(source).not.toMatch(
+      /@swarmx\/science|ScienceCore|createScienceToolDefinitions|referenceProvider/u,
+    );
   });
 
   it("keeps software quality and release checks independent of the manuscript project", () => {

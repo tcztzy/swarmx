@@ -53,9 +53,9 @@ Start with a conversation. **Observe / 观测与溯源** shows execution evidenc
 traces. Work manages durable goals, budgets and independent acceptance. Settings controls language,
 Host permissions and Memory. English and Simplified Chinese preferences survive restart.
 
-Domain applications retain their scientific records, revisions and artifact bytes. A trusted
-in-process Host can inject a workspace-bound reference provider; the external ACP launcher does
-not automatically register one. See [domain references](docs/domain-projects.md). Existing
+Domain applications retain their scientific records, revisions and artifact bytes. Coordinating Agents use ordinary capability descriptions and authorized Agent/tool calls for
+domain operations. SwarmX records opaque identities and observed execution evidence; it does not
+centrally resolve scientific resources. See [domain references](docs/domain-projects.md). Existing
 scientific data is not deleted or rewritten by this extraction.
 
 Use `SWARMX_AGENT=codex|claude|dsh|hermes|openclaw|acp` or the Agent selector. Native setup and external

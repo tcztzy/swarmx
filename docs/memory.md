@@ -264,7 +264,7 @@ replaced by a fresh proposal. Settings are saved in `$SWARMX_HOME/memory.json`.
 The shared validator reports `ruleId`, relative `path`, `line`, `column`, `severity`, `message`,
 and the SHA-256 `revision` of the bytes inspected (`null` when an unsafe, missing, oversized,
 or scan-limited path could not be read). Its clock is an explicit ISO datetime `now`;
-the same authorized file and domain resource snapshots and clock produce the same diagnostics. Unknown frontmatter
+the same authorized file and execution-journal snapshots and clock produce the same diagnostics. Unknown frontmatter
 fields and concept types remain supported. These are SwarmX authoring rules, not a claim that
 every warning violates OKF.
 
@@ -277,7 +277,7 @@ every warning violates OKF.
   require a source. Markdown code blocks and inline code are literal examples, not references.
 - Index syntax is checked separately from concept frontmatter. `README.md` and `USER.md` are
   notes, not concepts, and are excluded from concept checks.
-- Domain sources use the trusted workspace-bound provider after Host permission checks. Legacy `sx:` references without a provider remain unresolved warnings; see [domain references](domain-projects.md).
+- External URI sources, including legacy `sx:` identifiers, are opaque and receive `source.unverified` warnings. SwarmX does not validate their domain state; see [domain references](domain-projects.md).
   Invalid addresses are errors; unavailable resources or changed revisions require review.
   No network requests, automatic revision substitution, or claims of factual verification.
 
@@ -321,4 +321,4 @@ An explicit file check still reports scan failures that prevent a complete snaps
 
 Configured Memory resource checkers receive references without a built-in scientific parser.
 They return no diagnostic for schemes they do not own; local Memory path validation still runs.
-The Host dispatches only the configured domain scheme and retains execution-URN ownership.
+The Host validates only its owned execution URNs and marks external URI sources unverified.

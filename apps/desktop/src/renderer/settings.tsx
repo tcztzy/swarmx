@@ -115,7 +115,12 @@ export function SettingsPage({ sessionId }: { sessionId?: string | undefined }) 
                       await bridge().settings.update({
                         ...settings.policy,
                         filesystem: data.get("filesystem"),
-                        tools: data.getAll("tools"),
+                        tools: [
+                          ...data.getAll("tools"),
+                          ...settings.policy.tools.filter(
+                            (grant) => grant === "science.read" || grant === "science.write",
+                          ),
+                        ],
                         delegation: data.has("delegation"),
                       }),
                     );
@@ -142,24 +147,24 @@ export function SettingsPage({ sessionId }: { sessionId?: string | undefined }) 
                       {t("此设置控制提示词与技能学习，不改变原生 Agent 的文件权限。")}
                     </p>
                     <p className="field-label">{t("Swarm 工具授权")}</p>
-                    {ToolGrantSchema.options.map((grant) => (
-                      <label key={grant} className="flex items-center gap-2 text-sm">
-                        <input
-                          type="checkbox"
-                          name="tools"
-                          value={grant}
-                          defaultChecked={settings.policy.tools.includes(grant)}
-                        />
-                        {
+                    {ToolGrantSchema.options
+                      .filter((grant) => grant !== "science.read" && grant !== "science.write")
+                      .map((grant) => (
+                        <label key={grant} className="flex items-center gap-2 text-sm">
+                          <input
+                            type="checkbox"
+                            name="tools"
+                            value={grant}
+                            defaultChecked={settings.policy.tools.includes(grant)}
+                          />
                           {
-                            "memory.read": t("读取记忆"),
-                            "memory.write": t("修改记忆"),
-                            "science.read": t("读取领域引用"),
-                            "science.write": t("旧版领域写入授权"),
-                          }[grant]
-                        }
-                      </label>
-                    ))}
+                            {
+                              "memory.read": t("读取记忆"),
+                              "memory.write": t("修改记忆"),
+                            }[grant]
+                          }
+                        </label>
+                      ))}
                     <label className="flex items-center gap-2 text-sm">
                       <input
                         type="checkbox"

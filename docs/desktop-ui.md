@@ -230,4 +230,8 @@ conversation and a narrow viewport.
 
 Settings retains the project prompt/skill file-access selector. Read-only blocks resource learning
 and updates; workspace-write permits the registered, validated approval flow. Users can enable
-or tighten it independently of native Agent filesystem permissions and domain reference grants.
+or tighten it independently of native Agent filesystem permissions and Memory grants.
+
+Work displays each opaque artifact identity and revision with its cited execution sources.
+Sources open the existing execution inspector. Older records without sources are explicitly
+unverified; recorded provenance does not establish the domain claim.

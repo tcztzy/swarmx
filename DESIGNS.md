@@ -4,7 +4,7 @@
 [ROADMAP](ROADMAP.md) tracks unfinished milestones. This document defines data and execution ownership.
 
 The Host owns ProductServices and lazily loaded native Agents. It resolves `SWARMX_CWD` or the
-process's starting directory once; all execution uses that canonical directory. Execution journal records are isolated by a hash of the directory; borrowed domain resolvers are workspace-bound. Settings and Memory are shared in the private
+process's starting directory once; all execution uses that canonical directory. Execution journal records are isolated by a hash of the directory; domain applications own their own workspace and scientific state. Settings and Memory are shared in the private
 product home. Each Swarm borrows its lead Agent and forwards
 method calls and Observer callbacks in process. The owner disposes the lead; disposing a Swarm
 does not close a borrowed native runtime. MCP's `swarm` tool enters the same direct delegation tree.
@@ -105,9 +105,10 @@ storage is not rewritten or deleted. Native Agents continue to own their tools a
 external scientific applications. Graph nodes and edges are read-only projections, without an
 independent store or editable relations.
 
-`ProductServicesOptions.referenceProvider` and `startDesktopPlatform` accept a trusted borrowed
-resolver. It declares its scheme and required Host grants, resolves a current exact ID/revision,
-and supplies Memory diagnostics. The Host checks authority before calling it and preserves Work's
-exact-ID/revision checks. The caller owns provider lifetime and workspace binding. This option is
-not accepted over IPC, tools or ACP; external ACP launch does not automatically connect a resolver.
-See [domain projects](docs/domain-projects.md) for the exact integration seam and its limits.
+Domain capability descriptions and the existing generic Agent/tool call path determine where
+scientific work runs. The Host contains no GEEPilot-specific connector or scientific resolver.
+Work stores opaque artifact identities and immutable execution references. It validates ownership
+of the cited observations by directory, Work item and runtime. It does not infer artifact validity
+from identity strings, hashes or a model's own report. Independent acceptance retains the criteria,
+evaluator report and exact submitted identities/evidence. Memory checks owned execution URNs and
+marks external URI references unverified. See [domain projects](docs/domain-projects.md).

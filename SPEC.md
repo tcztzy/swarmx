@@ -92,7 +92,7 @@ Durable product requirements. See [product direction](docs/product-direction.md)
 
 - The Host authorizes SwarmX product tools, harness/model admission and delegation. Effective grants
   intersect Host policy, caller, named Swarm and saved conversation grants; children cannot widen them.
-  Tool grants distinguish Memory reads/writes and retained domain-reference grants. Every native product MCP call binds to
+  Active tool grants distinguish Memory reads and writes; old domain grant strings are inert saved data. Every native product MCP call binds to
   an active execution. These checks govern Host APIs, not arbitrary native processes or files.
 - Ordinary tasks use harness-native permission modes, discovered and selected through native APIs without
   a shared ranking or sandbox/approval overrides. Approvals retain native options and scope; late
@@ -109,12 +109,13 @@ Durable product requirements. See [product direction](docs/product-direction.md)
 
 - Scientific models, notebooks, artifact stores and execution environments belong to domain
   applications. SwarmX does not expose Science tools or scientific IPC routes.
-- A trusted, borrowed workspace-bound reference provider may be configured at Host creation.
-  Domain lookups require the retained `science.read` grant plus the provider's declared grants
-  before invoking its callbacks. Work submission requires an exact ID and matching revision;
-  an absent provider fails closed. Execution URNs remain owned by the Host journal.
-  Tool/IPC/ACP payloads cannot install providers. External ACP does not auto-register a domain
-  provider; this is an in-process integration boundary, not an implemented cross-process resolver.
+- Domain checks use ordinary authorized Agent/tool calls discovered from their capability
+  descriptions. Work records opaque artifact IDs/revisions with required producing/verification
+  execution references. The Host validates directory, Work and runtime provenance, not domain
+  syntax or scientific validity. Self-reports remain claims; independent acceptance pins the
+  identities, evidence, criteria and evaluator report. There is no domain resolver registration.
+  Legacy records without evidence stay readable but do not qualify as new artifact submissions.
+  Memory validates owned execution URNs and labels other URI references unverified.
 
 - Agent: models/list/create/read/start/steer/interrupt/dispose. Model catalogs and per-run
   model/effort/mode selections delegate through nested Swarms to the native integration.

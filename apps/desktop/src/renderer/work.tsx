@@ -696,15 +696,41 @@ function ItemCard({
             {attempt.artifacts.map((artifact) => (
               <div
                 key={`${artifact.id}@${artifact.revision}`}
-                className="flex max-w-full items-center gap-2 rounded-md border border-neutral-200 p-2 text-xs"
+                className="w-full min-w-0 space-y-2 rounded-md border border-neutral-200 p-2 text-xs"
               >
-                <span className="break-all">
-                  {t("成果版本")}: {artifact.id} · {artifact.revision}
-                </span>
-                <CopyButton compact value={JSON.stringify(artifact)} label={t("复制成果引用")} />
+                <div className="flex items-center gap-2">
+                  <span className="min-w-0 flex-1 break-all">
+                    {t("成果版本")}: {artifact.id} · {artifact.revision}
+                  </span>
+                  <CopyButton compact value={JSON.stringify(artifact)} label={t("复制成果引用")} />
+                </div>
+                {(artifact.evidence ?? []).length > 0 ? (
+                  <div className="space-y-2">
+                    <p className="text-neutral-500">{t("引用的执行证据")}</p>
+                    {artifact.evidence?.map((resource) => (
+                      <Button
+                        key={resource}
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="h-auto max-w-full py-2 text-left font-mono text-xs whitespace-normal break-all"
+                        onClick={() => openSource(resource, t("引用的执行证据"))}
+                      >
+                        {resource}
+                      </Button>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-neutral-500">{t("未验证的旧版记录：未引用执行证据。")}</p>
+                )}
               </div>
             ))}
           </div>
+          {attempt.artifacts.length > 0 && (
+            <p className="text-xs text-neutral-500">
+              {t("记录的来源不验证领域结论；验收另行进行。")}
+            </p>
+          )}
           {attempt.purpose === "execution" && attempt.finishedAt && (
             <FeedbackForm
               key={`${attempt.id}:${feedback?.id ?? "new"}`}

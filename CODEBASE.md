@@ -11,7 +11,6 @@
 | `apps/desktop/src/private-json.ts` | atomic private JSON writes with restricted permissions |
 | `apps/desktop/src/ipc.ts` | trusted-window IPC handlers and AG-UI event delivery |
 | `apps/desktop/src/permissions.ts` | Host tool/delegation grants, harness/model admission and non-widening inheritance; see `docs/permissions.md` |
-| `apps/desktop/src/reference-provider.ts` | trusted workspace-bound domain reference provider contract; no scientific implementation |
 | `apps/desktop/src/platform.ts` | Host startup and lifecycle |
 | `apps/desktop/src/agent.ts` | lazy integration selection and native session ownership |
 | `apps/desktop/src/agents/` | external ACP, native Codex App Server, Claude/DSH SDKs, Hermes TUI Gateway and OpenClaw Gateway Client, settings and Host event projection; see `docs/native-agents.md` |

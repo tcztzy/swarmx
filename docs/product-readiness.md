@@ -16,9 +16,10 @@ belong to domain applications. No Docker or Rust compiler is required by the Swa
 
 Settings and Host grants are validated. Native modes retain their harness semantics; SwarmX does
 not promise a cross-harness filesystem sandbox. Journal evidence remains directory-scoped.
-A trusted in-process domain provider may resolve Work/Memory references with explicit permissions
-and exact revisions. Without it, Work domain submission fails closed and old `sx:` citations remain
-unresolved. External ACP does not auto-register this provider; see [domain integration](domain-projects.md).
+Domain operations use generic authorized Agent/tool calls. Work requires observed execution
+evidence scoped to its directory and runtime; artifact identities remain unverified domain claims
+until independently assessed. Memory labels external URI references unverified. See
+[domain integration](domain-projects.md).
 
 Linux/macOS × Node 22/24 quality checks validate the selected candidate. Native macOS packaging
 has its own platform checks; no Windows or Linux installer claim is made. Language, native
@@ -77,4 +78,4 @@ payload files. Hashes do not establish scientific truth or that a behavioral jud
 macOS packaging is described in [macOS releases](macos-release.md); one architecture's successful
 build does not verify another. Live Harness coverage and independent security assessment require
 their own execution evidence. Domain scientific workflows require separately configured runtime
-integration and acceptance; the trusted provider seam alone does not establish that workflow.
+integration and acceptance; recorded provenance alone does not establish domain correctness.

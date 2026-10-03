@@ -16,11 +16,11 @@ carry configuration and approval messages; external ACP projects them for its cl
 }
 ```
 
-Tool grants retain `memory.read`, `memory.write`, `science.read` and `science.write` for saved
-policy compatibility. Memory reads include session recall and vault/core-note reads. `science.read`
-is required before trusted domain reference callbacks, along with any provider-declared grants.
-`science.write` has no active built-in tool implementation. No Science product tools remain.
-Missing authority prevents callback invocation; missing providers fail closed for Work submission.
+Active tool grants are `memory.read` and `memory.write`; reads include session recall and
+vault/core-note reads. Legacy `science.read`/`science.write` strings remain readable in saved
+policies but have no active Host implementation or Settings controls. No scientific product tools
+or resolver callbacks remain. Work submission is bound to its active managed execution and validates
+its own journal evidence ownership; this is separate from domain correctness and acceptance.
 
 Omitted request fields inherit. Host defaults allow all four tool grants, configured harnesses
 and delegation. An omitted harness is unavailable; a null model list permits its native models,

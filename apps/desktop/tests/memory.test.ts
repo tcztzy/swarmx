@@ -11,13 +11,13 @@ import { HostOperations } from "../src/host/operations.js";
 import { ProductServices } from "../src/host/product-services.js";
 import { startHost } from "../src/host/server.js";
 import { policyPermissions } from "../src/permissions.js";
-import type { ReferenceProvider } from "../src/reference-provider.js";
 import { bridgeClient } from "./mcp-bridge-support.js";
 
-const unresolvedSource = {
-  ruleId: "source.unresolved",
+const unverifiedSource = {
+  ruleId: "source.unverified",
   severity: "warning",
-  message: "Reference is unavailable in this directory or its revision has changed.",
+  message:
+    "External reference is recorded, not verified by SwarmX. Use the domain Agent or tool to assess it.",
 } as const;
 
 function createSourceMemory(products: ProductServices, resource: string) {
@@ -35,15 +35,6 @@ function createSourceMemory(products: ProductServices, resource: string) {
     },
     { actorId: "actor", callId: randomUUID(), signal: new AbortController().signal },
   );
-}
-
-function trustedProvider(scheme = "sx:") {
-  return {
-    scheme,
-    requiredPermissions: ["science.read", "science.write"] as const,
-    resolve: vi.fn<ReferenceProvider["resolve"]>((id) => ({ id, exactId: id, revision: "1" })),
-    checkResource: vi.fn<ReferenceProvider["checkResource"]>(() => undefined),
-  };
 }
 
 it("exposes Memory operations, rejects model approvals and persists across Host restarts", async () => {
@@ -160,69 +151,48 @@ it("exposes Memory operations, rejects model approvals and persists across Host 
   }
 });
 
-it.each(["sx:", "bio:"])(
-  "checks Memory %s sources with the trusted directory provider",
-  async (scheme) => {
-    const root = await mkdtemp(join(tmpdir(), "swarmx-memory-provider-"));
-    const exact = `${scheme}p/evidence@1`;
-    const referenceProvider = trustedProvider(scheme);
-    referenceProvider.checkResource.mockImplementation((resource) => {
-      if (resource === `${scheme}invalid`)
-        return { ruleId: "source.invalid", severity: "error", message: "Invalid domain resource." };
-      return resource === exact ? undefined : unresolvedSource;
+it.each([
+  "sx:p/evidence@1",
+  "sx:invalid-domain-claim",
+  "bio:dataset/evidence@v3",
+  "http://example.org/evidence",
+  "https://example.org/evidence",
+  "other:reference",
+])("records external Memory source %s as unverified without domain lookup", async (resource) => {
+  const root = await mkdtemp(join(tmpdir(), "swarmx-memory-external-source-"));
+  const products = await ProductServices.create({
+    productHome: join(root, "product"),
+    cwd: root,
+  });
+  try {
+    await expect(createSourceMemory(products, resource)).resolves.toMatchObject({
+      data: { metadata: { sources: [{ id: "evidence", resource }] } },
+      diagnostics: expect.arrayContaining([expect.objectContaining(unverifiedSource)]),
     });
-    const products = await ProductServices.create({
-      productHome: join(root, "product"),
-      cwd: root,
-      referenceProvider,
-    });
-    const context = { actorId: "actor", callId: "lint-test", signal: new AbortController().signal };
-    try {
-      await expect(createSourceMemory(products, `${scheme}invalid`)).rejects.toMatchObject({
-        code: "INVALID_CONCEPT",
-      });
-      expect((await products.memory.vault.search({ query: "Evidence" })).items).toEqual([]);
-      await expect(createSourceMemory(products, exact)).resolves.toMatchObject({ diagnostics: [] });
-      for (const resource of [`${scheme}p/evidence@2`, `${scheme}p/missing@1`]) {
-        await expect(createSourceMemory(products, resource)).resolves.toMatchObject({
-          diagnostics: expect.arrayContaining([expect.objectContaining(unresolvedSource)]),
-        });
-      }
-      const linted = await products.callTool(
-        "memory",
-        { action: "lint_memory", request: {} },
-        context,
-      );
-      expect(linted).toMatchObject({
-        action: "lint_memory",
-        data: expect.arrayContaining([
-          expect.objectContaining({ ruleId: "source.unresolved", severity: "warning" }),
-        ]),
-      });
-      expect(referenceProvider.checkResource).toHaveBeenCalledWith(exact);
-      expect(referenceProvider.resolve).not.toHaveBeenCalled();
-    } finally {
-      await products.dispose();
-    }
-    const otherDirectory = join(root, "other");
-    await mkdir(otherDirectory);
-    const otherProvider = trustedProvider(scheme);
-    otherProvider.checkResource.mockReturnValue(unresolvedSource);
-    const other = await ProductServices.create({
-      productHome: join(root, "product"),
-      cwd: otherDirectory,
-      referenceProvider: otherProvider,
-    });
-    try {
-      const issues = await other.memory.vault.lint();
-      expect(issues.filter((issue) => issue.ruleId === "source.unresolved")).toHaveLength(3);
-      expect(otherProvider.checkResource).toHaveBeenCalledWith(exact);
-    } finally {
-      await other.dispose();
-      await rm(root, { recursive: true, force: true });
-    }
-  },
-);
+    const issues = await products.memory.vault.lint();
+    expect(issues.filter((issue) => issue.ruleId === "source.unverified")).toEqual([
+      expect.objectContaining(unverifiedSource),
+    ]);
+    expect(issues.some((issue) => issue.ruleId === "source.unresolved")).toBe(false);
+  } finally {
+    await products.dispose();
+  }
+  const otherDirectory = join(root, "other");
+  await mkdir(otherDirectory);
+  const reopened = await ProductServices.create({
+    productHome: join(root, "product"),
+    cwd: otherDirectory,
+  });
+  try {
+    const issues = await reopened.memory.vault.lint();
+    expect(issues.filter((issue) => issue.ruleId === "source.unverified")).toEqual([
+      expect.objectContaining(unverifiedSource),
+    ]);
+  } finally {
+    await reopened.dispose();
+    await rm(root, { recursive: true, force: true });
+  }
+});
 
 it.each([
   ["science.read", "policy"],
@@ -230,18 +200,12 @@ it.each([
   ["science.write", "policy"],
   ["science.write", "execution"],
 ] as const)(
-  "does not invoke the Memory provider without %s permission in the %s",
+  "retains an unverified external source without %s permission in the %s",
   async (deniedPermission, authority) => {
-    const root = await mkdtemp(join(tmpdir(), "swarmx-memory-provider-auth-"));
-    const referenceProvider = {
-      ...trustedProvider(),
-      requiredPermissions:
-        deniedPermission === "science.read" ? [] : (["science.read", "science.write"] as const),
-    };
+    const root = await mkdtemp(join(tmpdir(), "swarmx-memory-external-source-auth-"));
     const products = await ProductServices.create({
       productHome: join(root, "product"),
       cwd: root,
-      referenceProvider,
     });
     try {
       const { policy } = products.settings.read();
@@ -265,12 +229,8 @@ it.each([
               create,
             );
       await expect(result).resolves.toMatchObject({
-        diagnostics: expect.arrayContaining([
-          expect.objectContaining({ ruleId: "source.unresolved", severity: "warning" }),
-        ]),
+        diagnostics: expect.arrayContaining([expect.objectContaining(unverifiedSource)]),
       });
-      expect(referenceProvider.resolve).not.toHaveBeenCalled();
-      expect(referenceProvider.checkResource).not.toHaveBeenCalled();
     } finally {
       await products.dispose();
       await rm(root, { recursive: true, force: true });
@@ -278,64 +238,50 @@ it.each([
   },
 );
 
-it.each(["missing", "different-scheme"])(
-  "preserves unresolved Memory diagnostics with a %s provider",
-  async (configuration) => {
-    const root = await mkdtemp(join(tmpdir(), "swarmx-memory-provider-missing-"));
-    const referenceProvider = trustedProvider("bio:");
-    const products = await ProductServices.create({
-      productHome: join(root, "product"),
-      cwd: root,
-      ...(configuration === "missing" ? {} : { referenceProvider }),
-    });
-    try {
-      for (const resource of ["https://example.org/evidence", "other:reference"])
-        await expect(createSourceMemory(products, resource)).resolves.toMatchObject({
-          diagnostics: [],
-        });
-      await expect(createSourceMemory(products, "sx:p/evidence@1")).resolves.toMatchObject({
-        diagnostics: expect.arrayContaining([
-          expect.objectContaining({ ruleId: "source.unresolved", severity: "warning" }),
-        ]),
-      });
-      expect(referenceProvider.resolve).not.toHaveBeenCalled();
-      expect(referenceProvider.checkResource).not.toHaveBeenCalled();
-    } finally {
-      await products.dispose();
-      await rm(root, { recursive: true, force: true });
-    }
-  },
-);
-
-it("propagates unexpected Memory provider failures without saving an unchecked concept", async () => {
-  const root = await mkdtemp(join(tmpdir(), "swarmx-memory-provider-failure-"));
-  const referenceProvider = trustedProvider();
-  const failure = new Error("Trusted reference store is unavailable.");
-  referenceProvider.checkResource.mockImplementation(() => {
-    throw failure;
-  });
-  const products = await ProductServices.create({
-    productHome: join(root, "product"),
-    cwd: root,
-    referenceProvider,
-  });
+it("preserves ordinary local Memory link validation alongside external-source warnings", async () => {
+  const root = await mkdtemp(join(tmpdir(), "swarmx-memory-local-source-"));
+  const products = await ProductServices.create({ productHome: join(root, "product"), cwd: root });
+  const context = { actorId: "actor", callId: randomUUID(), signal: new AbortController().signal };
   try {
-    await expect(createSourceMemory(products, "sx:p/evidence@1")).rejects.toBe(failure);
-    expect((await products.memory.vault.search({ query: "Evidence" })).items).toEqual([]);
-    expect(referenceProvider.resolve).not.toHaveBeenCalled();
+    await products.callTool(
+      "memory",
+      {
+        action: "create_memory",
+        request: {
+          title: "Local decision",
+          type: "Decision",
+          description: "An existing local concept.",
+          body: "# Local decision\n\nUse reproducible tests.",
+        },
+      },
+      context,
+    );
+    await expect(createSourceMemory(products, "local-decision.md")).resolves.toMatchObject({
+      diagnostics: [],
+    });
+    await expect(createSourceMemory(products, "missing-concept.md")).resolves.toMatchObject({
+      diagnostics: expect.arrayContaining([
+        expect.objectContaining({ ruleId: "link.broken", severity: "warning" }),
+      ]),
+    });
+    for (const resource of ["../outside.md", ".hidden.md"])
+      await expect(createSourceMemory(products, resource)).rejects.toMatchObject({
+        code: "INVALID_CONCEPT",
+      });
+    const issues = await products.memory.vault.lint();
+    expect(issues.some((issue) => issue.ruleId === "source.unverified")).toBe(false);
+    expect(issues.filter((issue) => issue.ruleId === "link.broken")).toHaveLength(1);
   } finally {
     await products.dispose();
     await rm(root, { recursive: true, force: true });
   }
 });
 
-it("keeps execution-source validation in the directory journal without calling a domain provider", async () => {
+it("keeps execution-source validation in the directory journal without science.read", async () => {
   const root = await mkdtemp(join(tmpdir(), "swarmx-memory-execution-source-"));
-  const referenceProvider = trustedProvider("urn:swarmx:execution:");
   const products = await ProductServices.create({
     productHome: join(root, "product"),
     cwd: root,
-    referenceProvider,
   });
   try {
     const { policy } = products.settings.read();
@@ -357,8 +303,6 @@ it("keeps execution-source validation in the directory journal without calling a
     await expect(createSourceMemory(products, "urn:swarmx:execution:invalid")).rejects.toThrow(
       "Invalid execution source",
     );
-    expect(referenceProvider.resolve).not.toHaveBeenCalled();
-    expect(referenceProvider.checkResource).not.toHaveBeenCalled();
   } finally {
     await products.dispose();
   }
@@ -367,13 +311,10 @@ it("keeps execution-source validation in the directory journal without calling a
   const other = await ProductServices.create({
     productHome: join(root, "product"),
     cwd: otherDirectory,
-    referenceProvider,
   });
   try {
     const issues = await other.memory.vault.lint();
     expect(issues.filter((issue) => issue.ruleId === "source.unresolved")).toHaveLength(1);
-    expect(referenceProvider.resolve).not.toHaveBeenCalled();
-    expect(referenceProvider.checkResource).not.toHaveBeenCalled();
   } finally {
     await other.dispose();
     await rm(root, { recursive: true, force: true });

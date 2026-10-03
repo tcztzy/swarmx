@@ -58,7 +58,24 @@ export const CreateWorkItemSchema = z.strictObject({
   supervisor: WorkConfigurationSchema.optional(),
   runtime: WorkRuntimeSchema.default({}),
 });
-export const WorkArtifactSchema = z.strictObject({ id: Id, revision: Id });
+const WorkEvidenceSchema = z
+  .array(z.templateLiteral(["urn:swarmx:execution:", z.uuid()]))
+  .max(64)
+  .refine(
+    (sources) => new Set(sources).size === sources.length,
+    "Evidence sources must be unique.",
+  );
+export const WorkArtifactSchema = z.strictObject({
+  id: Id,
+  revision: Id,
+  evidence: WorkEvidenceSchema.optional(),
+});
+export const WorkArtifactSubmissionSchema = WorkArtifactSchema.extend({
+  evidence: WorkEvidenceSchema.refine(
+    (sources) => sources.length > 0,
+    "Execution evidence is required.",
+  ),
+});
 export const WorkItemSchema = CreateWorkItemSchema.extend({
   createdAt: z.iso.datetime(),
   state: z.enum(["queued", "running", "awaiting-acceptance", "accepted", "blocked"]),

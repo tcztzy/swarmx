@@ -110,9 +110,9 @@ retain their separate restricted native configuration; no cross-harness tool-fre
 isolation guarantee is claimed. See [permissions](permissions.md).
 
 Scientific models, notebook/figure execution and artifact stores belong to domain applications.
-There is no Science or environment IPC surface. A trusted embedding Host may supply a
-workspace-bound domain reference provider; Work requires exact ID/revision and read grants before
-calling it. External ACP launch does not register one automatically. See [domain integration](domain-projects.md).
+There is no Science or environment IPC surface. Domain operations use ordinary described Agent/tool capabilities. Work keeps opaque IDs/revisions
+and validates producing/verification execution references against its own directory and Work runtime.
+It does not resolve domain resources or treat observed claims as scientific verification. See [domain integration](domain-projects.md).
 Legacy scientific settings and reference strings stay readable without activating a runtime.
 
 The `tool` bridge invokes registered generic product tools, and `cancelTool` aborts its matching call.
