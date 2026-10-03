@@ -16,6 +16,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
 import { afterEach, expect, it, vi } from "vitest";
+import { renderConcept } from "../src/markdown.js";
 import { importModelObservation, queryModelExperience } from "../src/model-experience.js";
 import { MemoryVault } from "../src/vault.js";
 
@@ -405,15 +406,26 @@ it("does not print private paths or artifact contents in CLI failures", async ()
 
 it("bounds the exact CLI snapshot output, including detailed bodies", async () => {
   const { vault } = await setup();
-  for (let i = 0; i < 20; i++) {
-    await vault.createConcept({
-      title: `Trial ${i}`,
-      type: "Finding",
-      description: "Synthetic",
-      tags: ["agent-selection"],
-      body: "x".repeat(12500),
-    });
-  }
+  await mkdir(vault.root);
+  await Promise.all(
+    Array.from({ length: 20 }, (_, i) =>
+      writeFile(
+        join(vault.root, `trial-${i}.md`),
+        renderConcept(
+          {
+            title: `Trial ${i}`,
+            type: "Finding",
+            description: "Synthetic",
+            tags: ["agent-selection"],
+            generated: { at: "2026-01-02T03:04:05Z", by: "synthetic-fixture" },
+            status: "draft",
+            sources: [],
+          },
+          "x".repeat(12500),
+        ),
+      ),
+    ),
+  );
   const { stdout } = await promisify(execFile)(
     process.execPath,
     [
