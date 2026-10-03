@@ -206,6 +206,23 @@ it("keeps feedback arriving during snapshot preparation for the next exact batch
 it("saves feedback-grounded experience that later selection can retrieve", async () => {
   const { products, memory, reviewer, feedback } = await fixture();
   const source = feedback("failed");
+  const completed = Promise.withResolvers<void>();
+  const append = products.journal.append.bind(products.journal);
+  vi.spyOn(products.journal, "append").mockImplementation((...args) => {
+    const record = append(...args);
+    if (
+      record.event.type === EventType.CUSTOM &&
+      record.event.name === "swarmx.memory.review.finished" &&
+      record.event.value.jobId
+    ) {
+      if (record.event.value.state === "failed") {
+        completed.reject(new Error(String(record.event.value.message)));
+      } else if (record.event.value.terminalIds?.includes(source.id)) {
+        completed.resolve();
+      }
+    }
+    return record;
+  });
   reviewer.mockResolvedValue(
     JSON.stringify({
       summary: "Retain one independently checked failure.",
@@ -231,7 +248,8 @@ it("saves feedback-grounded experience that later selection can retrieve", async
     }),
   );
   memory.resume();
-  await vi.waitFor(() => expect(products.journal.pendingLearningRuns()).toEqual([]));
+  await completed.promise;
+  expect(products.journal.pendingLearningRuns()).toEqual([]);
   const selection = await memory.selection(["Included Mean"], new AbortController().signal);
   expect(selection.loaded.flatMap(({ concepts }) => concepts)).toContainEqual(
     expect.objectContaining({
