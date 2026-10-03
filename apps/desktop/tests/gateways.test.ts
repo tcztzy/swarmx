@@ -50,7 +50,7 @@ describe("external gateways", () => {
       ).rejects.toThrow("Unknown SwarmX product tool");
       const other = await createGateway();
       try {
-        expect(() => other.operations.evidence({ sources })).toThrow("another directory");
+        await expect(other.operations.evidence({ sources })).rejects.toThrow("another directory");
         expect((await other.operations.settings()).policy).toEqual(DEFAULT_POLICY);
         expect(await gateway.operations.evidence({ sources })).toEqual(evidence);
         expect((await gateway.operations.settings()).policy).toEqual(policy);
