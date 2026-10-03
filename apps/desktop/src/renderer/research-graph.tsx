@@ -113,7 +113,7 @@ export function ResearchGraph({
 }) {
   useTranslation();
   const graph = crateGraph(document, query, selected, neighborhood);
-  return <GraphView graph={graph} onSelect={onSelect} label={t("研究关系图谱")} />;
+  return <GraphView graph={graph} onSelect={onSelect} label={t("RO-Crate 图谱")} />;
 }
 
 export function GraphView({

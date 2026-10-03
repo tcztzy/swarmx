@@ -5,7 +5,7 @@
 | Path | Ownership |
 | --- | --- |
 | `apps/desktop/src/main.ts` | Electron lifecycle |
-| `apps/desktop/src/settings.ts` | shared strict execution policy and environment schemas |
+| `apps/desktop/src/settings.ts` | shared strict execution policy and persisted legacy settings |
 | `apps/desktop/src/bridge-contract.ts` | validated Electron IPC payloads and renderer response schemas |
 | `apps/desktop/src/tool-manifest.ts` | shared product-tool manifest contract between the Host and native integrations |
 | `apps/desktop/src/private-json.ts` | atomic private JSON writes with restricted permissions |
@@ -41,7 +41,6 @@
 | `apps/desktop/src/host/learning-resources.ts` | opted-in prompt/skill snapshots, fixed structural validation and optional baseline/candidate behavior evaluation before revision-checked atomic replacement; see `docs/learning-resources.md` |
 | `apps/desktop/src/host/memory-review.ts` | restricted, cancellable direct Agent execution with tool rejection |
 | `apps/desktop/src/memory.ts` | shared memory settings, graph and review UI schemas |
-| `apps/desktop/src/host/research-environment.ts` | Docker setup, immutable Python image, isolation, limits and cancellation |
 | `apps/desktop/src/host/settings-store.ts` | atomic private execution settings and user preferences |
 | `apps/desktop/src/execution-record.ts` | shared journal record, read response and run-control boundary schemas |
 | `apps/desktop/src/evaluation-crate.ts` | shared evaluation export request and Attached RO-Crate payload schemas |
@@ -54,8 +53,8 @@
 | `apps/desktop/src/renderer/commentary.tsx` | per-turn collapsible work, native duration labels and live phase observation |
 | `apps/desktop/src/renderer/tool-ui.tsx` | assistant-ui tool grouping, native activity summaries and shell terminal output |
 | `apps/desktop/src/renderer/subagents.tsx` | persistent delegation list, per-run conversation/log inspection and native child controls |
-| `apps/desktop/src/renderer/research.tsx` | conversation side view for assets, assistant edit drafts, react-o11y, scientific runs and RO-Crate |
-| `apps/desktop/src/renderer/source-inspection.tsx` | pinned artifact and execution evidence inspection, original records, scoped statistics, input identities and recorded computations |
+| `apps/desktop/src/renderer/observe.tsx` | generic execution evidence and react-o11y observation panel |
+| `apps/desktop/src/renderer/source-inspection.tsx` | execution evidence inspection, original records and scoped statistics |
 | `apps/desktop/src/renderer/saved-concept.tsx` | validated Memory-read result cards and source navigation from the current answer |
 | `apps/desktop/src/renderer/evaluation-export.tsx` | local ZIP download of evaluation and review evidence |
 | `apps/desktop/src/renderer/i18n.ts` and `locales/en.json` | English/Chinese UI, browser-language detection and shared translation catalog |
@@ -65,7 +64,6 @@
 | `apps/desktop/src/renderer/interaction-form.tsx` | native confirmation fields and responses shared by conversation and managed work |
 | `apps/desktop/src/renderer/bridge.ts` | typed access to the preload's product operations |
 | `apps/desktop/src/renderer/agui.ts` | assistant-ui AG-UI adapter over Electron IPC |
-| `apps/desktop/src/renderer/figure-studio.tsx` | cancellable Python figure generation and edits through Science tools |
 | `apps/desktop/tests/mcp-bridge-support.ts` | spawns the stdio MCP bridge against a test Host socket |
 | `apps/desktop/tests/` | native integrations, recursive gateways, AG-UI, renderer interactions, MCP and boundaries |
 | `apps/desktop/vite.config.ts` | Renderer bundle and development HMR configuration |
@@ -82,7 +80,6 @@
 | `packages/core/swarm/` | direct recursive Agent composition; the caller owns the borrowed lead |
 | `packages/core/swarm/skills/delegate/SKILL.md` | shared delegation skill exported with the Swarm package: combination selection, task fit and evidence requirements |
 | `packages/core/memory/skills/memory/SKILL.md` | shared Memory authoring guide exported with the Memory package, read on demand and used directly by background reviews |
-| `packages/science/core/` | scientific journal, artifacts, tools, and previews |
 
 Public packages do not depend on Electron, Renderer, AG-UI, A2A or provider SDKs.
 The Swarm package has no transport or protocol dependency.
@@ -101,7 +98,7 @@ Electron; `.github/workflows/release.yml` builds and checks native macOS DMGs be
 the development Electron child process.
 Manuscript sources, bibliography, publication evidence and their verification tools belong to the
 separate `swarmx-paper` project. Software build, test and release tooling has no dependency on it.
-The pinned Jupyter Data Science container recipe lives under `apps/desktop/resources/python/`.
+Scientific models, artifact stores and execution environments belong to independent domain applications.
 Local research downloads, visual comparisons, logs and preview scripts belong in ignored
 `runs/`. Promote software material that must ship into `docs/` or `scripts/` before committing;
 preserve publication evidence in `swarmx-paper`.

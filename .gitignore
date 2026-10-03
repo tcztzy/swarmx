@@ -5,8 +5,6 @@ dist/
 /apps/desktop/release/
 lib/
 !apps/desktop/src/renderer/lib/
-native/writing-preview-runtime/target/
-/packages/science/core/bin/
 coverage/
 *.js.map
 *.tsbuildinfo

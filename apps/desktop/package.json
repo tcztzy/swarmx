@@ -34,7 +34,6 @@
     "@openclaw/gateway-protocol": "2026.9.4",
     "@swarmx/evidence": "workspace:*",
     "@swarmx/memory": "workspace:*",
-    "@swarmx/science": "workspace:*",
     "@swarmx/swarm": "workspace:*",
     "@xyflow/react": "^12.11.6",
     "class-variance-authority": "0.7.1",

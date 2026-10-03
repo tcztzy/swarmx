@@ -113,11 +113,11 @@ export function SavedConcept({ concept }: { concept: z.infer<typeof Concept> }) 
             aria-pressed={selected === source.resource}
             onClick={() => {
               setSelected(source.resource);
-              window.dispatchEvent(new CustomEvent("swarmx:open-research", { detail: { source } }));
+              window.dispatchEvent(new CustomEvent("swarmx:open-source", { detail: { source } }));
             }}
           >
             <Icon
-              name={source.resource.startsWith("urn:swarmx:execution:") ? "trace" : "image"}
+              name={source.resource.startsWith("urn:swarmx:execution:") ? "trace" : "external"}
               className="size-5"
             />
             <span>

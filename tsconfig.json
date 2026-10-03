@@ -6,7 +6,6 @@
     { "path": "./packages/core/evidence" },
     { "path": "./packages/core/dvc" },
     { "path": "./packages/core/memory" },
-    { "path": "./packages/core/swarm" },
-    { "path": "./packages/science/core" }
+    { "path": "./packages/core/swarm" }
   ]
 }

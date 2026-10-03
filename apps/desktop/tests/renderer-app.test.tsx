@@ -80,24 +80,7 @@ beforeEach(async () => {
   gateway.sessionsList.mockResolvedValue(bootstrap.sessions);
   gateway.sessionsCreate.mockResolvedValue({ sessionId: "codex:new" });
   gateway.settingsRead.mockResolvedValue(settings);
-  gateway.environmentRead.mockResolvedValue({
-    state: "missing",
-    environment: null,
-    log: "",
-    activeProcesses: 0,
-  });
-  gateway.scienceWorkspace.mockResolvedValue({
-    projects: [],
-    notebooks: [],
-    artifacts: [],
-    documents: [],
-    figures: [],
-    records: [],
-    relations: [],
-    experiments: [],
-    runs: [],
-    exports: [],
-  });
+  gateway.logsEvidence.mockRejectedValue(new Error("Execution source unavailable in fixture"));
   gateway.tool.mockResolvedValue(memory);
 });
 
@@ -108,36 +91,41 @@ afterEach(() => {
 });
 
 describe("desktop task navigation", () => {
-  it("keeps chat mounted beside assets/observability and restores it after full-page settings and language changes", async () => {
+  it("keeps chat mounted beside execution observability and restores it after full-page settings and language changes", async () => {
     render(<App />);
     const conversation = await screen.findByTestId("conversation");
     const draft = screen.getByRole("textbox", { name: "draft fixture" });
-    fireEvent.click(screen.getByRole("button", { name: "科研资产", exact: true }));
-    await screen.findByRole("complementary", { name: "科研资产侧栏" });
-    expect(screen.getByTestId("conversation")).toBe(conversation);
+    expect(screen.queryByRole("button", { name: "科研资产", exact: true })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "观测与溯源", exact: true }));
-    await screen.findByRole("tab", { name: "RO-Crate 图谱" });
+    await screen.findByRole("complementary", { name: "观测侧栏" });
+    expect(screen.getByTestId("conversation")).toBe(conversation);
     expect(screen.getByText("Trace fixture")).toBeTruthy();
     await act(async () =>
       window.dispatchEvent(
-        new CustomEvent("swarmx:open-research", {
-          detail: { source: { resource: "sx:a/figure@1" } },
+        new CustomEvent("swarmx:open-source", {
+          detail: {
+            source: { resource: "urn:swarmx:execution:11111111-1111-4111-8111-111111111111" },
+          },
         }),
       ),
     );
-    await screen.findByRole("heading", { name: "来源检查" });
-    expect(screen.getByText("sx:a/figure@1")).toBeTruthy();
+    await screen.findByRole("heading", { name: "执行证据" });
+    expect(
+      screen.getAllByText("urn:swarmx:execution:11111111-1111-4111-8111-111111111111"),
+    ).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "关闭侧栏" }));
-    expect(screen.queryByText("sx:a/figure@1")).toBeNull();
+    expect(
+      screen.queryByText("urn:swarmx:execution:11111111-1111-4111-8111-111111111111"),
+    ).toBeNull();
     expect(screen.getByTestId("conversation")).toBe(conversation);
     expect(screen.getByRole("textbox", { name: "draft fixture" })).toBe(draft);
     fireEvent.click(screen.getByRole("button", { name: "观测与溯源", exact: true }));
-    await screen.findByRole("tab", { name: "RO-Crate 图谱" });
+    await screen.findByRole("complementary", { name: "观测侧栏" });
     fireEvent.click(screen.getByRole("button", { name: "展开侧栏" }));
     fireEvent.click(screen.getByRole("button", { name: "设置", exact: true }));
     await screen.findByRole("heading", { name: "设置", level: 2 });
     await screen.findByRole("heading", { name: "执行与权限" });
-    expect(screen.getByRole("heading", { name: "运行环境" })).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: "运行环境" })).toBeNull();
     expect(await screen.findByLabelText("用户偏好")).toBeTruthy();
     expect(screen.getByText("/research")).toBeTruthy();
     expect(screen.queryByRole("textbox", { name: "draft fixture" })).toBeNull();
@@ -151,7 +139,7 @@ describe("desktop task navigation", () => {
     expect(screen.getByRole("textbox", { name: "draft fixture" })).toBe(draft);
     expect((draft as HTMLInputElement).value).toBe("保留研究内容");
     expect(screen.getByRole("button", { name: "Observe", exact: true })).toBeTruthy();
-    expect(screen.getByRole("tab", { name: "RO-Crate graph" })).toBeTruthy();
+    expect(screen.getByRole("complementary", { name: "Observation sidebar" })).toBeTruthy();
     expect(gateway.bootstrap).toHaveBeenCalledTimes(1);
     expect(screen.getByRole("button", { name: "Settings", exact: true })).toBeTruthy();
   });

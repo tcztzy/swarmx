@@ -2,7 +2,7 @@
 
 See [product direction](product-direction.md) for the objective and [ROADMAP](../ROADMAP.md) for unfinished work.
 The Host owns work cycles, items, admission budgets, decisions and acceptance. Native sessions,
-Science artifacts and execution records retain their existing owners; work records contain references.
+Domain artifacts and execution records retain their existing owners; work records contain references.
 Work state is stored in `$SWARMX_HOME/work/work.sqlite`, keyed by the canonical execution directory.
 Separate directory keys share neither work items nor acceptance history, even in the same product home.
 
@@ -35,7 +35,7 @@ Separate directory keys share neither work items nor acceptance history, even in
   cancellation cannot dispatch a later model or tool request.
 - Native completion, failure and cancellation remain execution outcomes. Only trusted Host code
   acting for a user or validator records acceptance. Agents may inspect work and submit pinned
-  Science references; they cannot create budgets or approve themselves through product tools.
+  opaque artifact identities with execution evidence; they cannot create budgets or approve themselves through product tools.
   Feedback may arrive after execution or a memory review and may correct earlier feedback.
   Each saved feedback fact is published once to the execution journal. Publication can be
   replayed after an interrupted write without duplicating the fact. Authorized automatic
@@ -122,8 +122,14 @@ become evidence that a configuration is cheap. Decisions preserve the candidates
 there is no versioned policy-injection interface.
 
 Managed Agents call `work` with `{action: "status"}` or `{action: "submit", artifacts}`. Status and
-`swarm.prepare` expose current work context, budget and evidence. Submission requires `science.read`
-and an exact Science resource ID with matching revision; it creates no acceptance authority.
+`swarm.prepare` expose current work context, budget and evidence. `work.status` additionally
+returns bounded `submissionEvidence` metadata for the current runtime (latest 100 record URNs, run
+IDs, event types and observation times, with a truncation flag), without revealing record payloads. Submission requires an active managed Work run and nonempty execution evidence for each artifact.
+The Host checks every source belongs to the same execution directory, Work item and runtime.
+Artifact IDs/revisions remain opaque claims; no central scientific resolution or `science.read`
+grant is required. Independent acceptance pins the complete submitted identities/evidence and
+criteria. Old records without evidence remain readable and unverified but cannot be resubmitted
+as new artifacts without sources. See [domain references](domain-projects.md).
 Delegated calls still require same-run preparation and a reason. They must match an admitted
 configuration and share the root runtime's budget. Previously managed native sessions cannot escape
 their original work identity and budget through another entry point.

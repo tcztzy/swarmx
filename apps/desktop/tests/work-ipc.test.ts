@@ -191,7 +191,34 @@ it("preserves work operation failures for the renderer", async () => {
   expect(workCommand).toHaveBeenCalledTimes(1);
 });
 
-it("exposes only named work methods and retains existing preload channels and subscriptions", async () => {
+it("registers only generic Host channels after scientific execution moves out of SwarmX", () => {
+  registerIpc({ operations: {} } as DesktopPlatform);
+  expect([...handlers.keys()].sort()).toEqual(
+    [
+      "bootstrap",
+      "work:read",
+      "work:command",
+      "tool",
+      "tool:cancel",
+      "settings:read",
+      "settings:update",
+      "language:write",
+      "sessions:list",
+      "sessions:create",
+      "sessions:history",
+      "models:read",
+      "logs:read",
+      "logs:evidence",
+      "runs:control",
+      "agui:start",
+      "agui:cancel",
+    ]
+      .map((channel) => `swarmx:${channel}`)
+      .sort(),
+  );
+});
+
+it("exposes only named generic preload channels and preserves event subscriptions", async () => {
   const invoke = vi.fn(async () => ({ ok: true }));
   const expose = vi.fn();
   const on = vi.fn();
@@ -212,18 +239,18 @@ it("exposes only named work methods and retains existing preload channels and su
       "cancelTool",
       "settings",
       "language",
-      "environment",
       "sessions",
       "models",
       "logs",
       "runs",
       "work",
-      "science",
       "agui",
     ].sort(),
   );
   expect(Object.keys(exposed.work).sort()).toEqual(["command", "read"]);
   expect(exposed.invoke).toBeUndefined();
+  expect(exposed.science).toBeUndefined();
+  expect(exposed.environment).toBeUndefined();
   await expect(exposed.work.read({ cycleId: "cycle" })).resolves.toEqual({ ok: true });
   expect(invoke).toHaveBeenLastCalledWith("swarmx:work:read", { cycleId: "cycle" });
   const command = { action: "createCycle", request: cycle };
@@ -236,8 +263,6 @@ it("exposes only named work methods and retains existing preload channels and su
     [exposed.settings.read, "settings:read"],
     [exposed.settings.update, "settings:update"],
     [exposed.language.write, "language:write"],
-    [exposed.environment.read, "environment:read"],
-    [exposed.environment.act, "environment:act"],
     [exposed.sessions.list, "sessions:list"],
     [exposed.sessions.create, "sessions:create"],
     [exposed.sessions.history, "sessions:history"],
@@ -245,12 +270,6 @@ it("exposes only named work methods and retains existing preload channels and su
     [exposed.logs.read, "logs:read"],
     [exposed.logs.evidence, "logs:evidence"],
     [exposed.runs.control, "runs:control"],
-    [exposed.science.workspace, "science:workspace"],
-    [exposed.science.researchObject, "science:research-object"],
-    [exposed.science.notebookExecutions, "science:notebook-executions"],
-    [exposed.science.artifactPreview, "science:artifact-preview"],
-    [exposed.science.artifactContent, "science:artifact-content"],
-    [exposed.science.import, "science:import"],
     [exposed.agui.start, "agui:start"],
     [exposed.agui.cancel, "agui:cancel"],
   ]) {

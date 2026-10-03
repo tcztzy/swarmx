@@ -24,7 +24,10 @@ export async function startDesktopPlatform(options: {
     options.productHome ?? process.env.SWARMX_HOME ?? join(homedir(), ".swarmx"),
   );
   await mkdir(productHome, { recursive: true });
-  const products = await ProductServices.create({ productHome, cwd: options.cwd });
+  const products = await ProductServices.create({
+    productHome,
+    cwd: options.cwd,
+  });
   try {
     const host = await startHost({ products, agentId: options.agentId ?? selectedAgent() });
     return {

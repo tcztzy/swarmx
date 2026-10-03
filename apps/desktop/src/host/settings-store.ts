@@ -18,7 +18,7 @@ export class SettingsStore {
       const legacy = z.object({ policy: z.object({ approval: z.string() }) }).safeParse(raw);
       if (legacy.success)
         throw new Error(
-          `Legacy native permission policy in ${this.path}. Remove policy.approval and set policy.tools explicitly; filesystem now controls only the research container. See docs/permissions.md.`,
+          `Legacy native permission policy in ${this.path}. Remove policy.approval and set policy.tools explicitly; legacy container fields are retained only for saved-setting compatibility. See docs/permissions.md.`,
         );
       this.value = SettingsSchema.parse(raw);
     } catch (error) {

@@ -10,8 +10,6 @@ const outputs = [
   resolve(root, "packages/core/dvc/lib"),
   resolve(root, "packages/core/memory/lib"),
   resolve(root, "packages/core/swarm/lib"),
-  resolve(root, "packages/science/core/lib"),
-  resolve(root, "packages/science/core/bin"),
 ];
 
 for (const output of outputs) rmSync(output, { force: true, recursive: true });

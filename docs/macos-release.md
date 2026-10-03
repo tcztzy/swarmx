@@ -2,7 +2,7 @@
 
 `pnpm package:mac` builds SwarmX from source and exports a drag-to-Applications DMG for
 the Mac running the command. It requires the development prerequisites in the README,
-including Rust and the Xcode command-line tools. Run from the repository root:
+including the Xcode command-line tools. Run from the repository root:
 
 ```sh
 pnpm install --frozen-lockfile
@@ -12,7 +12,7 @@ pnpm package:mac
 The installer is `apps/desktop/release/SwarmX-<version>-mac-<arch>.dmg`, where `arch` is
 `arm64` for Apple Silicon or `x64` for Intel. Open it and drag `SwarmX.app` to Applications.
 The app includes Electron, the compiled renderer and Host, production dependencies,
-native Agent resources and the Typst executable compiled for that architecture. These
+native Agent resources. These
 files remain outside ASAR because native child processes need ordinary filesystem paths.
 `pnpm deploy --prod --config.node-linker=hoisted` stages the complete production dependency
 tree from the lockfile, including SDK peers. The deployed directory uses ordinary package
@@ -24,7 +24,7 @@ the packaged app resolves those package exports rather than Desktop-local skill 
 The build hook uses `@electron/rebuild` for native modules and tells electron-builder to
 preserve that tree. Recomputing it with electron-builder's dependency collector omits
 runtime peers used by DSH. The staging directory is removed by `pnpm clean`.
-Native Agent credentials and external tools such as Codex, Hermes and Docker retain the
+Native Agent credentials and external tools such as Codex and Hermes retain the
 requirements documented in [Agent platform](runtime-platform.md).
 
 The app uses an ad-hoc signature, with no Apple Developer ID certificate or notarization.
@@ -44,8 +44,9 @@ SWARMX_PACKAGED_APP='/Volumes/<volume>/SwarmX.app' pnpm vitest run apps/desktop/
 
 The package test launches the bundled Electron executable from a temporary working directory
 with isolated settings. It uses Node's debugger client to inspect the running app, loads every
-native integration, checks the bundled resources, compiles a PDF through the Typst runtime,
-and verifies the renderer and preload bridge. It does not send model requests or validate
+native integration, checks the bundled resources, and verifies the renderer and preload bridge.
+Scientific runtimes and their Docker images are not part of the application or its build.
+The package test checks that they are absent. It does not send model requests or validate
 external Agent authentication.
 On first launch, macOS can scan an ad-hoc signed app before Electron starts its debugger.
 If startup times out without debugger output, inspect the process exit code, termination signal
@@ -57,7 +58,7 @@ Detach the volume after validation. The ordinary test suite skips this test unle
 ## GitHub Release
 
 Release tags are `v<version>` and must match `apps/desktop/package.json`. Keep SwarmX
-workspace packages, the Rust runtime and owned protocol identities at that same version.
+workspace packages and owned protocol identities at that same version.
 Commit the release changes, then push the version tag. The existing Release workflow can
 also be run manually with an existing tag.
 

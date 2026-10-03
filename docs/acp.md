@@ -104,7 +104,7 @@ declared overrides and inherited process environment, except that Host-only `SWA
 and `SWARMX_MCP_TOKEN` credentials are excluded case-insensitively. Descriptor overrides of
 those keys are rejected before spawning. Other native model credentials remain operator-owned.
 SwarmX does not supply its private MCP credentials or client-injected MCP servers. This
-first external client cannot expose Host `swarm`, Memory or Science product tools; existing
+first external client cannot expose Host `swarm`, Memory or Work product tools; existing
 native integrations retain their execution-bound MCP bridges. External native tools remain
 owned by that agent. No automatic Host Memory injection, snapshot or post-turn review is
 attached to external ACP sessions; explicit unsupported instructions, profiles and budgets

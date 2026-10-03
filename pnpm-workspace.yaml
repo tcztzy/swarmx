@@ -24,7 +24,6 @@ allowBuilds:
   protobufjs: false
 
 minimumReleaseAgeExclude:
-  - '@xmldom/xmldom@0.9.12'
   - '@assistant-ui/core@0.3.17'
   - '@assistant-ui/react-markdown@0.14.14'
   - '@assistant-ui/react@0.15.18'

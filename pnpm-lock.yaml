@@ -114,9 +114,6 @@ importers:
       '@swarmx/memory':
         specifier: workspace:*
         version: link:../../packages/core/memory
-      '@swarmx/science':
-        specifier: workspace:*
-        version: link:../../packages/science/core
       '@swarmx/swarm':
         specifier: workspace:*
         version: link:../../packages/core/swarm
@@ -250,34 +247,6 @@ importers:
         version: 2.1.2
 
   packages/core/swarm: {}
-
-  packages/science/core:
-    dependencies:
-      '@modelcontextprotocol/sdk':
-        specifier: ^1.30.0
-        version: 1.30.0(zod@4.4.3)
-      '@swarmx/annotation':
-        specifier: workspace:*
-        version: link:../../core/annotation
-      '@swarmx/evidence':
-        specifier: workspace:*
-        version: link:../../core/evidence
-      '@xmldom/xmldom':
-        specifier: 0.9.12
-        version: 0.9.12
-      papaparse:
-        specifier: ^5.6.0
-        version: 5.6.0
-      pdf-lib:
-        specifier: 1.17.1
-        version: 1.17.1
-      zod:
-        specifier: ^4.4.3
-        version: 4.4.3
-    devDependencies:
-      '@types/papaparse':
-        specifier: ^5.5.2
-        version: 5.5.2
 
 packages:
 

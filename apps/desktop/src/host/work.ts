@@ -12,7 +12,7 @@ import {
   ReviseWorkSchema,
   type SelectionEvidence,
   SetWorkBudgetSchema,
-  WorkArtifactSchema,
+  WorkArtifactSubmissionSchema,
   type WorkAttempt,
   WorkAttemptSchema,
   WorkChargeSchema,
@@ -855,11 +855,41 @@ export class WorkManager {
     });
   }
 
+  submissionEvidence(attemptId: string) {
+    const attempt = this.attempt(attemptId);
+    const records = this.records().filter(
+      (record) =>
+        record.runId !== null &&
+        record.attributes["swarmx.work.item_id"] === attempt.workId &&
+        record.attributes["swarmx.work.runtime_id"] === attempt.runtimeId,
+    );
+    return {
+      sources: records.slice(-100).map((record) => ({
+        source: `urn:swarmx:execution:${record.id}`,
+        runId: record.runId,
+        type: record.event.type,
+        observedAt: record.observedAt,
+      })),
+      truncated: records.length > 100,
+    };
+  }
+
   submit(attemptId: string, raw: unknown) {
-    const artifacts = z.array(WorkArtifactSchema).max(100).parse(raw);
+    const artifacts = z.array(WorkArtifactSubmissionSchema).max(100).parse(raw);
     return this.change((state) => {
       const attempt = state.reservations.find(({ id }) => id === attemptId);
       if (!attempt) throw new Error("Unknown work attempt.");
+      for (const artifact of artifacts) {
+        for (const source of artifact.evidence) {
+          const record = this.journal.resolveSource(source);
+          if (
+            record.runId === null ||
+            record.attributes["swarmx.work.item_id"] !== attempt.workId ||
+            record.attributes["swarmx.work.runtime_id"] !== attempt.runtimeId
+          )
+            throw new Error("Artifact evidence must belong to this work runtime.");
+        }
+      }
       if (state.feedback.some((row) => row.attemptId === attemptId))
         throw new Error("Accepted submission is immutable; create another attempt for revisions.");
       attempt.artifacts = artifacts;

@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import type { z } from "zod";
 import { BootstrapSchema, SessionCreateSchema, SessionListSchema } from "../bridge-contract.js";
 import { HarnessPicker } from "./agent-controls.js";
@@ -13,8 +13,8 @@ import { SettingsPage } from "./settings.js";
 import type { SourceReference } from "./source-inspection.js";
 import { TracePanel } from "./trace.js";
 
-const ResearchPanel = lazy(() =>
-  import("./research.js").then(({ ResearchPanel }) => ({ default: ResearchPanel })),
+const ObservePanel = lazy(() =>
+  import("./observe.js").then(({ ObservePanel }) => ({ default: ObservePanel })),
 );
 const WorkPanel = lazy(() => import("./work.js").then(({ WorkPanel }) => ({ default: WorkPanel })));
 
@@ -32,29 +32,21 @@ export function App() {
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(() => matchMedia("(min-width: 768px)").matches);
-  const [panel, showPanel] = useState<"assets" | "observe" | "work">();
-  const [researchMode, setResearchMode] = useState<"assets" | "observe">();
-  const setPanel = useCallback((mode: "assets" | "observe" | "work" | undefined) => {
-    showPanel(mode);
-    if (mode !== "work") setResearchMode(mode);
-  }, []);
-  const [target, setTarget] = useState<{
-    artifactId?: string;
-    projectId?: string;
-    source?: SourceReference;
-  }>();
+  const [panel, setPanel] = useState<"observe" | "work">();
+  const [target, setTarget] = useState<SourceReference>();
   const [page, setPage] = useState<"chat" | "settings">("chat");
   useEffect(() => {
     const open = (event: Event) => {
       setPage("chat");
-      const detail = (event as CustomEvent).detail as typeof target;
-      setPanel(detail?.source ? "observe" : "assets");
-      setTarget(detail);
-      if (detail?.source) setSidebarOpen(false);
+      const detail = (event as CustomEvent<{ source?: SourceReference }>).detail;
+      if (!detail?.source) return;
+      setPanel("observe");
+      setTarget(detail.source);
+      setSidebarOpen(false);
     };
-    window.addEventListener("swarmx:open-research", open);
-    return () => window.removeEventListener("swarmx:open-research", open);
-  }, [setPanel]);
+    window.addEventListener("swarmx:open-source", open);
+    return () => window.removeEventListener("swarmx:open-source", open);
+  }, []);
 
   useEffect(() => {
     const { agentId } = sessionRequest;
@@ -175,22 +167,18 @@ export function App() {
       {panel === "work" && (
         <WorkPanel onClose={() => setPanel(undefined)} harnesses={harnessProps.harnesses} />
       )}
-      {researchMode && (
-        <div hidden={panel === "work"} className={panel === "work" ? "hidden" : "contents"}>
-          <ResearchPanel
-            mode={researchMode}
-            canCompose={!!selected}
-            target={target}
-            onClose={() => setPanel(undefined)}
-            trace={
-              selected ? (
-                <TracePanel />
-              ) : (
-                <p className="p-6 text-neutral-500">{t("任务开始后，执行轨迹会显示在这里。")}</p>
-              )
-            }
-          />
-        </div>
+      {panel === "observe" && (
+        <ObservePanel
+          source={target}
+          onClose={() => setPanel(undefined)}
+          trace={
+            selected ? (
+              <TracePanel />
+            ) : (
+              <p className="p-6 text-neutral-500">{t("任务开始后，执行轨迹会显示在这里。")}</p>
+            )
+          }
+        />
       )}
     </Suspense>
   );
@@ -337,7 +325,7 @@ export function App() {
                 className="border-transparent px-2.5 aria-expanded:bg-neutral-100"
                 aria-label={t("长期工作")}
                 aria-expanded={panel === "work"}
-                aria-controls="research-side-view"
+                aria-controls="observation-side-view"
                 type="button"
                 onClick={() => setPanel(panel === "work" ? undefined : "work")}
               >
@@ -348,26 +336,13 @@ export function App() {
                 variant="outline"
                 size="sm"
                 className="border-transparent px-2.5 aria-expanded:bg-neutral-100"
-                aria-label={t("科研资产")}
-                aria-expanded={panel === "assets"}
-                aria-controls="research-side-view"
-                type="button"
-                onClick={() => setPanel(panel === "assets" ? undefined : "assets")}
-              >
-                <Icon name="folder" className="size-6" />
-                <span className="hidden sm:inline">{t("科研资产")}</span>
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                className="border-transparent px-2.5 aria-expanded:bg-neutral-100"
                 aria-label={t("观测与溯源")}
                 aria-expanded={panel === "observe"}
-                aria-controls="research-side-view"
+                aria-controls="observation-side-view"
                 type="button"
                 onClick={() => {
                   setTarget(undefined);
-                  setPanel(panel === "observe" && !target?.source ? undefined : "observe");
+                  setPanel(panel === "observe" && !target ? undefined : "observe");
                 }}
               >
                 <Icon name="eye" className="size-6" />
@@ -389,10 +364,10 @@ export function App() {
                 <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-5 p-8 text-center">
                   <Icon name="swarm" className="size-10" />
                   <h2 className="text-3xl font-semibold tracking-tight">
-                    {t("让研究，从这里开始。")}
+                    {t("让工作，从这里开始。")}
                   </h2>
                   <p className="max-w-md text-sm leading-7 text-neutral-500">
-                    {t("梳理一个问题，探索一份数据，或继续你的实验。")}
+                    {t("梳理一个问题，探索代码，或继续你的任务。")}
                     <br />
                     {t("SwarmX 与你一起推进。")}
                   </p>
@@ -413,7 +388,10 @@ export function App() {
                   </span>
                   <HarnessPicker {...harnessProps} disabled={creating} />
                 </div>
-                <div className={panel ? "research-side-view" : "hidden"} id="research-side-view">
+                <div
+                  className={panel ? "observation-side-view" : "hidden"}
+                  id="observation-side-view"
+                >
                   {sidePanel}
                 </div>
               </>
@@ -426,7 +404,7 @@ export function App() {
                 threadId={selected}
                 sidePanel={sidePanel}
                 panelOpen={!!panel}
-                source={panel === "observe" ? target?.source : undefined}
+                source={panel === "observe" ? target : undefined}
               />
             )}
           </div>

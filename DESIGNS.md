@@ -4,8 +4,7 @@
 [ROADMAP](ROADMAP.md) tracks unfinished milestones. This document defines data and execution ownership.
 
 The Host owns ProductServices and lazily loaded native Agents. It resolves `SWARMX_CWD` or the
-process's starting directory once; all execution uses that canonical directory. Science and execution
-journal records are isolated by a hash of the directory. Settings and Memory are shared in the private
+process's starting directory once; all execution uses that canonical directory. Execution journal records are isolated by a hash of the directory; domain applications own their own workspace and scientific state. Settings and Memory are shared in the private
 product home. Each Swarm borrows its lead Agent and forwards
 method calls and Observer callbacks in process. The owner disposes the lead; disposing a Swarm
 does not close a borrowed native runtime. MCP's `swarm` tool enters the same direct delegation tree.
@@ -15,9 +14,9 @@ does not close a borrowed native runtime. MCP's `swarm` tool enters the same dir
 | Native messages, configuration, history, approvals | External ACP agent, Codex, Claude, DSH, Hermes or OpenClaw |
 | Observed execution events and causal links | Host execution journal, append-only SQLite |
 | Swarm membership | ProductServices, in memory |
-| Work cycles/items, resource reservations and acceptance | Host work management; references native sessions, execution records and Science revisions |
-| Research entities, journal and artifacts | Science |
-| Execution permissions and resolved Python environment | Host, private validated settings |
+| Work cycles/items, resource reservations and acceptance | Host work management; references native sessions, execution records and domain revisions |
+| Scientific entities, journal, artifacts and runtimes | Independent domain application (GEEPilot) |
+| Execution permissions | Host, private validated settings |
 | Shared semantic memory in OKF Markdown | Memory |
 | Repository and data versions | Git and DVC |
 | External ACP connections; A2A communication Tasks | Official protocol SDKs |
@@ -58,8 +57,8 @@ through the Host stdio bridge socket. Codex, Claude, DSH and Hermes receive its 
 a per-run credential; OpenClaw retains its own native tool configuration. Swarm nesting does not inspect these provider differences.
 
 The react-o11y waterfall derives IDs, hierarchy, status and observed timing from assistant-ui
-messages. It is not a durable audit log or evidence of an action's correctness. Science and
-Memory keep their existing domain records. The execution journal records observed operations and
+messages. It is not a durable audit log or evidence of an action's correctness. Domain applications and
+Memory keep their existing records. The execution journal records observed operations and
 their returned domain locators; it does not replace native resume state or scientific facts.
 
 [Memory](docs/memory.md) owns one shared knowledge store; native runtimes own resume histories
@@ -98,16 +97,18 @@ Conversation grants are derived from creation and run-start events for the execu
 ID. Every turn intersects the saved grants before dispatch; creation records empty-session grants.
 This preserves restrictions through restart and entry-point changes without another permissions store.
 
-Python notebook/figure execution uses the Host-owned Docker runtime. The image is addressed by
-immutable ID, the execution directory and declared inputs are the only mounts, and code receives no host
-credentials. Permission changes require idle execution. Science's internal Project entities group
-research objects and appear as research collections in the UI. Shutdown cancels and settles active
-execution before closing journals.
-Native Agents use native permission APIs. The existing trusted Typst compiler and Git/DVC remain
-host processes; they are not described as container-isolated. Science's optional
-`documentSubprocess` separates the bundled platform compiler from the Python execution boundary.
+Scientific execution, artifact storage and scientific projection belong to domain applications.
+SwarmX neither starts a notebook container nor bundles a document compiler. Existing scientific
+storage is not rewritten or deleted. Native Agents continue to own their tools and environments.
 
-Research graph nodes and edges are derived from the existing RO-Crate document using React Flow.
-The graph has no independent persistence or editable relations. Graph, artifact list and
-inspector select the same entity identifiers. Figure editing appends notebook execution records
-and immutable artifacts; the renderer does not own a second notebook history.
+`@swarmx/evidence` owns the domain-neutral RO-Crate schemas shared by evaluation exports and
+external scientific applications. Graph nodes and edges are read-only projections, without an
+independent store or editable relations.
+
+Domain capability descriptions and the existing generic Agent/tool call path determine where
+scientific work runs. The Host contains no GEEPilot-specific connector or scientific resolver.
+Work stores opaque artifact identities and immutable execution references. It validates ownership
+of the cited observations by directory, Work item and runtime. It does not infer artifact validity
+from identity strings, hashes or a model's own report. Independent acceptance retains the criteria,
+evaluator report and exact submitted identities/evidence. Memory checks owned execution URNs and
+marks external URI references unverified. See [domain projects](docs/domain-projects.md).

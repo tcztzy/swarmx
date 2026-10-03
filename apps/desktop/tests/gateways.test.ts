@@ -14,7 +14,7 @@ import manifest from "../package.json";
 import { scopeSessions } from "../src/agent.js";
 import type { NativeAgent, Observer } from "../src/agents/types.js";
 import { HARNESS_CAPABILITIES } from "../src/agents/types.js";
-import { LogsQuerySchema, NotebookExecutionsPayloadSchema } from "../src/bridge-contract.js";
+import { LogsQuerySchema } from "../src/bridge-contract.js";
 import { acpAgent } from "../src/host/acp.js";
 import { loadAgUiHistory, parseAgUiInput } from "../src/host/ag-ui.js";
 import { HostOperations } from "../src/host/operations.js";
@@ -25,7 +25,7 @@ import { DEFAULT_POLICY } from "../src/settings.js";
 import { bridgeCall, bridgeClient, socketOf } from "./mcp-bridge-support.js";
 
 describe("external gateways", () => {
-  it("persists settings and keeps artifacts bound to their execution directory", async () => {
+  it("persists settings and keeps evidence bound to its execution directory", async () => {
     const gateway = await createGateway();
     try {
       const policy = { ...DEFAULT_POLICY, filesystem: "read-only" as const };
@@ -36,55 +36,23 @@ describe("external gateways", () => {
       await expect(gateway.operations.updateSettings({ ...policy, cpus: 0 })).rejects.toThrow();
       await gateway.operations.updateSettings(policy);
       expect(new SettingsStore(gateway.products.options.productHome).read().policy).toEqual(policy);
-      const created = (await gateway.operations.callTool(
-        "science_notebook",
-        {
-          action: "create_project",
-          request: { requestId: randomUUID(), title: "Verified project" },
-        },
-        randomUUID(),
-        new AbortController().signal,
-      )) as { data: { id: string } };
-      const projectId = created.data.id;
-      const source = "sample,value\nA,42\n";
-      const artifact = (await gateway.operations.importArtifact({
-        requestId: randomUUID(),
-        projectId,
-        name: "input.csv",
-        dataBase64: Buffer.from(source).toString("base64"),
-      })) as { id: string };
-      const executions = vi.spyOn(gateway.products.science, "getNotebookExecutions");
-      await gateway.operations.notebookExecutions(projectId, artifact.id);
-      expect(executions).toHaveBeenLastCalledWith(
-        "renderer",
-        { projectId, includeArtifactId: artifact.id },
-        expect.any(AbortSignal),
-      );
-      expect(
-        NotebookExecutionsPayloadSchema.safeParse({
-          projectId,
-          includeArtifactId: "invalid",
-        }).success,
-      ).toBe(false);
-      const content = await gateway.operations.artifactContent(artifact.id);
-      expect(content.name).toBe("input.csv");
-      expect(Buffer.from(content.bytes).toString("utf8")).toBe(source);
-      await expect(gateway.operations.artifactPreview(artifact.id)).resolves.toBeTruthy();
-      expect(JSON.stringify(await gateway.operations.researchObject(projectId))).toContain(
-        `urn:uuid:${artifact.id}`,
-      );
+      const session = await gateway.operations.createSession("swarm");
+      await gateway.products.rootAgent.start(session.sessionId, "Verified execution", observer);
+      const run = gateway.products.journal
+        .read({ session: session.sessionId })
+        .events.find(({ event }) => event.type === EventType.RUN_STARTED);
+      if (!run) throw new Error("Missing recorded execution");
+      const sources = [`urn:swarmx:execution:${run.id}` as const];
+      const evidence = await gateway.operations.evidence({ sources });
+      expect(JSON.stringify(evidence)).toContain("Verified execution");
       await expect(
         gateway.operations.callTool("unknown", {}, randomUUID(), new AbortController().signal),
       ).rejects.toThrow("Unknown SwarmX product tool");
-      await expect(gateway.operations.environmentAction("inspect")).rejects.toThrow();
       const other = await createGateway();
       try {
-        expect((await other.operations.scienceWorkspace()).projects).toEqual([]);
-        await expect(other.operations.artifactContent(artifact.id)).rejects.toThrow();
+        await expect(other.operations.evidence({ sources })).rejects.toThrow("another directory");
         expect((await other.operations.settings()).policy).toEqual(DEFAULT_POLICY);
-        expect(
-          Buffer.from((await gateway.operations.artifactContent(artifact.id)).bytes).toString(),
-        ).toBe(source);
+        expect(await gateway.operations.evidence({ sources })).toEqual(evidence);
         expect((await gateway.operations.settings()).policy).toEqual(policy);
       } finally {
         await other.dispose();
@@ -94,30 +62,22 @@ describe("external gateways", () => {
     }
   });
 
-  it("rejects permission changes while science work is active and settles work before journal shutdown", async () => {
+  it("rejects permission changes while a product tool is active and settles it before journal shutdown", async () => {
     const gateway = await createGateway();
     const ready = Promise.withResolvers<void>();
     try {
-      vi.spyOn(gateway.products.science, "executeNotebookCell").mockImplementation(
-        async (_session, _request, signal) => {
+      vi.spyOn(gateway.products.learning, "call").mockImplementation(
+        async (_request, { signal }) => {
           ready.resolve();
           await new Promise<void>((_resolve, reject) =>
-            signal?.addEventListener("abort", () => reject(signal.reason), { once: true }),
+            signal.addEventListener("abort", () => reject(signal.reason), { once: true }),
           );
           throw new Error("unreachable");
         },
       );
       const operation = gateway.operations.callTool(
-        "science_notebook",
-        {
-          action: "execute",
-          request: {
-            requestId: randomUUID(),
-            notebookId: randomUUID(),
-            source: "print(1)",
-            outputArtifact: null,
-          },
-        },
+        "memory",
+        { action: "read_core_memory", request: {} },
         randomUUID(),
         new AbortController().signal,
       );
@@ -417,7 +377,7 @@ describe("external gateways", () => {
     }
   });
 
-  it("preserves causal MCP science/delegation records and reads them after restart without a Harness", async () => {
+  it("preserves causal MCP Memory/delegation records and reads them after restart without a Harness", async () => {
     const gateway = await createGateway();
     try {
       const session = await gateway.operations.createSession("swarm");
@@ -431,14 +391,11 @@ describe("external gateways", () => {
           });
           const client = await bridgeClient(socketOf(gateway.products), token);
           try {
-            const science = await client.callTool({
-              name: "science_notebook",
-              arguments: {
-                action: "create_project",
-                request: { requestId: randomUUID(), title: "Traceable project" },
-              },
+            const memory = await client.callTool({
+              name: "memory",
+              arguments: { action: "read_core_memory", request: {} },
             });
-            expect(science.isError).not.toBe(true);
+            expect(memory.isError).not.toBe(true);
             const preparation = await client.callTool({
               name: "swarm",
               arguments: { action: "prepare", task: "child", queries: ["agent-selection"] },
@@ -475,15 +432,16 @@ describe("external gateways", () => {
       const result = saved.events.find(
         ({ event }) =>
           event.type === EventType.TOOL_CALL_RESULT &&
-          event.content.includes("Created science project"),
+          event.content.includes('"action":"read_core_memory"'),
       );
       if (result?.event.type !== EventType.TOOL_CALL_RESULT)
-        throw new Error("Missing science result");
-      expect(JSON.parse(result.event.content).locator).toMatchObject({
-        sessionId: session.sessionId,
-        journalSeq: 1,
+        throw new Error("Missing Memory result");
+      expect(JSON.parse(result.event.content)).toMatchObject({
+        action: "read_core_memory",
+        data: { content: "" },
       });
       expect(result.runId).toBe(starts[0]?.runId);
+      expect(result.sessionId).toBe(session.sessionId);
       expect(JSON.stringify(saved)).not.toContain(gateway.token);
       expect(
         saved.events.some(

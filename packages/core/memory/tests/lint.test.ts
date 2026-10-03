@@ -89,16 +89,19 @@ describe("memory validation", () => {
     expect(lint(text).filter((item) => item.severity === "error")).toEqual([]);
   });
 
-  it("checks execution and Science links through the same supplied resolver", () => {
+  it("offers references to the supplied resolver without owning their domain syntax", () => {
     const execution = "urn:swarmx:execution:10000000-0000-4000-8000-000000000001";
     const science = "sx:artifact:test";
+    const domain = "bio:record/one@1";
     const checked: string[] = [];
-    const text = source(`# Finding\n\n[Run](${execution}) [Artifact](${science})`);
+    const text = source(
+      `# Finding\n\n[Run](${execution}) [Artifact](${science}) [Domain](${domain})`,
+    );
     parseMemoryConcept(path, text, undefined, (resource) => {
       checked.push(resource);
       return undefined;
     });
-    expect(checked).toEqual([execution, science]);
+    expect(checked).toEqual([execution, science, domain, "https://example.org/paper"]);
     const invalid = source("# Finding\n\n[Run](urn:swarmx:execution:invalid)");
     expect(() => parseMemoryConcept(path, invalid)).toThrow("Invalid memory concept reference");
     expect(lint(invalid)).toContainEqual(

@@ -11,8 +11,6 @@ export interface BridgeHarness {
   readonly settingsRead: Mock;
   readonly settingsUpdate: Mock;
   readonly languageWrite: Mock;
-  readonly environmentRead: Mock;
-  readonly environmentAct: Mock;
   readonly sessionsList: Mock;
   readonly sessionsCreate: Mock;
   readonly sessionsHistory: Mock;
@@ -22,12 +20,6 @@ export interface BridgeHarness {
   readonly runsControl: Mock;
   readonly workRead: Mock;
   readonly workCommand: Mock;
-  readonly scienceWorkspace: Mock;
-  readonly scienceResearchObject: Mock;
-  readonly scienceNotebookExecutions: Mock;
-  readonly scienceArtifactPreview: Mock;
-  readonly scienceArtifactContent: Mock;
-  readonly scienceImport: Mock;
   readonly aguiStart: Mock;
   readonly aguiCancel: Mock;
   emit(threadId: string, ...events: object[]): void;
@@ -43,8 +35,6 @@ export function installBridge(): BridgeHarness {
   const settingsRead = vi.fn();
   const settingsUpdate = vi.fn();
   const languageWrite = vi.fn(async () => ({}));
-  const environmentRead = vi.fn();
-  const environmentAct = vi.fn();
   const sessionsList = vi.fn(async () => []);
   const sessionsCreate = vi.fn();
   const sessionsHistory = vi.fn(async () => ({ supported: true, messages: [] }));
@@ -64,12 +54,6 @@ export function installBridge(): BridgeHarness {
     activeWorkIds: [],
     interactions: [],
   }));
-  const scienceWorkspace = vi.fn();
-  const scienceResearchObject = vi.fn();
-  const scienceNotebookExecutions = vi.fn(async () => []);
-  const scienceArtifactPreview = vi.fn();
-  const scienceArtifactContent = vi.fn();
-  const scienceImport = vi.fn();
   const aguiStart = vi.fn(async () => ({}));
   const aguiCancel = vi.fn(async () => ({}));
   const bridge = {
@@ -78,20 +62,11 @@ export function installBridge(): BridgeHarness {
     cancelTool,
     settings: { read: settingsRead, update: settingsUpdate },
     language: { write: languageWrite },
-    environment: { read: environmentRead, act: environmentAct },
     sessions: { list: sessionsList, create: sessionsCreate, history: sessionsHistory },
     models: { read: modelsRead },
     logs: { read: logsRead, evidence: logsEvidence },
     runs: { control: runsControl },
     work: { read: workRead, command: workCommand },
-    science: {
-      workspace: scienceWorkspace,
-      researchObject: scienceResearchObject,
-      notebookExecutions: scienceNotebookExecutions,
-      artifactPreview: scienceArtifactPreview,
-      artifactContent: scienceArtifactContent,
-      import: scienceImport,
-    },
     agui: {
       start: aguiStart,
       cancel: aguiCancel,
@@ -112,8 +87,6 @@ export function installBridge(): BridgeHarness {
     settingsRead,
     settingsUpdate,
     languageWrite,
-    environmentRead,
-    environmentAct,
     sessionsList,
     sessionsCreate,
     sessionsHistory,
@@ -123,12 +96,6 @@ export function installBridge(): BridgeHarness {
     runsControl,
     workRead,
     workCommand,
-    scienceWorkspace,
-    scienceResearchObject,
-    scienceNotebookExecutions,
-    scienceArtifactPreview,
-    scienceArtifactContent,
-    scienceImport,
     aguiStart,
     aguiCancel,
     emit(threadId: string, ...events: object[]) {

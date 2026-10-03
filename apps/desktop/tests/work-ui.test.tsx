@@ -459,7 +459,6 @@ it("keeps the conversation draft mounted and never cancels managed work when clo
   fireEvent.click(screen.getByRole("button", { name: "长期工作", exact: true }));
   await screen.findByRole("complementary", { name: "长期工作侧栏" });
   expect(screen.getByLabelText("draft fixture")).toBe(draft);
-  expect(gateway.scienceWorkspace).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole("button", { name: "关闭侧栏" }));
   expect(screen.getByLabelText("draft fixture")).toBe(draft);
   expect((draft as HTMLInputElement).value).toBe("保留我的草稿");
@@ -508,7 +507,7 @@ it("retains a revised goal on conflict and saves the new criteria under the same
   });
 });
 
-it("requires explicit invoice and outcome evidence, keeps unknown costs, and opens pinned artifact sources", async () => {
+it("requires explicit invoice and outcome evidence, keeps unknown costs, and preserves opaque pinned artifact references", async () => {
   const data = state();
   data.snapshot.items = [{ ...item, state: "blocked" }];
   data.snapshot.reservations = [
@@ -516,14 +515,15 @@ it("requires explicit invoice and outcome evidence, keeps unknown costs, and ope
   ];
   gateway.workRead.mockResolvedValue(data);
   gateway.workCommand.mockResolvedValue(data);
-  const source = vi.fn();
-  window.addEventListener("swarmx:open-research", source);
+  const copy = vi.fn().mockResolvedValue(undefined);
+  Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: copy } });
   render(<WorkPanel harnesses={["codex"]} onClose={() => {}} />);
-  fireEvent.click(await screen.findByRole("button", { name: /成果版本: artifact/ }));
-  expect(source.mock.calls[0]?.[0].detail).toEqual({
-    source: { resource: "sx:a/artifact@sha256:abc", title: "artifact" },
-  });
-  window.removeEventListener("swarmx:open-research", source);
+  expect(await screen.findByText(/成果版本: artifact/)).toBeTruthy();
+  expect(screen.getByText("未验证的旧版记录：未引用执行证据。")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "复制成果引用" }));
+  await waitFor(() =>
+    expect(copy).toHaveBeenCalledWith(JSON.stringify({ id: "artifact", revision: "sha256:abc" })),
+  );
   fireEvent.click(screen.getByText("核对费用与外部执行状态", { selector: "summary" }));
   const charge = within(screen.getByRole("form", { name: "登记核对后的费用" }));
   expect((charge.getByLabelText("账单费用（美元）") as HTMLInputElement).value).toBe("");
@@ -560,6 +560,109 @@ it("requires explicit invoice and outcome evidence, keeps unknown costs, and ope
     }),
   );
   expect(gateway.workCommand).toHaveBeenCalledTimes(2);
+});
+
+it("shows every cited execution without certifying the artifact and preserves evidence in copying and acceptance", async () => {
+  await i18n.changeLanguage("en");
+  const artifact = {
+    id: "external:dataset/opaque",
+    revision: "revision:unchanged",
+    evidence: [
+      "urn:swarmx:execution:11111111-1111-4111-8111-111111111111",
+      "urn:swarmx:execution:22222222-2222-4222-8222-222222222222",
+    ],
+  };
+  const data = state();
+  data.snapshot.items = [{ ...item, state: "awaiting-acceptance" }];
+  data.snapshot.reservations = [WorkAttemptSchema.parse({ ...attempt, artifacts: [artifact] })];
+  gateway.workRead.mockResolvedValue(data);
+  gateway.workCommand.mockResolvedValue(data);
+  const copy = vi.fn().mockResolvedValue(undefined);
+  Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: copy } });
+  const opened = vi.fn();
+  window.addEventListener("swarmx:open-source", opened);
+  try {
+    render(<WorkPanel harnesses={["codex"]} onClose={() => {}} />);
+    await screen.findByText(`Artifact revision: ${artifact.id} · ${artifact.revision}`);
+    expect(
+      screen.getByText(
+        "Recorded provenance does not verify the domain claim. Acceptance is separate.",
+      ),
+    ).toBeTruthy();
+    expect(screen.queryByText("Unverified legacy record: no execution evidence.")).toBeNull();
+    for (const resource of artifact.evidence) {
+      fireEvent.click(screen.getByRole("button", { name: resource }));
+      expect(opened.mock.calls.at(-1)?.[0].detail).toEqual({
+        source: { resource, title: "Cited execution evidence" },
+      });
+    }
+    expect(gateway.workCommand).not.toHaveBeenCalled();
+    expect(gateway.aguiStart).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Copy artifact reference" }));
+    await waitFor(() => expect(copy).toHaveBeenCalledWith(JSON.stringify(artifact)));
+    const review = within(screen.getByRole("form", { name: "Record user acceptance" }));
+    fill("Acceptance report", "Reviewed the external result independently", review);
+    fireEvent.click(review.getByRole("button", { name: "Save acceptance" }));
+    await waitFor(() =>
+      expect(gateway.workCommand).toHaveBeenCalledWith({
+        action: "accept",
+        request: expect.objectContaining({ artifacts: [artifact], accepted: false }),
+      }),
+    );
+  } finally {
+    window.removeEventListener("swarmx:open-source", opened);
+  }
+});
+
+it("labels explicitly empty artifact evidence as an unverified legacy record", async () => {
+  await i18n.changeLanguage("en");
+  const data = state();
+  data.snapshot.reservations = [
+    WorkAttemptSchema.parse({
+      ...attempt,
+      artifacts: [{ ...attempt.artifacts[0], evidence: [] }],
+    }),
+  ];
+  gateway.workRead.mockResolvedValue(data);
+  render(<WorkPanel harnesses={["codex"]} onClose={() => {}} />);
+  expect(await screen.findByText("Unverified legacy record: no execution evidence.")).toBeTruthy();
+  expect(screen.queryByText("Cited execution evidence")).toBeNull();
+  expect(gateway.workCommand).not.toHaveBeenCalled();
+});
+
+it("opens artifact provenance through the existing inspector and surfaces unavailable evidence without rerunning work", async () => {
+  const resource = "urn:swarmx:execution:11111111-1111-4111-8111-111111111111";
+  const data = state();
+  data.snapshot.reservations = [
+    WorkAttemptSchema.parse({
+      ...attempt,
+      artifacts: [{ ...attempt.artifacts[0], evidence: [resource] }],
+    }),
+  ];
+  vi.stubGlobal("matchMedia", () => ({ matches: true }));
+  gateway.bootstrap.mockResolvedValue({
+    agents: ["swarm", "codex"],
+    defaultHarness: "codex",
+    language: "zh",
+    sessions: [{ sessionId: "codex:one", title: "研究" }],
+    cwd: "/research",
+  });
+  gateway.workRead.mockResolvedValue(data);
+  gateway.logsEvidence.mockRejectedValue(
+    new Error("Execution source is unavailable in this directory."),
+  );
+  render(<App />);
+  const draft = await screen.findByLabelText("draft fixture");
+  fireEvent.click(screen.getByRole("button", { name: "长期工作", exact: true }));
+  fireEvent.click(await screen.findByRole("button", { name: resource }));
+  await screen.findByRole("complementary", { name: "来源检查" });
+  expect(gateway.logsEvidence).toHaveBeenCalledExactlyOnceWith({ sources: [resource] });
+  expect((await screen.findByRole("alert")).textContent).toBe(
+    "Execution source is unavailable in this directory.",
+  );
+  expect(screen.getByLabelText("draft fixture")).toBe(draft);
+  expect(gateway.workCommand).not.toHaveBeenCalled();
+  expect(gateway.aguiStart).not.toHaveBeenCalled();
 });
 
 it("polls and switches cycles while start remains pending without overwriting the selection when it finishes", async () => {

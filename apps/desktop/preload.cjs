@@ -15,10 +15,6 @@ contextBridge.exposeInMainWorld("swarmx", {
     update: invoke("swarmx:settings:update"),
   },
   language: { write: invoke("swarmx:language:write") },
-  environment: {
-    read: invoke("swarmx:environment:read"),
-    act: invoke("swarmx:environment:act"),
-  },
   sessions: {
     list: invoke("swarmx:sessions:list"),
     create: invoke("swarmx:sessions:create"),
@@ -30,14 +26,6 @@ contextBridge.exposeInMainWorld("swarmx", {
     evidence: invoke("swarmx:logs:evidence"),
   },
   runs: { control: invoke("swarmx:runs:control") },
-  science: {
-    workspace: invoke("swarmx:science:workspace"),
-    researchObject: invoke("swarmx:science:research-object"),
-    notebookExecutions: invoke("swarmx:science:notebook-executions"),
-    artifactPreview: invoke("swarmx:science:artifact-preview"),
-    artifactContent: invoke("swarmx:science:artifact-content"),
-    import: invoke("swarmx:science:import"),
-  },
   agui: {
     start: invoke("swarmx:agui:start"),
     cancel: invoke("swarmx:agui:cancel"),

@@ -58,7 +58,7 @@ New RUN_FINISHED records retain the public stopReason values. Missing native ter
 are errors, never successful finishes. Legacy interruptionRequested records remain readable.
 Native resume and UI history hydration continue to use the Harness's own API.
 
-Product tools record their inputs and returned results in the same journal. Science results retain
+Product tools record their inputs and returned results in the same journal. Historical domain results retain
 their entity IDs, revisions and journal locators; Memory results retain their own concept references.
 The domain stores and execution journal are separate transactions. If a domain operation commits
 and result logging fails, the caller sees a failure and the started operation remains inspectable;

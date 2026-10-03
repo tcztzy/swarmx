@@ -2,7 +2,7 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { i18n } from "../src/renderer/i18n.js";
-import { ResearchPanel } from "../src/renderer/research.js";
+import { ObservePanel } from "../src/renderer/observe.js";
 import { readConceptResult, SavedConcept } from "../src/renderer/saved-concept.js";
 import { SourceInspection } from "../src/renderer/source-inspection.js";
 import { type BridgeHarness, installBridge } from "./bridge-support.js";
@@ -108,12 +108,10 @@ beforeEach(async () => {
 });
 afterEach(() => cleanup());
 
-it("opens cited execution evidence without a Science snapshot and preserves original events", async () => {
-  render(<ResearchPanel mode="observe" target={{ source }} onClose={() => {}} />);
+it("opens cited execution evidence without a domain workspace and preserves original events", async () => {
+  render(<ObservePanel source={source} onClose={() => {}} />);
   await screen.findByText("Cited executions");
   expect(gateway.logsEvidence).toHaveBeenCalledExactlyOnceWith({ sources: [source.resource] });
-  expect(gateway.scienceWorkspace).not.toHaveBeenCalled();
-  expect(gateway.scienceResearchObject).not.toHaveBeenCalled();
   expect(
     screen.getByText("0 completed · 0 errors · 1 cancelled · 0 incomplete · 0 other"),
   ).toBeTruthy();
@@ -140,9 +138,7 @@ it("shows missing requested effort as not recorded", async () => {
     ...evidence,
     runs: evidence.runs.map((run) => ({ ...run, requestedEffort: null })),
   });
-  render(
-    <SourceInspection source={source} snapshot={undefined} executions={[]} onClose={() => {}} />,
-  );
+  render(<SourceInspection source={source} onClose={() => {}} />);
   expect(
     (await screen.findByText("Requested reasoning effort")).nextElementSibling?.textContent,
   ).toBe("Not recorded");
@@ -152,9 +148,7 @@ it("surfaces unavailable and foreign execution references", async () => {
   gateway.logsEvidence.mockRejectedValue(
     new Error("Execution source is unavailable in this directory."),
   );
-  render(
-    <SourceInspection source={source} snapshot={undefined} executions={[]} onClose={() => {}} />,
-  );
+  render(<SourceInspection source={source} onClose={() => {}} />);
   expect((await screen.findByRole("alert")).textContent).toBe(
     "Execution source is unavailable in this directory.",
   );
@@ -237,7 +231,7 @@ it("shows evaluation scope without claiming verification and dispatches exact so
   expect(concept).toBeDefined();
   if (!concept) throw new Error("Missing concept");
   const opened = vi.fn();
-  window.addEventListener("swarmx:open-research", opened);
+  window.addEventListener("swarmx:open-source", opened);
   try {
     render(<SavedConcept concept={concept} />);
     expect(screen.getByText("AI judgment")).toBeTruthy();
@@ -247,7 +241,7 @@ it("shows evaluation scope without claiming verification and dispatches exact so
     fireEvent.click(screen.getByRole("button", { name: /Selection observation/ }));
     expect(opened).toHaveBeenCalledWith(expect.objectContaining({ detail: { source } }));
   } finally {
-    window.removeEventListener("swarmx:open-research", opened);
+    window.removeEventListener("swarmx:open-source", opened);
   }
 });
 

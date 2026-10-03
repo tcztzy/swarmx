@@ -16,14 +16,11 @@ carry configuration and approval messages; external ACP projects them for its cl
 }
 ```
 
-Tool grants are `memory.read`, `memory.write`, `science.read` and `science.write`. Memory reads
-include session recall and vault/core-note reads. Science reads use `science_query`; other Science
-tools require `science.write`, including scientific execution. The latter still runs under the
-separate research environment's filesystem, network and resource limits. A missing tool grant
-rejects the operation before dispatch. `tools: []` disables both product-tool families.
-Read and write are separate grants; neither implies the other. These grants apply to Agent API
-calls. Frozen conversation context, authenticated user edits and Host bookkeeping have their own
-contracts; a tool grant is not a confidentiality boundary for the execution directory.
+Active tool grants are `memory.read` and `memory.write`; reads include session recall and
+vault/core-note reads. Legacy `science.read`/`science.write` strings remain readable in saved
+policies but have no active Host implementation or Settings controls. No scientific product tools
+or resolver callbacks remain. Work submission is bound to its active managed execution and validates
+its own journal evidence ownership; this is separate from domain correctness and acceptance.
 
 Omitted request fields inherit. Host defaults allow all four tool grants, configured harnesses
 and delegation. An omitted harness is unavailable; a null model list permits its native models,
@@ -88,7 +85,7 @@ cannot run again under the new semantics. Create a new conversation and select i
 
 Old settings containing `policy.approval` must be deliberately updated: remove that field,
 set `policy.tools` to the desired Host grants, and configure native modes in the harness/task.
-`policy.filesystem` now controls only the isolated research environment. The settings loader rejects
+`policy.filesystem` remains an active Host control for registered prompt/skill learning: `read-only` excludes resource snapshots and rejects resource-update approval/application; `workspace-write` permits the separately validated learning flow. Settings exposes this control in both directions. It does not control native Agent filesystem authority. CPU/memory/timeout and old environment metadata remain readable for saved-setting compatibility; there is no built-in scientific runtime. The settings loader rejects
 old settings with an actionable path instead of silently changing their native execution policy.
 
 ## Examples
@@ -99,5 +96,5 @@ old settings with an actionable path instead of silently changing their native e
 | All Host tools, no delegation | YOLO | Can use granted Host tools; cannot start another task through the Swarm tool |
 | Whole task tree must never modify files | Any | Not a cross-harness guarantee provided by SwarmX; use an actually isolated execution environment |
 
-Host authentication, directory/session ownership and research container isolation remain independent
+Host authentication, directory/session ownership and registered resource-learning permissions remain independent
 of native permission mode selection.

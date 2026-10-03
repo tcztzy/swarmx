@@ -181,9 +181,7 @@ it("exports a loaded review snapshot directly without requiring a Memory concept
       tools: { callCount: 0, usd: 0, unpricedCalls: 0 },
     },
   });
-  render(
-    <SourceInspection source={source} snapshot={undefined} executions={[]} onClose={() => {}} />,
-  );
+  render(<SourceInspection source={source} onClose={() => {}} />);
   expect(screen.queryByRole("button", { name: "Export RO-Crate evidence" })).toBeNull();
   fireEvent.click(await screen.findByRole("button", { name: "Export RO-Crate evidence" }));
   await waitFor(() => expect(download).toHaveBeenCalledTimes(1));
