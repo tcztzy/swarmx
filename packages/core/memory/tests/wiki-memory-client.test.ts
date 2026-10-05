@@ -144,6 +144,55 @@ it("never synthesizes consent or quality/duplicate bypasses and preserves write 
   expect(callTool.mock.calls[2]?.[0].arguments.gate).toEqual({ userRequested: true });
 });
 
+it("accepts the pinned JS created.document.id receipt and adds an explicit identity alias", async () => {
+  const receipt = {
+    ok: true,
+    datasetId: "knowledge",
+    name: "synthetic.md",
+    created: { document: { id: record.documentId } },
+  };
+  const { client, callTool } = setup(envelope(receipt));
+  expect(await client.write(write, signal())).toEqual({
+    ...receipt,
+    documentId: record.documentId,
+  });
+  expect(callTool).toHaveBeenCalledTimes(1);
+});
+
+it("accepts matching top-level and nested native receipt identities without discarding fields", async () => {
+  const receipt = {
+    ok: true,
+    documentId: record.documentId,
+    created: { document: { id: record.documentId } },
+    replaced: false,
+    git: [],
+  };
+  const { client, callTool } = setup(envelope(receipt));
+  expect(await client.write(write, signal())).toEqual(receipt);
+  expect(callTool).toHaveBeenCalledTimes(1);
+});
+
+it.each([
+  { ok: true, documentId: record.documentId, created: { document: { id: "knowledge/other.md" } } },
+  {
+    ok: true,
+    documentId: `${record.documentId} `,
+    created: { document: { id: record.documentId } },
+  },
+  { ok: true, created: { document: { id: " " } } },
+  { ok: true, created: { document: { id: 1 } } },
+  { ok: true, documentId: record.documentId, created: { document: {} } },
+  { ok: true, created: {} },
+  { created: { document: { id: record.documentId } } },
+])(
+  "keeps malformed or contradictory receipt identities unknown without retrying",
+  async (receipt) => {
+    const { client, callTool } = setup(envelope(receipt));
+    await expect(client.write(write, signal())).rejects.toMatchObject({ outcome: "unknown" });
+    expect(callTool).toHaveBeenCalledTimes(1);
+  },
+);
+
 it.each([
   "write-gate-refused",
   "quality-judge-unavailable",

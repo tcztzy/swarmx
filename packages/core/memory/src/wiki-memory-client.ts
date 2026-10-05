@@ -61,12 +61,38 @@ const searchResultSchema = z
       .max(50),
   })
   .passthrough();
+const receiptIdentity = z
+  .string()
+  .min(1)
+  .max(4_096)
+  .refine((id) => id.trim().length > 0);
 const writeResultSchema = z
   .object({
     ok: z.literal(true),
-    documentId: value,
+    documentId: receiptIdentity.optional(),
+    created: z
+      .object({
+        document: z.object({ id: receiptIdentity }).passthrough(),
+      })
+      .passthrough()
+      .optional(),
   })
-  .passthrough();
+  .passthrough()
+  .transform((result, context) => {
+    const nested = result.created?.document.id;
+    const id = result.documentId ?? nested;
+    if (
+      id === undefined ||
+      (result.documentId !== undefined && nested !== undefined && result.documentId !== nested)
+    ) {
+      context.addIssue({
+        code: "custom",
+        message: "Write receipt identities are missing or disagree.",
+      });
+      return z.NEVER;
+    }
+    return { ...result, documentId: id };
+  });
 const envelopeSchema = z
   .object({
     isError: z.boolean().optional(),

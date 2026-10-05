@@ -17,6 +17,10 @@ runtime, and does not replace the existing `MemoryVault` or desktop Memory backe
   flag, bypasses quality or duplicate checks, supersedes another document, or retries. The caller
   can pass `userRequested: true` only after obtaining actual user consent. A refusal stays a
   refusal. Same-name writes can upsert existing content under the server's own policy.
+  Success requires `ok: true` and the documented `created.document.id` identity or a native
+  top-level `documentId`. The client preserves the nested receipt and exposes `documentId` as an
+  explicit alias. If both identities are present, they must match exactly; missing, malformed or
+  contradictory identities leave the write outcome unknown.
 - Requests and JSON text responses are validated and bounded. MCP tool errors and semantic
   refusal envelopes throw `WikiMemoryError`, preserving the response for local inspection.
   Only recognized consent/quality/duplicate/size refusal codes certify a refused request. Other
