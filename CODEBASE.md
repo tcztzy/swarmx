@@ -78,6 +78,7 @@
 | `packages/core/dvc/` | Git/DVC inspection and explicit operations |
 | `packages/core/memory/` | bounded Markdown notes, private OKF concepts, dependency validation/loading and lint |
 | `packages/core/memory/src/model-experience.ts` | owner-local external observation import and privacy-minimal revision-pinned snapshots of one shared vault; see `docs/shared-model-experience.md` |
+| `packages/core/memory/src/wiki-memory-client.ts` | opt-in caller-owned MCP search/read-excerpt/write client; existing Host backend unchanged; see `docs/wiki-memory-client.md` |
 | `packages/core/memory/src/cli.ts` | standalone `swarmx-memory` query/import binary; no Host or network authority |
 | `packages/core/swarm/` | direct recursive Agent composition; the caller owns the borrowed lead |
 | `packages/core/swarm/skills/delegate/SKILL.md` | shared delegation skill exported with the Swarm package: combination selection, task fit and evidence requirements |

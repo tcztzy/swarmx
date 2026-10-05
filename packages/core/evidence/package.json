@@ -4,6 +4,9 @@
   "description": "Domain-neutral RO-Crate evidence contracts for SwarmX and scientific applications.",
   "license": "MIT",
   "type": "module",
+  "engines": {
+    "node": "^22.19.0 || >=24.0.0"
+  },
   "main": "lib/index.js",
   "types": "lib/types/index.d.ts",
   "exports": {
@@ -15,15 +18,21 @@
     "./package.json": "./package.json"
   },
   "scripts": {
+    "build": "tsc --project tsconfig.build.json",
+    "prepare": "npm run build",
     "bundle": "tsdown",
     "test": "vitest run --root ../../.. packages/core/evidence/tests"
   },
   "dependencies": {
     "zod": "^4.4.3"
   },
+  "devDependencies": {
+    "typescript": "^6.0.3"
+  },
   "files": [
     "lib/index.js",
     "lib/types/**/*.d.ts",
-    "src"
+    "src",
+    "tsconfig.build.json"
   ]
 }

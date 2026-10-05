@@ -7,3 +7,4 @@ export * from "./model-experience.js";
 export * from "./plugin.js";
 export { default } from "./plugin.js";
 export * from "./vault.js";
+export * from "./wiki-memory-client.js";
