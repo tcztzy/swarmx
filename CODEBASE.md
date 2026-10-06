@@ -94,6 +94,9 @@ Checks never rewrite files. Install with `prefligit install`;
 verify with `prefligit run --all-files`.
 
 Build, cleanup, and documentation coverage utilities live under `scripts/`.
+`.github/agentrc/` contains the isolated, locked advisory readiness CLI and
+project-specific command-detection policy/tests. `.github/workflows/agentrc.yml`
+publishes reports separately from the real build, lint and test gates.
 `scripts/prepare-macos-dependencies.mjs` rebuilds the deployed production dependencies for
 Electron; `.github/workflows/release.yml` builds and checks native macOS DMGs before publishing.
 `scripts/generate-codex-types.ts` generates ignored App Server declarations from the pinned official CLI development dependency before development and builds; `CODEX_PATH` is an explicit executable override.
