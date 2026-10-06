@@ -66,6 +66,27 @@ test("pinned CLI finds pnpm packages and preserves missing-test failures", async
     assert.equal(status(scan(flags), "test-script"), "fail");
     await writeFile(manifest, JSON.stringify({ name: "example", scripts: { bundle: "" } }));
     assert.equal(status(scan(flags), "build-script"), "fail");
+
+    // Preserve AgentRC's default app aggregation and expose the missing package.
+    await writeFile(manifest, JSON.stringify({ name: "example", scripts: {} }));
+    for (const name of ["build-a", "build-b", "bundle-a", "bundle-b"]) {
+      const directory = path.join(repo, "packages/core", name);
+      await mkdir(directory);
+      const scripts = name.startsWith("build") ? { build: "tsc" } : { bundle: "tsdown" };
+      await writeFile(path.join(directory, "package.json"), JSON.stringify({ name, scripts }));
+    }
+    const partial = scan(flags);
+    assert.equal(partial.apps.length, 5);
+    const builds = partial.criteria.find((criterion) => criterion.id === "build-script");
+    assert.equal(builds.status, "pass");
+    assert.equal(builds.passRate, 0.8);
+    assert.deepEqual(builds.appSummary, { passed: 4, total: 5 });
+    assert.deepEqual(builds.appFailures, ["example"]);
+    await writeFile(
+      path.join(repo, "packages/core/build-a/package.json"),
+      JSON.stringify({ name: "build-a", scripts: {} }),
+    );
+    assert.equal(status(scan(flags), "build-script"), "fail");
   } finally {
     await rm(repo, { recursive: true, force: true });
   }

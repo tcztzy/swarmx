@@ -79,6 +79,9 @@ npm --prefix .github/agentrc run --silent report > /tmp/swarmx-readiness.json
 The report uses automatic pnpm workspace detection and a small local policy that
 recognizes the packages' existing `build` or `bundle` commands. Presence checks do
 not certify compilation or tests, and agent-tooling suggestions may not apply.
+AgentRC's default app aggregation passes a criterion when at least 80% of
+detected packages pass. A passing aggregate can contain missing package commands;
+inspect the JSON `appSummary` and `appFailures` for the complete breakdown.
 No maturity level or pass-rate threshold gates CI. JSON and the scanned commit
 are CI artifacts, never committed reports. Official `agentrc init` was inspected,
 not executed: its default instruction generation uses Copilot and its other
