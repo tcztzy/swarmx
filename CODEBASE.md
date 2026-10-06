@@ -38,6 +38,7 @@
 | `apps/desktop/src/host/agent-registry.ts` | Host ownership of one lazy native runtime per harness |
 | `apps/desktop/src/host/operations.ts` | product operations exposed through Electron IPC |
 | `apps/desktop/src/host/memory.ts` | Memory authoring, session context, delegation knowledge, durable execution review plans, replay and approval; see `docs/memory.md` |
+| `apps/desktop/src/host/wiki-memory.ts` | opt-in Host-owned native wiki stdio search, fixed discovery/approved roots, bounded privacy projection and shutdown; see `docs/wiki-memory-client.md` |
 | `apps/desktop/src/host/learning-resources.ts` | opted-in prompt/skill snapshots, fixed structural validation and optional baseline/candidate behavior evaluation before revision-checked atomic replacement; see `docs/learning-resources.md` |
 | `apps/desktop/src/host/memory-review.ts` | restricted, cancellable direct Agent execution with tool rejection |
 | `apps/desktop/src/memory.ts` | shared memory settings, graph and review UI schemas |
@@ -78,7 +79,7 @@
 | `packages/core/dvc/` | Git/DVC inspection and explicit operations |
 | `packages/core/memory/` | bounded Markdown notes, private OKF concepts, dependency validation/loading and lint |
 | `packages/core/memory/src/model-experience.ts` | owner-local external observation import and privacy-minimal revision-pinned snapshots of one shared vault; see `docs/shared-model-experience.md` |
-| `packages/core/memory/src/wiki-memory-client.ts` | opt-in caller-owned MCP search/read-excerpt/write client; existing Host backend unchanged; see `docs/wiki-memory-client.md` |
+| `packages/core/memory/src/wiki-memory-client.ts` | caller-owned MCP search/read-excerpt/write client, reused by opt-in read-only Host search; existing concept backend unchanged; see `docs/wiki-memory-client.md` |
 | `packages/core/memory/src/cli.ts` | standalone `swarmx-memory` query/import binary; no Host or network authority |
 | `packages/core/swarm/` | direct recursive Agent composition; the caller owns the borrowed lead |
 | `packages/core/swarm/skills/delegate/SKILL.md` | shared delegation skill exported with the Swarm package: combination selection, task fit and evidence requirements |

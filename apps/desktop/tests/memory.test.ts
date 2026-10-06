@@ -65,6 +65,7 @@ it("exposes Memory operations, rejects model approvals and persists across Host 
                 "read_core_memory",
                 "update_core_memory",
                 "search_sessions",
+                "search_wiki_memory",
                 "memory_status",
                 "memory_configure",
                 "memory_review",
