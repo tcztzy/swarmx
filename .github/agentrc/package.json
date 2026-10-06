@@ -1,0 +1,14 @@
+{
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "report": "agentrc readiness ../.. --json --policy ./policy.mjs",
+    "test": "node --test policy.test.mjs"
+  },
+  "devDependencies": {
+    "@microsoft/agentrc": "2.0.1-91"
+  }
+}

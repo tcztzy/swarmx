@@ -1,0 +1,42 @@
+name: AgentRC report
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  readiness:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: "24"
+      - name: Install isolated report tooling
+        run: npm --prefix .github/agentrc ci --ignore-scripts --omit=optional --no-audit --no-fund
+      - name: Test project detection
+        run: npm --prefix .github/agentrc test
+      - name: Generate advisory JSON
+        run: |
+          git rev-parse HEAD > "$RUNNER_TEMP/agentrc-source-commit.txt"
+          npm --prefix .github/agentrc run --silent report > "$RUNNER_TEMP/agentrc-readiness.json"
+          node -e 'const r = JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8")); if (r.ok !== true || r.status !== "success" || !Array.isArray(r.data?.criteria)) throw new Error("Invalid AgentRC report");' "$RUNNER_TEMP/agentrc-readiness.json"
+      - name: Preserve report and source revision
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: agentrc-readiness-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/agentrc-readiness.json
+            ${{ runner.temp }}/agentrc-source-commit.txt
+          if-no-files-found: warn
+          retention-days: 14
