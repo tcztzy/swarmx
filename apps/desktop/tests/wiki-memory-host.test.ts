@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -47,7 +47,7 @@ function hit(extra: Record<string, unknown> = {}) {
   };
 }
 async function fixture(configured = true) {
-  const root = await mkdtemp(join(tmpdir(), "swarmx-wiki-host-"));
+  const root = await realpath(await mkdtemp(join(tmpdir(), "swarmx-wiki-host-")));
   const brain = join(root, "brain");
   const wiki = join(brain, "wiki");
   const other = join(root, "repo", "wiki");
