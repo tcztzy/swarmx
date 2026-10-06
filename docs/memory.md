@@ -236,6 +236,8 @@ The Host publishes one `memory` MCP tool:
 
 - `read_memory_guide` — `{}`; read the complete bundled authoring guide on demand
 - `search_memory`
+- `search_wiki_memory` — opt-in Host-owned read-only wiki excerpts, requiring `memory.read`;
+  disabled/unconfigured status dispatches nothing. See [Host wiki search](wiki-memory-client.md#opt-in-host-search)
 - `read_memory`
 - `create_memory`
 - `update_memory`

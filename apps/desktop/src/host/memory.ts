@@ -41,6 +41,7 @@ export const HOST_MEMORY_ACTIONS = [
   "read_core_memory",
   "update_core_memory",
   "search_sessions",
+  "search_wiki_memory",
   "memory_status",
   "memory_configure",
   "memory_review",

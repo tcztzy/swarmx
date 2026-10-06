@@ -33,6 +33,12 @@ Native runtimes are Host-owned: one lazy instance per harness serves tasks in th
 directory with the Host's permission ceiling and a scoped product-tool credential. The Host
 disposes the runtimes at shutdown.
 
+Trusted programmatic startup may also supply `wikiMemory` to `startDesktopPlatform` with a
+maintained executable, explicit brain, discovery scopes and approved wiki roots. Native Agents
+then use `memory.search_wiki_memory` under `memory.read`; the Host owns the lazy subprocess and
+shutdown. No startup launch, installation, UI configuration or write-backend replacement occurs.
+See [opt-in Host wiki search](wiki-memory-client.md#opt-in-host-search).
+
 The retired `pi` value remains readable in historical settings and execution records but
 cannot launch a builtin runtime. Configure a standalone ACP agent to use Pi or any other
 framework. SwarmX does not copy credentials or migrate native session IDs. Validate an

@@ -17,6 +17,10 @@ instructions, or establish scientific truth. Check sources and stale dependencie
   event references from this execution directory.
 - `search_memory {query,limit?,includeDeprecated?}` finds concepts. `read_memory {id}` reads one;
   `load_memory {id}` loads its prerequisite closure in order. Check stale dependency diagnostics.
+- `search_wiki_memory {query,maxResults?,maxChars?,sections?}` reads bounded excerpts from an
+  optional Host-owned wiki connection under `memory.read`. Disabled/unconfigured status means
+  no search ran. Qualify a wiki document with both `sourceId` and `documentId`; excerpts have
+  no authoritative revision or write permission. Check partial/truncation diagnostics.
 - `graph_memory {}` inspects dependencies; `lint_memory {id?,now?}` checks structure.
 - `create_memory {title,description,type,body,tags?,evaluation?,sources?,dependencies?}` creates
   a concept. Search first and update the existing concept for the same entity.
